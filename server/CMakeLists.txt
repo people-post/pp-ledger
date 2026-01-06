@@ -2,6 +2,8 @@
 add_library(ppledger_server STATIC
     Server.cpp
     Server.h
+    Ledger.cpp
+    Ledger.h
 )
 
 target_include_directories(ppledger_server PUBLIC
@@ -10,4 +12,5 @@ target_include_directories(ppledger_server PUBLIC
 
 target_link_libraries(ppledger_server PUBLIC
     ppledger_lib
+    crypto
 )

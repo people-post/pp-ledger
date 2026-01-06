@@ -1,8 +1,10 @@
-#include <iostream>
-#include <string>
 #include "Lib.h"
 #include "Client.h"
 #include "Server.h"
+#include "Logger.h"
+
+#include <iostream>
+#include <string>
 
 void printUsage() {
     std::cout << "Usage: pp-ledger [server|client] [options]\n";
@@ -11,42 +13,51 @@ void printUsage() {
 }
 
 int runServer(int port) {
-    std::cout << "Starting server on port " << port << "...\n";
+    auto& logger = pp::logging::getLogger("server");
+    logger.setLevel(pp::logging::Level::INFO);
+    logger.addFileHandler("server.log", pp::logging::Level::DEBUG);
+    
+    logger.info << "Starting server on port " << port;
     
     pp::Server server;
     if (server.start(port)) {
-        std::cout << "Server started successfully.\n";
+        logger.info << "Server started successfully";
         std::cout << "Press Enter to stop the server...\n";
         std::cin.get();
         server.stop();
-        std::cout << "Server stopped.\n";
+        logger.info << "Server stopped";
         return 0;
     } else {
-        std::cerr << "Failed to start server.\n";
+        logger.error << "Failed to start server";
         return 1;
     }
 }
 
 int runClient(const std::string& host, int port) {
-    std::cout << "Connecting to " << host << ":" << port << "...\n";
+    auto& logger = pp::logging::getLogger("client");
+    logger.setLevel(pp::logging::Level::INFO);
+    logger.addFileHandler("client.log", pp::logging::Level::DEBUG);
+    
+    logger.info << "Connecting to " << host << ":" << port;
     
     pp::Client client;
     if (client.connect(host, port)) {
-        std::cout << "Connected successfully.\n";
+        logger.info << "Connected successfully";
         std::cout << "Press Enter to disconnect...\n";
         std::cin.get();
         client.disconnect();
-        std::cout << "Disconnected.\n";
+        logger.info << "Disconnected";
         return 0;
     } else {
-        std::cerr << "Failed to connect.\n";
+        logger.error << "Failed to connect";
         return 1;
     }
 }
 
 int main(int argc, char* argv[]) {
     pp::Lib lib;
-    std::cout << "PP-Ledger v" << lib.getVersion() << "\n\n";
+    auto& rootLogger = pp::logging::getRootLogger();
+    rootLogger.info << "PP-Ledger v" << lib.getVersion();
     
     if (argc < 2) {
         printUsage();

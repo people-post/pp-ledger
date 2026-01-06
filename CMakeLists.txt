@@ -11,3 +11,7 @@ add_subdirectory(lib)
 add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(app)
+
+# Enable testing
+enable_testing()
+add_subdirectory(test)

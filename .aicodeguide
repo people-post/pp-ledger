@@ -1,0 +1,249 @@
+# AI Agent Guidelines for pp-ledger Project
+
+This file provides guidelines for AI coding agents working on the pp-ledger project.
+
+## Project Overview
+
+pp-ledger is a C++ ledger system with client-server architecture managed by CMake.
+
+## Project Structure
+
+```
+pp-ledger/
+├── lib/          # Core library (shared functionality)
+├── client/       # Client library
+├── server/       # Server library
+└── app/          # Main application (binary entry point)
+```
+
+### Component Architecture
+- **lib**: Static library containing core/shared functionality (e.g., Lib, Logger)
+- **client**: Static library for client-side functionality, depends on lib
+- **server**: Static library for server-side functionality, depends on lib
+- **app**: Executable that links all libraries and provides CLI interface
+
+## Naming Conventions
+
+### Files
+- **Source files**: Use CamelCase (e.g., `Logger.cpp`, `Client.h`, `Server.cpp`)
+- **Exception**: `main.cpp` remains lowercase
+- **Headers**: `.h` extension (not `.hpp`)
+- **Implementation**: `.cpp` extension
+
+### Code Structure
+- **Namespace**: All project code under `pp` namespace
+- **Sub-namespaces**: Use descriptive sub-namespaces (e.g., `pp::logging`)
+- **Classes**: CamelCase (e.g., `Logger`, `Client`, `Server`)
+- **Functions**: camelCase (e.g., `getLogger()`, `isConnected()`)
+- **Private members**: Trailing underscore (e.g., `level_`, `connected_`)
+
+## C++ Standards
+
+- **C++ Version**: C++17
+- **Standard Library**: Prefer standard library over third-party when possible
+- **Memory Management**: Use smart pointers (`std::shared_ptr`, `std::unique_ptr`)
+- **Threading**: Use `std::mutex` for thread safety when needed
+
+## CMake Conventions
+
+### Library Naming
+- Library targets: `ppledger_<component>` (e.g., `ppledger_lib`, `ppledger_client`)
+- Executable: `pp-ledger`
+
+### CMakeLists.txt Structure
+- Set C++ standard: `set(CMAKE_CXX_STANDARD 17)`
+- List all source files explicitly
+- Use `PUBLIC` for include directories that users need
+- Use `PRIVATE` for implementation-only dependencies
+
+### Adding New Files
+When adding new source files to a component:
+1. Create the header (`.h`) and implementation (`.cpp`) files
+2. Update the component's `CMakeLists.txt` to include them
+3. Ensure proper namespace usage
+
+Example:
+```cmake
+add_library(ppledger_lib STATIC
+    Lib.cpp
+    Lib.h
+    Logger.cpp
+    Logger.h
+)
+```
+
+## Logging
+
+### Using Logger
+- Import: `#include "Logger.h"`
+- Get logger: `auto& logger = pp::logging::getLogger("component_name");`
+- Use hierarchical names: `pp::logging::getLogger("app.module.submodule")`
+- Set levels: `logger.setLevel(pp::logging::Level::INFO);`
+- Add file output: `logger.addFileHandler("output.log", pp::logging::Level::DEBUG);`
+
+### Log Levels
+- `DEBUG`: Detailed diagnostic information
+- `INFO`: General informational messages
+- `WARNING`: Warning messages for potentially problematic situations
+- `ERROR`: Error messages for failures
+- `CRITICAL`: Critical messages for severe failures
+
+## Code Style
+
+### Headers
+- Include guards: `#ifndef PP_LEDGER_<COMPONENT>_H` format
+- Use quotes for project headers: `#include "Logger.h"`
+- Use angle brackets for system headers: `#include <string>`
+
+### Include/Import Order
+Follow this ordering for all #include directives:
+
+1. **Project headers** (quotes) - from higher level to lower level
+   - Own header first (in .cpp files): `#include "Logger.h"`
+   - Same-level component headers: `#include "Server.h"`, `#include "Client.h"`
+   - Lower-level dependencies: `#include "Lib.h"` (from lib/)
+
+2. **System/Standard Library headers** (angle brackets)
+   - C++ standard library: `<iostream>`, `<string>`, `<vector>`, etc.
+   - C standard library: `<cstdint>`, `<ctime>`, etc.
+   - System libraries: `<openssl/sha.h>`, etc.
+
+**Example (correct ordering):**
+```cpp
+// In server/Server.cpp
+#include "Server.h"     // Own header first
+#include "Ledger.h"     // Same level (server/)
+#include "Logger.h"     // Lower level (lib/)
+#include "Lib.h"        // Lower level (lib/)
+
+#include <string>
+#include <memory>
+#include <vector>
+```
+
+**Rationale:**
+- Own header first (in .cpp) ensures header is self-contained
+- Higher to lower level project headers maintains clear dependency hierarchy
+- System headers last keeps them separate from project code
+- Prevents circular dependencies
+- Makes dependencies explicit and maintainable
+
+### Error Handling
+- Use exceptions for exceptional conditions
+- Use `ResultOrError<T, E>` for expected error conditions as an alternative to exceptions
+- Return bool for simple success/failure operations
+- Provide clear error messages via logging
+
+### Using ResultOrError
+`ResultOrError<T, E = std::string>` is a template class for handling operations that may fail:
+
+```cpp
+#include "ResultOrError.h"
+
+// Function returning result or error
+pp::ResultOrError<int> divide(int a, int b) {
+    if (b == 0) {
+        return pp::ResultOrError<int>::error("Division by zero");
+    }
+    return a / b;
+}
+
+// Checking results
+auto result = divide(10, 2);
+if (result.isOk()) {
+    int value = result.value();  // or *result
+} else {
+    std::string error = result.error();
+}
+
+// Using bool conversion
+if (result) {
+    // Success case
+    process(*result);
+}
+
+// Using valueOr for default
+int value = result.valueOr(0);
+
+// Void return type for operations without return value
+pp::ResultOrError<void> validate(int x) {
+    if (x < 0) {
+        return pp::ResultOrError<void>::error("Invalid value");
+    }
+    return {};
+}
+```
+
+**When to use:**
+- Operations that can fail in expected ways (file I/O, parsing, validation)
+- When you want to avoid exceptions for performance or control flow reasons
+- When the caller should explicitly handle both success and failure cases
+
+### Documentation
+- Document public APIs in headers
+- Use meaningful variable and function names
+- Add comments for complex logic
+
+## Build Process
+
+### Standard Build
+```bash
+mkdir -p build && cd build
+cmake ..
+make
+```
+
+### Running the Application
+```bash
+# Server mode
+./app/pp-ledger server <port>
+
+# Client mode
+./app/pp-ledger client <host> <port>
+```
+
+## Development Guidelines
+
+### Before Adding New Features
+1. Consider which component (lib/client/server/app) the feature belongs to
+2. Ensure proper namespace organization
+3. Follow the established naming conventions
+4. Update CMakeLists.txt if adding new files
+5. Add appropriate logging
+
+### Testing
+- Create test files in project root for component testing
+- Use descriptive test names (e.g., `test_logger.cpp`)
+- Compile tests with appropriate library linking
+
+### Common Patterns
+- **Singleton-like loggers**: Use `getLogger()` to retrieve/create loggers
+- **RAII**: Use constructors/destructors for resource management
+- **Thread safety**: Protect shared state with mutexes
+- **Const correctness**: Use `const` for methods that don't modify state
+
+## Dependencies
+
+### Current Dependencies
+- C++17 standard library
+- CMake 3.15+
+
+### Adding New Dependencies
+- Prefer header-only libraries when possible
+- Document any external dependencies in README.md
+- Update CMakeLists.txt with proper linking
+
+## Commit Guidelines
+
+When making changes:
+- Keep commits focused and atomic
+- Update CMakeLists.txt when adding/removing files
+- Ensure project builds after changes
+- Test functionality before committing
+
+## Questions or Clarifications
+
+If uncertain about project structure or conventions, refer to existing code in:
+- [lib/Logger.h](lib/Logger.h) and [lib/Logger.cpp](lib/Logger.cpp) for class structure
+- [app/main.cpp](app/main.cpp) for application patterns
+- Component CMakeLists.txt files for build configuration
