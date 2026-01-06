@@ -1,6 +1,7 @@
-#include "ResultOrError.h"
+#include "ResultOrError.hpp"
 #include "Logger.h"
 
+#include <cmath>
 #include <iostream>
 #include <string>
 
@@ -34,6 +35,28 @@ pp::ResultOrError<std::string, ErrorInfo> processData(const std::string& data) {
         return pp::ResultOrError<std::string, ErrorInfo>::error({2, "Data too long"});
     }
     return "Processed: " + data;
+}
+
+// Example using RoeErrorBase
+struct AppError : pp::RoeErrorBase {
+    using pp::RoeErrorBase::RoeErrorBase;
+};
+
+template <typename T>
+using AppRoe = pp::ResultOrError<T, AppError>;
+
+AppRoe<double> safeSqrt(double value) {
+    if (value < 0) {
+        return AppRoe<double>::error(AppError(100, "Cannot compute square root of negative number"));
+    }
+    return std::sqrt(value);
+}
+
+AppRoe<void> validateRange(int value, int min, int max) {
+    if (value < min || value > max) {
+        return AppRoe<void>::error(AppError(200, "Value out of range"));
+    }
+    return {};
 }
 
 int main() {
@@ -134,6 +157,34 @@ int main() {
     
     std::cout << "  First: " << (res1 ? "Success" : "Failed") << "\n";
     std::cout << "  Second: " << (res2 ? "Success" : "Failed") << "\n";
+    
+    // Test 8: Using RoeErrorBase
+    std::cout << "\n8. Testing RoeErrorBase:\n";
+    auto sqrtResult = safeSqrt(16.0);
+    if (sqrtResult.isOk()) {
+        logger.info << "sqrt(16) = " << sqrtResult.value();
+        std::cout << "  sqrt(16) = " << sqrtResult.value() << "\n";
+    }
+    
+    auto sqrtResult2 = safeSqrt(-4.0);
+    if (sqrtResult2.isError()) {
+        logger.error << "Error code " << sqrtResult2.error().code << ": " << sqrtResult2.error().message;
+        std::cout << "  Error [" << sqrtResult2.error().code << "]: " 
+                  << sqrtResult2.error().message << "\n";
+    }
+    
+    auto rangeResult = validateRange(50, 0, 100);
+    if (rangeResult.isOk()) {
+        logger.info << "Range validation passed";
+        std::cout << "  Range validation passed\n";
+    }
+    
+    auto rangeResult2 = validateRange(150, 0, 100);
+    if (rangeResult2.isError()) {
+        logger.error << "Error code " << rangeResult2.error().code << ": " << rangeResult2.error().message;
+        std::cout << "  Error [" << rangeResult2.error().code << "]: " 
+                  << rangeResult2.error().message << "\n";
+    }
     
     logger.info << "Test complete";
     std::cout << "\n=== Test Complete ===\n";

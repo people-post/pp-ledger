@@ -5,6 +5,7 @@
 #include <utility>
 #include <stdexcept>
 #include <type_traits>
+#include <cstdint>
 
 namespace pp {
 
@@ -217,6 +218,27 @@ public:
 private:
     bool hasValue_;
     typename std::aligned_union<0, E>::type storage_;
+};
+
+// Base struct for convenient error handling
+struct RoeErrorBase {
+    int32_t code;
+    std::string message;
+    
+    // Default constructor
+    RoeErrorBase() : code(0), message("") {}
+    
+    // Constructor with code and message
+    RoeErrorBase(int32_t c, const std::string& msg) : code(c), message(msg) {}
+    
+    // Constructor with code and message (move)
+    RoeErrorBase(int32_t c, std::string&& msg) : code(c), message(std::move(msg)) {}
+    
+    // Constructor with message only (code defaults to -1)
+    explicit RoeErrorBase(const std::string& msg) : code(-1), message(msg) {}
+    
+    // Constructor with message only (move, code defaults to -1)
+    explicit RoeErrorBase(std::string&& msg) : code(-1), message(std::move(msg)) {}
 };
 
 } // namespace pp

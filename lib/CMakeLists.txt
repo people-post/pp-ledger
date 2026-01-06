@@ -4,7 +4,7 @@ add_library(ppledger_lib STATIC
     Lib.h
     Logger.cpp
     Logger.h
-    ResultOrError.h
+    ResultOrError.hpp
 )
 
 target_include_directories(ppledger_lib PUBLIC

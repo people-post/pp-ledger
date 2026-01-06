@@ -27,7 +27,8 @@ pp-ledger/
 ### Files
 - **Source files**: Use CamelCase (e.g., `Logger.cpp`, `Client.h`, `Server.cpp`)
 - **Exception**: `main.cpp` remains lowercase
-- **Headers**: `.h` extension (not `.hpp`)
+- **Headers**: `.h` extension for regular headers
+- **Header-only files**: `.hpp` extension for header-only implementations (e.g., template classes)
 - **Implementation**: `.cpp` extension
 
 ### Code Structure
@@ -138,7 +139,7 @@ Follow this ordering for all #include directives:
 `ResultOrError<T, E = std::string>` is a template class for handling operations that may fail:
 
 ```cpp
-#include "ResultOrError.h"
+#include "ResultOrError.hpp"
 
 // Function returning result or error
 pp::ResultOrError<int> divide(int a, int b) {
