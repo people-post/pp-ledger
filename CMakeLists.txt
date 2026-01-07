@@ -39,8 +39,8 @@ set_target_properties(p2p::p2p PROPERTIES
 )
 target_link_libraries(p2p::p2p INTERFACE ${LIBP2P_LIBRARY})
 
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
+# Set C++ standard to C++20 (required for libp2p)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 

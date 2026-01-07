@@ -137,10 +137,10 @@ libp2p::BytesOut output; // std::span<uint8_t>
 
 ### C++20 Requirement
 
-The network library now requires C++20 because:
+The entire project now uses C++20 because:
 - cpp-libp2p uses `std::span` (C++20 feature)
 - `BytesIn` and `BytesOut` are aliases for `std::span`
-- The core project remains C++17 compatible
+- Provides access to modern C++20 features throughout the codebase
 
 ### Build Configuration
 

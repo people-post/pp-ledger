@@ -78,7 +78,7 @@ pp-ledger/
 | **consensus** | Ouroboros PoS consensus | ✅ Working |
 | **server** | Blockchain, Ledger, Wallet | ✅ Working |
 | **client** | Client library | ✅ Working |
-| **network** | P2P networking (FetchClient/Server) | ✅ Working (C++20) |
+| **network** | P2P networking (FetchClient/Server) | ✅ Working |
 | **app** | Command-line applications | ✅ Working |
 
 ## Documentation
@@ -128,8 +128,7 @@ See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for details.
 
 ### Required
 
-- **C++17 compiler** (GCC 13+, Clang 14+) for core components
-- **C++20 compiler** for network library
+- **C++20 compiler** (GCC 10+, Clang 12+)
 - **CMake 3.15+**
 - **Boost 1.70+** (system, thread, random, filesystem)
 - **OpenSSL 3.0+**
@@ -159,7 +158,7 @@ See [LICENSE](LICENSE) file for details.
 
 ## Technical Details
 
-- **Language:** C++17 (core), C++20 (network)
+- **Language:** C++20
 - **Build System:** CMake 3.15+
 - **Testing:** Google Test
 - **Dependencies:** Boost 1.70+, OpenSSL 3.0+, fmt, cpp-libp2p

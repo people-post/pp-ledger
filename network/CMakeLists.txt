@@ -3,10 +3,6 @@ cmake_minimum_required(VERSION 3.14)
 # Network Library
 project(network VERSION 1.0.0 LANGUAGES CXX)
 
-# Network library requires C++20 for cpp-libp2p compatibility (uses std::span)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 # Source files
 set(NETWORK_SOURCES
     FetchClient.cpp

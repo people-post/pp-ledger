@@ -55,14 +55,14 @@ ctest --output-on-failure
 
 | Component | Status | Tests |
 |-----------|--------|-------|
-| lib | ✅ Built (C++17) | ✅ Passing |
-| consensus | ✅ Built (C++17) | ✅ Passing |
-| network | ✅ Built (C++20) | ⏸️ Placeholder |
-| client | ✅ Built (C++17) | ✅ Passing |
-| server | ✅ Built (C++17) | ✅ Passing |
-| app | ✅ Built (C++17) | N/A |
+| lib | ✅ Built | ✅ Passing |
+| consensus | ✅ Built | ✅ Passing |
+| network | ✅ Built | ⏸️ Placeholder |
+| client | ✅ Built | ✅ Passing |
+| server | ✅ Built | ✅ Passing |
+| app | ✅ Built | N/A |
 
-**Note:** Network library and its tests require C++20 for std::span support used by libp2p.
+**Note:** All components use C++20.
 
 ## CMake Options
 
@@ -103,8 +103,7 @@ If building fails:
 ## Dependencies
 
 ### System Dependencies (Required)
-- C++17 compiler (GCC 13+ or Clang 14+) for core components
-- C++20 compiler for network library
+- C++20 compiler (GCC 10+, Clang 12+)
 - CMake 3.15+
 - Boost 1.70+ (system, thread, random, filesystem)
 - OpenSSL 3.0+

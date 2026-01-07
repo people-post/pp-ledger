@@ -156,12 +156,6 @@ add_executable(test_fetch
     test_fetch.cpp
 )
 
-# Network tests require C++20 for libp2p compatibility
-set_target_properties(test_fetch PROPERTIES
-    CXX_STANDARD 20
-    CXX_STANDARD_REQUIRED ON
-)
-
 target_include_directories(test_fetch PRIVATE
     ${CMAKE_SOURCE_DIR}/network
 )

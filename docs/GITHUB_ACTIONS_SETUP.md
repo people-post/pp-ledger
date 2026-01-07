@@ -56,13 +56,15 @@ Created comprehensive documentation:
 
 | Component | Status | Tests |
 |-----------|--------|-------|
-| lib | ✅ Working (C++17) | ✅ Passing |
-| consensus | ✅ Working (C++17) | ✅ Passing |
-| client | ✅ Working (C++17) | ✅ Passing |
-| server | ✅ Working (C++17) | ✅ Passing |
-| network | ✅ Working (C++20) | ⏸️ Placeholder |
-| app | ✅ Working (C++17) | N/A |
+| lib | ✅ Working | ✅ Passing |
+| consensus | ✅ Working | ✅ Passing |
+| client | ✅ Working | ✅ Passing |
+| server | ✅ Working | ✅ Passing |
+| network | ✅ Working | ⏸️ Placeholder |
+| app | ✅ Working | N/A |
 | **Total** | **6/6** | **134/134** |
+
+**Note:** All components use C++20.
 
 ### ✅ Network Library Status
 
