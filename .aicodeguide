@@ -36,7 +36,7 @@ pp-ledger/
 - **Sub-namespaces**: Use descriptive sub-namespaces (e.g., `pp::logging`)
 - **Classes**: CamelCase (e.g., `Logger`, `Client`, `Server`)
 - **Functions**: camelCase (e.g., `getLogger()`, `isConnected()`)
-- **Private members**: Trailing underscore (e.g., `level_`, `connected_`)
+- **Private members**: camelCase with trailing underscore (e.g., `socketFd_`, `clientPort_`, `isConnected_`)
 
 ## C++ Standards
 

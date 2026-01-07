@@ -1,55 +1,55 @@
-#ifndef PP_LEDGER_LEDGER_H
-#define PP_LEDGER_LEDGER_H
+#pragma once
 
+#include "BlockChain.h"
+#include "Wallet.h"
+#include "ResultOrError.hpp"
+
+#include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
-#include <memory>
-#include <cstdint>
-#include <chrono>
 
 namespace pp {
 
-struct Block {
-    uint64_t index;
-    int64_t timestamp;
-    std::string data;
-    std::string previousHash;
-    std::string hash;
-    uint64_t nonce;
-    
-    Block(uint64_t idx, const std::string& blockData, const std::string& prevHash);
-    
-    std::string calculateHash() const;
-    void mineBlock(uint32_t difficulty);
-};
-
 class Ledger {
 public:
-    Ledger(uint32_t difficulty = 2);
+    Ledger(uint32_t blockchainDifficulty = 2);
     ~Ledger() = default;
     
-    // Blockchain operations
-    void addBlock(const std::string& data);
-    const std::vector<Block>& getChain() const;
+    // Wallet management
+    ResultOrError<void> createWallet(const std::string& walletId);
+    ResultOrError<void> removeWallet(const std::string& walletId);
+    bool hasWallet(const std::string& walletId) const;
+    ResultOrError<int64_t> getBalance(const std::string& walletId) const;
+    
+    // Transaction operations
+    ResultOrError<void> deposit(const std::string& walletId, int64_t amount);
+    ResultOrError<void> withdraw(const std::string& walletId, int64_t amount);
+    ResultOrError<void> transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount);
+    
+    // Transaction buffer operations
+    void addTransaction(const std::string& transaction);
+    void clearPendingTransactions();
+    const std::vector<std::string>& getPendingTransactions() const;
+    size_t getPendingTransactionCount() const;
+    
+    // Block operations
+    ResultOrError<void> commitTransactions();
+    
+    // BlockChain access
+    const BlockChain& getBlockChain() const;
+    size_t getBlockCount() const;
     bool isValid() const;
     
-    // Query operations
-    size_t getSize() const;
-    const Block& getLatestBlock() const;
-    const Block& getBlock(size_t index) const;
-    
-    // Configuration
-    void setDifficulty(uint32_t difficulty);
-    uint32_t getDifficulty() const;
-    
 private:
-    void createGenesisBlock();
-    std::string getLastBlockHash() const;
+    std::string packTransactions() const;
+    std::string formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount);
     
-    std::vector<Block> chain_;
-    uint32_t difficulty_;
+    std::map<std::string, std::unique_ptr<Wallet>> wallets_;
+    std::unique_ptr<BlockChain> blockchain_;
+    std::vector<std::string> pendingTransactions_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace pp
-
-#endif // PP_LEDGER_LEDGER_H

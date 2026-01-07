@@ -5,6 +5,10 @@ add_library(ppledger_lib STATIC
     Logger.cpp
     Logger.h
     ResultOrError.hpp
+    TcpClient.cpp
+    TcpClient.h
+    TcpServer.cpp
+    TcpServer.h
 )
 
 target_include_directories(ppledger_lib PUBLIC

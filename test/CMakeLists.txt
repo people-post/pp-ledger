@@ -11,7 +11,20 @@ target_link_libraries(test_logger PRIVATE
 
 add_test(NAME test_logger COMMAND test_logger)
 
-# Test for Ledger
+# Test for BlockChain
+add_executable(test_blockchain
+    test_blockchain.cpp
+)
+
+target_link_libraries(test_blockchain PRIVATE
+    ppledger_lib
+    ppledger_server
+    crypto
+)
+
+add_test(NAME test_blockchain COMMAND test_blockchain)
+
+# Test for Ledger (Wallet & Transactions)
 add_executable(test_ledger
     test_ledger.cpp
 )

@@ -1,144 +1,171 @@
 #include "Ledger.h"
 
-#include <sstream>
 #include <iomanip>
+#include <sstream>
 #include <stdexcept>
-#include <openssl/sha.h>
 
 namespace pp {
 
-// Helper function to compute SHA-256 hash
-static std::string sha256(const std::string& input) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, input.c_str(), input.size());
-    SHA256_Final(hash, &sha256);
+Ledger::Ledger(uint32_t blockchainDifficulty)
+    : blockchain_(std::make_unique<BlockChain>(blockchainDifficulty)) {
+}
+
+// Wallet management
+ResultOrError<void> Ledger::createWallet(const std::string& walletId) {
+    std::lock_guard<std::mutex> lock(mutex_);
     
+    if (wallets_.find(walletId) != wallets_.end()) {
+        return ResultOrError<void>::error("Wallet already exists: " + walletId);
+    }
+    
+    wallets_[walletId] = std::make_unique<Wallet>();
+    return ResultOrError<void>();
+}
+
+ResultOrError<void> Ledger::removeWallet(const std::string& walletId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto it = wallets_.find(walletId);
+    if (it == wallets_.end()) {
+        return ResultOrError<void>::error("Wallet not found: " + walletId);
+    }
+    
+    wallets_.erase(it);
+    return ResultOrError<void>();
+}
+
+bool Ledger::hasWallet(const std::string& walletId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return wallets_.find(walletId) != wallets_.end();
+}
+
+ResultOrError<int64_t> Ledger::getBalance(const std::string& walletId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto it = wallets_.find(walletId);
+    if (it == wallets_.end()) {
+        return ResultOrError<int64_t>::error("Wallet not found: " + walletId);
+    }
+    
+    return ResultOrError<int64_t>(it->second->getBalance());
+}
+
+// Transaction operations
+ResultOrError<void> Ledger::deposit(const std::string& walletId, int64_t amount) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto it = wallets_.find(walletId);
+    if (it == wallets_.end()) {
+        return ResultOrError<void>::error("Wallet not found: " + walletId);
+    }
+    
+    auto result = it->second->deposit(amount);
+    if (result.isOk()) {
+        pendingTransactions_.push_back(formatTransaction("DEPOSIT", "SYSTEM", walletId, amount));
+    }
+    
+    return result;
+}
+
+ResultOrError<void> Ledger::withdraw(const std::string& walletId, int64_t amount) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto it = wallets_.find(walletId);
+    if (it == wallets_.end()) {
+        return ResultOrError<void>::error("Wallet not found: " + walletId);
+    }
+    
+    auto result = it->second->withdraw(amount);
+    if (result.isOk()) {
+        pendingTransactions_.push_back(formatTransaction("WITHDRAW", walletId, "SYSTEM", amount));
+    }
+    
+    return result;
+}
+
+ResultOrError<void> Ledger::transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    auto fromIt = wallets_.find(fromWallet);
+    if (fromIt == wallets_.end()) {
+        return ResultOrError<void>::error("Source wallet not found: " + fromWallet);
+    }
+    
+    auto toIt = wallets_.find(toWallet);
+    if (toIt == wallets_.end()) {
+        return ResultOrError<void>::error("Destination wallet not found: " + toWallet);
+    }
+    
+    auto result = fromIt->second->transfer(*toIt->second, amount);
+    if (result.isOk()) {
+        pendingTransactions_.push_back(formatTransaction("TRANSFER", fromWallet, toWallet, amount));
+    }
+    
+    return result;
+}
+
+void Ledger::addTransaction(const std::string& transaction) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pendingTransactions_.push_back(transaction);
+}
+
+void Ledger::clearPendingTransactions() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pendingTransactions_.clear();
+}
+
+const std::vector<std::string>& Ledger::getPendingTransactions() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return pendingTransactions_;
+}
+
+size_t Ledger::getPendingTransactionCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return pendingTransactions_.size();
+}
+
+ResultOrError<void> Ledger::commitTransactions() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    if (pendingTransactions_.empty()) {
+        return ResultOrError<void>::error("No pending transactions to commit");
+    }
+    
+    try {
+        std::string packedData = packTransactions();
+        blockchain_->addBlock(packedData);
+        pendingTransactions_.clear();
+        return ResultOrError<void>();
+    } catch (const std::exception& e) {
+        return ResultOrError<void>::error(std::string("Failed to commit transactions: ") + e.what());
+    }
+}
+
+const BlockChain& Ledger::getBlockChain() const {
+    return *blockchain_;
+}
+
+size_t Ledger::getBlockCount() const {
+    return blockchain_->getSize();
+}
+
+bool Ledger::isValid() const {
+    return blockchain_->isValid();
+}
+
+std::string Ledger::packTransactions() const {
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    ss << "[" << pendingTransactions_.size() << " transactions]\n";
+    for (const auto& tx : pendingTransactions_) {
+        ss << tx << "\n";
     }
     return ss.str();
 }
 
-// Block implementation
-Block::Block(uint64_t idx, const std::string& blockData, const std::string& prevHash)
-    : index(idx),
-      timestamp(std::chrono::system_clock::now().time_since_epoch().count()),
-      data(blockData),
-      previousHash(prevHash),
-      nonce(0) {
-    hash = calculateHash();
-}
-
-std::string Block::calculateHash() const {
+std::string Ledger::formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount) {
     std::stringstream ss;
-    ss << index << timestamp << data << previousHash << nonce;
-    return sha256(ss.str());
-}
-
-void Block::mineBlock(uint32_t difficulty) {
-    std::string target(difficulty, '0');
-    
-    while (hash.substr(0, difficulty) != target) {
-        nonce++;
-        hash = calculateHash();
-    }
-}
-
-// Ledger implementation
-Ledger::Ledger(uint32_t difficulty)
-    : difficulty_(difficulty) {
-    createGenesisBlock();
-}
-
-void Ledger::createGenesisBlock() {
-    Block genesis(0, "Genesis Block", "0");
-    genesis.mineBlock(difficulty_);
-    chain_.push_back(genesis);
-}
-
-void Ledger::addBlock(const std::string& data) {
-    if (chain_.empty()) {
-        throw std::runtime_error("Chain is empty, cannot add block");
-    }
-    
-    Block newBlock(chain_.size(), data, getLastBlockHash());
-    newBlock.mineBlock(difficulty_);
-    chain_.push_back(newBlock);
-}
-
-const std::vector<Block>& Ledger::getChain() const {
-    return chain_;
-}
-
-bool Ledger::isValid() const {
-    if (chain_.empty()) {
-        return false;
-    }
-    
-    // Check genesis block
-    if (chain_[0].previousHash != "0") {
-        return false;
-    }
-    
-    // Validate each block in the chain
-    for (size_t i = 1; i < chain_.size(); i++) {
-        const Block& currentBlock = chain_[i];
-        const Block& previousBlock = chain_[i - 1];
-        
-        // Check if current block's hash is correct
-        if (currentBlock.hash != currentBlock.calculateHash()) {
-            return false;
-        }
-        
-        // Check if current block's previous hash matches previous block's hash
-        if (currentBlock.previousHash != previousBlock.hash) {
-            return false;
-        }
-        
-        // Check if the block was properly mined
-        std::string target(difficulty_, '0');
-        if (currentBlock.hash.substr(0, difficulty_) != target) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-size_t Ledger::getSize() const {
-    return chain_.size();
-}
-
-const Block& Ledger::getLatestBlock() const {
-    if (chain_.empty()) {
-        throw std::runtime_error("Chain is empty");
-    }
-    return chain_.back();
-}
-
-const Block& Ledger::getBlock(size_t index) const {
-    if (index >= chain_.size()) {
-        throw std::out_of_range("Block index out of range");
-    }
-    return chain_[index];
-}
-
-void Ledger::setDifficulty(uint32_t difficulty) {
-    difficulty_ = difficulty;
-}
-
-uint32_t Ledger::getDifficulty() const {
-    return difficulty_;
-}
-
-std::string Ledger::getLastBlockHash() const {
-    if (chain_.empty()) {
-        return "0";
-    }
-    return chain_.back().hash;
+    ss << type << ": " << from << " -> " << to << ": " << amount;
+    return ss.str();
 }
 
 } // namespace pp

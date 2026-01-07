@@ -2,6 +2,8 @@
 add_library(ppledger_server STATIC
     Server.cpp
     Server.h
+    BlockChain.cpp
+    BlockChain.h
     Ledger.cpp
     Ledger.h
     Wallet.cpp
