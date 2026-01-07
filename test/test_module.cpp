@@ -5,68 +5,73 @@
 #include "BlockDir.h"
 #include "BlockFile.h"
 #include "Ledger.h"
+#include <gtest/gtest.h>
 
-#include <iostream>
+TEST(ModuleTest, ServerHasCorrectLoggerName) {
+    pp::Server server;
+    EXPECT_EQ(server.getLoggerName(), "server");
+}
 
-int main() {
-    std::cout << "=== Testing Module Base Class ===\n\n";
-    
-    // Create instances of all Module-based classes
-    std::cout << "1. Creating Module instances:\n";
+TEST(ModuleTest, ClientHasCorrectLoggerName) {
+    pp::Client client;
+    EXPECT_EQ(client.getLoggerName(), "client");
+}
+
+TEST(ModuleTest, BlockChainHasCorrectLoggerName) {
+    pp::BlockChain blockchain(2);
+    EXPECT_EQ(blockchain.getLoggerName(), "blockchain");
+}
+
+TEST(ModuleTest, LedgerHasCorrectLoggerName) {
+    pp::Ledger ledger(2);
+    EXPECT_EQ(ledger.getLoggerName(), "ledger");
+}
+
+TEST(ModuleTest, BlockFileHasCorrectLoggerName) {
+    pp::BlockFile blockFile;
+    EXPECT_EQ(blockFile.getLoggerName(), "blockfile");
+}
+
+TEST(ModuleTest, BlockDirHasCorrectLoggerName) {
+    pp::BlockDir blockDir;
+    EXPECT_EQ(blockDir.getLoggerName(), "blockdir");
+}
+
+TEST(ModuleTest, LoggerWorksForModules) {
     pp::Server server;
     pp::Client client;
     pp::BlockChain blockchain(2);
     pp::Ledger ledger(2);
     
-    std::cout << "  - Server logger name: " << server.getLoggerName() << "\n";
-    std::cout << "  - Client logger name: " << client.getLoggerName() << "\n";
-    std::cout << "  - BlockChain logger name: " << blockchain.getLoggerName() << "\n";
-    std::cout << "  - Ledger logger name: " << ledger.getLoggerName() << "\n";
+    EXPECT_NO_THROW({
+        server.log().info << "Message from Server module";
+        client.log().info << "Message from Client module";
+        blockchain.log().info << "Message from BlockChain module";
+        ledger.log().info << "Message from Ledger module";
+    });
+}
+
+TEST(ModuleTest, LoggerRedirect) {
+    pp::Server server;
     
-    // Test logging through Module base class
-    std::cout << "\n2. Testing logging through Module classes:\n";
-    server.log().info << "Message from Server module";
-    client.log().info << "Message from Client module";
-    blockchain.log().info << "Message from BlockChain module";
-    ledger.log().info << "Message from Ledger module";
+    EXPECT_NO_THROW(server.log().info << "Server message before redirect");
     
-    // Test logger redirection
-    std::cout << "\n3. Testing logger redirection:\n";
-    std::cout << "Before redirect:\n";
-    server.log().info << "Server message before redirect";
-    
-    std::cout << "\nRedirecting 'server' logger to 'main':\n";
     server.redirectLogger("main");
+    EXPECT_NO_THROW(server.log().info << "Server message after redirect");
     
-    server.log().info << "Server message after redirect (shows as main)";
-    
-    std::cout << "\nClearing redirect:\n";
     server.clearLoggerRedirect();
-    server.log().info << "Server message after clearing redirect";
+    EXPECT_NO_THROW(server.log().info << "Server message after clearing redirect");
+}
+
+TEST(ModuleTest, MultipleModulesWithDifferentRedirects) {
+    pp::Client client;
+    pp::BlockChain blockchain(2);
     
-    // Test BlockFile and BlockDir
-    std::cout << "\n4. Testing BlockFile and BlockDir modules:\n";
-    pp::BlockFile blockFile;
-    pp::BlockDir blockDir;
-    
-    std::cout << "  - BlockFile logger name: " << blockFile.getLoggerName() << "\n";
-    std::cout << "  - BlockDir logger name: " << blockDir.getLoggerName() << "\n";
-    
-    blockFile.log().info << "Message from BlockFile module";
-    blockDir.log().info << "Message from BlockDir module";
-    
-    // Test multiple modules with different redirects
-    std::cout << "\n5. Testing independent redirects for different modules:\n";
     client.redirectLogger("system");
     blockchain.redirectLogger("system");
     
-    std::cout << "Client redirected to 'system':\n";
-    client.log().info << "Client message going to system logger";
-    
-    std::cout << "BlockChain redirected to 'system':\n";
-    blockchain.log().info << "BlockChain message going to system logger";
-    
-    std::cout << "\n=== Test Complete ===\n";
-    
-    return 0;
+    EXPECT_NO_THROW({
+        client.log().info << "Client message going to system logger";
+        blockchain.log().info << "BlockChain message going to system logger";
+    });
 }

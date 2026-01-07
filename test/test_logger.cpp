@@ -1,105 +1,117 @@
 #include "Logger.h"
+#include <gtest/gtest.h>
 
-#include <iostream>
-
-int main() {
-    std::cout << "=== Testing Logger Features ===\n\n";
-    
-    // Test 1: Root logger (default console output)
-    std::cout << "1. Testing root logger:\n";
+TEST(LoggerTest, RootLoggerExists) {
     auto& rootLogger = pp::logging::getRootLogger();
-    rootLogger.debug << "This is a debug message from root";
-    rootLogger.info << "This is an info message from root";
-    rootLogger.warning << "This is a warning message from root";
-    rootLogger.error << "This is an error message from root";
-    rootLogger.critical << "This is a critical message from root";
-    
-    std::cout << "\n2. Testing named logger:\n";
+    // Root logger may have empty name or "root" depending on implementation
+    EXPECT_NO_THROW(rootLogger.info << "Root logger works");
+}
+
+TEST(LoggerTest, RootLoggerHandlesAllLevels) {
+    auto& rootLogger = pp::logging::getRootLogger();
+    EXPECT_NO_THROW({
+        rootLogger.debug << "This is a debug message from root";
+        rootLogger.info << "This is an info message from root";
+        rootLogger.warning << "This is a warning message from root";
+        rootLogger.error << "This is an error message from root";
+        rootLogger.critical << "This is a critical message from root";
+    });
+}
+
+TEST(LoggerTest, NamedLoggerHasCorrectName) {
     auto& namedLogger = pp::logging::getLogger("myapp");
-    namedLogger.info << "This is from a named logger";
-    
-    std::cout << "\n3. Testing hierarchical loggers (dot notation):\n";
+    EXPECT_EQ(namedLogger.getName(), "myapp");
+    EXPECT_NO_THROW(namedLogger.info << "This is from a named logger");
+}
+
+TEST(LoggerTest, HierarchicalLoggers) {
     auto& parentLogger = pp::logging::getLogger("app");
     auto& childLogger = pp::logging::getLogger("app.module");
     auto& grandchildLogger = pp::logging::getLogger("app.module.component");
     
-    parentLogger.info << "Message from parent logger";
-    childLogger.info << "Message from child logger";
-    grandchildLogger.info << "Message from grandchild logger";
+    EXPECT_EQ(parentLogger.getName(), "app");
+    EXPECT_EQ(childLogger.getName(), "app.module");
+    EXPECT_EQ(grandchildLogger.getName(), "app.module.component");
     
-    std::cout << "\n4. Testing logging level:\n";
+    EXPECT_NO_THROW({
+        parentLogger.info << "Message from parent logger";
+        childLogger.info << "Message from child logger";
+        grandchildLogger.info << "Message from grandchild logger";
+    });
+}
+
+TEST(LoggerTest, LoggingLevelFiltersMessages) {
     auto& levelLogger = pp::logging::getLogger("level_test");
     levelLogger.setLevel(pp::logging::Level::WARNING);
-    levelLogger.debug << "This debug should NOT appear";
-    levelLogger.info << "This info should NOT appear";
-    levelLogger.warning << "This warning SHOULD appear";
-    levelLogger.error << "This error SHOULD appear";
     
-    std::cout << "\n5. Testing file handler:\n";
+    EXPECT_EQ(levelLogger.getLevel(), pp::logging::Level::WARNING);
+    
+    EXPECT_NO_THROW({
+        levelLogger.debug << "This debug should NOT appear";
+        levelLogger.info << "This info should NOT appear";
+        levelLogger.warning << "This warning SHOULD appear";
+        levelLogger.error << "This error SHOULD appear";
+    });
+}
+
+TEST(LoggerTest, FileHandlerAddsSuccessfully) {
     auto& fileLogger = pp::logging::getLogger("file_test");
-    fileLogger.addFileHandler("test.log", pp::logging::Level::DEBUG);
-    fileLogger.info << "This message goes to both console and file";
-    fileLogger.debug << "This debug message also goes to file";
-    
-    std::cout << "\n6. Testing file handler with different level:\n";
+    EXPECT_NO_THROW(fileLogger.addFileHandler("test.log", pp::logging::Level::DEBUG));
+    EXPECT_NO_THROW({
+        fileLogger.info << "This message goes to both console and file";
+        fileLogger.debug << "This debug message also goes to file";
+    });
+}
+
+TEST(LoggerTest, FileHandlerWithDifferentLevel) {
     auto& multiLogger = pp::logging::getLogger("multi_handler");
     multiLogger.setLevel(pp::logging::Level::INFO);
-    multiLogger.addFileHandler("detailed.log", pp::logging::Level::DEBUG);
+    EXPECT_NO_THROW(multiLogger.addFileHandler("detailed.log", pp::logging::Level::DEBUG));
     
-    multiLogger.debug << "Debug: only in file (if file level allows)";
-    multiLogger.info << "Info: in both console and file";
-    multiLogger.warning << "Warning: in both console and file";
-    
-    std::cout << "\n7. Testing logger redirect:\n";
+    EXPECT_NO_THROW({
+        multiLogger.debug << "Debug: only in file (if file level allows)";
+        multiLogger.info << "Info: in both console and file";
+        multiLogger.warning << "Warning: in both console and file";
+    });
+}
+
+TEST(LoggerTest, LoggerRedirect) {
     auto& sourceLogger = pp::logging::getLogger("source");
     auto& targetLogger = pp::logging::getLogger("target");
     
-    // Set different levels to show redirect works
     sourceLogger.setLevel(pp::logging::Level::DEBUG);
     targetLogger.setLevel(pp::logging::Level::INFO);
     
-    std::cout << "Before redirect:\n";
-    sourceLogger.info << "Message from source logger";
-    targetLogger.info << "Message from target logger";
+    EXPECT_FALSE(sourceLogger.hasRedirect());
     
-    std::cout << "\nAfter redirecting source -> target:\n";
     sourceLogger.redirectTo("target");
+    EXPECT_TRUE(sourceLogger.hasRedirect());
+    EXPECT_EQ(sourceLogger.getRedirectTarget(), "target");
     
-    // Check redirect status
-    if (sourceLogger.hasRedirect()) {
-        std::cout << "Source logger is redirected to: " << sourceLogger.getRedirectTarget() << "\n";
-    }
+    EXPECT_NO_THROW({
+        sourceLogger.info << "This should appear as target logger";
+        sourceLogger.debug << "This debug should NOT appear (target level is INFO)";
+        targetLogger.warning << "Direct message to target";
+    });
     
-    sourceLogger.info << "This should appear as target logger";
-    sourceLogger.debug << "This debug should NOT appear (target level is INFO)";
-    targetLogger.warning << "Direct message to target";
-    
-    std::cout << "\nAfter clearing redirect:\n";
     sourceLogger.clearRedirect();
+    EXPECT_FALSE(sourceLogger.hasRedirect());
     
-    if (!sourceLogger.hasRedirect()) {
-        std::cout << "Redirect cleared successfully\n";
-    }
-    
-    sourceLogger.info << "Back to source logger";
-    
-    std::cout << "\n8. Testing nested redirect (a.b -> c.d):\n";
+    EXPECT_NO_THROW(sourceLogger.info << "Back to source logger");
+}
+
+TEST(LoggerTest, NestedLoggerRedirect) {
     auto& loggerAB = pp::logging::getLogger("a.b");
     auto& loggerCD = pp::logging::getLogger("c.d");
     
     loggerCD.setLevel(pp::logging::Level::WARNING);
     
-    std::cout << "Before redirect:\n";
-    loggerAB.info << "Message from a.b";
-    
-    std::cout << "\nAfter redirect a.b -> c.d:\n";
     loggerAB.redirectTo("c.d");
-    loggerAB.info << "This info should NOT appear (c.d level is WARNING)";
-    loggerAB.warning << "This warning SHOULD appear via c.d";
-    loggerAB.error << "This error SHOULD appear via c.d";
+    EXPECT_TRUE(loggerAB.hasRedirect());
     
-    std::cout << "\n=== Test Complete ===\n";
-    std::cout << "Check test.log and detailed.log for file output\n";
-    
-    return 0;
+    EXPECT_NO_THROW({
+        loggerAB.info << "This info should NOT appear (c.d level is WARNING)";
+        loggerAB.warning << "This warning SHOULD appear via c.d";
+        loggerAB.error << "This error SHOULD appear via c.d";
+    });
 }

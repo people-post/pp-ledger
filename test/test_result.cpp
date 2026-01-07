@@ -1,8 +1,6 @@
 #include "ResultOrError.hpp"
-#include "Logger.h"
-
+#include <gtest/gtest.h>
 #include <cmath>
-#include <iostream>
 #include <string>
 
 // Example function that returns ResultOrError
@@ -59,135 +57,85 @@ AppRoe<void> validateRange(int value, int min, int max) {
     return {};
 }
 
-int main() {
-    auto& logger = pp::logging::getLogger("result_test");
+TEST(ResultOrErrorTest, SuccessCase) {
+    auto result = divide(10, 2);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_EQ(result.value(), 5);
+}
+
+TEST(ResultOrErrorTest, ErrorCase) {
+    auto result = divide(10, 0);
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error(), "Division by zero");
+}
+
+TEST(ResultOrErrorTest, BoolConversion) {
+    auto result = divide(20, 4);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(*result, 5);
+}
+
+TEST(ResultOrErrorTest, ValueOr) {
+    auto successResult = divide(10, 2);
+    EXPECT_EQ(successResult.valueOr(-1), 5);
     
-    std::cout << "=== Testing ResultOrError ===\n\n";
-    
-    // Test 1: Success case
-    std::cout << "1. Testing success case:\n";
-    auto result1 = divide(10, 2);
-    if (result1.isOk()) {
-        logger.info << "Division result: " << result1.value();
-        std::cout << "  Result: " << result1.value() << "\n";
-    } else {
-        logger.error << "Error: " << result1.error();
-        std::cout << "  Error: " << result1.error() << "\n";
-    }
-    
-    // Test 2: Error case
-    std::cout << "\n2. Testing error case:\n";
-    auto result2 = divide(10, 0);
-    if (result2.isOk()) {
-        std::cout << "  Result: " << result2.value() << "\n";
-    } else {
-        logger.error << "Expected error: " << result2.error();
-        std::cout << "  Error: " << result2.error() << "\n";
-    }
-    
-    // Test 3: Using explicit bool conversion
-    std::cout << "\n3. Testing bool conversion:\n";
-    auto result3 = divide(20, 4);
-    if (result3) {
-        logger.info << "Division succeeded: " << *result3;
-        std::cout << "  Success! Result: " << *result3 << "\n";
-    } else {
-        std::cout << "  Failed: " << result3.error() << "\n";
-    }
-    
-    // Test 4: Using valueOr
-    std::cout << "\n4. Testing valueOr:\n";
-    auto result4 = divide(10, 0);
-    int value = result4.valueOr(-1);
-    logger.info << "Result with default: " << value;
-    std::cout << "  Result (with default -1): " << value << "\n";
-    
-    // Test 5: Void return type
-    std::cout << "\n5. Testing void return type:\n";
-    auto result5 = validatePositive(10);
-    if (result5.isOk()) {
-        logger.info << "Validation passed";
-        std::cout << "  Validation passed\n";
-    } else {
-        std::cout << "  Validation failed: " << result5.error() << "\n";
-    }
-    
-    auto result6 = validatePositive(-5);
-    if (result6.isOk()) {
-        std::cout << "  Validation passed\n";
-    } else {
-        logger.error << "Validation failed: " << result6.error();
-        std::cout << "  Validation failed: " << result6.error() << "\n";
-    }
-    
-    // Test 6: Custom error type
-    std::cout << "\n6. Testing custom error type:\n";
-    auto result7 = processData("Hello, World!");
-    if (result7.isOk()) {
-        logger.info << "Processed: " << result7.value();
-        std::cout << "  " << result7.value() << "\n";
-    } else {
-        std::cout << "  Error: " << result7.error().message << "\n";
-    }
-    
-    auto result8 = processData("");
-    if (result8.isOk()) {
-        std::cout << "  " << result8.value() << "\n";
-    } else {
-        logger.error << "Error code " << result8.error().code << ": " << result8.error().message;
-        std::cout << "  Error [" << result8.error().code << "]: " 
-                  << result8.error().message << "\n";
-    }
-    
-    // Test 7: Chaining operations
-    std::cout << "\n7. Testing operation chaining:\n";
-    auto computeAndLog = [&logger](int a, int b) {
-        auto result = divide(a, b);
-        if (result) {
-            logger.info << "Computed: " << a << " / " << b << " = " << *result;
-            return result;
-        } else {
-            logger.error << "Failed: " << a << " / " << b << " - " << result.error();
-            return result;
-        }
-    };
-    
-    auto res1 = computeAndLog(100, 5);
-    auto res2 = computeAndLog(50, 0);
-    
-    std::cout << "  First: " << (res1 ? "Success" : "Failed") << "\n";
-    std::cout << "  Second: " << (res2 ? "Success" : "Failed") << "\n";
-    
-    // Test 8: Using RoeErrorBase
-    std::cout << "\n8. Testing RoeErrorBase:\n";
-    auto sqrtResult = safeSqrt(16.0);
-    if (sqrtResult.isOk()) {
-        logger.info << "sqrt(16) = " << sqrtResult.value();
-        std::cout << "  sqrt(16) = " << sqrtResult.value() << "\n";
-    }
-    
-    auto sqrtResult2 = safeSqrt(-4.0);
-    if (sqrtResult2.isError()) {
-        logger.error << "Error code " << sqrtResult2.error().code << ": " << sqrtResult2.error().message;
-        std::cout << "  Error [" << sqrtResult2.error().code << "]: " 
-                  << sqrtResult2.error().message << "\n";
-    }
-    
-    auto rangeResult = validateRange(50, 0, 100);
-    if (rangeResult.isOk()) {
-        logger.info << "Range validation passed";
-        std::cout << "  Range validation passed\n";
-    }
-    
-    auto rangeResult2 = validateRange(150, 0, 100);
-    if (rangeResult2.isError()) {
-        logger.error << "Error code " << rangeResult2.error().code << ": " << rangeResult2.error().message;
-        std::cout << "  Error [" << rangeResult2.error().code << "]: " 
-                  << rangeResult2.error().message << "\n";
-    }
-    
-    logger.info << "Test complete";
-    std::cout << "\n=== Test Complete ===\n";
-    
-    return 0;
+    auto errorResult = divide(10, 0);
+    EXPECT_EQ(errorResult.valueOr(-1), -1);
+}
+
+TEST(ResultOrErrorTest, VoidReturnSuccess) {
+    auto result = validatePositive(10);
+    EXPECT_TRUE(result.isOk());
+}
+
+TEST(ResultOrErrorTest, VoidReturnError) {
+    auto result = validatePositive(-5);
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error(), "Value must be positive");
+}
+
+TEST(ResultOrErrorTest, CustomErrorTypeSuccess) {
+    auto result = processData("Hello, World!");
+    ASSERT_TRUE(result.isOk());
+    EXPECT_EQ(result.value(), "Processed: Hello, World!");
+}
+
+TEST(ResultOrErrorTest, CustomErrorTypeEmpty) {
+    auto result = processData("");
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error().code, 1);
+    EXPECT_EQ(result.error().message, "Data is empty");
+}
+
+TEST(ResultOrErrorTest, CustomErrorTypeTooLong) {
+    std::string longData(101, 'x');
+    auto result = processData(longData);
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error().code, 2);
+    EXPECT_EQ(result.error().message, "Data too long");
+}
+
+TEST(ResultOrErrorTest, RoeErrorBaseSuccess) {
+    auto result = safeSqrt(16.0);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_DOUBLE_EQ(result.value(), 4.0);
+}
+
+TEST(ResultOrErrorTest, RoeErrorBaseError) {
+    auto result = safeSqrt(-4.0);
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error().code, 100);
+    EXPECT_EQ(result.error().message, "Cannot compute square root of negative number");
+}
+
+TEST(ResultOrErrorTest, ValidateRangeSuccess) {
+    auto result = validateRange(50, 0, 100);
+    EXPECT_TRUE(result.isOk());
+}
+
+TEST(ResultOrErrorTest, ValidateRangeError) {
+    auto result = validateRange(150, 0, 100);
+    ASSERT_TRUE(result.isError());
+    EXPECT_EQ(result.error().code, 200);
+    EXPECT_EQ(result.error().message, "Value out of range");
 }

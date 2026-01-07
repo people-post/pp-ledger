@@ -1,170 +1,116 @@
 #include "BlockFile.h"
-#include "Logger.h"
-
-#include <iostream>
+#include <gtest/gtest.h>
 #include <cstring>
 #include <filesystem>
 
-int main() {
-    auto& logger = pp::logging::getLogger("blockfile_test");
+class BlockFileTest : public ::testing::Test {
+protected:
+    std::string testDir;
+    std::string testFile;
+    pp::BlockFile* blockFile;
+    pp::BlockFile::Config* config;
     
-    std::cout << "=== Testing BlockFile ===\n\n";
-    
-    // Setup test directory
-    std::string testDir = "/tmp/pp-ledger-test";
-    std::string testFile = testDir + "/test_block.dat";
-    
-    // Clean up from previous tests
-    if (std::filesystem::exists(testFile)) {
-        std::filesystem::remove(testFile);
-    }
-    if (!std::filesystem::exists(testDir)) {
-        std::filesystem::create_directories(testDir);
-    }
-    
-    // Test 1: Initialize BlockFile
-    std::cout << "1. Testing BlockFile initialization:\n";
-    pp::BlockFile blockFile;
-    pp::BlockFile::Config config(testFile, 1024 * 1024); // 1MB max size
-    
-    auto initResult = blockFile.init(config);
-    if (initResult.isOk()) {
-        logger.info << "BlockFile initialized successfully";
-        std::cout << "  ✓ BlockFile initialized successfully\n";
-    } else {
-        logger.error << "Failed to initialize BlockFile: " << initResult.error().message;
-        std::cout << "  ✗ Failed to initialize: " << initResult.error().message << "\n";
-        return 1;
-    }
-    std::cout << "\n";
-    
-    // Test 2: Write data
-    std::cout << "2. Testing write operation:\n";
-    const char* testData1 = "Hello, BlockFile!";
-    size_t dataSize1 = strlen(testData1) + 1;
-    
-    auto writeResult1 = blockFile.write(testData1, dataSize1);
-    if (writeResult1.isOk()) {
-        logger.info << "Wrote " << dataSize1 << " bytes at offset " << writeResult1.value();
-        std::cout << "  ✓ Wrote " << dataSize1 << " bytes at offset " << writeResult1.value() << "\n";
-    } else {
-        logger.error << "Write failed: " << writeResult1.error().message;
-        std::cout << "  ✗ Write failed: " << writeResult1.error().message << "\n";
-        return 1;
-    }
-    
-    int64_t offset1 = writeResult1.value();
-    std::cout << "\n";
-    
-    // Test 3: Write more data
-    std::cout << "3. Testing second write operation:\n";
-    const char* testData2 = "This is another block of data.";
-    size_t dataSize2 = strlen(testData2) + 1;
-    
-    auto writeResult2 = blockFile.write(testData2, dataSize2);
-    if (writeResult2.isOk()) {
-        logger.info << "Wrote " << dataSize2 << " bytes at offset " << writeResult2.value();
-        std::cout << "  ✓ Wrote " << dataSize2 << " bytes at offset " << writeResult2.value() << "\n";
-    } else {
-        logger.error << "Write failed: " << writeResult2.error().message;
-        std::cout << "  ✗ Write failed: " << writeResult2.error().message << "\n";
-        return 1;
-    }
-    
-    int64_t offset2 = writeResult2.value();
-    std::cout << "\n";
-    
-    // Test 4: Read first data back
-    std::cout << "4. Testing read operation (first data):\n";
-    char readBuffer1[256] = {0};
-    
-    auto readResult1 = blockFile.read(offset1, readBuffer1, dataSize1);
-    if (readResult1.isOk()) {
-        logger.info << "Read " << readResult1.value() << " bytes from offset " << offset1;
-        std::cout << "  ✓ Read " << readResult1.value() << " bytes\n";
-        std::cout << "  Data: \"" << readBuffer1 << "\"\n";
+    void SetUp() override {
+        testDir = "/tmp/pp-ledger-test";
+        testFile = testDir + "/test_block.dat";
         
-        if (strcmp(readBuffer1, testData1) == 0) {
-            std::cout << "  ✓ Data matches original\n";
-        } else {
-            std::cout << "  ✗ Data mismatch!\n";
-            return 1;
+        if (std::filesystem::exists(testFile)) {
+            std::filesystem::remove(testFile);
         }
-    } else {
-        logger.error << "Read failed: " << readResult1.error().message;
-        std::cout << "  ✗ Read failed: " << readResult1.error().message << "\n";
-        return 1;
-    }
-    std::cout << "\n";
-    
-    // Test 5: Read second data back
-    std::cout << "5. Testing read operation (second data):\n";
-    char readBuffer2[256] = {0};
-    
-    auto readResult2 = blockFile.read(offset2, readBuffer2, dataSize2);
-    if (readResult2.isOk()) {
-        logger.info << "Read " << readResult2.value() << " bytes from offset " << offset2;
-        std::cout << "  ✓ Read " << readResult2.value() << " bytes\n";
-        std::cout << "  Data: \"" << readBuffer2 << "\"\n";
+        if (!std::filesystem::exists(testDir)) {
+            std::filesystem::create_directories(testDir);
+        }
         
-        if (strcmp(readBuffer2, testData2) == 0) {
-            std::cout << "  ✓ Data matches original\n";
-        } else {
-            std::cout << "  ✗ Data mismatch!\n";
-            return 1;
+        blockFile = new pp::BlockFile();
+        config = new pp::BlockFile::Config(testFile, 1024 * 1024); // 1MB max size
+    }
+    
+    void TearDown() override {
+        delete blockFile;
+        delete config;
+        if (std::filesystem::exists(testFile)) {
+            std::filesystem::remove(testFile);
         }
-    } else {
-        logger.error << "Read failed: " << readResult2.error().message;
-        std::cout << "  ✗ Read failed: " << readResult2.error().message << "\n";
-        return 1;
     }
-    std::cout << "\n";
+};
+
+TEST_F(BlockFileTest, InitializesSuccessfully) {
+    auto result = blockFile->init(*config);
+    EXPECT_TRUE(result.isOk());
+}
+
+TEST_F(BlockFileTest, WritesData) {
+    blockFile->init(*config);
     
-    // Test 6: Check canFit
-    std::cout << "6. Testing canFit:\n";
-    size_t hugeSizeToTest = 2 * 1024 * 1024; // 2MB (larger than max)
-    if (blockFile.canFit(hugeSizeToTest)) {
-        std::cout << "  ✗ canFit incorrectly returned true for oversized data\n";
-    } else {
-        std::cout << "  ✓ canFit correctly returned false for oversized data\n";
-    }
-    std::cout << "\n";
+    const char* testData = "Hello, BlockFile!";
+    size_t dataSize = strlen(testData) + 1;
     
-    // Test 7: Flush
-    std::cout << "7. Testing flush:\n";
-    blockFile.flush();
-    logger.info << "Flushed BlockFile";
-    std::cout << "  ✓ Flushed successfully\n";
-    std::cout << "\n";
+    auto result = blockFile->write(testData, dataSize);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_GE(result.value(), 0);
+}
+
+TEST_F(BlockFileTest, ReadsDataBack) {
+    blockFile->init(*config);
     
-    // Test 8: Reopen existing file
-    std::cout << "8. Testing reopen of existing file:\n";
-    pp::BlockFile blockFile2;
-    auto initResult2 = blockFile2.init(config);
-    if (initResult2.isOk()) {
-        logger.info << "Reopened existing BlockFile";
-        std::cout << "  ✓ Reopened existing file successfully\n";
-        
-        // Verify we can still read the data
-        char readBuffer3[256] = {0};
-        auto readResult3 = blockFile2.read(offset1, readBuffer3, dataSize1);
-        if (readResult3.isOk() && strcmp(readBuffer3, testData1) == 0) {
-            std::cout << "  ✓ Data persisted correctly\n";
-        } else {
-            std::cout << "  ✗ Data not persisted correctly\n";
-            return 1;
-        }
-    } else {
-        logger.error << "Failed to reopen: " << initResult2.error().message;
-        std::cout << "  ✗ Failed to reopen: " << initResult2.error().message << "\n";
-        return 1;
-    }
-    std::cout << "\n";
+    const char* testData = "Hello, BlockFile!";
+    size_t dataSize = strlen(testData) + 1;
     
-    std::cout << "=== All BlockFile tests passed! ===\n";
+    auto writeResult = blockFile->write(testData, dataSize);
+    ASSERT_TRUE(writeResult.isOk());
     
-    // Cleanup
-    std::filesystem::remove(testFile);
+    int64_t offset = writeResult.value();
+    char readBuffer[256] = {0};
     
-    return 0;
+    auto readResult = blockFile->read(offset, readBuffer, dataSize);
+    ASSERT_TRUE(readResult.isOk());
+    EXPECT_STREQ(readBuffer, testData);
+}
+
+TEST_F(BlockFileTest, MultipleWrites) {
+    blockFile->init(*config);
+    
+    const char* data1 = "First block";
+    const char* data2 = "Second block";
+    size_t size1 = strlen(data1) + 1;
+    size_t size2 = strlen(data2) + 1;
+    
+    auto result1 = blockFile->write(data1, size1);
+    auto result2 = blockFile->write(data2, size2);
+    
+    ASSERT_TRUE(result1.isOk());
+    ASSERT_TRUE(result2.isOk());
+    EXPECT_NE(result1.value(), result2.value());
+}
+
+TEST_F(BlockFileTest, CanFitReturnsFalseForOversizedData) {
+    blockFile->init(*config);
+    
+    size_t hugeSize = 2 * 1024 * 1024; // 2MB (larger than max)
+    EXPECT_FALSE(blockFile->canFit(hugeSize));
+}
+
+TEST_F(BlockFileTest, FlushSucceeds) {
+    blockFile->init(*config);
+    EXPECT_NO_THROW(blockFile->flush());
+}
+
+TEST_F(BlockFileTest, ReopensPersistentFile) {
+    blockFile->init(*config);
+    
+    const char* testData = "Persistent data";
+    size_t dataSize = strlen(testData) + 1;
+    auto writeResult = blockFile->write(testData, dataSize);
+    ASSERT_TRUE(writeResult.isOk());
+    int64_t offset = writeResult.value();
+    
+    delete blockFile;
+    blockFile = new pp::BlockFile();
+    auto reopenResult = blockFile->init(*config);
+    ASSERT_TRUE(reopenResult.isOk());
+    
+    char readBuffer[256] = {0};
+    auto readResult = blockFile->read(offset, readBuffer, dataSize);
+    ASSERT_TRUE(readResult.isOk());
+    EXPECT_STREQ(readBuffer, testData);
 }
