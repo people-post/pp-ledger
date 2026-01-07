@@ -10,7 +10,7 @@ BlockFile::BlockFile()
     , currentSize_(0) {
 }
 
-bool BlockFile::init(const Config& config) {
+BlockFile::Roe<void> BlockFile::init(const Config& config) {
     filepath_ = config.filepath;
     maxSize_ = config.maxSize;
     currentSize_ = 0;
@@ -23,19 +23,20 @@ bool BlockFile::init(const Config& config) {
         log().debug << "Creating new file: " << filepath_;
     }
     
-    if (!open()) {
+    auto result = open();
+    if (!result) {
         log().error << "Failed to open file: " << filepath_;
-        return false;
+        return result.error();
     }
     
-    return true;
+    return Roe<void>();
 }
 
 BlockFile::~BlockFile() {
     close();
 }
 
-bool BlockFile::open() {
+BlockFile::Roe<void> BlockFile::open() {
     // Open file in binary mode for both reading and writing
     // Create file if it doesn't exist
     file_.open(filepath_, std::ios::binary | std::ios::in | std::ios::out | std::ios::app);
@@ -49,19 +50,23 @@ bool BlockFile::open() {
         }
     }
     
-    return file_.is_open();
+    if (!file_.is_open()) {
+        return Error("Failed to open file: " + filepath_);
+    }
+    
+    return Roe<void>();
 }
 
-int64_t BlockFile::write(const void* data, size_t size) {
+BlockFile::Roe<int64_t> BlockFile::write(const void* data, size_t size) {
     if (!isOpen()) {
         log().error << "File is not open: " << filepath_;
-        return -1;
+        return Error("File is not open: " + filepath_);
     }
     
     if (!canFit(size)) {
         log().warning << "Cannot fit " << size << " bytes (current: " << currentSize_ 
                       << ", max: " << maxSize_ << ")";
-        return -1;
+        return Error("Cannot fit " + std::to_string(size) + " bytes");
     }
     
     // Get current position (end of file)
@@ -73,20 +78,20 @@ int64_t BlockFile::write(const void* data, size_t size) {
     
     if (!file_.good()) {
         log().error << "Failed to write data to file: " << filepath_;
-        return -1;
+        return Error("Failed to write data to file: " + filepath_);
     }
     
     currentSize_ += size;
     log().debug << "Wrote " << size << " bytes at offset " << offset 
                 << " (total size: " << currentSize_ << ")";
     
-    return offset;
+    return Roe<int64_t>(offset);
 }
 
-int64_t BlockFile::read(int64_t offset, void* data, size_t size) {
+BlockFile::Roe<int64_t> BlockFile::read(int64_t offset, void* data, size_t size) {
     if (!isOpen()) {
         log().error << "File is not open: " << filepath_;
-        return -1;
+        return Error("File is not open: " + filepath_);
     }
     
     // Seek to the offset
@@ -94,7 +99,7 @@ int64_t BlockFile::read(int64_t offset, void* data, size_t size) {
     
     if (!file_.good()) {
         log().error << "Failed to seek to offset " << offset << " in file: " << filepath_;
-        return -1;
+        return Error("Failed to seek to offset " + std::to_string(offset));
     }
     
     // Read data
@@ -106,7 +111,7 @@ int64_t BlockFile::read(int64_t offset, void* data, size_t size) {
         log().warning << "Read " << bytesRead << " bytes, expected " << size;
     }
     
-    return bytesRead;
+    return Roe<int64_t>(bytesRead);
 }
 
 bool BlockFile::canFit(size_t size) const {

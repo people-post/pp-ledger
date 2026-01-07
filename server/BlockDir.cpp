@@ -17,7 +17,7 @@ BlockDir::~BlockDir() {
     flush();
 }
 
-bool BlockDir::init(const Config& config) {
+BlockDir::Roe<void> BlockDir::init(const Config& config) {
     dirPath_ = config.dirPath;
     maxFileSize_ = config.maxFileSize;
     currentFileId_ = 0;
@@ -33,14 +33,14 @@ bool BlockDir::init(const Config& config) {
         }
     } catch (const std::exception& e) {
         log().error << "Failed to create directory " << dirPath_ << ": " << e.what();
-        return false;
+        return Error("Failed to create directory: " + std::string(e.what()));
     }
     
     // Load existing index if it exists
     if (std::filesystem::exists(indexFilePath_)) {
         if (!loadIndex()) {
             log().error << "Failed to load index file";
-            return false;
+            return Error("Failed to load index file");
         }
         log().info << "Loaded index with " << blockIndex_.size() << " blocks";
         
@@ -65,7 +65,8 @@ bool BlockDir::init(const Config& config) {
         if (std::filesystem::exists(filepath)) {
             auto ukpBlockFile = std::make_unique<BlockFile>();
             BlockFile::Config config(filepath, maxFileSize_);
-            if (ukpBlockFile->init(config)) {
+            auto result = ukpBlockFile->init(config);
+            if (result.isOk()) {
                 ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
                 log().debug << "Opened existing block file: " << filepath;
             } else {
@@ -77,29 +78,31 @@ bool BlockDir::init(const Config& config) {
     log().info << "BlockDir initialized with " << ukpBlockFiles_.size() 
                << " files and " << blockIndex_.size() << " blocks";
     
-    return true;
+    return {};
 }
 
-bool BlockDir::writeBlock(uint64_t blockId, const void* data, size_t size) {
+BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void* data, size_t size) {
     // Check if block already exists
     if (hasBlock(blockId)) {
         log().warning << "Block " << blockId << " already exists, overwriting not supported";
-        return false;
+        return Error("Block already exists");
     }
     
     // Get active block file for writing
     BlockFile* blockFile = getActiveBlockFile(size);
     if (!blockFile) {
         log().error << "Failed to get active block file";
-        return false;
+        return Error("Failed to get active block file");
     }
     
     // Write data to the file
-    int64_t offset = blockFile->write(data, size);
-    if (offset < 0) {
+    auto result = blockFile->write(data, size);
+    if (!result.isOk()) {
         log().error << "Failed to write block " << blockId << " to file";
-        return false;
+        return Error("Failed to write block to file: " + result.error().message);
     }
+    
+    int64_t offset = result.value();
     
     // Update index
     blockIndex_[blockId] = BlockLocation(currentFileId_, offset, size);
@@ -110,37 +113,43 @@ bool BlockDir::writeBlock(uint64_t blockId, const void* data, size_t size) {
     // Save index after each write (for durability)
     saveIndex();
     
-    return true;
+    return {};
 }
 
-int64_t BlockDir::readBlock(uint64_t blockId, void* data, size_t maxSize) {
+BlockDir::Roe<int64_t> BlockDir::readBlock(uint64_t blockId, void* data, size_t maxSize) {
     // Get block location from index
     BlockLocation location;
     if (!getBlockLocation(blockId, location)) {
         log().error << "Block " << blockId << " not found in index";
-        return -1;
+        return Error("Block not found in index");
     }
     
     // Check buffer size
     if (maxSize < location.size) {
         log().error << "Buffer too small for block " << blockId 
                     << " (need " << location.size << ", have " << maxSize << ")";
-        return -1;
+        return Error("Buffer too small for block");
     }
     
     // Get the block file
     BlockFile* blockFile = getBlockFile(location.fileId);
     if (!blockFile) {
         log().error << "Block file " << location.fileId << " not found";
-        return -1;
+        return Error("Block file not found");
     }
     
     // Read data from the file
-    int64_t bytesRead = blockFile->read(location.offset, data, location.size);
+    auto result = blockFile->read(location.offset, data, location.size);
+    if (!result.isOk()) {
+        log().error << "Failed to read block " << blockId << ": " << result.error().message;
+        return Error("Failed to read block: " + result.error().message);
+    }
+    
+    int64_t bytesRead = result.value();
     if (bytesRead != static_cast<int64_t>(location.size)) {
         log().error << "Failed to read block " << blockId << " (read " 
                     << bytesRead << " bytes, expected " << location.size << ")";
-        return -1;
+        return Error("Incomplete block read");
     }
     
     log().debug << "Read block " << blockId << " from file " << location.fileId 
@@ -179,7 +188,8 @@ BlockFile* BlockDir::createBlockFile(uint32_t fileId) {
     auto ukpBlockFile = std::make_unique<BlockFile>();
     
     BlockFile::Config config(filepath, maxFileSize_);
-    if (!ukpBlockFile->init(config)) {
+    auto result = ukpBlockFile->init(config);
+    if (!result.isOk()) {
         log().error << "Failed to create block file: " << filepath;
         return nullptr;
     }
@@ -214,7 +224,8 @@ BlockFile* BlockDir::getBlockFile(uint32_t fileId) {
     if (std::filesystem::exists(filepath)) {
         auto ukpBlockFile = std::make_unique<BlockFile>();
         BlockFile::Config config(filepath, maxFileSize_);
-        if (ukpBlockFile->init(config)) {
+        auto result = ukpBlockFile->init(config);
+        if (result.isOk()) {
             BlockFile* pBlockFile = ukpBlockFile.get();
             ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
             return pBlockFile;

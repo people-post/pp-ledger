@@ -44,6 +44,13 @@ public:
             : dirPath(path), maxFileSize(size) {}
     };
     
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
     /**
      * Constructor
      */
@@ -61,27 +68,27 @@ public:
     /**
      * Initialize the block directory
      * @param config Configuration for the block directory
-     * @return true on success, false on error
+     * @return Roe<void> on success or error
      */
-    bool init(const Config& config);
+    Roe<void> init(const Config& config);
     
     /**
      * Write a block to storage
      * @param blockId Unique identifier for the block
      * @param data Block data to write
      * @param size Size of the data in bytes
-     * @return true on success, false on error
+     * @return Roe<void> on success or error
      */
-    bool writeBlock(uint64_t blockId, const void* data, size_t size);
+    Roe<void> writeBlock(uint64_t blockId, const void* data, size_t size);
     
     /**
      * Read a block from storage
      * @param blockId Unique identifier for the block
      * @param data Buffer to read data into (must be pre-allocated)
      * @param maxSize Maximum size of the buffer
-     * @return Number of bytes read, or -1 on error
+     * @return Roe<int64_t> with number of bytes read, or error
      */
-    int64_t readBlock(uint64_t blockId, void* data, size_t maxSize);
+    Roe<int64_t> readBlock(uint64_t blockId, void* data, size_t maxSize);
     
     /**
      * Get the location information for a block

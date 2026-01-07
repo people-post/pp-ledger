@@ -9,6 +9,27 @@
 
 namespace pp {
 
+// Base struct for convenient error handling
+struct RoeErrorBase {
+    int32_t code;
+    std::string message;
+    
+    // Default constructor
+    RoeErrorBase() : code(0), message("") {}
+    
+    // Constructor with code and message
+    RoeErrorBase(int32_t c, const std::string& msg) : code(c), message(msg) {}
+    
+    // Constructor with code and message (move)
+    RoeErrorBase(int32_t c, std::string&& msg) : code(c), message(std::move(msg)) {}
+    
+    // Constructor with message only (code defaults to -1)
+    explicit RoeErrorBase(const std::string& msg) : code(-1), message(msg) {}
+    
+    // Constructor with message only (move, code defaults to -1)
+    explicit RoeErrorBase(std::string&& msg) : code(-1), message(std::move(msg)) {}
+};
+
 template<typename T, typename E = std::string>
 class ResultOrError {
 public:
@@ -21,7 +42,19 @@ public:
         new (&storage_) T(std::move(value));
     }
     
-    // Constructors for error case
+    // Direct constructors for error case (allows implicit conversion from E)
+    // Only enabled when E is derived from RoeErrorBase to avoid ambiguity with value constructor
+    template<typename U = E, typename = typename std::enable_if<std::is_base_of<RoeErrorBase, U>::value>::type>
+    ResultOrError(const E& err) : hasValue_(false) {
+        new (&storage_) E(err);
+    }
+    
+    template<typename U = E, typename = typename std::enable_if<std::is_base_of<RoeErrorBase, U>::value>::type>
+    ResultOrError(E&& err) : hasValue_(false) {
+        new (&storage_) E(std::move(err));
+    }
+    
+    // Static factory methods for error case (kept for compatibility)
     static ResultOrError error(const E& err) {
         ResultOrError result;
         result.hasValue_ = false;
@@ -159,7 +192,19 @@ public:
     // Constructor for success case
     ResultOrError() : hasValue_(true) {}
     
-    // Constructor for error case
+    // Direct constructor for error case (allows implicit conversion from E)
+    // Only enabled when E is derived from RoeErrorBase
+    template<typename U = E, typename = typename std::enable_if<std::is_base_of<RoeErrorBase, U>::value>::type>
+    ResultOrError(const E& err) : hasValue_(false) {
+        new (&storage_) E(err);
+    }
+    
+    template<typename U = E, typename = typename std::enable_if<std::is_base_of<RoeErrorBase, U>::value>::type>
+    ResultOrError(E&& err) : hasValue_(false) {
+        new (&storage_) E(std::move(err));
+    }
+    
+    // Static factory methods for error case (kept for compatibility)
     static ResultOrError error(const E& err) {
         ResultOrError result;
         result.hasValue_ = false;
@@ -218,27 +263,6 @@ public:
 private:
     bool hasValue_;
     typename std::aligned_union<0, E>::type storage_;
-};
-
-// Base struct for convenient error handling
-struct RoeErrorBase {
-    int32_t code;
-    std::string message;
-    
-    // Default constructor
-    RoeErrorBase() : code(0), message("") {}
-    
-    // Constructor with code and message
-    RoeErrorBase(int32_t c, const std::string& msg) : code(c), message(msg) {}
-    
-    // Constructor with code and message (move)
-    RoeErrorBase(int32_t c, std::string&& msg) : code(c), message(std::move(msg)) {}
-    
-    // Constructor with message only (code defaults to -1)
-    explicit RoeErrorBase(const std::string& msg) : code(-1), message(msg) {}
-    
-    // Constructor with message only (move, code defaults to -1)
-    explicit RoeErrorBase(std::string&& msg) : code(-1), message(std::move(msg)) {}
 };
 
 } // namespace pp
