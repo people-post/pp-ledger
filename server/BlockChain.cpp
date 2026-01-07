@@ -3,20 +3,40 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 
 namespace pp {
 
-// Helper function to compute SHA-256 hash
+// Helper function to compute SHA-256 hash using OpenSSL 3.0 EVP API
 static std::string sha256(const std::string& input) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, input.c_str(), input.size());
-    SHA256_Final(hash, &sha256);
+    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+    if (!mdctx) {
+        throw std::runtime_error("Failed to create EVP_MD_CTX");
+    }
+    
+    const EVP_MD* md = EVP_sha256();
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hashLen = 0;
+    
+    if (EVP_DigestInit_ex(mdctx, md, nullptr) != 1) {
+        EVP_MD_CTX_free(mdctx);
+        throw std::runtime_error("EVP_DigestInit_ex failed");
+    }
+    
+    if (EVP_DigestUpdate(mdctx, input.c_str(), input.size()) != 1) {
+        EVP_MD_CTX_free(mdctx);
+        throw std::runtime_error("EVP_DigestUpdate failed");
+    }
+    
+    if (EVP_DigestFinal_ex(mdctx, hash, &hashLen) != 1) {
+        EVP_MD_CTX_free(mdctx);
+        throw std::runtime_error("EVP_DigestFinal_ex failed");
+    }
+    
+    EVP_MD_CTX_free(mdctx);
     
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+    for (unsigned int i = 0; i < hashLen; i++) {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return ss.str();
@@ -49,7 +69,7 @@ void Block::mineBlock(uint32_t difficulty) {
 
 // BlockChain implementation
 BlockChain::BlockChain(uint32_t difficulty)
-    : difficulty_(difficulty) {
+    : Module("blockchain"), difficulty_(difficulty) {
     createGenesisBlock();
 }
 

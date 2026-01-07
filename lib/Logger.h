@@ -107,8 +107,14 @@ public:
     void setLevel(Level level) { level_ = level; }
     Level getLevel() const { return level_; }
     
-    void addHandler(std::shared_ptr<Handler> handler);
+    void addHandler(std::shared_ptr<Handler> spHandler);
     void addFileHandler(const std::string& filename, Level level = Level::DEBUG);
+    
+    // Redirect logs to another logger
+    void redirectTo(const std::string& targetLoggerName);
+    void clearRedirect();
+    bool hasRedirect() const { return !redirectTarget_.empty(); }
+    const std::string& getRedirectTarget() const { return redirectTarget_; }
     
     const std::string& getName() const { return name_; }
     
@@ -122,7 +128,8 @@ private:
     
     std::string name_;
     Level level_;
-    std::vector<std::shared_ptr<Handler>> handlers_;
+    std::string redirectTarget_;
+    std::vector<std::shared_ptr<Handler>> spHandlers_;
     std::mutex mutex_;
 };
 

@@ -2,7 +2,7 @@
 
 namespace pp {
 
-Server::Server() : running_(false), port_(0) {
+Server::Server() : Module("server"), running_(false), port_(0) {
     // Constructor
 }
 

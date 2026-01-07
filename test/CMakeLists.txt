@@ -48,7 +48,19 @@ target_link_libraries(test_result PRIVATE
 
 add_test(NAME test_result COMMAND test_result)
 
-# Test for Wallet
+# Test for Module base class
+add_executable(test_module
+    test_module.cpp
+)
+
+target_link_libraries(test_module PRIVATE
+    ppledger_lib
+    ppledger_client
+    ppledger_server
+    crypto
+)
+
+add_test(NAME test_module COMMAND test_module)# Test for Wallet
 add_executable(test_wallet
     test_wallet.cpp
 )

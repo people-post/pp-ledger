@@ -38,6 +38,18 @@ pp-ledger/
 - **Functions**: camelCase (e.g., `getLogger()`, `isConnected()`)
 - **Private members**: camelCase with trailing underscore (e.g., `socketFd_`, `clientPort_`, `isConnected_`)
 
+### Pointer and Smart Pointer Naming
+- **Unique pointers**: `ukp` prefix (e.g., `ukpBlockFile`, `ukpConnection`)
+- **Shared pointers**: `sp` prefix (e.g., `spLogger`, `spClient`)
+- **Raw pointers**: `p` prefix (e.g., `pBuffer`, `pData`)
+
+**Examples:**
+```cpp
+std::unique_ptr<BlockFile> ukpBlockFile = std::make_unique<BlockFile>();
+std::shared_ptr<Logger> spLogger = std::make_shared<Logger>();
+char* pBuffer = new char[1024];
+```
+
 ## C++ Standards
 
 - **C++ Version**: C++17

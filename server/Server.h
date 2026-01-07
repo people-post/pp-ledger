@@ -1,11 +1,12 @@
 #ifndef PP_LEDGER_SERVER_H
 #define PP_LEDGER_SERVER_H
 
+#include "Module.h"
 #include <string>
 
 namespace pp {
 
-class Server {
+class Server : public Module {
 public:
     Server();
     ~Server();

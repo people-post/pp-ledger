@@ -1,11 +1,12 @@
 #ifndef PP_LEDGER_CLIENT_H
 #define PP_LEDGER_CLIENT_H
 
+#include "Module.h"
 #include <string>
 
 namespace pp {
 
-class Client {
+class Client : public Module {
 public:
     Client();
     ~Client();

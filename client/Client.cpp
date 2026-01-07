@@ -2,7 +2,7 @@
 
 namespace pp {
 
-Client::Client() : connected_(false) {
+Client::Client() : Module("client"), connected_(false) {
     // Constructor
 }
 

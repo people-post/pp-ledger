@@ -107,6 +107,13 @@ Logger::Logger(const std::string& name)
 }
 
 void Logger::log(Level level, const std::string& message) {
+    // Check for redirect first (before checking level)
+    if (!redirectTarget_.empty()) {
+        Logger& targetLogger = getLogger(redirectTarget_);
+        targetLogger.log(level, message);
+        return;
+    }
+    
     if (level < level_) {
         return;
     }
@@ -114,8 +121,8 @@ void Logger::log(Level level, const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::string formattedMessage = formatMessage(level, message);
     
-    for (auto& handler : handlers_) {
-        handler->emit(level, name_, formattedMessage);
+    for (auto& spHandler : spHandlers_) {
+        spHandler->emit(level, name_, formattedMessage);
     }
 }
 
@@ -141,15 +148,25 @@ std::string Logger::levelToString(Level level) {
     }
 }
 
-void Logger::addHandler(std::shared_ptr<Handler> handler) {
+void Logger::addHandler(std::shared_ptr<Handler> spHandler) {
     std::lock_guard<std::mutex> lock(mutex_);
-    handlers_.push_back(handler);
+    spHandlers_.push_back(spHandler);
 }
 
 void Logger::addFileHandler(const std::string& filename, Level level) {
-    auto handler = std::make_shared<FileHandler>(filename);
-    handler->setLevel(level);
-    addHandler(handler);
+    auto spHandler = std::make_shared<FileHandler>(filename);
+    spHandler->setLevel(level);
+    addHandler(spHandler);
+}
+
+void Logger::redirectTo(const std::string& targetLoggerName) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    redirectTarget_ = targetLoggerName;
+}
+
+void Logger::clearRedirect() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    redirectTarget_.clear();
 }
 
 // Global logger management functions

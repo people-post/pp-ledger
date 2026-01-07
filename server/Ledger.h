@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Module.h"
 #include "BlockChain.h"
 #include "Wallet.h"
 #include "ResultOrError.hpp"
@@ -12,7 +13,7 @@
 
 namespace pp {
 
-class Ledger {
+class Ledger : public Module {
 public:
     Ledger(uint32_t blockchainDifficulty = 2);
     ~Ledger() = default;
@@ -46,8 +47,8 @@ private:
     std::string packTransactions() const;
     std::string formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount);
     
-    std::map<std::string, std::unique_ptr<Wallet>> wallets_;
-    std::unique_ptr<BlockChain> blockchain_;
+    std::map<std::string, std::unique_ptr<Wallet>> ukpWallets_;
+    std::unique_ptr<BlockChain> ukpBlockchain_;
     std::vector<std::string> pendingTransactions_;
     mutable std::mutex mutex_;
 };

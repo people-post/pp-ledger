@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Treat warnings as errors
+add_compile_options(-Werror)
+
 # Add subdirectories for each component
 add_subdirectory(lib)
 add_subdirectory(client)

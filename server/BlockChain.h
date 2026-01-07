@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Module.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -21,7 +22,7 @@ struct Block {
     void mineBlock(uint32_t difficulty);
 };
 
-class BlockChain {
+class BlockChain : public Module {
 public:
     BlockChain(uint32_t difficulty = 2);
     ~BlockChain() = default;

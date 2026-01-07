@@ -4,6 +4,8 @@ add_library(ppledger_lib STATIC
     Lib.h
     Logger.cpp
     Logger.h
+    Module.cpp
+    Module.h
     ResultOrError.hpp
     TcpClient.cpp
     TcpClient.h

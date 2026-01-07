@@ -50,6 +50,54 @@ int main() {
     multiLogger.info << "Info: in both console and file";
     multiLogger.warning << "Warning: in both console and file";
     
+    std::cout << "\n7. Testing logger redirect:\n";
+    auto& sourceLogger = pp::logging::getLogger("source");
+    auto& targetLogger = pp::logging::getLogger("target");
+    
+    // Set different levels to show redirect works
+    sourceLogger.setLevel(pp::logging::Level::DEBUG);
+    targetLogger.setLevel(pp::logging::Level::INFO);
+    
+    std::cout << "Before redirect:\n";
+    sourceLogger.info << "Message from source logger";
+    targetLogger.info << "Message from target logger";
+    
+    std::cout << "\nAfter redirecting source -> target:\n";
+    sourceLogger.redirectTo("target");
+    
+    // Check redirect status
+    if (sourceLogger.hasRedirect()) {
+        std::cout << "Source logger is redirected to: " << sourceLogger.getRedirectTarget() << "\n";
+    }
+    
+    sourceLogger.info << "This should appear as target logger";
+    sourceLogger.debug << "This debug should NOT appear (target level is INFO)";
+    targetLogger.warning << "Direct message to target";
+    
+    std::cout << "\nAfter clearing redirect:\n";
+    sourceLogger.clearRedirect();
+    
+    if (!sourceLogger.hasRedirect()) {
+        std::cout << "Redirect cleared successfully\n";
+    }
+    
+    sourceLogger.info << "Back to source logger";
+    
+    std::cout << "\n8. Testing nested redirect (a.b -> c.d):\n";
+    auto& loggerAB = pp::logging::getLogger("a.b");
+    auto& loggerCD = pp::logging::getLogger("c.d");
+    
+    loggerCD.setLevel(pp::logging::Level::WARNING);
+    
+    std::cout << "Before redirect:\n";
+    loggerAB.info << "Message from a.b";
+    
+    std::cout << "\nAfter redirect a.b -> c.d:\n";
+    loggerAB.redirectTo("c.d");
+    loggerAB.info << "This info should NOT appear (c.d level is WARNING)";
+    loggerAB.warning << "This warning SHOULD appear via c.d";
+    loggerAB.error << "This error SHOULD appear via c.d";
+    
     std::cout << "\n=== Test Complete ===\n";
     std::cout << "Check test.log and detailed.log for file output\n";
     

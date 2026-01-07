@@ -8,6 +8,10 @@ add_library(ppledger_server STATIC
     Ledger.h
     Wallet.cpp
     Wallet.h
+    BlockFile.cpp
+    BlockFile.h
+    BlockDir.cpp
+    BlockDir.h
 )
 
 target_include_directories(ppledger_server PUBLIC
