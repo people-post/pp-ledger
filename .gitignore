@@ -49,3 +49,5 @@ build-*/
 
 # External libraries
 libp2p/
+libp2p-install/
+libp2p-artifact.tar.gz

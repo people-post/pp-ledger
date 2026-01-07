@@ -1,0 +1,74 @@
+name: Build pp-ledger
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libssl-dev \
+            libboost-all-dev \
+            libfmt-dev \
+            python3
+      
+      - name: Download libp2p artifact (if available)
+        id: download-libp2p
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-libp2p.yml
+          name: libp2p-build-ubuntu-latest
+          path: .
+          if_no_artifact_found: warn
+      
+      - name: Extract libp2p artifact
+        if: steps.download-libp2p.outcome == 'success'
+        run: |
+          if [ -f libp2p-artifact.tar.gz ]; then
+            tar -xzf libp2p-artifact.tar.gz
+            echo "LIBP2P_AVAILABLE=1" >> $GITHUB_ENV
+          else
+            echo "LIBP2P_AVAILABLE=0" >> $GITHUB_ENV
+          fi
+      
+      - name: Configure CMake without libp2p
+        if: env.LIBP2P_AVAILABLE != '1'
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+      
+      - name: Configure CMake with libp2p
+        if: env.LIBP2P_AVAILABLE == '1'
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+                -DLIBP2P_ROOT=${{ github.workspace }}/libp2p-install \
+                -DUSE_LIBP2P=ON \
+                ..
+      
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+      
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
