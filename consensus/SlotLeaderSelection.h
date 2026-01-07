@@ -8,7 +8,7 @@
 #include <random>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 /**
  * Verifiable Random Function (VRF) for slot leader election
@@ -110,5 +110,5 @@ private:
     std::string combineHashes(const std::vector<std::string>& hashes) const;
 };
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

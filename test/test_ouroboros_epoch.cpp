@@ -1,7 +1,7 @@
 #include "EpochManager.h"
 #include <gtest/gtest.h>
 
-using namespace pp::ouroboros;
+using namespace pp::consensus;
 
 class EpochManagerTest : public ::testing::Test {
 protected:

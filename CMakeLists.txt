@@ -22,7 +22,7 @@ FetchContent_MakeAvailable(googletest)
 
 # Add subdirectories for each component
 add_subdirectory(lib)
-add_subdirectory(ouroboros)
+add_subdirectory(consensus)
 add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(app)

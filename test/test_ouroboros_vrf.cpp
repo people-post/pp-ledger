@@ -1,7 +1,7 @@
 #include "SlotLeaderSelection.h"
 #include <gtest/gtest.h>
 
-using namespace pp::ouroboros;
+using namespace pp::consensus;
 
 class VRFTest : public ::testing::Test {
 protected:

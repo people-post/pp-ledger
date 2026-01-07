@@ -4,9 +4,9 @@
 #include <algorithm>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
-VRF::VRF() : Module("ouroboros.vrf") {
+VRF::VRF() : Module("consensus.vrf") {
     log().info << "VRF module initialized";
 }
 
@@ -123,7 +123,7 @@ uint64_t VRF::outputToNumber(const std::string& output) const {
 
 // ========== EpochNonce Implementation ==========
 
-EpochNonce::EpochNonce() : Module("ouroboros.epoch_nonce") {
+EpochNonce::EpochNonce() : Module("consensus.epoch_nonce") {
     log().info << "Epoch nonce module initialized";
 }
 
@@ -183,5 +183,5 @@ std::string EpochNonce::combineHashes(const std::vector<std::string>& hashes) co
     return combined;
 }
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

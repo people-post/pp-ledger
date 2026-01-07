@@ -1,32 +1,32 @@
-#include "OuroborosConsensus.h"
+#include "Ouroboros.h"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-using namespace pp::ouroboros;
+using namespace pp::consensus;
 using ::testing::Ge;
 using ::testing::Le;
 using ::testing::AnyOf;
 using ::testing::Eq;
 
-class OuroborosConsensusTest : public ::testing::Test {
+class OuroborosTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        consensus = std::make_unique<OuroborosConsensus>(5, 10);
+        consensus = std::make_unique<Ouroboros>(5, 10);
     }
 
     void TearDown() override {
         consensus.reset();
     }
 
-    std::unique_ptr<OuroborosConsensus> consensus;
+    std::unique_ptr<Ouroboros> consensus;
 };
 
-TEST_F(OuroborosConsensusTest, CreatesWithCorrectConfiguration) {
+TEST_F(OuroborosTest, CreatesWithCorrectConfiguration) {
     EXPECT_EQ(consensus->getSlotDuration(), 5);
     EXPECT_EQ(consensus->getSlotsPerEpoch(), 10);
 }
 
-TEST_F(OuroborosConsensusTest, RegistersStakeholders) {
+TEST_F(OuroborosTest, RegistersStakeholders) {
     consensus->registerStakeholder("alice", 1000);
     consensus->registerStakeholder("bob", 2000);
     consensus->registerStakeholder("charlie", 500);
@@ -36,7 +36,7 @@ TEST_F(OuroborosConsensusTest, RegistersStakeholders) {
     EXPECT_EQ(consensus->getTotalStake(), 5000);
 }
 
-TEST_F(OuroborosConsensusTest, RejectsZeroStake) {
+TEST_F(OuroborosTest, RejectsZeroStake) {
     consensus->registerStakeholder("alice", 1000);
     size_t countBefore = consensus->getStakeholderCount();
     
@@ -45,7 +45,7 @@ TEST_F(OuroborosConsensusTest, RejectsZeroStake) {
     EXPECT_EQ(consensus->getStakeholderCount(), countBefore);
 }
 
-TEST_F(OuroborosConsensusTest, CalculatesSlotAndEpoch) {
+TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
     uint64_t currentSlot = consensus->getCurrentSlot();
     uint64_t currentEpoch = consensus->getCurrentEpoch();
     uint64_t slotInEpoch = consensus->getSlotInEpoch(currentSlot);
@@ -54,7 +54,7 @@ TEST_F(OuroborosConsensusTest, CalculatesSlotAndEpoch) {
     EXPECT_EQ(currentEpoch, currentSlot / 10);
 }
 
-TEST_F(OuroborosConsensusTest, SelectsSlotLeadersDeterministically) {
+TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
     consensus->registerStakeholder("alice", 1000);
     consensus->registerStakeholder("bob", 2000);
     consensus->registerStakeholder("charlie", 500);
@@ -85,7 +85,7 @@ TEST_F(OuroborosConsensusTest, SelectsSlotLeadersDeterministically) {
     }
 }
 
-TEST_F(OuroborosConsensusTest, VerifiesSlotLeadership) {
+TEST_F(OuroborosTest, VerifiesSlotLeadership) {
     consensus->registerStakeholder("alice", 1000);
     consensus->registerStakeholder("bob", 2000);
     
@@ -102,7 +102,7 @@ TEST_F(OuroborosConsensusTest, VerifiesSlotLeadership) {
     EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
 }
 
-TEST_F(OuroborosConsensusTest, UpdatesStake) {
+TEST_F(OuroborosTest, UpdatesStake) {
     consensus->registerStakeholder("alice", 1000);
     consensus->registerStakeholder("bob", 2000);
     
@@ -112,7 +112,7 @@ TEST_F(OuroborosConsensusTest, UpdatesStake) {
     EXPECT_EQ(consensus->getTotalStake(), oldTotal + 500);
 }
 
-TEST_F(OuroborosConsensusTest, HandlesStakeUpdateForUnknownStakeholder) {
+TEST_F(OuroborosTest, HandlesStakeUpdateForUnknownStakeholder) {
     consensus->registerStakeholder("alice", 1000);
     uint64_t oldTotal = consensus->getTotalStake();
     
@@ -122,7 +122,7 @@ TEST_F(OuroborosConsensusTest, HandlesStakeUpdateForUnknownStakeholder) {
     EXPECT_EQ(consensus->getTotalStake(), oldTotal);
 }
 
-TEST_F(OuroborosConsensusTest, RemovesStakeholder) {
+TEST_F(OuroborosTest, RemovesStakeholder) {
     consensus->registerStakeholder("alice", 1000);
     consensus->registerStakeholder("bob", 2000);
     consensus->registerStakeholder("charlie", 500);
@@ -133,7 +133,7 @@ TEST_F(OuroborosConsensusTest, RemovesStakeholder) {
     EXPECT_EQ(consensus->getStakeholderCount(), 2);
 }
 
-TEST_F(OuroborosConsensusTest, FailsToRemoveNonExistentStakeholder) {
+TEST_F(OuroborosTest, FailsToRemoveNonExistentStakeholder) {
     consensus->registerStakeholder("alice", 1000);
     
     bool removed = consensus->removeStakeholder("nonexistent");
@@ -142,7 +142,7 @@ TEST_F(OuroborosConsensusTest, FailsToRemoveNonExistentStakeholder) {
     EXPECT_EQ(consensus->getStakeholderCount(), 1);
 }
 
-TEST_F(OuroborosConsensusTest, ReturnsAllStakeholders) {
+TEST_F(OuroborosTest, ReturnsAllStakeholders) {
     consensus->registerStakeholder("alice", 1500);
     consensus->registerStakeholder("bob", 2000);
     consensus->registerStakeholder("dave", 1500);
@@ -162,24 +162,24 @@ TEST_F(OuroborosConsensusTest, ReturnsAllStakeholders) {
     EXPECT_TRUE(ids.count("dave"));
 }
 
-TEST_F(OuroborosConsensusTest, UpdatesSlotDuration) {
+TEST_F(OuroborosTest, UpdatesSlotDuration) {
     consensus->setSlotDuration(10);
     EXPECT_EQ(consensus->getSlotDuration(), 10);
 }
 
-TEST_F(OuroborosConsensusTest, UpdatesSlotsPerEpoch) {
+TEST_F(OuroborosTest, UpdatesSlotsPerEpoch) {
     consensus->setSlotsPerEpoch(20);
     EXPECT_EQ(consensus->getSlotsPerEpoch(), 20);
 }
 
-TEST_F(OuroborosConsensusTest, SetsGenesisTime) {
+TEST_F(OuroborosTest, SetsGenesisTime) {
     int64_t genesisTime = 1234567890;
     consensus->setGenesisTime(genesisTime);
     EXPECT_EQ(consensus->getGenesisTime(), genesisTime);
 }
 
-TEST_F(OuroborosConsensusTest, ReturnsErrorWhenNoStakeholders) {
-    OuroborosConsensus emptyConsensus(1, 10);
+TEST_F(OuroborosTest, ReturnsErrorWhenNoStakeholders) {
+    Ouroboros emptyConsensus(1, 10);
     auto result = emptyConsensus.getSlotLeader(0);
     
     EXPECT_TRUE(result.isError());
@@ -188,17 +188,17 @@ TEST_F(OuroborosConsensusTest, ReturnsErrorWhenNoStakeholders) {
 }
 
 // Test fixture for tests that need stakeholders
-class OuroborosConsensusWithStakeholdersTest : public OuroborosConsensusTest {
+class OuroborosWithStakeholdersTest : public OuroborosTest {
 protected:
     void SetUp() override {
-        OuroborosConsensusTest::SetUp();
+        OuroborosTest::SetUp();
         consensus->registerStakeholder("alice", 1000);
         consensus->registerStakeholder("bob", 2000);
         consensus->registerStakeholder("charlie", 500);
     }
 };
 
-TEST_F(OuroborosConsensusWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
+TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     uint64_t slot1 = 0;
     uint64_t slot2 = 100;  // Different epoch
     

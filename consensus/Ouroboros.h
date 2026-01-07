@@ -11,7 +11,7 @@
 #include <cstdint>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 struct StakeholderInfo {
     std::string id;
@@ -31,16 +31,16 @@ struct StakeholderInfo {
  * - Stake-based slot leader selection
  * - Chain selection rules
  */
-class OuroborosConsensus : public Module {
+class Ouroboros : public Module {
 public:
     /**
      * Constructor
      * @param slotDuration Duration of each slot in seconds
      * @param slotsPerEpoch Number of slots in each epoch
      */
-    explicit OuroborosConsensus(uint64_t slotDuration = 1, uint64_t slotsPerEpoch = 21600);
+    explicit Ouroboros(uint64_t slotDuration = 1, uint64_t slotsPerEpoch = 21600);
     
-    ~OuroborosConsensus() override = default;
+    ~Ouroboros() override = default;
     
     // Stakeholder management
     void registerStakeholder(const std::string& id, uint64_t stake);
@@ -100,5 +100,5 @@ private:
     int64_t genesisTime_;        // Timestamp of genesis block
 };
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

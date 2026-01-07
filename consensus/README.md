@@ -1,4 +1,4 @@
-# Ouroboros Consensus Library
+# Consensus Library
 
 This directory contains the implementation of the Ouroboros Proof-of-Stake consensus protocol for the pp-ledger blockchain.
 
@@ -21,8 +21,8 @@ Ouroboros is a provably secure proof-of-stake blockchain protocol. This implemen
   - Query operations for blocks
   - Validation methods
 
-#### 2. Consensus Core (`OuroborosConsensus.h/cpp`)
-- **OuroborosConsensus**: Main consensus protocol implementation
+#### 2. Consensus Core (`Ouroboros.h/cpp`)
+- **Ouroboros**: Main consensus protocol implementation
   - Stakeholder registration and management
   - Slot and epoch time management
   - Slot leader selection
@@ -83,14 +83,14 @@ Ouroboros is a provably secure proof-of-stake blockchain protocol. This implemen
 ## Usage Example
 
 ```cpp
-#include "OuroborosConsensus.h"
+#include "Ouroboros.h"
 #include "EpochManager.h"
 #include "SlotLeaderSelection.h"
 
-using namespace pp::ouroboros;
+using namespace pp::consensus;
 
 // Initialize consensus
-OuroborosConsensus consensus(1, 21600); // 1s slots, 21600 per epoch
+Ouroboros consensus(1, 21600); // 1s slots, 21600 per epoch
 
 // Register stakeholders
 consensus.registerStakeholder("alice", 1000);
@@ -170,7 +170,7 @@ This library uses the following from the `lib` directory:
 To integrate with the main blockchain:
 
 1. Implement `IBlock` and `IBlockChain` interfaces in your block/blockchain classes
-2. Use `OuroborosConsensus` for leader selection and validation
+2. Use `Ouroboros` for leader selection and validation
 3. Use `EpochManager` to track epochs and slots
 4. Use `VRF` for cryptographic proof of leadership
 

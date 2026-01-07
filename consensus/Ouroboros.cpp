@@ -1,4 +1,4 @@
-#include "OuroborosConsensus.h"
+#include "Ouroboros.h"
 #include <algorithm>
 #include <chrono>
 #include <sstream>
@@ -6,10 +6,10 @@
 #include <numeric>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
-OuroborosConsensus::OuroborosConsensus(uint64_t slotDuration, uint64_t slotsPerEpoch)
-    : Module("ouroboros.consensus")
+Ouroboros::Ouroboros(uint64_t slotDuration, uint64_t slotsPerEpoch)
+    : Module("consensus")
     , slotDuration_(slotDuration)
     , slotsPerEpoch_(slotsPerEpoch)
     , genesisTime_(0) {
@@ -24,7 +24,7 @@ OuroborosConsensus::OuroborosConsensus(uint64_t slotDuration, uint64_t slotsPerE
                   std::to_string(slotsPerEpoch_);
 }
 
-void OuroborosConsensus::registerStakeholder(const std::string& id, uint64_t stake) {
+void Ouroboros::registerStakeholder(const std::string& id, uint64_t stake) {
     if (stake == 0) {
         log().warning << "Cannot register stakeholder '" + id + "' with zero stake";
         return;
@@ -34,7 +34,7 @@ void OuroborosConsensus::registerStakeholder(const std::string& id, uint64_t sta
     log().info << "Registered stakeholder '" + id + "' with stake: " + std::to_string(stake);
 }
 
-void OuroborosConsensus::updateStake(const std::string& id, uint64_t newStake) {
+void Ouroboros::updateStake(const std::string& id, uint64_t newStake) {
     auto it = stakeholders_.find(id);
     if (it == stakeholders_.end()) {
         log().warning << "Cannot update stake for unknown stakeholder: " + id;
@@ -47,7 +47,7 @@ void OuroborosConsensus::updateStake(const std::string& id, uint64_t newStake) {
                   std::to_string(oldStake) + " to " + std::to_string(newStake);
 }
 
-bool OuroborosConsensus::removeStakeholder(const std::string& id) {
+bool Ouroboros::removeStakeholder(const std::string& id) {
     auto it = stakeholders_.find(id);
     if (it == stakeholders_.end()) {
         log().warning << "Cannot remove unknown stakeholder: " + id;
@@ -59,7 +59,7 @@ bool OuroborosConsensus::removeStakeholder(const std::string& id) {
     return true;
 }
 
-uint64_t OuroborosConsensus::getCurrentSlot() const {
+uint64_t Ouroboros::getCurrentSlot() const {
     auto now = std::chrono::system_clock::now();
     int64_t currentTime = std::chrono::duration_cast<std::chrono::seconds>(
         now.time_since_epoch()).count();
@@ -72,20 +72,20 @@ uint64_t OuroborosConsensus::getCurrentSlot() const {
     return static_cast<uint64_t>(elapsed / slotDuration_);
 }
 
-uint64_t OuroborosConsensus::getCurrentEpoch() const {
+uint64_t Ouroboros::getCurrentEpoch() const {
     uint64_t slot = getCurrentSlot();
     return slot / slotsPerEpoch_;
 }
 
-uint64_t OuroborosConsensus::getSlotInEpoch(uint64_t slot) const {
+uint64_t Ouroboros::getSlotInEpoch(uint64_t slot) const {
     return slot % slotsPerEpoch_;
 }
 
-int64_t OuroborosConsensus::getSlotStartTime(uint64_t slot) const {
+int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
     return genesisTime_ + static_cast<int64_t>(slot * slotDuration_);
 }
 
-ResultOrError<std::string, RoeErrorBase> OuroborosConsensus::getSlotLeader(uint64_t slot) const {
+ResultOrError<std::string, RoeErrorBase> Ouroboros::getSlotLeader(uint64_t slot) const {
     if (stakeholders_.empty()) {
         return RoeErrorBase(1, "No stakeholders registered");
     }
@@ -96,7 +96,7 @@ ResultOrError<std::string, RoeErrorBase> OuroborosConsensus::getSlotLeader(uint6
     return leader;
 }
 
-bool OuroborosConsensus::isSlotLeader(uint64_t slot, const std::string& stakeholderId) const {
+bool Ouroboros::isSlotLeader(uint64_t slot, const std::string& stakeholderId) const {
     auto result = getSlotLeader(slot);
     if (!result.isOk()) {
         return false;
@@ -105,7 +105,7 @@ bool OuroborosConsensus::isSlotLeader(uint64_t slot, const std::string& stakehol
     return result.value() == stakeholderId;
 }
 
-std::string OuroborosConsensus::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
+std::string Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
     // Simple deterministic leader selection based on stake weight
     // In production, this would use VRF (Verifiable Random Function)
     
@@ -137,7 +137,7 @@ std::string OuroborosConsensus::selectSlotLeader(uint64_t slot, uint64_t epoch) 
     return stakeholders_.begin()->first;
 }
 
-std::string OuroborosConsensus::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
+std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
     // Simple hash function (in production, use cryptographic hash)
     std::stringstream ss;
     ss << "slot:" << slot << ":epoch:" << epoch;
@@ -155,18 +155,18 @@ std::string OuroborosConsensus::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) 
     return ss.str();
 }
 
-uint64_t OuroborosConsensus::getTotalStake() const {
+uint64_t Ouroboros::getTotalStake() const {
     return std::accumulate(stakeholders_.begin(), stakeholders_.end(), uint64_t(0),
                           [](uint64_t sum, const auto& pair) {
                               return sum + pair.second;
                           });
 }
 
-size_t OuroborosConsensus::getStakeholderCount() const {
+size_t Ouroboros::getStakeholderCount() const {
     return stakeholders_.size();
 }
 
-std::vector<StakeholderInfo> OuroborosConsensus::getStakeholders() const {
+std::vector<StakeholderInfo> Ouroboros::getStakeholders() const {
     std::vector<StakeholderInfo> result;
     result.reserve(stakeholders_.size());
     
@@ -177,7 +177,7 @@ std::vector<StakeholderInfo> OuroborosConsensus::getStakeholders() const {
     return result;
 }
 
-ResultOrError<bool, RoeErrorBase> OuroborosConsensus::validateBlock(
+ResultOrError<bool, RoeErrorBase> Ouroboros::validateBlock(
     const IBlock& block,
     const IBlockChain& chain) const {
     
@@ -215,12 +215,12 @@ ResultOrError<bool, RoeErrorBase> OuroborosConsensus::validateBlock(
     return true;
 }
 
-bool OuroborosConsensus::validateSlotLeader(const IBlock& block, uint64_t slot) const {
+bool Ouroboros::validateSlotLeader(const IBlock& block, uint64_t slot) const {
     std::string expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
     return block.getSlotLeader() == expectedLeader;
 }
 
-bool OuroborosConsensus::validateBlockTiming(const IBlock& block) const {
+bool Ouroboros::validateBlockTiming(const IBlock& block) const {
     uint64_t slot = block.getSlot();
     int64_t slotStart = getSlotStartTime(slot);
     int64_t slotEnd = slotStart + static_cast<int64_t>(slotDuration_);
@@ -230,7 +230,7 @@ bool OuroborosConsensus::validateBlockTiming(const IBlock& block) const {
     return blockTime >= slotStart && blockTime < slotEnd;
 }
 
-ResultOrError<bool, RoeErrorBase> OuroborosConsensus::shouldSwitchChain(
+ResultOrError<bool, RoeErrorBase> Ouroboros::shouldSwitchChain(
     const IBlockChain& currentChain,
     const IBlockChain& candidateChain) const {
     
@@ -256,7 +256,7 @@ ResultOrError<bool, RoeErrorBase> OuroborosConsensus::shouldSwitchChain(
     return true;
 }
 
-bool OuroborosConsensus::validateChainDensity(
+bool Ouroboros::validateChainDensity(
     const IBlockChain& chain,
     uint64_t fromSlot,
     uint64_t toSlot) const {
@@ -276,20 +276,20 @@ bool OuroborosConsensus::validateChainDensity(
     return density >= 0.5;
 }
 
-void OuroborosConsensus::setSlotDuration(uint64_t seconds) {
+void Ouroboros::setSlotDuration(uint64_t seconds) {
     slotDuration_ = seconds;
     log().info << "Slot duration updated to " + std::to_string(seconds) + " seconds";
 }
 
-void OuroborosConsensus::setSlotsPerEpoch(uint64_t slots) {
+void Ouroboros::setSlotsPerEpoch(uint64_t slots) {
     slotsPerEpoch_ = slots;
     log().info << "Slots per epoch updated to " + std::to_string(slots);
 }
 
-void OuroborosConsensus::setGenesisTime(int64_t timestamp) {
+void Ouroboros::setGenesisTime(int64_t timestamp) {
     genesisTime_ = timestamp;
     log().info << "Genesis time set to " + std::to_string(timestamp);
 }
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

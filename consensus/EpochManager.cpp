@@ -4,12 +4,12 @@
 #include <algorithm>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 // ========== EpochManager Implementation ==========
 
 EpochManager::EpochManager(uint64_t slotsPerEpoch, uint64_t slotDuration)
-    : Module("ouroboros.epoch_manager")
+    : Module("consensus.epoch_manager")
     , slotsPerEpoch_(slotsPerEpoch)
     , slotDuration_(slotDuration)
     , genesisTime_(0)
@@ -170,7 +170,7 @@ int64_t EpochManager::getSlotEndTime(uint64_t slot) const {
 // ========== SlotTimer Implementation ==========
 
 SlotTimer::SlotTimer(uint64_t slotDuration)
-    : Module("ouroboros.slot_timer")
+    : Module("consensus.slot_timer")
     , slotDuration_(slotDuration) {
     
     log().info << "Slot timer initialized with duration: " + 
@@ -230,5 +230,5 @@ void SlotTimer::setSlotDuration(uint64_t duration) {
     log().info << "Slot duration updated to " + std::to_string(duration) + "s";
 }
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

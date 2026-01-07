@@ -8,7 +8,7 @@
 #include <cstdint>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 /**
  * Epoch Manager
@@ -139,5 +139,5 @@ private:
     uint64_t slotDuration_;
 };
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

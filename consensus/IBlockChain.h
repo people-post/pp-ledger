@@ -5,7 +5,7 @@
 #include <vector>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 /**
  * Interface for BlockChain data structure.
@@ -30,5 +30,5 @@ public:
     virtual std::string getLastBlockHash() const = 0;
 };
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp

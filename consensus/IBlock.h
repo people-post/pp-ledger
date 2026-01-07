@@ -4,7 +4,7 @@
 #include <cstdint>
 
 namespace pp {
-namespace ouroboros {
+namespace consensus {
 
 /**
  * Interface for Block data structure.
@@ -34,5 +34,5 @@ public:
     virtual void setSlotLeader(const std::string& leader) = 0;
 };
 
-} // namespace ouroboros
+} // namespace consensus
 } // namespace pp
