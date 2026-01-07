@@ -25,11 +25,26 @@ sudo apt-get install -y \
   python3
 ```
 
+### Build cpp-libp2p
+
+First, build and install cpp-libp2p:
+
+```bash
+git clone https://github.com/libp2p/cpp-libp2p.git
+cd cpp-libp2p
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/path/to/libp2p-install ..
+make -j$(nproc)
+cmake --install .
+```
+
+Or download the pre-built artifact from GitHub Actions (see [docs/BUILDING_WITH_LIBP2P.md](docs/BUILDING_WITH_LIBP2P.md)).
+
 ### Build
 
 ```bash
 mkdir build && cd build
-cmake ..
+cmake -DLIBP2P_ROOT=/path/to/libp2p-install ..
 make -j$(nproc)
 ```
 
@@ -63,7 +78,7 @@ pp-ledger/
 | **consensus** | Ouroboros PoS consensus | ✅ Working |
 | **server** | Blockchain, Ledger, Wallet | ✅ Working |
 | **client** | Client library | ✅ Working |
-| **network** | P2P networking (FetchClient/Server) | ⚠️ Requires libp2p |
+| **network** | P2P networking (FetchClient/Server) | ✅ Working (C++20) |
 | **app** | Command-line applications | ✅ Working |
 
 ## Documentation
@@ -109,17 +124,24 @@ To build cpp-libp2p as a GitHub artifact:
 
 See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for details.
 
-## Current Limitations
+## Dependencies
 
-### Network Library
+### Required
 
-⚠️ The network library (FetchClient/FetchServer) uses older cpp-libp2p APIs and is currently disabled.
+- **C++17 compiler** (GCC 13+, Clang 14+) for core components
+- **C++20 compiler** for network library
+- **CMake 3.15+**
+- **Boost 1.70+** (system, thread, random, filesystem)
+- **OpenSSL 3.0+**
+- **libfmt** (for cpp-libp2p)
+- **cpp-libp2p** (built from source or GitHub artifact)
 
-**Impact:** Core blockchain functionality works perfectly, but P2P networking is not available.
+### Building cpp-libp2p
 
-**Workaround:** The project builds and runs without the network library.
-
-See [docs/BUILDING_WITH_LIBP2P.md](docs/BUILDING_WITH_LIBP2P.md) for technical details and future plans.
+See [docs/BUILDING_WITH_LIBP2P.md](docs/BUILDING_WITH_LIBP2P.md) for detailed instructions on:
+- Building cpp-libp2p from source
+- Downloading pre-built artifacts from GitHub Actions
+- Setting up Hunter dependencies (qtils, soralog, scale)
 
 ## Contributing
 
@@ -137,8 +159,8 @@ See [LICENSE](LICENSE) file for details.
 
 ## Technical Details
 
-- **Language:** C++17
+- **Language:** C++17 (core), C++20 (network)
 - **Build System:** CMake 3.15+
 - **Testing:** Google Test
-- **Dependencies:** Boost 1.70+, OpenSSL 3.0+, fmt
+- **Dependencies:** Boost 1.70+, OpenSSL 3.0+, fmt, cpp-libp2p
 - **CI/CD:** GitHub Actions

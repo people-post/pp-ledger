@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.14)
 # Network Library
 project(network VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+# Network library requires C++20 for cpp-libp2p compatibility (uses std::span)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Source files
@@ -28,19 +29,12 @@ target_include_directories(network
         ${CMAKE_SOURCE_DIR}/lib
 )
 
-# Link with lib and libp2p (if available)
+# Link with lib and libp2p
 target_link_libraries(network
     PUBLIC
         ppledger_lib
+        p2p::p2p
 )
-
-# Link libp2p if it was found
-if(TARGET p2p::p2p)
-    target_link_libraries(network PUBLIC p2p::p2p)
-    message(STATUS "Network library configured with cpp-libp2p")
-else()
-    message(WARNING "Network library configured WITHOUT cpp-libp2p - libp2p features will not be available")
-endif()
 
 # Set properties
 set_target_properties(network PROPERTIES

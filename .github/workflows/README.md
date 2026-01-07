@@ -2,6 +2,8 @@
 
 This directory contains automated workflows for building and testing the pp-ledger project.
 
+**Note:** All builds require cpp-libp2p as a dependency.
+
 ## Workflows
 
 ### 1. build-project.yml
@@ -12,17 +14,18 @@ This directory contains automated workflows for building and testing the pp-ledg
 - **Purpose:** Build and test the pp-ledger project
 - **Features:**
   - Installs system dependencies (Boost, OpenSSL, fmt)
-  - Attempts to download pre-built libp2p artifact (optional)
-  - Builds project with or without libp2p based on artifact availability
-  - Runs all applicable tests (134 tests)
+  - Downloads pre-built libp2p artifact (required)
+  - Builds all components including network library
+  - Runs all tests (134 tests)
   
 **Steps:**
 1. Checkout code
 2. Install system dependencies
-3. Try to download libp2p artifact from previous runs
-4. Configure CMake (with `-DUSE_LIBP2P=ON` if artifact available)
-5. Build with `make`
-6. Run tests with `ctest`
+3. Download libp2p artifact (required)
+4. Extract artifact
+5. Configure CMake with LIBP2P_ROOT
+6. Build with `make`
+7. Run tests with `ctest`
 
 ### 2. build-libp2p.yml
 
@@ -83,7 +86,7 @@ tar -xzf libp2p-artifact.tar.gz
 
 # Build with libp2p
 mkdir build && cd build
-cmake -DUSE_LIBP2P=ON -DLIBP2P_ROOT=../libp2p-install ..
+cmake -DLIBP2P_ROOT=../libp2p-install ..
 make -j$(nproc)
 ```
 
@@ -100,28 +103,18 @@ Both workflows install the following system packages:
 
 ## Current Limitations
 
-⚠️ **Network Library Compatibility Issue**
+### Network Integration Tests
 
-The network library code uses older cpp-libp2p APIs that are not compatible with the current version. Even with the libp2p artifact, the network library will fail to compile.
+Network integration tests (test_fetch) are currently placeholder tests because they require:
+- A running libp2p host instance
+- Proper peer setup and discovery
+- Network connectivity between test peers
 
-**What works:**
-- Core library
-- Consensus module
-- Client/Server
-- All non-network tests (134 passing)
+The network library itself builds and compiles successfully with libp2p support.
 
-**What doesn't work:**
-- Network library (FetchClient/FetchServer)
-- Network tests (test_fetch)
-
-See [docs/BUILDING_WITH_LIBP2P.md](../docs/BUILDING_WITH_LIBP2P.md) for details and future work needed.
+See [docs/BUILDING_WITH_LIBP2P.md](../docs/BUILDING_WITH_LIBP2P.md) for technical details.
 
 ## Workflow Configuration
-
-### Environment Variables
-
-build-project.yml sets:
-- `LIBP2P_AVAILABLE`: Set to "1" if artifact downloaded successfully, "0" otherwise
 
 ### Artifacts
 
@@ -136,20 +129,20 @@ build-project.yml sets:
 
 ## Troubleshooting
 
-### Artifact Not Found Warning
+### Artifact Not Found
 
-If you see "WARNING: Artifact not found" in build-project.yml:
-- This is normal if build-libp2p.yml hasn't run yet
-- The project will build without libp2p (which is fine)
-- Run build-libp2p.yml manually to create the artifact
+If you see "Artifact not found" in build-project.yml:
+- Run build-libp2p.yml workflow first to create the artifact
+- The artifact is required for all builds
+- Artifacts expire after 90 days
 
 ### Build Failures
 
 If builds fail:
-1. Check the workflow logs for specific errors
-2. Ensure dependencies are properly installed
-3. Try running locally with the same commands
-4. For network library issues, see docs/BUILDING_WITH_LIBP2P.md
+1. Ensure the libp2p artifact was successfully created
+2. Check workflow logs for specific errors
+3. Verify LIBP2P_ROOT is set correctly in the workflow
+4. For local builds, ensure libp2p-install directory structure is correct
 
 ### Artifact Expiration
 

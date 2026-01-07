@@ -26,41 +26,23 @@ jobs:
             libfmt-dev \
             python3
       
-      - name: Download libp2p artifact (if available)
-        id: download-libp2p
-        continue-on-error: true
+      - name: Download libp2p artifact
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-libp2p.yml
           name: libp2p-build-ubuntu-latest
           path: .
-          if_no_artifact_found: warn
       
       - name: Extract libp2p artifact
-        if: steps.download-libp2p.outcome == 'success'
         run: |
-          if [ -f libp2p-artifact.tar.gz ]; then
-            tar -xzf libp2p-artifact.tar.gz
-            echo "LIBP2P_AVAILABLE=1" >> $GITHUB_ENV
-          else
-            echo "LIBP2P_AVAILABLE=0" >> $GITHUB_ENV
-          fi
+          tar -xzf libp2p-artifact.tar.gz
       
-      - name: Configure CMake without libp2p
-        if: env.LIBP2P_AVAILABLE != '1'
-        run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-      
-      - name: Configure CMake with libp2p
-        if: env.LIBP2P_AVAILABLE == '1'
+      - name: Configure CMake
         run: |
           mkdir -p build
           cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DLIBP2P_ROOT=${{ github.workspace }}/libp2p-install \
-                -DUSE_LIBP2P=ON \
                 ..
       
       - name: Build

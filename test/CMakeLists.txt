@@ -151,26 +151,27 @@ target_link_libraries(test_blockdir PRIVATE
 
 gtest_discover_tests(test_blockdir)
 
-# Test for Network Fetch (only if libp2p is available)
-if(LIBP2P_FOUND)
-    add_executable(test_fetch
-        test_fetch.cpp
-    )
-    
-    target_include_directories(test_fetch PRIVATE
-        ${CMAKE_SOURCE_DIR}/network
-    )
-    
-    target_link_libraries(test_fetch PRIVATE
-        ppledger_lib
-        network
-        GTest::gtest_main
-        GTest::gmock
-    )
-    
-    gtest_discover_tests(test_fetch)
-    message(STATUS "Building test_fetch with libp2p support")
-else()
-    message(STATUS "Skipping test_fetch (libp2p not available)")
-endif()
+# Test for Network Fetch
+add_executable(test_fetch
+    test_fetch.cpp
+)
+
+# Network tests require C++20 for libp2p compatibility
+set_target_properties(test_fetch PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+
+target_include_directories(test_fetch PRIVATE
+    ${CMAKE_SOURCE_DIR}/network
+)
+
+target_link_libraries(test_fetch PRIVATE
+    ppledger_lib
+    network
+    GTest::gtest_main
+    GTest::gmock
+)
+
+gtest_discover_tests(test_fetch)
 

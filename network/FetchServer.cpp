@@ -1,6 +1,4 @@
 #include "FetchServer.h"
-#include <libp2p/protocol/common/asio/asio_scheduler.hpp>
-#include <boost/asio/buffer.hpp>
 
 namespace pp {
 namespace network {
@@ -32,9 +30,9 @@ void FetchServer::start(const std::string& protocol, RequestHandler handler) {
 
     // Set protocol handler
     host_->setProtocolHandler(
-        protocol_,
-        [this](auto&& stream_and_protocol) {
-            auto& stream = stream_and_protocol.stream;
+        {protocol_},  // StreamProtocols is a vector
+        [this](libp2p::StreamAndProtocol stream_and_protocol) {
+            auto stream = stream_and_protocol.stream;
             log().info << "Accepted new connection";
             handleStream(stream);
         });
@@ -52,7 +50,7 @@ void FetchServer::stop() {
     
     // Remove protocol handler
     if (!protocol_.empty()) {
-        host_->setProtocolHandler(protocol_, nullptr);
+        host_->setProtocolHandler({protocol_}, nullptr);
     }
     
     running_ = false;
@@ -64,10 +62,9 @@ void FetchServer::handleStream(std::shared_ptr<libp2p::connection::Stream> strea
 
     // Read data from the peer
     auto recv_buffer = std::make_shared<std::vector<uint8_t>>(4096);
-    stream->read(
-        gsl::span<uint8_t>(recv_buffer->data(), recv_buffer->size()),
-        recv_buffer->size(),
-        [this, stream, recv_buffer](auto&& read_res) {
+    stream->readSome(
+        libp2p::BytesOut(*recv_buffer),
+        [this, stream, recv_buffer](outcome::result<size_t> read_res) {
             if (!read_res) {
                 log().error << "Failed to read data: " + read_res.error().message();
                 stream->close([](auto&&) {});
@@ -91,10 +88,9 @@ void FetchServer::handleStream(std::shared_ptr<libp2p::connection::Stream> strea
 
             // Send response back to the peer
             auto send_buffer = std::make_shared<std::vector<uint8_t>>(response.begin(), response.end());
-            stream->write(
-                gsl::span<const uint8_t>(send_buffer->data(), send_buffer->size()),
-                send_buffer->size(),
-                [this, stream, send_buffer](auto&& write_res) {
+            stream->writeSome(
+                libp2p::BytesIn(*send_buffer),
+                [this, stream, send_buffer](outcome::result<size_t> write_res) {
                     if (!write_res) {
                         log().error << "Failed to write response: " + write_res.error().message();
                     } else {
@@ -102,7 +98,7 @@ void FetchServer::handleStream(std::shared_ptr<libp2p::connection::Stream> strea
                     }
 
                     // Close the stream
-                    stream->close([this](auto&& close_res) {
+                    stream->close([this](outcome::result<void> close_res) {
                         if (!close_res) {
                             log().error << "Failed to close stream: " + close_res.error().message();
                         } else {
