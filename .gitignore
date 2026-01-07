@@ -46,3 +46,6 @@ build-*/
 
 # Log files
 *.log
+
+# External libraries
+libp2p/

@@ -150,3 +150,22 @@ target_link_libraries(test_blockdir PRIVATE
 )
 
 gtest_discover_tests(test_blockdir)
+
+# Test for Network Fetch (disabled - requires libp2p and network library)
+# add_executable(test_fetch
+#     test_fetch.cpp
+# )
+# 
+# target_include_directories(test_fetch PRIVATE
+#     ${CMAKE_SOURCE_DIR}/network
+# )
+# 
+# target_link_libraries(test_fetch PRIVATE
+#     ppledger_lib
+#     network
+#     GTest::gtest_main
+#     GTest::gmock
+# )
+# 
+# gtest_discover_tests(test_fetch)
+
