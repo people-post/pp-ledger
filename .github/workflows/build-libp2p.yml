@@ -28,7 +28,7 @@ jobs:
       
       - name: Clone cpp-libp2p
         run: |
-          git clone https://github.com/libp2p/cpp-libp2p.git libp2p-src
+          git clone https://github.com/people-post/cpp-libp2p.git libp2p-src
           cd libp2p-src
           git checkout master
       
