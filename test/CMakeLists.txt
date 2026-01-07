@@ -71,3 +71,27 @@ target_link_libraries(test_wallet PRIVATE
 )
 
 add_test(NAME test_wallet COMMAND test_wallet)
+
+# Test for BlockFile
+add_executable(test_blockfile
+    test_blockfile.cpp
+)
+
+target_link_libraries(test_blockfile PRIVATE
+    ppledger_lib
+    ppledger_server
+)
+
+add_test(NAME test_blockfile COMMAND test_blockfile)
+
+# Test for BlockDir
+add_executable(test_blockdir
+    test_blockdir.cpp
+)
+
+target_link_libraries(test_blockdir PRIVATE
+    ppledger_lib
+    ppledger_server
+)
+
+add_test(NAME test_blockdir COMMAND test_blockdir)
