@@ -79,7 +79,7 @@ void FetchClient::fetch(
         });
 }
 
-ResultOrError<std::string, RoeErrorBase> FetchClient::fetchSync(
+FetchClient::Roe<std::string> FetchClient::fetchSync(
     const libp2p::peer::PeerInfo& peerInfo,
     const std::string& protocol,
     const std::string& data) {
@@ -87,7 +87,7 @@ ResultOrError<std::string, RoeErrorBase> FetchClient::fetchSync(
     std::mutex mtx;
     std::condition_variable cv;
     bool done = false;
-    ResultOrError<std::string, RoeErrorBase> result = RoeErrorBase(5, "Timeout");
+    FetchClient::Roe<std::string> result = FetchClient::Error(5, "Timeout");
 
     fetch(peerInfo, protocol, data, [&](const auto& res) {
         std::lock_guard<std::mutex> lock(mtx);

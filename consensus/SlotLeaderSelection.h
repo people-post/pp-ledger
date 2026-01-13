@@ -22,6 +22,13 @@ namespace consensus {
  */
 class VRF : public Module {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
     explicit VRF();
     ~VRF() override = default;
     
@@ -40,7 +47,7 @@ public:
      * @param privateKey Stakeholder's private key (simplified as string)
      * @return VRF output and proof
      */
-    ResultOrError<VRFOutput, RoeErrorBase> evaluate(
+    Roe<VRFOutput> evaluate(
         const std::string& seed,
         uint64_t slot,
         const std::string& privateKey) const;
@@ -54,7 +61,7 @@ public:
      * @param publicKey Stakeholder's public key (simplified as string)
      * @return True if proof is valid
      */
-    ResultOrError<bool, RoeErrorBase> verify(
+    Roe<bool> verify(
         const std::string& output,
         const std::string& proof,
         const std::string& seed,

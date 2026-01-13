@@ -10,15 +10,22 @@ namespace pp {
 
 class Wallet {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
     Wallet();
     explicit Wallet(int64_t initialBalance);
     ~Wallet() = default;
     
     // Balance operations
     int64_t getBalance() const;
-    ResultOrError<void> deposit(int64_t amount);
-    ResultOrError<void> withdraw(int64_t amount);
-    ResultOrError<void> transfer(Wallet& destination, int64_t amount);
+    Roe<void> deposit(int64_t amount);
+    Roe<void> withdraw(int64_t amount);
+    Roe<void> transfer(Wallet& destination, int64_t amount);
     
     // Query operations
     bool hasBalance(int64_t amount) const;

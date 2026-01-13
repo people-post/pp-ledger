@@ -19,7 +19,14 @@ namespace network {
  */
 class FetchClient : public Module {
 public:
-    using ResponseCallback = std::function<void(const ResultOrError<std::string, RoeErrorBase>&)>;
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
+    using ResponseCallback = std::function<void(const Roe<std::string>&)>;
 
     /**
      * Constructor
@@ -49,7 +56,7 @@ public:
      * @param data Data to send to the peer
      * @return Response data or error
      */
-    ResultOrError<std::string, RoeErrorBase> fetchSync(
+    Roe<std::string> fetchSync(
         const libp2p::peer::PeerInfo& peerInfo,
         const std::string& protocol,
         const std::string& data);

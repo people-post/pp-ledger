@@ -12,45 +12,45 @@ int64_t Wallet::getBalance() const {
     return balance_;
 }
 
-ResultOrError<void> Wallet::deposit(int64_t amount) {
+Wallet::Roe<void> Wallet::deposit(int64_t amount) {
     if (amount < 0) {
-        return ResultOrError<void>::error("Deposit amount must be non-negative");
+        return Wallet::Error(1, "Deposit amount must be non-negative");
     }
     
     // Check for overflow
     if (balance_ > INT64_MAX - amount) {
-        return ResultOrError<void>::error("Deposit would cause balance overflow");
+        return Wallet::Error(2, "Deposit would cause balance overflow");
     }
     
     balance_ += amount;
     return {};
 }
 
-ResultOrError<void> Wallet::withdraw(int64_t amount) {
+Wallet::Roe<void> Wallet::withdraw(int64_t amount) {
     if (amount < 0) {
-        return ResultOrError<void>::error("Withdrawal amount must be non-negative");
+        return Wallet::Error(1, "Withdrawal amount must be non-negative");
     }
     
     if (balance_ < amount) {
-        return ResultOrError<void>::error("Insufficient balance");
+        return Wallet::Error(2, "Insufficient balance");
     }
     
     balance_ -= amount;
     return {};
 }
 
-ResultOrError<void> Wallet::transfer(Wallet& destination, int64_t amount) {
+Wallet::Roe<void> Wallet::transfer(Wallet& destination, int64_t amount) {
     if (amount < 0) {
-        return ResultOrError<void>::error("Transfer amount must be non-negative");
+        return Wallet::Error(1, "Transfer amount must be non-negative");
     }
     
     if (balance_ < amount) {
-        return ResultOrError<void>::error("Insufficient balance for transfer");
+        return Wallet::Error(2, "Insufficient balance for transfer");
     }
     
     // Check destination won't overflow
     if (destination.balance_ > INT64_MAX - amount) {
-        return ResultOrError<void>::error("Transfer would cause destination overflow");
+        return Wallet::Error(3, "Transfer would cause destination overflow");
     }
     
     balance_ -= amount;

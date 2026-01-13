@@ -11,27 +11,27 @@ Ledger::Ledger(uint32_t blockchainDifficulty)
 }
 
 // Wallet management
-ResultOrError<void> Ledger::createWallet(const std::string& walletId) {
+Ledger::Roe<void> Ledger::createWallet(const std::string& walletId) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (ukpWallets_.find(walletId) != ukpWallets_.end()) {
-        return ResultOrError<void>::error("Wallet already exists: " + walletId);
+        return Ledger::Error(1, "Wallet already exists: " + walletId);
     }
     
     ukpWallets_[walletId] = std::make_unique<Wallet>();
-    return ResultOrError<void>();
+    return {};
 }
 
-ResultOrError<void> Ledger::removeWallet(const std::string& walletId) {
+Ledger::Roe<void> Ledger::removeWallet(const std::string& walletId) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto it = ukpWallets_.find(walletId);
     if (it == ukpWallets_.end()) {
-        return ResultOrError<void>::error("Wallet not found: " + walletId);
+        return Ledger::Error(1, "Wallet not found: " + walletId);
     }
     
     ukpWallets_.erase(it);
-    return ResultOrError<void>();
+    return {};
 }
 
 bool Ledger::hasWallet(const std::string& walletId) const {
@@ -39,24 +39,24 @@ bool Ledger::hasWallet(const std::string& walletId) const {
     return ukpWallets_.find(walletId) != ukpWallets_.end();
 }
 
-ResultOrError<int64_t> Ledger::getBalance(const std::string& walletId) const {
+Ledger::Roe<int64_t> Ledger::getBalance(const std::string& walletId) const {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto it = ukpWallets_.find(walletId);
     if (it == ukpWallets_.end()) {
-        return ResultOrError<int64_t>::error("Wallet not found: " + walletId);
+        return Ledger::Error(1, "Wallet not found: " + walletId);
     }
     
-    return ResultOrError<int64_t>(it->second->getBalance());
+    return it->second->getBalance();
 }
 
 // Transaction operations
-ResultOrError<void> Ledger::deposit(const std::string& walletId, int64_t amount) {
+Ledger::Roe<void> Ledger::deposit(const std::string& walletId, int64_t amount) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto it = ukpWallets_.find(walletId);
     if (it == ukpWallets_.end()) {
-        return ResultOrError<void>::error("Wallet not found: " + walletId);
+        return Ledger::Error(1, "Wallet not found: " + walletId);
     }
     
     auto result = it->second->deposit(amount);
@@ -67,12 +67,12 @@ ResultOrError<void> Ledger::deposit(const std::string& walletId, int64_t amount)
     return result;
 }
 
-ResultOrError<void> Ledger::withdraw(const std::string& walletId, int64_t amount) {
+Ledger::Roe<void> Ledger::withdraw(const std::string& walletId, int64_t amount) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto it = ukpWallets_.find(walletId);
     if (it == ukpWallets_.end()) {
-        return ResultOrError<void>::error("Wallet not found: " + walletId);
+        return Ledger::Error(1, "Wallet not found: " + walletId);
     }
     
     auto result = it->second->withdraw(amount);
@@ -83,17 +83,17 @@ ResultOrError<void> Ledger::withdraw(const std::string& walletId, int64_t amount
     return result;
 }
 
-ResultOrError<void> Ledger::transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount) {
+Ledger::Roe<void> Ledger::transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount) {
     std::lock_guard<std::mutex> lock(mutex_);
     
     auto fromIt = ukpWallets_.find(fromWallet);
     if (fromIt == ukpWallets_.end()) {
-        return ResultOrError<void>::error("Source wallet not found: " + fromWallet);
+        return Ledger::Error(1, "Source wallet not found: " + fromWallet);
     }
     
     auto toIt = ukpWallets_.find(toWallet);
     if (toIt == ukpWallets_.end()) {
-        return ResultOrError<void>::error("Destination wallet not found: " + toWallet);
+        return Ledger::Error(2, "Destination wallet not found: " + toWallet);
     }
     
     auto result = fromIt->second->transfer(*toIt->second, amount);
@@ -124,20 +124,20 @@ size_t Ledger::getPendingTransactionCount() const {
     return pendingTransactions_.size();
 }
 
-ResultOrError<void> Ledger::commitTransactions() {
+Ledger::Roe<void> Ledger::commitTransactions() {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (pendingTransactions_.empty()) {
-        return ResultOrError<void>::error("No pending transactions to commit");
+        return Ledger::Error(1, "No pending transactions to commit");
     }
     
     try {
         std::string packedData = packTransactions();
         ukpBlockchain_->addBlock(packedData);
         pendingTransactions_.clear();
-        return ResultOrError<void>();
+        return {};
     } catch (const std::exception& e) {
-        return ResultOrError<void>::error(std::string("Failed to commit transactions: ") + e.what());
+        return Ledger::Error(2, std::string("Failed to commit transactions: ") + e.what());
     }
 }
 

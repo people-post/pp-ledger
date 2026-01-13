@@ -85,7 +85,7 @@ int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
     return genesisTime_ + static_cast<int64_t>(slot * slotDuration_);
 }
 
-ResultOrError<std::string, RoeErrorBase> Ouroboros::getSlotLeader(uint64_t slot) const {
+Ouroboros::Roe<std::string> Ouroboros::getSlotLeader(uint64_t slot) const {
     if (stakeholders_.empty()) {
         return RoeErrorBase(1, "No stakeholders registered");
     }
@@ -166,8 +166,8 @@ size_t Ouroboros::getStakeholderCount() const {
     return stakeholders_.size();
 }
 
-std::vector<StakeholderInfo> Ouroboros::getStakeholders() const {
-    std::vector<StakeholderInfo> result;
+std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
+    std::vector<Ouroboros::StakeholderInfo> result;
     result.reserve(stakeholders_.size());
     
     for (const auto& [id, stake] : stakeholders_) {
@@ -177,7 +177,7 @@ std::vector<StakeholderInfo> Ouroboros::getStakeholders() const {
     return result;
 }
 
-ResultOrError<bool, RoeErrorBase> Ouroboros::validateBlock(
+Ouroboros::Roe<bool> Ouroboros::validateBlock(
     const IBlock& block,
     const IBlockChain& chain) const {
     
@@ -230,7 +230,7 @@ bool Ouroboros::validateBlockTiming(const IBlock& block) const {
     return blockTime >= slotStart && blockTime < slotEnd;
 }
 
-ResultOrError<bool, RoeErrorBase> Ouroboros::shouldSwitchChain(
+Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
     const IBlockChain& currentChain,
     const IBlockChain& candidateChain) const {
     

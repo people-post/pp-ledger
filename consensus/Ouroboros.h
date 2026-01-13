@@ -13,14 +13,6 @@
 namespace pp {
 namespace consensus {
 
-struct StakeholderInfo {
-    std::string id;
-    uint64_t stake;
-    
-    StakeholderInfo(const std::string& stakeholderId, uint64_t stakeAmount)
-        : id(stakeholderId), stake(stakeAmount) {}
-};
-
 /**
  * Ouroboros Consensus Protocol Implementation
  * 
@@ -33,6 +25,21 @@ struct StakeholderInfo {
  */
 class Ouroboros : public Module {
 public:
+    struct StakeholderInfo {
+        std::string id;
+        uint64_t stake;
+        
+        StakeholderInfo(const std::string& stakeholderId, uint64_t stakeAmount)
+            : id(stakeholderId), stake(stakeAmount) {}
+    };
+
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
     /**
      * Constructor
      * @param slotDuration Duration of each slot in seconds
@@ -54,16 +61,16 @@ public:
     int64_t getSlotStartTime(uint64_t slot) const;
     
     // Slot leader selection
-    ResultOrError<std::string, RoeErrorBase> getSlotLeader(uint64_t slot) const;
+    Roe<std::string> getSlotLeader(uint64_t slot) const;
     bool isSlotLeader(uint64_t slot, const std::string& stakeholderId) const;
     
     // Block validation
-    ResultOrError<bool, RoeErrorBase> validateBlock(
+    Roe<bool> validateBlock(
         const IBlock& block,
         const IBlockChain& chain) const;
     
     // Chain selection
-    ResultOrError<bool, RoeErrorBase> shouldSwitchChain(
+    Roe<bool> shouldSwitchChain(
         const IBlockChain& currentChain,
         const IBlockChain& candidateChain) const;
     

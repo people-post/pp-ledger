@@ -10,7 +10,7 @@ VRF::VRF() : Module("consensus.vrf") {
     log().info << "VRF module initialized";
 }
 
-ResultOrError<VRF::VRFOutput, RoeErrorBase> VRF::evaluate(
+VRF::Roe<VRF::VRFOutput> VRF::evaluate(
     const std::string& seed,
     uint64_t slot,
     const std::string& privateKey) const {
@@ -34,7 +34,7 @@ ResultOrError<VRF::VRFOutput, RoeErrorBase> VRF::evaluate(
     return VRFOutput(value, proof);
 }
 
-ResultOrError<bool, RoeErrorBase> VRF::verify(
+VRF::Roe<bool> VRF::verify(
     const std::string& output,
     const std::string& proof,
     const std::string& seed,

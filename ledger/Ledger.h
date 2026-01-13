@@ -15,19 +15,26 @@ namespace pp {
 
 class Ledger : public Module {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+    
     Ledger(uint32_t blockchainDifficulty = 2);
     ~Ledger() = default;
     
     // Wallet management
-    ResultOrError<void> createWallet(const std::string& walletId);
-    ResultOrError<void> removeWallet(const std::string& walletId);
+    Roe<void> createWallet(const std::string& walletId);
+    Roe<void> removeWallet(const std::string& walletId);
     bool hasWallet(const std::string& walletId) const;
-    ResultOrError<int64_t> getBalance(const std::string& walletId) const;
+    Roe<int64_t> getBalance(const std::string& walletId) const;
     
     // Transaction operations
-    ResultOrError<void> deposit(const std::string& walletId, int64_t amount);
-    ResultOrError<void> withdraw(const std::string& walletId, int64_t amount);
-    ResultOrError<void> transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount);
+    Roe<void> deposit(const std::string& walletId, int64_t amount);
+    Roe<void> withdraw(const std::string& walletId, int64_t amount);
+    Roe<void> transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount);
     
     // Transaction buffer operations
     void addTransaction(const std::string& transaction);
@@ -36,7 +43,7 @@ public:
     size_t getPendingTransactionCount() const;
     
     // Block operations
-    ResultOrError<void> commitTransactions();
+    Roe<void> commitTransactions();
     
     // BlockChain access
     const BlockChain& getBlockChain() const;
