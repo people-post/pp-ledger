@@ -1,4 +1,5 @@
 #include "EpochManager.h"
+#include "SlotTimer.h"
 #include <gtest/gtest.h>
 
 using namespace pp::consensus;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Module.h"
-#include "../interface/IBlock.hpp"
-#include "../interface/IBlockChain.hpp"
+#include "../interface/Block.hpp"
+#include "../interface/BlockChain.hpp"
 #include "ResultOrError.hpp"
 #include <memory>
 #include <string>
@@ -12,6 +12,10 @@
 
 namespace pp {
 namespace consensus {
+
+// Using declarations for interfaces
+using Block = iii::Block;
+using BlockChain = iii::BlockChain;
 
 /**
  * Ouroboros Consensus Protocol Implementation
@@ -66,13 +70,13 @@ public:
     
     // Block validation
     Roe<bool> validateBlock(
-        const IBlock& block,
-        const IBlockChain& chain) const;
+        const Block& block,
+        const BlockChain& chain) const;
     
     // Chain selection
     Roe<bool> shouldSwitchChain(
-        const IBlockChain& currentChain,
-        const IBlockChain& candidateChain) const;
+        const BlockChain& currentChain,
+        const BlockChain& candidateChain) const;
     
     // Configuration
     void setSlotDuration(uint64_t seconds);
@@ -96,9 +100,9 @@ private:
     std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
     
     // Validation helpers
-    bool validateSlotLeader(const IBlock& block, uint64_t slot) const;
-    bool validateBlockTiming(const IBlock& block) const;
-    bool validateChainDensity(const IBlockChain& chain, uint64_t fromSlot, uint64_t toSlot) const;
+    bool validateSlotLeader(const Block& block, uint64_t slot) const;
+    bool validateBlockTiming(const Block& block) const;
+    bool validateChainDensity(const BlockChain& chain, uint64_t fromSlot, uint64_t toSlot) const;
     
     // Data members
     std::map<std::string, uint64_t> stakeholders_;

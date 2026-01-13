@@ -11,6 +11,7 @@ set(CONSENSUS_SOURCES
     Ouroboros.cpp
     SlotLeaderSelection.cpp
     EpochManager.cpp
+    SlotTimer.cpp
 )
 
 # Header files
@@ -18,6 +19,7 @@ set(CONSENSUS_HEADERS
     Ouroboros.h
     SlotLeaderSelection.h
     EpochManager.h
+    SlotTimer.h
 )
 
 # Create the library

@@ -4,15 +4,15 @@
 #include <cstdint>
 
 namespace pp {
-namespace consensus {
+namespace iii {
 
 /**
  * Interface for Block data structure.
  * Implementations should provide concrete block representation.
  */
-class IBlock {
+class Block {
 public:
-    virtual ~IBlock() = default;
+    virtual ~Block() = default;
     
     // Core block properties
     virtual uint64_t getIndex() const = 0;
@@ -34,5 +34,5 @@ public:
     virtual void setSlotLeader(const std::string& leader) = 0;
 };
 
-} // namespace consensus
+} // namespace iii
 } // namespace pp

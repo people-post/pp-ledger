@@ -178,8 +178,8 @@ std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
 }
 
 Ouroboros::Roe<bool> Ouroboros::validateBlock(
-    const IBlock& block,
-    const IBlockChain& chain) const {
+    const Block& block,
+    const BlockChain& chain) const {
     
     uint64_t slot = block.getSlot();
     std::string slotLeader = block.getSlotLeader();
@@ -215,12 +215,12 @@ Ouroboros::Roe<bool> Ouroboros::validateBlock(
     return true;
 }
 
-bool Ouroboros::validateSlotLeader(const IBlock& block, uint64_t slot) const {
+bool Ouroboros::validateSlotLeader(const Block& block, uint64_t slot) const {
     std::string expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
     return block.getSlotLeader() == expectedLeader;
 }
 
-bool Ouroboros::validateBlockTiming(const IBlock& block) const {
+bool Ouroboros::validateBlockTiming(const Block& block) const {
     uint64_t slot = block.getSlot();
     int64_t slotStart = getSlotStartTime(slot);
     int64_t slotEnd = slotStart + static_cast<int64_t>(slotDuration_);
@@ -231,8 +231,8 @@ bool Ouroboros::validateBlockTiming(const IBlock& block) const {
 }
 
 Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
-    const IBlockChain& currentChain,
-    const IBlockChain& candidateChain) const {
+    const BlockChain& currentChain,
+    const BlockChain& candidateChain) const {
     
     // Implement chain selection rule (longest valid chain)
     size_t currentSize = currentChain.getSize();
@@ -257,7 +257,7 @@ Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
 }
 
 bool Ouroboros::validateChainDensity(
-    const IBlockChain& chain,
+    const BlockChain& chain,
     uint64_t fromSlot,
     uint64_t toSlot) const {
     

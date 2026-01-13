@@ -11,6 +11,10 @@ pp-ledger is a C++ ledger system with client-server architecture managed by CMak
 ```
 pp-ledger/
 ├── lib/          # Core library (shared functionality)
+├── interface/    # Interfaces for cross lib interactions
+├── ledger/       # Ledger lib
+├── consensus/    # Consensus algorithm lib
+├── network/      # Network communication lib
 ├── client/       # Client library
 ├── server/       # Server library
 └── app/          # Main application (binary entry point)
@@ -83,6 +87,29 @@ add_library(ppledger_lib STATIC
     Logger.cpp
     Logger.h
 )
+```
+
+### One File Per Class Rule
+- **One class per header file**: Each class should have its own `.h` file
+- **One class per source file**: Each class implementation should have its own `.cpp` file
+- **Exception**: Closely related helper structs/classes in the same namespace may share a file if they are:
+  - Small and tightly coupled
+  - Semantically part of the same concept
+  - Not more than ~100 lines total
+
+This convention improves:
+- **Maintainability**: Easy to locate class definitions
+- **Modularity**: Clear separation of concerns
+- **Buildability**: Reduced recompilation when files change
+- **Readability**: Less cognitive load per file
+
+Example of correct structure:
+```
+consensus/
+├── Ouroboros.h / Ouroboros.cpp          # Ouroboros consensus class
+├── EpochManager.h / EpochManager.cpp    # EpochManager class
+├── SlotTimer.h / SlotTimer.cpp          # SlotTimer class (separated from EpochManager)
+└── SlotLeaderSelection.h / SlotLeaderSelection.cpp  # VRF and leader selection
 ```
 
 ## Logging
