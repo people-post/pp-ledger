@@ -106,6 +106,25 @@ public:
     bool hasBlock(uint64_t blockId) const;
     
     /**
+     * Remove and return the front (oldest) block file
+     * @return Unique pointer to the BlockFile, or nullptr if no files exist
+     */
+    std::unique_ptr<BlockFile> popFrontFile();
+    
+    /**
+     * Get the ID of the front (oldest) file
+     * @return File ID of the oldest file, or 0 if no files exist
+     */
+    uint32_t getFrontFileId() const;
+    
+    /**
+     * Move front file to another BlockDir and append its blocks to that directory's index
+     * @param targetDir Target BlockDir to move the front file to
+     * @return Roe<void> on success or error
+     */
+    Roe<void> moveFrontFileTo(BlockDir& targetDir);
+    
+    /**
      * Flush all data and index to disk
      */
     void flush();
@@ -124,6 +143,16 @@ public:
      * Get total number of blocks stored
      */
     size_t getBlockCount() const { return blockIndex_.size(); }
+    
+    /**
+     * Get total storage size used by all block files (in bytes)
+     */
+    size_t getTotalStorageSize() const;
+    
+    /**
+     * Get max file size configured for this directory
+     */
+    size_t getMaxFileSize() const { return maxFileSize_; }
 
 private:
     std::string dirPath_;
@@ -132,6 +161,9 @@ private:
     
     // Block files indexed by file ID
     std::unordered_map<uint32_t, std::unique_ptr<BlockFile>> ukpBlockFiles_;
+    
+    // Ordered list of file IDs (tracks creation/addition order)
+    std::vector<uint32_t> fileIdOrder_;
     
     // Index mapping block ID to location
     std::unordered_map<uint64_t, BlockLocation> blockIndex_;

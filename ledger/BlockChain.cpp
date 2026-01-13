@@ -2,14 +2,45 @@
 #include "Block.h"
 
 #include <stdexcept>
+#include <algorithm>
 #include <openssl/evp.h>
 
 namespace pp {
 
 // BlockChain implementation
 BlockChain::BlockChain()
-    : Module("blockchain"), difficulty_(2) {
+    : Module("blockchain"), 
+      difficulty_(2),
+      maxActiveDirSize_(500 * 1024 * 1024) {
     createGenesisBlock();
+}
+
+bool BlockChain::initStorage(const StorageConfig& config) {
+    try {
+        // Initialize active BlockDir
+        activeBlockDir_ = std::make_unique<BlockDir>();
+        BlockDir::Config activeCfg(config.activeDirPath, config.blockDirFileSize);
+        auto activeRes = activeBlockDir_->init(activeCfg);
+        if (!activeRes) {
+            logging::getLogger("blockchain").error << "Failed to initialize active BlockDir";
+            return false;
+        }
+        
+        // Initialize archive BlockDir
+        archiveBlockDir_ = std::make_unique<BlockDir>();
+        BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
+        auto archiveRes = archiveBlockDir_->init(archiveCfg);
+        if (!archiveRes) {
+            logging::getLogger("blockchain").error << "Failed to initialize archive BlockDir";
+            return false;
+        }
+        
+        maxActiveDirSize_ = config.maxActiveDirSize;
+        return true;
+    } catch (const std::exception& e) {
+        logging::getLogger("blockchain").error << "Failed to initialize storage: " << e.what();
+        return false;
+    }
 }
 
 void BlockChain::createGenesisBlock() {
@@ -22,12 +53,48 @@ void BlockChain::createGenesisBlock() {
     chain_.push_back(genesis);
 }
 
+void BlockChain::transferBlocksToArchive() {
+    if (!activeBlockDir_ || !archiveBlockDir_) {
+        return; // Storage not initialized
+    }
+    
+    // Transfer files from active to archive based on storage usage
+    while (activeBlockDir_->getTotalStorageSize() >= maxActiveDirSize_) {
+        auto result = activeBlockDir_->moveFrontFileTo(*archiveBlockDir_);
+        if (!result.isOk()) {
+            logging::getLogger("blockchain").error << "Failed to move front file to archive";
+            break;
+        }
+        
+        // Flush to persist changes
+        activeBlockDir_->flush();
+        archiveBlockDir_->flush();
+    }
+}
+
 // IBlockChain interface implementation
 bool BlockChain::addBlock(std::shared_ptr<IBlock> block) {
     if (!block) {
         return false;
     }
+    
     chain_.push_back(block);
+    
+    // Write to active storage if initialized
+    if (activeBlockDir_) {
+        // Serialize block and write to active directory
+        // Using block index as the block ID for storage
+        std::string blockData = block->getData();
+        activeBlockDir_->writeBlock(
+            block->getIndex(),
+            blockData.data(),
+            blockData.size()
+        );
+        
+        // Check if we should transfer blocks to archive
+        transferBlocksToArchive();
+    }
+    
     return true;
 }
 

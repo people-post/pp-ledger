@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 
 namespace pp {
 
@@ -198,6 +199,7 @@ BlockFile* BlockDir::createBlockFile(uint32_t fileId) {
     
     BlockFile* pBlockFile = ukpBlockFile.get();
     ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
+    fileIdOrder_.push_back(fileId);  // Track file creation order
     return pBlockFile;
 }
 
@@ -301,6 +303,107 @@ bool BlockDir::saveIndex() {
     log().debug << "Saved " << blockIndex_.size() << " entries to index";
     
     return true;
+}
+
+std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
+    if (fileIdOrder_.empty()) {
+        log().warning << "No files to pop from BlockDir";
+        return nullptr;
+    }
+    
+    uint32_t frontFileId = fileIdOrder_.front();
+    fileIdOrder_.erase(fileIdOrder_.begin());
+    
+    auto it = ukpBlockFiles_.find(frontFileId);
+    if (it == ukpBlockFiles_.end()) {
+        log().error << "Front file ID " << frontFileId << " not found in file map";
+        return nullptr;
+    }
+    
+    // Remove all blocks that belong to this file from the index
+    std::vector<uint64_t> blocksToRemove;
+    for (auto& indexEntry : blockIndex_) {
+        if (indexEntry.second.fileId == frontFileId) {
+            blocksToRemove.push_back(indexEntry.first);
+        }
+    }
+    
+    for (uint64_t blockId : blocksToRemove) {
+        blockIndex_.erase(blockId);
+    }
+    
+    // Extract and return the file
+    std::unique_ptr<BlockFile> poppedFile = std::move(it->second);
+    ukpBlockFiles_.erase(it);
+    
+    log().info << "Popped front file " << frontFileId << " with " << blocksToRemove.size() << " blocks";
+    return poppedFile;
+}
+
+uint32_t BlockDir::getFrontFileId() const {
+    if (fileIdOrder_.empty()) {
+        return 0;
+    }
+    return fileIdOrder_.front();
+}
+
+BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
+    uint32_t frontFileId = getFrontFileId();
+    if (frontFileId == 0) {
+        return Error("No files to move");
+    }
+    
+    std::string sourceFilePath = getBlockFilePath(frontFileId);
+    std::string targetFilePath = targetDir.getBlockFilePath(frontFileId);
+    
+    // Collect all blocks in the front file before popping
+    std::vector<std::pair<uint64_t, BlockLocation>> blocksToMove;
+    for (const auto& [blockId, location] : blockIndex_) {
+        if (location.fileId == frontFileId) {
+            blocksToMove.push_back({blockId, location});
+        }
+    }
+    
+    // Pop the file from this directory
+    auto poppedFile = popFrontFile();
+    if (!poppedFile) {
+        return Error("Failed to pop front file");
+    }
+    
+    // Release the file handle before moving
+    poppedFile.reset();
+    
+    // Move file on disk
+    try {
+        std::filesystem::rename(sourceFilePath, targetFilePath);
+    } catch (const std::exception& e) {
+        return Error(std::string("Failed to move file: ") + e.what());
+    }
+    
+    // Register blocks in target directory's index
+    for (const auto& [blockId, location] : blocksToMove) {
+        targetDir.blockIndex_[blockId] = location;
+    }
+    
+    // Update target directory's file tracking if needed
+    // Add file ID to target's tracking if not already present
+    auto it = std::find(targetDir.fileIdOrder_.begin(), targetDir.fileIdOrder_.end(), frontFileId);
+    if (it == targetDir.fileIdOrder_.end()) {
+        targetDir.fileIdOrder_.push_back(frontFileId);
+    }
+    
+    log().info << "Moved front file " << frontFileId << " with " << blocksToMove.size() << " blocks to target directory";
+    return {};
+}
+
+size_t BlockDir::getTotalStorageSize() const {
+    size_t totalSize = 0;
+    for (const auto& [fileId, blockFile] : ukpBlockFiles_) {
+        if (blockFile) {
+            totalSize += blockFile->getCurrentSize();
+        }
+    }
+    return totalSize;
 }
 
 } // namespace pp

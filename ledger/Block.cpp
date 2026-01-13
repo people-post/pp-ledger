@@ -49,7 +49,9 @@ Block::Block()
       timestamp_(std::chrono::system_clock::now().time_since_epoch().count()),
       data_(""),
       previousHash_(""),
-      nonce_(0) {
+      nonce_(0),
+      slot_(0),
+      slotLeader_("") {
     hash_ = calculateHash();
 }
 
@@ -84,6 +86,14 @@ std::string Block::calculateHash() const {
     return sha256(ss.str());
 }
 
+uint64_t Block::getSlot() const {
+    return slot_;
+}
+
+std::string Block::getSlotLeader() const {
+    return slotLeader_;
+}
+
 void Block::setHash(const std::string& hash) {
     hash_ = hash;
 }
@@ -116,6 +126,14 @@ void Block::mineBlock(uint32_t difficulty) {
         nonce_++;
         hash_ = calculateHash();
     }
+}
+
+void Block::setSlot(uint64_t slot) {
+    slot_ = slot;
+}
+
+void Block::setSlotLeader(const std::string& leader) {
+    slotLeader_ = leader;
 }
 
 } // namespace pp

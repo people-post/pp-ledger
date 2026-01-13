@@ -30,17 +30,6 @@ using BlockChain = iii::BlockChain;
  */
 class Ouroboros : public Module, public Delegator {
 public:
-    /**
-     * Ouroboros-specific block delegate
-     * Provides slot and leader information for blocks within Ouroboros consensus
-     */
-    struct Delegate : public Delegator::Delegate {
-        virtual uint64_t getSlot() const = 0;
-        virtual std::string getSlotLeader() const = 0;
-        virtual void setSlot(uint64_t slot) = 0;
-        virtual void setSlotLeader(const std::string& leader) = 0;
-    };
-
     struct StakeholderInfo {
         std::string id;
         uint64_t stake;

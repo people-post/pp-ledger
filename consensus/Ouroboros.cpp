@@ -181,14 +181,8 @@ Ouroboros::Roe<bool> Ouroboros::validateBlock(
     const Block& block,
     const BlockChain& chain) const {
     
-    // Get delegate from blockDelegator
-    auto delegate = getDelegate<Ouroboros::Delegate>();
-    if (!delegate) {
-        return Ouroboros::Error(1, "Delegate is not set");
-    }
-    
-    uint64_t slot = delegate->getSlot();
-    std::string slotLeader = delegate->getSlotLeader();
+    uint64_t slot = block.getSlot();
+    std::string slotLeader = block.getSlotLeader();
     
     // Validate slot leader
     if (!validateSlotLeader(slotLeader, slot)) {
@@ -251,12 +245,9 @@ Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
     if (candidateSize > 0) {
         auto latestBlock = candidateChain.getLatestBlock();
         if (latestBlock) {
-            auto delegate = getDelegate<Ouroboros::Delegate>();
-            if (delegate) {
-                uint64_t latestSlot = delegate->getSlot();
-                if (!validateChainDensity(candidateChain, 0, latestSlot)) {
-                    return Ouroboros::Error(7, "Candidate chain density too low");
-                }
+            uint64_t latestSlot = latestBlock->getSlot();
+            if (!validateChainDensity(candidateChain, 0, latestSlot)) {
+                return Ouroboros::Error(7, "Candidate chain density too low");
             }
         }
     }

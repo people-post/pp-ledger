@@ -11,4 +11,8 @@ target_include_directories(ppledger_server PUBLIC
 target_link_libraries(ppledger_server PUBLIC
     ppledger_lib
     ppledger_ledger
+    consensus
 )
+# Server demo executable
+add_executable(server-demo ServerDemo.cpp)
+target_link_libraries(server-demo PUBLIC ppledger_server)
