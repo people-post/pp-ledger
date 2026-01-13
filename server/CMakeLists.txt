@@ -8,11 +8,12 @@ target_include_directories(ppledger_server PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Server requires network library (libp2p mandatory)
 target_link_libraries(ppledger_server PUBLIC
     ppledger_lib
     ppledger_ledger
     consensus
+    network
 )
-# Server demo executable
-add_executable(server-demo ServerDemo.cpp)
-target_link_libraries(server-demo PUBLIC ppledger_server)
+
+message(STATUS "Server configured with P2P network support (required)")
