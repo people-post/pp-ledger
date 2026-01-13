@@ -28,7 +28,7 @@ void FetchClient::fetch(
         [this, data, callback](libp2p::StreamAndProtocolOrError stream_res) {
             if (!stream_res) {
                 log().error << "Failed to create stream: " + stream_res.error().message();
-                callback(RoeErrorBase(1, "Failed to create stream: " + stream_res.error().message()));
+                callback(FetchClient::Error(1, "Failed to create stream: " + stream_res.error().message()));
                 return;
             }
 
@@ -43,7 +43,7 @@ void FetchClient::fetch(
                     if (!write_res) {
                         log().error << "Failed to write data: " + write_res.error().message();
                         stream->close([](auto&&) {});
-                        callback(RoeErrorBase(2, "Failed to write data: " + write_res.error().message()));
+                        callback(FetchClient::Error(2, "Failed to write data: " + write_res.error().message()));
                         return;
                     }
 
@@ -57,7 +57,7 @@ void FetchClient::fetch(
                             if (!read_res) {
                                 log().error << "Failed to read response: " + read_res.error().message();
                                 stream->close([](auto&&) {});
-                                callback(RoeErrorBase(3, "Failed to read response: " + read_res.error().message()));
+                                callback(FetchClient::Error(3, "Failed to read response: " + read_res.error().message()));
                                 return;
                             }
 
@@ -69,7 +69,7 @@ void FetchClient::fetch(
                             // Close the stream and send response
                             stream->close([callback, response](outcome::result<void> close_res) {
                                 if (!close_res) {
-                                    callback(RoeErrorBase(4, "Failed to close stream: " + close_res.error().message()));
+                                    callback(FetchClient::Error(4, "Failed to close stream: " + close_res.error().message()));
                                 } else {
                                     callback(response);
                                 }
@@ -100,7 +100,7 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     std::unique_lock<std::mutex> lock(mtx);
     if (!cv.wait_for(lock, std::chrono::seconds(30), [&done] { return done; })) {
         log().error << "Fetch operation timed out";
-        return RoeErrorBase(5, "Fetch operation timed out");
+        return FetchClient::Error(5, "Fetch operation timed out");
     }
 
     return result;

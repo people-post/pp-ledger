@@ -16,7 +16,7 @@ VRF::Roe<VRF::VRFOutput> VRF::evaluate(
     const std::string& privateKey) const {
     
     if (privateKey.empty()) {
-        return RoeErrorBase(1, "Private key cannot be empty");
+        return VRF::Error(1, "Private key cannot be empty");
     }
     
     // In a real implementation, this would use elliptic curve cryptography
@@ -42,7 +42,7 @@ VRF::Roe<bool> VRF::verify(
     const std::string& publicKey) const {
     
     if (publicKey.empty()) {
-        return RoeErrorBase(2, "Public key cannot be empty");
+        return VRF::Error(2, "Public key cannot be empty");
     }
     
     // In real implementation, verify cryptographic proof

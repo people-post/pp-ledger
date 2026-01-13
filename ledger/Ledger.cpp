@@ -62,9 +62,12 @@ Ledger::Roe<void> Ledger::deposit(const std::string& walletId, int64_t amount) {
     auto result = it->second->deposit(amount);
     if (result.isOk()) {
         pendingTransactions_.push_back(formatTransaction("DEPOSIT", "SYSTEM", walletId, amount));
+    } else {
+        // Convert Wallet::Error to Ledger::Error
+        return Ledger::Error(result.error().code, result.error().message);
     }
     
-    return result;
+    return {}; // Return success
 }
 
 Ledger::Roe<void> Ledger::withdraw(const std::string& walletId, int64_t amount) {
@@ -78,9 +81,12 @@ Ledger::Roe<void> Ledger::withdraw(const std::string& walletId, int64_t amount) 
     auto result = it->second->withdraw(amount);
     if (result.isOk()) {
         pendingTransactions_.push_back(formatTransaction("WITHDRAW", walletId, "SYSTEM", amount));
+    } else {
+        // Convert Wallet::Error to Ledger::Error
+        return Ledger::Error(result.error().code, result.error().message);
     }
     
-    return result;
+    return {}; // Return success
 }
 
 Ledger::Roe<void> Ledger::transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount) {
@@ -99,9 +105,12 @@ Ledger::Roe<void> Ledger::transfer(const std::string& fromWallet, const std::str
     auto result = fromIt->second->transfer(*toIt->second, amount);
     if (result.isOk()) {
         pendingTransactions_.push_back(formatTransaction("TRANSFER", fromWallet, toWallet, amount));
+    } else {
+        // Convert Wallet::Error to Ledger::Error
+        return Ledger::Error(result.error().code, result.error().message);
     }
     
-    return result;
+    return {}; // Return success
 }
 
 void Ledger::addTransaction(const std::string& transaction) {

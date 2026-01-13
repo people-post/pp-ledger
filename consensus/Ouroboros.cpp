@@ -87,7 +87,7 @@ int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
 
 Ouroboros::Roe<std::string> Ouroboros::getSlotLeader(uint64_t slot) const {
     if (stakeholders_.empty()) {
-        return RoeErrorBase(1, "No stakeholders registered");
+        return Ouroboros::Error(1, "No stakeholders registered");
     }
     
     uint64_t epoch = slot / slotsPerEpoch_;
@@ -186,30 +186,30 @@ Ouroboros::Roe<bool> Ouroboros::validateBlock(
     
     // Validate slot leader
     if (!validateSlotLeader(block, slot)) {
-        return RoeErrorBase(2, "Invalid slot leader for block at slot " + std::to_string(slot));
+        return Ouroboros::Error(2, "Invalid slot leader for block at slot " + std::to_string(slot));
     }
     
     // Validate block timing
     if (!validateBlockTiming(block)) {
-        return RoeErrorBase(3, "Block timestamp outside valid slot range");
+        return Ouroboros::Error(3, "Block timestamp outside valid slot range");
     }
     
     // Validate hash chain
     if (chain.getSize() > 0) {
         auto latestBlock = chain.getLatestBlock();
         if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
-            return RoeErrorBase(4, "Block previous hash does not match chain");
+            return Ouroboros::Error(4, "Block previous hash does not match chain");
         }
         
         if (block.getIndex() != latestBlock->getIndex() + 1) {
-            return RoeErrorBase(5, "Block index mismatch");
+            return Ouroboros::Error(5, "Block index mismatch");
         }
     }
     
     // Validate block hash
     std::string calculatedHash = block.calculateHash();
     if (calculatedHash != block.getHash()) {
-        return RoeErrorBase(6, "Block hash validation failed");
+        return Ouroboros::Error(6, "Block hash validation failed");
     }
     
     return true;
@@ -248,7 +248,7 @@ Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
         if (latestBlock) {
             uint64_t latestSlot = latestBlock->getSlot();
             if (!validateChainDensity(candidateChain, 0, latestSlot)) {
-                return RoeErrorBase(7, "Candidate chain density too low");
+                return Ouroboros::Error(7, "Candidate chain density too low");
             }
         }
     }
