@@ -1,41 +1,35 @@
 #pragma once
 
+#include "Block.h"
 #include "Module.h"
+#include "../interface/BlockChain.hpp"
 #include <string>
 #include <vector>
 #include <cstdint>
-#include <chrono>
+#include <memory>
 
 namespace pp {
 
-struct Block {
-    uint64_t index;
-    int64_t timestamp;
-    std::string data;
-    std::string previousHash;
-    std::string hash;
-    uint64_t nonce;
-    
-    Block(uint64_t idx, const std::string& blockData, const std::string& prevHash);
-    
-    std::string calculateHash() const;
-    void mineBlock(uint32_t difficulty);
-};
+// Using declaration for interface type
+using IBlockChain = iii::BlockChain;
 
-class BlockChain : public Module {
+/**
+ * Concrete implementation of BlockChain interface
+ */
+class BlockChain : public Module, public IBlockChain {
 public:
-    BlockChain(uint32_t difficulty = 2);
+    BlockChain();
     ~BlockChain() = default;
     
-    // Blockchain operations
-    void addBlock(const std::string& data);
-    const std::vector<Block>& getChain() const;
-    bool isValid() const;
-    
-    // Query operations
-    size_t getSize() const;
-    const Block& getLatestBlock() const;
-    const Block& getBlock(size_t index) const;
+    // IBlockChain interface implementation
+    bool addBlock(std::shared_ptr<IBlock> block) override;
+    std::shared_ptr<IBlock> getLatestBlock() const override;
+    std::shared_ptr<IBlock> getBlock(uint64_t index) const override;
+    size_t getSize() const override;
+    bool isValid() const override;
+    bool validateBlock(const IBlock& block) const override;
+    std::vector<std::shared_ptr<IBlock>> getBlocks(uint64_t fromIndex, uint64_t toIndex) const override;
+    std::string getLastBlockHash() const override;
     
     // Configuration
     void setDifficulty(uint32_t difficulty);
@@ -43,9 +37,8 @@ public:
     
 private:
     void createGenesisBlock();
-    std::string getLastBlockHash() const;
     
-    std::vector<Block> chain_;
+    std::vector<std::shared_ptr<IBlock>> chain_;
     uint32_t difficulty_;
 };
 

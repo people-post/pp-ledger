@@ -30,13 +30,13 @@ void Ouroboros::registerStakeholder(const std::string& id, uint64_t stake) {
         return;
     }
     
-    stakeholders_[id] = stake;
+    mStakeholders_[id] = stake;
     log().info << "Registered stakeholder '" + id + "' with stake: " + std::to_string(stake);
 }
 
 void Ouroboros::updateStake(const std::string& id, uint64_t newStake) {
-    auto it = stakeholders_.find(id);
-    if (it == stakeholders_.end()) {
+    auto it = mStakeholders_.find(id);
+    if (it == mStakeholders_.end()) {
         log().warning << "Cannot update stake for unknown stakeholder: " + id;
         return;
     }
@@ -48,13 +48,13 @@ void Ouroboros::updateStake(const std::string& id, uint64_t newStake) {
 }
 
 bool Ouroboros::removeStakeholder(const std::string& id) {
-    auto it = stakeholders_.find(id);
-    if (it == stakeholders_.end()) {
+    auto it = mStakeholders_.find(id);
+    if (it == mStakeholders_.end()) {
         log().warning << "Cannot remove unknown stakeholder: " + id;
         return false;
     }
     
-    stakeholders_.erase(it);
+    mStakeholders_.erase(it);
     log().info << "Removed stakeholder: " + id;
     return true;
 }
@@ -86,7 +86,7 @@ int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
 }
 
 Ouroboros::Roe<std::string> Ouroboros::getSlotLeader(uint64_t slot) const {
-    if (stakeholders_.empty()) {
+    if (mStakeholders_.empty()) {
         return Ouroboros::Error(1, "No stakeholders registered");
     }
     
@@ -126,7 +126,7 @@ std::string Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
     
     // Select stakeholder based on cumulative stake
     uint64_t cumulative = 0;
-    for (const auto& [id, stake] : stakeholders_) {
+    for (const auto& [id, stake] : mStakeholders_) {
         cumulative += stake;
         if (position < cumulative) {
             return id;
@@ -134,7 +134,7 @@ std::string Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
     }
     
     // Fallback to first stakeholder
-    return stakeholders_.begin()->first;
+    return mStakeholders_.begin()->first;
 }
 
 std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
@@ -156,21 +156,21 @@ std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
 }
 
 uint64_t Ouroboros::getTotalStake() const {
-    return std::accumulate(stakeholders_.begin(), stakeholders_.end(), uint64_t(0),
+    return std::accumulate(mStakeholders_.begin(), mStakeholders_.end(), uint64_t(0),
                           [](uint64_t sum, const auto& pair) {
                               return sum + pair.second;
                           });
 }
 
 size_t Ouroboros::getStakeholderCount() const {
-    return stakeholders_.size();
+    return mStakeholders_.size();
 }
 
 std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
     std::vector<Ouroboros::StakeholderInfo> result;
-    result.reserve(stakeholders_.size());
+    result.reserve(mStakeholders_.size());
     
-    for (const auto& [id, stake] : stakeholders_) {
+    for (const auto& [id, stake] : mStakeholders_) {
         result.emplace_back(id, stake);
     }
     
@@ -181,16 +181,22 @@ Ouroboros::Roe<bool> Ouroboros::validateBlock(
     const Block& block,
     const BlockChain& chain) const {
     
-    uint64_t slot = block.getSlot();
-    std::string slotLeader = block.getSlotLeader();
+    // Get delegate from blockDelegator
+    auto delegate = getDelegate<Ouroboros::Delegate>();
+    if (!delegate) {
+        return Ouroboros::Error(1, "Delegate is not set");
+    }
+    
+    uint64_t slot = delegate->getSlot();
+    std::string slotLeader = delegate->getSlotLeader();
     
     // Validate slot leader
-    if (!validateSlotLeader(block, slot)) {
+    if (!validateSlotLeader(slotLeader, slot)) {
         return Ouroboros::Error(2, "Invalid slot leader for block at slot " + std::to_string(slot));
     }
     
     // Validate block timing
-    if (!validateBlockTiming(block)) {
+    if (!validateBlockTiming(block, slot)) {
         return Ouroboros::Error(3, "Block timestamp outside valid slot range");
     }
     
@@ -215,13 +221,12 @@ Ouroboros::Roe<bool> Ouroboros::validateBlock(
     return true;
 }
 
-bool Ouroboros::validateSlotLeader(const Block& block, uint64_t slot) const {
+bool Ouroboros::validateSlotLeader(const std::string& slotLeader, uint64_t slot) const {
     std::string expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
-    return block.getSlotLeader() == expectedLeader;
+    return slotLeader == expectedLeader;
 }
 
-bool Ouroboros::validateBlockTiming(const Block& block) const {
-    uint64_t slot = block.getSlot();
+bool Ouroboros::validateBlockTiming(const Block& block, uint64_t slot) const {
     int64_t slotStart = getSlotStartTime(slot);
     int64_t slotEnd = slotStart + static_cast<int64_t>(slotDuration_);
     
@@ -246,9 +251,12 @@ Ouroboros::Roe<bool> Ouroboros::shouldSwitchChain(
     if (candidateSize > 0) {
         auto latestBlock = candidateChain.getLatestBlock();
         if (latestBlock) {
-            uint64_t latestSlot = latestBlock->getSlot();
-            if (!validateChainDensity(candidateChain, 0, latestSlot)) {
-                return Ouroboros::Error(7, "Candidate chain density too low");
+            auto delegate = getDelegate<Ouroboros::Delegate>();
+            if (delegate) {
+                uint64_t latestSlot = delegate->getSlot();
+                if (!validateChainDensity(candidateChain, 0, latestSlot)) {
+                    return Ouroboros::Error(7, "Candidate chain density too low");
+                }
             }
         }
     }

@@ -1,96 +1,52 @@
 #include "BlockChain.h"
+#include "Block.h"
 
-#include <sstream>
-#include <iomanip>
 #include <stdexcept>
 #include <openssl/evp.h>
 
 namespace pp {
 
-// Helper function to compute SHA-256 hash using OpenSSL 3.0 EVP API
-static std::string sha256(const std::string& input) {
-    EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
-    if (!mdctx) {
-        throw std::runtime_error("Failed to create EVP_MD_CTX");
-    }
-    
-    const EVP_MD* md = EVP_sha256();
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int hashLen = 0;
-    
-    if (EVP_DigestInit_ex(mdctx, md, nullptr) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("EVP_DigestInit_ex failed");
-    }
-    
-    if (EVP_DigestUpdate(mdctx, input.c_str(), input.size()) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("EVP_DigestUpdate failed");
-    }
-    
-    if (EVP_DigestFinal_ex(mdctx, hash, &hashLen) != 1) {
-        EVP_MD_CTX_free(mdctx);
-        throw std::runtime_error("EVP_DigestFinal_ex failed");
-    }
-    
-    EVP_MD_CTX_free(mdctx);
-    
-    std::stringstream ss;
-    for (unsigned int i = 0; i < hashLen; i++) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-    return ss.str();
-}
-
-// Block implementation
-Block::Block(uint64_t idx, const std::string& blockData, const std::string& prevHash)
-    : index(idx),
-      timestamp(std::chrono::system_clock::now().time_since_epoch().count()),
-      data(blockData),
-      previousHash(prevHash),
-      nonce(0) {
-    hash = calculateHash();
-}
-
-std::string Block::calculateHash() const {
-    std::stringstream ss;
-    ss << index << timestamp << data << previousHash << nonce;
-    return sha256(ss.str());
-}
-
-void Block::mineBlock(uint32_t difficulty) {
-    std::string target(difficulty, '0');
-    
-    while (hash.substr(0, difficulty) != target) {
-        nonce++;
-        hash = calculateHash();
-    }
-}
-
 // BlockChain implementation
-BlockChain::BlockChain(uint32_t difficulty)
-    : Module("blockchain"), difficulty_(difficulty) {
+BlockChain::BlockChain()
+    : Module("blockchain"), difficulty_(2) {
     createGenesisBlock();
 }
 
 void BlockChain::createGenesisBlock() {
-    Block genesis(0, "Genesis Block", "0");
-    genesis.mineBlock(difficulty_);
+    auto genesis = std::make_shared<Block>();
+    genesis->setIndex(0);
+    genesis->setData("Genesis Block");
+    genesis->setPreviousHash("0");
+    genesis->setHash(genesis->calculateHash());
+    genesis->mineBlock(difficulty_);
     chain_.push_back(genesis);
 }
 
-void BlockChain::addBlock(const std::string& data) {
-    if (chain_.empty()) {
-        throw std::runtime_error("Chain is empty, cannot add block");
+// IBlockChain interface implementation
+bool BlockChain::addBlock(std::shared_ptr<IBlock> block) {
+    if (!block) {
+        return false;
     }
-    
-    Block newBlock(chain_.size(), data, getLastBlockHash());
-    newBlock.mineBlock(difficulty_);
-    chain_.push_back(newBlock);
+    chain_.push_back(block);
+    return true;
 }
 
-const std::vector<Block>& BlockChain::getChain() const {
-    return chain_;
+std::shared_ptr<IBlock> BlockChain::getLatestBlock() const {
+    if (chain_.empty()) {
+        return nullptr;
+    }
+    return chain_.back();
+}
+
+std::shared_ptr<IBlock> BlockChain::getBlock(uint64_t index) const {
+    if (index >= chain_.size()) {
+        return nullptr;
+    }
+    return chain_[index];
+}
+
+size_t BlockChain::getSize() const {
+    return chain_.size();
 }
 
 bool BlockChain::isValid() const {
@@ -100,22 +56,22 @@ bool BlockChain::isValid() const {
     
     // Start from index 1 (skip genesis block)
     for (size_t i = 1; i < chain_.size(); i++) {
-        const Block& currentBlock = chain_[i];
-        const Block& previousBlock = chain_[i - 1];
+        const auto& currentBlock = chain_[i];
+        const auto& previousBlock = chain_[i - 1];
         
         // Verify current block's hash
-        if (currentBlock.hash != currentBlock.calculateHash()) {
+        if (currentBlock->getHash() != currentBlock->calculateHash()) {
             return false;
         }
         
         // Verify link to previous block
-        if (currentBlock.previousHash != previousBlock.hash) {
+        if (currentBlock->getPreviousHash() != previousBlock->getHash()) {
             return false;
         }
         
         // Verify proof of work
         std::string target(difficulty_, '0');
-        if (currentBlock.hash.substr(0, difficulty_) != target) {
+        if (currentBlock->getHash().substr(0, difficulty_) != target) {
             return false;
         }
     }
@@ -123,22 +79,41 @@ bool BlockChain::isValid() const {
     return true;
 }
 
-size_t BlockChain::getSize() const {
-    return chain_.size();
+bool BlockChain::validateBlock(const IBlock& block) const {
+    // Verify block's hash
+    if (block.getHash() != block.calculateHash()) {
+        return false;
+    }
+    
+    // Verify proof of work
+    std::string target(difficulty_, '0');
+    if (block.getHash().substr(0, difficulty_) != target) {
+        return false;
+    }
+    
+    return true;
 }
 
-const Block& BlockChain::getLatestBlock() const {
+std::vector<std::shared_ptr<IBlock>> BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
+    std::vector<std::shared_ptr<IBlock>> result;
+    
+    if (fromIndex > toIndex || fromIndex >= chain_.size()) {
+        return result;
+    }
+    
+    uint64_t endIndex = std::min(toIndex + 1, static_cast<uint64_t>(chain_.size()));
+    for (uint64_t i = fromIndex; i < endIndex; i++) {
+        result.push_back(chain_[i]);
+    }
+    
+    return result;
+}
+
+std::string BlockChain::getLastBlockHash() const {
     if (chain_.empty()) {
-        throw std::runtime_error("Chain is empty");
+        return "0";
     }
-    return chain_.back();
-}
-
-const Block& BlockChain::getBlock(size_t index) const {
-    if (index >= chain_.size()) {
-        throw std::out_of_range("Block index out of range");
-    }
-    return chain_[index];
+    return chain_.back()->getHash();
 }
 
 void BlockChain::setDifficulty(uint32_t difficulty) {
@@ -147,13 +122,6 @@ void BlockChain::setDifficulty(uint32_t difficulty) {
 
 uint32_t BlockChain::getDifficulty() const {
     return difficulty_;
-}
-
-std::string BlockChain::getLastBlockHash() const {
-    if (chain_.empty()) {
-        return "0";
-    }
-    return chain_.back().hash;
 }
 
 } // namespace pp

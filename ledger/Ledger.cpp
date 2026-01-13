@@ -7,7 +7,10 @@
 namespace pp {
 
 Ledger::Ledger(uint32_t blockchainDifficulty)
-    : Module("ledger"), ukpBlockchain_(std::make_unique<BlockChain>(blockchainDifficulty)) {
+    : Module("ledger"), ukpBlockchain_(std::make_unique<BlockChain>()) {
+    if (blockchainDifficulty > 0) {
+        ukpBlockchain_->setDifficulty(blockchainDifficulty);
+    }
 }
 
 // Wallet management
@@ -142,7 +145,16 @@ Ledger::Roe<void> Ledger::commitTransactions() {
     
     try {
         std::string packedData = packTransactions();
-        ukpBlockchain_->addBlock(packedData);
+        
+        // Create a new block with the packed transaction data
+        auto block = std::make_shared<Block>();
+        block->setIndex(ukpBlockchain_->getSize());
+        block->setData(packedData);
+        block->setPreviousHash(ukpBlockchain_->getLastBlockHash());
+        block->setHash(block->calculateHash());
+        block->mineBlock(ukpBlockchain_->getDifficulty());
+        
+        ukpBlockchain_->addBlock(block);
         pendingTransactions_.clear();
         return {};
     } catch (const std::exception& e) {

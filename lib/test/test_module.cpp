@@ -18,7 +18,8 @@ TEST(ModuleTest, ClientHasCorrectLoggerName) {
 }
 
 TEST(ModuleTest, BlockChainHasCorrectLoggerName) {
-    pp::BlockChain blockchain(2);
+    pp::BlockChain blockchain;
+    blockchain.setDifficulty(2);
     EXPECT_EQ(blockchain.getLoggerName(), "blockchain");
 }
 
@@ -40,7 +41,8 @@ TEST(ModuleTest, BlockDirHasCorrectLoggerName) {
 TEST(ModuleTest, LoggerWorksForModules) {
     pp::Server server;
     pp::Client client;
-    pp::BlockChain blockchain(2);
+    pp::BlockChain blockchain;
+    blockchain.setDifficulty(2);
     pp::Ledger ledger(2);
     
     EXPECT_NO_THROW({
@@ -65,11 +67,11 @@ TEST(ModuleTest, LoggerRedirect) {
 
 TEST(ModuleTest, MultipleModulesWithDifferentRedirects) {
     pp::Client client;
-    pp::BlockChain blockchain(2);
+    pp::BlockChain blockchain;
+    blockchain.setDifficulty(2);
     
     client.redirectLogger("system");
-    blockchain.redirectLogger("system");
-    
+    blockchain.redirectLogger("system");    
     EXPECT_NO_THROW({
         client.log().info << "Client message going to system logger";
         blockchain.log().info << "BlockChain message going to system logger";

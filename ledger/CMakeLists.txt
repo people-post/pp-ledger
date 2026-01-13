@@ -1,5 +1,7 @@
 # Ledger library
 add_library(ppledger_ledger STATIC
+    Block.cpp
+    Block.h
     BlockChain.cpp
     BlockChain.h
     Ledger.cpp

@@ -26,12 +26,6 @@ public:
     virtual std::string calculateHash() const = 0;
     virtual void setHash(const std::string& hash) = 0;
     virtual void setNonce(uint64_t nonce) = 0;
-    
-    // Ouroboros specific
-    virtual uint64_t getSlot() const = 0;
-    virtual std::string getSlotLeader() const = 0;
-    virtual void setSlot(uint64_t slot) = 0;
-    virtual void setSlotLeader(const std::string& leader) = 0;
 };
 
 } // namespace iii

@@ -3,6 +3,7 @@
 #include "Module.h"
 #include "../interface/Block.hpp"
 #include "../interface/BlockChain.hpp"
+#include "../lib/Delegator.hpp"
 #include "ResultOrError.hpp"
 #include <memory>
 #include <string>
@@ -27,8 +28,19 @@ using BlockChain = iii::BlockChain;
  * - Stake-based slot leader selection
  * - Chain selection rules
  */
-class Ouroboros : public Module {
+class Ouroboros : public Module, public Delegator {
 public:
+    /**
+     * Ouroboros-specific block delegate
+     * Provides slot and leader information for blocks within Ouroboros consensus
+     */
+    struct Delegate : public Delegator::Delegate {
+        virtual uint64_t getSlot() const = 0;
+        virtual std::string getSlotLeader() const = 0;
+        virtual void setSlot(uint64_t slot) = 0;
+        virtual void setSlotLeader(const std::string& leader) = 0;
+    };
+
     struct StakeholderInfo {
         std::string id;
         uint64_t stake;
@@ -100,12 +112,12 @@ private:
     std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
     
     // Validation helpers
-    bool validateSlotLeader(const Block& block, uint64_t slot) const;
-    bool validateBlockTiming(const Block& block) const;
+    bool validateSlotLeader(const std::string& slotLeader, uint64_t slot) const;
+    bool validateBlockTiming(const Block& block, uint64_t slot) const;
     bool validateChainDensity(const BlockChain& chain, uint64_t fromSlot, uint64_t toSlot) const;
     
     // Data members
-    std::map<std::string, uint64_t> stakeholders_;
+    std::map<std::string, uint64_t> mStakeholders_;
     uint64_t slotDuration_;      // Duration of each slot in seconds
     uint64_t slotsPerEpoch_;     // Number of slots per epoch
     int64_t genesisTime_;        // Timestamp of genesis block
