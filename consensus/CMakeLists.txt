@@ -15,8 +15,6 @@ set(CONSENSUS_SOURCES
 
 # Header files
 set(CONSENSUS_HEADERS
-    IBlock.h
-    IBlockChain.h
     Ouroboros.h
     SlotLeaderSelection.h
     EpochManager.h
@@ -30,6 +28,7 @@ target_include_directories(consensus
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/lib
+        ${CMAKE_SOURCE_DIR}/interface
 )
 
 # Link with lib (for Module, Logger, ResultOrError)
@@ -51,5 +50,10 @@ install(TARGETS consensus
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include/consensus
 )
+
+# Add tests subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()
 
 message(STATUS "Consensus library configured")

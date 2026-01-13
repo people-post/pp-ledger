@@ -60,12 +60,13 @@ FetchContent_MakeAvailable(googletest)
 
 # Add subdirectories for each component
 add_subdirectory(lib)
+add_subdirectory(interface)
 add_subdirectory(consensus)
 add_subdirectory(network)
 add_subdirectory(client)
+add_subdirectory(ledger)
 add_subdirectory(server)
 add_subdirectory(app)
 
 # Enable testing
 enable_testing()
-add_subdirectory(test)

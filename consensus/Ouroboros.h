@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Module.h"
-#include "IBlock.h"
-#include "IBlockChain.h"
+#include "../interface/IBlock.hpp"
+#include "../interface/IBlockChain.hpp"
 #include "ResultOrError.hpp"
 #include <memory>
 #include <string>

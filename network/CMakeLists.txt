@@ -45,3 +45,8 @@ install(TARGETS network
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include/network
 )
+
+# Add tests subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()

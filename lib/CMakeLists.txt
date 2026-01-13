@@ -16,3 +16,8 @@ add_library(ppledger_lib STATIC
 target_include_directories(ppledger_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+# Add tests subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()

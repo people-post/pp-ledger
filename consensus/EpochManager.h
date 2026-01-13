@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Module.h"
-#include "IBlock.h"
+#include "../interface/IBlock.hpp"
 #include <string>
 #include <vector>
 #include <map>

@@ -10,7 +10,7 @@ Ouroboros is a provably secure proof-of-stake blockchain protocol. This implemen
 
 ### Core Components
 
-#### 1. Interfaces (`IBlock.h`, `IBlockChain.h`)
+#### 1. Interfaces (`../interface/IBlock.hpp`, `../interface/IBlockChain.hpp`)
 - **IBlock**: Interface for block data structures
   - Defines standard block properties (index, timestamp, hash, etc.)
   - Adds Ouroboros-specific fields (slot, slot leader)
