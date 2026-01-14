@@ -30,7 +30,8 @@ bool FetchServer::start(uint16_t port, RequestHandler handler) {
     // Start listening
     auto listenResult = server_.listen(port_);
     if (!listenResult) {
-        log().error << "Failed to start listening: " + listenResult.error().message;
+        std::string errorMsg = listenResult.error();
+        log().error << "Failed to start listening: " + errorMsg;
         return false;
     }
 
@@ -86,7 +87,8 @@ void FetchServer::serverLoop() {
         char buffer[4096];
         auto recvResult = connection.receive(buffer, sizeof(buffer) - 1);
         if (!recvResult) {
-            log().error << "Failed to read data: " + recvResult.error().message;
+            std::string errorMsg = recvResult.error();
+            log().error << "Failed to read data: " + errorMsg;
             connection.close();
             continue;
         }
@@ -110,7 +112,8 @@ void FetchServer::serverLoop() {
         // Send response
         auto sendResult = connection.send(response);
         if (!sendResult) {
-            log().error << "Failed to send response: " + sendResult.error().message;
+            std::string errorMsg = sendResult.error();
+            log().error << "Failed to send response: " + errorMsg;
         } else {
             log().info << "Response sent (" + std::to_string(response.size()) + " bytes)";
         }

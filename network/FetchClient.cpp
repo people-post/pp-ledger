@@ -36,8 +36,9 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     // Connect to the server
     auto connectResult = client.connect(host, port);
     if (!connectResult) {
-        log().error << "Failed to connect: " + connectResult.error().message;
-        return FetchClient::Error(1, "Failed to connect: " + connectResult.error().message);
+        std::string errorMsg = connectResult.error();
+        log().error << "Failed to connect: " + errorMsg;
+        return FetchClient::Error(1, "Failed to connect: " + errorMsg);
     }
     
     log().debug << "Connected successfully";
@@ -45,9 +46,10 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     // Send the data
     auto sendResult = client.send(data);
     if (!sendResult) {
-        log().error << "Failed to send data: " + sendResult.error().message;
+        std::string errorMsg = sendResult.error();
+        log().error << "Failed to send data: " + errorMsg;
         client.close();
-        return FetchClient::Error(2, "Failed to send data: " + sendResult.error().message);
+        return FetchClient::Error(2, "Failed to send data: " + errorMsg);
     }
     
     log().debug << "Data sent, waiting for response";
@@ -56,9 +58,10 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     char buffer[4096];
     auto recvResult = client.receive(buffer, sizeof(buffer) - 1);
     if (!recvResult) {
-        log().error << "Failed to receive response: " + recvResult.error().message;
+        std::string errorMsg = recvResult.error();
+        log().error << "Failed to receive response: " + errorMsg;
         client.close();
-        return FetchClient::Error(3, "Failed to receive response: " + recvResult.error().message);
+        return FetchClient::Error(3, "Failed to receive response: " + errorMsg);
     }
     
     size_t bytesRead = recvResult.value();
