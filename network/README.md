@@ -1,10 +1,10 @@
 # Network Module
 
-This directory contains network communication components using cpp-libp2p for peer-to-peer communication.
+This directory contains network communication components using TCP sockets for peer-to-peer communication.
 
 ## Overview
 
-The network module provides simple fetch-style communication patterns without HTTP protocol overhead. It uses libp2p for establishing peer-to-peer connections with a simple send-receive-close pattern.
+The network module provides simple fetch-style communication patterns without HTTP protocol overhead. It uses TCP sockets for establishing peer-to-peer connections with a simple send-receive-close pattern.
 
 ## Components
 
@@ -22,19 +22,14 @@ A client for sending data to peers and receiving responses.
 
 ```cpp
 #include "FetchClient.h"
-#include <libp2p/host/host.hpp>
 
 using namespace pp::network;
 
-// Create libp2p host
-auto host = /* create your libp2p host */;
-
 // Create fetch client
-FetchClient client(host);
+FetchClient client;
 
 // Asynchronous fetch
-libp2p::peer::PeerInfo peerInfo = /* peer information */;
-client.fetch(peerInfo, "/myprotocol/1.0.0", "Hello", 
+client.fetch("127.0.0.1", 8888, "Hello", 
     [](const auto& result) {
         if (result.isOk()) {
             std::cout << "Response: " << result.value() << std::endl;
@@ -44,7 +39,7 @@ client.fetch(peerInfo, "/myprotocol/1.0.0", "Hello",
     });
 
 // Synchronous fetch
-auto result = client.fetchSync(peerInfo, "/myprotocol/1.0.0", "Hello");
+auto result = client.fetchSync("127.0.0.1", 8888, "Hello");
 if (result.isOk()) {
     std::cout << "Response: " << result.value() << std::endl;
 }
@@ -55,7 +50,7 @@ if (result.isOk()) {
 A server for accepting connections and handling requests.
 
 **Features:**
-- Protocol-based request routing
+- Port-based listening
 - Simple receive-process-send-close pattern
 - Configurable request handlers
 - Automatic connection management
@@ -64,18 +59,14 @@ A server for accepting connections and handling requests.
 
 ```cpp
 #include "FetchServer.h"
-#include <libp2p/host/host.hpp>
 
 using namespace pp::network;
 
-// Create libp2p host
-auto host = /* create your libp2p host */;
-
 // Create fetch server
-FetchServer server(host);
+FetchServer server;
 
 // Start server with request handler
-server.start("/myprotocol/1.0.0", [](const std::string& request) {
+server.start(8888, [](const std::string& request) {
     // Process request and return response
     return "Echo: " + request;
 });
@@ -89,7 +80,7 @@ server.stop();
 ## Communication Pattern
 
 1. **Client Side:**
-   - Connect to peer
+   - Connect to host:port
    - Send data
    - Receive response
    - Close connection
@@ -103,27 +94,25 @@ server.stop();
 
 ## Dependencies
 
-- **cpp-libp2p**: Peer-to-peer networking library (installed via Hunter)
-- **ppledger_lib**: Core library (Module, Logger, ResultOrError)
+- **ppledger_lib**: Core library (TcpClient, TcpServer, Module, Logger, ResultOrError)
 
 ## Building
 
-The network module is automatically built when building the main pp-ledger project.
-Hunter package manager will automatically download and build cpp-libp2p:
+The network module is automatically built when building the main pp-ledger project:
 
 ```bash
-cd build
+mkdir build && cd build
 cmake ..
 make network
 ```
 
 ## Testing
 
-Tests for the network module will be added in the `test/` directory:
+Tests for the network module are in the `test/` directory:
 
 ```bash
-./test/test_fetch_client
-./test/test_fetch_server
+cd build
+ctest -R test_fetch --output-on-failure
 ```
 
 ## Protocol Design
@@ -145,6 +134,6 @@ This makes it ideal for:
 - Connection pooling for multiple requests
 - Streaming support for large data transfers
 - Compression support
-- Encryption and authentication
+- Encryption and authentication (TLS)
 - Timeout configuration
 - Retry logic with exponential backoff

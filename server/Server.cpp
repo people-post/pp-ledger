@@ -1,12 +1,11 @@
 #include "Server.h"
 #include "Logger.h"
+#include "FetchClient.h"
+#include "FetchServer.h"
 #include <chrono>
 #include <thread>
 #include <nlohmann/json.hpp>
-
-// libp2p includes - only in implementation
-#include <libp2p/injector/host_injector.hpp>
-#include <libp2p/multi/multiaddress.hpp>
+#include <sstream>
 
 namespace pp {
 
@@ -64,7 +63,7 @@ bool Server::start(int port, const NetworkConfig& networkConfig) {
     auto& logger = logging::getLogger("server");
     logger.info << "Server started on port " << port_;
     if (networkConfig.enableP2P) {
-        logger.info << "P2P networking enabled on " << networkConfig.listenAddr;
+        logger.info << "P2P networking enabled on " << networkConfig.listenAddr << ":" << networkConfig.p2pPort;
     }
     return true;
 }
@@ -93,34 +92,47 @@ bool Server::isRunning() const {
     return running_;
 }
 
-void Server::connectToPeer(const std::string& multiaddr) {
-    if (!networkConfig_.enableP2P || !p2pHost_) {
+bool Server::parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port) {
+    size_t colonPos = hostPort.find_last_of(':');
+    if (colonPos == std::string::npos || colonPos == 0 || colonPos == hostPort.length() - 1) {
+        return false;
+    }
+    
+    host = hostPort.substr(0, colonPos);
+    try {
+        int portInt = std::stoi(hostPort.substr(colonPos + 1));
+        if (portInt < 0 || portInt > 65535) {
+            return false;
+        }
+        port = static_cast<uint16_t>(portInt);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void Server::connectToPeer(const std::string& hostPort) {
+    if (!networkConfig_.enableP2P || !p2pClient_) {
         auto& logger = logging::getLogger("server");
         logger.warning << "Cannot connect to peer: P2P not enabled";
         return;
     }
     
-    try {
-        auto ma = libp2p::multi::Multiaddress::create(multiaddr);
-        if (!ma) {
-            auto& logger = logging::getLogger("server");
-            logger.error << "Invalid multiaddress: " << multiaddr;
-            return;
-        }
-        
-        // Extract peer info from multiaddress
-        // In a full implementation, this would parse the multiaddress properly
-        {
-            std::lock_guard<std::mutex> lock(peersMutex_);
-            connectedPeers_.insert(multiaddr);
-        }
-        
+    std::string host;
+    uint16_t port;
+    if (!parseHostPort(hostPort, host, port)) {
         auto& logger = logging::getLogger("server");
-        logger.info << "Added peer: " << multiaddr;
-    } catch (const std::exception& e) {
-        auto& logger = logging::getLogger("server");
-        logger.error << "Error connecting to peer: " << e.what();
+        logger.error << "Invalid host:port format: " << hostPort;
+        return;
     }
+    
+    {
+        std::lock_guard<std::mutex> lock(peersMutex_);
+        connectedPeers_.insert(hostPort);
+    }
+    
+    auto& logger = logging::getLogger("server");
+    logger.info << "Added peer: " << hostPort;
 }
 
 size_t Server::getPeerCount() const {
@@ -134,7 +146,7 @@ std::vector<std::string> Server::getConnectedPeers() const {
 }
 
 bool Server::isP2PEnabled() const {
-    return networkConfig_.enableP2P && p2pHost_ != nullptr;
+    return networkConfig_.enableP2P && p2pServer_ != nullptr;
 }
 
 void Server::registerStakeholder(const std::string& id, uint64_t stake) {
@@ -359,17 +371,21 @@ void Server::initializeP2PNetwork(const NetworkConfig& config) {
     auto& logger = logging::getLogger("server");
     logger.info << "Initializing P2P network...";
     
-    // Create libp2p host using injector
-    auto injector = libp2p::injector::makeHostInjector();
-    p2pHost_ = injector.create<std::shared_ptr<libp2p::Host>>();
+    // Create FetchClient and FetchServer
+    p2pClient_ = std::make_unique<network::FetchClient>();
+    p2pServer_ = std::make_unique<network::FetchServer>();
     
-    if (!p2pHost_) {
-        throw std::runtime_error("Failed to create libp2p host");
+    // Start the P2P server
+    bool started = p2pServer_->start(config.p2pPort, 
+        [this](const std::string& request) {
+            return handleIncomingRequest(request);
+        });
+    
+    if (!started) {
+        throw std::runtime_error("Failed to start P2P server on port " + std::to_string(config.p2pPort));
     }
     
-    // Start the host
-    p2pHost_->start();
-    logger.info << "libp2p host started";
+    logger.info << "P2P server started on port " << config.p2pPort;
     
     // Connect to bootstrap peers
     for (const auto& peerAddr : config.bootstrapPeers) {
@@ -383,10 +399,12 @@ void Server::shutdownP2PNetwork() {
     auto& logger = logging::getLogger("server");
     logger.info << "Shutting down P2P network...";
             
-    if (p2pHost_) {
-        p2pHost_->stop();
-        p2pHost_.reset();
+    if (p2pServer_) {
+        p2pServer_->stop();
+        p2pServer_.reset();
     }
+    
+    p2pClient_.reset();
     
     {
         std::lock_guard<std::mutex> lock(peersMutex_);
@@ -437,7 +455,7 @@ std::string Server::handleIncomingRequest(const std::string& request) {
 }
 
 void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
-    if (!block) {
+    if (!block || !p2pClient_) {
         return;
     }
     
@@ -462,15 +480,15 @@ void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
     
     // Send to each connected peer
     for (const auto& peerAddr : peers) {
-        try {
-            // Parse multiaddress to get peer info
-            auto ma = libp2p::multi::Multiaddress::create(peerAddr);
-            if (ma) {
-                // In full implementation, properly extract PeerInfo from multiaddress
+        std::string host;
+        uint16_t port;
+        if (parseHostPort(peerAddr, host, port)) {
+            auto result = p2pClient_->fetchSync(host, port, messageStr);
+            if (result.isOk()) {
                 logger.debug << "Sent block to peer: " << peerAddr;
+            } else {
+                logger.warning << "Failed to send block to peer " << peerAddr << ": " << result.error().message;
             }
-        } catch (const std::exception& e) {
-            logger.warning << "Failed to send block to peer " << peerAddr << ": " << e.what();
         }
     }
 }
@@ -495,8 +513,18 @@ void Server::requestBlocksFromPeers(uint64_t fromIndex) {
 }
 
 Server::Roe<std::vector<std::shared_ptr<iii::Block>>> 
-Server::fetchBlocksFromPeer(const std::string& peerMultiaddr, uint64_t fromIndex) {   
+Server::fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex) {   
     auto& logger = logging::getLogger("server");
+    
+    if (!p2pClient_) {
+        return Error(1, "P2P client not initialized");
+    }
+    
+    std::string host;
+    uint16_t port;
+    if (!parseHostPort(hostPort, host, port)) {
+        return Error(2, "Invalid peer address format");
+    }
     
     // Create request
     nlohmann::json request;
@@ -505,27 +533,24 @@ Server::fetchBlocksFromPeer(const std::string& peerMultiaddr, uint64_t fromIndex
     request["count"] = 100;
     
     try {
-        // Parse multiaddress to get peer info
-        auto ma = libp2p::multi::Multiaddress::create(peerMultiaddr);
-        if (!ma) {
-            return Error(2, "Invalid peer multiaddress");
+        logger.debug << "Fetching blocks from peer: " << hostPort;
+        
+        auto result = p2pClient_->fetchSync(host, port, request.dump());
+        if (!result.isOk()) {
+            return Error(3, "Failed to fetch from peer: " + result.error().message);
         }
         
         // In full implementation:
-        // 1. Extract PeerInfo from multiaddress
-        // 2. Use networkClient_->fetchSync() to get blocks
-        // 3. Deserialize response into Block objects
-        
-        logger.debug << "Fetching blocks from peer: " << peerMultiaddr;
+        // 1. Parse the response JSON
+        // 2. Deserialize response into Block objects
         
         // Placeholder return
         return std::vector<std::shared_ptr<iii::Block>>();
         
     } catch (const std::exception& e) {
         logger.error << "Error fetching blocks from peer: " << e.what();
-        return Error(3, e.what());
+        return Error(4, e.what());
     }
 }
 
 } // namespace pp
-

@@ -5,7 +5,7 @@ The Server class has been successfully enhanced to manage both the Ouroboros con
 - Collecting and managing transactions
 - Coordinating consensus through Ouroboros
 - Managing blocks after consensus is reached
-- Synchronizing state in a network (framework for multi-node support)
+- Synchronizing state in a network (multi-node support via TCP)
 
 ## Key Components
 
@@ -20,33 +20,48 @@ The Server class now includes:
 
 #### 2. **Lifecycle Management**
 - `start(int port)` - Initializes server and starts consensus loop in background thread
+- `start(int port, NetworkConfig)` - Start with P2P networking enabled
 - `stop()` - Gracefully stops the server and joins the consensus thread
 - `isRunning()` - Returns current server state
 
-#### 3. **Consensus Configuration**
+#### 3. **Network Configuration**
+```cpp
+struct NetworkConfig {
+    bool enableP2P = false;
+    std::string nodeId;
+    std::vector<std::string> bootstrapPeers;  // host:port format
+    std::string listenAddr = "0.0.0.0";
+    uint16_t p2pPort = 9000;
+    uint16_t maxPeers = 50;
+};
+```
+
+#### 4. **Consensus Configuration**
 - `registerStakeholder(id, stake)` - Register participants in the consensus
 - `setSlotDuration(seconds)` - Configure slot duration for consensus
-- `setGenesisTime(timestamp)` - Set the network genesis time
 
-#### 4. **Transaction Management**
+#### 5. **Transaction Management**
 - `submitTransaction(transaction)` - Submit new transactions
 - `getPendingTransactionCount()` - Query pending transactions awaiting block production
 
-#### 5. **Block Production Flow**
+#### 6. **Block Production Flow**
 The consensus loop automatically:
 1. **Monitors pending transactions** via `shouldProduceBlock()`
 2. **Creates blocks** from transactions via `createBlockFromTransactions()`
 3. **Validates blocks** using consensus rules via `addBlockToLedger()`
-4. **Syncs state** with peers via `syncState()` (placeholder for multi-node)
+4. **Syncs state** with peers via `syncState()`
+5. **Broadcasts blocks** to connected peers
 
-#### 6. **State Queries**
+#### 7. **State Queries**
 - `getCurrentSlot()` - Get current consensus slot
 - `getCurrentEpoch()` - Get current consensus epoch
 - `getBlockCount()` - Get total blocks in chain
 - `getBalance(walletId)` - Query wallet balance from ledger
 
-#### 7. **Direct Access**
-- `getLedger()` / `getConsensus()` - Access managed objects directly when needed
+#### 8. **Network Queries**
+- `getPeerCount()` - Get number of connected peers
+- `getConnectedPeers()` - Get list of connected peer addresses
+- `isP2PEnabled()` - Check if P2P networking is enabled
 
 ## Thread Model
 
@@ -55,6 +70,7 @@ The Server runs a background consensus thread that:
 - Checks every 500ms if blocks should be produced
 - Creates blocks from pending transactions
 - Validates blocks against consensus rules
+- Syncs state with connected peers
 - Handles errors gracefully without stopping the loop
 
 ### Transaction Queue
@@ -78,6 +94,8 @@ ledger->commitTransactions() [creates block]
 consensus->validateBlock() [consensus validation]
     ↓
 addBlockToLedger() [adds to chain]
+    ↓
+broadcastBlock() [notify peers]
 ```
 
 ## Error Handling
@@ -86,73 +104,52 @@ The Server uses the ResultOrError (Roe) pattern for error reporting:
 - `Roe<T>` type for operations that can fail
 - Each operation provides error code and message
 - Consensus loop logs errors but continues running
-- Demo application shows error handling patterns
 
-## Demo Application
+## Multi-Node Example
 
-**File**: `server/ServerDemo.cpp`
+**File**: `server/multi_node_example.cpp`
 
 Demonstrates:
 ```cpp
 Server server(2);           // Create with blockchain difficulty
-server.start(8080);         // Start server on port 8080
 server.registerStakeholder("alice", 1000);  // Register consensus participants
+
+// Configure P2P network
+Server::NetworkConfig config;
+config.enableP2P = true;
+config.nodeId = "node1";
+config.p2pPort = 9000;
+config.bootstrapPeers = {"127.0.0.1:9001"};
+
+server.start(8080, config); // Start server with P2P
 server.submitTransaction("...");            // Submit transactions
 server.getCurrentSlot();    // Query state
-server.getLedger().getBlockChain().isValid(); // Direct ledger access
+server.getPeerCount();      // Check connected peers
 server.stop();              // Graceful shutdown
 ```
 
-## Test Results
-
-✅ **All 42+ tests passing:**
-- 7 blockchain tests
-- 16 consensus tests  
-- 9 ledger tests
-- 10 storage tests
-- Demo application runs successfully
-
 ## Design Patterns Used
 
-1. **Composition**: Server owns Ledger and Ouroboros instances
+1. **Composition**: Server owns Ledger, Ouroboros, and network components
 2. **RAII**: Automatic resource management with unique_ptr
 3. **ResultOrError**: Robust error handling
-4. **Thread Safety**: Mutex-protected transaction queue
+4. **Thread Safety**: Mutex-protected transaction queue and peer list
 5. **Module Pattern**: Server extends Module base class for logging
-
-## Future Enhancements
-
-1. **Multi-Node Support**:
-   - `syncState()` placeholder ready for peer synchronization
-   - Slot leader assignment per node
-   - Block propagation between peers
-
-2. **Network Layer**:
-   - P2P communication via libp2p
-   - Block validation before adding to chain
-   - Transaction pool management
-
-3. **Advanced Features**:
-   - Transaction fee calculation
-   - Mempool prioritization
-   - Chain fork resolution
-   - State machine replication
 
 ## Files Modified
 
-1. `server/Server.h` - Redesigned interface with new methods
-2. `server/Server.cpp` - Full implementation with consensus loop
-3. `server/CMakeLists.txt` - Added consensus library and demo executable
-4. `server/ServerDemo.cpp` - NEW: Demonstration of Server functionality
+1. `server/Server.h` - Server interface with network support
+2. `server/Server.cpp` - Full implementation with consensus loop and P2P
+3. `server/CMakeLists.txt` - Build configuration
+4. `server/multi_node_example.cpp` - Demonstration of multi-node functionality
 
 ## Compilation
 
 ```bash
-cd /workspaces/pp-ledger
+cd pp-ledger
 mkdir build && cd build
-cmake -DLIBP2P_ROOT=/path/to/libp2p-install -DBUILD_TESTING=ON ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
-./server/server-demo
 ```
 
 The Server is now ready for network integration and multi-node deployment!
