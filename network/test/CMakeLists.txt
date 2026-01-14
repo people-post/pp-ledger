@@ -20,3 +20,21 @@ target_link_libraries(test_fetch PRIVATE
 )
 
 gtest_discover_tests(test_fetch)
+
+# Test for TCP Client/Server/Connection
+add_executable(test_tcp
+    test_tcp.cpp
+)
+
+target_include_directories(test_tcp PRIVATE
+    ${CMAKE_SOURCE_DIR}/network
+)
+
+target_link_libraries(test_tcp PRIVATE
+    ppledger_lib
+    network
+    GTest::gtest_main
+    GTest::gmock
+)
+
+gtest_discover_tests(test_tcp)

@@ -3,7 +3,6 @@
 #include "Module.h"
 #include "../interface/Block.hpp"
 #include "../interface/BlockChain.hpp"
-#include "../lib/Delegator.hpp"
 #include "ResultOrError.hpp"
 #include <memory>
 #include <string>
@@ -28,7 +27,7 @@ using BlockChain = iii::BlockChain;
  * - Stake-based slot leader selection
  * - Chain selection rules
  */
-class Ouroboros : public Module, public Delegator {
+class Ouroboros : public Module {
 public:
     struct StakeholderInfo {
         std::string id;
