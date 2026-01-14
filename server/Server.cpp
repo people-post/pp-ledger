@@ -2,6 +2,7 @@
 #include "Logger.h"
 #include "FetchClient.h"
 #include "FetchServer.h"
+#include "BinaryPack.h"
 #include <chrono>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -162,13 +163,32 @@ void Server::setSlotDuration(uint64_t seconds) {
 }
 
 void Server::submitTransaction(const std::string& transaction) {
+    auto& logger = logging::getLogger("server");
+    
+    // Deserialize transaction string to Transaction struct using utility function
+    Ledger::Transaction tx;
+    try {
+        tx = utl::binaryUnpack<Ledger::Transaction>(transaction);
+    } catch (const std::exception& e) {
+        logger.error << "Failed to deserialize transaction: " << e.what();
+        return;
+    }
+    
+    // Add transaction to queue
     {
         std::lock_guard<std::mutex> lock(transactionQueueMutex_);
         transactionQueue_.push(transaction);
     }
-    ukpLedger_->addTransaction(transaction);
-    auto& logger = logging::getLogger("server");
-    logger.debug << "Transaction submitted: " << transaction;
+    
+    // Add transaction to ledger
+    auto result = ukpLedger_->addTransaction(tx);
+    if (!result) {
+        logger.error << "Failed to add transaction: " << result.error().message;
+        return;
+    }
+    
+    logger.debug << "Transaction submitted (fromWallet: " << tx.fromWallet 
+                 << ", toWallet: " << tx.toWallet << ", amount: " << tx.amount << ")";
 }
 
 size_t Server::getPendingTransactionCount() const {

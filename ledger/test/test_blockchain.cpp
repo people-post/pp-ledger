@@ -7,7 +7,6 @@ protected:
     
     void SetUp() override {
         blockchain = new pp::BlockChain();
-        blockchain->setDifficulty(2);
     }
     
     void TearDown() override {
@@ -29,7 +28,6 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
     block1->setData("Transaction 1: Alice -> Bob: 10 coins");
     block1->setPreviousHash(blockchain->getLastBlockHash());
     block1->setHash(block1->calculateHash());
-    block1->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
@@ -37,7 +35,6 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
     block2->setData("Transaction 2: Bob -> Charlie: 5 coins");
     block2->setPreviousHash(blockchain->getLastBlockHash());
     block2->setHash(block2->calculateHash());
-    block2->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block2);
     
     auto block3 = std::make_shared<pp::Block>();
@@ -45,7 +42,6 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
     block3->setData("Transaction 3: Charlie -> Alice: 3 coins");
     block3->setPreviousHash(blockchain->getLastBlockHash());
     block3->setHash(block3->calculateHash());
-    block3->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block3);
     
     EXPECT_EQ(blockchain->getSize(), 4);
@@ -57,7 +53,6 @@ TEST_F(BlockChainTest, ValidatesCorrectChain) {
     block1->setData("Transaction 1");
     block1->setPreviousHash(blockchain->getLastBlockHash());
     block1->setHash(block1->calculateHash());
-    block1->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
@@ -65,7 +60,6 @@ TEST_F(BlockChainTest, ValidatesCorrectChain) {
     block2->setData("Transaction 2");
     block2->setPreviousHash(blockchain->getLastBlockHash());
     block2->setHash(block2->calculateHash());
-    block2->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block2);
     
     EXPECT_TRUE(blockchain->isValid());
@@ -77,7 +71,6 @@ TEST_F(BlockChainTest, DetectsTampering) {
     block1->setData("Original Transaction");
     block1->setPreviousHash(blockchain->getLastBlockHash());
     block1->setHash(block1->calculateHash());
-    block1->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
@@ -85,7 +78,6 @@ TEST_F(BlockChainTest, DetectsTampering) {
     block2->setData("Another Transaction");
     block2->setPreviousHash(blockchain->getLastBlockHash());
     block2->setHash(block2->calculateHash());
-    block2->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block2);
     
     // Verify chain is initially valid
@@ -107,7 +99,6 @@ TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
     block1->setData("Block 1");
     block1->setPreviousHash(blockchain->getLastBlockHash());
     block1->setHash(block1->calculateHash());
-    block1->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
@@ -115,7 +106,6 @@ TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
     block2->setData("Block 2");
     block2->setPreviousHash(blockchain->getLastBlockHash());
     block2->setHash(block2->calculateHash());
-    block2->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block2);
     
     EXPECT_EQ(blockchain->getBlock(0)->getIndex(), 0);
@@ -129,7 +119,6 @@ TEST_F(BlockChainTest, BlocksLinkedByHash) {
     block1->setData("Block 1");
     block1->setPreviousHash(blockchain->getLastBlockHash());
     block1->setHash(block1->calculateHash());
-    block1->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
@@ -137,7 +126,6 @@ TEST_F(BlockChainTest, BlocksLinkedByHash) {
     block2->setData("Block 2");
     block2->setPreviousHash(blockchain->getLastBlockHash());
     block2->setHash(block2->calculateHash());
-    block2->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block2);
     
     EXPECT_EQ(blockchain->getBlock(1)->getPreviousHash(), blockchain->getBlock(0)->getHash());
@@ -150,7 +138,6 @@ TEST_F(BlockChainTest, GetLatestBlock) {
     block->setData("Latest Block");
     block->setPreviousHash(blockchain->getLastBlockHash());
     block->setHash(block->calculateHash());
-    block->mineBlock(blockchain->getDifficulty());
     blockchain->addBlock(block);
     
     auto latest = blockchain->getLatestBlock();

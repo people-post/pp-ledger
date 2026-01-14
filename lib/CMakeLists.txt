@@ -9,6 +9,7 @@ add_library(ppledger_lib STATIC
     ResultOrError.hpp
     Serializer.cpp
     Serializer.h
+    BinaryPack.h
 )
 
 target_include_directories(ppledger_lib PUBLIC

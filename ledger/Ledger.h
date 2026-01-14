@@ -39,6 +39,11 @@ public:
         Transaction() : amount(0) {}
         Transaction(const std::string& from, const std::string& to, int64_t amt)
             : fromWallet(from), toWallet(to), amount(amt) {}
+
+        template <typename Archive>
+        void serialize(Archive& ar) {
+            ar & fromWallet & toWallet & amount;
+        }
     };
     
     /**
