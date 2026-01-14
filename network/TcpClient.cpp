@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 namespace pp {
+namespace network {
 
 TcpClient::TcpClient() : socketFd_(-1), connected_(false) {}
 
@@ -31,15 +32,15 @@ TcpClient& TcpClient::operator=(TcpClient&& other) noexcept {
     return *this;
 }
 
-ResultOrError<void> TcpClient::connect(const std::string& host, uint16_t port) {
+TcpClient::Roe<void> TcpClient::connect(const std::string& host, uint16_t port) {
     if (connected_) {
-        return ResultOrError<void>::error("Already connected");
+        return Error("Already connected");
     }
 
     // Create socket
     socketFd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (socketFd_ < 0) {
-        return ResultOrError<void>::error("Failed to create socket");
+        return Error("Failed to create socket");
     }
 
     // Resolve hostname
@@ -47,7 +48,7 @@ ResultOrError<void> TcpClient::connect(const std::string& host, uint16_t port) {
     if (server == nullptr) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to resolve hostname: " + host);
+        return Error("Failed to resolve hostname: " + host);
     }
 
     // Setup address structure
@@ -61,55 +62,55 @@ ResultOrError<void> TcpClient::connect(const std::string& host, uint16_t port) {
     if (::connect(socketFd_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to connect to " + host + ":" + std::to_string(port));
+        return Error("Failed to connect to " + host + ":" + std::to_string(port));
     }
 
     connected_ = true;
-    return ResultOrError<void>();
+    return {};
 }
 
-ResultOrError<size_t> TcpClient::send(const void* data, size_t length) {
+TcpClient::Roe<size_t> TcpClient::send(const void* data, size_t length) {
     if (!connected_) {
-        return ResultOrError<size_t>::error("Not connected");
+        return Error("Not connected");
     }
 
     ssize_t sent = ::send(socketFd_, data, length, 0);
     if (sent < 0) {
-        return ResultOrError<size_t>::error("Failed to send data");
+        return Error("Failed to send data");
     }
 
-    return ResultOrError<size_t>(static_cast<size_t>(sent));
+    return Roe<size_t>(static_cast<size_t>(sent));
 }
 
-ResultOrError<size_t> TcpClient::send(const std::string& message) {
+TcpClient::Roe<size_t> TcpClient::send(const std::string& message) {
     return send(message.c_str(), message.length());
 }
 
-ResultOrError<size_t> TcpClient::receive(void* buffer, size_t maxLength) {
+TcpClient::Roe<size_t> TcpClient::receive(void* buffer, size_t maxLength) {
     if (!connected_) {
-        return ResultOrError<size_t>::error("Not connected");
+        return Error("Not connected");
     }
 
     ssize_t received = recv(socketFd_, buffer, maxLength, 0);
     if (received < 0) {
-        return ResultOrError<size_t>::error("Failed to receive data");
+        return Error("Failed to receive data");
     }
     if (received == 0) {
         connected_ = false;
-        return ResultOrError<size_t>::error("Connection closed by peer");
+        return Error("Connection closed by peer");
     }
 
-    return ResultOrError<size_t>(static_cast<size_t>(received));
+    return Roe<size_t>(static_cast<size_t>(received));
 }
 
-ResultOrError<std::string> TcpClient::receiveLine() {
+TcpClient::Roe<std::string> TcpClient::receiveLine() {
     std::string line;
     char ch;
     
     while (true) {
         auto result = receive(&ch, 1);
         if (result.isError()) {
-            return ResultOrError<std::string>::error(result.error());
+            return Error(result.error().message);
         }
         
         if (ch == '\n') {
@@ -120,7 +121,7 @@ ResultOrError<std::string> TcpClient::receiveLine() {
         }
     }
     
-    return ResultOrError<std::string>(line);
+    return Roe<std::string>(line);
 }
 
 void TcpClient::close() {
@@ -135,4 +136,5 @@ bool TcpClient::isConnected() const {
     return connected_;
 }
 
+} // namespace network
 } // namespace pp

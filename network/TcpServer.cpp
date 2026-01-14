@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 namespace pp {
+namespace network {
 
 // TcpConnection implementation
 
@@ -49,47 +50,47 @@ TcpConnection& TcpConnection::operator=(TcpConnection&& other) noexcept {
     return *this;
 }
 
-ResultOrError<size_t> TcpConnection::send(const void* data, size_t length) {
+TcpConnection::Roe<size_t> TcpConnection::send(const void* data, size_t length) {
     if (socketFd_ < 0) {
-        return ResultOrError<size_t>::error("Connection closed");
+        return Error("Connection closed");
     }
 
     ssize_t sent = ::send(socketFd_, data, length, 0);
     if (sent < 0) {
-        return ResultOrError<size_t>::error("Failed to send data");
+        return Error("Failed to send data");
     }
 
-    return ResultOrError<size_t>(static_cast<size_t>(sent));
+    return Roe<size_t>(static_cast<size_t>(sent));
 }
 
-ResultOrError<size_t> TcpConnection::send(const std::string& message) {
+TcpConnection::Roe<size_t> TcpConnection::send(const std::string& message) {
     return send(message.c_str(), message.length());
 }
 
-ResultOrError<size_t> TcpConnection::receive(void* buffer, size_t maxLength) {
+TcpConnection::Roe<size_t> TcpConnection::receive(void* buffer, size_t maxLength) {
     if (socketFd_ < 0) {
-        return ResultOrError<size_t>::error("Connection closed");
+        return Error("Connection closed");
     }
 
     ssize_t received = recv(socketFd_, buffer, maxLength, 0);
     if (received < 0) {
-        return ResultOrError<size_t>::error("Failed to receive data");
+        return Error("Failed to receive data");
     }
     if (received == 0) {
-        return ResultOrError<size_t>::error("Connection closed by peer");
+        return Error("Connection closed by peer");
     }
 
-    return ResultOrError<size_t>(static_cast<size_t>(received));
+    return Roe<size_t>(static_cast<size_t>(received));
 }
 
-ResultOrError<std::string> TcpConnection::receiveLine() {
+TcpConnection::Roe<std::string> TcpConnection::receiveLine() {
     std::string line;
     char ch;
     
     while (true) {
         auto result = receive(&ch, 1);
         if (result.isError()) {
-            return ResultOrError<std::string>::error(result.error());
+            return Error(result.error().message);
         }
         
         if (ch == '\n') {
@@ -100,7 +101,7 @@ ResultOrError<std::string> TcpConnection::receiveLine() {
         }
     }
     
-    return ResultOrError<std::string>(line);
+    return Roe<std::string>(line);
 }
 
 void TcpConnection::close() {
@@ -126,15 +127,15 @@ TcpServer::~TcpServer() {
     stop();
 }
 
-ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
+TcpServer::Roe<void> TcpServer::listen(uint16_t port, int backlog) {
     if (listening_) {
-        return ResultOrError<void>::error("Server already listening");
+        return Error("Server already listening");
     }
 
     // Create socket
     socketFd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (socketFd_ < 0) {
-        return ResultOrError<void>::error("Failed to create socket");
+        return Error("Failed to create socket");
     }
 
     // Set socket options to reuse address
@@ -142,7 +143,7 @@ ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
     if (setsockopt(socketFd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to set socket options");
+        return Error("Failed to set socket options");
     }
 
     // Setup address structure
@@ -156,14 +157,14 @@ ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
     if (bind(socketFd_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to bind to port " + std::to_string(port));
+        return Error("Failed to bind to port " + std::to_string(port));
     }
 
     // Listen for connections
     if (::listen(socketFd_, backlog) < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to listen on port " + std::to_string(port));
+        return Error("Failed to listen on port " + std::to_string(port));
     }
 
     // Set socket to non-blocking mode
@@ -171,7 +172,7 @@ ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
     if (flags < 0 || fcntl(socketFd_, F_SETFL, flags | O_NONBLOCK) < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to set socket to non-blocking mode");
+        return Error("Failed to set socket to non-blocking mode");
     }
 
     // Create epoll instance
@@ -179,7 +180,7 @@ ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
     if (epollFd_ < 0) {
         ::close(socketFd_);
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to create epoll instance");
+        return Error("Failed to create epoll instance");
     }
 
     // Add server socket to epoll
@@ -191,17 +192,17 @@ ResultOrError<void> TcpServer::listen(uint16_t port, int backlog) {
         ::close(socketFd_);
         epollFd_ = -1;
         socketFd_ = -1;
-        return ResultOrError<void>::error("Failed to add socket to epoll");
+        return Error("Failed to add socket to epoll");
     }
 
     listening_ = true;
     port_ = port;
-    return ResultOrError<void>();
+    return {};
 }
 
-ResultOrError<TcpConnection> TcpServer::accept() {
+TcpServer::Roe<TcpConnection> TcpServer::accept() {
     if (!listening_) {
-        return ResultOrError<TcpConnection>::error("Server not listening");
+        return Error("Server not listening");
     }
 
     struct sockaddr_in client_addr;
@@ -210,31 +211,31 @@ ResultOrError<TcpConnection> TcpServer::accept() {
     int client_fd = ::accept(socketFd_, (struct sockaddr*)&client_addr, &client_len);
     if (client_fd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return ResultOrError<TcpConnection>::error("No pending connections");
+            return Error("No pending connections");
         }
-        return ResultOrError<TcpConnection>::error("Failed to accept connection");
+        return Error("Failed to accept connection");
     }
 
-    return ResultOrError<TcpConnection>(TcpConnection(client_fd));
+    return Roe<TcpConnection>(TcpConnection(client_fd));
 }
 
-ResultOrError<void> TcpServer::waitForEvents(int timeoutMs) {
+TcpServer::Roe<void> TcpServer::waitForEvents(int timeoutMs) {
     if (!listening_) {
-        return ResultOrError<void>::error("Server not listening");
+        return Error("Server not listening");
     }
 
     struct epoll_event event;
     int num_events = epoll_wait(epollFd_, &event, 1, timeoutMs);
     
     if (num_events < 0) {
-        return ResultOrError<void>::error("epoll_wait failed");
+        return Error("epoll_wait failed");
     }
     
     if (num_events == 0) {
-        return ResultOrError<void>::error("Timeout waiting for events");
+        return Error("Timeout waiting for events");
     }
 
-    return ResultOrError<void>();
+    return {};
 }
 
 void TcpServer::stop() {
@@ -253,4 +254,5 @@ bool TcpServer::isListening() const {
     return listening_;
 }
 
+} // namespace network
 } // namespace pp

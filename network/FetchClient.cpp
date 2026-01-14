@@ -36,7 +36,7 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     // Connect to the server
     auto connectResult = client.connect(host, port);
     if (!connectResult) {
-        std::string errorMsg = connectResult.error();
+        std::string errorMsg = connectResult.error().message;
         log().error << "Failed to connect: " + errorMsg;
         return FetchClient::Error(1, "Failed to connect: " + errorMsg);
     }
@@ -46,7 +46,7 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     // Send the data
     auto sendResult = client.send(data);
     if (!sendResult) {
-        std::string errorMsg = sendResult.error();
+        std::string errorMsg = sendResult.error().message;
         log().error << "Failed to send data: " + errorMsg;
         client.close();
         return FetchClient::Error(2, "Failed to send data: " + errorMsg);
@@ -58,7 +58,7 @@ FetchClient::Roe<std::string> FetchClient::fetchSync(
     char buffer[4096];
     auto recvResult = client.receive(buffer, sizeof(buffer) - 1);
     if (!recvResult) {
-        std::string errorMsg = recvResult.error();
+        std::string errorMsg = recvResult.error().message;
         log().error << "Failed to receive response: " + errorMsg;
         client.close();
         return FetchClient::Error(3, "Failed to receive response: " + errorMsg);

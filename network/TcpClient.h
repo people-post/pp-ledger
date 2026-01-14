@@ -7,9 +7,17 @@
 #include <string>
 
 namespace pp {
+namespace network {
 
 class TcpClient {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+
     TcpClient();
     ~TcpClient();
 
@@ -22,15 +30,15 @@ public:
     TcpClient& operator=(TcpClient&& other) noexcept;
 
     // Connect to a server
-    ResultOrError<void> connect(const std::string& host, uint16_t port);
+    Roe<void> connect(const std::string& host, uint16_t port);
 
     // Send data
-    ResultOrError<size_t> send(const void* data, size_t length);
-    ResultOrError<size_t> send(const std::string& message);
+    Roe<size_t> send(const void* data, size_t length);
+    Roe<size_t> send(const std::string& message);
 
     // Receive data
-    ResultOrError<size_t> receive(void* buffer, size_t maxLength);
-    ResultOrError<std::string> receiveLine();
+    Roe<size_t> receive(void* buffer, size_t maxLength);
+    Roe<std::string> receiveLine();
 
     // Close connection
     void close();
@@ -43,4 +51,5 @@ private:
     bool connected_;
 };
 
+} // namespace network
 } // namespace pp

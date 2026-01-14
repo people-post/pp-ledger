@@ -7,9 +7,17 @@
 #include <string>
 
 namespace pp {
+namespace network {
 
 class TcpConnection {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+
     TcpConnection(int socket_fd);
     ~TcpConnection();
 
@@ -22,12 +30,12 @@ public:
     TcpConnection& operator=(TcpConnection&& other) noexcept;
 
     // Send data
-    ResultOrError<size_t> send(const void* data, size_t length);
-    ResultOrError<size_t> send(const std::string& message);
+    Roe<size_t> send(const void* data, size_t length);
+    Roe<size_t> send(const std::string& message);
 
     // Receive data
-    ResultOrError<size_t> receive(void* buffer, size_t maxLength);
-    ResultOrError<std::string> receiveLine();
+    Roe<size_t> receive(void* buffer, size_t maxLength);
+    Roe<std::string> receiveLine();
 
     // Close connection
     void close();
@@ -44,6 +52,13 @@ private:
 
 class TcpServer {
 public:
+    struct Error : RoeErrorBase {
+        using RoeErrorBase::RoeErrorBase;
+    };
+
+    template <typename T>
+    using Roe = ResultOrError<T, Error>;
+
     TcpServer();
     ~TcpServer();
 
@@ -52,13 +67,13 @@ public:
     TcpServer& operator=(const TcpServer&) = delete;
 
     // Bind to a port and start listening
-    ResultOrError<void> listen(uint16_t port, int backlog = 10);
+    Roe<void> listen(uint16_t port, int backlog = 10);
 
     // Accept a client connection (non-blocking)
-    ResultOrError<TcpConnection> accept();
+    Roe<TcpConnection> accept();
 
     // Wait for events (timeout in milliseconds, -1 for infinite)
-    ResultOrError<void> waitForEvents(int timeoutMs = -1);
+    Roe<void> waitForEvents(int timeoutMs = -1);
 
     // Stop the server
     void stop();
@@ -73,4 +88,5 @@ private:
     uint16_t port_;
 };
 
+} // namespace network
 } // namespace pp
