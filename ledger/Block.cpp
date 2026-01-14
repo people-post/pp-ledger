@@ -119,15 +119,6 @@ void Block::setPreviousHash(const std::string& hash) {
     previousHash_ = hash;
 }
 
-void Block::mineBlock(uint32_t difficulty) {
-    std::string target(difficulty, '0');
-    
-    while (hash_.substr(0, difficulty) != target) {
-        nonce_++;
-        hash_ = calculateHash();
-    }
-}
-
 void Block::setSlot(uint64_t slot) {
     slot_ = slot;
 }

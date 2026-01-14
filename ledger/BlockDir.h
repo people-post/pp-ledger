@@ -2,13 +2,19 @@
 
 #include "Module.h"
 #include "BlockFile.h"
+#include "BlockChain.h"
+#include "Block.h"
 #include <string>
 #include <memory>
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <functional>
 
 namespace pp {
+
+// Using declaration for interface type
+using IBlock = iii::Block;
 
 /**
  * Structure to represent a block's location in the storage
@@ -68,9 +74,10 @@ public:
     /**
      * Initialize the block directory
      * @param config Configuration for the block directory
+     * @param manageBlockchain If true, this BlockDir will manage a BlockChain instance
      * @return Roe<void> on success or error
      */
-    Roe<void> init(const Config& config);
+    Roe<void> init(const Config& config, bool manageBlockchain = false);
     
     /**
      * Write a block to storage
@@ -118,6 +125,18 @@ public:
     uint32_t getFrontFileId() const;
     
     /**
+     * Callback function type for when blocks are moved to archive
+     * Called with the list of block IDs that were moved
+     */
+    using BlockMoveCallback = std::function<void(const std::vector<uint64_t>& blockIds)>;
+    
+    /**
+     * Set callback to be called when blocks are moved to archive
+     * @param callback Function to call with moved block IDs
+     */
+    void setBlockMoveCallback(BlockMoveCallback callback);
+    
+    /**
      * Move front file to another BlockDir and append its blocks to that directory's index
      * @param targetDir Target BlockDir to move the front file to
      * @return Roe<void> on success or error
@@ -153,6 +172,52 @@ public:
      * Get max file size configured for this directory
      */
     size_t getMaxFileSize() const { return maxFileSize_; }
+    
+    // Blockchain management (only available if manageBlockchain is true)
+    /**
+     * Add a block to the blockchain
+     * @param block Block to add
+     * @return true on success, false on error
+     */
+    bool addBlock(std::shared_ptr<IBlock> block);
+    
+    /**
+     * Get the latest block from the blockchain
+     * @return Latest block or nullptr if chain is empty
+     */
+    std::shared_ptr<IBlock> getLatestBlock() const;
+    
+    /**
+     * Get the size of the blockchain
+     * @return Number of blocks in the chain
+     */
+    size_t getBlockchainSize() const;
+    
+    /**
+     * Get a block by index
+     * @param index Block index
+     * @return Block or nullptr if not found
+     */
+    std::shared_ptr<IBlock> getBlock(uint64_t index) const;
+    
+    /**
+     * Check if the blockchain is valid
+     * @return true if valid, false otherwise
+     */
+    bool isBlockchainValid() const;
+    
+    /**
+     * Get the last block hash
+     * @return Hash of the last block, or "0" if empty
+     */
+    std::string getLastBlockHash() const;
+    
+    /**
+     * Trim blocks from the blockchain
+     * @param blockIndices Block indices to remove
+     * @return Number of blocks removed
+     */
+    size_t trimBlocks(const std::vector<uint64_t>& blockIndices);
 
 private:
     std::string dirPath_;
@@ -170,6 +235,13 @@ private:
     
     // Path to the index file
     std::string indexFilePath_;
+    
+    // Callback to notify when blocks are moved
+    BlockMoveCallback blockMoveCallback_;
+    
+    // Blockchain instance (only used if manageBlockchain is true)
+    std::unique_ptr<BlockChain> ukpBlockchain_;
+    bool managesBlockchain_;
     
     /**
      * Create a new block file

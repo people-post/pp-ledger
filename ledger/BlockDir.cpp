@@ -11,20 +11,28 @@ namespace pp {
 BlockDir::BlockDir()
     : Module("blockdir")
     , maxFileSize_(0)
-    , currentFileId_(0) {
+    , currentFileId_(0)
+    , blockMoveCallback_(nullptr)
+    , managesBlockchain_(false) {
 }
 
 BlockDir::~BlockDir() {
     flush();
 }
 
-BlockDir::Roe<void> BlockDir::init(const Config& config) {
+BlockDir::Roe<void> BlockDir::init(const Config& config, bool manageBlockchain) {
     dirPath_ = config.dirPath;
     maxFileSize_ = config.maxFileSize;
     currentFileId_ = 0;
     indexFilePath_ = dirPath_ + "/blocks.index";
     blockIndex_.clear();
     ukpBlockFiles_.clear();
+    managesBlockchain_ = manageBlockchain;
+    
+    // Initialize blockchain if this BlockDir manages it
+    if (managesBlockchain_) {
+        ukpBlockchain_ = std::make_unique<BlockChain>();
+    }
     
     // Create directory if it doesn't exist
     try {
@@ -347,6 +355,10 @@ uint32_t BlockDir::getFrontFileId() const {
     return fileIdOrder_.front();
 }
 
+void BlockDir::setBlockMoveCallback(BlockMoveCallback callback) {
+    blockMoveCallback_ = callback;
+}
+
 BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
     uint32_t frontFileId = getFrontFileId();
     if (frontFileId == 0) {
@@ -392,6 +404,18 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
         targetDir.fileIdOrder_.push_back(frontFileId);
     }
     
+    // Collect block IDs for callback
+    std::vector<uint64_t> blockIds;
+    blockIds.reserve(blocksToMove.size());
+    for (const auto& [blockId, _] : blocksToMove) {
+        blockIds.push_back(blockId);
+    }
+    
+    // Notify callback if set (for trimming blockchain)
+    if (blockMoveCallback_) {
+        blockMoveCallback_(blockIds);
+    }
+    
     log().info << "Moved front file " << frontFileId << " with " << blocksToMove.size() << " blocks to target directory";
     return {};
 }
@@ -404,6 +428,56 @@ size_t BlockDir::getTotalStorageSize() const {
         }
     }
     return totalSize;
+}
+
+// Blockchain management methods
+bool BlockDir::addBlock(std::shared_ptr<IBlock> block) {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return false;
+    }
+    return ukpBlockchain_->addBlock(block);
+}
+
+std::shared_ptr<IBlock> BlockDir::getLatestBlock() const {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return nullptr;
+    }
+    return ukpBlockchain_->getLatestBlock();
+}
+
+size_t BlockDir::getBlockchainSize() const {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return 0;
+    }
+    return ukpBlockchain_->getSize();
+}
+
+std::shared_ptr<IBlock> BlockDir::getBlock(uint64_t index) const {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return nullptr;
+    }
+    return ukpBlockchain_->getBlock(index);
+}
+
+bool BlockDir::isBlockchainValid() const {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return false;
+    }
+    return ukpBlockchain_->isValid();
+}
+
+std::string BlockDir::getLastBlockHash() const {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return "0";
+    }
+    return ukpBlockchain_->getLastBlockHash();
+}
+
+size_t BlockDir::trimBlocks(const std::vector<uint64_t>& blockIndices) {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return 0;
+    }
+    return ukpBlockchain_->trimBlocks(blockIndices);
 }
 
 } // namespace pp

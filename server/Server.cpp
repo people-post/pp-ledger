@@ -9,14 +9,14 @@
 
 namespace pp {
 
-Server::Server(uint32_t blockchainDifficulty)
+Server::Server()
     : Module("server"),
       running_(false),
       port_(0),
-      ukpLedger_(std::make_unique<Ledger>(blockchainDifficulty)),
+      ukpLedger_(std::make_unique<Ledger>()),
       ukpConsensus_(std::make_unique<consensus::Ouroboros>()) {
     auto& logger = logging::getLogger("server");
-    logger.info << "Server initialized with difficulty: " << blockchainDifficulty;
+    logger.info << "Server initialized";
 }
 
 Server::~Server() {
@@ -219,10 +219,8 @@ bool Server::shouldProduceBlock() const {
 }
 
 Server::Roe<std::shared_ptr<iii::Block>> Server::createBlockFromTransactions() {
-    // Get pending transactions from ledger
-    const auto& pendingTransactions = ukpLedger_->getPendingTransactions();
-    
-    if (pendingTransactions.empty()) {
+    // Check if there are pending transactions
+    if (ukpLedger_->getPendingTransactionCount() == 0) {
         return Error(1, "No pending transactions to create block");
     }
     
@@ -233,7 +231,7 @@ Server::Roe<std::shared_ptr<iii::Block>> Server::createBlockFromTransactions() {
     }
     
     // Get the newly created block
-    auto latestBlock = ukpLedger_->getBlockChain().getLatestBlock();
+    auto latestBlock = ukpLedger_->getLatestBlock();
     if (!latestBlock) {
         return Error(3, "Failed to retrieve newly created block");
     }
@@ -283,7 +281,7 @@ Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
     }
     
     // Validate block against consensus
-    auto validateResult = ukpConsensus_->validateBlock(*block, ukpLedger_->getBlockChain());
+    auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
     if (!validateResult) {
         return Error(2, "Block validation failed: " + validateResult.error().message);
     }
@@ -323,7 +321,7 @@ Server::Roe<void> Server::syncState() {
             // Validate and add blocks to our ledger
             for (auto& block : blocksResult.value()) {
                 // Validate block
-                auto validateResult = ukpConsensus_->validateBlock(*block, ukpLedger_->getBlockChain());
+                auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
                 if (validateResult && validateResult.value()) {
                     // Block is valid, would be added to ledger here
                     logger.debug << "Received valid block " << block->getIndex() << " from peer";

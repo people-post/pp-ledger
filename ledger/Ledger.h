@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Module.h"
-#include "BlockChain.h"
+#include "BlockDir.h"
+#include "Block.h"
 #include "Wallet.h"
 #include "ResultOrError.hpp"
 #include "../interface/BlockChain.hpp"
@@ -14,8 +15,9 @@
 
 namespace pp {
 
-// Using declaration for interface type
+// Using declarations for interface types
 using IBlockChain = iii::BlockChain;
+using IBlock = iii::Block;
 
 class Ledger : public Module, public IBlockChain {
 public:
@@ -26,24 +28,47 @@ public:
     template <typename T>
     using Roe = ResultOrError<T, Error>;
     
-    Ledger(uint32_t blockchainDifficulty = 2);
+    /**
+     * Transaction structure for wallet transfers
+     */
+    struct Transaction {
+        std::string fromWallet;  // Source wallet ID
+        std::string toWallet;    // Destination wallet ID
+        int64_t amount;          // Transfer amount
+        
+        Transaction() : amount(0) {}
+        Transaction(const std::string& from, const std::string& to, int64_t amt)
+            : fromWallet(from), toWallet(to), amount(amt) {}
+    };
+    
+    /**
+     * Configuration for Ledger storage
+     */
+    struct StorageConfig {
+        std::string activeDirPath;      // Path for active (hot) blocks
+        std::string archiveDirPath;     // Path for archived (cold) blocks
+        size_t maxActiveDirSize;        // Max size of active directory before transferring files (bytes)
+        size_t blockDirFileSize;        // Max file size for BlockDir files
+        
+        StorageConfig() 
+            : activeDirPath("./blockchain_active"),
+              archiveDirPath("./blockchain_archive"),
+              maxActiveDirSize(500 * 1024 * 1024), // 500MB default
+              blockDirFileSize(100 * 1024 * 1024) {}
+    };
+    
+    Ledger();
     ~Ledger() = default;
     
     // Wallet management
-    Roe<void> createWallet(const std::string& walletId);
-    Roe<void> removeWallet(const std::string& walletId);
     bool hasWallet(const std::string& walletId) const;
     Roe<int64_t> getBalance(const std::string& walletId) const;
     
     // Transaction operations
-    Roe<void> deposit(const std::string& walletId, int64_t amount);
-    Roe<void> withdraw(const std::string& walletId, int64_t amount);
-    Roe<void> transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount);
+    Roe<void> addTransaction(const Transaction& transaction);
     
     // Transaction buffer operations
-    void addTransaction(const std::string& transaction);
     void clearPendingTransactions();
-    const std::vector<std::string>& getPendingTransactions() const;
     size_t getPendingTransactionCount() const;
     
     // Block operations
@@ -54,17 +79,43 @@ public:
     size_t getSize() const override;
     
     // BlockChain access
-    const BlockChain& getBlockChain() const;
     size_t getBlockCount() const;
     bool isValid() const;
     
+    /**
+     * Initialize storage directories
+     * @param config Storage configuration
+     * @return true on success, false on error
+     */
+    Roe<void> initStorage(const StorageConfig& config);
+    
 private:
+    /**
+     * Transfer blocks from active to archive directory
+     * Called when active directory reaches the transfer threshold
+     */
+    void transferBlocksToArchive();
+    
+    /**
+     * Write block to active storage
+     */
+    void writeBlockToStorage(std::shared_ptr<IBlock> block);
     std::string packTransactions() const;
     std::string formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount);
     
+    /**
+     * Get pending transactions
+     */
+    const std::vector<std::string>& getPendingTransactions() const;
+    
     std::map<std::string, std::unique_ptr<Wallet>> ukpWallets_;
-    std::unique_ptr<BlockChain> ukpBlockchain_;
     std::vector<std::string> pendingTransactions_;
+    
+    // Storage management
+    std::unique_ptr<BlockDir> activeBlockDir_;   // Hot storage for recent blocks
+    std::unique_ptr<BlockDir> archiveBlockDir_;  // Cold storage for older blocks
+    size_t maxActiveDirSize_;                     // Max size of active directory (bytes)
+    
     mutable std::mutex mutex_;
 };
 

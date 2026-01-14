@@ -43,7 +43,7 @@ public:
         uint16_t maxPeers = 50;
     };
 
-    explicit Server(uint32_t blockchainDifficulty = 2);
+    Server();
     ~Server();
     
     // Server lifecycle

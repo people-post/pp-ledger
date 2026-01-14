@@ -40,9 +40,6 @@ public:
     void setSlot(uint64_t slot);
     void setSlotLeader(const std::string& leader);
     
-    // Additional operations
-    void mineBlock(uint32_t difficulty);
-
 private:
     uint64_t index_;
     int64_t timestamp_;

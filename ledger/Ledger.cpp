@@ -1,4 +1,5 @@
 #include "Ledger.h"
+#include "Block.h"
 
 #include <iomanip>
 #include <sstream>
@@ -6,35 +7,9 @@
 
 namespace pp {
 
-Ledger::Ledger(uint32_t blockchainDifficulty)
-    : Module("ledger"), ukpBlockchain_(std::make_unique<BlockChain>()) {
-    if (blockchainDifficulty > 0) {
-        ukpBlockchain_->setDifficulty(blockchainDifficulty);
-    }
-}
-
-// Wallet management
-Ledger::Roe<void> Ledger::createWallet(const std::string& walletId) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (ukpWallets_.find(walletId) != ukpWallets_.end()) {
-        return Ledger::Error(1, "Wallet already exists: " + walletId);
-    }
-    
-    ukpWallets_[walletId] = std::make_unique<Wallet>();
-    return {};
-}
-
-Ledger::Roe<void> Ledger::removeWallet(const std::string& walletId) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = ukpWallets_.find(walletId);
-    if (it == ukpWallets_.end()) {
-        return Ledger::Error(1, "Wallet not found: " + walletId);
-    }
-    
-    ukpWallets_.erase(it);
-    return {};
+Ledger::Ledger()
+    : Module("ledger"), 
+      maxActiveDirSize_(500 * 1024 * 1024) {
 }
 
 bool Ledger::hasWallet(const std::string& walletId) const {
@@ -54,71 +29,28 @@ Ledger::Roe<int64_t> Ledger::getBalance(const std::string& walletId) const {
 }
 
 // Transaction operations
-Ledger::Roe<void> Ledger::deposit(const std::string& walletId, int64_t amount) {
+Ledger::Roe<void> Ledger::addTransaction(const Transaction& transaction) {
     std::lock_guard<std::mutex> lock(mutex_);
     
-    auto it = ukpWallets_.find(walletId);
-    if (it == ukpWallets_.end()) {
-        return Ledger::Error(1, "Wallet not found: " + walletId);
-    }
-    
-    auto result = it->second->deposit(amount);
-    if (result.isOk()) {
-        pendingTransactions_.push_back(formatTransaction("DEPOSIT", "SYSTEM", walletId, amount));
-    } else {
-        // Convert Wallet::Error to Ledger::Error
-        return Ledger::Error(result.error().code, result.error().message);
-    }
-    
-    return {}; // Return success
-}
-
-Ledger::Roe<void> Ledger::withdraw(const std::string& walletId, int64_t amount) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = ukpWallets_.find(walletId);
-    if (it == ukpWallets_.end()) {
-        return Ledger::Error(1, "Wallet not found: " + walletId);
-    }
-    
-    auto result = it->second->withdraw(amount);
-    if (result.isOk()) {
-        pendingTransactions_.push_back(formatTransaction("WITHDRAW", walletId, "SYSTEM", amount));
-    } else {
-        // Convert Wallet::Error to Ledger::Error
-        return Ledger::Error(result.error().code, result.error().message);
-    }
-    
-    return {}; // Return success
-}
-
-Ledger::Roe<void> Ledger::transfer(const std::string& fromWallet, const std::string& toWallet, int64_t amount) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto fromIt = ukpWallets_.find(fromWallet);
+    auto fromIt = ukpWallets_.find(transaction.fromWallet);
     if (fromIt == ukpWallets_.end()) {
-        return Ledger::Error(1, "Source wallet not found: " + fromWallet);
+        return Ledger::Error(1, "Source wallet not found: " + transaction.fromWallet);
     }
     
-    auto toIt = ukpWallets_.find(toWallet);
+    auto toIt = ukpWallets_.find(transaction.toWallet);
     if (toIt == ukpWallets_.end()) {
-        return Ledger::Error(2, "Destination wallet not found: " + toWallet);
+        return Ledger::Error(2, "Destination wallet not found: " + transaction.toWallet);
     }
     
-    auto result = fromIt->second->transfer(*toIt->second, amount);
+    auto result = fromIt->second->transfer(*toIt->second, transaction.amount);
     if (result.isOk()) {
-        pendingTransactions_.push_back(formatTransaction("TRANSFER", fromWallet, toWallet, amount));
+        pendingTransactions_.push_back(formatTransaction("TRANSFER", transaction.fromWallet, transaction.toWallet, transaction.amount));
     } else {
         // Convert Wallet::Error to Ledger::Error
         return Ledger::Error(result.error().code, result.error().message);
     }
     
     return {}; // Return success
-}
-
-void Ledger::addTransaction(const std::string& transaction) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pendingTransactions_.push_back(transaction);
 }
 
 void Ledger::clearPendingTransactions() {
@@ -147,14 +79,24 @@ Ledger::Roe<void> Ledger::commitTransactions() {
         std::string packedData = packTransactions();
         
         // Create a new block with the packed transaction data
-        auto block = std::make_shared<Block>();
-        block->setIndex(ukpBlockchain_->getSize());
-        block->setData(packedData);
-        block->setPreviousHash(ukpBlockchain_->getLastBlockHash());
-        block->setHash(block->calculateHash());
-        block->mineBlock(ukpBlockchain_->getDifficulty());
+        if (!activeBlockDir_) {
+            return Ledger::Error(3, "Storage not initialized");
+        }
         
-        ukpBlockchain_->addBlock(block);
+        auto block = std::make_shared<Block>();
+        block->setIndex(activeBlockDir_->getBlockchainSize());
+        block->setData(packedData);
+        block->setPreviousHash(activeBlockDir_->getLastBlockHash());
+        block->setHash(block->calculateHash());
+        
+        // Add block to blockchain (managed by activeBlockDir_)
+        if (!activeBlockDir_->addBlock(block)) {
+            return Ledger::Error(4, "Failed to add block to blockchain");
+        }
+        
+        // Write block to storage
+        writeBlockToStorage(block);
+        
         pendingTransactions_.clear();
         return {};
     } catch (const std::exception& e) {
@@ -165,24 +107,32 @@ Ledger::Roe<void> Ledger::commitTransactions() {
 // IBlockChain interface implementation
 std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return ukpBlockchain_->getLatestBlock();
+    if (!activeBlockDir_) {
+        return nullptr;
+    }
+    return activeBlockDir_->getLatestBlock();
 }
 
 size_t Ledger::getSize() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return ukpBlockchain_->getSize();
-}
-
-const BlockChain& Ledger::getBlockChain() const {
-    return *ukpBlockchain_;
+    if (!activeBlockDir_) {
+        return 0;
+    }
+    return activeBlockDir_->getBlockchainSize();
 }
 
 size_t Ledger::getBlockCount() const {
-    return ukpBlockchain_->getSize();
+    if (!activeBlockDir_) {
+        return 0;
+    }
+    return activeBlockDir_->getBlockchainSize();
 }
 
 bool Ledger::isValid() const {
-    return ukpBlockchain_->isValid();
+    if (!activeBlockDir_) {
+        return false;
+    }
+    return activeBlockDir_->isBlockchainValid();
 }
 
 std::string Ledger::packTransactions() const {
@@ -198,6 +148,82 @@ std::string Ledger::formatTransaction(const std::string& type, const std::string
     std::stringstream ss;
     ss << type << ": " << from << " -> " << to << ": " << amount;
     return ss.str();
+}
+
+// Storage management
+Ledger::Roe<void> Ledger::initStorage(const StorageConfig& config) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    try {
+        // Initialize active BlockDir with blockchain management enabled
+        activeBlockDir_ = std::make_unique<BlockDir>();
+        BlockDir::Config activeCfg(config.activeDirPath, config.blockDirFileSize);
+        auto activeRes = activeBlockDir_->init(activeCfg, true);
+        if (!activeRes) {
+            return Ledger::Error(1, "Failed to initialize active BlockDir");
+        }
+        
+        // Set callback to trim blockchain when blocks are moved to archive
+        activeBlockDir_->setBlockMoveCallback([this](const std::vector<uint64_t>& blockIds) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (activeBlockDir_) {
+                size_t removed = activeBlockDir_->trimBlocks(blockIds);
+                if (removed > 0) {
+                    logging::getLogger("ledger").info << "Trimmed " << removed << " blocks from blockchain after moving to archive";
+                }
+            }
+        });
+        
+        // Initialize archive BlockDir
+        archiveBlockDir_ = std::make_unique<BlockDir>();
+        BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
+        auto archiveRes = archiveBlockDir_->init(archiveCfg);
+        if (!archiveRes) {
+            return Ledger::Error(2, "Failed to initialize archive BlockDir");
+        }
+        
+        maxActiveDirSize_ = config.maxActiveDirSize;
+        return {};
+    } catch (const std::exception& e) {
+        return Ledger::Error(3, std::string("Failed to initialize storage: ") + e.what());
+    }
+}
+
+void Ledger::transferBlocksToArchive() {
+    if (!activeBlockDir_ || !archiveBlockDir_) {
+        return; // Storage not initialized
+    }
+    
+    // Transfer files from active to archive based on storage usage
+    while (activeBlockDir_->getTotalStorageSize() >= maxActiveDirSize_) {
+        auto result = activeBlockDir_->moveFrontFileTo(*archiveBlockDir_);
+        if (!result.isOk()) {
+            logging::getLogger("ledger").error << "Failed to move front file to archive";
+            break;
+        }
+        
+        // Flush to persist changes
+        activeBlockDir_->flush();
+        archiveBlockDir_->flush();
+    }
+}
+
+void Ledger::writeBlockToStorage(std::shared_ptr<IBlock> block) {
+    if (!block || !activeBlockDir_) {
+        return; // Storage not initialized
+    }
+    
+    // Serialize block and write to active directory
+    // Using block index as the block ID for storage
+    std::string blockData = block->getData();
+    activeBlockDir_->writeBlock(
+        block->getIndex(),
+        blockData.data(),
+        blockData.size()
+    );
+    
+    // Check if we should transfer blocks to archive
+    transferBlocksToArchive();
 }
 
 } // namespace pp
