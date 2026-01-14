@@ -9,45 +9,41 @@
 namespace pp {
 namespace network {
 
-TcpClient::TcpClient() : socketFd_(-1), connected_(false) {}
+TcpClient::TcpClient() = default;
 
 TcpClient::~TcpClient() {
     close();
 }
 
 TcpClient::TcpClient(TcpClient&& other) noexcept
-    : socketFd_(other.socketFd_), connected_(other.connected_) {
-    other.socketFd_ = -1;
-    other.connected_ = false;
+    : connection_(std::move(other.connection_)) {
+    other.connection_.reset();
 }
 
 TcpClient& TcpClient::operator=(TcpClient&& other) noexcept {
     if (this != &other) {
         close();
-        socketFd_ = other.socketFd_;
-        connected_ = other.connected_;
-        other.socketFd_ = -1;
-        other.connected_ = false;
+        connection_ = std::move(other.connection_);
+        other.connection_.reset();
     }
     return *this;
 }
 
 TcpClient::Roe<void> TcpClient::connect(const std::string& host, uint16_t port) {
-    if (connected_) {
+    if (connection_.has_value()) {
         return Error("Already connected");
     }
 
     // Create socket
-    socketFd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (socketFd_ < 0) {
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_fd < 0) {
         return Error("Failed to create socket");
     }
 
     // Resolve hostname
     struct hostent* server = gethostbyname(host.c_str());
     if (server == nullptr) {
-        ::close(socketFd_);
-        socketFd_ = -1;
+        ::close(socket_fd);
         return Error("Failed to resolve hostname: " + host);
     }
 
@@ -59,81 +55,78 @@ TcpClient::Roe<void> TcpClient::connect(const std::string& host, uint16_t port) 
     server_addr.sin_port = htons(port);
 
     // Connect to server
-    if (::connect(socketFd_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        ::close(socketFd_);
-        socketFd_ = -1;
+    if (::connect(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        ::close(socket_fd);
         return Error("Failed to connect to " + host + ":" + std::to_string(port));
     }
 
-    connected_ = true;
+    // Create TcpConnection from the connected socket
+    connection_ = TcpConnection(socket_fd);
     return {};
 }
 
 TcpClient::Roe<size_t> TcpClient::send(const void* data, size_t length) {
-    if (!connected_) {
+    if (!connection_.has_value()) {
         return Error("Not connected");
     }
 
-    ssize_t sent = ::send(socketFd_, data, length, 0);
-    if (sent < 0) {
-        return Error("Failed to send data");
+    auto result = connection_->send(data, length);
+    if (result.isError()) {
+        // Convert TcpConnection::Error to TcpClient::Error
+        return Error(result.error().message);
     }
-
-    return Roe<size_t>(static_cast<size_t>(sent));
+    return Roe<size_t>(result.value());
 }
 
 TcpClient::Roe<size_t> TcpClient::send(const std::string& message) {
-    return send(message.c_str(), message.length());
-}
-
-TcpClient::Roe<size_t> TcpClient::receive(void* buffer, size_t maxLength) {
-    if (!connected_) {
+    if (!connection_.has_value()) {
         return Error("Not connected");
     }
 
-    ssize_t received = recv(socketFd_, buffer, maxLength, 0);
-    if (received < 0) {
-        return Error("Failed to receive data");
+    auto result = connection_->send(message);
+    if (result.isError()) {
+        return Error(result.error().message);
     }
-    if (received == 0) {
-        connected_ = false;
-        return Error("Connection closed by peer");
+    return Roe<size_t>(result.value());
+}
+
+TcpClient::Roe<size_t> TcpClient::receive(void* buffer, size_t maxLength) {
+    if (!connection_.has_value()) {
+        return Error("Not connected");
     }
 
-    return Roe<size_t>(static_cast<size_t>(received));
+    auto result = connection_->receive(buffer, maxLength);
+    if (result.isError()) {
+        // If connection closed, clear the connection
+        if (result.error().message.find("closed") != std::string::npos) {
+            connection_.reset();
+        }
+        return Error(result.error().message);
+    }
+    return Roe<size_t>(result.value());
 }
 
 TcpClient::Roe<std::string> TcpClient::receiveLine() {
-    std::string line;
-    char ch;
-    
-    while (true) {
-        auto result = receive(&ch, 1);
-        if (result.isError()) {
-            return Error(result.error().message);
-        }
-        
-        if (ch == '\n') {
-            break;
-        }
-        if (ch != '\r') {
-            line += ch;
-        }
+    if (!connection_.has_value()) {
+        return Error("Not connected");
     }
-    
-    return Roe<std::string>(line);
+
+    auto result = connection_->receiveLine();
+    if (result.isError()) {
+        return Error(result.error().message);
+    }
+    return Roe<std::string>(result.value());
 }
 
 void TcpClient::close() {
-    if (socketFd_ >= 0) {
-        ::close(socketFd_);
-        socketFd_ = -1;
+    if (connection_.has_value()) {
+        connection_->close();
+        connection_.reset();
     }
-    connected_ = false;
 }
 
 bool TcpClient::isConnected() const {
-    return connected_;
+    return connection_.has_value();
 }
 
 } // namespace network

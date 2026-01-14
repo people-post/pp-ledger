@@ -81,7 +81,7 @@ void FetchServer::serverLoop() {
         }
 
         auto connection = std::move(acceptResult.value());
-        log().info << "Accepted connection from " + connection.getClientAddress();
+        log().info << "Accepted connection from " + connection.getPeerAddress();
 
         // Read request data
         char buffer[4096];

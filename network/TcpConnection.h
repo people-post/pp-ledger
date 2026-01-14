@@ -1,17 +1,15 @@
 #pragma once
 
 #include "ResultOrError.hpp"
-#include "TcpConnection.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
 
 namespace pp {
 namespace network {
 
-class TcpClient {
+class TcpConnection {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
@@ -20,19 +18,16 @@ public:
     template <typename T>
     using Roe = ResultOrError<T, Error>;
 
-    TcpClient();
-    ~TcpClient();
+    TcpConnection(int socket_fd);
+    ~TcpConnection();
 
-    // Delete copy constructor and assignment
-    TcpClient(const TcpClient&) = delete;
-    TcpClient& operator=(const TcpClient&) = delete;
+    // Delete copy
+    TcpConnection(const TcpConnection&) = delete;
+    TcpConnection& operator=(const TcpConnection&) = delete;
 
     // Allow move
-    TcpClient(TcpClient&& other) noexcept;
-    TcpClient& operator=(TcpClient&& other) noexcept;
-
-    // Connect to a server
-    Roe<void> connect(const std::string& host, uint16_t port);
+    TcpConnection(TcpConnection&& other) noexcept;
+    TcpConnection& operator=(TcpConnection&& other) noexcept;
 
     // Send data
     Roe<size_t> send(const void* data, size_t length);
@@ -45,11 +40,14 @@ public:
     // Close connection
     void close();
 
-    // Check if connected
-    bool isConnected() const;
+    // Get peer address
+    std::string getPeerAddress() const;
+    uint16_t getPeerPort() const;
 
 private:
-    std::optional<TcpConnection> connection_;
+    int socketFd_;
+    std::string peerAddress_;
+    uint16_t peerPort_;
 };
 
 } // namespace network

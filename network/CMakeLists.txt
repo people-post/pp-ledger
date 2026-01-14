@@ -8,6 +8,7 @@ set(NETWORK_SOURCES
     FetchClient.cpp
     FetchServer.cpp
     TcpClient.cpp
+    TcpConnection.cpp
     TcpServer.cpp
 )
 
@@ -16,6 +17,7 @@ set(NETWORK_HEADERS
     FetchClient.h
     FetchServer.h
     TcpClient.h
+    TcpConnection.h
     TcpServer.h
 )
 
