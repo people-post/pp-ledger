@@ -129,10 +129,8 @@ bool BlockDir::hasBlock(uint64_t blockId) const {
 }
 
 void BlockDir::flush() {
-    // Flush all block files
-    for (auto& [fileId, ukpBlockFile] : ukpBlockFiles_) {
-        ukpBlockFile->flush();
-    }
+    // BlockFile now flushes automatically after each write operation,
+    // so no explicit flush needed here. Just save the index.
     
     // Save index
     if (!saveIndex()) {
