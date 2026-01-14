@@ -10,16 +10,7 @@ namespace pp {
 // BlockChain implementation
 BlockChain::BlockChain()
     : Module("blockchain") {
-    createGenesisBlock();
-}
-
-void BlockChain::createGenesisBlock() {
-    auto genesis = std::make_shared<Block>();
-    genesis->setIndex(0);
-    genesis->setData("Genesis Block");
-    genesis->setPreviousHash("0");
-    genesis->setHash(genesis->calculateHash());
-    chain_.push_back(genesis);
+    // No auto-genesis block - blocks must be added explicitly
 }
 
 // Blockchain operations
@@ -55,7 +46,7 @@ bool BlockChain::isValid() const {
         return false;
     }
     
-    // Validate all blocks including genesis
+    // Validate all blocks in the chain
     for (size_t i = 0; i < chain_.size(); i++) {
         const auto& currentBlock = chain_[i];
         
@@ -65,6 +56,7 @@ bool BlockChain::isValid() const {
         }
         
         // Verify link to previous block (skip for first block if it has special previousHash "0")
+        // TODO: Skip validation by index saved in block, not by position in chain
         if (i > 0) {
             const auto& previousBlock = chain_[i - 1];
             if (currentBlock->getPreviousHash() != previousBlock->getHash()) {

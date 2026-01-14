@@ -39,8 +39,6 @@ public:
     size_t trimBlocks(size_t count);
     
 private:
-    void createGenesisBlock();
-    
     // Internal helper methods
     bool validateBlock(const Block& block) const;
     std::vector<std::shared_ptr<Block>> getBlocks(uint64_t fromIndex, uint64_t toIndex) const;

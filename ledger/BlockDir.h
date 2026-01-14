@@ -10,24 +10,13 @@
 #include <unordered_map>
 #include <cstdint>
 #include <functional>
+#include <ostream>
+#include <istream>
 
 namespace pp {
 
 // Using declaration for interface type
 using IBlock = iii::Block;
-
-/**
- * Structure to represent a block's location in the storage
- */
-struct BlockLocation {
-    uint32_t fileId;      // ID of the file containing the block
-    int64_t offset;       // Offset within the file
-    size_t size;          // Size of the block data
-    
-    BlockLocation() : fileId(0), offset(0), size(0) {}
-    BlockLocation(uint32_t fid, int64_t off, size_t sz) 
-        : fileId(fid), offset(off), size(sz) {}
-};
 
 /**
  * BlockDir manages multiple block files in a directory.
@@ -133,17 +122,144 @@ public:
     std::string getLastBlockHash() const;
 
 private:
+    /**
+     * Structure representing block offset and size
+     * Used in IndexEntry to store sequential block locations
+     */
+    struct BlockOffsetSize {
+        int64_t offset;   // Offset within the file (from file start, including header)
+        uint64_t size;   // Size of the block data
+        
+        BlockOffsetSize() : offset(0), size(0) {}
+        BlockOffsetSize(int64_t off, uint64_t sz) : offset(off), size(sz) {}
+        
+        /**
+         * Serialize using Archive pattern
+         */
+        template<typename Archive>
+        void serialize(Archive& ar) {
+            ar & offset & size;
+        }
+    };
+    
+    /**
+     * Structure to represent a block's location in the storage
+     */
+    struct BlockLocation {
+        uint32_t fileId;      // ID of the file containing the block
+        BlockOffsetSize offsetSize;  // Offset and size of the block data
+        
+        BlockLocation() : fileId(0) {}
+        BlockLocation(uint32_t fid, int64_t off, uint64_t sz) 
+            : fileId(fid), offsetSize(off, sz) {}
+        BlockLocation(uint32_t fid, const BlockOffsetSize& os)
+            : fileId(fid), offsetSize(os) {}
+        
+        // Convenience accessors
+        int64_t offset() const { return offsetSize.offset; }
+        uint64_t size() const { return offsetSize.size; }
+        
+        /**
+         * Serialize using Archive pattern
+         */
+        template<typename Archive>
+        void serialize(Archive& ar) {
+            ar & fileId & offsetSize;
+        }
+    };
+    
+    /**
+     * Structure representing a file's block range with locations
+     * Groups startBlockId and blockLocations together since they are logically related
+     * Block IDs are sequential starting from startBlockId, so no need to store blockId for each block
+     */
+    struct FileBlockRange {
+        uint64_t startBlockId;
+        std::vector<BlockOffsetSize> blockLocations;  // Sequential (offset, size) pairs
+        
+        FileBlockRange() : startBlockId(0) {}
+        FileBlockRange(uint64_t startId) : startBlockId(startId) {}
+        
+        /**
+         * Serialize using Archive pattern
+         */
+        template<typename Archive>
+        void serialize(Archive& ar) {
+            ar & startBlockId & blockLocations;
+        }
+    };
+    
+    /**
+     * Structure representing an index file entry
+     * Stores file ID and the file's block range with locations
+     * Binary format: [fileId (4 bytes)][startBlockId (8 bytes)][blockCount (8 bytes)][(offset, size)*]
+     */
+    struct IndexEntry {
+        uint32_t fileId;
+        FileBlockRange blockRange;
+        
+        IndexEntry() : fileId(0) {}
+        IndexEntry(uint32_t fid, uint64_t startId)
+            : fileId(fid), blockRange(startId) {}
+        
+        /**
+         * Serialize using Archive pattern
+         */
+        template<typename Archive>
+        void serialize(Archive& ar) {
+            ar & fileId & blockRange;
+        }
+    };
+    
+    /**
+     * Index file header structure
+     * Contains magic number and version information
+     */
+    struct IndexFileHeader {
+        static constexpr uint32_t MAGIC = 0x504C4944; // "PLID" (PP Ledger Index Directory)
+        static constexpr uint16_t CURRENT_VERSION = 1;
+        
+        uint32_t magic;        // Magic number to identify index file type
+        uint16_t version;      // File format version
+        uint16_t reserved;     // Reserved for future use
+        uint64_t headerSize;   // Size of this header (for future extensibility)
+        
+        IndexFileHeader() 
+            : magic(MAGIC)
+            , version(CURRENT_VERSION)
+            , reserved(0)
+            , headerSize(sizeof(IndexFileHeader)) {}
+        
+        /**
+         * Serialize using Archive pattern
+         */
+        template<typename Archive>
+        void serialize(Archive& ar) {
+            ar & magic & version & reserved & headerSize;
+        }
+    };
+    
+    static constexpr size_t INDEX_HEADER_SIZE = sizeof(IndexFileHeader);
+    
+    /**
+     * Structure holding BlockFile and its block range
+     */
+    struct FileInfo {
+        std::unique_ptr<BlockFile> blockFile;
+        FileBlockRange blockRange;  // Block range with locations
+    };
+    
     std::string dirPath_;
     size_t maxFileSize_;
     uint32_t currentFileId_;
     
-    // Block files indexed by file ID
-    std::unordered_map<uint32_t, std::unique_ptr<BlockFile>> ukpBlockFiles_;
+    // Block files with their block ID ranges indexed by file ID
+    std::unordered_map<uint32_t, FileInfo> fileInfoMap_;
     
     // Ordered list of file IDs (tracks creation/addition order)
     std::vector<uint32_t> fileIdOrder_;
     
-    // Index mapping block ID to location
+    // Index mapping block ID to location (built during loading from ranges)
     std::unordered_map<uint64_t, BlockLocation> blockIndex_;
     
     // Path to the index file
@@ -160,7 +276,7 @@ private:
      * @param size Size of the data in bytes
      * @return Roe<void> on success or error
      */
-    Roe<void> writeBlock(uint64_t blockId, const void* data, size_t size);
+    Roe<void> writeBlock(uint64_t blockId, const void* data, uint64_t size);
     
     /**
      * Check if a block exists in storage
@@ -193,7 +309,7 @@ private:
      * @param dataSize Size of data to be written (to check if file can fit)
      * @return Pointer to the BlockFile, or nullptr on error
      */
-    BlockFile* getActiveBlockFile(size_t dataSize);
+    BlockFile* getActiveBlockFile(uint64_t dataSize);
     
     /**
      * Get block file by ID
@@ -222,6 +338,20 @@ private:
     bool saveIndex();
     
     /**
+     * Write the index file header
+     * @param os Output stream
+     * @return true on success, false on error
+     */
+    bool writeIndexHeader(std::ostream& os);
+    
+    /**
+     * Read and validate the index file header
+     * @param is Input stream
+     * @return true on success, false on error
+     */
+    bool readIndexHeader(std::istream& is);
+    
+    /**
      * Flush all data and index to disk
      */
     void flush();
@@ -232,6 +362,20 @@ private:
      * @return Number of blocks removed
      */
     size_t trimBlocks(size_t count);
+    
+    /**
+     * Populate blockchain from existing blocks in storage
+     * Reads all blocks from storage and adds them to blockchain in order
+     * @return Roe<void> on success or error
+     */
+    Roe<void> populateBlockchainFromStorage();
+    
+    /**
+     * Load blocks from a specific file into the blockchain
+     * @param fileId File ID to load blocks from
+     * @return Roe<size_t> with number of blocks successfully loaded, or error
+     */
+    Roe<size_t> loadBlocksFromFile(uint32_t fileId);
 };
 
 } // namespace pp

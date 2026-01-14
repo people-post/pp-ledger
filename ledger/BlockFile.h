@@ -61,7 +61,7 @@ public:
      * @param size Size of the data in bytes
      * @return Roe<int64_t> with file offset (from file start, including header) where data was written, or error
      */
-    Roe<int64_t> write(const void* data, size_t size);
+    Roe<int64_t> write(const void* data, uint64_t size);
     
     /**
      * Read block data from the file
@@ -77,7 +77,7 @@ public:
      * @param size Size of data to be written
      * @return true if data can fit, false otherwise
      */
-    bool canFit(size_t size) const;
+    bool canFit(uint64_t size) const;
     
     /**
      * Get current file size (including header)

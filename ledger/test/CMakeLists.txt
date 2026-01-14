@@ -56,3 +56,17 @@ target_link_libraries(test_blockfile PRIVATE
 )
 
 gtest_discover_tests(test_blockfile)
+
+# Test for BlockDir
+add_executable(test_blockdir
+    test_blockdir.cpp
+)
+
+target_link_libraries(test_blockdir PRIVATE
+    ppledger_lib
+    ppledger_ledger
+    crypto
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_blockdir)

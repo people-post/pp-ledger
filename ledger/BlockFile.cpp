@@ -83,7 +83,7 @@ BlockFile::Roe<void> BlockFile::open() {
     return {};
 }
 
-BlockFile::Roe<int64_t> BlockFile::write(const void* data, size_t size) {
+BlockFile::Roe<int64_t> BlockFile::write(const void* data, uint64_t size) {
     if (!isOpen()) {
         log().error << "File is not open: " << filepath_;
         return Error("File is not open: " + filepath_);
@@ -159,7 +159,7 @@ BlockFile::Roe<int64_t> BlockFile::read(int64_t offset, void* data, size_t size)
     return bytesRead;
 }
 
-bool BlockFile::canFit(size_t size) const {
+bool BlockFile::canFit(uint64_t size) const {
     // currentSize_ already includes header, so just check total size
     return (currentSize_ + size) <= maxSize_;
 }

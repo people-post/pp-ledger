@@ -1,5 +1,6 @@
 #include "BlockDir.h"
 #include "Logger.h"
+#include "../lib/Serializer.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -25,7 +26,7 @@ BlockDir::Roe<void> BlockDir::init(const Config& config, bool manageBlockchain) 
     currentFileId_ = 0;
     indexFilePath_ = dirPath_ + "/blocks.index";
     blockIndex_.clear();
-    ukpBlockFiles_.clear();
+    fileInfoMap_.clear();
     managesBlockchain_ = manageBlockchain;
     
     // Initialize blockchain if this BlockDir manages it
@@ -50,46 +51,54 @@ BlockDir::Roe<void> BlockDir::init(const Config& config, bool manageBlockchain) 
             log().error << "Failed to load index file";
             return Error("Failed to load index file");
         }
-        log().info << "Loaded index with " << blockIndex_.size() << " blocks";
+        log().info << "Loaded index with " << fileInfoMap_.size() << " file ranges and " 
+                   << blockIndex_.size() << " blocks";
         
-        // Find the highest file ID from the index
-        for (const auto& [blockId, location] : blockIndex_) {
-            if (location.fileId > currentFileId_) {
-                currentFileId_ = location.fileId;
+        // Find the highest file ID from the file info map
+        for (const auto& [fileId, _] : fileInfoMap_) {
+            if (fileId > currentFileId_) {
+                currentFileId_ = fileId;
             }
         }
     } else {
         log().info << "No existing index file, starting fresh";
     }
     
-    // Open existing block files referenced in the index
-    std::unordered_map<uint32_t, bool> filesNeeded;
-    for (const auto& [blockId, location] : blockIndex_) {
-        filesNeeded[location.fileId] = true;
-    }
-    
-    for (const auto& [fileId, _] : filesNeeded) {
+    // Open existing block files referenced in the file info map
+    for (auto& [fileId, fileInfo] : fileInfoMap_) {
         std::string filepath = getBlockFilePath(fileId);
         if (std::filesystem::exists(filepath)) {
             auto ukpBlockFile = std::make_unique<BlockFile>();
             BlockFile::Config config(filepath, maxFileSize_);
             auto result = ukpBlockFile->init(config);
             if (result.isOk()) {
-                ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
+                fileInfo.blockFile = std::move(ukpBlockFile);
                 log().debug << "Opened existing block file: " << filepath;
             } else {
-                log().error << "Failed to open block file: " << filepath;
+                log().error << "Failed to open block file: " << filepath << ": " << result.error().message;
+                return Error("Failed to open block file: " + filepath + ": " + result.error().message);
             }
         }
     }
     
-    log().info << "BlockDir initialized with " << ukpBlockFiles_.size() 
+    log().info << "BlockDir initialized with " << fileInfoMap_.size() 
                << " files and " << blockIndex_.size() << " blocks";
+    
+    // Populate blockchain from existing blocks if managing blockchain
+    if (managesBlockchain_ && ukpBlockchain_ && !blockIndex_.empty()) {
+        auto result = populateBlockchainFromStorage();
+        if (result.isError()) {
+            log().error << "Failed to populate blockchain from storage: " << result.error().message;
+            return result.error();
+        } else {
+            log().info << "Populated blockchain with " << ukpBlockchain_->getSize() << " blocks from storage";
+        }
+    }
     
     return {};
 }
 
-BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void* data, size_t size) {
+BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void* data, uint64_t size) {
     // Check if block already exists
     if (hasBlock(blockId)) {
         log().warning << "Block " << blockId << " already exists, overwriting not supported";
@@ -112,8 +121,22 @@ BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void* data, siz
     
     int64_t offset = result.value();
     
-    // Update index
+    // Update block index
     blockIndex_[blockId] = BlockLocation(currentFileId_, offset, size);
+    
+    // Update file info (block ID range)
+    auto fileInfoIt = fileInfoMap_.find(currentFileId_);
+    if (fileInfoIt != fileInfoMap_.end()) {
+        // Add block location to the range
+        if (fileInfoIt->second.blockRange.blockLocations.empty()) {
+            // First block - set startBlockId
+            fileInfoIt->second.blockRange.startBlockId = blockId;
+        }
+        fileInfoIt->second.blockRange.blockLocations.push_back(BlockOffsetSize(offset, size));
+    } else {
+        // This shouldn't happen if getActiveBlockFile works correctly
+        log().warning << "File info not found for file " << currentFileId_;
+    }
     
     log().debug << "Wrote block " << blockId << " to file " << currentFileId_ 
                 << " at offset " << offset << " (size: " << size << " bytes)";
@@ -152,16 +175,20 @@ BlockFile* BlockDir::createBlockFile(uint32_t fileId) {
     log().info << "Created new block file: " << filepath;
     
     BlockFile* pBlockFile = ukpBlockFile.get();
-    ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
+    // Create FileInfo with empty range (will be updated when first block is written)
+    FileInfo fileInfo;
+    fileInfo.blockFile = std::move(ukpBlockFile);
+    fileInfo.blockRange.startBlockId = 0;
+    fileInfoMap_[fileId] = std::move(fileInfo);
     fileIdOrder_.push_back(fileId);  // Track file creation order
     return pBlockFile;
 }
 
-BlockFile* BlockDir::getActiveBlockFile(size_t dataSize) {
+BlockFile* BlockDir::getActiveBlockFile(uint64_t dataSize) {
     // Check if current file exists and can fit the data
-    auto it = ukpBlockFiles_.find(currentFileId_);
-    if (it != ukpBlockFiles_.end() && it->second->canFit(dataSize)) {
-        return it->second.get();
+    auto it = fileInfoMap_.find(currentFileId_);
+    if (it != fileInfoMap_.end() && it->second.blockFile && it->second.blockFile->canFit(dataSize)) {
+        return it->second.blockFile.get();
     }
     
     // Need to create a new file
@@ -170,9 +197,9 @@ BlockFile* BlockDir::getActiveBlockFile(size_t dataSize) {
 }
 
 BlockFile* BlockDir::getBlockFile(uint32_t fileId) {
-    auto it = ukpBlockFiles_.find(fileId);
-    if (it != ukpBlockFiles_.end()) {
-        return it->second.get();
+    auto it = fileInfoMap_.find(fileId);
+    if (it != fileInfoMap_.end() && it->second.blockFile) {
+        return it->second.blockFile.get();
     }
     
     // Try to open the file if it exists
@@ -183,7 +210,16 @@ BlockFile* BlockDir::getBlockFile(uint32_t fileId) {
         auto result = ukpBlockFile->init(config);
         if (result.isOk()) {
             BlockFile* pBlockFile = ukpBlockFile.get();
-            ukpBlockFiles_[fileId] = std::move(ukpBlockFile);
+            // Create FileInfo with empty range (range should be loaded from index)
+            // If range is not in map, it means this file wasn't in the index
+            if (fileInfoMap_.find(fileId) == fileInfoMap_.end()) {
+                FileInfo fileInfo;
+                fileInfo.blockFile = std::move(ukpBlockFile);
+                fileInfo.blockRange.startBlockId = 0;
+                fileInfoMap_[fileId] = std::move(fileInfo);
+            } else {
+                fileInfoMap_[fileId].blockFile = std::move(ukpBlockFile);
+            }
             return pBlockFile;
         }
     }
@@ -204,30 +240,49 @@ bool BlockDir::loadIndex() {
         return false;
     }
     
+    fileInfoMap_.clear();
     blockIndex_.clear();
     
-    // Read index entries
-    // Format: [blockId (8 bytes)][fileId (4 bytes)][offset (8 bytes)][size (8 bytes)]
+    // Read and validate header
+    if (!readIndexHeader(indexFile)) {
+        log().error << "Failed to read or validate index file header";
+        indexFile.close();
+        return false;
+    }
+    
+    // Read index entries (ranges) using Archive utilities
+    IndexEntry entry;
     while (indexFile.good() && !indexFile.eof()) {
-        uint64_t blockId;
-        uint32_t fileId;
-        int64_t offset;
-        uint64_t size;
+        // Check if we're at end of file
+        if (indexFile.peek() == EOF) break;
         
-        indexFile.read(reinterpret_cast<char*>(&blockId), sizeof(blockId));
-        if (indexFile.gcount() == 0) break; // End of file
-        
-        indexFile.read(reinterpret_cast<char*>(&fileId), sizeof(fileId));
-        indexFile.read(reinterpret_cast<char*>(&offset), sizeof(offset));
-        indexFile.read(reinterpret_cast<char*>(&size), sizeof(size));
-        
-        if (indexFile.good()) {
-            blockIndex_[blockId] = BlockLocation(fileId, offset, static_cast<size_t>(size));
+        // Deserialize using Archive
+        if (!Serializer::deserializeFromStream(indexFile, entry)) {
+            if (indexFile.gcount() == 0) break; // End of file
+            log().warning << "Failed to read complete index entry";
+            break;
         }
+        
+        // Store block locations directly in blockIndex_
+        uint64_t endBlockId = entry.blockRange.startBlockId;
+        for (size_t i = 0; i < entry.blockRange.blockLocations.size(); i++) {
+            uint64_t blockId = entry.blockRange.startBlockId + i;
+            const auto& blockLoc = entry.blockRange.blockLocations[i];
+            blockIndex_[blockId] = BlockLocation(entry.fileId, blockLoc);
+            endBlockId = blockId;
+        }
+        
+        // Create FileInfo with empty BlockFile (will be loaded when needed)
+        // Store file ID range
+        FileInfo fileInfo;
+        fileInfo.blockFile = nullptr;
+        fileInfo.blockRange = entry.blockRange;
+        fileInfoMap_[entry.fileId] = std::move(fileInfo);
     }
     
     indexFile.close();
-    log().debug << "Loaded " << blockIndex_.size() << " entries from index";
+    log().debug << "Loaded " << fileInfoMap_.size() << " file ranges and " 
+                << blockIndex_.size() << " block entries from index";
     
     return true;
 }
@@ -239,22 +294,83 @@ bool BlockDir::saveIndex() {
         return false;
     }
     
-    // Write index entries
-    // Format: [blockId (8 bytes)][fileId (4 bytes)][offset (8 bytes)][size (8 bytes)]
-    for (const auto& [blockId, location] : blockIndex_) {
-        uint64_t id = blockId;
-        uint32_t fileId = location.fileId;
-        int64_t offset = location.offset;
-        uint64_t size = static_cast<uint64_t>(location.size);
+    // Write header first
+    if (!writeIndexHeader(indexFile)) {
+        log().error << "Failed to write index file header";
+        indexFile.close();
+        return false;
+    }
+    
+    // Write index entries with block locations using Archive utilities
+    for (const auto& [fileId, fileInfo] : fileInfoMap_) {
+        uint64_t startBlockId = fileInfo.blockRange.startBlockId;
+        IndexEntry entry(fileId, startBlockId);
         
-        indexFile.write(reinterpret_cast<const char*>(&id), sizeof(id));
-        indexFile.write(reinterpret_cast<const char*>(&fileId), sizeof(fileId));
-        indexFile.write(reinterpret_cast<const char*>(&offset), sizeof(offset));
-        indexFile.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        // Use block locations from fileInfo.blockRange if available
+        if (!fileInfo.blockRange.blockLocations.empty()) {
+            entry.blockRange.blockLocations = fileInfo.blockRange.blockLocations;
+        } else {
+            // Fallback: Collect all blocks for this file from blockIndex_ in sequential order
+            // Since blockIds are sequential starting from startBlockId, iterate in order
+            uint64_t endBlockId = startBlockId;
+            if (!fileInfo.blockRange.blockLocations.empty()) {
+                endBlockId = startBlockId + fileInfo.blockRange.blockLocations.size() - 1;
+            }
+            for (uint64_t blockId = startBlockId; blockId <= endBlockId; blockId++) {
+                auto it = blockIndex_.find(blockId);
+                if (it != blockIndex_.end() && it->second.fileId == fileId) {
+                    entry.blockRange.blockLocations.push_back(it->second.offsetSize);
+                }
+            }
+        }
+        
+        Serializer::serializeToStream(indexFile, entry);
     }
     
     indexFile.close();
-    log().debug << "Saved " << blockIndex_.size() << " entries to index";
+    log().debug << "Saved " << fileInfoMap_.size() << " file ranges to index";
+    
+    return true;
+}
+
+bool BlockDir::writeIndexHeader(std::ostream& os) {
+    IndexFileHeader header;
+    Serializer::serializeToStream(os, header);
+    
+    if (!os.good()) {
+        log().error << "Failed to write index file header";
+        return false;
+    }
+    
+    log().debug << "Wrote index file header (magic: 0x" << std::hex << header.magic 
+                << std::dec << ", version: " << header.version << ")";
+    
+    return true;
+}
+
+bool BlockDir::readIndexHeader(std::istream& is) {
+    IndexFileHeader header;
+    
+    if (!Serializer::deserializeFromStream(is, header)) {
+        log().error << "Failed to read index file header";
+        return false;
+    }
+    
+    // Validate header
+    if (header.magic != IndexFileHeader::MAGIC) {
+        log().error << "Invalid magic number in index file header: 0x" 
+                    << std::hex << header.magic << std::dec;
+        return false;
+    }
+    
+    if (header.version > IndexFileHeader::CURRENT_VERSION) {
+        log().error << "Unsupported index file version " << header.version 
+                    << " (current: " << IndexFileHeader::CURRENT_VERSION << ")";
+        return false;
+    }
+    
+    log().debug << "Read index file header (magic: 0x" << std::hex << header.magic 
+                << std::dec << ", version: " << header.version << ")";
     
     return true;
 }
@@ -275,8 +391,8 @@ std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
     uint32_t frontFileId = fileIdOrder_.front();
     fileIdOrder_.erase(fileIdOrder_.begin());
     
-    auto it = ukpBlockFiles_.find(frontFileId);
-    if (it == ukpBlockFiles_.end()) {
+    auto it = fileInfoMap_.find(frontFileId);
+    if (it == fileInfoMap_.end() || !it->second.blockFile) {
         log().error << "Front file ID " << frontFileId << " not found in file map";
         return nullptr;
     }
@@ -293,9 +409,9 @@ std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
         blockIndex_.erase(blockId);
     }
     
-    // Extract and return the file
-    std::unique_ptr<BlockFile> poppedFile = std::move(it->second);
-    ukpBlockFiles_.erase(it);
+    // Extract and return the file, remove from fileInfoMap_
+    std::unique_ptr<BlockFile> poppedFile = std::move(it->second.blockFile);
+    fileInfoMap_.erase(it);
     
     log().info << "Popped front file " << frontFileId << " with " << blocksToRemove.size() << " blocks";
     return poppedFile;
@@ -307,16 +423,40 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
         return Error("No files to move");
     }
     
+    // Get file info from fileInfoMap_ before popping
+    auto fileInfoIt = fileInfoMap_.find(frontFileId);
+    if (fileInfoIt == fileInfoMap_.end()) {
+        return Error("Front file not found in fileInfoMap_");
+    }
+    
+    const FileInfo& fileInfo = fileInfoIt->second;
+    const FileBlockRange& blockRange = fileInfo.blockRange;
+    
+    // Calculate block count for logging and blockchain trimming
+    size_t blockCount = blockRange.blockLocations.size();
+    
+    // First, move fileInfo.blockRange to target directory's fileInfoMap_
+    // Create FileInfo in target directory (BlockFile will be loaded when needed)
+    if (targetDir.fileInfoMap_.find(frontFileId) == targetDir.fileInfoMap_.end()) {
+        FileInfo targetFileInfo;
+        targetFileInfo.blockFile = nullptr;
+        targetFileInfo.blockRange = blockRange;
+        targetDir.fileInfoMap_[frontFileId] = std::move(targetFileInfo);
+    } else {
+        return Error("Front file already exists in target directory");
+    }    
+
+    // Then, add items to block ID indexed maps (blockIndex_)
+    uint64_t startBlockId = blockRange.startBlockId;
+    for (size_t i = 0; i < blockRange.blockLocations.size(); i++) {
+        uint64_t blockId = startBlockId + i;
+        const BlockOffsetSize& offsetSize = blockRange.blockLocations[i];
+        BlockLocation location(frontFileId, offsetSize);
+        targetDir.blockIndex_[blockId] = location;
+    }
+    
     std::string sourceFilePath = getBlockFilePath(frontFileId);
     std::string targetFilePath = targetDir.getBlockFilePath(frontFileId);
-    
-    // Collect all blocks in the front file before popping
-    std::vector<std::pair<uint64_t, BlockLocation>> blocksToMove;
-    for (const auto& [blockId, location] : blockIndex_) {
-        if (location.fileId == frontFileId) {
-            blocksToMove.push_back({blockId, location});
-        }
-    }
     
     // Pop the file from this directory
     auto poppedFile = popFrontFile();
@@ -334,11 +474,6 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
         return Error(std::string("Failed to move file: ") + e.what());
     }
     
-    // Register blocks in target directory's index
-    for (const auto& [blockId, location] : blocksToMove) {
-        targetDir.blockIndex_[blockId] = location;
-    }
-    
     // Update target directory's file tracking if needed
     // Add file ID to target's tracking if not already present
     auto it = std::find(targetDir.fileIdOrder_.begin(), targetDir.fileIdOrder_.end(), frontFileId);
@@ -348,21 +483,33 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
     
     // Automatically trim blocks from blockchain if this BlockDir manages a blockchain
     if (managesBlockchain_ && ukpBlockchain_) {
-        size_t removed = trimBlocks(blocksToMove.size());
+        size_t removed = trimBlocks(blockCount);
         if (removed > 0) {
             log().info << "Automatically trimmed " << removed << " blocks from blockchain after moving to archive";
         }
     }
     
-    log().info << "Moved front file " << frontFileId << " with " << blocksToMove.size() << " blocks to target directory";
+    log().info << "Moved front file " << frontFileId << " with " << blockCount << " blocks to target directory";
     return {};
 }
 
 size_t BlockDir::getTotalStorageSize() const {
     size_t totalSize = 0;
-    for (const auto& [fileId, blockFile] : ukpBlockFiles_) {
-        if (blockFile) {
-            totalSize += blockFile->getCurrentSize();
+    for (const auto& [fileId, fileInfo] : fileInfoMap_) {
+        if (fileInfo.blockFile) {
+            // File is open, use the open file's size
+            totalSize += fileInfo.blockFile->getCurrentSize();
+        } else {
+            // File is not open, check file size on disk
+            std::string filepath = getBlockFilePath(fileId);
+            if (std::filesystem::exists(filepath)) {
+                try {
+                    totalSize += std::filesystem::file_size(filepath);
+                } catch (const std::exception&) {
+                    // Skip this file if we can't get its size
+                    // (file might have been deleted or is inaccessible)
+                }
+            }
         }
     }
     return totalSize;
@@ -386,7 +533,8 @@ bool BlockDir::addBlock(std::shared_ptr<Block> block) {
     
     // Automatically write block to storage
     // Using block index as the block ID for storage
-    std::string blockData = block->getData();
+    // Serialize the full block using ltsToString() for long-term storage
+    std::string blockData = block->ltsToString();
     auto writeResult = writeBlock(block->getIndex(), blockData.data(), blockData.size());
     if (!writeResult.isOk()) {
         log().error << "Failed to write block " << block->getIndex() << " to storage: " << writeResult.error().message;
@@ -441,6 +589,107 @@ size_t BlockDir::trimBlocks(size_t count) {
         return 0;
     }
     return ukpBlockchain_->trimBlocks(count);
+}
+
+BlockDir::Roe<size_t> BlockDir::loadBlocksFromFile(uint32_t fileId) {
+    const auto& fileInfo = fileInfoMap_[fileId];
+    const FileBlockRange& blockRange = fileInfo.blockRange;
+    uint64_t startBlockId = blockRange.startBlockId;
+    
+    // Get the block file
+    BlockFile* blockFile = getBlockFile(fileId);
+    if (!blockFile) {
+        uint64_t endBlockId = startBlockId;
+        if (!blockRange.blockLocations.empty()) {
+            endBlockId = startBlockId + blockRange.blockLocations.size() - 1;
+        }
+        log().error << "Failed to get block file " << fileId << " for range " 
+                    << startBlockId << "-" << endBlockId;
+        return Error("Failed to get block file " + std::to_string(fileId));
+    }
+    
+    size_t loadedCount = 0;
+    
+    // Iterate through block locations from fileInfoMap_
+    for (size_t i = 0; i < blockRange.blockLocations.size(); i++) {
+        uint64_t blockId = startBlockId + i;
+        const BlockOffsetSize& offsetSize = blockRange.blockLocations[i];
+        
+        // Read block data from file using offset and size from fileInfoMap_
+        std::string blockData;
+        blockData.resize(static_cast<size_t>(offsetSize.size));
+        auto readResult = blockFile->read(offsetSize.offset, &blockData[0], offsetSize.size);
+        if (!readResult.isOk() || readResult.value() != static_cast<int64_t>(offsetSize.size)) {
+            log().error << "Failed to read block " << blockId << " from file " << fileId;
+            return Error("Failed to read block " + std::to_string(blockId) + " from file " + std::to_string(fileId));
+        }
+        
+        // Deserialize block from binary format
+        auto block = std::make_shared<Block>();
+        if (!block->ltsFromString(blockData)) {
+            log().error << "Failed to deserialize block " << blockId << " from storage";
+            return Error("Failed to deserialize block " + std::to_string(blockId) + " from storage");
+        }
+        
+        // Verify block index matches blockId
+        if (block->getIndex() != blockId) {
+            log().warning << "Block index mismatch: expected " << blockId 
+                          << ", got " << block->getIndex();
+            return Error("Block index mismatch: expected " + std::to_string(blockId) + ", got " + std::to_string(block->getIndex()));
+        }
+        
+        // Add to blockchain
+        // Note: We don't use addBlock() here because it would try to write to storage again
+        // Instead, we directly add to the blockchain
+        if (!ukpBlockchain_->addBlock(block)) {
+            log().error << "Failed to add block " << blockId << " to blockchain";
+            return Error("Failed to add block " + std::to_string(blockId) + " to blockchain");
+        }
+        
+        loadedCount++;
+    }
+    
+    return loadedCount;
+}
+
+BlockDir::Roe<void> BlockDir::populateBlockchainFromStorage() {
+    if (!managesBlockchain_ || !ukpBlockchain_) {
+        return Error("Blockchain management not enabled or blockchain not initialized");
+    }
+    
+    // Iterate through files and their block ID ranges
+    // Collect file IDs and sort them by startBlockId to maintain sequential order
+    std::vector<std::pair<uint32_t, uint64_t>> fileIdWithStart;
+    for (const auto& [fileId, fileInfo] : fileInfoMap_) {
+        fileIdWithStart.push_back(std::make_pair(fileId, fileInfo.blockRange.startBlockId));
+    }
+    // Sort by startBlockId to process files in sequential order
+    std::sort(fileIdWithStart.begin(), fileIdWithStart.end(), 
+              [](const auto& a, const auto& b) { return a.second < b.second; });
+    
+    std::vector<uint32_t> fileIds;
+    for (const auto& [fileId, _] : fileIdWithStart) {
+        fileIds.push_back(fileId);
+    }
+    
+    size_t loadedCount = 0;
+    
+    // Process each file in order
+    for (uint32_t fileId : fileIds) {
+        auto result = loadBlocksFromFile(fileId);
+        if (!result.isOk()) {
+            log().error << "Failed to load blocks from file " << fileId << ": " << result.error().message;
+            return result.error();
+        }
+        loadedCount += result.value();
+    }
+    
+    log().debug << "Loaded " << loadedCount << " blocks from storage into blockchain";
+    if (loadedCount == 0) {
+        return Error("No blocks were loaded from storage");
+    }
+    
+    return {};
 }
 
 } // namespace pp
