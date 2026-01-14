@@ -3,10 +3,10 @@
 namespace pp {
 namespace network {
 
-FetchServer::FetchServer(std::shared_ptr<libp2p::Host> host)
+FetchServer::FetchServer()
     : Module("network.fetch_server")
-    , host_(std::move(host))
-    , running_(false) {
+    , running_(false)
+    , port_(0) {
     log().info << "FetchServer initialized";
 }
 
@@ -16,28 +16,31 @@ FetchServer::~FetchServer() {
     }
 }
 
-void FetchServer::start(const std::string& protocol, RequestHandler handler) {
+bool FetchServer::start(uint16_t port, RequestHandler handler) {
     if (running_) {
         log().warning << "Server is already running";
-        return;
+        return false;
     }
 
-    protocol_ = protocol;
+    port_ = port;
     handler_ = std::move(handler);
+
+    log().info << "Starting server on port: " + std::to_string(port_);
+
+    // Start listening
+    auto listenResult = server_.listen(port_);
+    if (!listenResult) {
+        log().error << "Failed to start listening: " + listenResult.error().message;
+        return false;
+    }
+
     running_ = true;
 
-    log().info << "Starting server on protocol: " + protocol_;
+    // Start server thread
+    serverThread_ = std::thread(&FetchServer::serverLoop, this);
 
-    // Set protocol handler
-    host_->setProtocolHandler(
-        {protocol_},  // StreamProtocols is a vector
-        [this](libp2p::StreamAndProtocol stream_and_protocol) {
-            auto stream = stream_and_protocol.stream;
-            log().info << "Accepted new connection";
-            handleStream(stream);
-        });
-
-    log().info << "Server started successfully";
+    log().info << "Server started successfully on port " + std::to_string(port_);
+    return true;
 }
 
 void FetchServer::stop() {
@@ -48,65 +51,75 @@ void FetchServer::stop() {
 
     log().info << "Stopping server";
     
-    // Remove protocol handler
-    if (!protocol_.empty()) {
-        host_->setProtocolHandler({protocol_}, nullptr);
+    running_ = false;
+    server_.stop();
+    
+    if (serverThread_.joinable()) {
+        serverThread_.join();
     }
     
-    running_ = false;
     log().info << "Server stopped";
 }
 
-void FetchServer::handleStream(std::shared_ptr<libp2p::connection::Stream> stream) {
-    log().debug << "Handling incoming stream";
+void FetchServer::serverLoop() {
+    log().debug << "Server loop started";
 
-    // Read data from the peer
-    auto recv_buffer = std::make_shared<std::vector<uint8_t>>(4096);
-    stream->readSome(
-        libp2p::BytesOut(*recv_buffer),
-        [this, stream, recv_buffer](outcome::result<size_t> read_res) {
-            if (!read_res) {
-                log().error << "Failed to read data: " + read_res.error().message();
-                stream->close([](auto&&) {});
-                return;
-            }
+    while (running_) {
+        // Wait for events with a short timeout to allow checking running_ flag
+        auto waitResult = server_.waitForEvents(100);  // 100ms timeout
+        if (!waitResult) {
+            // Timeout or error - just continue
+            continue;
+        }
 
-            size_t bytes_read = read_res.value();
-            std::string request(recv_buffer->begin(), recv_buffer->begin() + bytes_read);
-            
-            log().info << "Received request (" + std::to_string(bytes_read) + " bytes)";
+        // Accept a connection
+        auto acceptResult = server_.accept();
+        if (!acceptResult) {
+            // No connection waiting or error
+            continue;
+        }
 
-            // Process the request
-            std::string response;
-            try {
-                response = handler_(request);
-                log().debug << "Request processed successfully";
-            } catch (const std::exception& e) {
-                log().error << "Error processing request: " + std::string(e.what());
-                response = "Error: " + std::string(e.what());
-            }
+        auto connection = std::move(acceptResult.value());
+        log().info << "Accepted connection from " + connection.getClientAddress();
 
-            // Send response back to the peer
-            auto send_buffer = std::make_shared<std::vector<uint8_t>>(response.begin(), response.end());
-            stream->writeSome(
-                libp2p::BytesIn(*send_buffer),
-                [this, stream, send_buffer](outcome::result<size_t> write_res) {
-                    if (!write_res) {
-                        log().error << "Failed to write response: " + write_res.error().message();
-                    } else {
-                        log().info << "Response sent (" + std::to_string(send_buffer->size()) + " bytes)";
-                    }
+        // Read request data
+        char buffer[4096];
+        auto recvResult = connection.receive(buffer, sizeof(buffer) - 1);
+        if (!recvResult) {
+            log().error << "Failed to read data: " + recvResult.error().message;
+            connection.close();
+            continue;
+        }
 
-                    // Close the stream
-                    stream->close([this](outcome::result<void> close_res) {
-                        if (!close_res) {
-                            log().error << "Failed to close stream: " + close_res.error().message();
-                        } else {
-                            log().debug << "Stream closed";
-                        }
-                    });
-                });
-        });
+        size_t bytesRead = recvResult.value();
+        buffer[bytesRead] = '\0';
+        std::string request(buffer, bytesRead);
+        
+        log().info << "Received request (" + std::to_string(bytesRead) + " bytes)";
+
+        // Process the request
+        std::string response;
+        try {
+            response = handler_(request);
+            log().debug << "Request processed successfully";
+        } catch (const std::exception& e) {
+            log().error << "Error processing request: " + std::string(e.what());
+            response = "Error: " + std::string(e.what());
+        }
+
+        // Send response
+        auto sendResult = connection.send(response);
+        if (!sendResult) {
+            log().error << "Failed to send response: " + sendResult.error().message;
+        } else {
+            log().info << "Response sent (" + std::to_string(response.size()) + " bytes)";
+        }
+
+        connection.close();
+        log().debug << "Connection closed";
+    }
+
+    log().debug << "Server loop ended";
 }
 
 } // namespace network

@@ -11,7 +11,7 @@
 #include <thread>
 #include <chrono>
 
-void runNode(const std::string& nodeId, int port, const std::vector<std::string>& bootstrapPeers) {
+void runNode(const std::string& nodeId, int port, uint16_t p2pPort, const std::vector<std::string>& bootstrapPeers) {
     auto& logger = logging::getLogger("node-" + nodeId);
     logger.info << "Starting node: " << nodeId;
     
@@ -27,7 +27,8 @@ void runNode(const std::string& nodeId, int port, const std::vector<std::string>
     networkConfig.enableP2P = true;
     networkConfig.nodeId = nodeId;
     networkConfig.bootstrapPeers = bootstrapPeers;
-    networkConfig.listenAddr = "/ip4/0.0.0.0/tcp/" + std::to_string(9000 + port);
+    networkConfig.listenAddr = "0.0.0.0";
+    networkConfig.p2pPort = p2pPort;
     networkConfig.maxPeers = 50;
     
     // Start server with P2P enabled
@@ -64,7 +65,7 @@ void runNode(const std::string& nodeId, int port, const std::vector<std::string>
 int main() {
     // Initialize logging
     logging::getLogger("main").info << "Multi-Node Blockchain Demo";
-    logging::getLogger("main").info << "P2P support: ENABLED (mandatory)";
+    logging::getLogger("main").info << "P2P support: ENABLED";
     
     // Example 1: Single node (no P2P peers)
     {
@@ -97,14 +98,14 @@ int main() {
         // For this example, we'd need to run each node in a separate process
         
         std::vector<std::string> bootstrapPeers = {
-            "/ip4/127.0.0.1/tcp/9001",
-            "/ip4/127.0.0.1/tcp/9002"
+            "127.0.0.1:9001",
+            "127.0.0.1:9002"
         };
         
         // Note: To actually test multi-node, you would run each node in a separate process:
         // ./node1 --node-id node1 --port 8081 --p2p-port 9001
-        // ./node2 --node-id node2 --port 8082 --p2p-port 9002 --bootstrap /ip4/127.0.0.1/tcp/9001
-        // ./node3 --node-id node3 --port 8083 --p2p-port 9003 --bootstrap /ip4/127.0.0.1/tcp/9001
+        // ./node2 --node-id node2 --port 8082 --p2p-port 9002 --bootstrap 127.0.0.1:9001
+        // ./node3 --node-id node3 --port 8083 --p2p-port 9003 --bootstrap 127.0.0.1:9001
         
         std::cout << "\nTo run multi-node network:" << std::endl;
         std::cout << "1. Start bootstrap node:" << std::endl;
@@ -131,7 +132,8 @@ int main() {
         pp::Server::NetworkConfig config;
         config.enableP2P = true;
         config.nodeId = "demo-node";
-        config.listenAddr = "/ip4/0.0.0.0/tcp/9000";
+        config.listenAddr = "0.0.0.0";
+        config.p2pPort = 9000;
         // No bootstrap peers - this is a standalone node
         
         if (server.start(8080, config)) {
@@ -140,7 +142,7 @@ int main() {
             std::cout << "Connected peers: " << server.getPeerCount() << std::endl;
             
             // Connect to a peer manually
-            // server.connectToPeer("/ip4/127.0.0.1/tcp/9001/p2p/QmPeerID");
+            // server.connectToPeer("127.0.0.1:9001");
             
             // Submit transactions
             for (int i = 0; i < 3; i++) {

@@ -1,109 +1,74 @@
 #include "FetchClient.h"
-#include <libp2p/connection/stream.hpp>
-#include <chrono>
-#include <condition_variable>
-#include <mutex>
+#include <thread>
 
 namespace pp {
 namespace network {
 
-FetchClient::FetchClient(std::shared_ptr<libp2p::Host> host)
-    : Module("network.fetch_client")
-    , host_(std::move(host)) {
+FetchClient::FetchClient()
+    : Module("network.fetch_client") {
     log().info << "FetchClient initialized";
 }
 
 void FetchClient::fetch(
-    const libp2p::peer::PeerInfo& peerInfo,
-    const std::string& protocol,
+    const std::string& host,
+    uint16_t port,
     const std::string& data,
     ResponseCallback callback) {
     
-    log().info << "Fetching from peer with protocol: " + protocol;
+    log().info << "Fetching from " + host + ":" + std::to_string(port);
 
-    // Create a new stream to the peer
-    host_->newStream(
-        peerInfo,
-        {protocol},  // StreamProtocols is a vector
-        [this, data, callback](libp2p::StreamAndProtocolOrError stream_res) {
-            if (!stream_res) {
-                log().error << "Failed to create stream: " + stream_res.error().message();
-                callback(FetchClient::Error(1, "Failed to create stream: " + stream_res.error().message()));
-                return;
-            }
-
-            auto stream = std::move(stream_res.value().stream);
-            log().debug << "Stream created successfully";
-
-            // Send data to the peer
-            auto send_buffer = std::make_shared<std::vector<uint8_t>>(data.begin(), data.end());
-            stream->writeSome(
-                libp2p::BytesIn(*send_buffer),
-                [this, stream, callback, send_buffer](outcome::result<size_t> write_res) {
-                    if (!write_res) {
-                        log().error << "Failed to write data: " + write_res.error().message();
-                        stream->close([](auto&&) {});
-                        callback(FetchClient::Error(2, "Failed to write data: " + write_res.error().message()));
-                        return;
-                    }
-
-                    log().debug << "Data sent, waiting for response";
-
-                    // Read response from the peer
-                    auto recv_buffer = std::make_shared<std::vector<uint8_t>>(4096);
-                    stream->readSome(
-                        libp2p::BytesOut(*recv_buffer),
-                        [this, stream, callback, recv_buffer](outcome::result<size_t> read_res) {
-                            if (!read_res) {
-                                log().error << "Failed to read response: " + read_res.error().message();
-                                stream->close([](auto&&) {});
-                                callback(FetchClient::Error(3, "Failed to read response: " + read_res.error().message()));
-                                return;
-                            }
-
-                            size_t bytes_read = read_res.value();
-                            std::string response(recv_buffer->begin(), recv_buffer->begin() + bytes_read);
-                            
-                            log().info << "Received response (" + std::to_string(bytes_read) + " bytes)";
-
-                            // Close the stream and send response
-                            stream->close([callback, response](outcome::result<void> close_res) {
-                                if (!close_res) {
-                                    callback(FetchClient::Error(4, "Failed to close stream: " + close_res.error().message()));
-                                } else {
-                                    callback(response);
-                                }
-                            });
-                        });
-                });
-        });
+    // Run in a separate thread for async behavior
+    std::thread([this, host, port, data, callback]() {
+        auto result = fetchSync(host, port, data);
+        callback(result);
+    }).detach();
 }
 
 FetchClient::Roe<std::string> FetchClient::fetchSync(
-    const libp2p::peer::PeerInfo& peerInfo,
-    const std::string& protocol,
+    const std::string& host,
+    uint16_t port,
     const std::string& data) {
     
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool done = false;
-    FetchClient::Roe<std::string> result = FetchClient::Error(5, "Timeout");
+    log().info << "Sync fetch from " + host + ":" + std::to_string(port);
 
-    fetch(peerInfo, protocol, data, [&](const auto& res) {
-        std::lock_guard<std::mutex> lock(mtx);
-        result = res;
-        done = true;
-        cv.notify_one();
-    });
-
-    // Wait for response with timeout
-    std::unique_lock<std::mutex> lock(mtx);
-    if (!cv.wait_for(lock, std::chrono::seconds(30), [&done] { return done; })) {
-        log().error << "Fetch operation timed out";
-        return FetchClient::Error(5, "Fetch operation timed out");
+    TcpClient client;
+    
+    // Connect to the server
+    auto connectResult = client.connect(host, port);
+    if (!connectResult) {
+        log().error << "Failed to connect: " + connectResult.error().message;
+        return FetchClient::Error(1, "Failed to connect: " + connectResult.error().message);
     }
-
-    return result;
+    
+    log().debug << "Connected successfully";
+    
+    // Send the data
+    auto sendResult = client.send(data);
+    if (!sendResult) {
+        log().error << "Failed to send data: " + sendResult.error().message;
+        client.close();
+        return FetchClient::Error(2, "Failed to send data: " + sendResult.error().message);
+    }
+    
+    log().debug << "Data sent, waiting for response";
+    
+    // Receive response
+    char buffer[4096];
+    auto recvResult = client.receive(buffer, sizeof(buffer) - 1);
+    if (!recvResult) {
+        log().error << "Failed to receive response: " + recvResult.error().message;
+        client.close();
+        return FetchClient::Error(3, "Failed to receive response: " + recvResult.error().message);
+    }
+    
+    size_t bytesRead = recvResult.value();
+    buffer[bytesRead] = '\0';
+    std::string response(buffer, bytesRead);
+    
+    log().info << "Received response (" + std::to_string(bytesRead) + " bytes)";
+    
+    client.close();
+    return response;
 }
 
 } // namespace network

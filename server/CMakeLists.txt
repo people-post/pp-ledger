@@ -6,9 +6,10 @@ add_library(ppledger_server STATIC
 
 target_include_directories(ppledger_server PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/network
 )
 
-# Server requires network library (libp2p mandatory)
+# Server requires network library
 target_link_libraries(ppledger_server PUBLIC
     ppledger_lib
     ppledger_ledger
@@ -16,4 +17,4 @@ target_link_libraries(ppledger_server PUBLIC
     network
 )
 
-message(STATUS "Server configured with P2P network support (required)")
+message(STATUS "Server configured with TCP network support")

@@ -9,61 +9,7 @@ find_package(Boost REQUIRED COMPONENTS system thread random filesystem)
 set(CMAKE_PREFIX_PATH "/usr/local;${CMAKE_PREFIX_PATH}")
 find_package(fmt REQUIRED)
 
-# BoringSSL (used by libp2p)
-set(BORINGSSL_INCLUDE_DIR "/usr/local/include")
-set(BORINGSSL_CRYPTO_LIBRARY "/usr/local/lib/libboringssl_crypto.a")
-set(BORINGSSL_SSL_LIBRARY "/usr/local/lib/libboringssl_ssl.a")
-
-# Find cpp-libp2p (required)
-# Set LIBP2P_ROOT to the installation directory
-if(NOT DEFINED LIBP2P_ROOT)
-    message(FATAL_ERROR "LIBP2P_ROOT must be set to the cpp-libp2p installation directory")
-endif()
-
-set(CMAKE_PREFIX_PATH "${LIBP2P_ROOT};${CMAKE_PREFIX_PATH}")
-
-# Add libp2p include directories
-include_directories(${LIBP2P_ROOT}/include)
-
-# Add libp2p library directories
-link_directories(${LIBP2P_ROOT}/lib)
-
-# Find all libp2p libraries
-file(GLOB LIBP2P_LIBRARIES "${LIBP2P_ROOT}/lib/libp2p*.a")
-
-if(NOT LIBP2P_LIBRARIES)
-    message(FATAL_ERROR "cpp-libp2p libraries not found in ${LIBP2P_ROOT}/lib")
-endif()
-
-message(STATUS "Found cpp-libp2p libraries: ${LIBP2P_ROOT}/lib")
-
-# Create an interface library for libp2p
-add_library(p2p::p2p INTERFACE IMPORTED)
-set_target_properties(p2p::p2p PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${LIBP2P_ROOT}/include"
-    INTERFACE_LINK_DIRECTORIES "${LIBP2P_ROOT}/lib"
-)
-# Link all libp2p libraries and dependencies
-# Note: Using --start-group/--end-group to handle circular dependencies in static libs
-target_link_libraries(p2p::p2p INTERFACE 
-    -Wl,--start-group
-    ${LIBP2P_LIBRARIES}
-    /usr/lib/x86_64-linux-gnu/libprotobuf.so
-    -Wl,--end-group
-    Boost::system
-    Boost::thread
-    Boost::random
-    Boost::filesystem
-    ${BORINGSSL_SSL_LIBRARY}
-    ${BORINGSSL_CRYPTO_LIBRARY}
-    cares
-    secp256k1
-    fmt::fmt
-    pthread
-    dl
-)
-
-# Set C++ standard to C++20 (required for libp2p)
+# Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

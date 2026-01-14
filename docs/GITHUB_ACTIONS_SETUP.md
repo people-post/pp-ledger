@@ -1,254 +1,79 @@
-# GitHub Actions Setup Summary
+# GitHub Actions Setup
 
-This document summarizes the GitHub Actions configuration for automated builds with optional cpp-libp2p support.
+This document describes how to set up and use GitHub Actions for the pp-ledger project.
 
-## What Was Implemented
+## Overview
 
-### 1. GitHub Actions Workflows
+The project uses GitHub Actions for continuous integration (CI), automatically building and testing the code on every push and pull request.
 
-Created two workflows in `.github/workflows/`:
+## Workflow Configuration
 
-#### **build-libp2p.yml**
-- Builds cpp-libp2p from source
-- Installs to a structured directory
-- Copies Hunter dependency headers (qtils, soralog, scale)
-- Packages everything as a tar.gz artifact
-- Uploads artifact with 90-day retention
-- **Trigger:** Manual dispatch or workflow file changes
-- **Duration:** ~15-30 minutes
+### Build Workflow (`build-project.yml`)
 
-#### **build-project.yml**
-- Main CI/CD pipeline for pp-ledger
-- Downloads libp2p artifact if available
-- Builds project with or without libp2p
-- Runs all applicable tests
-- **Trigger:** Push to main, PRs, manual dispatch
-- **Duration:** ~2-5 minutes
+The main workflow handles:
+1. Installing system dependencies
+2. Configuring CMake
+3. Building the project
+4. Running tests
 
-### 2. CMake Configuration
+### Required Dependencies
 
-Updated `CMakeLists.txt` to support optional libp2p:
+The workflow installs:
+- **build-essential**: GCC, make, and other build tools
+- **cmake**: Build system generator
+- **libssl-dev**: OpenSSL development libraries
+- **libboost-all-dev**: Boost libraries
+- **libfmt-dev**: fmt formatting library
+- **nlohmann-json3-dev**: JSON library for C++
+- **python3**: Python interpreter (for build scripts)
 
-```cmake
-option(USE_LIBP2P "Enable cpp-libp2p support" OFF)
-```
+## Running Locally
 
-- **Without libp2p** (default): Builds all components except network library
-- **With libp2p** (`-DUSE_LIBP2P=ON -DLIBP2P_ROOT=/path`): Attempts to build network library
-
-The configuration:
-- Automatically detects libp2p availability
-- Conditionally includes network subdirectory
-- Conditionally builds network tests
-- Provides clear status messages
-
-### 3. Documentation
-
-Created comprehensive documentation:
-
-- **`.github/workflows/README.md`**: Workflow usage and troubleshooting
-- **`docs/BUILDING_WITH_LIBP2P.md`**: Build instructions and current limitations
-- This summary document
-
-## Current Project State
-
-### ✅ All Components Working
-
-| Component | Status | Tests |
-|-----------|--------|-------|
-| lib | ✅ Working | ✅ Passing |
-| consensus | ✅ Working | ✅ Passing |
-| client | ✅ Working | ✅ Passing |
-| server | ✅ Working | ✅ Passing |
-| network | ✅ Working | ⏸️ Placeholder |
-| app | ✅ Working | N/A |
-| **Total** | **6/6** | **134/134** |
-
-**Note:** All components use C++20.
-
-### ✅ Network Library Status
-
-The network library has been **successfully updated** to work with modern cpp-libp2p APIs:
-
-**Fixed Issues:**
-- ✅ Updated from old `read()`/`write()` to new `readSome()`/`writeSome()` API
-- ✅ Updated callback signatures to use `outcome::result<T>`
-- ✅ Fixed protocol handler to use `StreamAndProtocol` pattern
-- ✅ Updated to use `BytesIn`/`BytesOut` (std::span)
-- ✅ Upgraded to C++20 for std::span compatibility
-
-**Build Status:**
-- Network library builds successfully with libp2p
-- All 134 core tests pass
-- Network integration tests are placeholder (require libp2p host setup)
-
-**Usage:**
-Build with libp2p support to enable the network library for P2P communication.
-
-## How to Use
-
-### For Development
-
-Build with libp2p (required):
+To build the project locally:
 
 ```bash
-# First, obtain libp2p artifact or build from source
-tar -xzf libp2p-artifact.tar.gz
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    cmake \
+    libssl-dev \
+    libboost-all-dev \
+    libfmt-dev \
+    nlohmann-json3-dev
 
+# Configure and build
 mkdir build && cd build
-cmake -DLIBP2P_ROOT=../libp2p-install ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
+
+# Run tests
 ctest --output-on-failure
 ```
 
-**Result:** All 6 components built, 134 tests passing.
+## Triggering Workflows
 
-## Dependencies
+### Automatic Triggers
+- Push to `main` branch
+- Pull requests to `main` branch
 
-### System Requirements
-
-All platforms:
-```bash
-sudo apt-get install -y \
-  build-essential \
-  cmake \
-  libssl-dev \
-  libboost-all-dev \
-  libfmt-dev \
-  python3
-```
-
-### Included in libp2p Artifact
-
-When using the libp2p artifact, these are bundled:
-- libp2p headers and libraries
-- qtils (utility library)
-- soralog (logging library)
-- scale (serialization library)
-
-## GitHub Actions Features
-
-### Automatic Artifact Management
-
-- **build-libp2p.yml** creates artifacts with 90-day retention
-- **build-project.yml** automatically finds and uses the latest artifact
-- If no artifact exists, builds proceed without libp2p (graceful degradation)
-
-### Build Matrix (Future)
-
-Currently single configuration:
-- Platform: Ubuntu latest
-- Compiler: GCC 13
-- Build type: Release
-
-Future expansion could add:
-- Multiple platforms (Ubuntu, macOS)
-- Multiple compilers (GCC, Clang)
-- Multiple build types (Debug, Release)
-
-## File Structure
-
-```
-.github/
-└── workflows/
-    ├── build-libp2p.yml      # Build cpp-libp2p artifact
-    ├── build-project.yml     # Main CI/CD pipeline
-    └── README.md             # Workflow documentation
-
-docs/
-└── BUILDING_WITH_LIBP2P.md  # Build instructions
-
-.gitignore                    # Updated to ignore libp2p artifacts
-CMakeLists.txt                # Updated with USE_LIBP2P option
-test/CMakeLists.txt           # Conditional test_fetch build
-```
-
-## Future Work
-
-### Priority 1: Network Integration Tests
-
-Implement actual integration tests for the network library:
-
-1. **Create libp2p test harness:**
-   - Set up in-memory libp2p hosts
-   - Configure peer discovery for tests
-   - Implement test network infrastructure
-
-2. **Enable network tests:**
-   - Remove DISABLED_ prefix from tests
-   - Implement FetchClient/FetchServer integration tests
-   - Add P2P communication scenarios
-
-3. **Add example applications:**
-   - Simple echo server/client
-   - File transfer demo
-   - Blockchain sync demonstration
-
-### Priority 2: Enhance CI/CD
-
-Improvements for workflows:
-
-- [ ] Add build caching (Hunter, CMake)
-- [ ] Create release artifacts
-- [ ] Add code coverage reports
-- [ ] Run tests in parallel
-- [ ] Add static analysis (cppcheck, clang-tidy)
-- [ ] Performance benchmarks
-
-### Priority 3: Multi-platform Support
-
-Expand testing coverage:
-
-- [ ] macOS builds
-- [ ] Windows builds (MSVC)
-- [ ] Different compiler versions
-- [ ] Different CMake versions
-
-## Benefits
-
-### What This Setup Provides
-
-1. **Automated Testing:** Every push runs full test suite
-2. **Reusable Artifacts:** Pre-built libp2p available for 90 days
-3. **Graceful Degradation:** Builds work with or without libp2p
-4. **Clear Documentation:** Comprehensive guides and troubleshooting
-5. **Reproducible Builds:** Same commands work locally and in CI
-
-### Development Workflow
-
-For contributors:
-
-1. **Push code** → Automatic build and test
-2. **PR review** → See test results immediately
-3. **Merge** → Artifacts available for deployment
-4. **Download** → Use pre-built dependencies locally
+### Manual Trigger
+1. Go to the Actions tab in GitHub
+2. Select "Build pp-ledger"
+3. Click "Run workflow"
+4. Select branch and confirm
 
 ## Troubleshooting
 
 ### Common Issues
 
-**"Artifact not found" warning:**
-- Normal if build-libp2p.yml hasn't run
-- Project builds without libp2p
-- Run build-libp2p.yml to create artifact
+1. **Missing dependencies**: Ensure all system packages are installed
+2. **CMake errors**: Check CMakeLists.txt for syntax errors
+3. **Build failures**: Review compiler error messages in logs
+4. **Test failures**: Check test output for specific failure reasons
 
-**Build fails with libp2p:**
-- Expected due to network library incompatibility
-- See docs/BUILDING_WITH_LIBP2P.md
-- Use default build (without libp2p)
+### Getting Help
 
-**Tests fail:**
-- Check specific test output
-- Ensure dependencies installed
-- Try clean rebuild: `rm -rf build && mkdir build`
-
-## Conclusion
-
-The GitHub Actions setup provides:
-- ✅ **Automated builds** for every commit
-- ✅ **Comprehensive testing** (134 tests)
-- ✅ **Artifact management** for cpp-libp2p
-- ✅ **Flexible configuration** (with/without libp2p)
-- ⚠️ **Known limitation** (network library needs update)
-
-The project is **production-ready** for core functionality (consensus, blockchain, ledger) and has a clear path forward for network integration once the libp2p API compatibility is resolved.
+- Check the workflow logs in GitHub Actions
+- Review recent commits for potentially breaking changes
+- Open an issue with detailed error information

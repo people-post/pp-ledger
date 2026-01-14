@@ -2,62 +2,37 @@
 #include "FetchServer.h"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
-
-// Note: These tests require libp2p to be properly set up
-// They are placeholders that demonstrate the intended usage
+#include <thread>
+#include <chrono>
 
 using namespace pp::network;
 
 class FetchClientTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // TODO: Initialize libp2p host
-        // host = createLibp2pHost();
-        // client = std::make_unique<FetchClient>(host);
+        client = std::make_unique<FetchClient>();
     }
 
     void TearDown() override {
         client.reset();
     }
 
-    // std::shared_ptr<libp2p::Host> host;
     std::unique_ptr<FetchClient> client;
 };
 
-// Placeholder test - will be implemented when libp2p is integrated
-TEST_F(FetchClientTest, DISABLED_CreatesSuccessfully) {
-    // EXPECT_NE(client, nullptr);
+TEST_F(FetchClientTest, CreatesSuccessfully) {
+    EXPECT_NE(client, nullptr);
 }
 
-TEST_F(FetchClientTest, DISABLED_FetchAsync) {
-    // libp2p::peer::PeerInfo peerInfo = /* create peer info */;
-    // bool callbackCalled = false;
-    // 
-    // client->fetch(peerInfo, "/test/1.0.0", "Hello", 
-    //     [&callbackCalled](const auto& result) {
-    //         callbackCalled = true;
-    //         EXPECT_TRUE(result.isOk());
-    //         EXPECT_EQ(result.value(), "Echo: Hello");
-    //     });
-    // 
-    // // Wait for callback
-    // EXPECT_TRUE(callbackCalled);
-}
-
-TEST_F(FetchClientTest, DISABLED_FetchSync) {
-    // libp2p::peer::PeerInfo peerInfo = /* create peer info */;
-    // auto result = client->fetchSync(peerInfo, "/test/1.0.0", "Hello");
-    // 
-    // EXPECT_TRUE(result.isOk());
-    // EXPECT_EQ(result.value(), "Echo: Hello");
+TEST_F(FetchClientTest, FetchSyncFailsWithInvalidHost) {
+    auto result = client->fetchSync("invalid-host-that-does-not-exist.local", 9999, "Hello");
+    EXPECT_FALSE(result.isOk());
 }
 
 class FetchServerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // TODO: Initialize libp2p host
-        // host = createLibp2pHost();
-        // server = std::make_unique<FetchServer>(host);
+        server = std::make_unique<FetchServer>();
     }
 
     void TearDown() override {
@@ -67,64 +42,129 @@ protected:
         server.reset();
     }
 
-    // std::shared_ptr<libp2p::Host> host;
     std::unique_ptr<FetchServer> server;
 };
 
-TEST_F(FetchServerTest, DISABLED_CreatesSuccessfully) {
-    // EXPECT_NE(server, nullptr);
-    // EXPECT_FALSE(server->isRunning());
+TEST_F(FetchServerTest, CreatesSuccessfully) {
+    EXPECT_NE(server, nullptr);
+    EXPECT_FALSE(server->isRunning());
 }
 
-TEST_F(FetchServerTest, DISABLED_StartsAndStops) {
-    // server->start("/test/1.0.0", [](const std::string& req) {
-    //     return "Echo: " + req;
-    // });
-    // 
-    // EXPECT_TRUE(server->isRunning());
-    // 
-    // server->stop();
-    // EXPECT_FALSE(server->isRunning());
+TEST_F(FetchServerTest, StartsAndStops) {
+    bool started = server->start(18880, [](const std::string& req) {
+        return "Echo: " + req;
+    });
+    
+    EXPECT_TRUE(started);
+    EXPECT_TRUE(server->isRunning());
+    EXPECT_EQ(server->getPort(), 18880);
+    
+    server->stop();
+    EXPECT_FALSE(server->isRunning());
 }
 
-TEST_F(FetchServerTest, DISABLED_HandlesRequest) {
-    // bool handlerCalled = false;
-    // 
-    // server->start("/test/1.0.0", [&handlerCalled](const std::string& req) {
-    //     handlerCalled = true;
-    //     EXPECT_EQ(req, "Hello");
-    //     return "Echo: " + req;
-    // });
-    // 
-    // // Send request from client
-    // // ...
-    // 
-    // EXPECT_TRUE(handlerCalled);
+TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
+    bool started1 = server->start(18881, [](const std::string& req) {
+        return "Echo: " + req;
+    });
+    EXPECT_TRUE(started1);
+    
+    // Create second server
+    FetchServer server2;
+    bool started2 = server2.start(18881, [](const std::string& req) {
+        return "Echo: " + req;
+    });
+    EXPECT_FALSE(started2);
+    
+    server->stop();
 }
 
-// Integration test placeholder
-TEST(FetchIntegrationTest, DISABLED_ClientServerCommunication) {
-    // Create host for server
-    // auto serverHost = createLibp2pHost();
-    // FetchServer server(serverHost);
-    // 
-    // // Start server
-    // server.start("/test/1.0.0", [](const std::string& req) {
-    //     return "Echo: " + req;
-    // });
-    // 
-    // // Create host for client
-    // auto clientHost = createLibp2pHost();
-    // FetchClient client(clientHost);
-    // 
-    // // Get server's peer info
-    // auto serverPeerInfo = /* get from serverHost */;
-    // 
-    // // Fetch from server
-    // auto result = client.fetchSync(serverPeerInfo, "/test/1.0.0", "Hello World");
-    // 
-    // EXPECT_TRUE(result.isOk());
-    // EXPECT_EQ(result.value(), "Echo: Hello World");
-    // 
-    // server.stop();
+// Integration test
+class FetchIntegrationTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        server = std::make_unique<FetchServer>();
+        client = std::make_unique<FetchClient>();
+    }
+
+    void TearDown() override {
+        if (server && server->isRunning()) {
+            server->stop();
+        }
+        server.reset();
+        client.reset();
+    }
+
+    std::unique_ptr<FetchServer> server;
+    std::unique_ptr<FetchClient> client;
+};
+
+TEST_F(FetchIntegrationTest, ClientServerCommunication) {
+    // Start server
+    bool started = server->start(18882, [](const std::string& req) {
+        return "Echo: " + req;
+    });
+    ASSERT_TRUE(started);
+    
+    // Give server time to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Fetch from server
+    auto result = client->fetchSync("127.0.0.1", 18882, "Hello World");
+    
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.value(), "Echo: Hello World");
+    
+    server->stop();
+}
+
+TEST_F(FetchIntegrationTest, MultipleRequests) {
+    // Start server
+    bool started = server->start(18883, [](const std::string& req) {
+        return "Response: " + req;
+    });
+    ASSERT_TRUE(started);
+    
+    // Give server time to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Send multiple requests
+    for (int i = 0; i < 5; i++) {
+        auto result = client->fetchSync("127.0.0.1", 18883, "Request " + std::to_string(i));
+        EXPECT_TRUE(result.isOk());
+        EXPECT_EQ(result.value(), "Response: Request " + std::to_string(i));
+    }
+    
+    server->stop();
+}
+
+TEST_F(FetchIntegrationTest, AsyncFetch) {
+    // Start server
+    bool started = server->start(18884, [](const std::string& req) {
+        return "Async: " + req;
+    });
+    ASSERT_TRUE(started);
+    
+    // Give server time to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    
+    // Async fetch with callback
+    bool callbackCalled = false;
+    std::string receivedResponse;
+    
+    client->fetch("127.0.0.1", 18884, "Hello Async",
+        [&callbackCalled, &receivedResponse](const auto& result) {
+            callbackCalled = true;
+            if (result.isOk()) {
+                receivedResponse = result.value();
+            }
+        });
+    
+    // Wait for callback
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    
+    EXPECT_TRUE(callbackCalled);
+    EXPECT_EQ(receivedResponse, "Async: Hello Async");
+    
+    server->stop();
 }

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-The Server class now supports multi-node blockchain networking using libp2p.
+The Server class supports multi-node blockchain networking using TCP sockets.
 
 ## Basic Usage
 
@@ -41,7 +41,8 @@ server.setSlotDuration(5);
 pp::Server::NetworkConfig config;
 config.enableP2P = true;
 config.nodeId = "bootstrap";
-config.listenAddr = "/ip4/0.0.0.0/tcp/9000";
+config.listenAddr = "0.0.0.0";
+config.p2pPort = 9000;
 
 server.start(8080, config);
 // Server now accepts P2P connections on port 9000
@@ -58,10 +59,9 @@ server.setSlotDuration(5);
 pp::Server::NetworkConfig config;
 config.enableP2P = true;
 config.nodeId = "node2";
-config.listenAddr = "/ip4/0.0.0.0/tcp/9001";
-config.bootstrapPeers = {
-    "/ip4/192.168.1.100/tcp/9000"  // Bootstrap node address
-};
+config.listenAddr = "0.0.0.0";
+config.p2pPort = 9001;
+config.bootstrapPeers = {"192.168.1.100:9000"};  // Bootstrap node address
 
 server.start(8081, config);
 // Connects to bootstrap node and joins network
@@ -73,8 +73,9 @@ server.start(8081, config);
 struct NetworkConfig {
     bool enableP2P;                         // Enable P2P networking
     std::string nodeId;                     // Unique node identifier
-    std::vector<std::string> bootstrapPeers;// Bootstrap peer addresses
+    std::vector<std::string> bootstrapPeers;// Bootstrap peer addresses (host:port)
     std::string listenAddr;                 // P2P listen address
+    uint16_t p2pPort;                       // P2P listen port
     uint16_t maxPeers;                      // Maximum peer connections
 };
 ```
@@ -91,7 +92,7 @@ server.isRunning();                     // Check if running
 
 ### Network
 ```cpp
-server.connectToPeer(multiaddr);        // Connect to peer
+server.connectToPeer(hostPort);         // Connect to peer (host:port)
 server.getPeerCount();                  // Get peer count
 server.getConnectedPeers();             // List peers
 server.isP2PEnabled();                  // Check P2P status
@@ -119,19 +120,18 @@ server.getBalance(walletId);            // Get wallet balance
 
 ## Building
 
-The server requires libp2p to be installed:
-
 ```bash
-cmake -DLIBP2P_ROOT=/path/to/libp2p ..
-make
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
 ```
 
 ## Running Example
 
 ```bash
 # Build
-cd /workspaces/pp-ledger/build
-cmake -DLIBP2P_ROOT=../libp2p-install ..
+cd pp-ledger/build
+cmake ..
 make
 
 # Run example
@@ -139,8 +139,6 @@ make
 ```
 
 ## Network Protocol
-
-**Protocol**: `/pp-ledger/sync/1.0.0`
 
 **Messages**: JSON format
 - `get_blocks` - Request blocks from peer
@@ -158,7 +156,7 @@ if (server.isP2PEnabled()) {
 
 ### Manual Peer Connection
 ```cpp
-server.connectToPeer("/ip4/10.0.1.5/tcp/9000/p2p/QmPeerID");
+server.connectToPeer("10.0.1.5:9000");
 ```
 
 ### Monitor Network
@@ -174,12 +172,12 @@ while (running) {
 ## Troubleshooting
 
 ### "Failed to initialize P2P network"
-→ Check libp2p installation and LIBP2P_ROOT path
+→ Check network configuration and port availability
 
 ### Peers not connecting
 → Verify firewall allows P2P port
-→ Check bootstrap peer addresses are correct
-→ Ensure multiaddress format is valid
+→ Check peer addresses are correct (host:port format)
+→ Ensure network connectivity
 
 ### Blocks not propagating
 → Verify nodes registered as stakeholders
@@ -200,10 +198,3 @@ while (running) {
 - See [MULTI_NODE_SUPPORT.md](MULTI_NODE_SUPPORT.md) for detailed documentation
 - See [multi_node_example.cpp](multi_node_example.cpp) for complete examples
 - See [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) for technical details
-
-## Support
-
-For issues and questions:
-- Check logs in server debug output
-- Review network documentation in `docs/`
-- See libp2p documentation at https://docs.libp2p.io/

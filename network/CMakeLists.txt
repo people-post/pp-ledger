@@ -25,11 +25,12 @@ target_include_directories(network
         ${CMAKE_SOURCE_DIR}/lib
 )
 
-# Link with lib and libp2p
+# Link with lib (uses TcpClient/TcpServer from lib)
 target_link_libraries(network
     PUBLIC
         ppledger_lib
-        p2p::p2p
+        Boost::system
+        Boost::thread
 )
 
 # Set properties

@@ -14,7 +14,7 @@
 │        ▲                       ▲                       ▲                │
 │        │                       │                       │                │
 │        │    P2P Network        │                       │                │
-│        │   (libp2p/tcp)        │                       │                │
+│        │      (TCP)            │                       │                │
 │        │                       │                       │                │
 │        └───────────────────────┴───────────────────────┘                │
 │                                                                           │
@@ -60,19 +60,19 @@
 │  └──────────────────────────────────────────────────────────────────┘  │
 │                              ▼                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                    Network Layer (when USE_LIBP2P)                │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │  │
-│  │  │  libp2p      │  │ FetchClient  │  │ FetchServer  │           │  │
-│  │  │   Host       │  │  (Outgoing)  │  │  (Incoming)  │           │  │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘           │  │
-│  │         │                  │                   │                  │  │
-│  └─────────┼──────────────────┼───────────────────┼─────────────────┘  │
-│            │                  │                   │                     │
-└────────────┼──────────────────┼───────────────────┼─────────────────────┘
-             │                  │                   │
-             ▼                  ▼                   ▼
+│  │                    Network Layer (when P2P enabled)               │  │
+│  │  ┌──────────────┐  ┌──────────────┐                              │  │
+│  │  │ FetchClient  │  │ FetchServer  │                              │  │
+│  │  │  (Outgoing)  │  │  (Incoming)  │                              │  │
+│  │  └──────────────┘  └──────────────┘                              │  │
+│  │         │                   │                                     │  │
+│  └─────────┼───────────────────┼────────────────────────────────────┘  │
+│            │                   │                                        │
+└────────────┼───────────────────┼────────────────────────────────────────┘
+             │                   │
+             ▼                   ▼
     ┌────────────────────────────────────────────────────┐
-    │            Network (TCP/IP, libp2p)                 │
+    │                  Network (TCP/IP)                   │
     └────────────────────────────────────────────────────┘
 ```
 
@@ -131,114 +131,6 @@ Slot N+1:   Node 1              Node 2 (Leader)     Node 3
             ...                 ...                 ...
 ```
 
-## Message Flow - Block Propagation
-
-```
-┌──────────┐                                               ┌──────────┐
-│  Node 1  │                                               │  Node 2  │
-│(Producer)│                                               │(Receiver)│
-└────┬─────┘                                               └────┬─────┘
-     │                                                          │
-     │ 1. Create Block from Transactions                       │
-     ├─────────────┐                                           │
-     │             │                                           │
-     │◄────────────┘                                           │
-     │                                                          │
-     │ 2. Validate with Consensus                              │
-     ├─────────────┐                                           │
-     │             │                                           │
-     │◄────────────┘                                           │
-     │                                                          │
-     │ 3. Add to Local Ledger                                  │
-     ├─────────────┐                                           │
-     │             │                                           │
-     │◄────────────┘                                           │
-     │                                                          │
-     │ 4. Serialize Block to JSON                              │
-     │ {                                                        │
-     │   "type": "new_block",                                  │
-     │   "index": 42,                                          │
-     │   "slot": 100,                                          │
-     │   "hash": "0x..."                                       │
-     │ }                                                        │
-     │                                                          │
-     │ 5. Broadcast via P2P                                    │
-     │─────────────────────────────────────────────────────────►│
-     │                                                          │
-     │                                  6. Receive Block        │
-     │                                           ┌──────────────┤
-     │                                           │              │
-     │                                           └─────────────►│
-     │                                                          │
-     │                                  7. Validate Block       │
-     │                                           ┌──────────────┤
-     │                                           │              │
-     │                                           └─────────────►│
-     │                                                          │
-     │                                  8. Add to Ledger        │
-     │                                           ┌──────────────┤
-     │                                           │              │
-     │                                           └─────────────►│
-     │                                                          │
-     │ 9. Acknowledge                                           │
-     │◄─────────────────────────────────────────────────────────┤
-     │ {"status": "received"}                                   │
-     │                                                          │
-```
-
-## Message Flow - State Synchronization
-
-```
-┌──────────┐                                               ┌──────────┐
-│  Node A  │                                               │  Node B  │
-│ (Behind) │                                               │(Up-to-date)│
-└────┬─────┘                                               └────┬─────┘
-     │                                                          │
-     │ Local Block Count: 50                                   │ Local Block Count: 100
-     │                                                          │
-     │ 1. Request Blocks                                       │
-     │─────────────────────────────────────────────────────────►│
-     │ {                                                        │
-     │   "type": "get_blocks",                                 │
-     │   "from_index": 50,                                     │
-     │   "count": 100                                          │
-     │ }                                                        │
-     │                                                          │
-     │                                  2. Fetch Blocks         │
-     │                                           ┌──────────────┤
-     │                                           │              │
-     │                                           └─────────────►│
-     │                                                          │
-     │                                  3. Serialize Blocks     │
-     │                                           ┌──────────────┤
-     │                                           │              │
-     │                                           └─────────────►│
-     │                                                          │
-     │ 4. Receive Blocks                                       │
-     │◄─────────────────────────────────────────────────────────┤
-     │ {                                                        │
-     │   "type": "blocks",                                     │
-     │   "blocks": [                                           │
-     │     {"index": 50, ...},                                 │
-     │     {"index": 51, ...},                                 │
-     │     ...                                                  │
-     │   ]                                                      │
-     │ }                                                        │
-     │                                                          │
-     │ 5. Validate Each Block                                  │
-     ├─────────────┐                                           │
-     │             │                                           │
-     │◄────────────┘                                           │
-     │                                                          │
-     │ 6. Add Valid Blocks                                     │
-     ├─────────────┐                                           │
-     │             │                                           │
-     │◄────────────┘                                           │
-     │                                                          │
-     │ Local Block Count: 100                                  │
-     │                                                          │
-```
-
 ## Data Structures
 
 ### NetworkConfig
@@ -246,8 +138,9 @@ Slot N+1:   Node 1              Node 2 (Leader)     Node 3
 NetworkConfig
 ├─ enableP2P: bool
 ├─ nodeId: string
-├─ bootstrapPeers: vector<string>
+├─ bootstrapPeers: vector<string>  (host:port format)
 ├─ listenAddr: string
+├─ p2pPort: uint16_t
 └─ maxPeers: uint16_t
 ```
 
@@ -261,10 +154,9 @@ Server
 │  ├─ running: bool
 │  └─ port: int
 │
-└─ P2P State (always available)
-   ├─ p2pHost: shared_ptr<libp2p::Host>
-   ├─ networkClient: FetchClient
-   ├─ networkServer: FetchServer
+└─ P2P State
+   ├─ p2pServer: FetchServer
+   ├─ p2pClient: FetchClient
    ├─ connectedPeers: set<string>
    └─ networkConfig: NetworkConfig
 ```
@@ -313,10 +205,8 @@ Main Thread                 Consensus Thread              Network Threads
 
 ## Compilation
 
-The server requires libp2p:
-
 ```bash
-cmake -DLIBP2P_ROOT=/path/to/libp2p-install ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make
 ```
 

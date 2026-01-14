@@ -15,9 +15,13 @@
 #include <map>
 #include <set>
 
-// libp2p includes
-#include <libp2p/host/host.hpp>
-#include <libp2p/peer/peer_info.hpp>
+// Forward declarations for network classes
+namespace pp {
+namespace network {
+class FetchClient;
+class FetchServer;
+}
+}
 
 namespace pp {
 
@@ -33,8 +37,9 @@ public:
     struct NetworkConfig {
         bool enableP2P = false;
         std::string nodeId;
-        std::vector<std::string> bootstrapPeers;  // Multiaddrs of bootstrap peers
-        std::string listenAddr = "/ip4/0.0.0.0/tcp/9000";
+        std::vector<std::string> bootstrapPeers;  // host:port format
+        std::string listenAddr = "0.0.0.0";
+        uint16_t p2pPort = 9000;
         uint16_t maxPeers = 50;
     };
 
@@ -48,7 +53,7 @@ public:
     bool isRunning() const;
     
     // Network management
-    void connectToPeer(const std::string& multiaddr);
+    void connectToPeer(const std::string& hostPort);
     size_t getPeerCount() const;
     std::vector<std::string> getConnectedPeers() const;
     bool isP2PEnabled() const;
@@ -82,9 +87,10 @@ private:
     std::queue<std::string> transactionQueue_;
     
     // P2P Network components
-    std::shared_ptr<libp2p::Host> p2pHost_;
+    std::unique_ptr<network::FetchServer> p2pServer_;
+    std::unique_ptr<network::FetchClient> p2pClient_;
     mutable std::mutex peersMutex_;
-    std::set<std::string> connectedPeers_;  // Set of peer IDs
+    std::set<std::string> connectedPeers_;  // Set of host:port strings
     NetworkConfig networkConfig_;
     
     // P2P Network methods
@@ -93,7 +99,10 @@ private:
     std::string handleIncomingRequest(const std::string& request);
     void broadcastBlock(std::shared_ptr<iii::Block> block);
     void requestBlocksFromPeers(uint64_t fromIndex);
-    Roe<std::vector<std::shared_ptr<iii::Block>>> fetchBlocksFromPeer(const std::string& peerMultiaddr, uint64_t fromIndex);
+    Roe<std::vector<std::shared_ptr<iii::Block>>> fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex);
+    
+    // Helper to parse host:port string
+    static bool parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port);
     
     // Consensus loop
     void consensusLoop();
