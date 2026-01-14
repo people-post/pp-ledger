@@ -7,12 +7,16 @@ project(network VERSION 1.0.0 LANGUAGES CXX)
 set(NETWORK_SOURCES
     FetchClient.cpp
     FetchServer.cpp
+    TcpClient.cpp
+    TcpServer.cpp
 )
 
 # Header files
 set(NETWORK_HEADERS
     FetchClient.h
     FetchServer.h
+    TcpClient.h
+    TcpServer.h
 )
 
 # Create the library
@@ -25,7 +29,7 @@ target_include_directories(network
         ${CMAKE_SOURCE_DIR}/lib
 )
 
-# Link with lib (uses TcpClient/TcpServer from lib)
+# Link with lib (uses ResultOrError from lib)
 target_link_libraries(network
     PUBLIC
         ppledger_lib

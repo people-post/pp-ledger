@@ -42,12 +42,12 @@ ctest --output-on-failure
 
 ```
 pp-ledger/
-├── lib/              # Core library (Logger, Module, ResultOrError, TcpClient/Server)
+├── lib/              # Core library (Logger, Module, ResultOrError)
 ├── consensus/        # Ouroboros consensus implementation
 ├── ledger/           # Blockchain, Ledger, Wallet
 ├── server/           # Server implementation
 ├── client/           # Client library
-├── network/          # Network library (FetchClient/Server)
+├── network/          # Network library (FetchClient/Server, TcpClient/Server)
 ├── interface/        # Block interfaces
 ├── app/              # Client and server applications
 └── docs/             # Documentation

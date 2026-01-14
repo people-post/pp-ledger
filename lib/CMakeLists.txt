@@ -7,10 +7,6 @@ add_library(ppledger_lib STATIC
     Module.cpp
     Module.h
     ResultOrError.hpp
-    TcpClient.cpp
-    TcpClient.h
-    TcpServer.cpp
-    TcpServer.h
 )
 
 target_include_directories(ppledger_lib PUBLIC

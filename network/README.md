@@ -94,7 +94,8 @@ server.stop();
 
 ## Dependencies
 
-- **ppledger_lib**: Core library (TcpClient, TcpServer, Module, Logger, ResultOrError)
+- **ppledger_lib**: Core library (Module, Logger, ResultOrError)
+- **TcpClient/TcpServer**: TCP socket utilities (included in this module)
 
 ## Building
 
