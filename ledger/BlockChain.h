@@ -21,31 +21,31 @@ public:
     ~BlockChain() = default;
     
     // Blockchain operations
-    std::shared_ptr<IBlock> getLatestBlock() const;
+    std::shared_ptr<Block> getLatestBlock() const;
     size_t getSize() const;
     
     // Additional blockchain operations
-    bool addBlock(std::shared_ptr<IBlock> block);
-    std::shared_ptr<IBlock> getBlock(uint64_t index) const;
+    bool addBlock(std::shared_ptr<Block> block);
+    std::shared_ptr<Block> getBlock(uint64_t index) const;
     bool isValid() const;
     std::string getLastBlockHash() const;
     
     /**
-     * Trim blocks from the chain
-     * Removes blocks whose indices are in the provided set
-     * @param blockIndices Set of block indices to remove
+     * Trim blocks from the head of the chain
+     * Removes the first n blocks from the beginning of the chain
+     * @param count Number of blocks to trim from the head
      * @return Number of blocks removed
      */
-    size_t trimBlocks(const std::vector<uint64_t>& blockIndices);
+    size_t trimBlocks(size_t count);
     
 private:
     void createGenesisBlock();
     
     // Internal helper methods
-    bool validateBlock(const IBlock& block) const;
-    std::vector<std::shared_ptr<IBlock>> getBlocks(uint64_t fromIndex, uint64_t toIndex) const;
+    bool validateBlock(const Block& block) const;
+    std::vector<std::shared_ptr<Block>> getBlocks(uint64_t fromIndex, uint64_t toIndex) const;
     
-    std::vector<std::shared_ptr<IBlock>> chain_;
+    std::vector<std::shared_ptr<Block>> chain_;
 };
 
 } // namespace pp

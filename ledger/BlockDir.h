@@ -87,11 +87,6 @@ public:
     Roe<void> moveFrontFileTo(BlockDir& targetDir);
     
     /**
-     * Flush all data and index to disk
-     */
-    void flush();
-    
-    /**
      * Get total storage size used by all block files (in bytes)
      */
     size_t getTotalStorageSize() const;
@@ -99,16 +94,18 @@ public:
     // Blockchain management (only available if manageBlockchain is true)
     /**
      * Add a block to the blockchain
-     * @param block Block to add
+     * The block index will be automatically set to the next sequential index
+     * (current blockchain size).
+     * @param block Block to add (index will be set automatically)
      * @return true on success, false on error
      */
-    bool addBlock(std::shared_ptr<IBlock> block);
+    bool addBlock(std::shared_ptr<Block> block);
     
     /**
      * Get the latest block from the blockchain
      * @return Latest block or nullptr if chain is empty
      */
-    std::shared_ptr<IBlock> getLatestBlock() const;
+    std::shared_ptr<Block> getLatestBlock() const;
     
     /**
      * Get the size of the blockchain
@@ -121,7 +118,7 @@ public:
      * @param index Block index
      * @return Block or nullptr if not found
      */
-    std::shared_ptr<IBlock> getBlock(uint64_t index) const;
+    std::shared_ptr<Block> getBlock(uint64_t index) const;
     
     /**
      * Check if the blockchain is valid
@@ -134,13 +131,6 @@ public:
      * @return Hash of the last block, or "0" if empty
      */
     std::string getLastBlockHash() const;
-    
-    /**
-     * Trim blocks from the blockchain
-     * @param blockIndices Block indices to remove
-     * @return Number of blocks removed
-     */
-    size_t trimBlocks(const std::vector<uint64_t>& blockIndices);
 
 private:
     std::string dirPath_;
@@ -230,6 +220,18 @@ private:
      * @return true on success, false on error
      */
     bool saveIndex();
+    
+    /**
+     * Flush all data and index to disk
+     */
+    void flush();
+    
+    /**
+     * Trim blocks from the head of the blockchain
+     * @param count Number of blocks to trim from the head
+     * @return Number of blocks removed
+     */
+    size_t trimBlocks(size_t count);
 };
 
 } // namespace pp

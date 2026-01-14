@@ -84,13 +84,13 @@ Ledger::Roe<void> Ledger::commitTransactions() {
         }
         
         auto block = std::make_shared<Block>();
-        block->setIndex(activeBlockDir_->getBlockchainSize());
+        // Block index will be set automatically by BlockDir::addBlock()
         block->setData(packedData);
         block->setPreviousHash(activeBlockDir_->getLastBlockHash());
         block->setHash(block->calculateHash());
         
         // Add block to blockchain (managed by activeBlockDir_)
-        // This will also automatically write the block to storage
+        // This will automatically set the index and write the block to storage
         if (!activeBlockDir_->addBlock(block)) {
             return Ledger::Error(4, "Failed to add block to blockchain");
         }
@@ -111,6 +111,8 @@ std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
     if (!activeBlockDir_) {
         return nullptr;
     }
+    // BlockDir returns Block, but IBlockChain interface expects IBlock
+    // Block implements IBlock, so we can return it directly
     return activeBlockDir_->getLatestBlock();
 }
 
@@ -191,10 +193,6 @@ void Ledger::transferBlocksToArchive() {
             logging::getLogger("ledger").error << "Failed to move front file to archive";
             break;
         }
-        
-        // Flush to persist changes
-        activeBlockDir_->flush();
-        archiveBlockDir_->flush();
     }
 }
 

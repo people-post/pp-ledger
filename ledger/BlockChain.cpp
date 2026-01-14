@@ -3,7 +3,6 @@
 
 #include <stdexcept>
 #include <algorithm>
-#include <unordered_set>
 #include <openssl/evp.h>
 
 namespace pp {
@@ -24,7 +23,7 @@ void BlockChain::createGenesisBlock() {
 }
 
 // Blockchain operations
-bool BlockChain::addBlock(std::shared_ptr<IBlock> block) {
+bool BlockChain::addBlock(std::shared_ptr<Block> block) {
     if (!block) {
         return false;
     }
@@ -33,14 +32,14 @@ bool BlockChain::addBlock(std::shared_ptr<IBlock> block) {
     return true;
 }
 
-std::shared_ptr<IBlock> BlockChain::getLatestBlock() const {
+std::shared_ptr<Block> BlockChain::getLatestBlock() const {
     if (chain_.empty()) {
         return nullptr;
     }
     return chain_.back();
 }
 
-std::shared_ptr<IBlock> BlockChain::getBlock(uint64_t index) const {
+std::shared_ptr<Block> BlockChain::getBlock(uint64_t index) const {
     if (index >= chain_.size()) {
         return nullptr;
     }
@@ -77,7 +76,7 @@ bool BlockChain::isValid() const {
     return true;
 }
 
-bool BlockChain::validateBlock(const IBlock& block) const {
+bool BlockChain::validateBlock(const Block& block) const {
     // Verify block's hash
     if (block.getHash() != block.calculateHash()) {
         return false;
@@ -86,8 +85,8 @@ bool BlockChain::validateBlock(const IBlock& block) const {
     return true;
 }
 
-std::vector<std::shared_ptr<IBlock>> BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
-    std::vector<std::shared_ptr<IBlock>> result;
+std::vector<std::shared_ptr<Block>> BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
+    std::vector<std::shared_ptr<Block>> result;
     
     if (fromIndex > toIndex || fromIndex >= chain_.size()) {
         return result;
@@ -108,26 +107,16 @@ std::string BlockChain::getLastBlockHash() const {
     return chain_.back()->getHash();
 }
 
-size_t BlockChain::trimBlocks(const std::vector<uint64_t>& blockIndices) {
-    if (blockIndices.empty() || chain_.empty()) {
+size_t BlockChain::trimBlocks(size_t count) {
+    if (count == 0 || chain_.empty()) {
         return 0; // Nothing to trim or empty chain
     }
     
-    // Create a set for fast lookup
-    std::unordered_set<uint64_t> indicesToRemove(blockIndices.begin(), blockIndices.end());
+    // Trim from the head (beginning) of the chain
+    size_t toRemove = std::min(count, chain_.size());
+    chain_.erase(chain_.begin(), chain_.begin() + toRemove);
     
-    size_t removed = 0;
-    // Remove blocks whose indices are in the set
-    // Iterate backwards to avoid index shifting issues
-    for (int64_t i = static_cast<int64_t>(chain_.size()) - 1; i >= 0; i--) {
-        uint64_t blockIndex = chain_[i]->getIndex();
-        if (indicesToRemove.find(blockIndex) != indicesToRemove.end()) {
-            chain_.erase(chain_.begin() + i);
-            removed++;
-        }
-    }
-    
-    return removed;
+    return toRemove;
 }
 
 } // namespace pp

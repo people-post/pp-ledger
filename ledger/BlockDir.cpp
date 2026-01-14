@@ -350,13 +350,7 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
     
     // Automatically trim blocks from blockchain if this BlockDir manages a blockchain
     if (managesBlockchain_ && ukpBlockchain_) {
-        std::vector<uint64_t> blockIds;
-        blockIds.reserve(blocksToMove.size());
-        for (const auto& [blockId, _] : blocksToMove) {
-            blockIds.push_back(blockId);
-        }
-        
-        size_t removed = trimBlocks(blockIds);
+        size_t removed = trimBlocks(blocksToMove.size());
         if (removed > 0) {
             log().info << "Automatically trimmed " << removed << " blocks from blockchain after moving to archive";
         }
@@ -377,10 +371,15 @@ size_t BlockDir::getTotalStorageSize() const {
 }
 
 // Blockchain management methods
-bool BlockDir::addBlock(std::shared_ptr<IBlock> block) {
+bool BlockDir::addBlock(std::shared_ptr<Block> block) {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return false;
     }
+    
+    // Assume block index is always increment of 1 from last block
+    // Set the block index to the current blockchain size (which will be the next index)
+    uint64_t nextIndex = ukpBlockchain_->getSize();
+    block->setIndex(nextIndex);
     
     // Add block to in-memory blockchain
     if (!ukpBlockchain_->addBlock(block)) {
@@ -398,10 +397,13 @@ bool BlockDir::addBlock(std::shared_ptr<IBlock> block) {
         return false;
     }
     
+    // Automatically flush after adding block
+    flush();
+    
     return true;
 }
 
-std::shared_ptr<IBlock> BlockDir::getLatestBlock() const {
+std::shared_ptr<Block> BlockDir::getLatestBlock() const {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return nullptr;
     }
@@ -415,7 +417,7 @@ size_t BlockDir::getBlockchainSize() const {
     return ukpBlockchain_->getSize();
 }
 
-std::shared_ptr<IBlock> BlockDir::getBlock(uint64_t index) const {
+std::shared_ptr<Block> BlockDir::getBlock(uint64_t index) const {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return nullptr;
     }
@@ -436,11 +438,11 @@ std::string BlockDir::getLastBlockHash() const {
     return ukpBlockchain_->getLastBlockHash();
 }
 
-size_t BlockDir::trimBlocks(const std::vector<uint64_t>& blockIndices) {
+size_t BlockDir::trimBlocks(size_t count) {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return 0;
     }
-    return ukpBlockchain_->trimBlocks(blockIndices);
+    return ukpBlockchain_->trimBlocks(count);
 }
 
 } // namespace pp
