@@ -3,7 +3,6 @@
 #include "Block.h"
 #include "BlockDir.h"
 #include "Module.h"
-#include "../interface/BlockChain.hpp"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -11,11 +10,8 @@
 
 namespace pp {
 
-// Using declaration for interface type
-using IBlockChain = iii::BlockChain;
-
 /**
- * Concrete implementation of BlockChain interface
+ * Concrete implementation of BlockChain data structure
  * 
  * Manages blocks across two BlockDirs:
  * - Active BlockDir: Recently added blocks (hot storage)
@@ -25,7 +21,7 @@ using IBlockChain = iii::BlockChain;
  * - Storage usage threshold (maxActiveDirSize)
  * - One complete file is moved as the basic unit
  */
-class BlockChain : public Module, public IBlockChain {
+class BlockChain : public Module {
 public:
     /**
      * Configuration for BlockChain storage
@@ -46,9 +42,9 @@ public:
     BlockChain();
     ~BlockChain() = default;
     
-    // IBlockChain interface implementation (consensus methods)
-    std::shared_ptr<IBlock> getLatestBlock() const override;
-    size_t getSize() const override;
+    // Blockchain operations
+    std::shared_ptr<IBlock> getLatestBlock() const;
+    size_t getSize() const;
     
     // Additional blockchain operations
     bool addBlock(std::shared_ptr<IBlock> block);

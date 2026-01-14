@@ -162,6 +162,17 @@ Ledger::Roe<void> Ledger::commitTransactions() {
     }
 }
 
+// IBlockChain interface implementation
+std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return ukpBlockchain_->getLatestBlock();
+}
+
+size_t Ledger::getSize() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return ukpBlockchain_->getSize();
+}
+
 const BlockChain& Ledger::getBlockChain() const {
     return *ukpBlockchain_;
 }

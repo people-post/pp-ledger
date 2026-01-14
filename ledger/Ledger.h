@@ -4,6 +4,7 @@
 #include "BlockChain.h"
 #include "Wallet.h"
 #include "ResultOrError.hpp"
+#include "../interface/BlockChain.hpp"
 
 #include <map>
 #include <memory>
@@ -13,7 +14,10 @@
 
 namespace pp {
 
-class Ledger : public Module {
+// Using declaration for interface type
+using IBlockChain = iii::BlockChain;
+
+class Ledger : public Module, public IBlockChain {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
@@ -44,6 +48,10 @@ public:
     
     // Block operations
     Roe<void> commitTransactions();
+    
+    // IBlockChain interface implementation
+    std::shared_ptr<iii::Block> getLatestBlock() const override;
+    size_t getSize() const override;
     
     // BlockChain access
     const BlockChain& getBlockChain() const;

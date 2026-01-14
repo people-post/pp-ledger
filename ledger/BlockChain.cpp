@@ -72,7 +72,7 @@ void BlockChain::transferBlocksToArchive() {
     }
 }
 
-// IBlockChain interface implementation
+// Blockchain operations
 bool BlockChain::addBlock(std::shared_ptr<IBlock> block) {
     if (!block) {
         return false;
