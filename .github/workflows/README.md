@@ -11,7 +11,7 @@ This directory contains automated workflows for building and testing the pp-ledg
 - **Triggers:** Push to main, pull requests, manual dispatch
 - **Purpose:** Build and test the pp-ledger project
 - **Features:**
-  - Installs system dependencies (Boost, OpenSSL, fmt, nlohmann-json)
+  - Installs system dependencies (OpenSSL, nlohmann-json)
   - Builds all components including network library
   - Runs all tests
 
@@ -39,10 +39,7 @@ The workflow installs the following system packages:
 - build-essential (GCC, make, etc.)
 - cmake
 - libssl-dev
-- libboost-all-dev
-- libfmt-dev
 - nlohmann-json3-dev
-- python3
 
 ## Troubleshooting
 

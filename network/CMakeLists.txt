@@ -29,8 +29,6 @@ target_include_directories(network
 target_link_libraries(network
     PUBLIC
         ppledger_lib
-        Boost::system
-        Boost::thread
 )
 
 # Set properties

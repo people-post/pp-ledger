@@ -21,10 +21,7 @@ sudo apt-get install -y \
   build-essential \
   cmake \
   libssl-dev \
-  libboost-all-dev \
-  libfmt-dev \
-  nlohmann-json3-dev \
-  python3
+  nlohmann-json3-dev
 ```
 
 ### Build
@@ -108,10 +105,8 @@ See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for details.
 
 - **C++20 compiler** (GCC 10+, Clang 12+)
 - **CMake 3.15+**
-- **Boost 1.70+** (system, thread, random, filesystem)
-- **OpenSSL 3.0+**
-- **libfmt**
-- **nlohmann/json**
+- **OpenSSL** (for cryptographic hashing)
+- **nlohmann/json** (for JSON serialization)
 
 ## Contributing
 
@@ -132,5 +127,5 @@ See [LICENSE](LICENSE) file for details.
 - **Language:** C++20
 - **Build System:** CMake 3.15+
 - **Testing:** Google Test
-- **Dependencies:** Boost 1.70+, OpenSSL 3.0+, fmt, nlohmann/json
+- **Dependencies:** OpenSSL, nlohmann/json
 - **CI/CD:** GitHub Actions

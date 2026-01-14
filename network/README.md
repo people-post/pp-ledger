@@ -94,7 +94,6 @@ server.stop();
 
 ## Dependencies
 
-- **Boost**: System and thread libraries
 - **ppledger_lib**: Core library (TcpClient, TcpServer, Module, Logger, ResultOrError)
 
 ## Building

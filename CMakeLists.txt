@@ -2,13 +2,6 @@ cmake_minimum_required(VERSION 3.15)
 
 project(pp-ledger VERSION 1.0.0 LANGUAGES CXX)
 
-# Find system Boost
-find_package(Boost REQUIRED COMPONENTS system thread random filesystem)
-
-# Find fmt (prefer /usr/local for v10)
-set(CMAKE_PREFIX_PATH "/usr/local;${CMAKE_PREFIX_PATH}")
-find_package(fmt REQUIRED)
-
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

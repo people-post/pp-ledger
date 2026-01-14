@@ -187,7 +187,7 @@ make -j$(nproc)
 ### Required
 - C++20 compiler
 - CMake 3.15+
-- Boost (system, thread, random, filesystem)
+- OpenSSL
 - nlohmann/json (for message serialization)
 
 ## Compatibility

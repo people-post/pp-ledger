@@ -220,7 +220,7 @@ Messages are exchanged in JSON format:
 
 - C++20 compiler
 - CMake 3.15+
-- Boost (system, thread)
+- OpenSSL
 - nlohmann/json
 
 ### Build Commands

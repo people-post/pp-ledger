@@ -22,10 +22,7 @@ The workflow installs:
 - **build-essential**: GCC, make, and other build tools
 - **cmake**: Build system generator
 - **libssl-dev**: OpenSSL development libraries
-- **libboost-all-dev**: Boost libraries
-- **libfmt-dev**: fmt formatting library
 - **nlohmann-json3-dev**: JSON library for C++
-- **python3**: Python interpreter (for build scripts)
 
 ## Running Locally
 
@@ -38,8 +35,6 @@ sudo apt-get install -y \
     build-essential \
     cmake \
     libssl-dev \
-    libboost-all-dev \
-    libfmt-dev \
     nlohmann-json3-dev
 
 # Configure and build
