@@ -12,7 +12,6 @@ BlockDir::BlockDir()
     : Module("blockdir")
     , maxFileSize_(0)
     , currentFileId_(0)
-    , blockMoveCallback_(nullptr)
     , managesBlockchain_(false) {
 }
 
@@ -123,57 +122,6 @@ BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void* data, siz
     saveIndex();
     
     return {};
-}
-
-BlockDir::Roe<int64_t> BlockDir::readBlock(uint64_t blockId, void* data, size_t maxSize) {
-    // Get block location from index
-    BlockLocation location;
-    if (!getBlockLocation(blockId, location)) {
-        log().error << "Block " << blockId << " not found in index";
-        return Error("Block not found in index");
-    }
-    
-    // Check buffer size
-    if (maxSize < location.size) {
-        log().error << "Buffer too small for block " << blockId 
-                    << " (need " << location.size << ", have " << maxSize << ")";
-        return Error("Buffer too small for block");
-    }
-    
-    // Get the block file
-    BlockFile* blockFile = getBlockFile(location.fileId);
-    if (!blockFile) {
-        log().error << "Block file " << location.fileId << " not found";
-        return Error("Block file not found");
-    }
-    
-    // Read data from the file
-    auto result = blockFile->read(location.offset, data, location.size);
-    if (!result.isOk()) {
-        log().error << "Failed to read block " << blockId << ": " << result.error().message;
-        return Error("Failed to read block: " + result.error().message);
-    }
-    
-    int64_t bytesRead = result.value();
-    if (bytesRead != static_cast<int64_t>(location.size)) {
-        log().error << "Failed to read block " << blockId << " (read " 
-                    << bytesRead << " bytes, expected " << location.size << ")";
-        return Error("Incomplete block read");
-    }
-    
-    log().debug << "Read block " << blockId << " from file " << location.fileId 
-                << " at offset " << location.offset << " (size: " << location.size << " bytes)";
-    
-    return bytesRead;
-}
-
-bool BlockDir::getBlockLocation(uint64_t blockId, BlockLocation& location) const {
-    auto it = blockIndex_.find(blockId);
-    if (it == blockIndex_.end()) {
-        return false;
-    }
-    location = it->second;
-    return true;
 }
 
 bool BlockDir::hasBlock(uint64_t blockId) const {
@@ -313,6 +261,13 @@ bool BlockDir::saveIndex() {
     return true;
 }
 
+uint32_t BlockDir::getFrontFileId() const {
+    if (fileIdOrder_.empty()) {
+        return 0;
+    }
+    return fileIdOrder_.front();
+}
+
 std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
     if (fileIdOrder_.empty()) {
         log().warning << "No files to pop from BlockDir";
@@ -346,17 +301,6 @@ std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
     
     log().info << "Popped front file " << frontFileId << " with " << blocksToRemove.size() << " blocks";
     return poppedFile;
-}
-
-uint32_t BlockDir::getFrontFileId() const {
-    if (fileIdOrder_.empty()) {
-        return 0;
-    }
-    return fileIdOrder_.front();
-}
-
-void BlockDir::setBlockMoveCallback(BlockMoveCallback callback) {
-    blockMoveCallback_ = callback;
 }
 
 BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
@@ -404,16 +348,18 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir& targetDir) {
         targetDir.fileIdOrder_.push_back(frontFileId);
     }
     
-    // Collect block IDs for callback
-    std::vector<uint64_t> blockIds;
-    blockIds.reserve(blocksToMove.size());
-    for (const auto& [blockId, _] : blocksToMove) {
-        blockIds.push_back(blockId);
-    }
-    
-    // Notify callback if set (for trimming blockchain)
-    if (blockMoveCallback_) {
-        blockMoveCallback_(blockIds);
+    // Automatically trim blocks from blockchain if this BlockDir manages a blockchain
+    if (managesBlockchain_ && ukpBlockchain_) {
+        std::vector<uint64_t> blockIds;
+        blockIds.reserve(blocksToMove.size());
+        for (const auto& [blockId, _] : blocksToMove) {
+            blockIds.push_back(blockId);
+        }
+        
+        size_t removed = trimBlocks(blockIds);
+        if (removed > 0) {
+            log().info << "Automatically trimmed " << removed << " blocks from blockchain after moving to archive";
+        }
     }
     
     log().info << "Moved front file " << frontFileId << " with " << blocksToMove.size() << " blocks to target directory";
@@ -435,7 +381,24 @@ bool BlockDir::addBlock(std::shared_ptr<IBlock> block) {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return false;
     }
-    return ukpBlockchain_->addBlock(block);
+    
+    // Add block to in-memory blockchain
+    if (!ukpBlockchain_->addBlock(block)) {
+        return false;
+    }
+    
+    // Automatically write block to storage
+    // Using block index as the block ID for storage
+    std::string blockData = block->getData();
+    auto writeResult = writeBlock(block->getIndex(), blockData.data(), blockData.size());
+    if (!writeResult.isOk()) {
+        log().error << "Failed to write block " << block->getIndex() << " to storage: " << writeResult.error().message;
+        // Note: We don't rollback the blockchain addition, as the block is already in memory
+        // In a production system, you might want to handle this differently
+        return false;
+    }
+    
+    return true;
 }
 
 std::shared_ptr<IBlock> BlockDir::getLatestBlock() const {

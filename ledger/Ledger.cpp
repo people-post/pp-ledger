@@ -90,12 +90,13 @@ Ledger::Roe<void> Ledger::commitTransactions() {
         block->setHash(block->calculateHash());
         
         // Add block to blockchain (managed by activeBlockDir_)
+        // This will also automatically write the block to storage
         if (!activeBlockDir_->addBlock(block)) {
             return Ledger::Error(4, "Failed to add block to blockchain");
         }
         
-        // Write block to storage
-        writeBlockToStorage(block);
+        // Check if we should transfer blocks to archive
+        transferBlocksToArchive();
         
         pendingTransactions_.clear();
         return {};
@@ -163,17 +164,6 @@ Ledger::Roe<void> Ledger::initStorage(const StorageConfig& config) {
             return Ledger::Error(1, "Failed to initialize active BlockDir");
         }
         
-        // Set callback to trim blockchain when blocks are moved to archive
-        activeBlockDir_->setBlockMoveCallback([this](const std::vector<uint64_t>& blockIds) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (activeBlockDir_) {
-                size_t removed = activeBlockDir_->trimBlocks(blockIds);
-                if (removed > 0) {
-                    logging::getLogger("ledger").info << "Trimmed " << removed << " blocks from blockchain after moving to archive";
-                }
-            }
-        });
-        
         // Initialize archive BlockDir
         archiveBlockDir_ = std::make_unique<BlockDir>();
         BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
@@ -206,24 +196,6 @@ void Ledger::transferBlocksToArchive() {
         activeBlockDir_->flush();
         archiveBlockDir_->flush();
     }
-}
-
-void Ledger::writeBlockToStorage(std::shared_ptr<IBlock> block) {
-    if (!block || !activeBlockDir_) {
-        return; // Storage not initialized
-    }
-    
-    // Serialize block and write to active directory
-    // Using block index as the block ID for storage
-    std::string blockData = block->getData();
-    activeBlockDir_->writeBlock(
-        block->getIndex(),
-        blockData.data(),
-        blockData.size()
-    );
-    
-    // Check if we should transfer blocks to archive
-    transferBlocksToArchive();
 }
 
 } // namespace pp

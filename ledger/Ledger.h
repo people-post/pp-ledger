@@ -101,10 +101,6 @@ private:
      */
     void transferBlocksToArchive();
     
-    /**
-     * Write block to active storage
-     */
-    void writeBlockToStorage(std::shared_ptr<IBlock> block);
     std::string packTransactions() const;
     std::string formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount);
     

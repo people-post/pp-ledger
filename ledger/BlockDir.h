@@ -80,63 +80,6 @@ public:
     Roe<void> init(const Config& config, bool manageBlockchain = false);
     
     /**
-     * Write a block to storage
-     * @param blockId Unique identifier for the block
-     * @param data Block data to write
-     * @param size Size of the data in bytes
-     * @return Roe<void> on success or error
-     */
-    Roe<void> writeBlock(uint64_t blockId, const void* data, size_t size);
-    
-    /**
-     * Read a block from storage
-     * @param blockId Unique identifier for the block
-     * @param data Buffer to read data into (must be pre-allocated)
-     * @param maxSize Maximum size of the buffer
-     * @return Roe<int64_t> with number of bytes read, or error
-     */
-    Roe<int64_t> readBlock(uint64_t blockId, void* data, size_t maxSize);
-    
-    /**
-     * Get the location information for a block
-     * @param blockId Unique identifier for the block
-     * @param location Output parameter for block location
-     * @return true if block exists, false otherwise
-     */
-    bool getBlockLocation(uint64_t blockId, BlockLocation& location) const;
-    
-    /**
-     * Check if a block exists in storage
-     * @param blockId Unique identifier for the block
-     * @return true if block exists, false otherwise
-     */
-    bool hasBlock(uint64_t blockId) const;
-    
-    /**
-     * Remove and return the front (oldest) block file
-     * @return Unique pointer to the BlockFile, or nullptr if no files exist
-     */
-    std::unique_ptr<BlockFile> popFrontFile();
-    
-    /**
-     * Get the ID of the front (oldest) file
-     * @return File ID of the oldest file, or 0 if no files exist
-     */
-    uint32_t getFrontFileId() const;
-    
-    /**
-     * Callback function type for when blocks are moved to archive
-     * Called with the list of block IDs that were moved
-     */
-    using BlockMoveCallback = std::function<void(const std::vector<uint64_t>& blockIds)>;
-    
-    /**
-     * Set callback to be called when blocks are moved to archive
-     * @param callback Function to call with moved block IDs
-     */
-    void setBlockMoveCallback(BlockMoveCallback callback);
-    
-    /**
      * Move front file to another BlockDir and append its blocks to that directory's index
      * @param targetDir Target BlockDir to move the front file to
      * @return Roe<void> on success or error
@@ -149,29 +92,9 @@ public:
     void flush();
     
     /**
-     * Get the directory path
-     */
-    const std::string& getDirPath() const { return dirPath_; }
-    
-    /**
-     * Get number of block files
-     */
-    size_t getFileCount() const { return ukpBlockFiles_.size(); }
-    
-    /**
-     * Get total number of blocks stored
-     */
-    size_t getBlockCount() const { return blockIndex_.size(); }
-    
-    /**
      * Get total storage size used by all block files (in bytes)
      */
     size_t getTotalStorageSize() const;
-    
-    /**
-     * Get max file size configured for this directory
-     */
-    size_t getMaxFileSize() const { return maxFileSize_; }
     
     // Blockchain management (only available if manageBlockchain is true)
     /**
@@ -236,12 +159,37 @@ private:
     // Path to the index file
     std::string indexFilePath_;
     
-    // Callback to notify when blocks are moved
-    BlockMoveCallback blockMoveCallback_;
-    
     // Blockchain instance (only used if manageBlockchain is true)
     std::unique_ptr<BlockChain> ukpBlockchain_;
     bool managesBlockchain_;
+    
+    /**
+     * Write a block to storage
+     * @param blockId Unique identifier for the block
+     * @param data Block data to write
+     * @param size Size of the data in bytes
+     * @return Roe<void> on success or error
+     */
+    Roe<void> writeBlock(uint64_t blockId, const void* data, size_t size);
+    
+    /**
+     * Check if a block exists in storage
+     * @param blockId Unique identifier for the block
+     * @return true if block exists, false otherwise
+     */
+    bool hasBlock(uint64_t blockId) const;
+    
+    /**
+     * Get the ID of the front (oldest) file
+     * @return File ID of the oldest file, or 0 if no files exist
+     */
+    uint32_t getFrontFileId() const;
+    
+    /**
+     * Remove and return the front (oldest) block file
+     * @return Unique pointer to the BlockFile, or nullptr if no files exist
+     */
+    std::unique_ptr<BlockFile> popFrontFile();
     
     /**
      * Create a new block file
