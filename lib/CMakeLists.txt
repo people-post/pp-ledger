@@ -7,6 +7,8 @@ add_library(ppledger_lib STATIC
     Module.cpp
     Module.h
     ResultOrError.hpp
+    Serializer.cpp
+    Serializer.h
 )
 
 target_include_directories(ppledger_lib PUBLIC

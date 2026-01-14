@@ -41,3 +41,15 @@ target_link_libraries(test_module PRIVATE
 )
 
 gtest_discover_tests(test_module)
+
+# Test for Serializer
+add_executable(test_serializer
+    test_serializer.cpp
+)
+
+target_link_libraries(test_serializer PRIVATE
+    ppledger_lib
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_serializer)
