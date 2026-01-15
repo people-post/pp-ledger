@@ -127,6 +127,13 @@ bool Ledger::isValid() const {
     return activeBlockDir_->isBlockchainValid();
 }
 
+std::shared_ptr<iii::Block> Ledger::getBlock(uint64_t index) const {
+    if (!activeBlockDir_) {
+        return nullptr;
+    }
+    return activeBlockDir_->getBlock(index);
+}
+
 // Storage management
 Ledger::Roe<void> Ledger::initStorage(const StorageConfig& config) {
     try {

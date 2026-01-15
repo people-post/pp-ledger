@@ -32,15 +32,24 @@ int main(int argc, char* argv[]) {
     logger.info << "Connecting to " << host << ":" << port;
     
     pp::Client client;
-    if (client.connect(host, port)) {
+    if (client.init(host, port)) {
         logger.info << "Connected successfully";
+        
+        // Example: Query wallet info
+        auto walletResult = client.getWalletInfo("test_wallet");
+        if (walletResult) {
+            logger.info << "Wallet balance: " << walletResult.value().balance;
+        } else {
+            logger.warning << "Failed to get wallet info: " << walletResult.error().message;
+        }
+        
         std::cout << "Press Enter to disconnect...\n";
         std::cin.get();
         client.disconnect();
         logger.info << "Disconnected";
         return 0;
     } else {
-        logger.error << "Failed to connect";
+        logger.error << "Failed to initialize client";
         return 1;
     }
 }

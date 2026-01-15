@@ -6,6 +6,7 @@
 #include "../consensus/Ouroboros.h"
 #include "../interface/Block.hpp"
 #include "../ledger/BlockChain.h"
+#include "../client/Client.h"
 #include "ResultOrError.hpp"
 #include <string>
 #include <memory>
@@ -98,6 +99,7 @@ private:
     void initializeP2PNetwork(const NetworkConfig& config);
     void shutdownP2PNetwork();
     std::string handleIncomingRequest(const std::string& request);
+    std::string handleClientRequest(const Client::Request& request);
     void broadcastBlock(std::shared_ptr<iii::Block> block);
     void requestBlocksFromPeers(uint64_t fromIndex);
     Roe<std::vector<std::shared_ptr<iii::Block>>> fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex);

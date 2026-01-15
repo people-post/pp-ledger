@@ -4,6 +4,7 @@
 #include "FetchServer.h"
 #include "BinaryPack.h"
 #include "../ledger/Block.h"
+#include "../client/Client.h"
 #include <chrono>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -476,8 +477,17 @@ void Server::shutdownP2PNetwork() {
 
 std::string Server::handleIncomingRequest(const std::string& request) {
     auto& logger = logging::getLogger("server");
-    logger.debug << "Received network request: " << request;
+    logger.debug << "Received network request (" << request.size() << " bytes)";
     
+    // First, try to parse as binary Client protocol
+    try {
+        Client::Request clientReq = utl::binaryUnpack<Client::Request>(request);
+        return handleClientRequest(clientReq);
+    } catch (...) {
+        // Not a binary request, try JSON (for backward compatibility with P2P)
+    }
+    
+    // Try JSON format (P2P protocol)
     try {
         auto jsonRequest = nlohmann::json::parse(request);
         std::string requestType = jsonRequest["type"];
@@ -512,6 +522,125 @@ std::string Server::handleIncomingRequest(const std::string& request) {
     }
     
     return R"({"error":"unknown request type"})"; 
+}
+
+std::string Server::handleClientRequest(const Client::Request& request) {
+    auto& logger = logging::getLogger("server");
+    
+    Client::Response response;
+    response.version = Client::VERSION;
+    response.errorCode = 0;
+    response.type = request.type;
+    
+    // Check version
+    if (request.version != Client::VERSION) {
+        logger.warning << "Version mismatch: client=" << request.version << ", server=" << Client::VERSION;
+        response.errorCode = Client::E_VERSION;
+        return utl::binaryPack(response);
+    }
+    
+    try {
+        switch (request.type) {
+            case Client::T_REQ_INFO: {
+                logger.debug << "Handling T_REQ_INFO";
+                // Return server info (can be extended)
+                nlohmann::json info;
+                info["block_count"] = ukpLedger_->getBlockCount();
+                info["current_slot"] = ukpConsensus_->getCurrentSlot();
+                info["current_epoch"] = ukpConsensus_->getCurrentEpoch();
+                info["pending_transactions"] = getPendingTransactionCount();
+                response.data = info.dump();
+                break;
+            }
+            
+            case Client::T_REQ_QUERY_WALLET: {
+                logger.debug << "Handling T_REQ_QUERY_WALLET";
+                Client::ReqWalletInfo reqData = utl::binaryUnpack<Client::ReqWalletInfo>(request.data);
+                
+                auto balanceResult = ukpLedger_->getBalance(reqData.walletId);
+                if (!balanceResult) {
+                    response.errorCode = Client::E_INVALID_WALLET;
+                    break;
+                }
+                
+                Client::RespWalletInfo respData;
+                respData.walletId = reqData.walletId;
+                respData.balance = balanceResult.value();
+                response.data = utl::binaryPack(respData);
+                break;
+            }
+            
+            case Client::T_REQ_ADD_TRANSACTION: {
+                logger.debug << "Handling T_REQ_ADD_TRANSACTION";
+                Client::ReqAddTransaction reqData = utl::binaryUnpack<Client::ReqAddTransaction>(request.data);
+                
+                // Submit transaction to the server
+                submitTransaction(reqData.transaction);
+                
+                Client::RespAddTransaction respData;
+                respData.transaction = reqData.transaction;
+                response.data = utl::binaryPack(respData);
+                break;
+            }
+            
+            case Client::T_REQ_BEACON_VALIDATORS:
+            case Client::T_REQ_PEER_VALIDATORS: {
+                logger.debug << "Handling T_REQ_VALIDATORS";
+                
+                // Get registered stakeholders/validators from consensus
+                Client::RespValidators respData;
+                
+                // Serialize validator info as JSON for flexibility
+                nlohmann::json validatorsJson = nlohmann::json::array();
+                // In full implementation: iterate through registered stakeholders
+                // For now, return empty list
+                respData.validators = validatorsJson.dump();
+                response.data = utl::binaryPack(respData);
+                break;
+            }
+            
+            case Client::T_REQ_BLOCKS: {
+                logger.debug << "Handling T_REQ_BLOCKS";
+                Client::ReqBlocks reqData = utl::binaryUnpack<Client::ReqBlocks>(request.data);
+                
+                Client::RespBlocks respData;
+                size_t totalBlocks = ukpLedger_->getBlockCount();
+                
+                for (uint64_t i = reqData.fromIndex; 
+                     i < std::min(reqData.fromIndex + reqData.count, static_cast<uint64_t>(totalBlocks)); 
+                     ++i) {
+                    // Get block and serialize it
+                    auto block = ukpLedger_->getBlock(i);
+                    if (block) {
+                        // Serialize block to string
+                        nlohmann::json blockJson;
+                        blockJson["index"] = block->getIndex();
+                        blockJson["timestamp"] = block->getTimestamp();
+                        blockJson["data"] = block->getData();
+                        blockJson["hash"] = block->getHash();
+                        blockJson["prev_hash"] = block->getPreviousHash();
+                        blockJson["slot"] = block->getSlot();
+                        blockJson["slot_leader"] = block->getSlotLeader();
+                        respData.blocks.push_back(blockJson.dump());
+                    }
+                }
+                
+                response.data = utl::binaryPack(respData);
+                logger.debug << "Returning " << respData.blocks.size() << " blocks";
+                break;
+            }
+            
+            default:
+                logger.warning << "Unknown request type: " << request.type;
+                response.errorCode = Client::E_INVALID_REQUEST;
+                break;
+        }
+    } catch (const std::exception& e) {
+        logger.error << "Error handling client request: " << e.what();
+        response.errorCode = Client::E_INVALID_DATA;
+    }
+    
+    return utl::binaryPack(response);
 }
 
 void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {

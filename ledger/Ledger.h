@@ -86,6 +86,7 @@ public:
     // BlockChain access
     size_t getBlockCount() const;
     bool isValid() const;
+    std::shared_ptr<iii::Block> getBlock(uint64_t index) const;
     
     /**
      * Initialize storage directories

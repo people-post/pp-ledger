@@ -10,4 +10,5 @@ target_include_directories(ppledger_client PUBLIC
 
 target_link_libraries(ppledger_client PUBLIC
     ppledger_lib
+    network
 )
