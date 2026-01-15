@@ -101,23 +101,43 @@ private:
      */
     void transferBlocksToArchive();
     
-    std::string packTransactions() const;
-    std::string formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount);
-    
     /**
      * Get pending transactions
      */
-    const std::vector<std::string>& getPendingTransactions() const;
+    const std::vector<Transaction>& getPendingTransactions() const;
+    
+    /**
+     * Private struct to hold pending transactions with long-term storage support
+     */
+    struct PendingTransactions {
+        std::vector<Transaction> transactions;
+        
+        // Serialization version for format evolution
+        static constexpr uint32_t CURRENT_VERSION = 1;
+        
+        /**
+         * Serialize to string for long-term storage (LTS)
+         * Format: [version: uint32][data]
+         * @return Serialized binary string representation
+         */
+        std::string ltsToString() const;
+        
+        /**
+         * Deserialize from string for long-term storage (LTS)
+         * Format: [version: uint32][data]
+         * @param str Serialized binary string representation
+         * @return true on success, false on error
+         */
+        bool ltsFromString(const std::string& str);
+    };
     
     std::map<std::string, std::unique_ptr<Wallet>> ukpWallets_;
-    std::vector<std::string> pendingTransactions_;
+    PendingTransactions pendingTransactions_;
     
     // Storage management
     std::unique_ptr<BlockDir> activeBlockDir_;   // Hot storage for recent blocks
     std::unique_ptr<BlockDir> archiveBlockDir_;  // Cold storage for older blocks
     size_t maxActiveDirSize_;                     // Max size of active directory (bytes)
-    
-    mutable std::mutex mutex_;
 };
 
 } // namespace pp

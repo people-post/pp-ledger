@@ -1,5 +1,6 @@
 #include "Ledger.h"
 #include "Block.h"
+#include "../lib/Serializer.h"
 
 #include <iomanip>
 #include <sstream>
@@ -13,13 +14,10 @@ Ledger::Ledger()
 }
 
 bool Ledger::hasWallet(const std::string& walletId) const {
-    std::lock_guard<std::mutex> lock(mutex_);
     return ukpWallets_.find(walletId) != ukpWallets_.end();
 }
 
 Ledger::Roe<int64_t> Ledger::getBalance(const std::string& walletId) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
     auto it = ukpWallets_.find(walletId);
     if (it == ukpWallets_.end()) {
         return Ledger::Error(1, "Wallet not found: " + walletId);
@@ -30,8 +28,6 @@ Ledger::Roe<int64_t> Ledger::getBalance(const std::string& walletId) const {
 
 // Transaction operations
 Ledger::Roe<void> Ledger::addTransaction(const Transaction& transaction) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
     auto fromIt = ukpWallets_.find(transaction.fromWallet);
     if (fromIt == ukpWallets_.end()) {
         return Ledger::Error(1, "Source wallet not found: " + transaction.fromWallet);
@@ -44,7 +40,7 @@ Ledger::Roe<void> Ledger::addTransaction(const Transaction& transaction) {
     
     auto result = fromIt->second->transfer(*toIt->second, transaction.amount);
     if (result.isOk()) {
-        pendingTransactions_.push_back(formatTransaction("TRANSFER", transaction.fromWallet, transaction.toWallet, transaction.amount));
+        pendingTransactions_.transactions.push_back(transaction);
     } else {
         // Convert Wallet::Error to Ledger::Error
         return Ledger::Error(result.error().code, result.error().message);
@@ -54,31 +50,26 @@ Ledger::Roe<void> Ledger::addTransaction(const Transaction& transaction) {
 }
 
 void Ledger::clearPendingTransactions() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pendingTransactions_.clear();
+    pendingTransactions_.transactions.clear();
 }
 
-const std::vector<std::string>& Ledger::getPendingTransactions() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return pendingTransactions_;
+const std::vector<Ledger::Transaction>& Ledger::getPendingTransactions() const {
+    return pendingTransactions_.transactions;
 }
 
 size_t Ledger::getPendingTransactionCount() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return pendingTransactions_.size();
+    return pendingTransactions_.transactions.size();
 }
 
 Ledger::Roe<void> Ledger::commitTransactions() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (pendingTransactions_.empty()) {
+    if (pendingTransactions_.transactions.empty()) {
         return Ledger::Error(1, "No pending transactions to commit");
     }
     
     try {
-        std::string packedData = packTransactions();
+        std::string packedData = pendingTransactions_.ltsToString();
         
-        // Create a new block with the packed transaction data
+        // Create a new block with the serialized transaction data
         if (!activeBlockDir_) {
             return Ledger::Error(3, "Storage not initialized");
         }
@@ -98,7 +89,7 @@ Ledger::Roe<void> Ledger::commitTransactions() {
         // Check if we should transfer blocks to archive
         transferBlocksToArchive();
         
-        pendingTransactions_.clear();
+        pendingTransactions_.transactions.clear();
         return {};
     } catch (const std::exception& e) {
         return Ledger::Error(2, std::string("Failed to commit transactions: ") + e.what());
@@ -107,7 +98,6 @@ Ledger::Roe<void> Ledger::commitTransactions() {
 
 // IBlockChain interface implementation
 std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (!activeBlockDir_) {
         return nullptr;
     }
@@ -117,7 +107,6 @@ std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
 }
 
 size_t Ledger::getSize() const {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (!activeBlockDir_) {
         return 0;
     }
@@ -138,25 +127,8 @@ bool Ledger::isValid() const {
     return activeBlockDir_->isBlockchainValid();
 }
 
-std::string Ledger::packTransactions() const {
-    std::stringstream ss;
-    ss << "[" << pendingTransactions_.size() << " transactions]\n";
-    for (const auto& tx : pendingTransactions_) {
-        ss << tx << "\n";
-    }
-    return ss.str();
-}
-
-std::string Ledger::formatTransaction(const std::string& type, const std::string& from, const std::string& to, int64_t amount) {
-    std::stringstream ss;
-    ss << type << ": " << from << " -> " << to << ": " << amount;
-    return ss.str();
-}
-
 // Storage management
 Ledger::Roe<void> Ledger::initStorage(const StorageConfig& config) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
     try {
         // Initialize active BlockDir with blockchain management enabled
         activeBlockDir_ = std::make_unique<BlockDir>();
@@ -193,6 +165,42 @@ void Ledger::transferBlocksToArchive() {
             logging::getLogger("ledger").error << "Failed to move front file to archive";
             break;
         }
+    }
+}
+
+// PendingTransactions implementation
+std::string Ledger::PendingTransactions::ltsToString() const {
+    std::ostringstream oss;
+    // Write version number first
+    Serializer::serializeToStream(oss, CURRENT_VERSION);
+    // Write transaction data
+    Serializer::serializeToStream(oss, transactions);
+    return oss.str();
+}
+
+bool Ledger::PendingTransactions::ltsFromString(const std::string& str) {
+    std::istringstream iss(str);
+    
+    // Read version number
+    uint32_t version = 0;
+    if (!Serializer::deserializeFromStream(iss, version)) {
+        return false;
+    }
+    
+    // Handle different versions
+    switch (version) {
+        case 1:
+            // Version 1: vector of Transaction objects
+            return Serializer::deserializeFromStream(iss, transactions);
+        
+        // Future versions can be added here:
+        // case 2:
+        //     return deserializeVersion2(iss);
+        //     break;
+        
+        default:
+            // Unknown version - cannot deserialize
+            return false;
     }
 }
 
