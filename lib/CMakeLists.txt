@@ -1,5 +1,5 @@
 # Lib library
-add_library(ppledger_lib STATIC
+add_library(pp_lib STATIC
     Lib.cpp
     Lib.h
     Logger.cpp
@@ -12,7 +12,7 @@ add_library(ppledger_lib STATIC
     BinaryPack.h
 )
 
-target_include_directories(ppledger_lib PUBLIC
+target_include_directories(pp_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

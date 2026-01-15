@@ -9,7 +9,7 @@ add_executable(test_logger
 )
 
 target_link_libraries(test_logger PRIVATE
-    ppledger_lib
+    pp_lib
     GTest::gtest_main
 )
 
@@ -21,7 +21,7 @@ add_executable(test_result
 )
 
 target_link_libraries(test_result PRIVATE
-    ppledger_lib
+    pp_lib
     GTest::gtest_main
 )
 
@@ -33,9 +33,9 @@ add_executable(test_module
 )
 
 target_link_libraries(test_module PRIVATE
-    ppledger_lib
-    ppledger_client
-    ppledger_server
+    pp_lib
+    pp_client
+    pp_server
     crypto
     GTest::gtest_main
 )
@@ -48,7 +48,7 @@ add_executable(test_serializer
 )
 
 target_link_libraries(test_serializer PRIVATE
-    ppledger_lib
+    pp_lib
     GTest::gtest_main
 )
 

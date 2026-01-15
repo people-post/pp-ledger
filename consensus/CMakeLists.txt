@@ -23,10 +23,10 @@ set(CONSENSUS_HEADERS
 )
 
 # Create the library
-add_library(consensus STATIC ${CONSENSUS_SOURCES} ${CONSENSUS_HEADERS})
+add_library(pp_consensus STATIC ${CONSENSUS_SOURCES} ${CONSENSUS_HEADERS})
 
 # Include directories
-target_include_directories(consensus
+target_include_directories(pp_consensus
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/lib
@@ -34,20 +34,20 @@ target_include_directories(consensus
 )
 
 # Link with lib (for Module, Logger, ResultOrError)
-target_link_libraries(consensus
+target_link_libraries(pp_consensus
     PUBLIC
-        ppledger_lib
+        pp_lib
 )
 
 # Set properties
-set_target_properties(consensus PROPERTIES
+set_target_properties(pp_consensus PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 1
     PUBLIC_HEADER "${CONSENSUS_HEADERS}"
 )
 
 # Installation rules
-install(TARGETS consensus
+install(TARGETS pp_consensus
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include/consensus

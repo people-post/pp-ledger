@@ -22,30 +22,30 @@ set(NETWORK_HEADERS
 )
 
 # Create the library
-add_library(network STATIC ${NETWORK_SOURCES} ${NETWORK_HEADERS})
+add_library(pp_network STATIC ${NETWORK_SOURCES} ${NETWORK_HEADERS})
 
 # Include directories
-target_include_directories(network
+target_include_directories(pp_network
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/lib
 )
 
 # Link with lib (uses ResultOrError from lib)
-target_link_libraries(network
+target_link_libraries(pp_network
     PUBLIC
-        ppledger_lib
+        pp_lib
 )
 
 # Set properties
-set_target_properties(network PROPERTIES
+set_target_properties(pp_network PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 1
     PUBLIC_HEADER "${NETWORK_HEADERS}"
 )
 
 # Installation rules
-install(TARGETS network
+install(TARGETS pp_network
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include/network

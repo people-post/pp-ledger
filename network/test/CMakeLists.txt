@@ -13,8 +13,8 @@ target_include_directories(test_fetch PRIVATE
 )
 
 target_link_libraries(test_fetch PRIVATE
-    ppledger_lib
-    network
+    pp_lib
+    pp_network
     GTest::gtest_main
     GTest::gmock
 )
@@ -31,8 +31,8 @@ target_include_directories(test_tcp PRIVATE
 )
 
 target_link_libraries(test_tcp PRIVATE
-    ppledger_lib
-    network
+    pp_lib
+    pp_network
     GTest::gtest_main
     GTest::gmock
 )

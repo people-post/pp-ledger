@@ -1,5 +1,5 @@
 # Ledger library
-add_library(ppledger_ledger STATIC
+add_library(pp_ledger STATIC
     Block.cpp
     Block.h
     BlockChain.cpp
@@ -14,12 +14,12 @@ add_library(ppledger_ledger STATIC
     BlockDir.h
 )
 
-target_include_directories(ppledger_ledger PUBLIC
+target_include_directories(pp_ledger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(ppledger_ledger PUBLIC
-    ppledger_lib
+target_link_libraries(pp_ledger PUBLIC
+    pp_lib
     crypto
 )
 

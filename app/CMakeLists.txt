@@ -1,20 +1,20 @@
 # Server executable
-add_executable(pp-ledger-server
+add_executable(pp-server
     server.cpp
 )
 
-target_link_libraries(pp-ledger-server PRIVATE
-    ppledger_lib
-    ppledger_server
+target_link_libraries(pp-server PRIVATE
+    pp_lib
+    pp_server
 )
 
 # Client executable
-add_executable(pp-ledger-client
+add_executable(pp-client
     client.cpp
 )
 
-target_link_libraries(pp-ledger-client PRIVATE
-    ppledger_lib
-    ppledger_client
-    ppledger_ledger
+target_link_libraries(pp-client PRIVATE
+    pp_lib
+    pp_client
+    pp_ledger
 )
