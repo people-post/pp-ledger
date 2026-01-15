@@ -553,7 +553,7 @@ std::shared_ptr<Block> BlockDir::getLatestBlock() const {
     if (!managesBlockchain_ || !ukpBlockchain_) {
         return nullptr;
     }
-    return ukpBlockchain_->getLatestBlock();
+    return ukpBlockchain_->getLatestConcreteBlock();
 }
 
 size_t BlockDir::getBlockchainSize() const {

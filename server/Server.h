@@ -5,6 +5,7 @@
 #include "Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../interface/Block.hpp"
+#include "../ledger/BlockChain.h"
 #include "ResultOrError.hpp"
 #include <string>
 #include <memory>
@@ -111,6 +112,11 @@ private:
     Roe<void> syncState();
     Roe<std::shared_ptr<iii::Block>> createBlockFromTransactions();
     Roe<void> addBlockToLedger(std::shared_ptr<iii::Block> block);
+    
+    // Chain switching support
+    Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(
+        const std::vector<std::shared_ptr<iii::Block>>& blocks) const;
+    Roe<void> switchToChain(std::unique_ptr<BlockChain> candidateChain);
 };
 
 } // namespace pp

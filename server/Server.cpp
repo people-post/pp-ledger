@@ -3,6 +3,7 @@
 #include "FetchClient.h"
 #include "FetchServer.h"
 #include "BinaryPack.h"
+#include "../ledger/Block.h"
 #include <chrono>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -338,16 +339,57 @@ Server::Roe<void> Server::syncState() {
         if (blocksResult && !blocksResult.value().empty()) {
             logger.info << "Fetched " << blocksResult.value().size() << " blocks from peer";
             
-            // Validate and add blocks to our ledger
-            for (auto& block : blocksResult.value()) {
-                // Validate block
-                auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
-                if (validateResult && validateResult.value()) {
-                    // Block is valid, would be added to ledger here
-                    logger.debug << "Received valid block " << block->getIndex() << " from peer";
-                } else {
-                    logger.warning << "Received invalid block from peer";
+            // Build candidate chain from received blocks
+            auto candidateChainResult = buildCandidateChainFromBlocks(blocksResult.value());
+            if (!candidateChainResult) {
+                logger.warning << "Failed to build candidate chain: " 
+                              << candidateChainResult.error().message;
+                continue;
+            }
+            
+            auto candidateChain = std::move(candidateChainResult.value());
+            
+            // Validate all blocks in candidate chain against consensus
+            bool allBlocksValid = true;
+            for (size_t i = 0; i < candidateChain->getSize(); ++i) {
+                auto block = candidateChain->getBlock(i);
+                if (block) {
+                    auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
+                    if (!validateResult || !validateResult.value()) {
+                        logger.warning << "Block " << block->getIndex() 
+                                       << " in candidate chain failed validation";
+                        allBlocksValid = false;
+                        break;
+                    }
                 }
+            }
+            
+            if (!allBlocksValid) {
+                logger.warning << "Candidate chain contains invalid blocks, skipping";
+                continue;
+            }
+            
+            // Check if we should switch to this candidate chain
+            auto switchResult = ukpConsensus_->shouldSwitchChain(*ukpLedger_, *candidateChain);
+            if (!switchResult) {
+                logger.warning << "Chain switch check failed: " 
+                              << switchResult.error().message;
+                continue;
+            }
+            
+            if (switchResult.value()) {
+                logger.info << "Candidate chain is longer and valid, switching chains";
+                auto switchChainResult = switchToChain(std::move(candidateChain));
+                if (!switchChainResult) {
+                    logger.error << "Failed to switch chains: " 
+                                << switchChainResult.error().message;
+                } else {
+                    logger.info << "Successfully switched to longer chain";
+                    // Break after successful switch to avoid processing more peers
+                    break;
+                }
+            } else {
+                logger.debug << "Current chain is longer or equal, not switching";
             }
         }
     }
@@ -569,6 +611,75 @@ Server::fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex) {
         logger.error << "Error fetching blocks from peer: " << e.what();
         return Error(4, e.what());
     }
+}
+
+Server::Roe<std::unique_ptr<BlockChain>> 
+Server::buildCandidateChainFromBlocks(const std::vector<std::shared_ptr<iii::Block>>& blocks) const {
+    auto& logger = logging::getLogger("server");
+    
+    if (blocks.empty()) {
+        return Error(1, "No blocks provided to build candidate chain");
+    }
+    
+    // Create a new BlockChain instance
+    auto candidateChain = std::make_unique<BlockChain>();
+    
+    // Convert iii::Block to Block and add to chain
+    for (const auto& iBlock : blocks) {
+        // Try to cast to concrete Block type
+        auto block = std::dynamic_pointer_cast<Block>(iBlock);
+        if (!block) {
+            // If cast fails, create a new Block from the interface
+            // This is a placeholder - in full implementation, we'd need proper deserialization
+            logger.warning << "Block cast failed, creating new Block from interface";
+            block = std::make_shared<Block>();
+            block->setIndex(iBlock->getIndex());
+            block->setTimestamp(iBlock->getTimestamp());
+            block->setData(iBlock->getData());
+            block->setPreviousHash(iBlock->getPreviousHash());
+            block->setHash(iBlock->getHash());
+            block->setSlot(iBlock->getSlot());
+            block->setSlotLeader(iBlock->getSlotLeader());
+        }
+        
+        if (!candidateChain->addBlock(block)) {
+            return Error(2, "Failed to add block to candidate chain");
+        }
+    }
+    
+    // Validate the candidate chain
+    if (!candidateChain->isValid()) {
+        return Error(3, "Candidate chain is invalid");
+    }
+    
+    logger.info << "Built candidate chain with " << candidateChain->getSize() << " blocks";
+    return candidateChain;
+}
+
+Server::Roe<void> Server::switchToChain(std::unique_ptr<BlockChain> candidateChain) {
+    auto& logger = logging::getLogger("server");
+    
+    if (!candidateChain) {
+        return Error(1, "Candidate chain is null");
+    }
+    
+    // Placeholder implementation
+    // In a full implementation, this would:
+    // 1. Revert transactions from current chain that aren't in candidate chain
+    // 2. Apply transactions from candidate chain that aren't in current chain
+    // 3. Replace the ledger's underlying blockchain
+    // 4. Update wallet states to match the new chain
+    
+    logger.info << "Switching to candidate chain with " << candidateChain->getSize() << " blocks";
+    logger.warning << "Chain switching is a placeholder - full implementation needed";
+    
+    // TODO: Implement full chain switching logic
+    // This requires:
+    // - Method in Ledger to replace the blockchain
+    // - Transaction reversion logic
+    // - State reconciliation
+    
+    return {};
 }
 
 } // namespace pp

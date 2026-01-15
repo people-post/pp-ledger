@@ -2,6 +2,7 @@
 
 #include "Block.h"
 #include "Module.h"
+#include "../interface/BlockChain.hpp"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -15,14 +16,17 @@ namespace pp {
  * Manages an in-memory chain of blocks.
  * Storage management is handled by Ledger.
  */
-class BlockChain : public Module {
+class BlockChain : public Module, public iii::BlockChain {
 public:
     BlockChain();
     ~BlockChain() = default;
     
-    // Blockchain operations
-    std::shared_ptr<Block> getLatestBlock() const;
-    size_t getSize() const;
+    // Blockchain operations (also implements iii::BlockChain interface)
+    std::shared_ptr<iii::Block> getLatestBlock() const override;
+    size_t getSize() const override;
+    
+    // Convenience method to get concrete Block type
+    std::shared_ptr<Block> getLatestConcreteBlock() const;
     
     // Additional blockchain operations
     bool addBlock(std::shared_ptr<Block> block);

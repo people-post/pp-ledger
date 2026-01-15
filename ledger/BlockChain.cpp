@@ -23,7 +23,14 @@ bool BlockChain::addBlock(std::shared_ptr<Block> block) {
     return true;
 }
 
-std::shared_ptr<Block> BlockChain::getLatestBlock() const {
+std::shared_ptr<iii::Block> BlockChain::getLatestBlock() const {
+    if (chain_.empty()) {
+        return nullptr;
+    }
+    return chain_.back();
+}
+
+std::shared_ptr<Block> BlockChain::getLatestConcreteBlock() const {
     if (chain_.empty()) {
         return nullptr;
     }
