@@ -51,8 +51,13 @@ public:
     // Server lifecycle
     bool start(int port);
     bool start(int port, const NetworkConfig& networkConfig);
+    bool start(int port, const std::string& dataDir);
+    bool start(int port, const NetworkConfig& networkConfig, const std::string& dataDir);
     void stop();
     bool isRunning() const;
+    
+    // Storage initialization
+    Roe<void> initStorage(const std::string& dataDir);
     
     // Network management
     void connectToPeer(const std::string& hostPort);
@@ -88,6 +93,9 @@ private:
     mutable std::mutex transactionQueueMutex_;
     std::queue<std::string> transactionQueue_;
     
+    // Client server (listens on main port)
+    std::unique_ptr<network::FetchServer> clientServer_;
+    
     // P2P Network components
     std::unique_ptr<network::FetchServer> p2pServer_;
     std::unique_ptr<network::FetchClient> p2pClient_;
@@ -101,6 +109,13 @@ private:
     std::string handleIncomingRequest(const std::string& request);
     std::string handleClientRequest(const Client::Request& request);
     void broadcastBlock(std::shared_ptr<iii::Block> block);
+    
+    // Client request handlers
+    Roe<std::string> handleReqInfo();
+    Roe<std::string> handleReqQueryWallet(const std::string& requestData);
+    Roe<std::string> handleReqAddTransaction(const std::string& requestData);
+    Roe<std::string> handleReqValidators();
+    Roe<std::string> handleReqBlocks(const std::string& requestData);
     void requestBlocksFromPeers(uint64_t fromIndex);
     Roe<std::vector<std::shared_ptr<iii::Block>>> fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex);
     

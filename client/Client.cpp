@@ -69,6 +69,38 @@ Client::Roe<Client::Response> Client::sendRequest(const Request& request) {
     }
 }
 
+Client::Roe<Client::RespInfo> Client::getInfo() {
+    auto& logger = logging::getLogger("client");
+    logger.debug << "Requesting server info";
+    
+    // Create request
+    Request request;
+    request.version = VERSION;
+    request.type = T_REQ_INFO;
+    request.data = "";  // No data needed for info request
+    
+    // Send request
+    auto result = sendRequest(request);
+    if (!result) {
+        return Error(result.error().code, result.error().message);
+    }
+    
+    const Response& response = result.value();
+    if (response.errorCode != 0) {
+        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+    }
+    
+    // Deserialize response data
+    try {
+        RespInfo respData = utl::binaryUnpack<RespInfo>(response.data);
+        logger.debug << "Server info received: blocks=" << respData.blockCount 
+                     << ", slot=" << respData.currentSlot << ", epoch=" << respData.currentEpoch;
+        return respData;
+    } catch (const std::exception& e) {
+        return Error(E_INVALID_DATA, "Failed to deserialize server info");
+    }
+}
+
 Client::Roe<Client::RespWalletInfo> Client::getWalletInfo(const std::string& walletId) {
     auto& logger = logging::getLogger("client");
     logger.debug << "Requesting wallet info for: " << walletId;

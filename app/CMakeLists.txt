@@ -16,4 +16,5 @@ add_executable(pp-ledger-client
 target_link_libraries(pp-ledger-client PRIVATE
     ppledger_lib
     ppledger_client
+    ppledger_ledger
 )

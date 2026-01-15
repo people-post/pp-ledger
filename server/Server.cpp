@@ -9,6 +9,7 @@
 #include <thread>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <filesystem>
 
 namespace pp {
 
@@ -32,6 +33,24 @@ bool Server::start(int port) {
     return start(port, defaultConfig);
 }
 
+bool Server::start(int port, const std::string& dataDir) {
+    NetworkConfig defaultConfig;
+    defaultConfig.enableP2P = false;
+    return start(port, defaultConfig, dataDir);
+}
+
+bool Server::start(int port, const NetworkConfig& networkConfig, const std::string& dataDir) {
+    // Initialize storage first
+    auto storageResult = initStorage(dataDir);
+    if (!storageResult) {
+        auto& logger = logging::getLogger("server");
+        logger.error << "Failed to initialize storage: " << storageResult.error().message;
+        return false;
+    }
+    
+    return start(port, networkConfig);
+}
+
 bool Server::start(int port, const NetworkConfig& networkConfig) {
     if (running_) {
         auto& logger = logging::getLogger("server");
@@ -42,6 +61,20 @@ bool Server::start(int port, const NetworkConfig& networkConfig) {
     port_ = port;
     running_ = true;
     
+    // Start client server (listens on main port for client connections)
+    clientServer_ = std::make_unique<network::FetchServer>();
+    bool clientServerStarted = clientServer_->start(port_,
+        [this](const std::string& request) {
+            return handleIncomingRequest(request);
+        });
+    
+    if (!clientServerStarted) {
+        auto& logger = logging::getLogger("server");
+        logger.error << "Failed to start client server on port " << port_;
+        running_ = false;
+        return false;
+    }
+    
     networkConfig_ = networkConfig;
     if (networkConfig.enableP2P) {
         try {
@@ -50,6 +83,8 @@ bool Server::start(int port, const NetworkConfig& networkConfig) {
             auto& logger = logging::getLogger("server");
             logger.error << "Failed to initialize P2P network: " << e.what();
             running_ = false;
+            clientServer_->stop();
+            clientServer_.reset();
             return false;
         }
     }
@@ -77,6 +112,12 @@ void Server::stop() {
     }
     
     running_ = false;
+    
+    // Stop client server
+    if (clientServer_) {
+        clientServer_->stop();
+        clientServer_.reset();
+    }
     
     // Wait for consensus thread to finish
     if (consensusThread_.joinable()) {
@@ -540,100 +581,41 @@ std::string Server::handleClientRequest(const Client::Request& request) {
     }
     
     try {
+        Roe<std::string> result = Error(Client::E_INVALID_REQUEST, "Unknown request type");
+        
         switch (request.type) {
-            case Client::T_REQ_INFO: {
-                logger.debug << "Handling T_REQ_INFO";
-                // Return server info (can be extended)
-                nlohmann::json info;
-                info["block_count"] = ukpLedger_->getBlockCount();
-                info["current_slot"] = ukpConsensus_->getCurrentSlot();
-                info["current_epoch"] = ukpConsensus_->getCurrentEpoch();
-                info["pending_transactions"] = getPendingTransactionCount();
-                response.data = info.dump();
+            case Client::T_REQ_INFO:
+                result = handleReqInfo();
                 break;
-            }
             
-            case Client::T_REQ_QUERY_WALLET: {
-                logger.debug << "Handling T_REQ_QUERY_WALLET";
-                Client::ReqWalletInfo reqData = utl::binaryUnpack<Client::ReqWalletInfo>(request.data);
-                
-                auto balanceResult = ukpLedger_->getBalance(reqData.walletId);
-                if (!balanceResult) {
-                    response.errorCode = Client::E_INVALID_WALLET;
-                    break;
-                }
-                
-                Client::RespWalletInfo respData;
-                respData.walletId = reqData.walletId;
-                respData.balance = balanceResult.value();
-                response.data = utl::binaryPack(respData);
+            case Client::T_REQ_QUERY_WALLET:
+                result = handleReqQueryWallet(request.data);
                 break;
-            }
             
-            case Client::T_REQ_ADD_TRANSACTION: {
-                logger.debug << "Handling T_REQ_ADD_TRANSACTION";
-                Client::ReqAddTransaction reqData = utl::binaryUnpack<Client::ReqAddTransaction>(request.data);
-                
-                // Submit transaction to the server
-                submitTransaction(reqData.transaction);
-                
-                Client::RespAddTransaction respData;
-                respData.transaction = reqData.transaction;
-                response.data = utl::binaryPack(respData);
+            case Client::T_REQ_ADD_TRANSACTION:
+                result = handleReqAddTransaction(request.data);
                 break;
-            }
             
             case Client::T_REQ_BEACON_VALIDATORS:
-            case Client::T_REQ_PEER_VALIDATORS: {
-                logger.debug << "Handling T_REQ_VALIDATORS";
-                
-                // Get registered stakeholders/validators from consensus
-                Client::RespValidators respData;
-                
-                // Serialize validator info as JSON for flexibility
-                nlohmann::json validatorsJson = nlohmann::json::array();
-                // In full implementation: iterate through registered stakeholders
-                // For now, return empty list
-                respData.validators = validatorsJson.dump();
-                response.data = utl::binaryPack(respData);
+            case Client::T_REQ_PEER_VALIDATORS:
+                result = handleReqValidators();
                 break;
-            }
             
-            case Client::T_REQ_BLOCKS: {
-                logger.debug << "Handling T_REQ_BLOCKS";
-                Client::ReqBlocks reqData = utl::binaryUnpack<Client::ReqBlocks>(request.data);
-                
-                Client::RespBlocks respData;
-                size_t totalBlocks = ukpLedger_->getBlockCount();
-                
-                for (uint64_t i = reqData.fromIndex; 
-                     i < std::min(reqData.fromIndex + reqData.count, static_cast<uint64_t>(totalBlocks)); 
-                     ++i) {
-                    // Get block and serialize it
-                    auto block = ukpLedger_->getBlock(i);
-                    if (block) {
-                        // Serialize block to string
-                        nlohmann::json blockJson;
-                        blockJson["index"] = block->getIndex();
-                        blockJson["timestamp"] = block->getTimestamp();
-                        blockJson["data"] = block->getData();
-                        blockJson["hash"] = block->getHash();
-                        blockJson["prev_hash"] = block->getPreviousHash();
-                        blockJson["slot"] = block->getSlot();
-                        blockJson["slot_leader"] = block->getSlotLeader();
-                        respData.blocks.push_back(blockJson.dump());
-                    }
-                }
-                
-                response.data = utl::binaryPack(respData);
-                logger.debug << "Returning " << respData.blocks.size() << " blocks";
+            case Client::T_REQ_BLOCKS:
+                result = handleReqBlocks(request.data);
                 break;
-            }
             
             default:
                 logger.warning << "Unknown request type: " << request.type;
                 response.errorCode = Client::E_INVALID_REQUEST;
-                break;
+                return utl::binaryPack(response);
+        }
+        
+        if (result) {
+            response.data = result.value();
+        } else {
+            response.errorCode = result.error().code;
+            logger.error << "Handler error: " << result.error().message;
         }
     } catch (const std::exception& e) {
         logger.error << "Error handling client request: " << e.what();
@@ -641,6 +623,121 @@ std::string Server::handleClientRequest(const Client::Request& request) {
     }
     
     return utl::binaryPack(response);
+}
+
+Server::Roe<std::string> Server::handleReqInfo() {
+    auto& logger = logging::getLogger("server");
+    logger.debug << "Handling T_REQ_INFO";
+    
+    try {
+        Client::RespInfo respData;
+        respData.blockCount = ukpLedger_->getBlockCount();
+        respData.currentSlot = ukpConsensus_->getCurrentSlot();
+        respData.currentEpoch = ukpConsensus_->getCurrentEpoch();
+        respData.pendingTransactions = getPendingTransactionCount();
+        
+        return utl::binaryPack(respData);
+    } catch (const std::exception& e) {
+        return Error(Client::E_INVALID_DATA, "Failed to get server info: " + std::string(e.what()));
+    }
+}
+
+Server::Roe<std::string> Server::handleReqQueryWallet(const std::string& requestData) {
+    auto& logger = logging::getLogger("server");
+    logger.debug << "Handling T_REQ_QUERY_WALLET";
+    
+    try {
+        Client::ReqWalletInfo reqData = utl::binaryUnpack<Client::ReqWalletInfo>(requestData);
+        
+        auto balanceResult = ukpLedger_->getBalance(reqData.walletId);
+        if (!balanceResult) {
+            return Error(Client::E_INVALID_WALLET, "Wallet not found: " + reqData.walletId);
+        }
+        
+        Client::RespWalletInfo respData;
+        respData.walletId = reqData.walletId;
+        respData.balance = balanceResult.value();
+        
+        return utl::binaryPack(respData);
+    } catch (const std::exception& e) {
+        return Error(Client::E_INVALID_DATA, "Failed to query wallet: " + std::string(e.what()));
+    }
+}
+
+Server::Roe<std::string> Server::handleReqAddTransaction(const std::string& requestData) {
+    auto& logger = logging::getLogger("server");
+    logger.debug << "Handling T_REQ_ADD_TRANSACTION";
+    
+    try {
+        Client::ReqAddTransaction reqData = utl::binaryUnpack<Client::ReqAddTransaction>(requestData);
+        
+        // Submit transaction to the server
+        submitTransaction(reqData.transaction);
+        
+        Client::RespAddTransaction respData;
+        respData.transaction = reqData.transaction;
+        
+        return utl::binaryPack(respData);
+    } catch (const std::exception& e) {
+        return Error(Client::E_INVALID_TRANSACTION, "Failed to add transaction: " + std::string(e.what()));
+    }
+}
+
+Server::Roe<std::string> Server::handleReqValidators() {
+    auto& logger = logging::getLogger("server");
+    logger.debug << "Handling T_REQ_VALIDATORS";
+    
+    try {
+        // Get registered stakeholders/validators from consensus
+        Client::RespValidators respData;
+        auto stakeholders = ukpConsensus_->getStakeholders();
+        
+        for (const auto& stakeholder : stakeholders) {
+            Client::ValidatorInfo validatorInfo;
+            validatorInfo.id = stakeholder.id;
+            validatorInfo.stake = stakeholder.stake;
+            respData.validators.push_back(validatorInfo);
+        }
+        
+        return utl::binaryPack(respData);
+    } catch (const std::exception& e) {
+        return Error(Client::E_INVALID_DATA, "Failed to get validators: " + std::string(e.what()));
+    }
+}
+
+Server::Roe<std::string> Server::handleReqBlocks(const std::string& requestData) {
+    auto& logger = logging::getLogger("server");
+    logger.debug << "Handling T_REQ_BLOCKS";
+    
+    try {
+        Client::ReqBlocks reqData = utl::binaryUnpack<Client::ReqBlocks>(requestData);
+        
+        Client::RespBlocks respData;
+        size_t totalBlocks = ukpLedger_->getBlockCount();
+        
+        for (uint64_t i = reqData.fromIndex; 
+             i < std::min(reqData.fromIndex + reqData.count, static_cast<uint64_t>(totalBlocks)); 
+             ++i) {
+            // Get block and serialize it
+            auto block = ukpLedger_->getBlock(i);
+            if (block) {
+                Client::BlockInfo blockInfo;
+                blockInfo.index = block->getIndex();
+                blockInfo.timestamp = block->getTimestamp();
+                blockInfo.data = block->getData();
+                blockInfo.previousHash = block->getPreviousHash();
+                blockInfo.hash = block->getHash();
+                blockInfo.slot = block->getSlot();
+                blockInfo.slotLeader = block->getSlotLeader();
+                respData.blocks.push_back(blockInfo);
+            }
+        }
+        
+        logger.debug << "Returning " << respData.blocks.size() << " blocks";
+        return utl::binaryPack(respData);
+    } catch (const std::exception& e) {
+        return Error(Client::E_INVALID_DATA, "Failed to get blocks: " + std::string(e.what()));
+    }
 }
 
 void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
@@ -809,6 +906,40 @@ Server::Roe<void> Server::switchToChain(std::unique_ptr<BlockChain> candidateCha
     // - State reconciliation
     
     return {};
+}
+
+Server::Roe<void> Server::initStorage(const std::string& dataDir) {
+    auto& logger = logging::getLogger("server");
+    logger.info << "Initializing storage in directory: " << dataDir;
+    
+    try {
+        // Create data directory if it doesn't exist
+        if (!std::filesystem::exists(dataDir)) {
+            std::filesystem::create_directories(dataDir);
+            logger.info << "Created data directory: " << dataDir;
+        }
+        
+        // Set up storage paths
+        Ledger::StorageConfig storageConfig;
+        storageConfig.activeDirPath = dataDir + "/active";
+        storageConfig.archiveDirPath = dataDir + "/archive";
+        storageConfig.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
+        storageConfig.blockDirFileSize = 100 * 1024 * 1024; // 100MB
+        
+        // Initialize ledger storage
+        auto result = ukpLedger_->initStorage(storageConfig);
+        if (!result) {
+            return Error(1, "Failed to initialize ledger storage: " + result.error().message);
+        }
+        
+        logger.info << "Storage initialized successfully";
+        logger.info << "  Active directory: " << storageConfig.activeDirPath;
+        logger.info << "  Archive directory: " << storageConfig.archiveDirPath;
+        
+        return {};
+    } catch (const std::exception& e) {
+        return Error(2, "Storage initialization failed: " + std::string(e.what()));
+    }
 }
 
 } // namespace pp

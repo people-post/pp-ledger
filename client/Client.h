@@ -130,8 +130,23 @@ public:
         }
     };
 
+    struct BlockInfo {
+        uint64_t index;
+        int64_t timestamp;
+        std::string data;
+        std::string previousHash;
+        std::string hash;
+        uint64_t slot;
+        std::string slotLeader;
+
+        template <typename Archive>
+        void serialize(Archive& ar) {
+            ar & index & timestamp & data & previousHash & hash & slot & slotLeader;
+        }
+    };
+
     struct RespBlocks {
-        std::vector<std::string> blocks;
+        std::vector<BlockInfo> blocks;
 
         template <typename Archive>
         void serialize(Archive& ar) {
@@ -139,12 +154,34 @@ public:
         }
     };
 
+    struct ValidatorInfo {
+        std::string id;
+        uint64_t stake;
+
+        template <typename Archive>
+        void serialize(Archive& ar) {
+            ar & id & stake;
+        }
+    };
+
     struct RespValidators {
-        std::string validators;
+        std::vector<ValidatorInfo> validators;
 
         template <typename Archive>
         void serialize(Archive& ar) {
             ar & validators;
+        }
+    };
+
+    struct RespInfo {
+        uint64_t blockCount;
+        uint64_t currentSlot;
+        uint64_t currentEpoch;
+        size_t pendingTransactions;
+
+        template <typename Archive>
+        void serialize(Archive& ar) {
+            ar & blockCount & currentSlot & currentEpoch & pendingTransactions;
         }
     };
 
@@ -153,6 +190,7 @@ public:
 
     bool init(const std::string& address, int port);
 
+    Roe<RespInfo> getInfo();
     Roe<RespWalletInfo> getWalletInfo(const std::string& walletId);
     Roe<RespAddTransaction> addTransaction(const std::string& transaction);
     Roe<RespValidators> getValidators();
