@@ -7,6 +7,8 @@
 #include "../interface/Block.hpp"
 #include "../ledger/BlockChain.h"
 #include "../client/Client.h"
+#include "../network/FetchClient.h"
+#include "../network/FetchServer.h"
 #include "ResultOrError.hpp"
 #include <string>
 #include <memory>
@@ -18,13 +20,6 @@
 #include <set>
 
 // Forward declarations for network classes
-namespace pp {
-namespace network {
-class FetchClient;
-class FetchServer;
-}
-}
-
 namespace pp {
 
 class Server : public Module {
@@ -49,21 +44,17 @@ public:
     ~Server();
     
     // Server lifecycle
-    bool start(int port);
-    bool start(int port, const NetworkConfig& networkConfig);
-    bool start(int port, const std::string& dataDir);
-    bool start(int port, const NetworkConfig& networkConfig, const std::string& dataDir);
+    bool start(const std::string& dataDir);
     void stop();
     bool isRunning() const;
     
+private:
     // Storage initialization
     Roe<void> initStorage(const std::string& dataDir);
     
     // Network management
-    void connectToPeer(const std::string& hostPort);
     size_t getPeerCount() const;
     std::vector<std::string> getConnectedPeers() const;
-    bool isP2PEnabled() const;
     
     // Consensus management
     void registerStakeholder(const std::string& id, uint64_t stake);
@@ -71,7 +62,6 @@ public:
     
     // Transaction management
     void submitTransaction(const std::string& transaction);
-    size_t getPendingTransactionCount() const;
     
     // State queries
     uint64_t getCurrentSlot() const;
@@ -79,33 +69,6 @@ public:
     size_t getBlockCount() const;
     Roe<int64_t> getBalance(const std::string& walletId) const;
     
-private:
-    // Consensus and ledger management
-    std::unique_ptr<Ledger> ukpLedger_;
-    std::unique_ptr<consensus::Ouroboros> ukpConsensus_;
-    
-    // Server state
-    bool running_;
-    int port_;
-    std::thread consensusThread_;
-    
-    // Transaction queue
-    mutable std::mutex transactionQueueMutex_;
-    std::queue<std::string> transactionQueue_;
-    
-    // Client server (listens on main port)
-    std::unique_ptr<network::FetchServer> clientServer_;
-    
-    // P2P Network components
-    std::unique_ptr<network::FetchServer> p2pServer_;
-    std::unique_ptr<network::FetchClient> p2pClient_;
-    mutable std::mutex peersMutex_;
-    std::set<std::string> connectedPeers_;  // Set of host:port strings
-    NetworkConfig networkConfig_;
-    
-    // P2P Network methods
-    void initializeP2PNetwork(const NetworkConfig& config);
-    void shutdownP2PNetwork();
     std::string handleIncomingRequest(const std::string& request);
     std::string handleClientRequest(const Client::Request& request);
     void broadcastBlock(std::shared_ptr<iii::Block> block);
@@ -134,6 +97,23 @@ private:
     Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(
         const std::vector<std::shared_ptr<iii::Block>>& blocks) const;
     Roe<void> switchToChain(std::unique_ptr<BlockChain> candidateChain);
+
+    // Consensus and ledger management
+    Ledger ledger_;
+    consensus::Ouroboros consensus_;
+    
+    // Server state
+    bool isRunning_{false};
+    int port_{0};
+    std::thread consensusThread_;
+    
+    // Client server (listens on main port)
+    network::FetchServer sFetch_;
+    network::FetchClient cFetch_;
+
+    mutable std::mutex peersMutex_;
+    std::set<std::string> connectedPeers_;  // Set of host:port strings
+    NetworkConfig networkConfig_;
 };
 
 } // namespace pp

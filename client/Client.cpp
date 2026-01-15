@@ -5,6 +5,43 @@
 
 namespace pp {
 
+std::string Client::getErrorMessage(uint16_t errorCode) {
+    switch (errorCode) {
+        case E_VERSION:
+            return "Protocol version mismatch. Please update your client to match the server version.";
+        case E_INVALID_REQUEST:
+            return "Invalid request format. The request could not be understood by the server.";
+        case E_INVALID_RESPONSE:
+            return "Invalid response from server. The server response could not be processed.";
+        case E_INVALID_DATA:
+            return "Invalid data format. The data provided is malformed or cannot be parsed.";
+        case E_INVALID_SIGNATURE:
+            return "Invalid cryptographic signature. The signature verification failed.";
+        case E_INVALID_TIMESTAMP:
+            return "Invalid timestamp. The timestamp is outside the acceptable range.";
+        case E_INVALID_NONCE:
+            return "Invalid nonce value. The nonce does not match the expected value.";
+        case E_INVALID_HASH:
+            return "Invalid hash value. The hash does not match the expected value.";
+        case E_INVALID_BLOCK:
+            return "Invalid block. The block data is corrupted or does not meet validation requirements.";
+        case E_INVALID_TRANSACTION:
+            return "Invalid transaction. The transaction data is malformed or violates protocol rules.";
+        case E_INVALID_VALIDATOR:
+            return "Invalid validator. The validator information is incorrect or not authorized.";
+        case E_INVALID_BLOCKCHAIN:
+            return "Invalid blockchain state. The blockchain data is corrupted or inconsistent.";
+        case E_INVALID_LEDGER:
+            return "Invalid ledger state. The ledger data is corrupted or inconsistent.";
+        case E_INVALID_WALLET:
+            return "Wallet not found. The specified wallet does not exist in the system.";
+        case E_INVALID_ADDRESS:
+            return "Invalid address format. The address provided is not in the correct format.";
+        default:
+            return "Unknown error occurred. Error code: " + std::to_string(errorCode);
+    }
+}
+
 Client::Client() : Module("client"), connected_(false) {
 }
 
@@ -37,7 +74,7 @@ bool Client::isConnected() const {
 
 Client::Roe<Client::Response> Client::sendRequest(const Request& request) {
     if (!connected_) {
-        return Error(E_INVALID_REQUEST, "Client not connected");
+        return Error(E_INVALID_REQUEST, getErrorMessage(E_INVALID_REQUEST) + " Client is not connected to the server.");
     }
     
     auto& logger = logging::getLogger("client");
@@ -51,22 +88,22 @@ Client::Roe<Client::Response> Client::sendRequest(const Request& request) {
     
     if (!result.isOk()) {
         logger.error << "Failed to send request: " << result.error().message;
-        return Error(E_INVALID_RESPONSE, "Failed to send request: " + result.error().message);
+        return Error(E_INVALID_RESPONSE, getErrorMessage(E_INVALID_RESPONSE) + " Details: " + result.error().message);
     }
     
     // Deserialize response
-    try {
-        Response response = utl::binaryUnpack<Response>(result.value());
-        
-        if (response.version != VERSION) {
-            return Error(E_VERSION, "Version mismatch");
-        }
-        
-        return response;
-    } catch (const std::exception& e) {
-        logger.error << "Failed to deserialize response: " << e.what();
-        return Error(E_INVALID_RESPONSE, "Failed to deserialize response");
+    auto responseResult = utl::binaryUnpack<Response>(result.value());
+    if (!responseResult) {
+        logger.error << "Failed to deserialize response: " << responseResult.error().message;
+        return Error(E_INVALID_RESPONSE, getErrorMessage(E_INVALID_RESPONSE) + " Details: " + responseResult.error().message);
     }
+    
+    Response response = responseResult.value();
+    if (response.version != VERSION) {
+        return Error(E_VERSION, getErrorMessage(E_VERSION));
+    }
+    
+    return response;
 }
 
 Client::Roe<Client::RespInfo> Client::getInfo() {
@@ -87,18 +124,19 @@ Client::Roe<Client::RespInfo> Client::getInfo() {
     
     const Response& response = result.value();
     if (response.errorCode != 0) {
-        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+        std::string friendlyMsg = getErrorMessage(response.errorCode);
+        return Error(response.errorCode, friendlyMsg);
     }
     
     // Deserialize response data
-    try {
-        RespInfo respData = utl::binaryUnpack<RespInfo>(response.data);
-        logger.debug << "Server info received: blocks=" << respData.blockCount 
-                     << ", slot=" << respData.currentSlot << ", epoch=" << respData.currentEpoch;
-        return respData;
-    } catch (const std::exception& e) {
-        return Error(E_INVALID_DATA, "Failed to deserialize server info");
+    auto respDataResult = utl::binaryUnpack<RespInfo>(response.data);
+    if (!respDataResult) {
+        return Error(E_INVALID_DATA, getErrorMessage(E_INVALID_DATA) + " Details: " + respDataResult.error().message);
     }
+    
+    logger.debug << "Server info received: blocks=" << respDataResult.value().blockCount 
+                 << ", slot=" << respDataResult.value().currentSlot << ", epoch=" << respDataResult.value().currentEpoch;
+    return respDataResult.value();
 }
 
 Client::Roe<Client::RespWalletInfo> Client::getWalletInfo(const std::string& walletId) {
@@ -123,17 +161,18 @@ Client::Roe<Client::RespWalletInfo> Client::getWalletInfo(const std::string& wal
     
     const Response& response = result.value();
     if (response.errorCode != 0) {
-        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+        std::string friendlyMsg = getErrorMessage(response.errorCode);
+        return Error(response.errorCode, friendlyMsg);
     }
     
     // Deserialize response data
-    try {
-        RespWalletInfo respData = utl::binaryUnpack<RespWalletInfo>(response.data);
-        logger.debug << "Wallet info received: balance=" << respData.balance;
-        return respData;
-    } catch (const std::exception& e) {
-        return Error(E_INVALID_DATA, "Failed to deserialize wallet info");
+    auto respDataResult = utl::binaryUnpack<RespWalletInfo>(response.data);
+    if (!respDataResult) {
+        return Error(E_INVALID_DATA, getErrorMessage(E_INVALID_DATA) + " Details: " + respDataResult.error().message);
     }
+    
+    logger.debug << "Wallet info received: balance=" << respDataResult.value().balance;
+    return respDataResult.value();
 }
 
 Client::Roe<Client::RespAddTransaction> Client::addTransaction(const std::string& transaction) {
@@ -158,17 +197,18 @@ Client::Roe<Client::RespAddTransaction> Client::addTransaction(const std::string
     
     const Response& response = result.value();
     if (response.errorCode != 0) {
-        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+        std::string friendlyMsg = getErrorMessage(response.errorCode);
+        return Error(response.errorCode, friendlyMsg);
     }
     
     // Deserialize response data
-    try {
-        RespAddTransaction respData = utl::binaryUnpack<RespAddTransaction>(response.data);
-        logger.debug << "Transaction submitted successfully";
-        return respData;
-    } catch (const std::exception& e) {
-        return Error(E_INVALID_DATA, "Failed to deserialize transaction response");
+    auto respDataResult = utl::binaryUnpack<RespAddTransaction>(response.data);
+    if (!respDataResult) {
+        return Error(E_INVALID_DATA, getErrorMessage(E_INVALID_DATA) + " Details: " + respDataResult.error().message);
     }
+    
+    logger.debug << "Transaction submitted successfully";
+    return respDataResult.value();
 }
 
 Client::Roe<Client::RespValidators> Client::getValidators() {
@@ -193,17 +233,18 @@ Client::Roe<Client::RespValidators> Client::getValidators() {
     
     const Response& response = result.value();
     if (response.errorCode != 0) {
-        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+        std::string friendlyMsg = getErrorMessage(response.errorCode);
+        return Error(response.errorCode, friendlyMsg);
     }
     
     // Deserialize response data
-    try {
-        RespValidators respData = utl::binaryUnpack<RespValidators>(response.data);
-        logger.debug << "Validators received";
-        return respData;
-    } catch (const std::exception& e) {
-        return Error(E_INVALID_DATA, "Failed to deserialize validators response");
+    auto respDataResult = utl::binaryUnpack<RespValidators>(response.data);
+    if (!respDataResult) {
+        return Error(E_INVALID_DATA, getErrorMessage(E_INVALID_DATA) + " Details: " + respDataResult.error().message);
     }
+    
+    logger.debug << "Validators received";
+    return respDataResult.value();
 }
 
 Client::Roe<Client::RespBlocks> Client::getBlocks(uint64_t fromIndex, uint64_t count) {
@@ -229,17 +270,18 @@ Client::Roe<Client::RespBlocks> Client::getBlocks(uint64_t fromIndex, uint64_t c
     
     const Response& response = result.value();
     if (response.errorCode != 0) {
-        return Error(response.errorCode, "Server error: " + std::to_string(response.errorCode));
+        std::string friendlyMsg = getErrorMessage(response.errorCode);
+        return Error(response.errorCode, friendlyMsg);
     }
     
     // Deserialize response data
-    try {
-        RespBlocks respData = utl::binaryUnpack<RespBlocks>(response.data);
-        logger.debug << "Received " << respData.blocks.size() << " blocks";
-        return respData;
-    } catch (const std::exception& e) {
-        return Error(E_INVALID_DATA, "Failed to deserialize blocks response");
+    auto respDataResult = utl::binaryUnpack<RespBlocks>(response.data);
+    if (!respDataResult) {
+        return Error(E_INVALID_DATA, getErrorMessage(E_INVALID_DATA) + " Details: " + respDataResult.error().message);
     }
+    
+    logger.debug << "Received " << respDataResult.value().blocks.size() << " blocks";
+    return respDataResult.value();
 }
 
 } // namespace pp

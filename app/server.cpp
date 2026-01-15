@@ -5,18 +5,46 @@
 #include <iostream>
 #include <string>
 #include <cstring>
+#include <csignal>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+
+namespace {
+    std::atomic<bool> g_running{true};
+    std::mutex g_mutex;
+    std::condition_variable g_cv;
+    
+    void signalHandler(int signal) {
+        if (signal == SIGINT) {
+            g_running = false;
+            g_cv.notify_one();
+        }
+    }
+}
 
 void printUsage() {
-    std::cout << "Usage: pp-ledger-server -d <data-dir> <port>\n";
-    std::cout << "  -d <data-dir>  - Data directory (required)\n";
-    std::cout << "  <port>         - Port number to start the server on\n";
+    std::cout << "Usage: pp-ledger-server -d <work-dir>\n";
+    std::cout << "  -d <work-dir>  - Work directory (required)\n";
     std::cout << "\n";
-    std::cout << "The data directory will contain:\n";
-    std::cout << "  - active/  - Active (hot) blocks\n";
-    std::cout << "  - archive/ - Archived (cold) blocks\n";
+    std::cout << "The work directory must contain:\n";
+    std::cout << "  - config.json  - Server configuration file (required)\n";
     std::cout << "\n";
     std::cout << "Example:\n";
-    std::cout << "  pp-ledger-server -d ./data 8080\n";
+    std::cout << "  pp-ledger-server -d /some/path/to/work-dir\n";
+    std::cout << "\n";
+    std::cout << "The config.json file should contain:\n";
+    std::cout << "  {\n";
+    std::cout << "    \"port\": 8080,\n";
+    std::cout << "    \"network\": {\n";
+    std::cout << "      \"enableP2P\": false,\n";
+    std::cout << "      \"nodeId\": \"\",\n";
+    std::cout << "      \"bootstrapPeers\": [],\n";
+    std::cout << "      \"listenAddr\": \"0.0.0.0\",\n";
+    std::cout << "      \"p2pPort\": 9000,\n";
+    std::cout << "      \"maxPeers\": 50\n";
+    std::cout << "    }\n";
+    std::cout << "  }\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -24,45 +52,33 @@ int main(int argc, char* argv[]) {
     auto& rootLogger = pp::logging::getRootLogger();
     rootLogger.info << "PP-Ledger Server v" << lib.getVersion();
     
-    if (argc < 4) {
-        std::cerr << "Error: Data directory and port required.\n";
+    if (argc < 3) {
+        std::cerr << "Error: Work directory required.\n";
         printUsage();
         return 1;
     }
     
-    std::string dataDir;
-    int port = 0;
+    std::string workDir;
     
     // Parse arguments
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "-d") == 0) {
             if (i + 1 < argc) {
-                dataDir = argv[++i];
+                workDir = argv[++i];
             } else {
                 std::cerr << "Error: -d option requires a directory path.\n";
                 printUsage();
                 return 1;
             }
         } else {
-            // Assume it's the port
-            try {
-                port = std::stoi(argv[i]);
-            } catch (const std::exception& e) {
-                std::cerr << "Error: Invalid port number: " << argv[i] << "\n";
-                printUsage();
-                return 1;
-            }
+            std::cerr << "Error: Unknown argument: " << argv[i] << "\n";
+            printUsage();
+            return 1;
         }
     }
     
-    if (dataDir.empty()) {
-        std::cerr << "Error: Data directory (-d) is required.\n";
-        printUsage();
-        return 1;
-    }
-    
-    if (port == 0) {
-        std::cerr << "Error: Port number is required.\n";
+    if (workDir.empty()) {
+        std::cerr << "Error: Work directory (-d) is required.\n";
         printUsage();
         return 1;
     }
@@ -71,15 +87,22 @@ int main(int argc, char* argv[]) {
     logger.setLevel(pp::logging::Level::INFO);
     logger.addFileHandler("server.log", pp::logging::Level::DEBUG);
     
-    logger.info << "Starting server on port " << port << " with data directory: " << dataDir;
+    // Set up signal handler for Ctrl+C
+    std::signal(SIGINT, signalHandler);
+    
+    logger.info << "Starting server with work directory: " << workDir;
     
     pp::Server server;
-    if (server.start(port, dataDir)) {
+    if (server.start(workDir)) {
         logger.info << "Server started successfully";
-        std::cout << "Server running on port " << port << "\n";
-        std::cout << "Data directory: " << dataDir << "\n";
-        std::cout << "Press Enter to stop the server...\n";
-        std::cin.get();
+        std::cout << "Server running\n";
+        std::cout << "Work directory: " << workDir << "\n";
+        std::cout << "Press Ctrl+C to stop the server...\n";
+        
+        // Wait for SIGINT
+        std::unique_lock<std::mutex> lock(g_mutex);
+        g_cv.wait(lock, []{ return !g_running.load(); });
+        
         server.stop();
         logger.info << "Server stopped";
         return 0;

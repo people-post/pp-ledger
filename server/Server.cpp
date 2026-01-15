@@ -1,7 +1,5 @@
 #include "Server.h"
 #include "Logger.h"
-#include "FetchClient.h"
-#include "FetchServer.h"
 #include "BinaryPack.h"
 #include "../ledger/Block.h"
 #include "../client/Client.h"
@@ -10,15 +8,11 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <filesystem>
+#include <fstream>
 
 namespace pp {
 
-Server::Server()
-    : Module("server"),
-      running_(false),
-      port_(0),
-      ukpLedger_(std::make_unique<Ledger>()),
-      ukpConsensus_(std::make_unique<consensus::Ouroboros>()) {
+Server::Server() : Module("server") {
     auto& logger = logging::getLogger("server");
     logger.info << "Server initialized";
 }
@@ -27,113 +21,117 @@ Server::~Server() {
     stop();
 }
 
-bool Server::start(int port) {
-    NetworkConfig defaultConfig;
-    defaultConfig.enableP2P = false;
-    return start(port, defaultConfig);
-}
-
-bool Server::start(int port, const std::string& dataDir) {
-    NetworkConfig defaultConfig;
-    defaultConfig.enableP2P = false;
-    return start(port, defaultConfig, dataDir);
-}
-
-bool Server::start(int port, const NetworkConfig& networkConfig, const std::string& dataDir) {
-    // Initialize storage first
-    auto storageResult = initStorage(dataDir);
-    if (!storageResult) {
-        auto& logger = logging::getLogger("server");
-        logger.error << "Failed to initialize storage: " << storageResult.error().message;
-        return false;
-    }
+bool Server::start(const std::string& dataDir) {
+    auto& logger = logging::getLogger("server");
     
-    return start(port, networkConfig);
-}
-
-bool Server::start(int port, const NetworkConfig& networkConfig) {
-    if (running_) {
-        auto& logger = logging::getLogger("server");
+    if (isRunning_) {
         logger.warning << "Server is already running on port " << port_;
         return false;
     }
     
+    // Load configuration from config.json
+    std::filesystem::path configPath = std::filesystem::path(dataDir) / "config.json";
+    if (!std::filesystem::exists(configPath)) {
+        logger.error << "Configuration file not found: " << configPath;
+        return false;
+    }
+    
+    int port = 0;
+    NetworkConfig networkConfig;
+    
+    try {
+        std::ifstream configFile(configPath);
+        if (!configFile.is_open()) {
+            logger.error << "Failed to open configuration file: " << configPath;
+            return false;
+        }
+        
+        nlohmann::json config;
+        configFile >> config;
+        
+        // Load port
+        if (!config.contains("port") || !config["port"].is_number()) {
+            logger.error << "Configuration file missing or invalid 'port' field";
+            return false;
+        }
+        port = config["port"].get<int>();
+        
+        // Load network configuration (optional, defaults will be used if not present)
+        if (config.contains("network") && config["network"].is_object()) {
+            const auto& network = config["network"];
+            if (network.contains("nodeId") && network["nodeId"].is_string()) {
+                networkConfig.nodeId = network["nodeId"].get<std::string>();
+            }
+            if (network.contains("maxPeers") && network["maxPeers"].is_number()) {
+                networkConfig.maxPeers = network["maxPeers"].get<uint16_t>();
+            }
+        }
+        
+        logger.info << "Configuration loaded from " << configPath;
+        logger.info << "  Port: " << port;
+    } catch (const std::exception& e) {
+        logger.error << "Failed to parse configuration file: " << e.what();
+        return false;
+    }
+    
+    // Initialize storage first
+    auto storageResult = initStorage(dataDir);
+    if (!storageResult) {
+        logger.error << "Failed to initialize storage: " << storageResult.error().message;
+        return false;
+    }
+    
+    // Start the server
     port_ = port;
-    running_ = true;
+    isRunning_ = true;
     
     // Start client server (listens on main port for client connections)
-    clientServer_ = std::make_unique<network::FetchServer>();
-    bool clientServerStarted = clientServer_->start(port_,
+    bool clientServerStarted = sFetch_.start(port_,
         [this](const std::string& request) {
             return handleIncomingRequest(request);
         });
     
     if (!clientServerStarted) {
-        auto& logger = logging::getLogger("server");
         logger.error << "Failed to start client server on port " << port_;
-        running_ = false;
+        isRunning_ = false;
         return false;
     }
     
     networkConfig_ = networkConfig;
-    if (networkConfig.enableP2P) {
-        try {
-            initializeP2PNetwork(networkConfig);
-        } catch (const std::exception& e) {
-            auto& logger = logging::getLogger("server");
-            logger.error << "Failed to initialize P2P network: " << e.what();
-            running_ = false;
-            clientServer_->stop();
-            clientServer_.reset();
-            return false;
-        }
-    }
     
     // Set genesis time if not already set
-    if (ukpConsensus_->getGenesisTime() == 0) {
+    if (consensus_.getGenesisTime() == 0) {
         int64_t genesisTime = std::chrono::system_clock::now().time_since_epoch().count();
-        ukpConsensus_->setGenesisTime(genesisTime);
+        consensus_.setGenesisTime(genesisTime);
     }
     
     // Start consensus thread
     consensusThread_ = std::thread(&Server::consensusLoop, this);
     
-    auto& logger = logging::getLogger("server");
     logger.info << "Server started on port " << port_;
-    if (networkConfig.enableP2P) {
-        logger.info << "P2P networking enabled on " << networkConfig.listenAddr << ":" << networkConfig.p2pPort;
-    }
     return true;
 }
 
 void Server::stop() {
-    if (!running_) {
+    if (!isRunning_) {
         return;
     }
     
-    running_ = false;
+    isRunning_ = false;
     
     // Stop client server
-    if (clientServer_) {
-        clientServer_->stop();
-        clientServer_.reset();
-    }
+    sFetch_.stop();
     
     // Wait for consensus thread to finish
     if (consensusThread_.joinable()) {
         consensusThread_.join();
     }
     
-    if (networkConfig_.enableP2P) {
-        shutdownP2PNetwork();
-    }
-    
-    auto& logger = logging::getLogger("server");
-    logger.info << "Server stopped";
+    log().info << "Server stopped";
 }
 
 bool Server::isRunning() const {
-    return running_;
+    return isRunning_;
 }
 
 bool Server::parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port) {
@@ -155,30 +153,6 @@ bool Server::parseHostPort(const std::string& hostPort, std::string& host, uint1
     }
 }
 
-void Server::connectToPeer(const std::string& hostPort) {
-    if (!networkConfig_.enableP2P || !p2pClient_) {
-        auto& logger = logging::getLogger("server");
-        logger.warning << "Cannot connect to peer: P2P not enabled";
-        return;
-    }
-    
-    std::string host;
-    uint16_t port;
-    if (!parseHostPort(hostPort, host, port)) {
-        auto& logger = logging::getLogger("server");
-        logger.error << "Invalid host:port format: " << hostPort;
-        return;
-    }
-    
-    {
-        std::lock_guard<std::mutex> lock(peersMutex_);
-        connectedPeers_.insert(hostPort);
-    }
-    
-    auto& logger = logging::getLogger("server");
-    logger.info << "Added peer: " << hostPort;
-}
-
 size_t Server::getPeerCount() const {
     std::lock_guard<std::mutex> lock(peersMutex_);
     return connectedPeers_.size();
@@ -189,18 +163,14 @@ std::vector<std::string> Server::getConnectedPeers() const {
     return std::vector<std::string>(connectedPeers_.begin(), connectedPeers_.end());
 }
 
-bool Server::isP2PEnabled() const {
-    return networkConfig_.enableP2P && p2pServer_ != nullptr;
-}
-
 void Server::registerStakeholder(const std::string& id, uint64_t stake) {
-    ukpConsensus_->registerStakeholder(id, stake);
+    consensus_.registerStakeholder(id, stake);
     auto& logger = logging::getLogger("server");
     logger.info << "Registered stakeholder '" << id << "' with stake: " << stake;
 }
 
 void Server::setSlotDuration(uint64_t seconds) {
-    ukpConsensus_->setSlotDuration(seconds);
+    consensus_.setSlotDuration(seconds);
     auto& logger = logging::getLogger("server");
     logger.info << "Slot duration set to " << seconds << "s";
 }
@@ -209,51 +179,37 @@ void Server::submitTransaction(const std::string& transaction) {
     auto& logger = logging::getLogger("server");
     
     // Deserialize transaction string to Transaction struct using utility function
-    Ledger::Transaction tx;
-    try {
-        tx = utl::binaryUnpack<Ledger::Transaction>(transaction);
-    } catch (const std::exception& e) {
-        logger.error << "Failed to deserialize transaction: " << e.what();
+    auto txResult = utl::binaryUnpack<Ledger::Transaction>(transaction);
+    if (!txResult) {
+        logger.error << "Failed to deserialize transaction: " << txResult.error().message;
         return;
     }
     
-    // Add transaction to queue
-    {
-        std::lock_guard<std::mutex> lock(transactionQueueMutex_);
-        transactionQueue_.push(transaction);
-    }
-    
-    // Add transaction to ledger
-    auto result = ukpLedger_->addTransaction(tx);
+    auto result = ledger_.addTransaction(txResult.value());
     if (!result) {
         logger.error << "Failed to add transaction: " << result.error().message;
         return;
     }
     
-    logger.debug << "Transaction submitted (fromWallet: " << tx.fromWallet 
-                 << ", toWallet: " << tx.toWallet << ", amount: " << tx.amount << ")";
-}
-
-size_t Server::getPendingTransactionCount() const {
-    std::lock_guard<std::mutex> lock(transactionQueueMutex_);
-    return transactionQueue_.size();
+    logger.debug << "Transaction submitted (fromWallet: " << txResult.value().fromWallet 
+                 << ", toWallet: " << txResult.value().toWallet << ", amount: " << txResult.value().amount << ")";
 }
 
 uint64_t Server::getCurrentSlot() const {
-    return ukpConsensus_->getCurrentSlot();
+    return consensus_.getCurrentSlot();
 }
 
 uint64_t Server::getCurrentEpoch() const {
-    return ukpConsensus_->getCurrentEpoch();
+    return consensus_.getCurrentEpoch();
 }
 
 size_t Server::getBlockCount() const {
-    return ukpLedger_->getBlockCount();
+    return ledger_.getBlockCount();
 }
 
 Server::Roe<int64_t> Server::getBalance(const std::string& walletId) const {
     // Convert from Ledger::Roe to Server::Roe
-    auto result = ukpLedger_->getBalance(walletId);
+    auto result = ledger_.getBalance(walletId);
     if (!result) {
         return Error(1, result.error().message);
     }
@@ -262,14 +218,14 @@ Server::Roe<int64_t> Server::getBalance(const std::string& walletId) const {
 
 bool Server::shouldProduceBlock() const {
     // Produce block if we have pending transactions
-    if (getPendingTransactionCount() == 0) {
+    if (ledger_.getPendingTransactionCount() == 0) {
         return false;
     }
     
     // In multi-node setup, check if we are the slot leader
-    if (networkConfig_.enableP2P && !networkConfig_.nodeId.empty()) {
-        uint64_t currentSlot = ukpConsensus_->getCurrentSlot();
-        auto slotLeaderResult = ukpConsensus_->getSlotLeader(currentSlot);
+    if (!networkConfig_.nodeId.empty()) {
+        uint64_t currentSlot = consensus_.getCurrentSlot();
+        auto slotLeaderResult = consensus_.getSlotLeader(currentSlot);
         
         if (slotLeaderResult && slotLeaderResult.value() == networkConfig_.nodeId) {
             return true;
@@ -283,25 +239,25 @@ bool Server::shouldProduceBlock() const {
 
 Server::Roe<std::shared_ptr<iii::Block>> Server::createBlockFromTransactions() {
     // Check if there are pending transactions
-    if (ukpLedger_->getPendingTransactionCount() == 0) {
+    if (ledger_.getPendingTransactionCount() == 0) {
         return Error(1, "No pending transactions to create block");
     }
     
     // Commit transactions to create a new block
-    auto commitResult = ukpLedger_->commitTransactions();
+    auto commitResult = ledger_.commitTransactions();
     if (!commitResult) {
         return Error(2, "Failed to commit transactions: " + commitResult.error().message);
     }
     
     // Get the newly created block
-    auto latestBlock = ukpLedger_->getLatestBlock();
+    auto latestBlock = ledger_.getLatestBlock();
     if (!latestBlock) {
         return Error(3, "Failed to retrieve newly created block");
     }
     
     // Set slot and slot leader information
-    uint64_t currentSlot = ukpConsensus_->getCurrentSlot();
-    auto slotLeaderResult = ukpConsensus_->getSlotLeader(currentSlot);
+    uint64_t currentSlot = consensus_.getCurrentSlot();
+    auto slotLeaderResult = consensus_.getSlotLeader(currentSlot);
     
     if (!slotLeaderResult) {
         return Error(4, "Failed to get slot leader: " + slotLeaderResult.error().message);
@@ -331,7 +287,7 @@ Server::Roe<void> Server::produceBlock() {
     }
     
     // Broadcast new block to network peers
-    if (networkConfig_.enableP2P && blockResult.value()) {
+    if (blockResult.value()) {
         broadcastBlock(blockResult.value());
     }
     
@@ -344,7 +300,7 @@ Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
     }
     
     // Validate block against consensus
-    auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
+    auto validateResult = consensus_.validateBlock(*block, ledger_);
     if (!validateResult) {
         return Error(2, "Block validation failed: " + validateResult.error().message);
     }
@@ -360,14 +316,14 @@ Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
 }
 
 Server::Roe<void> Server::syncState() {
-    if (!networkConfig_.enableP2P || connectedPeers_.empty()) {
+    if (connectedPeers_.empty()) {
         return Server::Roe<void>();
     }
     
     auto& logger = logging::getLogger("server");
     
     // Get our current block count
-    size_t localBlockCount = ukpLedger_->getBlockCount();
+    size_t localBlockCount = ledger_.getBlockCount();
     
     // Request blocks from peers starting from our current height
     std::vector<std::string> peers;
@@ -396,7 +352,7 @@ Server::Roe<void> Server::syncState() {
             for (size_t i = 0; i < candidateChain->getSize(); ++i) {
                 auto block = candidateChain->getBlock(i);
                 if (block) {
-                    auto validateResult = ukpConsensus_->validateBlock(*block, *ukpLedger_);
+                    auto validateResult = consensus_.validateBlock(*block, ledger_);
                     if (!validateResult || !validateResult.value()) {
                         logger.warning << "Block " << block->getIndex() 
                                        << " in candidate chain failed validation";
@@ -412,7 +368,7 @@ Server::Roe<void> Server::syncState() {
             }
             
             // Check if we should switch to this candidate chain
-            auto switchResult = ukpConsensus_->shouldSwitchChain(*ukpLedger_, *candidateChain);
+            auto switchResult = consensus_.shouldSwitchChain(ledger_, *candidateChain);
             if (!switchResult) {
                 logger.warning << "Chain switch check failed: " 
                               << switchResult.error().message;
@@ -443,7 +399,7 @@ void Server::consensusLoop() {
     auto& logger = logging::getLogger("server");
     logger.info << "Consensus loop started";
     
-    while (running_) {
+    while (isRunning_) {
         try {
             // Check if we should produce a block
             if (shouldProduceBlock()) {
@@ -469,100 +425,18 @@ void Server::consensusLoop() {
     logger.info << "Consensus loop ended";
 }
 
-void Server::initializeP2PNetwork(const NetworkConfig& config) {
-    auto& logger = logging::getLogger("server");
-    logger.info << "Initializing P2P network...";
-    
-    // Create FetchClient and FetchServer
-    p2pClient_ = std::make_unique<network::FetchClient>();
-    p2pServer_ = std::make_unique<network::FetchServer>();
-    
-    // Start the P2P server
-    bool started = p2pServer_->start(config.p2pPort, 
-        [this](const std::string& request) {
-            return handleIncomingRequest(request);
-        });
-    
-    if (!started) {
-        throw std::runtime_error("Failed to start P2P server on port " + std::to_string(config.p2pPort));
-    }
-    
-    logger.info << "P2P server started on port " << config.p2pPort;
-    
-    // Connect to bootstrap peers
-    for (const auto& peerAddr : config.bootstrapPeers) {
-        connectToPeer(peerAddr);
-    }
-    
-    logger.info << "P2P network initialized with " << config.bootstrapPeers.size() << " bootstrap peers";
-}
-
-void Server::shutdownP2PNetwork() {
-    auto& logger = logging::getLogger("server");
-    logger.info << "Shutting down P2P network...";
-            
-    if (p2pServer_) {
-        p2pServer_->stop();
-        p2pServer_.reset();
-    }
-    
-    p2pClient_.reset();
-    
-    {
-        std::lock_guard<std::mutex> lock(peersMutex_);
-        connectedPeers_.clear();
-    }
-    
-    logger.info << "P2P network shutdown complete";
-}
-
 std::string Server::handleIncomingRequest(const std::string& request) {
     auto& logger = logging::getLogger("server");
     logger.debug << "Received network request (" << request.size() << " bytes)";
     
     // First, try to parse as binary Client protocol
-    try {
-        Client::Request clientReq = utl::binaryUnpack<Client::Request>(request);
-        return handleClientRequest(clientReq);
-    } catch (...) {
-        // Not a binary request, try JSON (for backward compatibility with P2P)
+    auto clientReqResult = utl::binaryUnpack<Client::Request>(request);
+    if (clientReqResult) {
+        return handleClientRequest(clientReqResult.value());
     }
     
-    // Try JSON format (P2P protocol)
-    try {
-        auto jsonRequest = nlohmann::json::parse(request);
-        std::string requestType = jsonRequest["type"];
-        
-        if (requestType == "get_blocks") {
-            uint64_t fromIndex = jsonRequest["from_index"];
-            uint64_t count = jsonRequest.value("count", 10);
-            
-            nlohmann::json response;
-            response["type"] = "blocks";
-            response["blocks"] = nlohmann::json::array();
-            
-            // Get blocks from ledger
-            size_t totalBlocks = ukpLedger_->getBlockCount();
-            for (uint64_t i = fromIndex; i < std::min(fromIndex + count, totalBlocks); ++i) {
-                // In a full implementation, serialize each block
-                nlohmann::json blockJson;
-                blockJson["index"] = i;
-                response["blocks"].push_back(blockJson);
-            }
-            
-            return response.dump();
-        } else if (requestType == "new_block") {
-            // Receive new block from peer
-            logger.info << "Received new block from peer";
-            // In full implementation: deserialize and validate block
-            return R"({"status":"received"})"; 
-        }
-    } catch (const std::exception& e) {
-        logger.error << "Error handling request: " << e.what();
-        return R"({"error":"invalid request"})"; 
-    }
-    
-    return R"({"error":"unknown request type"})"; 
+    logger.error << "Error handling request: " << clientReqResult.error().message;
+    return R"({"error":"invalid request"})"; 
 }
 
 std::string Server::handleClientRequest(const Client::Request& request) {
@@ -581,7 +455,7 @@ std::string Server::handleClientRequest(const Client::Request& request) {
     }
     
     try {
-        Roe<std::string> result = Error(Client::E_INVALID_REQUEST, "Unknown request type");
+        Roe<std::string> result = Error(Client::E_INVALID_REQUEST, Client::getErrorMessage(Client::E_INVALID_REQUEST));
         
         switch (request.type) {
             case Client::T_REQ_INFO:
@@ -608,6 +482,7 @@ std::string Server::handleClientRequest(const Client::Request& request) {
             default:
                 logger.warning << "Unknown request type: " << request.type;
                 response.errorCode = Client::E_INVALID_REQUEST;
+                // Note: Error message will be handled by client when it receives the error code
                 return utl::binaryPack(response);
         }
         
@@ -631,14 +506,14 @@ Server::Roe<std::string> Server::handleReqInfo() {
     
     try {
         Client::RespInfo respData;
-        respData.blockCount = ukpLedger_->getBlockCount();
-        respData.currentSlot = ukpConsensus_->getCurrentSlot();
-        respData.currentEpoch = ukpConsensus_->getCurrentEpoch();
-        respData.pendingTransactions = getPendingTransactionCount();
+        respData.blockCount = ledger_.getBlockCount();
+        respData.currentSlot = consensus_.getCurrentSlot();
+        respData.currentEpoch = consensus_.getCurrentEpoch();
+        respData.pendingTransactions = ledger_.getPendingTransactionCount();
         
         return utl::binaryPack(respData);
     } catch (const std::exception& e) {
-        return Error(Client::E_INVALID_DATA, "Failed to get server info: " + std::string(e.what()));
+        return Error(Client::E_INVALID_DATA, Client::getErrorMessage(Client::E_INVALID_DATA) + " Details: " + std::string(e.what()));
     }
 }
 
@@ -646,102 +521,98 @@ Server::Roe<std::string> Server::handleReqQueryWallet(const std::string& request
     auto& logger = logging::getLogger("server");
     logger.debug << "Handling T_REQ_QUERY_WALLET";
     
-    try {
-        Client::ReqWalletInfo reqData = utl::binaryUnpack<Client::ReqWalletInfo>(requestData);
-        
-        auto balanceResult = ukpLedger_->getBalance(reqData.walletId);
-        if (!balanceResult) {
-            return Error(Client::E_INVALID_WALLET, "Wallet not found: " + reqData.walletId);
-        }
-        
-        Client::RespWalletInfo respData;
-        respData.walletId = reqData.walletId;
-        respData.balance = balanceResult.value();
-        
-        return utl::binaryPack(respData);
-    } catch (const std::exception& e) {
-        return Error(Client::E_INVALID_DATA, "Failed to query wallet: " + std::string(e.what()));
+    auto reqDataResult = utl::binaryUnpack<Client::ReqWalletInfo>(requestData);
+    if (!reqDataResult) {
+        return Error(Client::E_INVALID_DATA, Client::getErrorMessage(Client::E_INVALID_DATA) + " Details: " + reqDataResult.error().message);
     }
+    
+    const auto& reqData = reqDataResult.value();
+    auto balanceResult = ledger_.getBalance(reqData.walletId);
+    if (!balanceResult) {
+        return Error(Client::E_INVALID_WALLET, Client::getErrorMessage(Client::E_INVALID_WALLET) + " Wallet ID: " + reqData.walletId);
+    }
+    
+    Client::RespWalletInfo respData;
+    respData.walletId = reqData.walletId;
+    respData.balance = balanceResult.value();
+    
+    return utl::binaryPack(respData);
 }
 
 Server::Roe<std::string> Server::handleReqAddTransaction(const std::string& requestData) {
     auto& logger = logging::getLogger("server");
     logger.debug << "Handling T_REQ_ADD_TRANSACTION";
     
-    try {
-        Client::ReqAddTransaction reqData = utl::binaryUnpack<Client::ReqAddTransaction>(requestData);
-        
-        // Submit transaction to the server
-        submitTransaction(reqData.transaction);
-        
-        Client::RespAddTransaction respData;
-        respData.transaction = reqData.transaction;
-        
-        return utl::binaryPack(respData);
-    } catch (const std::exception& e) {
-        return Error(Client::E_INVALID_TRANSACTION, "Failed to add transaction: " + std::string(e.what()));
+    auto reqDataResult = utl::binaryUnpack<Client::ReqAddTransaction>(requestData);
+    if (!reqDataResult) {
+        return Error(Client::E_INVALID_TRANSACTION, Client::getErrorMessage(Client::E_INVALID_TRANSACTION) + " Details: " + reqDataResult.error().message);
     }
+    
+    const auto& reqData = reqDataResult.value();
+    // Submit transaction to the server
+    submitTransaction(reqData.transaction);
+    
+    Client::RespAddTransaction respData;
+    respData.transaction = reqData.transaction;
+    
+    return utl::binaryPack(respData);
 }
 
 Server::Roe<std::string> Server::handleReqValidators() {
     auto& logger = logging::getLogger("server");
     logger.debug << "Handling T_REQ_VALIDATORS";
     
-    try {
-        // Get registered stakeholders/validators from consensus
-        Client::RespValidators respData;
-        auto stakeholders = ukpConsensus_->getStakeholders();
-        
-        for (const auto& stakeholder : stakeholders) {
-            Client::ValidatorInfo validatorInfo;
-            validatorInfo.id = stakeholder.id;
-            validatorInfo.stake = stakeholder.stake;
-            respData.validators.push_back(validatorInfo);
-        }
-        
-        return utl::binaryPack(respData);
-    } catch (const std::exception& e) {
-        return Error(Client::E_INVALID_DATA, "Failed to get validators: " + std::string(e.what()));
+    // Get registered stakeholders/validators from consensus
+    Client::RespValidators respData;
+    auto stakeholders = consensus_.getStakeholders();
+    
+    for (const auto& stakeholder : stakeholders) {
+        Client::ValidatorInfo validatorInfo;
+        validatorInfo.id = stakeholder.id;
+        validatorInfo.stake = stakeholder.stake;
+        respData.validators.push_back(validatorInfo);
     }
+    
+    return utl::binaryPack(respData);
 }
 
 Server::Roe<std::string> Server::handleReqBlocks(const std::string& requestData) {
     auto& logger = logging::getLogger("server");
     logger.debug << "Handling T_REQ_BLOCKS";
     
-    try {
-        Client::ReqBlocks reqData = utl::binaryUnpack<Client::ReqBlocks>(requestData);
-        
-        Client::RespBlocks respData;
-        size_t totalBlocks = ukpLedger_->getBlockCount();
-        
-        for (uint64_t i = reqData.fromIndex; 
-             i < std::min(reqData.fromIndex + reqData.count, static_cast<uint64_t>(totalBlocks)); 
-             ++i) {
-            // Get block and serialize it
-            auto block = ukpLedger_->getBlock(i);
-            if (block) {
-                Client::BlockInfo blockInfo;
-                blockInfo.index = block->getIndex();
-                blockInfo.timestamp = block->getTimestamp();
-                blockInfo.data = block->getData();
-                blockInfo.previousHash = block->getPreviousHash();
-                blockInfo.hash = block->getHash();
-                blockInfo.slot = block->getSlot();
-                blockInfo.slotLeader = block->getSlotLeader();
-                respData.blocks.push_back(blockInfo);
-            }
-        }
-        
-        logger.debug << "Returning " << respData.blocks.size() << " blocks";
-        return utl::binaryPack(respData);
-    } catch (const std::exception& e) {
-        return Error(Client::E_INVALID_DATA, "Failed to get blocks: " + std::string(e.what()));
+    auto reqDataResult = utl::binaryUnpack<Client::ReqBlocks>(requestData);
+    if (!reqDataResult) {
+        return Error(Client::E_INVALID_DATA, Client::getErrorMessage(Client::E_INVALID_DATA) + " Details: " + reqDataResult.error().message);
     }
+    
+    const auto& reqData = reqDataResult.value();
+    Client::RespBlocks respData;
+    size_t totalBlocks = ledger_.getBlockCount();
+    
+    for (uint64_t i = reqData.fromIndex; 
+         i < std::min(reqData.fromIndex + reqData.count, static_cast<uint64_t>(totalBlocks)); 
+         ++i) {
+        // Get block and serialize it
+        auto block = ledger_.getBlock(i);
+        if (block) {
+            Client::BlockInfo blockInfo;
+            blockInfo.index = block->getIndex();
+            blockInfo.timestamp = block->getTimestamp();
+            blockInfo.data = block->getData();
+            blockInfo.previousHash = block->getPreviousHash();
+            blockInfo.hash = block->getHash();
+            blockInfo.slot = block->getSlot();
+            blockInfo.slotLeader = block->getSlotLeader();
+            respData.blocks.push_back(blockInfo);
+        }
+    }
+    
+    logger.debug << "Returning " << respData.blocks.size() << " blocks";
+    return utl::binaryPack(respData);
 }
 
 void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
-    if (!block || !p2pClient_) {
+    if (!block) {
         return;
     }
     
@@ -769,7 +640,7 @@ void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
         std::string host;
         uint16_t port;
         if (parseHostPort(peerAddr, host, port)) {
-            auto result = p2pClient_->fetchSync(host, port, messageStr);
+            auto result = cFetch_.fetchSync(host, port, messageStr);
             if (result.isOk()) {
                 logger.debug << "Sent block to peer: " << peerAddr;
             } else {
@@ -802,10 +673,6 @@ Server::Roe<std::vector<std::shared_ptr<iii::Block>>>
 Server::fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex) {   
     auto& logger = logging::getLogger("server");
     
-    if (!p2pClient_) {
-        return Error(1, "P2P client not initialized");
-    }
-    
     std::string host;
     uint16_t port;
     if (!parseHostPort(hostPort, host, port)) {
@@ -821,7 +688,7 @@ Server::fetchBlocksFromPeer(const std::string& hostPort, uint64_t fromIndex) {
     try {
         logger.debug << "Fetching blocks from peer: " << hostPort;
         
-        auto result = p2pClient_->fetchSync(host, port, request.dump());
+        auto result = cFetch_.fetchSync(host, port, request.dump());
         if (!result.isOk()) {
             return Error(3, "Failed to fetch from peer: " + result.error().message);
         }
@@ -927,7 +794,7 @@ Server::Roe<void> Server::initStorage(const std::string& dataDir) {
         storageConfig.blockDirFileSize = 100 * 1024 * 1024; // 100MB
         
         // Initialize ledger storage
-        auto result = ukpLedger_->initStorage(storageConfig);
+        auto result = ledger_.initStorage(storageConfig);
         if (!result) {
             return Error(1, "Failed to initialize ledger storage: " + result.error().message);
         }

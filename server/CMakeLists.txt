@@ -13,6 +13,7 @@ target_include_directories(ppledger_server PUBLIC
 target_link_libraries(ppledger_server PUBLIC
     ppledger_lib
     ppledger_ledger
+    ppledger_client
     consensus
     network
 )

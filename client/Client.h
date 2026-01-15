@@ -50,6 +50,9 @@ public:
     static constexpr const uint16_t E_INVALID_LEDGER = 13; // Invalid ledger
     static constexpr const uint16_t E_INVALID_WALLET = 14; // Invalid wallet
     static constexpr const uint16_t E_INVALID_ADDRESS = 15; // Invalid address
+    
+    // Get human-friendly error message for an error code
+    static std::string getErrorMessage(uint16_t errorCode);
 
     struct Request {
         uint16_t version;
