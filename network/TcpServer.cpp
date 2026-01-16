@@ -4,19 +4,22 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <string>
 
 namespace pp {
 namespace network {
 
 TcpServer::TcpServer()
-    : socketFd_(-1), epollFd_(-1), listening_(false), port_(0) {}
+    : socketFd_(-1), epollFd_(-1), listening_(false), port_(0), originalHost_("") {}
 
 TcpServer::~TcpServer() { stop(); }
 
-TcpServer::Roe<void> TcpServer::listen(uint16_t port, int backlog) {
+TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, int backlog) {
   if (listening_) {
     return Error("Server already listening");
   }
@@ -39,8 +42,24 @@ TcpServer::Roe<void> TcpServer::listen(uint16_t port, int backlog) {
   struct sockaddr_in server_addr;
   std::memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
   server_addr.sin_port = htons(port);
+
+  // Store original host for getHost()
+  originalHost_ = host;
+
+  // Parse host address
+  if (host == "0.0.0.0" || host.empty()) {
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+  } else if (host == "localhost" || host == "127.0.0.1") {
+    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  } else {
+    // Try to convert host string to IP address
+    if (inet_aton(host.c_str(), &server_addr.sin_addr) == 0) {
+      ::close(socketFd_);
+      socketFd_ = -1;
+      return Error("Invalid host address: " + host);
+    }
+  }
 
   // Bind socket
   if (bind(socketFd_, (struct sockaddr *)&server_addr, sizeof(server_addr)) <
@@ -142,6 +161,66 @@ void TcpServer::stop() {
 }
 
 bool TcpServer::isListening() const { return listening_; }
+
+std::string TcpServer::getHost() const {
+  if (!listening_ || socketFd_ < 0) {
+    return originalHost_.empty() ? "localhost" : originalHost_;
+  }
+
+  // If bound to INADDR_ANY (0.0.0.0), get the actual bound address
+  if (originalHost_ == "0.0.0.0" || originalHost_.empty()) {
+    return getBoundAddress();
+  }
+
+  // Return the original host
+  return originalHost_;
+}
+
+std::string TcpServer::getBoundAddress() const {
+  if (socketFd_ < 0) {
+    return "0.0.0.0";
+  }
+
+  // Get the bound address using getsockname
+  struct sockaddr_in addr;
+  socklen_t addr_len = sizeof(addr);
+  if (getsockname(socketFd_, (struct sockaddr *)&addr, &addr_len) == 0) {
+    // If bound to INADDR_ANY, try to get a non-loopback interface address
+    if (addr.sin_addr.s_addr == INADDR_ANY || addr.sin_addr.s_addr == 0) {
+      // Try to get the first non-loopback interface address
+      struct ifaddrs *ifaddrs_ptr = nullptr;
+      if (getifaddrs(&ifaddrs_ptr) == 0) {
+        for (struct ifaddrs *ifa = ifaddrs_ptr; ifa != nullptr; ifa = ifa->ifa_next) {
+          if (ifa->ifa_addr == nullptr) {
+            continue;
+          }
+          if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+            // Skip loopback interfaces
+            if (sin->sin_addr.s_addr != inet_addr("127.0.0.1") &&
+                sin->sin_addr.s_addr != 0) {
+              char addr_str[INET_ADDRSTRLEN];
+              inet_ntop(AF_INET, &sin->sin_addr, addr_str, INET_ADDRSTRLEN);
+              freeifaddrs(ifaddrs_ptr);
+              return std::string(addr_str);
+            }
+          }
+        }
+        freeifaddrs(ifaddrs_ptr);
+      }
+      // If no non-loopback interface found, return 0.0.0.0
+      return "0.0.0.0";
+    } else {
+      // Return the actual bound address
+      char addr_str[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, &addr.sin_addr, addr_str, INET_ADDRSTRLEN);
+      return std::string(addr_str);
+    }
+  }
+
+  // Fallback
+  return "0.0.0.0";
+}
 
 } // namespace network
 } // namespace pp

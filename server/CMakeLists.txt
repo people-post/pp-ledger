@@ -2,6 +2,8 @@
 add_library(pp_server STATIC
     Server.cpp
     Server.h
+    Beacon.cpp
+    Beacon.h
 )
 
 target_include_directories(pp_server PUBLIC

@@ -18,3 +18,13 @@ target_link_libraries(pp-client PRIVATE
     pp_client
     pp_ledger
 )
+
+# Beacon executable
+add_executable(pp-beacon
+    beacon.cpp
+)
+
+target_link_libraries(pp-beacon PRIVATE
+    pp_lib
+    pp_server
+)

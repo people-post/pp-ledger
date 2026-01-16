@@ -12,11 +12,13 @@
 
 namespace pp {
 
-Server::Server() : Service("server") { log().info << "Server initialized"; }
+Server::Server() : Service("server") {
+  log().info << "Server initialized";
+}
 
 bool Server::start(const std::string &dataDir) {
   if (isRunning()) {
-    log().warning << "Server is already running on port " << port_;
+    log().warning << "Server is already running on port " << config_.network.port;
     return false;
   }
 
@@ -50,40 +52,27 @@ bool Server::start(const std::string &dataDir) {
 }
 
 bool Server::onStart() {
-  // Start client server (listens on main port for client connections)
-  bool clientServerStarted =
-      sFetch_.start(port_, [this](const std::string &request) {
-        return handleIncomingRequest(request);
-      });
+  // Start fetch server (listens on main port for client connections)
+  network::FetchServer::Config fetchServerConfig;
+  fetchServerConfig.host = config_.network.host;
+  fetchServerConfig.port = config_.network.port;
+  fetchServerConfig.handler = [this](const std::string &request) {
+    return handleIncomingRequest(request);
+  };
+  bool fetchServerStarted = sFetch_.start(fetchServerConfig);
 
-  if (!clientServerStarted) {
-    log().error << "Failed to start client server on port " << port_;
+  if (!fetchServerStarted) {
+    log().error << "Failed to start fetch server on " << config_.network.host << ":" << config_.network.port;
     return false;
   }
 
-  log().info << "Server started on port " << port_;
+  log().info << "Fetch server started on " << config_.network.host << ":" << config_.network.port;
   return true;
 }
 
 void Server::onStop() {
   // Stop client server
   sFetch_.stop();
-}
-
-bool Server::parseHostPort(const std::string &hostPort, std::string &host,
-                           uint16_t &port) {
-  return utl::parseHostPort(hostPort, host, port);
-}
-
-size_t Server::getPeerCount() const {
-  std::lock_guard<std::mutex> lock(peersMutex_);
-  return connectedPeers_.size();
-}
-
-std::vector<std::string> Server::getConnectedPeers() const {
-  std::lock_guard<std::mutex> lock(peersMutex_);
-  return std::vector<std::string>(connectedPeers_.begin(),
-                                  connectedPeers_.end());
 }
 
 void Server::registerStakeholder(const std::string &id, uint64_t stake) {
@@ -141,11 +130,11 @@ bool Server::shouldProduceBlock() const {
   }
 
   // In multi-node setup, check if we are the slot leader
-  if (!networkConfig_.nodeId.empty()) {
+  if (!config_.network.nodeId.empty()) {
     uint64_t currentSlot = consensus_.getCurrentSlot();
     auto slotLeaderResult = consensus_.getSlotLeader(currentSlot);
 
-    if (slotLeaderResult && slotLeaderResult.value() == networkConfig_.nodeId) {
+    if (slotLeaderResult && slotLeaderResult.value() == config_.network.nodeId) {
       return true;
     }
     return false;
@@ -237,20 +226,11 @@ Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
 }
 
 Server::Roe<void> Server::syncState() {
-  if (connectedPeers_.empty()) {
-    return Server::Roe<void>();
-  }
-
   // Get our current block count
   size_t localBlockCount = ledger_.getBlockCount();
 
   // Request blocks from peers starting from our current height
   std::vector<std::string> peers;
-  {
-    std::lock_guard<std::mutex> lock(peersMutex_);
-    peers = std::vector<std::string>(connectedPeers_.begin(),
-                                     connectedPeers_.end());
-  }
 
   for (const auto &peerAddr : peers) {
     auto blocksResult = fetchBlocksFromPeer(peerAddr, localBlockCount);
@@ -371,16 +351,22 @@ Server::Roe<void> Server::loadConfig(const std::string &configPath) {
     return Error(4, "Failed to parse JSON: " + std::string(e.what()));
   }
 
-  // Load port
-  if (!config.contains("port") || !config["port"].is_number()) {
-    return Error(3, "Configuration file missing or invalid 'port' field");
-  }
-  
-  // Use value() with default to avoid exception
-  if (config["port"].is_number_integer()) {
-    port_ = config["port"].get<int>();
+  // Load host (optional, default: "localhost")
+  if (config.contains("host") && config["host"].is_string()) {
+    config_.network.host = config["host"].get<std::string>();
   } else {
-    return Error(3, "Configuration file 'port' field is not an integer");
+    config_.network.host = Client::DEFAULT_HOST;
+  }
+
+  // Load port (optional, default: 8517)
+  if (config.contains("port") && config["port"].is_number()) {
+    if (config["port"].is_number_integer()) {
+      config_.network.port = config["port"].get<int>();
+    } else {
+      return Error(3, "Configuration file 'port' field is not an integer");
+    }
+  } else {
+    config_.network.port = Client::DEFAULT_PORT;
   }
 
   // Load network configuration (optional, defaults will be used if not
@@ -388,15 +374,16 @@ Server::Roe<void> Server::loadConfig(const std::string &configPath) {
   if (config.contains("network") && config["network"].is_object()) {
     const auto &network = config["network"];
     if (network.contains("nodeId") && network["nodeId"].is_string()) {
-      networkConfig_.nodeId = network["nodeId"].get<std::string>();
+      config_.network.nodeId = network["nodeId"].get<std::string>();
     }
     if (network.contains("maxPeers") && network["maxPeers"].is_number_unsigned()) {
-      networkConfig_.maxPeers = network["maxPeers"].get<uint16_t>();
+      config_.network.maxPeers = network["maxPeers"].get<uint16_t>();
     }
   }
 
   log().info << "Configuration loaded from " << configPath;
-  log().info << "  Port: " << port_;
+  log().info << "  Host: " << config_.network.host;
+  log().info << "  Port: " << config_.network.port;
   return {};
 }
 
@@ -598,71 +585,18 @@ Server::handleReqBlocks(const std::string &requestData) {
 }
 
 void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
-  if (!block) {
-    return;
-  }
-
-  log().info << "Broadcasting block " << block->getIndex() << " to "
-              << connectedPeers_.size() << " peers";
-
-  // Create block broadcast message
-  nlohmann::json message;
-  message["type"] = "new_block";
-  message["index"] = block->getIndex();
-  message["slot"] = block->getSlot();
-  message["prev_hash"] = block->getPreviousHash();
-  message["hash"] = block->getHash();
-
-  std::string messageStr = message.dump();
-
-  std::vector<std::string> peers;
-  {
-    std::lock_guard<std::mutex> lock(peersMutex_);
-    peers = std::vector<std::string>(connectedPeers_.begin(),
-                                     connectedPeers_.end());
-  }
-
-  // Send to each connected peer
-  for (const auto &peerAddr : peers) {
-    std::string host;
-    uint16_t port;
-    if (parseHostPort(peerAddr, host, port)) {
-      auto result = cFetch_.fetchSync(host, port, messageStr);
-      if (result.isOk()) {
-        log().debug << "Sent block to peer: " << peerAddr;
-      } else {
-        log().warning << "Failed to send block to peer " << peerAddr << ": "
-                       << result.error().message;
-      }
-    }
-  }
+  // TODO: Implement block broadcasting
 }
 
 void Server::requestBlocksFromPeers(uint64_t fromIndex) {
-  log().info << "Requesting blocks from index " << fromIndex;
-
-  std::vector<std::string> peers;
-  {
-    std::lock_guard<std::mutex> lock(peersMutex_);
-    peers = std::vector<std::string>(connectedPeers_.begin(),
-                                     connectedPeers_.end());
-  }
-
-  for (const auto &peerAddr : peers) {
-    auto blocksResult = fetchBlocksFromPeer(peerAddr, fromIndex);
-    if (blocksResult && !blocksResult.value().empty()) {
-      log().info << "Received " << blocksResult.value().size()
-                  << " blocks from peer";
-      break; // Got blocks from one peer, that's enough
-    }
-  }
+  // TODO: Implement block request from peers
 }
 
 Server::Roe<std::vector<std::shared_ptr<iii::Block>>>
 Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
   std::string host;
   uint16_t port;
-  if (!parseHostPort(hostPort, host, port)) {
+  if (!utl::parseHostPort(hostPort, host, port)) {
     return Error(2, "Invalid peer address format");
   }
 

@@ -4,12 +4,18 @@
 #include "../lib/Utilities.h"
 #include "Logger.h"
 
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 
 void printUsage() {
-  std::cout << "Usage: pp-ledger-client <host> <port> <command> [args...]\n";
+  std::cout << "Usage: pp-client [OPTIONS] <command> [args...]\n";
+  std::cout << "\nOptions:\n";
+  std::cout << "  -h <host>        - Server host (optional, default: localhost)\n";
+  std::cout << "  -h <host:port>   - Server host and port in one argument\n";
+  std::cout << "  -p <port>        - Server port (optional, default: 8517)\n";
   std::cout << "\nCommands:\n";
   std::cout << "  info                           - Get server information\n";
   std::cout << "  wallet <walletId>              - Get wallet balance\n";
@@ -17,11 +23,14 @@ void printUsage() {
   std::cout << "  validators                     - Get validators list\n";
   std::cout << "  blocks <fromIndex> <count>     - Get blocks\n";
   std::cout << "\nExamples:\n";
-  std::cout << "  pp-ledger-client localhost 8080 info\n";
-  std::cout << "  pp-ledger-client localhost 8080 wallet wallet1\n";
-  std::cout << "  pp-ledger-client localhost 8080 add-tx wallet1 wallet2 100\n";
-  std::cout << "  pp-ledger-client localhost 8080 validators\n";
-  std::cout << "  pp-ledger-client localhost 8080 blocks 0 10\n";
+  std::cout << "  pp-client info                                    # Use defaults (localhost:8517)\n";
+  std::cout << "  pp-client -h localhost info                       # Use default port\n";
+  std::cout << "  pp-client -h localhost -p 8080 info               # Specify both\n";
+  std::cout << "  pp-client -h localhost:8080 info                  # Use host:port format\n";
+  std::cout << "  pp-client -h localhost -p 8080 wallet wallet1\n";
+  std::cout << "  pp-client -h localhost:8080 add-tx wallet1 wallet2 100\n";
+  std::cout << "  pp-client -p 8080 validators                     # Use default host\n";
+  std::cout << "  pp-client -h localhost:8080 blocks 0 10\n";
 }
 
 void printInfo(const pp::Client::RespInfo &info) {
@@ -72,19 +81,64 @@ int main(int argc, char *argv[]) {
   auto rootLogger = pp::logging::getRootLogger();
   rootLogger->info << "PP-Ledger Client v" << pp::Client::VERSION;
 
-  if (argc < 4) {
-    std::cerr << "Error: Host, port, and command required.\n";
+  if (argc < 2) {
+    std::cerr << "Error: Command required.\n";
     printUsage();
     return 1;
   }
 
-  std::string host = argv[1];
-  uint16_t port = 0;
-  if (!pp::utl::parsePort(argv[2], port)) {
-    std::cerr << "Error: Invalid port number: " << argv[2] << "\n";
+  // Parse arguments using simple command-line parser
+  std::string host = pp::Client::DEFAULT_HOST;
+  uint16_t port = pp::Client::DEFAULT_PORT;
+  std::vector<std::string> positionalArgs;
+
+  // Parse options
+  for (int i = 1; i < argc; ++i) {
+    if (strcmp(argv[i], "-h") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: -h option requires a host value.\n";
+        printUsage();
+        return 1;
+      }
+      std::string hostArg = argv[++i];
+      
+      // Check if hostArg contains ':' (host:port format)
+      std::string parsedHost;
+      uint16_t parsedPort = 0;
+      if (pp::utl::parseHostPort(hostArg, parsedHost, parsedPort)) {
+        // Format: host:port
+        host = parsedHost;
+        port = parsedPort;
+      } else {
+        // Just host (or invalid format, but we'll treat it as host)
+        host = hostArg;
+      }
+    } else if (strcmp(argv[i], "-p") == 0) {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: -p option requires a port value.\n";
+        printUsage();
+        return 1;
+      }
+      uint16_t parsedPort = 0;
+      if (!pp::utl::parsePort(argv[++i], parsedPort)) {
+        std::cerr << "Error: Invalid port number: " << argv[i] << "\n";
+        printUsage();
+        return 1;
+      }
+      port = parsedPort;
+    } else {
+      // Positional argument (command and its arguments)
+      positionalArgs.push_back(argv[i]);
+    }
+  }
+
+  if (positionalArgs.empty()) {
+    std::cerr << "Error: Command required.\n";
+    printUsage();
     return 1;
   }
-  std::string command = argv[3];
+
+  std::string command = positionalArgs[0];
 
   auto logger = pp::logging::getLogger("client");
   logger->setLevel(
@@ -107,12 +161,12 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "wallet") {
-      if (argc < 5) {
+      if (positionalArgs.size() < 2) {
         std::cerr << "Error: wallet command requires <walletId>\n";
         printUsage();
         exitCode = 1;
       } else {
-        std::string walletId = argv[4];
+        std::string walletId = positionalArgs[1];
         auto result = client.getWalletInfo(walletId);
         if (result) {
           printWalletInfo(result.value());
@@ -122,17 +176,17 @@ int main(int argc, char *argv[]) {
         }
       }
     } else if (command == "add-tx") {
-      if (argc < 7) {
+      if (positionalArgs.size() < 4) {
         std::cerr << "Error: add-tx command requires <fromWallet> <toWallet> "
                      "<amount>\n";
         printUsage();
         exitCode = 1;
       } else {
-        std::string fromWallet = argv[4];
-        std::string toWallet = argv[5];
+        std::string fromWallet = positionalArgs[1];
+        std::string toWallet = positionalArgs[2];
         int64_t amount = 0;
-        if (!pp::utl::parseInt64(argv[6], amount)) {
-          std::cerr << "Error: Invalid amount: " << argv[6] << "\n";
+        if (!pp::utl::parseInt64(positionalArgs[3], amount)) {
+          std::cerr << "Error: Invalid amount: " << positionalArgs[3] << "\n";
           exitCode = 1;
         } else {
           // Create and serialize transaction
@@ -160,15 +214,15 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "blocks") {
-      if (argc < 6) {
+      if (positionalArgs.size() < 3) {
         std::cerr << "Error: blocks command requires <fromIndex> <count>\n";
         printUsage();
         exitCode = 1;
       } else {
         uint64_t fromIndex = 0;
         uint64_t count = 0;
-        if (!pp::utl::parseUInt64(argv[4], fromIndex) ||
-            !pp::utl::parseUInt64(argv[5], count)) {
+        if (!pp::utl::parseUInt64(positionalArgs[1], fromIndex) ||
+            !pp::utl::parseUInt64(positionalArgs[2], count)) {
           std::cerr << "Error: Invalid fromIndex or count\n";
           exitCode = 1;
         } else {

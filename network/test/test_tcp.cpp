@@ -269,7 +269,7 @@ TEST_F(TcpServerTest, ConstructsSuccessfully) {
 }
 
 TEST_F(TcpServerTest, ListenOnPort) {
-    auto result = server->listen(testPort);
+    auto result = server->listen("127.0.0.1", testPort);
     
     EXPECT_TRUE(result.isOk());
     EXPECT_TRUE(server->isListening());
@@ -277,7 +277,7 @@ TEST_F(TcpServerTest, ListenOnPort) {
 
 TEST_F(TcpServerTest, ListenFailsOnInvalidPort) {
     // Port 0 is typically invalid
-    auto result = server->listen(0);
+    auto result = server->listen("127.0.0.1", 0);
     
     // This might succeed on some systems, so we just check it doesn't crash
     // If it fails, that's expected
@@ -287,10 +287,10 @@ TEST_F(TcpServerTest, ListenFailsOnInvalidPort) {
 }
 
 TEST_F(TcpServerTest, ListenFailsWhenAlreadyListening) {
-    auto result1 = server->listen(testPort);
+    auto result1 = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(result1.isOk());
     
-    auto result2 = server->listen(testPort + 1);
+    auto result2 = server->listen("127.0.0.1", testPort + 1);
     
     EXPECT_TRUE(result2.isError());
 }
@@ -314,7 +314,7 @@ TEST_F(TcpServerTest, StopWhenNotListening) {
 }
 
 TEST_F(TcpServerTest, StopWhenListening) {
-    auto result = server->listen(testPort);
+    auto result = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(result.isOk());
     
     server->stop();
@@ -352,7 +352,7 @@ protected:
 
 TEST_F(TcpIntegrationTest, ClientConnectsToServer) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     // Give server time to start
@@ -369,7 +369,7 @@ TEST_F(TcpIntegrationTest, ClientConnectsToServer) {
 
 TEST_F(TcpIntegrationTest, ClientSendsDataToServer) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -393,7 +393,7 @@ TEST_F(TcpIntegrationTest, ClientSendsDataToServer) {
 
 TEST_F(TcpIntegrationTest, ServerReceivesDataFromClient) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -432,7 +432,7 @@ TEST_F(TcpIntegrationTest, ServerReceivesDataFromClient) {
 
 TEST_F(TcpIntegrationTest, FullBidirectionalCommunication) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -483,7 +483,7 @@ TEST_F(TcpIntegrationTest, FullBidirectionalCommunication) {
 
 TEST_F(TcpIntegrationTest, ReceiveLine) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -520,7 +520,7 @@ TEST_F(TcpIntegrationTest, ReceiveLine) {
 
 TEST_F(TcpIntegrationTest, MultipleConnections) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -560,7 +560,7 @@ TEST_F(TcpIntegrationTest, MultipleConnections) {
 
 TEST_F(TcpIntegrationTest, ClientClosesConnection) {
     // Start server
-    auto listenResult = server->listen(testPort);
+    auto listenResult = server->listen("127.0.0.1", testPort);
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));

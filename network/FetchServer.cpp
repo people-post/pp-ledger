@@ -1,22 +1,22 @@
 #include "FetchServer.h"
+#include <string>
 
 namespace pp {
 namespace network {
 
-FetchServer::FetchServer() : Service("network.fetch_server"), port_(0) {
+FetchServer::FetchServer() : Service("network.fetch_server") {
   log().info << "FetchServer initialized";
 }
 
-bool FetchServer::start(uint16_t port, RequestHandler handler) {
+bool FetchServer::start(const Config &config) {
   if (isRunning()) {
     log().warning << "Server is already running";
     return false;
   }
 
-  port_ = port;
-  handler_ = std::move(handler);
+  config_ = config;
 
-  log().info << "Starting server on port: " + std::to_string(port_);
+  log().info << "Starting server on " << config_.host << ":" << config_.port;
 
   // Call base class start() which will call onStart() then spawn thread
   return Service::start();
@@ -24,14 +24,14 @@ bool FetchServer::start(uint16_t port, RequestHandler handler) {
 
 bool FetchServer::onStart() {
   // Start listening
-  auto listenResult = server_.listen(port_);
+  auto listenResult = server_.listen(config_.host, config_.port);
   if (!listenResult) {
     std::string errorMsg = listenResult.error().message;
     log().error << "Failed to start listening: " + errorMsg;
     return false;
   }
 
-  log().info << "Server started successfully on port " + std::to_string(port_);
+  log().info << "Server started successfully on " << config_.host << ":" << config_.port;
   return true;
 }
 
@@ -77,7 +77,7 @@ void FetchServer::run() {
     // Process the request
     std::string response;
     try {
-      response = handler_(request);
+      response = config_.handler(request);
       log().debug << "Request processed successfully";
     } catch (const std::exception &e) {
       log().error << "Error processing request: " + std::string(e.what());

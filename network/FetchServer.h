@@ -20,6 +20,12 @@ class FetchServer : public Service {
 public:
   using RequestHandler = std::function<std::string(const std::string &)>;
 
+  struct Config {
+    std::string host;
+    uint16_t port{ 0 };
+    RequestHandler handler{ nullptr };
+  };
+
   /**
    * Constructor
    */
@@ -28,17 +34,22 @@ public:
   ~FetchServer() override = default;
 
   /**
-   * Start the server on specified port
-   * @param port Port to listen on
-   * @param handler Function to handle incoming requests
+   * Start the server on specified host and port
+   * @param config Configuration for the server
    * @return true if server started successfully
    */
-  bool start(uint16_t port, RequestHandler handler);
+  bool start(const Config &config);
 
   /**
    * Get the port the server is listening on
    */
-  uint16_t getPort() const { return port_; }
+  uint16_t getPort() const { return server_.getPort(); }
+
+  /**
+   * Get the host address the server is bound to
+   * Returns the external address when able to accept non-local connections
+   */
+  std::string getHost() const { return server_.getHost(); }
 
 protected:
   /**
@@ -58,8 +69,7 @@ protected:
 
 private:
   TcpServer server_;
-  RequestHandler handler_;
-  uint16_t port_;
+  Config config_;
 };
 
 } // namespace network

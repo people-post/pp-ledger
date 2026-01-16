@@ -51,9 +51,13 @@ TEST_F(FetchServerTest, CreatesSuccessfully) {
 }
 
 TEST_F(FetchServerTest, StartsAndStops) {
-    bool started = server->start(18880, [](const std::string& req) {
+    FetchServer::Config config;
+    config.host = "127.0.0.1";
+    config.port = 18880;
+    config.handler = [](const std::string& req) {
         return "Echo: " + req;
-    });
+    };
+    bool started = server->start(config);
     
     EXPECT_TRUE(started);
     EXPECT_TRUE(server->isRunning());
@@ -64,19 +68,28 @@ TEST_F(FetchServerTest, StartsAndStops) {
 }
 
 TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
-    bool started1 = server->start(18881, [](const std::string& req) {
+    FetchServer::Config config;
+    config.host = "127.0.0.1";
+    config.port = 18881;
+    config.handler = [](const std::string& req) {
         return "Echo: " + req;
-    });
+    };
+    bool started1 = server->start(config);
     EXPECT_TRUE(started1);
     
     // Create second server
     FetchServer server2;
-    bool started2 = server2.start(18881, [](const std::string& req) {
+    FetchServer::Config config2;
+    config2.host = "127.0.0.1";
+    config2.port = 18881;
+    config2.handler = [](const std::string& req) {
         return "Echo: " + req;
-    });
+    };
+    bool started2 = server2.start(config2);
     EXPECT_FALSE(started2);
     
     server->stop();
+    server2.stop();
 }
 
 // Integration test
@@ -101,9 +114,13 @@ protected:
 
 TEST_F(FetchIntegrationTest, ClientServerCommunication) {
     // Start server
-    bool started = server->start(18882, [](const std::string& req) {
+    FetchServer::Config config;
+    config.host = "127.0.0.1";
+    config.port = 18882;
+    config.handler = [](const std::string& req) {
         return "Echo: " + req;
-    });
+    };
+    bool started = server->start(config);
     ASSERT_TRUE(started);
     
     // Give server time to start
@@ -120,9 +137,13 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
 
 TEST_F(FetchIntegrationTest, MultipleRequests) {
     // Start server
-    bool started = server->start(18883, [](const std::string& req) {
+    FetchServer::Config config;
+    config.host = "127.0.0.1";
+    config.port = 18883;
+    config.handler = [](const std::string& req) {
         return "Response: " + req;
-    });
+    };
+    bool started = server->start(config);
     ASSERT_TRUE(started);
     
     // Give server time to start
@@ -140,9 +161,13 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
 
 TEST_F(FetchIntegrationTest, AsyncFetch) {
     // Start server
-    bool started = server->start(18884, [](const std::string& req) {
+    FetchServer::Config config;
+    config.host = "127.0.0.1";
+    config.port = 18884;
+    config.handler = [](const std::string& req) {
         return "Async: " + req;
-    });
+    };
+    bool started = server->start(config);
     ASSERT_TRUE(started);
     
     // Give server time to start

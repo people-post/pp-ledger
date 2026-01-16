@@ -25,8 +25,8 @@ public:
   TcpServer(const TcpServer &) = delete;
   TcpServer &operator=(const TcpServer &) = delete;
 
-  // Bind to a port and start listening
-  Roe<void> listen(uint16_t port, int backlog = 10);
+  // Bind to a host and port and start listening
+  Roe<void> listen(const std::string &host, uint16_t port, int backlog = 10);
 
   // Accept a client connection (non-blocking)
   Roe<TcpConnection> accept();
@@ -40,11 +40,22 @@ public:
   // Check if server is listening
   bool isListening() const;
 
+  // Get the host address the server is bound to
+  // Returns the external address when able to accept non-local connections
+  std::string getHost() const;
+
+  // Get the port the server is listening on
+  uint16_t getPort() const { return port_; }
+
 private:
+  // Helper to get the actual bound address
+  std::string getBoundAddress() const;
+
   int socketFd_;
   int epollFd_;
   bool listening_;
   uint16_t port_;
+  std::string originalHost_; // Store original host string
 };
 
 } // namespace network

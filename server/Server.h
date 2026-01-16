@@ -30,12 +30,19 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct NetworkConfig {
+    std::string host;
+    uint16_t port{ 0 };
+
     bool enableP2P = false;
     std::string nodeId;
     std::vector<std::string> bootstrapPeers; // host:port format
     std::string listenAddr = "0.0.0.0";
     uint16_t p2pPort = 9000;
     uint16_t maxPeers = 50;
+  };
+
+  struct Config {
+    NetworkConfig network;
   };
 
   Server();
@@ -66,10 +73,6 @@ private:
 
   // Ledger initialization
   Roe<void> initLedger(const std::string &dataDir);
-
-  // Network management
-  size_t getPeerCount() const;
-  std::vector<std::string> getConnectedPeers() const;
 
   // Consensus management
   void registerStakeholder(const std::string &id, uint64_t stake);
@@ -117,16 +120,11 @@ private:
   Ledger ledger_;
   consensus::Ouroboros consensus_;
 
-  // Server state
-  int port_{0};
-
   // Client server (listens on main port)
   network::FetchServer sFetch_;
   network::FetchClient cFetch_;
 
-  mutable std::mutex peersMutex_;
-  std::set<std::string> connectedPeers_; // Set of host:port strings
-  NetworkConfig networkConfig_;
+  Config config_;
 };
 
 } // namespace pp

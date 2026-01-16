@@ -1,5 +1,5 @@
-#include "Server.h"
-#include "Logger.h"
+#include "../server/Beacon.h"
+#include "../lib/Logger.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -23,33 +23,30 @@ void signalHandler(int signal) {
 } // namespace
 
 void printUsage() {
-  std::cout << "Usage: pp-ledger-server -d <work-dir>\n";
+  std::cout << "Usage: pp-beacon -d <work-dir>\n";
   std::cout << "  -d <work-dir>  - Work directory (required)\n";
   std::cout << "\n";
   std::cout << "The work directory must contain:\n";
-  std::cout << "  - config.json  - Server configuration file (required)\n";
+  std::cout << "  - config.json  - Beacon configuration file (required)\n";
   std::cout << "\n";
   std::cout << "Example:\n";
-  std::cout << "  pp-ledger-server -d /some/path/to/work-dir\n";
+  std::cout << "  pp-beacon -d /some/path/to/work-dir\n";
   std::cout << "\n";
   std::cout << "The config.json file should contain:\n";
   std::cout << "  {\n";
   std::cout << "    \"host\": \"localhost\",\n";
   std::cout << "    \"port\": 8517,\n";
-  std::cout << "    \"network\": {\n";
-  std::cout << "      \"enableP2P\": false,\n";
-  std::cout << "      \"nodeId\": \"\",\n";
-  std::cout << "      \"bootstrapPeers\": [],\n";
-  std::cout << "      \"listenAddr\": \"0.0.0.0\",\n";
-  std::cout << "      \"p2pPort\": 9000,\n";
-  std::cout << "      \"maxPeers\": 50\n";
-  std::cout << "    }\n";
+  std::cout << "    \"beacons\": [\"host1:port1\", \"host2:port2\"]\n";
   std::cout << "  }\n";
+  std::cout << "\n";
+  std::cout << "Note: The 'host' and 'port' fields are optional.\n";
+  std::cout << "      Defaults: host=\"localhost\", port=8517\n";
+  std::cout << "      The 'beacons' array can be empty.\n";
 }
 
 int main(int argc, char *argv[]) {
   auto rootLogger = pp::logging::getRootLogger();
-  rootLogger->info << "PP-Ledger Server v" << pp::Client::VERSION;
+  rootLogger->info << "PP-Ledger Beacon Server";
 
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
@@ -82,32 +79,32 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  auto logger = pp::logging::getLogger("server");
+  auto logger = pp::logging::getLogger("beacon");
   logger->setLevel(pp::logging::Level::INFO);
-  logger->addFileHandler("server.log", pp::logging::Level::DEBUG);
+  logger->addFileHandler("beacon.log", pp::logging::Level::DEBUG);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
 
-  logger->info << "Starting server with work directory: " << workDir;
+  logger->info << "Starting beacon with work directory: " << workDir;
 
-  pp::Server server;
-  if (server.start(workDir)) {
-    logger->info << "Server started successfully";
-    std::cout << "Server running\n";
+  pp::Beacon beacon;
+  if (beacon.start(workDir)) {
+    logger->info << "Beacon started successfully";
+    std::cout << "Beacon running\n";
     std::cout << "Work directory: " << workDir << "\n";
-    std::cout << "Press Ctrl+C to stop the server...\n";
+    std::cout << "Press Ctrl+C to stop the beacon...\n";
 
     // Wait for SIGINT
     std::unique_lock<std::mutex> lock(g_mutex);
     g_cv.wait(lock, [] { return !g_running.load(); });
 
-    server.stop();
-    logger->info << "Server stopped";
+    beacon.stop();
+    logger->info << "Beacon stopped";
     return 0;
   } else {
-    logger->error << "Failed to start server";
-    std::cerr << "Error: Failed to start server\n";
+    logger->error << "Failed to start beacon";
+    std::cerr << "Error: Failed to start beacon\n";
     return 1;
   }
 }

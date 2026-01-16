@@ -38,6 +38,10 @@ public:
 
   static constexpr const uint16_t VERSION = 1; // Version of the protocol
 
+  // Default connection settings
+  static constexpr const char *DEFAULT_HOST = "localhost";
+  static constexpr const uint16_t DEFAULT_PORT = 8517;
+
   // Error codes
   static constexpr const uint16_t E_VERSION = 1;           // Version mismatch
   static constexpr const uint16_t E_INVALID_REQUEST = 2;   // Invalid request
@@ -170,7 +174,7 @@ public:
   Client();
   ~Client();
 
-  bool init(const std::string &address, int port);
+  bool init(const std::string &address = DEFAULT_HOST, int port = DEFAULT_PORT);
 
   Roe<RespInfo> getInfo();
   Roe<RespWalletInfo> getWalletInfo(const std::string &walletId);
