@@ -1,13 +1,11 @@
 #pragma once
 
-#include "Module.h"
+#include "Service.h"
 #include "ResultOrError.hpp"
 #include "TcpServer.h"
 #include <memory>
 #include <string>
 #include <functional>
-#include <thread>
-#include <atomic>
 
 namespace pp {
 namespace network {
@@ -18,7 +16,7 @@ namespace network {
  * Uses TCP sockets for peer-to-peer communication.
  * Simple pattern: accept connection, receive, send response, close.
  */
-class FetchServer : public Module {
+class FetchServer : public Service {
 public:
     using RequestHandler = std::function<std::string(const std::string&)>;
 
@@ -27,7 +25,7 @@ public:
      */
     FetchServer();
     
-    ~FetchServer() override;
+    ~FetchServer() override = default;
 
     /**
      * Start the server on specified port
@@ -38,31 +36,30 @@ public:
     bool start(uint16_t port, RequestHandler handler);
 
     /**
-     * Stop the server
-     */
-    void stop();
-
-    /**
-     * Check if server is running
-     */
-    bool isRunning() const { return running_; }
-
-    /**
      * Get the port the server is listening on
      */
     uint16_t getPort() const { return port_; }
 
-private:
+protected:
     /**
-     * Server loop that accepts and handles connections
+     * Service thread main loop - accepts and handles connections
      */
-    void serverLoop();
+    void run() override;
+    
+    /**
+     * Called before service thread starts - sets up TCP listener
+     */
+    bool onStart() override;
+    
+    /**
+     * Called after service thread stops - cleans up TCP server
+     */
+    void onStop() override;
 
+private:
     TcpServer server_;
     RequestHandler handler_;
-    std::atomic<bool> running_;
     uint16_t port_;
-    std::thread serverThread_;
 };
 
 } // namespace network

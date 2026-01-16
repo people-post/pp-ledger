@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_SERVER_H
 #define PP_LEDGER_SERVER_H
 
-#include "Module.h"
+#include "Service.h"
 #include "Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../interface/Block.hpp"
@@ -13,7 +13,6 @@
 #include <string>
 #include <memory>
 #include <vector>
-#include <thread>
 #include <mutex>
 #include <queue>
 #include <map>
@@ -22,7 +21,7 @@
 // Forward declarations for network classes
 namespace pp {
 
-class Server : public Module {
+class Server : public Service {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
@@ -41,12 +40,26 @@ public:
     };
 
     Server();
-    ~Server();
+    ~Server() override = default;
     
     // Server lifecycle
     bool start(const std::string& dataDir);
-    void stop();
-    bool isRunning() const;
+
+protected:
+    /**
+     * Service thread main loop - runs consensus
+     */
+    void run() override;
+    
+    /**
+     * Called before service thread starts - starts FetchServer
+     */
+    bool onStart() override;
+    
+    /**
+     * Called after service thread stops - stops FetchServer
+     */
+    void onStop() override;
     
 private:
     // Storage initialization
@@ -85,8 +98,6 @@ private:
     // Helper to parse host:port string
     static bool parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port);
     
-    // Consensus loop
-    void consensusLoop();
     bool shouldProduceBlock() const;
     Roe<void> produceBlock();
     Roe<void> syncState();
@@ -103,9 +114,7 @@ private:
     consensus::Ouroboros consensus_;
     
     // Server state
-    bool isRunning_{false};
     int port_{0};
-    std::thread consensusThread_;
     
     // Client server (listens on main port)
     network::FetchServer sFetch_;
