@@ -21,6 +21,10 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# Enable testing and set BUILD_TESTING before adding subdirectories
+enable_testing()
+option(BUILD_TESTING "Build the testing tree" ON)
+
 # Add subdirectories for each component
 add_subdirectory(lib)
 add_subdirectory(interface)
@@ -30,6 +34,3 @@ add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(server)
 add_subdirectory(app)
-
-# Enable testing
-enable_testing()
