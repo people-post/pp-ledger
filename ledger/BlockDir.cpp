@@ -1,6 +1,6 @@
 #include "BlockDir.h"
 #include "Logger.h"
-#include "../lib/Serializer.h"
+#include "../lib/BinaryPack.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -303,7 +303,7 @@ bool BlockDir::saveIndex() {
         return false;
     }
     
-    // Write index entries with block locations using Archive utilities
+    // Write index entries with block locations using binaryPack
     for (const auto& [fileId, fileInfo] : fileInfoMap_) {
         uint64_t startBlockId = fileInfo.blockRange.startBlockId;
         IndexEntry entry(fileId, startBlockId);
@@ -326,8 +326,8 @@ bool BlockDir::saveIndex() {
             }
         }
         
-        OutputArchive ar(indexFile);
-        ar & entry;
+        std::string packed = utl::binaryPack(entry);
+        indexFile.write(packed.data(), packed.size());
     }
     
     indexFile.close();
