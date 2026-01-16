@@ -256,8 +256,10 @@ bool BlockDir::loadIndex() {
         // Check if we're at end of file
         if (indexFile.peek() == EOF) break;
         
-        // Deserialize using Archive
-        if (!Serializer::deserializeFromStream(indexFile, entry)) {
+        // Deserialize using InputArchive
+        InputArchive ar(indexFile);
+        ar & entry;
+        if (ar.failed()) {
             if (indexFile.gcount() == 0) break; // End of file
             log().warning << "Failed to read complete index entry";
             break;
@@ -324,7 +326,8 @@ bool BlockDir::saveIndex() {
             }
         }
         
-        Serializer::serializeToStream(indexFile, entry);
+        OutputArchive ar(indexFile);
+        ar & entry;
     }
     
     indexFile.close();
@@ -335,7 +338,8 @@ bool BlockDir::saveIndex() {
 
 bool BlockDir::writeIndexHeader(std::ostream& os) {
     IndexFileHeader header;
-    Serializer::serializeToStream(os, header);
+    OutputArchive ar(os);
+    ar & header;
     
     if (!os.good()) {
         log().error << "Failed to write index file header";
@@ -351,7 +355,9 @@ bool BlockDir::writeIndexHeader(std::ostream& os) {
 bool BlockDir::readIndexHeader(std::istream& is) {
     IndexFileHeader header;
     
-    if (!Serializer::deserializeFromStream(is, header)) {
+    InputArchive ar(is);
+    ar & header;
+    if (ar.failed()) {
         log().error << "Failed to read index file header";
         return false;
     }

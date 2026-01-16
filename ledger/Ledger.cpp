@@ -178,19 +178,22 @@ void Ledger::transferBlocksToArchive() {
 // PendingTransactions implementation
 std::string Ledger::PendingTransactions::ltsToString() const {
     std::ostringstream oss;
+    OutputArchive ar(oss);
     // Write version number first
-    Serializer::serializeToStream(oss, CURRENT_VERSION);
+    ar & CURRENT_VERSION;
     // Write transaction data
-    Serializer::serializeToStream(oss, transactions);
+    ar & transactions;
     return oss.str();
 }
 
 bool Ledger::PendingTransactions::ltsFromString(const std::string& str) {
     std::istringstream iss(str);
+    InputArchive ar(iss);
     
     // Read version number
     uint32_t version = 0;
-    if (!Serializer::deserializeFromStream(iss, version)) {
+    ar & version;
+    if (ar.failed()) {
         return false;
     }
     
@@ -198,11 +201,12 @@ bool Ledger::PendingTransactions::ltsFromString(const std::string& str) {
     switch (version) {
         case 1:
             // Version 1: vector of Transaction objects
-            return Serializer::deserializeFromStream(iss, transactions);
+            ar & transactions;
+            return !ar.failed();
         
         // Future versions can be added here:
         // case 2:
-        //     return deserializeVersion2(iss);
+        //     return deserializeVersion2(ar);
         //     break;
         
         default:

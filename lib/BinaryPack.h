@@ -4,6 +4,7 @@
 #include "Serializer.h"
 #include "ResultOrError.hpp"
 #include <string>
+#include <sstream>
 
 namespace pp {
 namespace utl {
@@ -14,24 +15,30 @@ struct BinaryUnpackError : RoeErrorBase {
 };
 
 /**
- * Pack a struct/object to binary string using Serializer
+ * Pack a struct/object to binary string using OutputArchive
  * @param t The object to serialize
  * @return Binary string representation
  */
 template<typename T>
 std::string binaryPack(const T& t) {
-    return Serializer::serialize(t);
+    std::ostringstream oss;
+    OutputArchive ar(oss);
+    ar & t;
+    return oss.str();
 }
 
 /**
- * Unpack a binary string to a struct/object using Serializer
+ * Unpack a binary string to a struct/object using InputArchive
  * @param data Binary string data
  * @return ResultOrError containing the deserialized object or an error
  */
 template<typename T>
 ResultOrError<T, BinaryUnpackError> binaryUnpack(const std::string& data) {
+    std::istringstream iss(data);
+    InputArchive ar(iss);
     T result;
-    if (!Serializer::deserialize(data, result)) {
+    ar & result;
+    if (ar.failed()) {
         return BinaryUnpackError(1, "Failed to deserialize binary data");
     }
     return result;
