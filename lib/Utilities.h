@@ -2,6 +2,7 @@
 #define PP_LEDGER_UTILITIES_H
 
 #include <string>
+#include <cstdint>
 
 namespace pp {
 namespace utl {
