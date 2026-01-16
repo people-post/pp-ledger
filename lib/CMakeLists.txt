@@ -1,7 +1,5 @@
 # Lib library
 add_library(pp_lib STATIC
-    Lib.cpp
-    Lib.h
     Logger.cpp
     Logger.h
     Module.cpp
