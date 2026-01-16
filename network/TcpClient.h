@@ -13,43 +13,42 @@ namespace network {
 
 class TcpClient {
 public:
-    struct Error : RoeErrorBase {
-        using RoeErrorBase::RoeErrorBase;
-    };
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
 
-    template <typename T>
-    using Roe = ResultOrError<T, Error>;
+  template <typename T> using Roe = ResultOrError<T, Error>;
 
-    TcpClient();
-    ~TcpClient();
+  TcpClient();
+  ~TcpClient();
 
-    // Delete copy constructor and assignment
-    TcpClient(const TcpClient&) = delete;
-    TcpClient& operator=(const TcpClient&) = delete;
+  // Delete copy constructor and assignment
+  TcpClient(const TcpClient &) = delete;
+  TcpClient &operator=(const TcpClient &) = delete;
 
-    // Allow move
-    TcpClient(TcpClient&& other) noexcept;
-    TcpClient& operator=(TcpClient&& other) noexcept;
+  // Allow move
+  TcpClient(TcpClient &&other) noexcept;
+  TcpClient &operator=(TcpClient &&other) noexcept;
 
-    // Connect to a server
-    Roe<void> connect(const std::string& host, uint16_t port);
+  // Connect to a server
+  Roe<void> connect(const std::string &host, uint16_t port);
 
-    // Send data
-    Roe<size_t> send(const void* data, size_t length);
-    Roe<size_t> send(const std::string& message);
+  // Send data
+  Roe<size_t> send(const void *data, size_t length);
+  Roe<size_t> send(const std::string &message);
 
-    // Receive data
-    Roe<size_t> receive(void* buffer, size_t maxLength);
-    Roe<std::string> receiveLine();
+  // Receive data
+  Roe<size_t> receive(void *buffer, size_t maxLength);
+  Roe<std::string> receiveLine();
 
-    // Close connection
-    void close();
+  // Close connection
+  void close();
 
-    // Check if connected
-    bool isConnected() const;
+  // Check if connected
+  bool isConnected() const;
 
 private:
-    std::optional<TcpConnection> connection_;
+  std::optional<TcpConnection> connection_;
 };
 
 } // namespace network

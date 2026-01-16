@@ -3,105 +3,102 @@
 namespace pp {
 namespace network {
 
-FetchServer::FetchServer()
-    : Service("network.fetch_server")
-    , port_(0) {
-    log().info << "FetchServer initialized";
+FetchServer::FetchServer() : Service("network.fetch_server"), port_(0) {
+  log().info << "FetchServer initialized";
 }
 
 bool FetchServer::start(uint16_t port, RequestHandler handler) {
-    if (isRunning()) {
-        log().warning << "Server is already running";
-        return false;
-    }
+  if (isRunning()) {
+    log().warning << "Server is already running";
+    return false;
+  }
 
-    port_ = port;
-    handler_ = std::move(handler);
+  port_ = port;
+  handler_ = std::move(handler);
 
-    log().info << "Starting server on port: " + std::to_string(port_);
+  log().info << "Starting server on port: " + std::to_string(port_);
 
-    // Call base class start() which will call onStart() then spawn thread
-    return Service::start();
+  // Call base class start() which will call onStart() then spawn thread
+  return Service::start();
 }
 
 bool FetchServer::onStart() {
-    // Start listening
-    auto listenResult = server_.listen(port_);
-    if (!listenResult) {
-        std::string errorMsg = listenResult.error().message;
-        log().error << "Failed to start listening: " + errorMsg;
-        return false;
-    }
+  // Start listening
+  auto listenResult = server_.listen(port_);
+  if (!listenResult) {
+    std::string errorMsg = listenResult.error().message;
+    log().error << "Failed to start listening: " + errorMsg;
+    return false;
+  }
 
-    log().info << "Server started successfully on port " + std::to_string(port_);
-    return true;
+  log().info << "Server started successfully on port " + std::to_string(port_);
+  return true;
 }
 
-void FetchServer::onStop() {
-    server_.stop();
-}
+void FetchServer::onStop() { server_.stop(); }
 
 void FetchServer::run() {
-    log().debug << "Server loop started";
+  log().debug << "Server loop started";
 
-    while (isRunning()) {
-        // Wait for events with a short timeout to allow checking running_ flag
-        auto waitResult = server_.waitForEvents(100);  // 100ms timeout
-        if (!waitResult) {
-            // Timeout or error - just continue
-            continue;
-        }
-
-        // Accept a connection
-        auto acceptResult = server_.accept();
-        if (!acceptResult) {
-            // No connection waiting or error
-            continue;
-        }
-
-        auto connection = std::move(acceptResult.value());
-        log().info << "Accepted connection from " + connection.getPeerAddress();
-
-        // Read request data
-        char buffer[4096];
-        auto recvResult = connection.receive(buffer, sizeof(buffer) - 1);
-        if (!recvResult) {
-            std::string errorMsg = recvResult.error().message;
-            log().error << "Failed to read data: " + errorMsg;
-            connection.close();
-            continue;
-        }
-
-        size_t bytesRead = recvResult.value();
-        buffer[bytesRead] = '\0';
-        std::string request(buffer, bytesRead);
-        
-        log().info << "Received request (" + std::to_string(bytesRead) + " bytes)";
-
-        // Process the request
-        std::string response;
-        try {
-            response = handler_(request);
-            log().debug << "Request processed successfully";
-        } catch (const std::exception& e) {
-            log().error << "Error processing request: " + std::string(e.what());
-            response = "Error: " + std::string(e.what());
-        }
-
-        // Send response
-        auto sendResult = connection.send(response);
-        if (!sendResult) {
-            std::string errorMsg = sendResult.error().message;
-            log().error << "Failed to send response: " + errorMsg;
-        } else {
-            log().info << "Response sent (" + std::to_string(response.size()) + " bytes)";
-        }
-
-        connection.close();
-        log().debug << "Connection closed";
+  while (isRunning()) {
+    // Wait for events with a short timeout to allow checking running_ flag
+    auto waitResult = server_.waitForEvents(100); // 100ms timeout
+    if (!waitResult) {
+      // Timeout or error - just continue
+      continue;
     }
 
-    log().debug << "Server loop ended";
+    // Accept a connection
+    auto acceptResult = server_.accept();
+    if (!acceptResult) {
+      // No connection waiting or error
+      continue;
+    }
+
+    auto connection = std::move(acceptResult.value());
+    log().info << "Accepted connection from " + connection.getPeerAddress();
+
+    // Read request data
+    char buffer[4096];
+    auto recvResult = connection.receive(buffer, sizeof(buffer) - 1);
+    if (!recvResult) {
+      std::string errorMsg = recvResult.error().message;
+      log().error << "Failed to read data: " + errorMsg;
+      connection.close();
+      continue;
+    }
+
+    size_t bytesRead = recvResult.value();
+    buffer[bytesRead] = '\0';
+    std::string request(buffer, bytesRead);
+
+    log().info << "Received request (" + std::to_string(bytesRead) + " bytes)";
+
+    // Process the request
+    std::string response;
+    try {
+      response = handler_(request);
+      log().debug << "Request processed successfully";
+    } catch (const std::exception &e) {
+      log().error << "Error processing request: " + std::string(e.what());
+      response = "Error: " + std::string(e.what());
+    }
+
+    // Send response
+    auto sendResult = connection.send(response);
+    if (!sendResult) {
+      std::string errorMsg = sendResult.error().message;
+      log().error << "Failed to send response: " + errorMsg;
+    } else {
+      log().info << "Response sent (" + std::to_string(response.size()) +
+                        " bytes)";
+    }
+
+    connection.close();
+    log().debug << "Connection closed";
+  }
+
+  log().debug << "Server loop ended";
 }
 
 } // namespace network
