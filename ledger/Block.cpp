@@ -155,103 +155,99 @@ std::string Block::ltsToString() const {
 }
 
 bool Block::ltsFromString(const std::string &str) {
-  try {
-    std::istringstream iss(str, std::ios::binary);
+  std::istringstream iss(str, std::ios::binary);
 
-    // Reset to default values
-    index_ = 0;
-    timestamp_ = 0;
-    data_.clear();
-    previousHash_.clear();
-    hash_.clear();
-    nonce_ = 0;
-    slot_ = 0;
-    slotLeader_.clear();
+  // Reset to default values
+  index_ = 0;
+  timestamp_ = 0;
+  data_.clear();
+  previousHash_.clear();
+  hash_.clear();
+  nonce_ = 0;
+  slot_ = 0;
+  slotLeader_.clear();
 
-    // Read version (uint16_t) - read but don't store, validate compatibility
-    uint16_t version = 0;
-    if (!iss.read(reinterpret_cast<char *>(&version), sizeof(version))) {
-      return false;
-    }
-    // Validate version compatibility (can read current and future versions up
-    // to a limit)
-    if (version > CURRENT_VERSION) {
-      return false; // Unsupported future version
-    }
-
-    // Read index (uint64_t)
-    if (!iss.read(reinterpret_cast<char *>(&index_), sizeof(index_))) {
-      return false;
-    }
-
-    // Read timestamp (int64_t)
-    if (!iss.read(reinterpret_cast<char *>(&timestamp_), sizeof(timestamp_))) {
-      return false;
-    }
-
-    // Read data: size + content
-    uint64_t dataSize = 0;
-    if (!iss.read(reinterpret_cast<char *>(&dataSize), sizeof(dataSize))) {
-      return false;
-    }
-    if (dataSize > 0) {
-      data_.resize(dataSize);
-      if (!iss.read(&data_[0], dataSize)) {
-        return false;
-      }
-    }
-
-    // Read previous hash: size + content
-    uint64_t prevHashSize = 0;
-    if (!iss.read(reinterpret_cast<char *>(&prevHashSize),
-                  sizeof(prevHashSize))) {
-      return false;
-    }
-    if (prevHashSize > 0) {
-      previousHash_.resize(prevHashSize);
-      if (!iss.read(&previousHash_[0], prevHashSize)) {
-        return false;
-      }
-    }
-
-    // Read hash: size + content
-    uint64_t hashSize = 0;
-    if (!iss.read(reinterpret_cast<char *>(&hashSize), sizeof(hashSize))) {
-      return false;
-    }
-    if (hashSize > 0) {
-      hash_.resize(hashSize);
-      if (!iss.read(&hash_[0], hashSize)) {
-        return false;
-      }
-    }
-
-    // Read nonce (uint64_t)
-    if (!iss.read(reinterpret_cast<char *>(&nonce_), sizeof(nonce_))) {
-      return false;
-    }
-
-    // Read slot (uint64_t)
-    if (!iss.read(reinterpret_cast<char *>(&slot_), sizeof(slot_))) {
-      return false;
-    }
-
-    // Read slot leader: size + content
-    uint64_t leaderSize = 0;
-    if (!iss.read(reinterpret_cast<char *>(&leaderSize), sizeof(leaderSize))) {
-      return false;
-    }
-    if (leaderSize > 0) {
-      slotLeader_.resize(leaderSize);
-      if (!iss.read(&slotLeader_[0], leaderSize)) {
-        return false;
-      }
-    }
-
-    return true;
-  } catch (const std::exception &) {
+  // Read version (uint16_t) - read but don't store, validate compatibility
+  uint16_t version = 0;
+  if (!iss.read(reinterpret_cast<char *>(&version), sizeof(version))) {
     return false;
   }
+  // Validate version compatibility (can read current and future versions up
+  // to a limit)
+  if (version > CURRENT_VERSION) {
+    return false; // Unsupported future version
+  }
+
+  // Read index (uint64_t)
+  if (!iss.read(reinterpret_cast<char *>(&index_), sizeof(index_))) {
+    return false;
+  }
+
+  // Read timestamp (int64_t)
+  if (!iss.read(reinterpret_cast<char *>(&timestamp_), sizeof(timestamp_))) {
+    return false;
+  }
+
+  // Read data: size + content
+  uint64_t dataSize = 0;
+  if (!iss.read(reinterpret_cast<char *>(&dataSize), sizeof(dataSize))) {
+    return false;
+  }
+  if (dataSize > 0) {
+    data_.resize(dataSize);
+    if (!iss.read(&data_[0], dataSize)) {
+      return false;
+    }
+  }
+
+  // Read previous hash: size + content
+  uint64_t prevHashSize = 0;
+  if (!iss.read(reinterpret_cast<char *>(&prevHashSize),
+                sizeof(prevHashSize))) {
+    return false;
+  }
+  if (prevHashSize > 0) {
+    previousHash_.resize(prevHashSize);
+    if (!iss.read(&previousHash_[0], prevHashSize)) {
+      return false;
+    }
+  }
+
+  // Read hash: size + content
+  uint64_t hashSize = 0;
+  if (!iss.read(reinterpret_cast<char *>(&hashSize), sizeof(hashSize))) {
+    return false;
+  }
+  if (hashSize > 0) {
+    hash_.resize(hashSize);
+    if (!iss.read(&hash_[0], hashSize)) {
+      return false;
+    }
+  }
+
+  // Read nonce (uint64_t)
+  if (!iss.read(reinterpret_cast<char *>(&nonce_), sizeof(nonce_))) {
+    return false;
+  }
+
+  // Read slot (uint64_t)
+  if (!iss.read(reinterpret_cast<char *>(&slot_), sizeof(slot_))) {
+    return false;
+  }
+
+  // Read slot leader: size + content
+  uint64_t leaderSize = 0;
+  if (!iss.read(reinterpret_cast<char *>(&leaderSize), sizeof(leaderSize))) {
+    return false;
+  }
+  if (leaderSize > 0) {
+    slotLeader_.resize(leaderSize);
+    if (!iss.read(&slotLeader_[0], leaderSize)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace pp

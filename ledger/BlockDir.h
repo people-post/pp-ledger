@@ -249,8 +249,8 @@ private:
   };
 
   std::string dirPath_;
-  size_t maxFileSize_;
-  uint32_t currentFileId_;
+  size_t maxFileSize_{ 0 };
+  uint32_t currentFileId_{ 0 };
 
   // Block files with their block ID ranges indexed by file ID
   std::unordered_map<uint32_t, FileInfo> fileInfoMap_;
@@ -266,7 +266,7 @@ private:
 
   // Blockchain instance (only used if manageBlockchain is true)
   std::unique_ptr<BlockChain> ukpBlockchain_;
-  bool managesBlockchain_;
+  bool managesBlockchain_{ false };
 
   /**
    * Write a block to storage

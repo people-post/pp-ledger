@@ -1,5 +1,5 @@
 #include "Ledger.h"
-#include "../lib/BinaryPack.h"
+#include "../lib/BinaryPack.hpp"
 #include "Block.h"
 
 #include <iomanip>
@@ -65,113 +65,88 @@ Ledger::Roe<void> Ledger::commitTransactions() {
     return Ledger::Error(1, "No pending transactions to commit");
   }
 
+  // Serialize pending transactions
+  auto packedDataResult = pendingTransactions_.ltsToString();
+  if (!packedDataResult) {
+    return Ledger::Error(2, "Failed to serialize pending transactions: " +
+                                packedDataResult.error().message);
+  }
+
+  // Create a new block with the serialized transaction data
+  auto block = std::make_shared<Block>();
+  // Block index will be set automatically by BlockDir::addBlock()
+  block->setData(packedDataResult.value());
+  block->setPreviousHash(activeBlockDir_.getLastBlockHash());
+  
+  // calculateHash() can throw exceptions from OpenSSL operations
   try {
-    std::string packedData = pendingTransactions_.ltsToString();
-
-    // Create a new block with the serialized transaction data
-    if (!activeBlockDir_) {
-      return Ledger::Error(3, "Storage not initialized");
-    }
-
-    auto block = std::make_shared<Block>();
-    // Block index will be set automatically by BlockDir::addBlock()
-    block->setData(packedData);
-    block->setPreviousHash(activeBlockDir_->getLastBlockHash());
     block->setHash(block->calculateHash());
-
-    // Add block to blockchain (managed by activeBlockDir_)
-    // This will automatically set the index and write the block to storage
-    if (!activeBlockDir_->addBlock(block)) {
-      return Ledger::Error(4, "Failed to add block to blockchain");
-    }
-
-    // Check if we should transfer blocks to archive
-    transferBlocksToArchive();
-
-    pendingTransactions_.transactions.clear();
-    return {};
   } catch (const std::exception &e) {
-    return Ledger::Error(2, std::string("Failed to commit transactions: ") +
+    return Ledger::Error(5, std::string("Failed to calculate block hash: ") +
                                 e.what());
   }
+
+  // Add block to blockchain (managed by activeBlockDir_)
+  // This will automatically set the index and write the block to storage
+  if (!activeBlockDir_.addBlock(block)) {
+    return Ledger::Error(4, "Failed to add block to blockchain");
+  }
+
+  // Check if we should transfer blocks to archive
+  transferBlocksToArchive();
+
+  pendingTransactions_.transactions.clear();
+  return {};
 }
 
 // IBlockChain interface implementation
 std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
-  if (!activeBlockDir_) {
-    return nullptr;
-  }
   // BlockDir returns Block, but IBlockChain interface expects IBlock
   // Block implements IBlock, so we can return it directly
-  return activeBlockDir_->getLatestBlock();
+  return activeBlockDir_.getLatestBlock();
 }
 
 size_t Ledger::getSize() const {
-  if (!activeBlockDir_) {
-    return 0;
-  }
-  return activeBlockDir_->getBlockchainSize();
+  return activeBlockDir_.getBlockchainSize();
 }
 
 size_t Ledger::getBlockCount() const {
-  if (!activeBlockDir_) {
-    return 0;
-  }
-  return activeBlockDir_->getBlockchainSize();
+  return activeBlockDir_.getBlockchainSize();
 }
 
 bool Ledger::isValid() const {
-  if (!activeBlockDir_) {
-    return false;
-  }
-  return activeBlockDir_->isBlockchainValid();
+  return activeBlockDir_.isBlockchainValid();
 }
 
 std::shared_ptr<iii::Block> Ledger::getBlock(uint64_t index) const {
-  if (!activeBlockDir_) {
-    return nullptr;
-  }
-  return activeBlockDir_->getBlock(index);
+  return activeBlockDir_.getBlock(index);
 }
 
 // Storage management
 Ledger::Roe<void> Ledger::initStorage(const StorageConfig &config) {
-  try {
-    // Initialize active BlockDir with blockchain management enabled
-    activeBlockDir_ = std::make_unique<BlockDir>();
-    BlockDir::Config activeCfg(config.activeDirPath, config.blockDirFileSize);
-    auto activeRes = activeBlockDir_->init(activeCfg, true);
-    if (!activeRes) {
-      return Ledger::Error(1, "Failed to initialize active BlockDir");
-    }
-
-    // Initialize archive BlockDir
-    archiveBlockDir_ = std::make_unique<BlockDir>();
-    BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
-    auto archiveRes = archiveBlockDir_->init(archiveCfg);
-    if (!archiveRes) {
-      return Ledger::Error(2, "Failed to initialize archive BlockDir");
-    }
-
-    maxActiveDirSize_ = config.maxActiveDirSize;
-    return {};
-  } catch (const std::exception &e) {
-    return Ledger::Error(3, std::string("Failed to initialize storage: ") +
-                                e.what());
+  BlockDir::Config activeCfg(config.activeDirPath, config.blockDirFileSize);
+  auto activeRes = activeBlockDir_.init(activeCfg, true);
+  if (!activeRes) {
+    return Ledger::Error(1, "Failed to initialize active BlockDir");
   }
+
+  // Initialize archive BlockDir
+  BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
+  auto archiveRes = archiveBlockDir_.init(archiveCfg);
+  if (!archiveRes) {
+    return Ledger::Error(2, "Failed to initialize archive BlockDir");
+  }
+
+  maxActiveDirSize_ = config.maxActiveDirSize;
+  return {};
 }
 
 void Ledger::transferBlocksToArchive() {
-  if (!activeBlockDir_ || !archiveBlockDir_) {
-    return; // Storage not initialized
-  }
-
   // Transfer files from active to archive based on storage usage
-  while (activeBlockDir_->getTotalStorageSize() >= maxActiveDirSize_) {
-    auto result = activeBlockDir_->moveFrontFileTo(*archiveBlockDir_);
+  while (activeBlockDir_.getTotalStorageSize() >= maxActiveDirSize_) {
+    auto result = activeBlockDir_.moveFrontFileTo(archiveBlockDir_);
     if (!result.isOk()) {
-      logging::getLogger("ledger").error
-          << "Failed to move front file to archive";
+      log().error << "Failed to move front file to archive";
       break;
     }
   }
@@ -189,11 +164,16 @@ struct VersionedPendingTransactions {
   }
 };
 
-std::string Ledger::PendingTransactions::ltsToString() const {
-  VersionedPendingTransactions versioned;
-  versioned.version = CURRENT_VERSION;
-  versioned.transactions = transactions;
-  return utl::binaryPack(versioned);
+Ledger::Roe<std::string> Ledger::PendingTransactions::ltsToString() const {
+  try {
+    VersionedPendingTransactions versioned;
+    versioned.version = CURRENT_VERSION;
+    versioned.transactions = transactions;
+    std::string result = utl::binaryPack(versioned);
+    return result;
+  } catch (const std::exception &e) {
+    return Ledger::Error(1, std::string("Failed to serialize pending transactions: ") + e.what());
+  }
 }
 
 bool Ledger::PendingTransactions::ltsFromString(const std::string &str) {

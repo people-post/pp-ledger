@@ -8,7 +8,9 @@ add_library(pp_lib STATIC
     Serialize.hpp
     Service.cpp
     Service.h
-    BinaryPack.h
+    BinaryPack.hpp
+    Utilities.cpp
+    Utilities.h
 )
 
 target_include_directories(pp_lib PUBLIC

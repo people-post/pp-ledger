@@ -61,6 +61,9 @@ protected:
   void onStop() override;
 
 private:
+  // Configuration loading
+  Roe<void> loadConfig(const std::string &configPath);
+
   // Storage initialization
   Roe<void> initStorage(const std::string &dataDir);
 

@@ -1,8 +1,9 @@
 #include "Server.h"
 #include "../client/Client.h"
 #include "../ledger/Block.h"
-#include "BinaryPack.h"
+#include "BinaryPack.hpp"
 #include "Logger.h"
+#include "Utilities.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -23,47 +24,10 @@ bool Server::start(const std::string &dataDir) {
   // Load configuration from config.json
   std::filesystem::path configPath =
       std::filesystem::path(dataDir) / "config.json";
-  if (!std::filesystem::exists(configPath)) {
-    log().error << "Configuration file not found: " << configPath;
-    return false;
-  }
-
-  int port = 0;
-  NetworkConfig networkConfig;
-
-  try {
-    std::ifstream configFile(configPath);
-    if (!configFile.is_open()) {
-      log().error << "Failed to open configuration file: " << configPath;
-      return false;
-    }
-
-    nlohmann::json config;
-    configFile >> config;
-
-    // Load port
-    if (!config.contains("port") || !config["port"].is_number()) {
-      log().error << "Configuration file missing or invalid 'port' field";
-      return false;
-    }
-    port = config["port"].get<int>();
-
-    // Load network configuration (optional, defaults will be used if not
-    // present)
-    if (config.contains("network") && config["network"].is_object()) {
-      const auto &network = config["network"];
-      if (network.contains("nodeId") && network["nodeId"].is_string()) {
-        networkConfig.nodeId = network["nodeId"].get<std::string>();
-      }
-      if (network.contains("maxPeers") && network["maxPeers"].is_number()) {
-        networkConfig.maxPeers = network["maxPeers"].get<uint16_t>();
-      }
-    }
-
-    log().info << "Configuration loaded from " << configPath;
-    log().info << "  Port: " << port;
-  } catch (const std::exception &e) {
-    log().error << "Failed to parse configuration file: " << e.what();
+  auto configResult = loadConfig(configPath.string());
+  if (!configResult) {
+    log().error << "Failed to load configuration: "
+                << configResult.error().message;
     return false;
   }
 
@@ -74,10 +38,6 @@ bool Server::start(const std::string &dataDir) {
                 << storageResult.error().message;
     return false;
   }
-
-  // Store configuration for use in onStart()
-  port_ = port;
-  networkConfig_ = networkConfig;
 
   // Set genesis time if not already set
   if (consensus_.getGenesisTime() == 0) {
@@ -113,23 +73,7 @@ void Server::onStop() {
 
 bool Server::parseHostPort(const std::string &hostPort, std::string &host,
                            uint16_t &port) {
-  size_t colonPos = hostPort.find_last_of(':');
-  if (colonPos == std::string::npos || colonPos == 0 ||
-      colonPos == hostPort.length() - 1) {
-    return false;
-  }
-
-  host = hostPort.substr(0, colonPos);
-  try {
-    int portInt = std::stoi(hostPort.substr(colonPos + 1));
-    if (portInt < 0 || portInt > 65535) {
-      return false;
-    }
-    port = static_cast<uint16_t>(portInt);
-    return true;
-  } catch (...) {
-    return false;
-  }
+  return utl::parseHostPort(hostPort, host, port);
 }
 
 size_t Server::getPeerCount() const {
@@ -411,6 +355,58 @@ void Server::run() {
   }
 
   log().info << "Consensus loop ended";
+}
+
+Server::Roe<void> Server::loadConfig(const std::string &configPath) {
+  if (!std::filesystem::exists(configPath)) {
+    return Error(1, "Configuration file not found: " + configPath);
+  }
+
+  std::ifstream configFile(configPath);
+  if (!configFile.is_open()) {
+    return Error(2, "Failed to open configuration file: " + configPath);
+  }
+
+  // Read file content
+  std::string content((std::istreambuf_iterator<char>(configFile)),
+                      std::istreambuf_iterator<char>());
+  configFile.close();
+
+  // Parse JSON with explicit error handling
+  nlohmann::json config;
+  try {
+    config = nlohmann::json::parse(content);
+  } catch (const nlohmann::json::parse_error &e) {
+    return Error(4, "Failed to parse JSON: " + std::string(e.what()));
+  }
+
+  // Load port
+  if (!config.contains("port") || !config["port"].is_number()) {
+    return Error(3, "Configuration file missing or invalid 'port' field");
+  }
+  
+  // Use value() with default to avoid exception
+  if (config["port"].is_number_integer()) {
+    port_ = config["port"].get<int>();
+  } else {
+    return Error(3, "Configuration file 'port' field is not an integer");
+  }
+
+  // Load network configuration (optional, defaults will be used if not
+  // present)
+  if (config.contains("network") && config["network"].is_object()) {
+    const auto &network = config["network"];
+    if (network.contains("nodeId") && network["nodeId"].is_string()) {
+      networkConfig_.nodeId = network["nodeId"].get<std::string>();
+    }
+    if (network.contains("maxPeers") && network["maxPeers"].is_number_unsigned()) {
+      networkConfig_.maxPeers = network["maxPeers"].get<uint16_t>();
+    }
+  }
+
+  log().info << "Configuration loaded from " << configPath;
+  log().info << "  Port: " << port_;
+  return {};
 }
 
 std::string Server::handleIncomingRequest(const std::string &request) {
@@ -796,35 +792,39 @@ Server::Roe<void> Server::initStorage(const std::string &dataDir) {
   auto &logger = logging::getLogger("server");
   logger.info << "Initializing storage in directory: " << dataDir;
 
-  try {
-    // Create data directory if it doesn't exist
-    if (!std::filesystem::exists(dataDir)) {
-      std::filesystem::create_directories(dataDir);
-      logger.info << "Created data directory: " << dataDir;
+  // Create data directory if it doesn't exist
+  std::error_code ec;
+  if (!std::filesystem::exists(dataDir, ec)) {
+    if (ec) {
+      return Error(2, "Failed to check data directory: " + ec.message());
     }
-
-    // Set up storage paths
-    Ledger::StorageConfig storageConfig;
-    storageConfig.activeDirPath = dataDir + "/active";
-    storageConfig.archiveDirPath = dataDir + "/archive";
-    storageConfig.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
-    storageConfig.blockDirFileSize = 100 * 1024 * 1024; // 100MB
-
-    // Initialize ledger storage
-    auto result = ledger_.initStorage(storageConfig);
-    if (!result) {
-      return Error(1, "Failed to initialize ledger storage: " +
-                          result.error().message);
+    if (!std::filesystem::create_directories(dataDir, ec)) {
+      return Error(2, "Failed to create data directory: " + ec.message());
     }
-
-    logger.info << "Storage initialized successfully";
-    logger.info << "  Active directory: " << storageConfig.activeDirPath;
-    logger.info << "  Archive directory: " << storageConfig.archiveDirPath;
-
-    return {};
-  } catch (const std::exception &e) {
-    return Error(2, "Storage initialization failed: " + std::string(e.what()));
+    logger.info << "Created data directory: " << dataDir;
+  } else if (ec) {
+    return Error(2, "Failed to check data directory: " + ec.message());
   }
+
+  // Set up storage paths
+  Ledger::StorageConfig storageConfig;
+  storageConfig.activeDirPath = dataDir + "/active";
+  storageConfig.archiveDirPath = dataDir + "/archive";
+  storageConfig.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
+  storageConfig.blockDirFileSize = 100 * 1024 * 1024; // 100MB
+
+  // Initialize ledger storage
+  auto result = ledger_.initStorage(storageConfig);
+  if (!result) {
+    return Error(1, "Failed to initialize ledger storage: " +
+                        result.error().message);
+  }
+
+  logger.info << "Storage initialized successfully";
+  logger.info << "  Active directory: " << storageConfig.activeDirPath;
+  logger.info << "  Archive directory: " << storageConfig.archiveDirPath;
+
+  return {};
 }
 
 } // namespace pp

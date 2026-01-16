@@ -1,4 +1,4 @@
-#include "BinaryPack.h"
+#include "BinaryPack.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <string>

@@ -118,9 +118,9 @@ private:
     /**
      * Serialize to string for long-term storage (LTS)
      * Format: [version: uint32][data]
-     * @return Serialized binary string representation
+     * @return Roe containing serialized binary string representation or error
      */
-    std::string ltsToString() const;
+    Ledger::Roe<std::string> ltsToString() const;
 
     /**
      * Deserialize from string for long-term storage (LTS)
@@ -135,8 +135,8 @@ private:
   PendingTransactions pendingTransactions_;
 
   // Storage management
-  std::unique_ptr<BlockDir> activeBlockDir_;  // Hot storage for recent blocks
-  std::unique_ptr<BlockDir> archiveBlockDir_; // Cold storage for older blocks
+  BlockDir activeBlockDir_;  // Hot storage for recent blocks
+  BlockDir archiveBlockDir_; // Cold storage for older blocks
   size_t maxActiveDirSize_; // Max size of active directory (bytes)
 };
 

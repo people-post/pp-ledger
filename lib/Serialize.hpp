@@ -17,10 +17,6 @@
 
 namespace pp {
 
-// Forward declarations
-class OutputArchive;
-class InputArchive;
-
 namespace detail {
 
 // Helper to check if type is a pointer (should not be serialized)

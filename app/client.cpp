@@ -1,6 +1,7 @@
 #include "Client.h"
 #include "../ledger/Ledger.h"
-#include "../lib/BinaryPack.h"
+#include "../lib/BinaryPack.hpp"
+#include "../lib/Utilities.h"
 #include "Logger.h"
 
 #include <iomanip>
@@ -78,7 +79,11 @@ int main(int argc, char *argv[]) {
   }
 
   std::string host = argv[1];
-  int port = std::stoi(argv[2]);
+  uint16_t port = 0;
+  if (!pp::utl::parsePort(argv[2], port)) {
+    std::cerr << "Error: Invalid port number: " << argv[2] << "\n";
+    return 1;
+  }
   std::string command = argv[3];
 
   auto &logger = pp::logging::getLogger("client");
@@ -86,15 +91,14 @@ int main(int argc, char *argv[]) {
       pp::logging::Level::WARNING); // Reduce verbosity for command-line tool
 
   pp::Client client;
-  if (!client.init(host, port)) {
+  if (!client.init(host, static_cast<int>(port))) {
     std::cerr << "Error: Failed to initialize client\n";
     return 1;
   }
 
   int exitCode = 0;
 
-  try {
-    if (command == "info") {
+  if (command == "info") {
       auto result = client.getInfo();
       if (result) {
         printInfo(result.value());
@@ -126,21 +130,25 @@ int main(int argc, char *argv[]) {
       } else {
         std::string fromWallet = argv[4];
         std::string toWallet = argv[5];
-        int64_t amount = std::stoll(argv[6]);
-
-        // Create and serialize transaction
-        pp::Ledger::Transaction tx(fromWallet, toWallet, amount);
-        std::string txData = pp::utl::binaryPack(tx);
-
-        auto result = client.addTransaction(txData);
-        if (result) {
-          std::cout << "Transaction submitted successfully\n";
-          std::cout << "  From: " << fromWallet << "\n";
-          std::cout << "  To: " << toWallet << "\n";
-          std::cout << "  Amount: " << amount << "\n";
-        } else {
-          std::cerr << "Error: " << result.error().message << "\n";
+        int64_t amount = 0;
+        if (!pp::utl::parseInt64(argv[6], amount)) {
+          std::cerr << "Error: Invalid amount: " << argv[6] << "\n";
           exitCode = 1;
+        } else {
+          // Create and serialize transaction
+          pp::Ledger::Transaction tx(fromWallet, toWallet, amount);
+          std::string txData = pp::utl::binaryPack(tx);
+
+          auto result = client.addTransaction(txData);
+          if (result) {
+            std::cout << "Transaction submitted successfully\n";
+            std::cout << "  From: " << fromWallet << "\n";
+            std::cout << "  To: " << toWallet << "\n";
+            std::cout << "  Amount: " << amount << "\n";
+          } else {
+            std::cerr << "Error: " << result.error().message << "\n";
+            exitCode = 1;
+          }
         }
       }
     } else if (command == "validators") {
@@ -157,15 +165,20 @@ int main(int argc, char *argv[]) {
         printUsage();
         exitCode = 1;
       } else {
-        uint64_t fromIndex = std::stoull(argv[4]);
-        uint64_t count = std::stoull(argv[5]);
-
-        auto result = client.getBlocks(fromIndex, count);
-        if (result) {
-          printBlocks(result.value());
-        } else {
-          std::cerr << "Error: " << result.error().message << "\n";
+        uint64_t fromIndex = 0;
+        uint64_t count = 0;
+        if (!pp::utl::parseUInt64(argv[4], fromIndex) ||
+            !pp::utl::parseUInt64(argv[5], count)) {
+          std::cerr << "Error: Invalid fromIndex or count\n";
           exitCode = 1;
+        } else {
+          auto result = client.getBlocks(fromIndex, count);
+          if (result) {
+            printBlocks(result.value());
+          } else {
+            std::cerr << "Error: " << result.error().message << "\n";
+            exitCode = 1;
+          }
         }
       }
     } else {
@@ -173,10 +186,6 @@ int main(int argc, char *argv[]) {
       printUsage();
       exitCode = 1;
     }
-  } catch (const std::exception &e) {
-    std::cerr << "Error: " << e.what() << "\n";
-    exitCode = 1;
-  }
 
   client.disconnect();
   return exitCode;

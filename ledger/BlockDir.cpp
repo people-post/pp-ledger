@@ -1,5 +1,5 @@
 #include "BlockDir.h"
-#include "../lib/BinaryPack.h"
+#include "../lib/BinaryPack.hpp"
 #include "Logger.h"
 #include <algorithm>
 #include <filesystem>
@@ -9,9 +9,7 @@
 
 namespace pp {
 
-BlockDir::BlockDir()
-    : Module("blockdir"), maxFileSize_(0), currentFileId_(0),
-      managesBlockchain_(false) {}
+BlockDir::BlockDir() : Module("blockdir") {}
 
 BlockDir::~BlockDir() { flush(); }
 
@@ -31,15 +29,23 @@ BlockDir::Roe<void> BlockDir::init(const Config &config,
   }
 
   // Create directory if it doesn't exist
-  try {
-    if (!std::filesystem::exists(dirPath_)) {
-      std::filesystem::create_directories(dirPath_);
-      log().info << "Created block directory: " << dirPath_;
+  std::error_code ec;
+  if (!std::filesystem::exists(dirPath_, ec)) {
+    if (ec) {
+      log().error << "Failed to check directory existence " << dirPath_ << ": "
+                  << ec.message();
+      return Error("Failed to check directory: " + ec.message());
     }
-  } catch (const std::exception &e) {
-    log().error << "Failed to create directory " << dirPath_ << ": "
-                << e.what();
-    return Error("Failed to create directory: " + std::string(e.what()));
+    if (!std::filesystem::create_directories(dirPath_, ec)) {
+      log().error << "Failed to create directory " << dirPath_ << ": "
+                  << ec.message();
+      return Error("Failed to create directory: " + ec.message());
+    }
+    log().info << "Created block directory: " << dirPath_;
+  } else if (ec) {
+    log().error << "Failed to check directory existence " << dirPath_ << ": "
+                << ec.message();
+    return Error("Failed to check directory: " + ec.message());
   }
 
   // Load existing index if it exists
@@ -488,10 +494,10 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir &targetDir) {
   poppedFile.reset();
 
   // Move file on disk
-  try {
-    std::filesystem::rename(sourceFilePath, targetFilePath);
-  } catch (const std::exception &e) {
-    return Error(std::string("Failed to move file: ") + e.what());
+  std::error_code ec;
+  std::filesystem::rename(sourceFilePath, targetFilePath, ec);
+  if (ec) {
+    return Error("Failed to move file: " + ec.message());
   }
 
   // Update target directory's file tracking if needed
@@ -526,13 +532,14 @@ size_t BlockDir::getTotalStorageSize() const {
     } else {
       // File is not open, check file size on disk
       std::string filepath = getBlockFilePath(fileId);
-      if (std::filesystem::exists(filepath)) {
-        try {
-          totalSize += std::filesystem::file_size(filepath);
-        } catch (const std::exception &) {
-          // Skip this file if we can't get its size
-          // (file might have been deleted or is inaccessible)
+      std::error_code ec;
+      if (std::filesystem::exists(filepath, ec) && !ec) {
+        uintmax_t fileSize = std::filesystem::file_size(filepath, ec);
+        if (!ec) {
+          totalSize += fileSize;
         }
+        // Skip this file if we can't get its size
+        // (file might have been deleted or is inaccessible)
       }
     }
   }

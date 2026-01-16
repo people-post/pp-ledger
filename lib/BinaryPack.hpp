@@ -1,5 +1,5 @@
-#ifndef PP_LEDGER_BINARY_PACK_H
-#define PP_LEDGER_BINARY_PACK_H
+#ifndef PP_LEDGER_BINARY_PACK_HPP
+#define PP_LEDGER_BINARY_PACK_HPP
 
 #include "ResultOrError.hpp"
 #include "Serialize.hpp"
@@ -46,4 +46,4 @@ ResultOrError<T, BinaryUnpackError> binaryUnpack(const std::string &data) {
 } // namespace utl
 } // namespace pp
 
-#endif // PP_LEDGER_BINARY_PACK_H
+#endif // PP_LEDGER_BINARY_PACK_HPP

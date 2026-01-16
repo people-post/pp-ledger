@@ -1,5 +1,5 @@
 #include "Client.h"
-#include "../lib/BinaryPack.h"
+#include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../network/FetchClient.h"
 
