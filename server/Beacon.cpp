@@ -26,6 +26,8 @@ bool Beacon::start(const std::string &dataDir) {
 
   log().info << "Starting beacon with work directory: " << dataDir;
 
+  log().addFileHandler(dataDir + "/beacon.log", logging::Level::DEBUG);
+
   // Load configuration (includes port)
   auto configResult = loadConfig(configPathStr);
   if (!configResult) {

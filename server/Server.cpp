@@ -32,6 +32,8 @@ bool Server::start(const std::string &dataDir) {
     return false;
   }
 
+  log().addFileHandler(dataDir + "/server.log", logging::Level::DEBUG);
+
   // Initialize ledger first
   auto ledgerResult = initLedger(dataDir);
   if (!ledgerResult) {
