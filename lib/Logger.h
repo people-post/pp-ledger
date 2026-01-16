@@ -136,8 +136,8 @@ template <typename T> LogStream LogProxy::operator<<(const T &value) {
 }
 
 // Global logger management
-Logger &getLogger(const std::string &name = "");
-Logger &getRootLogger();
+std::shared_ptr<Logger> getLogger(const std::string &name = "");
+std::shared_ptr<Logger> getRootLogger();
 
 } // namespace logging
 } // namespace pp

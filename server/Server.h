@@ -64,8 +64,8 @@ private:
   // Configuration loading
   Roe<void> loadConfig(const std::string &configPath);
 
-  // Storage initialization
-  Roe<void> initStorage(const std::string &dataDir);
+  // Ledger initialization
+  Roe<void> initLedger(const std::string &dataDir);
 
   // Network management
   size_t getPeerCount() const;

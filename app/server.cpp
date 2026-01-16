@@ -47,8 +47,8 @@ void printUsage() {
 }
 
 int main(int argc, char *argv[]) {
-  auto &rootLogger = pp::logging::getRootLogger();
-  rootLogger.info << "PP-Ledger Server v" << pp::Client::VERSION;
+  auto rootLogger = pp::logging::getRootLogger();
+  rootLogger->info << "PP-Ledger Server v" << pp::Client::VERSION;
 
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
@@ -81,18 +81,18 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  auto &logger = pp::logging::getLogger("server");
-  logger.setLevel(pp::logging::Level::INFO);
-  logger.addFileHandler("server.log", pp::logging::Level::DEBUG);
+  auto logger = pp::logging::getLogger("server");
+  logger->setLevel(pp::logging::Level::INFO);
+  logger->addFileHandler("server.log", pp::logging::Level::DEBUG);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
 
-  logger.info << "Starting server with work directory: " << workDir;
+  logger->info << "Starting server with work directory: " << workDir;
 
   pp::Server server;
   if (server.start(workDir)) {
-    logger.info << "Server started successfully";
+    logger->info << "Server started successfully";
     std::cout << "Server running\n";
     std::cout << "Work directory: " << workDir << "\n";
     std::cout << "Press Ctrl+C to stop the server...\n";
@@ -102,10 +102,10 @@ int main(int argc, char *argv[]) {
     g_cv.wait(lock, [] { return !g_running.load(); });
 
     server.stop();
-    logger.info << "Server stopped";
+    logger->info << "Server stopped";
     return 0;
   } else {
-    logger.error << "Failed to start server";
+    logger->error << "Failed to start server";
     std::cerr << "Error: Failed to start server\n";
     return 1;
   }

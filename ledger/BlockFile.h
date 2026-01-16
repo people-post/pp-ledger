@@ -20,11 +20,7 @@ public:
    */
   struct Config {
     std::string filepath;
-    size_t maxSize = 100 * 1024 * 1024; // 100MB default
-
-    Config() = default;
-    Config(const std::string &path, size_t size = 100 * 1024 * 1024)
-        : filepath(path), maxSize(size) {}
+    size_t maxSize{ 0 }; // Max file size (bytes)
   };
 
   struct Error : RoeErrorBase {
@@ -114,24 +110,13 @@ private:
         0x504C4642; // "PLFB" (PP Ledger File Block)
     static constexpr uint16_t CURRENT_VERSION = 1;
 
-    uint32_t magic;      // Magic number to identify BlockFile type
-    uint16_t version;    // File format version
-    uint16_t reserved;   // Reserved for future use
-    uint64_t headerSize; // Size of this header (for future extensibility)
-
-    FileHeader()
-        : magic(MAGIC), version(CURRENT_VERSION), reserved(0),
-          headerSize(sizeof(FileHeader)) {}
+    uint32_t magic{ MAGIC };      // Magic number to identify BlockFile type
+    uint16_t version{ CURRENT_VERSION };    // File format version
+    uint16_t reserved{ 0 };   // Reserved for future use
+    uint64_t headerSize{ sizeof(FileHeader) }; // Size of this header (for future extensibility)
   };
 
   static constexpr size_t HEADER_SIZE = sizeof(FileHeader);
-
-  std::string filepath_;
-  size_t maxSize_;
-  size_t currentSize_;
-  std::fstream file_;
-  FileHeader header_;
-  bool headerValid_;
 
   /**
    * Open the file for reading and writing
@@ -171,6 +156,15 @@ private:
    * Get the data offset (where actual block data starts)
    */
   static constexpr int64_t getDataOffset() { return HEADER_SIZE; }
+
+  // ------ Private members ------
+  std::string filepath_;
+  size_t maxSize_{ 0 };
+  size_t currentSize_{ 0 };
+  std::fstream file_;
+  FileHeader header_;
+  bool headerValid_{ false };
+
 };
 
 } // namespace pp

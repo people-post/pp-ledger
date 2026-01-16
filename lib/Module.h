@@ -39,20 +39,15 @@ public:
   void clearLoggerRedirect();
 
   /**
-   * Get the module's logger name
-   */
-  const std::string &getLoggerName() const;
-
-  /**
    * Get the logger instance for this module.
    * Use this to access the logger in derived classes and externally.
    *
    * @return Reference to the logger instance
    */
-  logging::Logger &log();
+  logging::Logger &log() const;
 
 private:
-  std::string loggerName_;
+  std::shared_ptr<logging::Logger> spLogger_;
 };
 
 } // namespace pp

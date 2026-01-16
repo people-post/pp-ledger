@@ -4,14 +4,21 @@
 
 namespace pp {
 
-BlockFile::BlockFile()
-    : Module("blockfile"), maxSize_(0), currentSize_(0), headerValid_(false) {}
+BlockFile::BlockFile() : Module("blockfile") {}
 
 BlockFile::Roe<void> BlockFile::init(const Config &config) {
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
   currentSize_ = 0;
   headerValid_ = false;
+
+  if (maxSize_ < 1024 * 1024) {
+    return Error("Max file size shall be at least 1MB");
+  }
+
+  if (filepath_.empty()) {
+    return Error("Filepath is not set");
+  }
 
   bool fileExists = std::filesystem::exists(filepath_);
 

@@ -2,7 +2,6 @@
 #include "../client/Client.h"
 #include "../ledger/Block.h"
 #include "BinaryPack.hpp"
-#include "Logger.h"
 #include "Utilities.h"
 #include <chrono>
 #include <filesystem>
@@ -31,11 +30,11 @@ bool Server::start(const std::string &dataDir) {
     return false;
   }
 
-  // Initialize storage first
-  auto storageResult = initStorage(dataDir);
-  if (!storageResult) {
-    log().error << "Failed to initialize storage: "
-                << storageResult.error().message;
+  // Initialize ledger first
+  auto ledgerResult = initLedger(dataDir);
+  if (!ledgerResult) {
+    log().error << "Failed to initialize ledger: "
+                << ledgerResult.error().message;
     return false;
   }
 
@@ -89,34 +88,30 @@ std::vector<std::string> Server::getConnectedPeers() const {
 
 void Server::registerStakeholder(const std::string &id, uint64_t stake) {
   consensus_.registerStakeholder(id, stake);
-  auto &logger = logging::getLogger("server");
-  logger.info << "Registered stakeholder '" << id << "' with stake: " << stake;
+  log().info << "Registered stakeholder '" << id << "' with stake: " << stake;
 }
 
 void Server::setSlotDuration(uint64_t seconds) {
   consensus_.setSlotDuration(seconds);
-  auto &logger = logging::getLogger("server");
-  logger.info << "Slot duration set to " << seconds << "s";
+  log().info << "Slot duration set to " << seconds << "s";
 }
 
 void Server::submitTransaction(const std::string &transaction) {
-  auto &logger = logging::getLogger("server");
-
   // Deserialize transaction string to Transaction struct using utility function
   auto txResult = utl::binaryUnpack<Ledger::Transaction>(transaction);
   if (!txResult) {
-    logger.error << "Failed to deserialize transaction: "
+    log().error << "Failed to deserialize transaction: "
                  << txResult.error().message;
     return;
   }
 
   auto result = ledger_.addTransaction(txResult.value());
   if (!result) {
-    logger.error << "Failed to add transaction: " << result.error().message;
+    log().error << "Failed to add transaction: " << result.error().message;
     return;
   }
 
-  logger.debug << "Transaction submitted (fromWallet: "
+  log().debug << "Transaction submitted (fromWallet: "
                << txResult.value().fromWallet
                << ", toWallet: " << txResult.value().toWallet
                << ", amount: " << txResult.value().amount << ")";
@@ -190,8 +185,7 @@ Server::Roe<std::shared_ptr<iii::Block>> Server::createBlockFromTransactions() {
 
   // For now, we'll just store these in the ledger's internal state
   // In a real implementation, we'd need the concrete Block type to set these
-  auto &logger = logging::getLogger("server");
-  logger.info << "Block created for slot " << currentSlot
+  log().info << "Block created for slot " << currentSlot
               << " by leader: " << slotLeaderResult.value();
 
   return latestBlock;
@@ -236,8 +230,7 @@ Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
     return Error(3, "Block did not pass consensus validation");
   }
 
-  auto &logger = logging::getLogger("server");
-  logger.info << "Block " << block->getIndex()
+  log().info << "Block " << block->getIndex()
               << " successfully added (slot: " << block->getSlot() << ")";
 
   return Server::Roe<void>();
@@ -247,8 +240,6 @@ Server::Roe<void> Server::syncState() {
   if (connectedPeers_.empty()) {
     return Server::Roe<void>();
   }
-
-  auto &logger = logging::getLogger("server");
 
   // Get our current block count
   size_t localBlockCount = ledger_.getBlockCount();
@@ -264,14 +255,14 @@ Server::Roe<void> Server::syncState() {
   for (const auto &peerAddr : peers) {
     auto blocksResult = fetchBlocksFromPeer(peerAddr, localBlockCount);
     if (blocksResult && !blocksResult.value().empty()) {
-      logger.info << "Fetched " << blocksResult.value().size()
+      log().info << "Fetched " << blocksResult.value().size()
                   << " blocks from peer";
 
       // Build candidate chain from received blocks
       auto candidateChainResult =
           buildCandidateChainFromBlocks(blocksResult.value());
       if (!candidateChainResult) {
-        logger.warning << "Failed to build candidate chain: "
+        log().warning << "Failed to build candidate chain: "
                        << candidateChainResult.error().message;
         continue;
       }
@@ -285,7 +276,7 @@ Server::Roe<void> Server::syncState() {
         if (block) {
           auto validateResult = consensus_.validateBlock(*block, ledger_);
           if (!validateResult || !validateResult.value()) {
-            logger.warning << "Block " << block->getIndex()
+            log().warning << "Block " << block->getIndex()
                            << " in candidate chain failed validation";
             allBlocksValid = false;
             break;
@@ -294,7 +285,7 @@ Server::Roe<void> Server::syncState() {
       }
 
       if (!allBlocksValid) {
-        logger.warning << "Candidate chain contains invalid blocks, skipping";
+        log().warning << "Candidate chain contains invalid blocks, skipping";
         continue;
       }
 
@@ -302,24 +293,24 @@ Server::Roe<void> Server::syncState() {
       auto switchResult =
           consensus_.shouldSwitchChain(ledger_, *candidateChain);
       if (!switchResult) {
-        logger.warning << "Chain switch check failed: "
+        log().warning << "Chain switch check failed: "
                        << switchResult.error().message;
         continue;
       }
 
       if (switchResult.value()) {
-        logger.info << "Candidate chain is longer and valid, switching chains";
+        log().info << "Candidate chain is longer and valid, switching chains";
         auto switchChainResult = switchToChain(std::move(candidateChain));
         if (!switchChainResult) {
-          logger.error << "Failed to switch chains: "
+          log().error << "Failed to switch chains: "
                        << switchChainResult.error().message;
         } else {
-          logger.info << "Successfully switched to longer chain";
+          log().info << "Successfully switched to longer chain";
           // Break after successful switch to avoid processing more peers
           break;
         }
       } else {
-        logger.debug << "Current chain is longer or equal, not switching";
+        log().debug << "Current chain is longer or equal, not switching";
       }
     }
   }
@@ -410,8 +401,7 @@ Server::Roe<void> Server::loadConfig(const std::string &configPath) {
 }
 
 std::string Server::handleIncomingRequest(const std::string &request) {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Received network request (" << request.size() << " bytes)";
+  log().debug << "Received network request (" << request.size() << " bytes)";
 
   // First, try to parse as binary Client protocol
   auto clientReqResult = utl::binaryUnpack<Client::Request>(request);
@@ -419,13 +409,11 @@ std::string Server::handleIncomingRequest(const std::string &request) {
     return handleClientRequest(clientReqResult.value());
   }
 
-  logger.error << "Error handling request: " << clientReqResult.error().message;
+  log().error << "Error handling request: " << clientReqResult.error().message;
   return R"({"error":"invalid request"})";
 }
 
 std::string Server::handleClientRequest(const Client::Request &request) {
-  auto &logger = logging::getLogger("server");
-
   Client::Response response;
   response.version = Client::VERSION;
   response.errorCode = 0;
@@ -433,7 +421,7 @@ std::string Server::handleClientRequest(const Client::Request &request) {
 
   // Check version
   if (request.version != Client::VERSION) {
-    logger.warning << "Version mismatch: client=" << request.version
+    log().warning << "Version mismatch: client=" << request.version
                    << ", server=" << Client::VERSION;
     response.errorCode = Client::E_VERSION;
     return utl::binaryPack(response);
@@ -467,7 +455,7 @@ std::string Server::handleClientRequest(const Client::Request &request) {
       break;
 
     default:
-      logger.warning << "Unknown request type: " << request.type;
+      log().warning << "Unknown request type: " << request.type;
       response.errorCode = Client::E_INVALID_REQUEST;
       // Note: Error message will be handled by client when it receives the
       // error code
@@ -478,10 +466,10 @@ std::string Server::handleClientRequest(const Client::Request &request) {
       response.data = result.value();
     } else {
       response.errorCode = result.error().code;
-      logger.error << "Handler error: " << result.error().message;
+      log().error << "Handler error: " << result.error().message;
     }
   } catch (const std::exception &e) {
-    logger.error << "Error handling client request: " << e.what();
+    log().error << "Error handling client request: " << e.what();
     response.errorCode = Client::E_INVALID_DATA;
   }
 
@@ -489,8 +477,7 @@ std::string Server::handleClientRequest(const Client::Request &request) {
 }
 
 Server::Roe<std::string> Server::handleReqInfo() {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Handling T_REQ_INFO";
+  log().debug << "Handling T_REQ_INFO";
 
   try {
     Client::RespInfo respData;
@@ -509,8 +496,7 @@ Server::Roe<std::string> Server::handleReqInfo() {
 
 Server::Roe<std::string>
 Server::handleReqQueryWallet(const std::string &requestData) {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Handling T_REQ_QUERY_WALLET";
+  log().debug << "Handling T_REQ_QUERY_WALLET";
 
   auto reqDataResult = utl::binaryUnpack<Client::ReqWalletInfo>(requestData);
   if (!reqDataResult) {
@@ -536,8 +522,7 @@ Server::handleReqQueryWallet(const std::string &requestData) {
 
 Server::Roe<std::string>
 Server::handleReqAddTransaction(const std::string &requestData) {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Handling T_REQ_ADD_TRANSACTION";
+  log().debug << "Handling T_REQ_ADD_TRANSACTION";
 
   auto reqDataResult =
       utl::binaryUnpack<Client::ReqAddTransaction>(requestData);
@@ -558,8 +543,7 @@ Server::handleReqAddTransaction(const std::string &requestData) {
 }
 
 Server::Roe<std::string> Server::handleReqValidators() {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Handling T_REQ_VALIDATORS";
+  log().debug << "Handling T_REQ_VALIDATORS";
 
   // Get registered stakeholders/validators from consensus
   Client::RespValidators respData;
@@ -577,8 +561,7 @@ Server::Roe<std::string> Server::handleReqValidators() {
 
 Server::Roe<std::string>
 Server::handleReqBlocks(const std::string &requestData) {
-  auto &logger = logging::getLogger("server");
-  logger.debug << "Handling T_REQ_BLOCKS";
+  log().debug << "Handling T_REQ_BLOCKS";
 
   auto reqDataResult = utl::binaryUnpack<Client::ReqBlocks>(requestData);
   if (!reqDataResult) {
@@ -610,7 +593,7 @@ Server::handleReqBlocks(const std::string &requestData) {
     }
   }
 
-  logger.debug << "Returning " << respData.blocks.size() << " blocks";
+  log().debug << "Returning " << respData.blocks.size() << " blocks";
   return utl::binaryPack(respData);
 }
 
@@ -619,8 +602,7 @@ void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
     return;
   }
 
-  auto &logger = logging::getLogger("server");
-  logger.info << "Broadcasting block " << block->getIndex() << " to "
+  log().info << "Broadcasting block " << block->getIndex() << " to "
               << connectedPeers_.size() << " peers";
 
   // Create block broadcast message
@@ -647,9 +629,9 @@ void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
     if (parseHostPort(peerAddr, host, port)) {
       auto result = cFetch_.fetchSync(host, port, messageStr);
       if (result.isOk()) {
-        logger.debug << "Sent block to peer: " << peerAddr;
+        log().debug << "Sent block to peer: " << peerAddr;
       } else {
-        logger.warning << "Failed to send block to peer " << peerAddr << ": "
+        log().warning << "Failed to send block to peer " << peerAddr << ": "
                        << result.error().message;
       }
     }
@@ -657,8 +639,7 @@ void Server::broadcastBlock(std::shared_ptr<iii::Block> block) {
 }
 
 void Server::requestBlocksFromPeers(uint64_t fromIndex) {
-  auto &logger = logging::getLogger("server");
-  logger.info << "Requesting blocks from index " << fromIndex;
+  log().info << "Requesting blocks from index " << fromIndex;
 
   std::vector<std::string> peers;
   {
@@ -670,7 +651,7 @@ void Server::requestBlocksFromPeers(uint64_t fromIndex) {
   for (const auto &peerAddr : peers) {
     auto blocksResult = fetchBlocksFromPeer(peerAddr, fromIndex);
     if (blocksResult && !blocksResult.value().empty()) {
-      logger.info << "Received " << blocksResult.value().size()
+      log().info << "Received " << blocksResult.value().size()
                   << " blocks from peer";
       break; // Got blocks from one peer, that's enough
     }
@@ -679,8 +660,6 @@ void Server::requestBlocksFromPeers(uint64_t fromIndex) {
 
 Server::Roe<std::vector<std::shared_ptr<iii::Block>>>
 Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
-  auto &logger = logging::getLogger("server");
-
   std::string host;
   uint16_t port;
   if (!parseHostPort(hostPort, host, port)) {
@@ -694,7 +673,7 @@ Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
   request["count"] = 100;
 
   try {
-    logger.debug << "Fetching blocks from peer: " << hostPort;
+    log().debug << "Fetching blocks from peer: " << hostPort;
 
     auto result = cFetch_.fetchSync(host, port, request.dump());
     if (!result.isOk()) {
@@ -709,15 +688,13 @@ Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
     return std::vector<std::shared_ptr<iii::Block>>();
 
   } catch (const std::exception &e) {
-    logger.error << "Error fetching blocks from peer: " << e.what();
+    log().error << "Error fetching blocks from peer: " << e.what();
     return Error(4, e.what());
   }
 }
 
 Server::Roe<std::unique_ptr<BlockChain>> Server::buildCandidateChainFromBlocks(
     const std::vector<std::shared_ptr<iii::Block>> &blocks) const {
-  auto &logger = logging::getLogger("server");
-
   if (blocks.empty()) {
     return Error(1, "No blocks provided to build candidate chain");
   }
@@ -733,7 +710,7 @@ Server::Roe<std::unique_ptr<BlockChain>> Server::buildCandidateChainFromBlocks(
       // If cast fails, create a new Block from the interface
       // This is a placeholder - in full implementation, we'd need proper
       // deserialization
-      logger.warning << "Block cast failed, creating new Block from interface";
+      log().warning << "Block cast failed, creating new Block from interface";
       block = std::make_shared<Block>();
       block->setIndex(iBlock->getIndex());
       block->setTimestamp(iBlock->getTimestamp());
@@ -754,15 +731,13 @@ Server::Roe<std::unique_ptr<BlockChain>> Server::buildCandidateChainFromBlocks(
     return Error(3, "Candidate chain is invalid");
   }
 
-  logger.info << "Built candidate chain with " << candidateChain->getSize()
+  log().info << "Built candidate chain with " << candidateChain->getSize()
               << " blocks";
   return candidateChain;
 }
 
 Server::Roe<void>
 Server::switchToChain(std::unique_ptr<BlockChain> candidateChain) {
-  auto &logger = logging::getLogger("server");
-
   if (!candidateChain) {
     return Error(1, "Candidate chain is null");
   }
@@ -774,9 +749,9 @@ Server::switchToChain(std::unique_ptr<BlockChain> candidateChain) {
   // 3. Replace the ledger's underlying blockchain
   // 4. Update wallet states to match the new chain
 
-  logger.info << "Switching to candidate chain with "
+  log().info << "Switching to candidate chain with "
               << candidateChain->getSize() << " blocks";
-  logger.warning
+  log().warning
       << "Chain switching is a placeholder - full implementation needed";
 
   // TODO: Implement full chain switching logic
@@ -788,9 +763,8 @@ Server::switchToChain(std::unique_ptr<BlockChain> candidateChain) {
   return {};
 }
 
-Server::Roe<void> Server::initStorage(const std::string &dataDir) {
-  auto &logger = logging::getLogger("server");
-  logger.info << "Initializing storage in directory: " << dataDir;
+Server::Roe<void> Server::initLedger(const std::string &dataDir) {
+  log().info << "Initializing ledger in directory: " << dataDir;
 
   // Create data directory if it doesn't exist
   std::error_code ec;
@@ -801,28 +775,28 @@ Server::Roe<void> Server::initStorage(const std::string &dataDir) {
     if (!std::filesystem::create_directories(dataDir, ec)) {
       return Error(2, "Failed to create data directory: " + ec.message());
     }
-    logger.info << "Created data directory: " << dataDir;
+    log().info << "Created data directory: " << dataDir;
   } else if (ec) {
     return Error(2, "Failed to check data directory: " + ec.message());
   }
 
   // Set up storage paths
-  Ledger::StorageConfig storageConfig;
-  storageConfig.activeDirPath = dataDir + "/active";
-  storageConfig.archiveDirPath = dataDir + "/archive";
-  storageConfig.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
-  storageConfig.blockDirFileSize = 100 * 1024 * 1024; // 100MB
+  Ledger::Config config;
+  config.storage.activeDirPath = dataDir + "/active";
+  config.storage.archiveDirPath = dataDir + "/archive";
+  config.storage.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
+  config.storage.blockDirFileSize = 100 * 1024 * 1024; // 100MB
 
   // Initialize ledger storage
-  auto result = ledger_.initStorage(storageConfig);
+  auto result = ledger_.init(config);
   if (!result) {
     return Error(1, "Failed to initialize ledger storage: " +
                         result.error().message);
   }
 
-  logger.info << "Storage initialized successfully";
-  logger.info << "  Active directory: " << storageConfig.activeDirPath;
-  logger.info << "  Archive directory: " << storageConfig.archiveDirPath;
+  log().info << "Ledger initialized successfully";
+  log().info << "  Active directory: " << config.storage.activeDirPath;
+  log().info << "  Archive directory: " << config.storage.archiveDirPath;
 
   return {};
 }

@@ -103,8 +103,8 @@ Logger::Logger(const std::string &name)
 void Logger::log(Level level, const std::string &message) {
   // Check for redirect first (before checking level)
   if (!redirectTarget_.empty()) {
-    Logger &targetLogger = getLogger(redirectTarget_);
-    targetLogger.log(level, message);
+    auto targetLogger = getLogger(redirectTarget_);
+    targetLogger->log(level, message);
     return;
   }
 
@@ -170,13 +170,13 @@ void Logger::clearRedirect() {
 }
 
 // Global logger management functions
-Logger &getLogger(const std::string &name) {
+std::shared_ptr<Logger> getLogger(const std::string &name) {
   std::lock_guard<std::mutex> lock(registryMutex);
 
   // Check if logger already exists
   auto it = loggerRegistry.find(name);
   if (it != loggerRegistry.end()) {
-    return *(it->second);
+    return it->second;
   }
 
   // Create new logger
@@ -186,10 +186,10 @@ Logger &getLogger(const std::string &name) {
   // If this is a child logger (contains dots), we could inherit settings
   // from parent logger, but for now we just create independent loggers
 
-  return *logger;
+  return logger;
 }
 
-Logger &getRootLogger() { return getLogger(""); }
+std::shared_ptr<Logger> getRootLogger() { return getLogger(""); }
 
 } // namespace logging
 } // namespace pp

@@ -33,11 +33,7 @@ public:
   struct Transaction {
     std::string fromWallet; // Source wallet ID
     std::string toWallet;   // Destination wallet ID
-    int64_t amount;         // Transfer amount
-
-    Transaction() : amount(0) {}
-    Transaction(const std::string &from, const std::string &to, int64_t amt)
-        : fromWallet(from), toWallet(to), amount(amt) {}
+    int64_t amount{ 0 };         // Transfer amount
 
     template <typename Archive> void serialize(Archive &ar) {
       ar &fromWallet &toWallet &amount;
@@ -50,19 +46,23 @@ public:
   struct StorageConfig {
     std::string activeDirPath;  // Path for active (hot) blocks
     std::string archiveDirPath; // Path for archived (cold) blocks
-    size_t maxActiveDirSize; // Max size of active directory before transferring
-                             // files (bytes)
-    size_t blockDirFileSize; // Max file size for BlockDir files
+    size_t maxActiveDirSize{ 0 }; // Max size of active directory before transferring files (bytes)
+    size_t blockDirFileSize{ 0 }; // Max file size for BlockDir files (bytes)
+  };
 
-    StorageConfig()
-        : activeDirPath("./blockchain_active"),
-          archiveDirPath("./blockchain_archive"),
-          maxActiveDirSize(500 * 1024 * 1024), // 500MB default
-          blockDirFileSize(100 * 1024 * 1024) {}
+  struct Config {
+    StorageConfig storage;
   };
 
   Ledger();
   ~Ledger() = default;
+
+  /**
+   * Initialize storage directories
+   * @param config Storage configuration
+   * @return true on success, false on error
+   */
+  Roe<void> init(const Config &config);
 
   // Wallet management
   bool hasWallet(const std::string &walletId) const;
@@ -87,29 +87,11 @@ public:
   bool isValid() const;
   std::shared_ptr<iii::Block> getBlock(uint64_t index) const;
 
-  /**
-   * Initialize storage directories
-   * @param config Storage configuration
-   * @return true on success, false on error
-   */
-  Roe<void> initStorage(const StorageConfig &config);
-
 private:
-  /**
-   * Transfer blocks from active to archive directory
-   * Called when active directory reaches the transfer threshold
-   */
-  void transferBlocksToArchive();
-
-  /**
-   * Get pending transactions
-   */
-  const std::vector<Transaction> &getPendingTransactions() const;
-
   /**
    * Private struct to hold pending transactions with long-term storage support
    */
-  struct PendingTransactions {
+  struct BlockCache {
     std::vector<Transaction> transactions;
 
     // Serialization version for format evolution
@@ -120,7 +102,7 @@ private:
      * Format: [version: uint32][data]
      * @return Roe containing serialized binary string representation or error
      */
-    Ledger::Roe<std::string> ltsToString() const;
+    std::string ltsToString() const;
 
     /**
      * Deserialize from string for long-term storage (LTS)
@@ -131,10 +113,18 @@ private:
     bool ltsFromString(const std::string &str);
   };
 
-  std::map<std::string, std::unique_ptr<Wallet>> ukpWallets_;
-  PendingTransactions pendingTransactions_;
+  Roe<void> initStorage(const StorageConfig &config);
 
-  // Storage management
+  /**
+   * Transfer blocks from active to archive directory
+   * Called when active directory reaches the transfer threshold
+   */
+  void transferBlocksToArchive();
+
+  // ------ Private members ------
+  std::map<std::string, Wallet> mWallets_;
+  BlockCache blockCache_; // Cache of blocks to be committed
+
   BlockDir activeBlockDir_;  // Hot storage for recent blocks
   BlockDir archiveBlockDir_; // Cold storage for older blocks
   size_t maxActiveDirSize_; // Max size of active directory (bytes)

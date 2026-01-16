@@ -59,21 +59,18 @@ Client::Client() : Module("client"), connected_(false) {}
 Client::~Client() { disconnect(); }
 
 bool Client::init(const std::string &address, int port) {
-  auto &logger = logging::getLogger("client");
-
   address_ = address;
   port_ = port;
   connected_ = true;
 
-  logger.info << "Client initialized, target server: " << address << ":"
+  log().info << "Client initialized, target server: " << address << ":"
               << port;
   return true;
 }
 
 void Client::disconnect() {
   if (connected_) {
-    auto &logger = logging::getLogger("client");
-    logger.info << "Client disconnected";
+    log().info << "Client disconnected";
     connected_ = false;
   }
 }
@@ -87,8 +84,6 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
                      " Client is not connected to the server.");
   }
 
-  auto &logger = logging::getLogger("client");
-
   // Serialize request
   std::string requestData = utl::binaryPack(request);
 
@@ -98,7 +93,7 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
                                       requestData);
 
   if (!result.isOk()) {
-    logger.error << "Failed to send request: " << result.error().message;
+    log().error << "Failed to send request: " << result.error().message;
     return Error(E_INVALID_RESPONSE, getErrorMessage(E_INVALID_RESPONSE) +
                                          " Details: " + result.error().message);
   }
@@ -106,7 +101,7 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
   // Deserialize response
   auto responseResult = utl::binaryUnpack<Response>(result.value());
   if (!responseResult) {
-    logger.error << "Failed to deserialize response: "
+    log().error << "Failed to deserialize response: "
                  << responseResult.error().message;
     return Error(E_INVALID_RESPONSE,
                  getErrorMessage(E_INVALID_RESPONSE) +
@@ -122,8 +117,7 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
 }
 
 Client::Roe<Client::RespInfo> Client::getInfo() {
-  auto &logger = logging::getLogger("client");
-  logger.debug << "Requesting server info";
+  log().debug << "Requesting server info";
 
   // Create request
   Request request;
@@ -151,7 +145,7 @@ Client::Roe<Client::RespInfo> Client::getInfo() {
                      " Details: " + respDataResult.error().message);
   }
 
-  logger.debug << "Server info received: blocks="
+  log().debug << "Server info received: blocks="
                << respDataResult.value().blockCount
                << ", slot=" << respDataResult.value().currentSlot
                << ", epoch=" << respDataResult.value().currentEpoch;
@@ -160,8 +154,7 @@ Client::Roe<Client::RespInfo> Client::getInfo() {
 
 Client::Roe<Client::RespWalletInfo>
 Client::getWalletInfo(const std::string &walletId) {
-  auto &logger = logging::getLogger("client");
-  logger.debug << "Requesting wallet info for: " << walletId;
+  log().debug << "Requesting wallet info for: " << walletId;
 
   // Create request data
   ReqWalletInfo reqData;
@@ -193,15 +186,14 @@ Client::getWalletInfo(const std::string &walletId) {
                      " Details: " + respDataResult.error().message);
   }
 
-  logger.debug << "Wallet info received: balance="
+  log().debug << "Wallet info received: balance="
                << respDataResult.value().balance;
   return respDataResult.value();
 }
 
 Client::Roe<Client::RespAddTransaction>
 Client::addTransaction(const std::string &transaction) {
-  auto &logger = logging::getLogger("client");
-  logger.debug << "Submitting transaction";
+  log().debug << "Submitting transaction";
 
   // Create request data
   ReqAddTransaction reqData;
@@ -233,13 +225,12 @@ Client::addTransaction(const std::string &transaction) {
                      " Details: " + respDataResult.error().message);
   }
 
-  logger.debug << "Transaction submitted successfully";
+  log().debug << "Transaction submitted successfully";
   return respDataResult.value();
 }
 
 Client::Roe<Client::RespValidators> Client::getValidators() {
-  auto &logger = logging::getLogger("client");
-  logger.debug << "Requesting validators";
+  log().debug << "Requesting validators";
 
   // Create request data
   ReqValidators reqData;
@@ -271,14 +262,13 @@ Client::Roe<Client::RespValidators> Client::getValidators() {
                      " Details: " + respDataResult.error().message);
   }
 
-  logger.debug << "Validators received";
+  log().debug << "Validators received";
   return respDataResult.value();
 }
 
 Client::Roe<Client::RespBlocks> Client::getBlocks(uint64_t fromIndex,
                                                   uint64_t count) {
-  auto &logger = logging::getLogger("client");
-  logger.debug << "Requesting blocks from index " << fromIndex
+  log().debug << "Requesting blocks from index " << fromIndex
                << ", count=" << count;
 
   // Create request data
@@ -312,7 +302,7 @@ Client::Roe<Client::RespBlocks> Client::getBlocks(uint64_t fromIndex,
                      " Details: " + respDataResult.error().message);
   }
 
-  logger.debug << "Received " << respDataResult.value().blocks.size()
+  log().debug << "Received " << respDataResult.value().blocks.size()
                << " blocks";
   return respDataResult.value();
 }

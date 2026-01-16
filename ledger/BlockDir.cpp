@@ -18,7 +18,7 @@ BlockDir::Roe<void> BlockDir::init(const Config &config,
   dirPath_ = config.dirPath;
   maxFileSize_ = config.maxFileSize;
   currentFileId_ = 0;
-  indexFilePath_ = dirPath_ + "/blocks.index";
+  indexFilePath_ = dirPath_ + "/idx.dat";
   blockIndex_.clear();
   fileInfoMap_.clear();
   managesBlockchain_ = manageBlockchain;
@@ -241,7 +241,7 @@ BlockFile *BlockDir::getBlockFile(uint32_t fileId) {
 
 std::string BlockDir::getBlockFilePath(uint32_t fileId) const {
   std::ostringstream oss;
-  oss << dirPath_ << "/block_" << std::setw(6) << std::setfill('0') << fileId
+  oss << dirPath_ << "/" << std::setw(6) << std::setfill('0') << fileId
       << ".dat";
   return oss.str();
 }

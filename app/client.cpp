@@ -69,8 +69,8 @@ void printBlocks(const pp::Client::RespBlocks &blocks) {
 }
 
 int main(int argc, char *argv[]) {
-  auto &rootLogger = pp::logging::getRootLogger();
-  rootLogger.info << "PP-Ledger Client v" << pp::Client::VERSION;
+  auto rootLogger = pp::logging::getRootLogger();
+  rootLogger->info << "PP-Ledger Client v" << pp::Client::VERSION;
 
   if (argc < 4) {
     std::cerr << "Error: Host, port, and command required.\n";
@@ -86,8 +86,8 @@ int main(int argc, char *argv[]) {
   }
   std::string command = argv[3];
 
-  auto &logger = pp::logging::getLogger("client");
-  logger.setLevel(
+  auto logger = pp::logging::getLogger("client");
+  logger->setLevel(
       pp::logging::Level::WARNING); // Reduce verbosity for command-line tool
 
   pp::Client client;
