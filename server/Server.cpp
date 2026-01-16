@@ -12,27 +12,20 @@
 
 namespace pp {
 
-Server::Server() : Module("server") {
-    auto& logger = logging::getLogger("server");
-    logger.info << "Server initialized";
-}
-
-Server::~Server() {
-    stop();
+Server::Server() : Service("server") {
+    log().info << "Server initialized";
 }
 
 bool Server::start(const std::string& dataDir) {
-    auto& logger = logging::getLogger("server");
-    
-    if (isRunning_) {
-        logger.warning << "Server is already running on port " << port_;
+    if (isRunning()) {
+        log().warning << "Server is already running on port " << port_;
         return false;
     }
     
     // Load configuration from config.json
     std::filesystem::path configPath = std::filesystem::path(dataDir) / "config.json";
     if (!std::filesystem::exists(configPath)) {
-        logger.error << "Configuration file not found: " << configPath;
+        log().error << "Configuration file not found: " << configPath;
         return false;
     }
     
@@ -42,7 +35,7 @@ bool Server::start(const std::string& dataDir) {
     try {
         std::ifstream configFile(configPath);
         if (!configFile.is_open()) {
-            logger.error << "Failed to open configuration file: " << configPath;
+            log().error << "Failed to open configuration file: " << configPath;
             return false;
         }
         
@@ -51,7 +44,7 @@ bool Server::start(const std::string& dataDir) {
         
         // Load port
         if (!config.contains("port") || !config["port"].is_number()) {
-            logger.error << "Configuration file missing or invalid 'port' field";
+            log().error << "Configuration file missing or invalid 'port' field";
             return false;
         }
         port = config["port"].get<int>();
@@ -67,36 +60,22 @@ bool Server::start(const std::string& dataDir) {
             }
         }
         
-        logger.info << "Configuration loaded from " << configPath;
-        logger.info << "  Port: " << port;
+        log().info << "Configuration loaded from " << configPath;
+        log().info << "  Port: " << port;
     } catch (const std::exception& e) {
-        logger.error << "Failed to parse configuration file: " << e.what();
+        log().error << "Failed to parse configuration file: " << e.what();
         return false;
     }
     
     // Initialize storage first
     auto storageResult = initStorage(dataDir);
     if (!storageResult) {
-        logger.error << "Failed to initialize storage: " << storageResult.error().message;
+        log().error << "Failed to initialize storage: " << storageResult.error().message;
         return false;
     }
     
-    // Start the server
+    // Store configuration for use in onStart()
     port_ = port;
-    isRunning_ = true;
-    
-    // Start client server (listens on main port for client connections)
-    bool clientServerStarted = sFetch_.start(port_,
-        [this](const std::string& request) {
-            return handleIncomingRequest(request);
-        });
-    
-    if (!clientServerStarted) {
-        logger.error << "Failed to start client server on port " << port_;
-        isRunning_ = false;
-        return false;
-    }
-    
     networkConfig_ = networkConfig;
     
     // Set genesis time if not already set
@@ -105,33 +84,29 @@ bool Server::start(const std::string& dataDir) {
         consensus_.setGenesisTime(genesisTime);
     }
     
-    // Start consensus thread
-    consensusThread_ = std::thread(&Server::consensusLoop, this);
+    // Call base class start() which will call onStart() then spawn thread
+    return Service::start();
+}
+
+bool Server::onStart() {
+    // Start client server (listens on main port for client connections)
+    bool clientServerStarted = sFetch_.start(port_,
+        [this](const std::string& request) {
+            return handleIncomingRequest(request);
+        });
     
-    logger.info << "Server started on port " << port_;
+    if (!clientServerStarted) {
+        log().error << "Failed to start client server on port " << port_;
+        return false;
+    }
+    
+    log().info << "Server started on port " << port_;
     return true;
 }
 
-void Server::stop() {
-    if (!isRunning_) {
-        return;
-    }
-    
-    isRunning_ = false;
-    
+void Server::onStop() {
     // Stop client server
     sFetch_.stop();
-    
-    // Wait for consensus thread to finish
-    if (consensusThread_.joinable()) {
-        consensusThread_.join();
-    }
-    
-    log().info << "Server stopped";
-}
-
-bool Server::isRunning() const {
-    return isRunning_;
 }
 
 bool Server::parseHostPort(const std::string& hostPort, std::string& host, uint16_t& port) {
@@ -395,34 +370,33 @@ Server::Roe<void> Server::syncState() {
     return Server::Roe<void>();
 }
 
-void Server::consensusLoop() {
-    auto& logger = logging::getLogger("server");
-    logger.info << "Consensus loop started";
+void Server::run() {
+    log().info << "Consensus loop started";
     
-    while (isRunning_) {
+    while (isRunning()) {
         try {
             // Check if we should produce a block
             if (shouldProduceBlock()) {
                 auto produceResult = produceBlock();
                 if (!produceResult) {
-                    logger.warning << "Block production failed: " << produceResult.error().message;
+                    log().warning << "Block production failed: " << produceResult.error().message;
                 }
             }
             
             // Periodically sync state with peers
             auto syncResult = syncState();
             if (!syncResult) {
-                logger.debug << "State sync error: " << syncResult.error().message;
+                log().debug << "State sync error: " << syncResult.error().message;
             }
             
             // Sleep for a short duration before next consensus iteration
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         } catch (const std::exception& e) {
-            logger.error << "Consensus loop error: " << e.what();
+            log().error << "Consensus loop error: " << e.what();
         }
     }
     
-    logger.info << "Consensus loop ended";
+    log().info << "Consensus loop ended";
 }
 
 std::string Server::handleIncomingRequest(const std::string& request) {
