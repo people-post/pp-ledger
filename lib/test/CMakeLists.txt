@@ -42,14 +42,14 @@ target_link_libraries(test_module PRIVATE
 
 gtest_discover_tests(test_module)
 
-# Test for Serializer
-add_executable(test_serializer
-    test_serializer.cpp
+# Test for Archive (serialization)
+add_executable(test_archive
+    test_archive.cpp
 )
 
-target_link_libraries(test_serializer PRIVATE
+target_link_libraries(test_archive PRIVATE
     pp_lib
     GTest::gtest_main
 )
 
-gtest_discover_tests(test_serializer)
+gtest_discover_tests(test_archive)

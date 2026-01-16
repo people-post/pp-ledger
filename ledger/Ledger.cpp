@@ -1,6 +1,6 @@
 #include "Ledger.h"
 #include "Block.h"
-#include "../lib/Serializer.h"
+#include "../lib/BinaryPack.h"
 
 #include <iomanip>
 #include <sstream>
@@ -176,33 +176,43 @@ void Ledger::transferBlocksToArchive() {
 }
 
 // PendingTransactions implementation
+// Helper struct for versioned serialization
+struct VersionedPendingTransactions {
+    uint32_t version;
+    std::vector<Ledger::Transaction> transactions;
+    
+    template<typename Archive>
+    void serialize(Archive& ar) {
+        ar & version;
+        ar & transactions;
+    }
+};
+
 std::string Ledger::PendingTransactions::ltsToString() const {
-    std::ostringstream oss;
-    // Write version number first
-    Serializer::serializeToStream(oss, CURRENT_VERSION);
-    // Write transaction data
-    Serializer::serializeToStream(oss, transactions);
-    return oss.str();
+    VersionedPendingTransactions versioned;
+    versioned.version = CURRENT_VERSION;
+    versioned.transactions = transactions;
+    return utl::binaryPack(versioned);
 }
 
 bool Ledger::PendingTransactions::ltsFromString(const std::string& str) {
-    std::istringstream iss(str);
-    
-    // Read version number
-    uint32_t version = 0;
-    if (!Serializer::deserializeFromStream(iss, version)) {
+    auto result = utl::binaryUnpack<VersionedPendingTransactions>(str);
+    if (result.isError()) {
         return false;
     }
     
+    const auto& versioned = result.value();
+    
     // Handle different versions
-    switch (version) {
+    switch (versioned.version) {
         case 1:
             // Version 1: vector of Transaction objects
-            return Serializer::deserializeFromStream(iss, transactions);
+            transactions = versioned.transactions;
+            return true;
         
         // Future versions can be added here:
         // case 2:
-        //     return deserializeVersion2(iss);
+        //     return handleVersion2(versioned);
         //     break;
         
         default:

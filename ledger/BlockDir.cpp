@@ -1,6 +1,6 @@
 #include "BlockDir.h"
 #include "Logger.h"
-#include "../lib/Serializer.h"
+#include "../lib/BinaryPack.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -256,8 +256,10 @@ bool BlockDir::loadIndex() {
         // Check if we're at end of file
         if (indexFile.peek() == EOF) break;
         
-        // Deserialize using Archive
-        if (!Serializer::deserializeFromStream(indexFile, entry)) {
+        // Deserialize using InputArchive
+        InputArchive ar(indexFile);
+        ar & entry;
+        if (ar.failed()) {
             if (indexFile.gcount() == 0) break; // End of file
             log().warning << "Failed to read complete index entry";
             break;
@@ -301,7 +303,7 @@ bool BlockDir::saveIndex() {
         return false;
     }
     
-    // Write index entries with block locations using Archive utilities
+    // Write index entries with block locations using binaryPack
     for (const auto& [fileId, fileInfo] : fileInfoMap_) {
         uint64_t startBlockId = fileInfo.blockRange.startBlockId;
         IndexEntry entry(fileId, startBlockId);
@@ -324,7 +326,8 @@ bool BlockDir::saveIndex() {
             }
         }
         
-        Serializer::serializeToStream(indexFile, entry);
+        std::string packed = utl::binaryPack(entry);
+        indexFile.write(packed.data(), packed.size());
     }
     
     indexFile.close();
@@ -335,7 +338,8 @@ bool BlockDir::saveIndex() {
 
 bool BlockDir::writeIndexHeader(std::ostream& os) {
     IndexFileHeader header;
-    Serializer::serializeToStream(os, header);
+    OutputArchive ar(os);
+    ar & header;
     
     if (!os.good()) {
         log().error << "Failed to write index file header";
@@ -351,7 +355,9 @@ bool BlockDir::writeIndexHeader(std::ostream& os) {
 bool BlockDir::readIndexHeader(std::istream& is) {
     IndexFileHeader header;
     
-    if (!Serializer::deserializeFromStream(is, header)) {
+    InputArchive ar(is);
+    ar & header;
+    if (ar.failed()) {
         log().error << "Failed to read index file header";
         return false;
     }
