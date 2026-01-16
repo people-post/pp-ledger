@@ -81,7 +81,6 @@ int main(int argc, char *argv[]) {
 
   auto logger = pp::logging::getLogger("beacon");
   logger->setLevel(pp::logging::Level::INFO);
-  logger->addFileHandler("beacon.log", pp::logging::Level::DEBUG);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
@@ -89,6 +88,8 @@ int main(int argc, char *argv[]) {
   logger->info << "Starting beacon with work directory: " << workDir;
 
   pp::Beacon beacon;
+  beacon.redirectLogger("pp.Server");
+
   if (beacon.start(workDir)) {
     logger->info << "Beacon started successfully";
     std::cout << "Beacon running\n";

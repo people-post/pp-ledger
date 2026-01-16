@@ -84,7 +84,6 @@ int main(int argc, char *argv[]) {
 
   auto logger = pp::logging::getLogger("server");
   logger->setLevel(pp::logging::Level::INFO);
-  logger->addFileHandler("server.log", pp::logging::Level::DEBUG);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
@@ -92,6 +91,7 @@ int main(int argc, char *argv[]) {
   logger->info << "Starting server with work directory: " << workDir;
 
   pp::Server server;
+  server.redirectLogger("pp.Server");
   if (server.start(workDir)) {
     logger->info << "Server started successfully";
     std::cout << "Server running\n";
