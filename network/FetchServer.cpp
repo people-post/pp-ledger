@@ -4,20 +4,13 @@ namespace pp {
 namespace network {
 
 FetchServer::FetchServer()
-    : Module("network.fetch_server")
-    , running_(false)
+    : Service("network.fetch_server")
     , port_(0) {
     log().info << "FetchServer initialized";
 }
 
-FetchServer::~FetchServer() {
-    if (running_) {
-        stop();
-    }
-}
-
 bool FetchServer::start(uint16_t port, RequestHandler handler) {
-    if (running_) {
+    if (isRunning()) {
         log().warning << "Server is already running";
         return false;
     }
@@ -27,6 +20,11 @@ bool FetchServer::start(uint16_t port, RequestHandler handler) {
 
     log().info << "Starting server on port: " + std::to_string(port_);
 
+    // Call base class start() which will call onStart() then spawn thread
+    return Service::start();
+}
+
+bool FetchServer::onStart() {
     // Start listening
     auto listenResult = server_.listen(port_);
     if (!listenResult) {
@@ -35,37 +33,18 @@ bool FetchServer::start(uint16_t port, RequestHandler handler) {
         return false;
     }
 
-    running_ = true;
-
-    // Start server thread
-    serverThread_ = std::thread(&FetchServer::serverLoop, this);
-
     log().info << "Server started successfully on port " + std::to_string(port_);
     return true;
 }
 
-void FetchServer::stop() {
-    if (!running_) {
-        log().warning << "Server is not running";
-        return;
-    }
-
-    log().info << "Stopping server";
-    
-    running_ = false;
+void FetchServer::onStop() {
     server_.stop();
-    
-    if (serverThread_.joinable()) {
-        serverThread_.join();
-    }
-    
-    log().info << "Server stopped";
 }
 
-void FetchServer::serverLoop() {
+void FetchServer::run() {
     log().debug << "Server loop started";
 
-    while (running_) {
+    while (isRunning()) {
         // Wait for events with a short timeout to allow checking running_ flag
         auto waitResult = server_.waitForEvents(100);  // 100ms timeout
         if (!waitResult) {

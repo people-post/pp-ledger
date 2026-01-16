@@ -9,6 +9,8 @@ add_library(pp_lib STATIC
     ResultOrError.hpp
     Serializer.cpp
     Serializer.h
+    Service.cpp
+    Service.h
     BinaryPack.h
 )
 
