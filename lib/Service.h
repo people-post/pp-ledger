@@ -68,10 +68,10 @@ protected:
      */
     virtual void onStop() {}
 
+private:
     /// Flag indicating if the service should continue running
     std::atomic<bool> running_;
-
-private:
+    
     /// The service thread
     std::thread thread_;
 };
