@@ -7,8 +7,7 @@ add_library(pp_lib STATIC
     Module.cpp
     Module.h
     ResultOrError.hpp
-    Serializer.cpp
-    Serializer.h
+    Serialize.hpp
     Service.cpp
     Service.h
     BinaryPack.h

@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_BINARY_PACK_H
 #define PP_LEDGER_BINARY_PACK_H
 
-#include "Serializer.h"
+#include "Serialize.hpp"
 #include "ResultOrError.hpp"
 #include <string>
 #include <sstream>

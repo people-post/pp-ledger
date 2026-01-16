@@ -1,5 +1,5 @@
-#ifndef PP_LEDGER_SERIALIZER_H
-#define PP_LEDGER_SERIALIZER_H
+#ifndef PP_LEDGER_SERIALIZE_HPP
+#define PP_LEDGER_SERIALIZE_HPP
 
 #include <string>
 #include <vector>
@@ -139,7 +139,12 @@ inline double doubleFromBigEndian(const uint8_t* bytes) {
 /**
  * OutputArchive for serialization (writing)
  * Supports the & operator pattern used by custom structs
- * This is the primary class for serialization - Serializer delegates to this
+ * 
+ * Usage:
+ *   std::ostringstream oss;
+ *   OutputArchive ar(oss);
+ *   ar & myValue;
+ *   std::string data = oss.str();
  */
 class OutputArchive {
 public:
@@ -229,8 +234,8 @@ public:
     // Write containers
     template<typename T>
     void write(const std::vector<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size = value.size();
         write(size);
         for (const auto& item : value) {
@@ -240,8 +245,8 @@ public:
 
     template<typename T, size_t N>
     void write(const std::array<T, N>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         for (const auto& item : value) {
             (*this) & item;
         }
@@ -249,8 +254,8 @@ public:
 
     template<typename K, typename V>
     void write(const std::map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         uint64_t size = value.size();
         write(size);
         for (const auto& pair : value) {
@@ -261,8 +266,8 @@ public:
 
     template<typename K, typename V>
     void write(const std::unordered_map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         uint64_t size = value.size();
         write(size);
         for (const auto& pair : value) {
@@ -273,8 +278,8 @@ public:
 
     template<typename T>
     void write(const std::set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size = value.size();
         write(size);
         for (const auto& item : value) {
@@ -284,8 +289,8 @@ public:
 
     template<typename T>
     void write(const std::unordered_set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size = value.size();
         write(size);
         for (const auto& item : value) {
@@ -367,48 +372,48 @@ public:
     // Operator & for containers
     template<typename T>
     OutputArchive& operator&(const std::vector<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         write(value);
         return *this;
     }
 
     template<typename T, size_t N>
     OutputArchive& operator&(const std::array<T, N>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         write(value);
         return *this;
     }
 
     template<typename K, typename V>
     OutputArchive& operator&(const std::map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         write(value);
         return *this;
     }
 
     template<typename K, typename V>
     OutputArchive& operator&(const std::unordered_map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         write(value);
         return *this;
     }
 
     template<typename T>
     OutputArchive& operator&(const std::set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         write(value);
         return *this;
     }
 
     template<typename T>
     OutputArchive& operator&(const std::unordered_set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         write(value);
         return *this;
     }
@@ -417,8 +422,8 @@ public:
     // Uses const_cast because serialize() is non-const but we're reading (not modifying)
     template<typename T>
     auto operator&(const T& value) -> decltype(std::declval<T&>().template serialize<OutputArchive>(std::declval<OutputArchive&>()), *this) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         const_cast<T&>(value).template serialize<OutputArchive>(*this);
         return *this;
     }
@@ -426,8 +431,8 @@ public:
     // Operator & for custom types (non-const reference for nested serialization)
     template<typename T>
     auto operator&(T& value) -> decltype(value.template serialize<OutputArchive>(*this), *this) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         value.template serialize<OutputArchive>(*this);
         return *this;
     }
@@ -439,7 +444,12 @@ private:
 /**
  * InputArchive for deserialization (reading)
  * Supports the & operator pattern used by custom structs
- * This is the primary class for deserialization - Serializer delegates to this
+ * 
+ * Usage:
+ *   std::istringstream iss(data);
+ *   InputArchive ar(iss);
+ *   ar & myValue;
+ *   if (ar.failed()) { handle error }
  */
 class InputArchive {
 public:
@@ -579,8 +589,8 @@ public:
     // Read containers
     template<typename T>
     bool read(std::vector<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size;
         if (!read(size)) {
             return false;
@@ -600,8 +610,8 @@ public:
 
     template<typename T, size_t N>
     bool read(std::array<T, N>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         for (size_t i = 0; i < N; ++i) {
             (*this) & value[i];
             if (failed_) {
@@ -613,8 +623,8 @@ public:
 
     template<typename K, typename V>
     bool read(std::map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         uint64_t size;
         if (!read(size)) {
             return false;
@@ -635,8 +645,8 @@ public:
 
     template<typename K, typename V>
     bool read(std::unordered_map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         uint64_t size;
         if (!read(size)) {
             return false;
@@ -657,8 +667,8 @@ public:
 
     template<typename T>
     bool read(std::set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size;
         if (!read(size)) {
             return false;
@@ -677,8 +687,8 @@ public:
 
     template<typename T>
     bool read(std::unordered_set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         uint64_t size;
         if (!read(size)) {
             return false;
@@ -764,48 +774,48 @@ public:
     // Operator & for containers
     template<typename T>
     InputArchive& operator&(std::vector<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         read(value);
         return *this;
     }
 
     template<typename T, size_t N>
     InputArchive& operator&(std::array<T, N>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         read(value);
         return *this;
     }
 
     template<typename K, typename V>
     InputArchive& operator&(std::map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         read(value);
         return *this;
     }
 
     template<typename K, typename V>
     InputArchive& operator&(std::unordered_map<K, V>& value) {
-        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<K> && !detail::is_pointer_v<V>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<K> && !detail::is_long_double_v<V>, "Archive does not support long double");
         read(value);
         return *this;
     }
 
     template<typename T>
     InputArchive& operator&(std::set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         read(value);
         return *this;
     }
 
     template<typename T>
     InputArchive& operator&(std::unordered_set<T>& value) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         read(value);
         return *this;
     }
@@ -813,8 +823,8 @@ public:
     // Operator & for custom types
     template<typename T>
     auto operator&(T& value) -> decltype(value.template serialize<InputArchive>(*this), *this) {
-        static_assert(!detail::is_pointer_v<T>, "Serializer does not support pointers");
-        static_assert(!detail::is_long_double_v<T>, "Serializer does not support long double");
+        static_assert(!detail::is_pointer_v<T>, "Archive does not support pointers");
+        static_assert(!detail::is_long_double_v<T>, "Archive does not support long double");
         value.template serialize<InputArchive>(*this);
         return *this;
     }
@@ -826,66 +836,6 @@ private:
     bool failed_ = false;
 };
 
-/**
- * Serializer class - provides a convenient static API for serialization
- * This class is now a thin wrapper around OutputArchive and InputArchive
- * 
- * @deprecated Prefer using OutputArchive and InputArchive directly for new code
- */
-class Serializer {
-public:
-    /**
-     * Serialize a value to binary format
-     * @param value The value to serialize
-     * @return Binary string representation
-     */
-    template<typename T>
-    static std::string serialize(const T& value) {
-        std::ostringstream oss;
-        OutputArchive ar(oss);
-        ar & value;
-        return oss.str();
-    }
-
-    /**
-     * Deserialize a value from binary format
-     * @param data Binary string data
-     * @param value Output parameter for deserialized value
-     * @return true if successful, false otherwise
-     */
-    template<typename T>
-    static bool deserialize(const std::string& data, T& value) {
-        std::istringstream iss(data);
-        InputArchive ar(iss);
-        ar & value;
-        return !ar.failed();
-    }
-
-    /**
-     * Serialize a value to a stream
-     * @param os Output stream
-     * @param value The value to serialize
-     */
-    template<typename T>
-    static void serializeToStream(std::ostream& os, const T& value) {
-        OutputArchive ar(os);
-        ar & value;
-    }
-
-    /**
-     * Deserialize a value from a stream
-     * @param is Input stream
-     * @param value Output parameter for deserialized value
-     * @return true if successful, false otherwise
-     */
-    template<typename T>
-    static bool deserializeFromStream(std::istream& is, T& value) {
-        InputArchive ar(is);
-        ar & value;
-        return !ar.failed();
-    }
-};
-
 } // namespace pp
 
-#endif // PP_LEDGER_SERIALIZER_H
+#endif // PP_LEDGER_SERIALIZE_HPP
