@@ -2,7 +2,7 @@
 
 #include "Block.h"
 #include "BlockChain.h"
-#include "BlockFile.h"
+#include "FileStore.h"
 #include "Module.h"
 #include <cstdint>
 #include <functional>
@@ -26,7 +26,7 @@ using IBlock = iii::Block;
  * - Reading and writing block data across multiple files
  * 
  * Block indices are assumed to be sequential within a file and across files.
- * BlockDir only stores each file's starting block index; BlockFile handles
+ * BlockDir only stores each file's starting block index; FileStore handles
  * individual block indexing within each file.
  */
 class BlockDir : public Module {
@@ -130,7 +130,7 @@ private:
   /**
    * Index file header structure
    * Contains magic number and version information
-   * Simplified format - BlockFile now handles individual block indexing
+   * Simplified format - FileStore now handles individual block indexing
    */
   struct IndexFileHeader {
     static constexpr uint32_t MAGIC =
@@ -157,7 +157,7 @@ private:
   /**
    * Structure representing a file's starting block index
    * Block indices are sequential starting from startBlockId
-   * BlockFile stores the actual block count and handles per-block indexing
+   * FileStore stores the actual block count and handles per-block indexing
    */
   struct FileIndexEntry {
     uint32_t fileId;
@@ -178,10 +178,10 @@ private:
   static constexpr size_t INDEX_HEADER_SIZE = sizeof(IndexFileHeader);
 
   /**
-   * Structure holding BlockFile and its starting block index
+   * Structure holding FileStore and its starting block index
    */
   struct FileInfo {
-    std::unique_ptr<BlockFile> blockFile;
+    std::unique_ptr<FileStore> blockFile;
     uint64_t startBlockId; // Starting block index for this file
   };
 
@@ -245,38 +245,38 @@ private:
 
   /**
    * Remove and return the front (oldest) block file
-   * @return Unique pointer to the BlockFile, or nullptr if no files exist
+   * @return Unique pointer to the FileStore, or nullptr if no files exist
    */
-  std::unique_ptr<BlockFile> popFrontFile();
+  std::unique_ptr<FileStore> popFrontFile();
 
   /**
    * Create a new block file
    * @param fileId ID for the new file
    * @param startBlockId Starting block index for this file
-   * @return Pointer to the new BlockFile, or nullptr on error
+   * @return Pointer to the new FileStore, or nullptr on error
    */
-  BlockFile *createBlockFile(uint32_t fileId, uint64_t startBlockId);
+  FileStore *createBlockFile(uint32_t fileId, uint64_t startBlockId);
 
   /**
    * Get or create the current active block file for writing
    * @param dataSize Size of data to be written (to check if file can fit)
-   * @return Pointer to the BlockFile, or nullptr on error
+   * @return Pointer to the FileStore, or nullptr on error
    */
-  BlockFile *getActiveBlockFile(uint64_t dataSize);
+  FileStore *getActiveBlockFile(uint64_t dataSize);
 
   /**
    * Get block file by ID (opens it if not already open)
    * @param fileId File ID
-   * @return Pointer to the BlockFile, or nullptr if not found
+   * @return Pointer to the FileStore, or nullptr if not found
    */
-  BlockFile *getBlockFile(uint32_t fileId);
+  FileStore *getBlockFile(uint32_t fileId);
 
   /**
    * Get block file by ID (const version, doesn't open files)
    * @param fileId File ID
-   * @return Pointer to the BlockFile, or nullptr if not found/not open
+   * @return Pointer to the FileStore, or nullptr if not found/not open
    */
-  const BlockFile *getBlockFileConst(uint32_t fileId) const;
+  const FileStore *getBlockFileConst(uint32_t fileId) const;
 
   /**
    * Generate file path for a block file

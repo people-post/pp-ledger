@@ -30,7 +30,7 @@ target_link_libraries(test_blockchain PRIVATE
 
 gtest_discover_tests(test_blockchain)
 
-# Test for BlockFile
+# Test for FileStore
 add_executable(test_blockfile
     test_blockfile.cpp
 )

@@ -1,12 +1,12 @@
-#include "BlockFile.h"
+#include "FileStore.h"
 #include "Logger.h"
 #include <filesystem>
 
 namespace pp {
 
-BlockFile::BlockFile() : Module("blockfile") {}
+FileStore::FileStore() : BlockStore("filestore") {}
 
-BlockFile::Roe<void> BlockFile::init(const Config &config) {
+FileStore::Roe<void> FileStore::init(const Config &config) {
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
   currentSize_ = 0;
@@ -62,9 +62,9 @@ BlockFile::Roe<void> BlockFile::init(const Config &config) {
   return {};
 }
 
-BlockFile::~BlockFile() { close(); }
+FileStore::~FileStore() { close(); }
 
-BlockFile::Roe<void> BlockFile::open() {
+FileStore::Roe<void> FileStore::open() {
   // Open file in binary mode for both reading and writing
   // For existing files, we'll use in|out mode (not app) so we can read header
   // For new files, we'll create them first
@@ -90,7 +90,7 @@ BlockFile::Roe<void> BlockFile::open() {
   return {};
 }
 
-BlockFile::Roe<int64_t> BlockFile::write(const void *data, uint64_t size) {
+FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -162,7 +162,7 @@ BlockFile::Roe<int64_t> BlockFile::write(const void *data, uint64_t size) {
   return blockIdx;
 }
 
-BlockFile::Roe<int64_t> BlockFile::readBlock(uint64_t index, void *data,
+FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
                                              size_t maxSize) {
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
@@ -219,7 +219,7 @@ BlockFile::Roe<int64_t> BlockFile::readBlock(uint64_t index, void *data,
   return static_cast<int64_t>(entry.size);
 }
 
-BlockFile::Roe<uint64_t> BlockFile::getBlockSize(uint64_t index) {
+FileStore::Roe<uint64_t> FileStore::getBlockSize(uint64_t index) {
   // Ensure block index is built
   auto indexResult = ensureBlockIndex();
   if (!indexResult.isOk()) {
@@ -234,14 +234,14 @@ BlockFile::Roe<uint64_t> BlockFile::getBlockSize(uint64_t index) {
   return blockIndex_[index].size;
 }
 
-bool BlockFile::canFit(uint64_t size) const {
+bool FileStore::canFit(uint64_t size) const {
   // currentSize_ already includes header, add size prefix overhead
   return (currentSize_ + SIZE_PREFIX_BYTES + size) <= maxSize_;
 }
 
-bool BlockFile::isOpen() const { return file_.is_open() && file_.good(); }
+bool FileStore::isOpen() const { return file_.is_open() && file_.good(); }
 
-void BlockFile::close() {
+void FileStore::close() {
   if (file_.is_open()) {
     // Update block count in header before closing
     auto result = updateHeaderBlockCount();
@@ -255,13 +255,13 @@ void BlockFile::close() {
   }
 }
 
-void BlockFile::flush() {
+void FileStore::flush() {
   if (file_.is_open()) {
     file_.flush();
   }
 }
 
-BlockFile::Roe<void> BlockFile::writeHeader() {
+FileStore::Roe<void> FileStore::writeHeader() {
   if (!isOpen()) {
     return Error("File is not open: " + filepath_);
   }
@@ -294,7 +294,7 @@ BlockFile::Roe<void> BlockFile::writeHeader() {
   return {};
 }
 
-BlockFile::Roe<void> BlockFile::readHeader() {
+FileStore::Roe<void> FileStore::readHeader() {
   if (!isOpen()) {
     return Error("File is not open: " + filepath_);
   }
@@ -328,7 +328,7 @@ BlockFile::Roe<void> BlockFile::readHeader() {
   return {};
 }
 
-BlockFile::Roe<void> BlockFile::updateHeaderBlockCount() {
+FileStore::Roe<void> FileStore::updateHeaderBlockCount() {
   if (!isOpen()) {
     return Error("File is not open: " + filepath_);
   }
@@ -356,11 +356,11 @@ BlockFile::Roe<void> BlockFile::updateHeaderBlockCount() {
   return {};
 }
 
-bool BlockFile::hasValidHeader() const {
+bool FileStore::hasValidHeader() const {
   return headerValid_ && header_.magic == FileHeader::MAGIC;
 }
 
-BlockFile::Roe<void> BlockFile::buildBlockIndex() {
+FileStore::Roe<void> FileStore::buildBlockIndex() {
   if (!isOpen()) {
     return Error("File is not open: " + filepath_);
   }
@@ -418,11 +418,129 @@ BlockFile::Roe<void> BlockFile::buildBlockIndex() {
   return {};
 }
 
-BlockFile::Roe<void> BlockFile::ensureBlockIndex() {
+FileStore::Roe<void> FileStore::ensureBlockIndex() {
   if (indexBuilt_) {
     return {};
   }
   return buildBlockIndex();
+}
+
+// BlockStore interface implementation
+FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
+  // Need to cast away const for internal operations
+  FileStore* nonConstThis = const_cast<FileStore*>(this);
+  
+  // Ensure block index is built
+  auto indexResult = nonConstThis->ensureBlockIndex();
+  if (!indexResult.isOk()) {
+    return BlockStore::Error(indexResult.error().message);
+  }
+
+  if (index >= blockIndex_.size()) {
+    return BlockStore::Error("Block index " + std::to_string(index) + " out of range (max: " +
+                             std::to_string(blockIndex_.size()) + ")");
+  }
+
+  const BlockEntry &entry = blockIndex_[index];
+  
+  // Allocate buffer for block data
+  std::string buffer(entry.size, '\0');
+  
+  // Calculate data offset (skip size prefix)
+  int64_t dataOffset = entry.offset + static_cast<int64_t>(SIZE_PREFIX_BYTES);
+
+  // Clear any stream errors and seek to data position
+  nonConstThis->file_.clear();
+  nonConstThis->file_.seekg(dataOffset, std::ios::beg);
+
+  if (!nonConstThis->file_.good()) {
+    return BlockStore::Error("Failed to seek to offset " + std::to_string(dataOffset));
+  }
+
+  // Read block data
+  nonConstThis->file_.read(&buffer[0], entry.size);
+
+  int64_t bytesRead = nonConstThis->file_.gcount();
+
+  if (bytesRead != static_cast<int64_t>(entry.size)) {
+    return BlockStore::Error("Failed to read complete block data");
+  }
+
+  return buffer;
+}
+
+FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string &block) {
+  auto result = write(block.data(), block.size());
+  if (!result.isOk()) {
+    return BlockStore::Error(result.error().message);
+  }
+  return static_cast<uint64_t>(result.value());
+}
+
+FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
+  // Ensure block index is built
+  auto indexResult = ensureBlockIndex();
+  if (!indexResult.isOk()) {
+    return BlockStore::Error(indexResult.error().message);
+  }
+
+  if (index > blockCount_) {
+    return BlockStore::Error("Cannot rewind to index " + std::to_string(index) + 
+                             " (max: " + std::to_string(blockCount_) + ")");
+  }
+
+  // Truncate the file to remove blocks after the specified index
+  if (index < blockCount_) {
+    if (index == 0) {
+      // Rewind to beginning - keep only header
+      currentSize_ = HEADER_SIZE;
+      blockCount_ = 0;
+      blockIndex_.clear();
+      
+      // Truncate file to header size
+      file_.close();
+      std::filesystem::resize_file(filepath_, HEADER_SIZE);
+      auto openResult = open();
+      if (!openResult.isOk()) {
+        return BlockStore::Error(openResult.error().message);
+      }
+      
+      // Rewrite header with zero block count
+      header_.blockCount = 0;
+      auto headerResult = writeHeader();
+      if (!headerResult.isOk()) {
+        return BlockStore::Error(headerResult.error().message);
+      }
+    } else {
+      // Rewind to specific index - keep blocks up to (but not including) index
+      const BlockEntry &entry = blockIndex_[index];
+      int64_t truncateOffset = entry.offset;
+      
+      // Update counts
+      blockCount_ = index;
+      currentSize_ = truncateOffset;
+      
+      // Truncate block index
+      blockIndex_.resize(index);
+      
+      // Truncate file
+      file_.close();
+      std::filesystem::resize_file(filepath_, truncateOffset);
+      auto openResult = open();
+      if (!openResult.isOk()) {
+        return BlockStore::Error(openResult.error().message);
+      }
+      
+      // Update header
+      header_.blockCount = blockCount_;
+      auto headerResult = updateHeaderBlockCount();
+      if (!headerResult.isOk()) {
+        return BlockStore::Error(headerResult.error().message);
+      }
+    }
+  }
+  
+  return {};
 }
 
 } // namespace pp

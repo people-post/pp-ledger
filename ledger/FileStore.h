@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BlockStore.hpp"
 #include "Module.h"
 #include "ResultOrError.hpp"
 #include <cstdint>
@@ -10,9 +11,11 @@
 namespace pp {
 
 /**
- * BlockFile manages writing block data to a single file with a size limit.
+ * FileStore manages writing block data to a single file with a size limit.
  * When the file reaches the configured size limit, it should be closed and
  * a new file should be created by BlockDir.
+ * 
+ * FileStore implements the BlockStore interface for file-based storage.
  * 
  * File format (version 2):
  * - Header: magic, version, blockCount, headerSize
@@ -22,42 +25,41 @@ namespace pp {
  * the total block count is written to the header. On first read by index,
  * the block index (offsets) is built by scanning the file.
  */
-class BlockFile : public Module {
+class FileStore : public BlockStore {
 public:
   /**
-   * Configuration for BlockFile initialization
+   * Configuration for FileStore initialization
    */
   struct Config {
     std::string filepath;
     size_t maxSize{ 0 }; // Max file size (bytes)
   };
 
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
   /**
    * Constructor
    */
-  BlockFile();
+  FileStore();
 
   /**
    * Destructor - ensures file is properly closed
    */
-  ~BlockFile();
+  ~FileStore();
 
   /**
-   * Initialize the block file
-   * @param config Configuration for the block file
+   * Initialize the file store
+   * @param config Configuration for the file store
    * @return Roe<void> on success or error
    */
   Roe<void> init(const Config &config);
 
   // Delete copy constructor and assignment
-  BlockFile(const BlockFile &) = delete;
-  BlockFile &operator=(const BlockFile &) = delete;
+  FileStore(const FileStore &) = delete;
+  FileStore &operator=(const FileStore &) = delete;
+
+  // BlockStore interface implementation
+  Roe<std::string> readBlock(uint64_t index) const override;
+  Roe<uint64_t> appendBlock(const std::string &block) override;
+  Roe<void> rewindTo(uint64_t index) override;
 
   /**
    * Write block data to the file (with size prefix)
@@ -125,7 +127,7 @@ public:
 
 private:
   /**
-   * File header structure for BlockFile
+   * File header structure for FileStore
    * Contains magic number, version, and block count
    */
   struct FileHeader {
@@ -133,7 +135,7 @@ private:
         0x504C4642; // "PLFB" (PP Ledger File Block)
     static constexpr uint16_t CURRENT_VERSION = 1;
 
-    uint32_t magic{ MAGIC };      // Magic number to identify BlockFile type
+    uint32_t magic{ MAGIC };      // Magic number to identify FileStore type
     uint16_t version{ CURRENT_VERSION };    // File format version
     uint16_t reserved{ 0 };       // Reserved for future use
     uint64_t blockCount{ 0 };     // Number of blocks stored in this file

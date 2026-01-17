@@ -72,8 +72,8 @@ BlockDir::Roe<void> BlockDir::init(const Config &config,
   for (auto &[fileId, fileInfo] : fileInfoMap_) {
     std::string filepath = getBlockFilePath(fileId);
     if (std::filesystem::exists(filepath)) {
-      auto ukpBlockFile = std::make_unique<BlockFile>();
-      BlockFile::Config bfConfig(filepath, maxFileSize_);
+      auto ukpBlockFile = std::make_unique<FileStore>();
+      FileStore::Config bfConfig(filepath, maxFileSize_);
       auto result = ukpBlockFile->init(bfConfig);
       if (result.isOk()) {
         fileInfo.blockFile = std::move(ukpBlockFile);
@@ -125,13 +125,13 @@ BlockDir::Roe<void> BlockDir::writeBlock(uint64_t blockId, const void *data,
   }
 
   // Get active block file for writing
-  BlockFile *blockFile = getActiveBlockFile(size);
+  FileStore *blockFile = getActiveBlockFile(size);
   if (!blockFile) {
     log().error << "Failed to get active block file";
     return Error("Failed to get active block file");
   }
 
-  // Write data to the file (BlockFile handles size prefix)
+  // Write data to the file (FileStore handles size prefix)
   auto result = blockFile->write(data, size);
   if (!result.isOk()) {
     log().error << "Failed to write block " << blockId << " to file";
@@ -167,7 +167,7 @@ BlockDir::Roe<int64_t> BlockDir::readBlock(uint64_t blockId, void *data,
     return Error("Block file " + std::to_string(fileId) + " not found or not open");
   }
 
-  // Read block using BlockFile's index-based read
+  // Read block using FileStore's index-based read
   auto readResult = it->second.blockFile->readBlock(indexWithinFile, data, maxSize);
   if (!readResult.isOk()) {
     return Error("Failed to read block " + std::to_string(blockId) + ": " +
@@ -217,7 +217,7 @@ std::pair<uint32_t, uint64_t> BlockDir::findBlockFile(uint64_t blockId) const {
 }
 
 void BlockDir::flush() {
-  // BlockFile now flushes automatically after each write operation,
+  // FileStore now flushes automatically after each write operation,
   // so no explicit flush needed here. Just save the index.
 
   // Save index
@@ -226,11 +226,11 @@ void BlockDir::flush() {
   }
 }
 
-BlockFile *BlockDir::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
+FileStore *BlockDir::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
   std::string filepath = getBlockFilePath(fileId);
-  auto ukpBlockFile = std::make_unique<BlockFile>();
+  auto ukpBlockFile = std::make_unique<FileStore>();
 
-  BlockFile::Config bfConfig(filepath, maxFileSize_);
+  FileStore::Config bfConfig(filepath, maxFileSize_);
   auto result = ukpBlockFile->init(bfConfig);
   if (!result.isOk()) {
     log().error << "Failed to create block file: " << filepath;
@@ -240,7 +240,7 @@ BlockFile *BlockDir::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
   log().info << "Created new block file: " << filepath 
              << " (startBlockId: " << startBlockId << ")";
 
-  BlockFile *pBlockFile = ukpBlockFile.get();
+  FileStore *pBlockFile = ukpBlockFile.get();
   // Create FileInfo with the starting block ID
   FileInfo fileInfo;
   fileInfo.blockFile = std::move(ukpBlockFile);
@@ -250,7 +250,7 @@ BlockFile *BlockDir::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
   return pBlockFile;
 }
 
-BlockFile *BlockDir::getActiveBlockFile(uint64_t dataSize) {
+FileStore *BlockDir::getActiveBlockFile(uint64_t dataSize) {
   // Check if current file exists and can fit the data
   auto it = fileInfoMap_.find(currentFileId_);
   if (it != fileInfoMap_.end() && it->second.blockFile &&
@@ -264,7 +264,7 @@ BlockFile *BlockDir::getActiveBlockFile(uint64_t dataSize) {
   return createBlockFile(currentFileId_, totalBlockCount_);
 }
 
-BlockFile *BlockDir::getBlockFile(uint32_t fileId) {
+FileStore *BlockDir::getBlockFile(uint32_t fileId) {
   auto it = fileInfoMap_.find(fileId);
   if (it != fileInfoMap_.end() && it->second.blockFile) {
     return it->second.blockFile.get();
@@ -273,11 +273,11 @@ BlockFile *BlockDir::getBlockFile(uint32_t fileId) {
   // Try to open the file if it exists
   std::string filepath = getBlockFilePath(fileId);
   if (std::filesystem::exists(filepath)) {
-    auto ukpBlockFile = std::make_unique<BlockFile>();
-    BlockFile::Config bfConfig(filepath, maxFileSize_);
+    auto ukpBlockFile = std::make_unique<FileStore>();
+    FileStore::Config bfConfig(filepath, maxFileSize_);
     auto result = ukpBlockFile->init(bfConfig);
     if (result.isOk()) {
-      BlockFile *pBlockFile = ukpBlockFile.get();
+      FileStore *pBlockFile = ukpBlockFile.get();
       // If not in map, create entry with startBlockId 0 (will be updated from index)
       if (fileInfoMap_.find(fileId) == fileInfoMap_.end()) {
         FileInfo fileInfo;
@@ -294,7 +294,7 @@ BlockFile *BlockDir::getBlockFile(uint32_t fileId) {
   return nullptr;
 }
 
-const BlockFile *BlockDir::getBlockFileConst(uint32_t fileId) const {
+const FileStore *BlockDir::getBlockFileConst(uint32_t fileId) const {
   auto it = fileInfoMap_.find(fileId);
   if (it != fileInfoMap_.end() && it->second.blockFile) {
     return it->second.blockFile.get();
@@ -343,7 +343,7 @@ bool BlockDir::loadIndex() {
       break;
     }
 
-    // Create FileInfo with empty BlockFile (will be loaded when needed)
+    // Create FileInfo with empty FileStore (will be loaded when needed)
     FileInfo fileInfo;
     fileInfo.blockFile = nullptr;
     fileInfo.startBlockId = entry.startBlockId;
@@ -443,7 +443,7 @@ uint32_t BlockDir::getFrontFileId() const {
   return fileIdOrder_.front();
 }
 
-std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
+std::unique_ptr<FileStore> BlockDir::popFrontFile() {
   if (fileIdOrder_.empty()) {
     log().warning << "No files to pop from BlockDir";
     return nullptr;
@@ -462,7 +462,7 @@ std::unique_ptr<BlockFile> BlockDir::popFrontFile() {
   uint64_t blockCount = it->second.blockFile->getBlockCount();
 
   // Extract and return the file, remove from fileInfoMap_
-  std::unique_ptr<BlockFile> poppedFile = std::move(it->second.blockFile);
+  std::unique_ptr<FileStore> poppedFile = std::move(it->second.blockFile);
   fileInfoMap_.erase(it);
 
   // Update total block count
@@ -496,7 +496,7 @@ BlockDir::Roe<void> BlockDir::moveFrontFileTo(BlockDir &targetDir) {
     blockCount = fileInfo.blockFile->getBlockCount();
   }
 
-  // Create FileInfo in target directory (BlockFile will be loaded when needed)
+  // Create FileInfo in target directory (FileStore will be loaded when needed)
   if (targetDir.fileInfoMap_.find(frontFileId) ==
       targetDir.fileInfoMap_.end()) {
     FileInfo targetFileInfo;
@@ -669,7 +669,7 @@ BlockDir::Roe<size_t> BlockDir::loadBlocksFromFile(uint32_t fileId) {
   uint64_t startBlockId = fileInfo.startBlockId;
 
   // Get the block file
-  BlockFile *blockFile = getBlockFile(fileId);
+  FileStore *blockFile = getBlockFile(fileId);
   if (!blockFile) {
     log().error << "Failed to get block file " << fileId;
     return Error("Failed to get block file " + std::to_string(fileId));
@@ -680,7 +680,7 @@ BlockDir::Roe<size_t> BlockDir::loadBlocksFromFile(uint32_t fileId) {
   
   size_t loadedCount = 0;
 
-  // Iterate through blocks using BlockFile's readBlock method
+  // Iterate through blocks using FileStore's readBlock method
   for (uint64_t i = 0; i < blockCount; i++) {
     uint64_t blockId = startBlockId + i;
     
@@ -693,7 +693,7 @@ BlockDir::Roe<size_t> BlockDir::loadBlocksFromFile(uint32_t fileId) {
     
     uint64_t blockSize = sizeResult.value();
     
-    // Read block data using BlockFile's index-based read
+    // Read block data using FileStore's index-based read
     std::string blockData;
     blockData.resize(static_cast<size_t>(blockSize));
     auto readResult = blockFile->readBlock(i, &blockData[0], blockData.size());

@@ -121,7 +121,7 @@ TEST_F(BlockDirTest, WritesMultipleBlocks) {
 }
 
 TEST_F(BlockDirTest, CreatesNewFileWhenMaxSizeReached) {
-    // Use small max file size to trigger file rollover (1MB minimum for BlockFile)
+    // Use small max file size to trigger file rollover (1MB minimum for FileStore)
     pp::BlockDir::Config smallConfig(testDir, 1024 * 1024); // 1MB max size
     blockDir.init(smallConfig, true);
     
@@ -231,7 +231,7 @@ TEST_F(BlockDirTest, MoveFrontFileToTarget) {
     pp::BlockDir source;
     pp::BlockDir target;
     
-    // Use 1MB minimum (BlockFile requirement)
+    // Use 1MB minimum (FileStore requirement)
     pp::BlockDir::Config sourceConfig(sourceDir, 1024 * 1024);
     pp::BlockDir::Config targetConfig(targetDir, 1024 * 1024);
     
