@@ -108,8 +108,6 @@ private:
   bool shouldProduceBlock() const;
   Roe<void> produceBlock();
   Roe<void> syncState();
-  Roe<std::shared_ptr<iii::Block>> createBlockFromTransactions();
-  Roe<void> addBlockToLedger(std::shared_ptr<iii::Block> block);
 
   // Chain switching support
   Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(

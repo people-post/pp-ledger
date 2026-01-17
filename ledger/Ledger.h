@@ -7,6 +7,7 @@
 #include "ResultOrError.hpp"
 #include "Wallet.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -75,8 +76,17 @@ public:
   void clearPendingTransactions();
   size_t getPendingTransactionCount() const;
 
-  // Block operations
-  Roe<void> commitTransactions();
+  /**
+   * Produce a block from pending transactions, validate it, add to ledger, and return serialized block
+   * @param slot The slot number for this block
+   * @param slotLeader The slot leader ID for this block
+   * @param validator Validator function that takes (block, chain) and returns Ledger::Roe<bool>
+   * @return Serialized string representation of the produced block, or error
+   */
+  Roe<std::string> produceBlock(
+      uint64_t slot, const std::string &slotLeader,
+      std::function<Roe<bool>(const iii::Block &, const IBlockChain &)>
+          validator);
 
   // IBlockChain interface implementation
   std::shared_ptr<iii::Block> getLatestBlock() const override;
@@ -114,6 +124,9 @@ private:
   };
 
   Roe<void> initStorage(const StorageConfig &config);
+
+  // Block operations
+  Roe<void> commitTransactions();
 
   /**
    * Transfer blocks from active to archive directory

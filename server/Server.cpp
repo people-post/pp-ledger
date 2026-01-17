@@ -146,83 +146,50 @@ bool Server::shouldProduceBlock() const {
   return true;
 }
 
-Server::Roe<std::shared_ptr<iii::Block>> Server::createBlockFromTransactions() {
-  // Check if there are pending transactions
-  if (ledger_.getPendingTransactionCount() == 0) {
-    return Error(1, "No pending transactions to create block");
-  }
-
-  // Commit transactions to create a new block
-  auto commitResult = ledger_.commitTransactions();
-  if (!commitResult) {
-    return Error(2, "Failed to commit transactions: " +
-                        commitResult.error().message);
-  }
-
-  // Get the newly created block
-  auto latestBlock = ledger_.getLatestBlock();
-  if (!latestBlock) {
-    return Error(3, "Failed to retrieve newly created block");
-  }
-
-  // Set slot and slot leader information
-  uint64_t currentSlot = consensus_.getCurrentSlot();
-  auto slotLeaderResult = consensus_.getSlotLeader(currentSlot);
-
-  if (!slotLeaderResult) {
-    return Error(4, "Failed to get slot leader: " +
-                        slotLeaderResult.error().message);
-  }
-
-  // For now, we'll just store these in the ledger's internal state
-  // In a real implementation, we'd need the concrete Block type to set these
-  log().info << "Block created for slot " << currentSlot
-              << " by leader: " << slotLeaderResult.value();
-
-  return latestBlock;
-}
-
 Server::Roe<void> Server::produceBlock() {
   if (!shouldProduceBlock()) {
     return Server::Roe<void>();
   }
 
-  auto blockResult = createBlockFromTransactions();
-  if (!blockResult) {
-    return Error(blockResult.error().code, blockResult.error().message);
+  // Get current slot and slot leader
+  uint64_t currentSlot = consensus_.getCurrentSlot();
+  auto slotLeaderResult = consensus_.getSlotLeader(currentSlot);
+  if (!slotLeaderResult) {
+    return Error(1, "Failed to get slot leader: " +
+                        slotLeaderResult.error().message);
   }
 
-  auto addResult = addBlockToLedger(blockResult.value());
-  if (!addResult) {
-    return Error(addResult.error().code, addResult.error().message);
+  // Create validator function that wraps consensus validation
+  auto validator = [this](const iii::Block &block,
+                          const iii::BlockChain &chain) -> Ledger::Roe<bool> {
+    auto validateResult = consensus_.validateBlock(block, chain);
+    if (!validateResult) {
+      return Ledger::Error(validateResult.error().code,
+                           validateResult.error().message);
+    }
+    if (!validateResult.value()) {
+      return Ledger::Error(1, "Block did not pass consensus validation");
+    }
+    return true;
+  };
+
+  // Produce block using Ledger (creates, validates, adds, and returns serialized block)
+  auto serializedBlockResult =
+      ledger_.produceBlock(currentSlot, slotLeaderResult.value(), validator);
+  if (!serializedBlockResult) {
+    return Error(serializedBlockResult.error().code,
+                 serializedBlockResult.error().message);
   }
 
-  // Broadcast new block to network peers
-  if (blockResult.value()) {
-    broadcastBlock(blockResult.value());
-  }
+  // Get the serialized block string for broadcasting
+  std::string serializedBlock = serializedBlockResult.value();
 
-  return Server::Roe<void>();
-}
-
-Server::Roe<void> Server::addBlockToLedger(std::shared_ptr<iii::Block> block) {
-  if (!block) {
-    return Error(1, "Block is null");
-  }
-
-  // Validate block against consensus
-  auto validateResult = consensus_.validateBlock(*block, ledger_);
-  if (!validateResult) {
-    return Error(2,
-                 "Block validation failed: " + validateResult.error().message);
-  }
-
-  if (!validateResult.value()) {
-    return Error(3, "Block did not pass consensus validation");
-  }
-
-  log().info << "Block " << block->getIndex()
-              << " successfully added (slot: " << block->getSlot() << ")";
+  // Broadcast serialized block to network peers
+  // TODO: Implement block broadcasting with serialized block string
+  // The serializedBlock string is now available for broadcasting
+  log().info << "Block produced and added to ledger (slot: " << currentSlot
+             << ", leader: " << slotLeaderResult.value()
+             << ", serialized size: " << serializedBlock.size() << " bytes)";
 
   return Server::Roe<void>();
 }

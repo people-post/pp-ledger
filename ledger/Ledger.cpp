@@ -123,6 +123,61 @@ Ledger::Roe<void> Ledger::commitTransactions() {
   return {};
 }
 
+Ledger::Roe<std::string> Ledger::produceBlock(
+    uint64_t slot, const std::string &slotLeader,
+    std::function<Ledger::Roe<bool>(const iii::Block &, const IBlockChain &)>
+        validator) {
+  // Check if there are pending transactions
+  if (blockCache_.transactions.empty()) {
+    return Ledger::Error(1, "No pending transactions to create block");
+  }
+
+  // Serialize pending transactions
+  std::string packedData = blockCache_.ltsToString();
+
+  // Create a new block with the serialized transaction data
+  auto block = std::make_shared<Block>();
+  // Block index will be set automatically by BlockDir::addBlock()
+  block->setData(packedData);
+  block->setPreviousHash(activeBlockDir_.getLastBlockHash());
+  block->setSlot(slot);
+  block->setSlotLeader(slotLeader);
+
+  // calculateHash() can throw exceptions from OpenSSL operations
+  try {
+    block->setHash(block->calculateHash());
+  } catch (const std::exception &e) {
+    return Ledger::Error(5, std::string("Failed to calculate block hash: ") +
+                                e.what());
+  }
+
+  // Validate block using provided validator
+  auto validateResult = validator(*block, *this);
+  if (!validateResult) {
+    return Ledger::Error(6, "Block validation failed: " +
+                                validateResult.error().message);
+  }
+
+  if (!validateResult.value()) {
+    return Ledger::Error(7, "Block did not pass validation");
+  }
+
+  // Add block to blockchain (managed by activeBlockDir_)
+  // This will automatically set the index and write the block to storage
+  if (!activeBlockDir_.addBlock(block)) {
+    return Ledger::Error(4, "Failed to add block to blockchain");
+  }
+
+  // Check if we should transfer blocks to archive
+  transferBlocksToArchive();
+
+  // Serialize the block for broadcasting
+  std::string serializedBlock = block->ltsToString();
+
+  blockCache_.transactions.clear();
+  return serializedBlock;
+}
+
 // IBlockChain interface implementation
 std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
   // BlockDir returns Block, but IBlockChain interface expects IBlock

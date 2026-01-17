@@ -14,15 +14,23 @@ protected:
     }
 };
 
-TEST_F(BlockChainTest, CreatesWithGenesisBlock) {
-    EXPECT_EQ(blockchain->getSize(), 1);
-    auto genesis = blockchain->getBlock(0);
-    EXPECT_NE(genesis, nullptr);
-    EXPECT_EQ(genesis->getIndex(), 0);
-    EXPECT_EQ(genesis->getPreviousHash(), "0");
+TEST_F(BlockChainTest, StartsEmpty) {
+    // BlockChain doesn't auto-create a genesis block
+    EXPECT_EQ(blockchain->getSize(), 0);
+    auto latest = blockchain->getLatestBlock();
+    EXPECT_EQ(latest, nullptr);
+    EXPECT_EQ(blockchain->getLastBlockHash(), "0");
 }
 
 TEST_F(BlockChainTest, AddsBlocksToChain) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Genesis block");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block1 = std::make_shared<pp::Block>();
     block1->setIndex(1);
     block1->setData("Transaction 1: Alice -> Bob: 10 coins");
@@ -48,6 +56,14 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
 }
 
 TEST_F(BlockChainTest, ValidatesCorrectChain) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Genesis");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block1 = std::make_shared<pp::Block>();
     block1->setIndex(1);
     block1->setData("Transaction 1");
@@ -66,6 +82,14 @@ TEST_F(BlockChainTest, ValidatesCorrectChain) {
 }
 
 TEST_F(BlockChainTest, DetectsTampering) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Genesis");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block1 = std::make_shared<pp::Block>();
     block1->setIndex(1);
     block1->setData("Original Transaction");
@@ -84,7 +108,7 @@ TEST_F(BlockChainTest, DetectsTampering) {
     EXPECT_TRUE(blockchain->isValid());
     
     // Manually tamper with the chain - get block 1 and tamper with it
-    auto blockPtr = std::dynamic_pointer_cast<pp::Block>(blockchain->getBlock(1));
+    auto blockPtr = blockchain->getBlock(1);
     if (blockPtr) {
         // Tamper by modifying hash without proper recalculation
         blockPtr->setHash("tampered");
@@ -94,6 +118,14 @@ TEST_F(BlockChainTest, DetectsTampering) {
 }
 
 TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Block 0");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block1 = std::make_shared<pp::Block>();
     block1->setIndex(1);
     block1->setData("Block 1");
@@ -114,6 +146,14 @@ TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
 }
 
 TEST_F(BlockChainTest, BlocksLinkedByHash) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Block 0");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block1 = std::make_shared<pp::Block>();
     block1->setIndex(1);
     block1->setData("Block 1");
@@ -133,6 +173,14 @@ TEST_F(BlockChainTest, BlocksLinkedByHash) {
 }
 
 TEST_F(BlockChainTest, GetLatestBlock) {
+    // Create first block (genesis)
+    auto block0 = std::make_shared<pp::Block>();
+    block0->setIndex(0);
+    block0->setData("Genesis");
+    block0->setPreviousHash("0");
+    block0->setHash(block0->calculateHash());
+    blockchain->addBlock(block0);
+    
     auto block = std::make_shared<pp::Block>();
     block->setIndex(1);
     block->setData("Latest Block");
