@@ -14,7 +14,7 @@ namespace pp {
  * Concrete implementation of BlockChain data structure
  *
  * Manages an in-memory chain of blocks.
- * Storage management is handled by Ledger.
+ * Storage management is handled by Agent.
  */
 class BlockChain : public Module, public iii::BlockChain {
 public:

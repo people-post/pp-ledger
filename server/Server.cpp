@@ -34,11 +34,11 @@ bool Server::start(const std::string &dataDir) {
 
   log().addFileHandler(dataDir + "/server.log", logging::Level::DEBUG);
 
-  // Initialize ledger first
-  auto ledgerResult = initLedger(dataDir);
-  if (!ledgerResult) {
-    log().error << "Failed to initialize ledger: "
-                << ledgerResult.error().message;
+  // Initialize agent first
+  auto agentResult = initAgent(dataDir);
+  if (!agentResult) {
+    log().error << "Failed to initialize agent: "
+                << agentResult.error().message;
     return false;
   }
 
@@ -79,14 +79,14 @@ void Server::onStop() {
 
 void Server::addTransaction(const std::string &transaction) {
   // Deserialize transaction string to Transaction struct using utility function
-  auto txResult = utl::binaryUnpack<Ledger::Transaction>(transaction);
+  auto txResult = utl::binaryUnpack<Agent::Transaction>(transaction);
   if (!txResult) {
     log().error << "Failed to deserialize transaction: "
                  << txResult.error().message;
     return;
   }
 
-  auto result = ledger_.addTransaction(txResult.value());
+  auto result = agent_.addTransaction(txResult.value());
   if (!result) {
     log().error << "Failed to add transaction: " << result.error().message;
     return;
@@ -100,7 +100,7 @@ void Server::addTransaction(const std::string &transaction) {
 
 bool Server::shouldProduceBlock() const {
   // Produce block if we have pending transactions
-  if (ledger_.getPendingTransactionCount() == 0) {
+  if (agent_.getPendingTransactionCount() == 0) {
     return false;
   }
 
@@ -134,21 +134,21 @@ Server::Roe<void> Server::produceBlock() {
 
   // Create validator function that wraps consensus validation
   auto validator = [this](const iii::Block &block,
-                          const iii::BlockChain &chain) -> Ledger::Roe<bool> {
+                          const iii::BlockChain &chain) -> Agent::Roe<bool> {
     auto validateResult = consensus_.validateBlock(block, chain);
     if (!validateResult) {
-      return Ledger::Error(validateResult.error().code,
+      return Agent::Error(validateResult.error().code,
                            validateResult.error().message);
     }
     if (!validateResult.value()) {
-      return Ledger::Error(1, "Block did not pass consensus validation");
+      return Agent::Error(1, "Block did not pass consensus validation");
     }
     return true;
   };
 
-  // Produce block using Ledger (creates, validates, adds, and returns serialized block)
+  // Produce block using Agent (creates, validates, adds, and returns serialized block)
   auto serializedBlockResult =
-      ledger_.produceBlock(currentSlot, slotLeaderResult.value(), validator);
+      agent_.produceBlock(currentSlot, slotLeaderResult.value(), validator);
   if (!serializedBlockResult) {
     return Error(serializedBlockResult.error().code,
                  serializedBlockResult.error().message);
@@ -169,7 +169,7 @@ Server::Roe<void> Server::produceBlock() {
 
 Server::Roe<void> Server::syncState() {
   // Get our current block count
-  size_t localBlockCount = ledger_.getBlockCount();
+  size_t localBlockCount = agent_.getBlockCount();
 
   // Request blocks from peers starting from our current height
   std::vector<std::string> peers;
@@ -196,7 +196,7 @@ Server::Roe<void> Server::syncState() {
       for (size_t i = 0; i < candidateChain->getSize(); ++i) {
         auto block = candidateChain->getBlock(i);
         if (block) {
-          auto validateResult = consensus_.validateBlock(*block, ledger_);
+          auto validateResult = consensus_.validateBlock(*block, agent_);
           if (!validateResult || !validateResult.value()) {
             log().warning << "Block " << block->getIndex()
                            << " in candidate chain failed validation";
@@ -213,7 +213,7 @@ Server::Roe<void> Server::syncState() {
 
       // Check if we should switch to this candidate chain
       auto switchResult =
-          consensus_.shouldSwitchChain(ledger_, *candidateChain);
+          consensus_.shouldSwitchChain(agent_, *candidateChain);
       if (!switchResult) {
         log().warning << "Chain switch check failed: "
                        << switchResult.error().message;
@@ -410,10 +410,10 @@ Server::Roe<std::string> Server::handleReqInfo() {
 
   try {
     Client::RespInfo respData;
-    respData.blockCount = ledger_.getBlockCount();
+    respData.blockCount = agent_.getBlockCount();
     respData.currentSlot = consensus_.getCurrentSlot();
     respData.currentEpoch = consensus_.getCurrentEpoch();
-    respData.pendingTransactions = ledger_.getPendingTransactionCount();
+    respData.pendingTransactions = agent_.getPendingTransactionCount();
 
     return utl::binaryPack(respData);
   } catch (const std::exception &e) {
@@ -435,7 +435,7 @@ Server::handleReqQueryWallet(const std::string &requestData) {
   }
 
   const auto &reqData = reqDataResult.value();
-  auto balanceResult = ledger_.getBalance(reqData.walletId);
+  auto balanceResult = agent_.getBalance(reqData.walletId);
   if (!balanceResult) {
     return Error(Client::E_INVALID_WALLET,
                  Client::getErrorMessage(Client::E_INVALID_WALLET) +
@@ -500,14 +500,14 @@ Server::handleReqBlocks(const std::string &requestData) {
 
   const auto &reqData = reqDataResult.value();
   Client::RespBlocks respData;
-  size_t totalBlocks = ledger_.getBlockCount();
+  size_t totalBlocks = agent_.getBlockCount();
 
   for (uint64_t i = reqData.fromIndex;
        i < std::min(reqData.fromIndex + reqData.count,
                     static_cast<uint64_t>(totalBlocks));
        ++i) {
     // Get block and serialize it
-    auto block = ledger_.getBlock(i);
+    auto block = agent_.getBlock(i);
     if (block) {
       Client::BlockInfo blockInfo;
       blockInfo.index = block->getIndex();
@@ -631,15 +631,15 @@ Server::switchToChain(std::unique_ptr<BlockChain> candidateChain) {
 
   // TODO: Implement full chain switching logic
   // This requires:
-  // - Method in Ledger to replace the blockchain
+  // - Method in Agent to replace the blockchain
   // - Transaction reversion logic
   // - State reconciliation
 
   return {};
 }
 
-Server::Roe<void> Server::initLedger(const std::string &dataDir) {
-  log().info << "Initializing ledger in directory: " << dataDir;
+Server::Roe<void> Server::initAgent(const std::string &dataDir) {
+  log().info << "Initializing agent in directory: " << dataDir;
 
   // Create data directory if it doesn't exist
   std::error_code ec;
@@ -656,20 +656,20 @@ Server::Roe<void> Server::initLedger(const std::string &dataDir) {
   }
 
   // Set up storage paths
-  Ledger::Config config;
+  Agent::Config config;
   config.storage.activeDirPath = dataDir + "/active";
   config.storage.archiveDirPath = dataDir + "/archive";
   config.storage.maxActiveDirSize = 500 * 1024 * 1024; // 500MB
   config.storage.blockDirFileSize = 100 * 1024 * 1024; // 100MB
 
-  // Initialize ledger storage
-  auto result = ledger_.init(config);
+  // Initialize agent storage
+  auto result = agent_.init(config);
   if (!result) {
-    return Error(1, "Failed to initialize ledger storage: " +
+    return Error(1, "Failed to initialize agent storage: " +
                         result.error().message);
   }
 
-  log().info << "Ledger initialized successfully";
+  log().info << "Agent initialized successfully";
   log().info << "  Active directory: " << config.storage.activeDirPath;
   log().info << "  Archive directory: " << config.storage.archiveDirPath;
 

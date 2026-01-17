@@ -7,7 +7,7 @@
 #include "../ledger/BlockChain.h"
 #include "../network/FetchClient.h"
 #include "../network/FetchServer.h"
-#include "Ledger.h"
+#include "Agent.h"
 #include "ResultOrError.hpp"
 #include "Service.h"
 #include <map>
@@ -75,7 +75,7 @@ private:
                             uint16_t &port);
 
   Roe<void> loadConfig(const std::string &configPath);
-  Roe<void> initLedger(const std::string &dataDir);
+  Roe<void> initAgent(const std::string &dataDir);
   Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(
       const std::vector<std::shared_ptr<iii::Block>> &blocks) const;
 
@@ -105,8 +105,8 @@ private:
   Roe<std::string> handleReqBlocks(const std::string &requestData);
 
 
-  // Consensus and ledger management
-  Ledger ledger_;
+  // Consensus and agent management
+  Agent agent_;
   consensus::Ouroboros consensus_;
 
   // Client server (listens on main port)

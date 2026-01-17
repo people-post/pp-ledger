@@ -4,6 +4,8 @@ add_library(pp_server STATIC
     Server.h
     Beacon.cpp
     Beacon.h
+    Agent.cpp
+    Agent.h
 )
 
 target_include_directories(pp_server PUBLIC
@@ -21,3 +23,8 @@ target_link_libraries(pp_server PUBLIC
 )
 
 message(STATUS "Server configured with TCP network support")
+
+# Add tests subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()

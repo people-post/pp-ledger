@@ -1,11 +1,11 @@
 #pragma once
 
 #include "../interface/BlockChain.hpp"
-#include "Block.h"
-#include "BlockDir.h"
-#include "Module.h"
-#include "ResultOrError.hpp"
-#include "Wallet.h"
+#include "../ledger/Block.h"
+#include "../ledger/BlockDir.h"
+#include "../lib/Module.h"
+#include "../lib/ResultOrError.hpp"
+#include "../ledger/Wallet.h"
 
 #include <functional>
 #include <map>
@@ -20,7 +20,7 @@ namespace pp {
 using IBlockChain = iii::BlockChain;
 using IBlock = iii::Block;
 
-class Ledger : public Module, public IBlockChain {
+class Agent : public Module, public IBlockChain {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -42,7 +42,7 @@ public:
   };
 
   /**
-   * Configuration for Ledger storage
+   * Configuration for Agent storage
    */
   struct StorageConfig {
     std::string activeDirPath;  // Path for active (hot) blocks
@@ -55,8 +55,8 @@ public:
     StorageConfig storage;
   };
 
-  Ledger();
-  ~Ledger() = default;
+  Agent();
+  ~Agent() = default;
 
   /**
    * Initialize storage directories
@@ -77,10 +77,10 @@ public:
   size_t getPendingTransactionCount() const;
 
   /**
-   * Produce a block from pending transactions, validate it, add to ledger, and return serialized block
+   * Produce a block from pending transactions, validate it, add to agent, and return serialized block
    * @param slot The slot number for this block
    * @param slotLeader The slot leader ID for this block
-   * @param validator Validator function that takes (block, chain) and returns Ledger::Roe<bool>
+   * @param validator Validator function that takes (block, chain) and returns Agent::Roe<bool>
    * @return Serialized string representation of the produced block, or error
    */
   Roe<std::string> produceBlock(

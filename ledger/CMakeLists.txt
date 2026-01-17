@@ -4,8 +4,6 @@ add_library(pp_ledger STATIC
     Block.h
     BlockChain.cpp
     BlockChain.h
-    Ledger.cpp
-    Ledger.h
     Wallet.cpp
     Wallet.h
     BlockFile.cpp

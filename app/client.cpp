@@ -1,5 +1,5 @@
 #include "Client.h"
-#include "../ledger/Ledger.h"
+#include "../server/Agent.h"
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Utilities.h"
 #include "Logger.h"
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
           exitCode = 1;
         } else {
           // Create and serialize transaction
-          pp::Ledger::Transaction tx(fromWallet, toWallet, amount);
+          pp::Agent::Transaction tx(fromWallet, toWallet, amount);
           std::string txData = pp::utl::binaryPack(tx);
 
           auto result = client.addTransaction(txData);

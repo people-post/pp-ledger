@@ -1,4 +1,4 @@
-# Ledger Test executables using Google Test
+# Agent Test executables using Google Test
 
 # Include GoogleTest
 include(GoogleTest)
@@ -29,20 +29,6 @@ target_link_libraries(test_blockchain PRIVATE
 )
 
 gtest_discover_tests(test_blockchain)
-
-# Test for Ledger (Wallet & Transactions)
-add_executable(test_ledger
-    test_ledger.cpp
-)
-
-target_link_libraries(test_ledger PRIVATE
-    pp_lib
-    pp_ledger
-    crypto
-    GTest::gtest_main
-)
-
-gtest_discover_tests(test_ledger)
 
 # Test for BlockFile
 add_executable(test_blockfile

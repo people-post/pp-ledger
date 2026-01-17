@@ -1,6 +1,6 @@
-#include "Ledger.h"
+#include "Agent.h"
 #include "../lib/BinaryPack.hpp"
-#include "Block.h"
+#include "../ledger/Block.h"
 
 #include <iomanip>
 #include <sstream>
@@ -8,10 +8,10 @@
 
 namespace pp {
 
-Ledger::Ledger() : Module("ledger"), maxActiveDirSize_(500 * 1024 * 1024) {}
+Agent::Agent() : Module("agent"), maxActiveDirSize_(500 * 1024 * 1024) {}
 
 // Initialization
-Ledger::Roe<void> Ledger::init(const Config &config) {
+Agent::Roe<void> Agent::init(const Config &config) {
   auto result = initStorage(config.storage);
   if (!result) {
     return result.error();
@@ -20,52 +20,52 @@ Ledger::Roe<void> Ledger::init(const Config &config) {
   return {};
 }
 
-Ledger::Roe<void> Ledger::initStorage(const StorageConfig &config) {
+Agent::Roe<void> Agent::initStorage(const StorageConfig &config) {
   if (config.maxActiveDirSize == 0) {
-    return Ledger::Error(1, "Max active directory size is not set");
+    return Agent::Error(1, "Max active directory size is not set");
   }
 
   BlockDir::Config activeCfg(config.activeDirPath, config.blockDirFileSize);
   auto activeRes = activeBlockDir_.init(activeCfg, true);
   if (!activeRes) {
-    return Ledger::Error(1, "Failed to initialize active BlockDir");
+    return Agent::Error(1, "Failed to initialize active BlockDir");
   }
 
   // Initialize archive BlockDir
   BlockDir::Config archiveCfg(config.archiveDirPath, config.blockDirFileSize);
   auto archiveRes = archiveBlockDir_.init(archiveCfg);
   if (!archiveRes) {
-    return Ledger::Error(2, "Failed to initialize archive BlockDir");
+    return Agent::Error(2, "Failed to initialize archive BlockDir");
   }
 
   maxActiveDirSize_ = config.maxActiveDirSize;
   return {};
 }
 
-bool Ledger::hasWallet(const std::string &walletId) const {
+bool Agent::hasWallet(const std::string &walletId) const {
   return mWallets_.find(walletId) != mWallets_.end();
 }
 
-Ledger::Roe<int64_t> Ledger::getBalance(const std::string &walletId) const {
+Agent::Roe<int64_t> Agent::getBalance(const std::string &walletId) const {
   auto it = mWallets_.find(walletId);
   if (it == mWallets_.end()) {
-    return Ledger::Error(1, "Wallet not found: " + walletId);
+    return Agent::Error(1, "Wallet not found: " + walletId);
   }
 
   return it->second.getBalance();
 }
 
 // Transaction operations
-Ledger::Roe<void> Ledger::addTransaction(const Transaction &transaction) {
+Agent::Roe<void> Agent::addTransaction(const Transaction &transaction) {
   auto fromIt = mWallets_.find(transaction.fromWallet);
   if (fromIt == mWallets_.end()) {
-    return Ledger::Error(1,
+    return Agent::Error(1,
                          "Source wallet not found: " + transaction.fromWallet);
   }
 
   auto toIt = mWallets_.find(transaction.toWallet);
   if (toIt == mWallets_.end()) {
-    return Ledger::Error(2, "Destination wallet not found: " +
+    return Agent::Error(2, "Destination wallet not found: " +
                                 transaction.toWallet);
   }
 
@@ -73,24 +73,24 @@ Ledger::Roe<void> Ledger::addTransaction(const Transaction &transaction) {
   if (result.isOk()) {
     blockCache_.transactions.push_back(transaction);
   } else {
-    // Convert Wallet::Error to Ledger::Error
-    return Ledger::Error(result.error().code, result.error().message);
+    // Convert Wallet::Error to Agent::Error
+    return Agent::Error(result.error().code, result.error().message);
   }
 
   return {}; // Return success
 }
 
-void Ledger::clearPendingTransactions() {
+void Agent::clearPendingTransactions() {
   blockCache_.transactions.clear();
 }
 
-size_t Ledger::getPendingTransactionCount() const {
+size_t Agent::getPendingTransactionCount() const {
   return blockCache_.transactions.size();
 }
 
-Ledger::Roe<void> Ledger::commitTransactions() {
+Agent::Roe<void> Agent::commitTransactions() {
   if (blockCache_.transactions.empty()) {
-    return Ledger::Error(1, "No pending transactions to commit");
+    return Agent::Error(1, "No pending transactions to commit");
   }
 
   // Serialize pending transactions
@@ -106,14 +106,14 @@ Ledger::Roe<void> Ledger::commitTransactions() {
   try {
     block->setHash(block->calculateHash());
   } catch (const std::exception &e) {
-    return Ledger::Error(5, std::string("Failed to calculate block hash: ") +
+    return Agent::Error(5, std::string("Failed to calculate block hash: ") +
                                 e.what());
   }
 
   // Add block to blockchain (managed by activeBlockDir_)
   // This will automatically set the index and write the block to storage
   if (!activeBlockDir_.addBlock(block)) {
-    return Ledger::Error(4, "Failed to add block to blockchain");
+    return Agent::Error(4, "Failed to add block to blockchain");
   }
 
   // Check if we should transfer blocks to archive
@@ -123,13 +123,13 @@ Ledger::Roe<void> Ledger::commitTransactions() {
   return {};
 }
 
-Ledger::Roe<std::string> Ledger::produceBlock(
+Agent::Roe<std::string> Agent::produceBlock(
     uint64_t slot, const std::string &slotLeader,
-    std::function<Ledger::Roe<bool>(const iii::Block &, const IBlockChain &)>
+    std::function<Agent::Roe<bool>(const iii::Block &, const IBlockChain &)>
         validator) {
   // Check if there are pending transactions
   if (blockCache_.transactions.empty()) {
-    return Ledger::Error(1, "No pending transactions to create block");
+    return Agent::Error(1, "No pending transactions to create block");
   }
 
   // Serialize pending transactions
@@ -147,25 +147,25 @@ Ledger::Roe<std::string> Ledger::produceBlock(
   try {
     block->setHash(block->calculateHash());
   } catch (const std::exception &e) {
-    return Ledger::Error(5, std::string("Failed to calculate block hash: ") +
+    return Agent::Error(5, std::string("Failed to calculate block hash: ") +
                                 e.what());
   }
 
   // Validate block using provided validator
   auto validateResult = validator(*block, *this);
   if (!validateResult) {
-    return Ledger::Error(6, "Block validation failed: " +
+    return Agent::Error(6, "Block validation failed: " +
                                 validateResult.error().message);
   }
 
   if (!validateResult.value()) {
-    return Ledger::Error(7, "Block did not pass validation");
+    return Agent::Error(7, "Block did not pass validation");
   }
 
   // Add block to blockchain (managed by activeBlockDir_)
   // This will automatically set the index and write the block to storage
   if (!activeBlockDir_.addBlock(block)) {
-    return Ledger::Error(4, "Failed to add block to blockchain");
+    return Agent::Error(4, "Failed to add block to blockchain");
   }
 
   // Check if we should transfer blocks to archive
@@ -179,29 +179,29 @@ Ledger::Roe<std::string> Ledger::produceBlock(
 }
 
 // IBlockChain interface implementation
-std::shared_ptr<iii::Block> Ledger::getLatestBlock() const {
+std::shared_ptr<iii::Block> Agent::getLatestBlock() const {
   // BlockDir returns Block, but IBlockChain interface expects IBlock
   // Block implements IBlock, so we can return it directly
   return activeBlockDir_.getLatestBlock();
 }
 
-size_t Ledger::getSize() const {
+size_t Agent::getSize() const {
   return activeBlockDir_.getBlockchainSize();
 }
 
-size_t Ledger::getBlockCount() const {
+size_t Agent::getBlockCount() const {
   return activeBlockDir_.getBlockchainSize();
 }
 
-bool Ledger::isValid() const {
+bool Agent::isValid() const {
   return activeBlockDir_.isBlockchainValid();
 }
 
-std::shared_ptr<iii::Block> Ledger::getBlock(uint64_t index) const {
+std::shared_ptr<iii::Block> Agent::getBlock(uint64_t index) const {
   return activeBlockDir_.getBlock(index);
 }
 
-void Ledger::transferBlocksToArchive() {
+void Agent::transferBlocksToArchive() {
   // Transfer files from active to archive based on storage usage
   while (activeBlockDir_.getTotalStorageSize() >= maxActiveDirSize_) {
     auto result = activeBlockDir_.moveFrontFileTo(archiveBlockDir_);
@@ -213,14 +213,14 @@ void Ledger::transferBlocksToArchive() {
 }
 
 // BlockCache implementation
-std::string Ledger::BlockCache::ltsToString() const {
+std::string Agent::BlockCache::ltsToString() const {
   std::ostringstream oss;
   OutputArchive ar(oss);
   ar &CURRENT_VERSION &transactions;
   return oss.str();
 }
 
-bool Ledger::BlockCache::ltsFromString(const std::string &str) {
+bool Agent::BlockCache::ltsFromString(const std::string &str) {
   uint32_t version;
   std::istringstream iss(str);
   InputArchive ar(iss);

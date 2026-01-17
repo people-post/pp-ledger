@@ -27,7 +27,7 @@ public:
   uint64_t getSlot() const override;
   std::string getSlotLeader() const override;
 
-  // Additional methods (not part of interface, but used by Ledger/tests)
+  // Additional methods (not part of interface, but used by Agent/tests)
   uint64_t getNonce() const;
   void setHash(const std::string &hash);
   void setNonce(uint64_t nonce);
