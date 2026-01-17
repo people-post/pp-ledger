@@ -22,8 +22,12 @@ using IBlock = iii::Block;
  * BlockDir manages multiple block files in a directory.
  * It handles:
  * - Creating new block files when current file reaches size limit
- * - Maintaining an index file mapping block IDs to file locations
+ * - Maintaining an index file mapping file IDs to starting block indices
  * - Reading and writing block data across multiple files
+ * 
+ * Block indices are assumed to be sequential within a file and across files.
+ * BlockDir only stores each file's starting block index; BlockFile handles
+ * individual block indexing within each file.
  */
 class BlockDir : public Module {
 public:
@@ -124,97 +128,9 @@ public:
 
 private:
   /**
-   * Structure representing block offset and size
-   * Used in IndexEntry to store sequential block locations
-   */
-  struct BlockOffsetSize {
-    int64_t
-        offset;    // Offset within the file (from file start, including header)
-    uint64_t size; // Size of the block data
-
-    BlockOffsetSize() : offset(0), size(0) {}
-    BlockOffsetSize(int64_t off, uint64_t sz) : offset(off), size(sz) {}
-
-    /**
-     * Serialize using Archive pattern
-     */
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &offset &size;
-    }
-  };
-
-  /**
-   * Structure to represent a block's location in the storage
-   */
-  struct BlockLocation {
-    uint32_t fileId;            // ID of the file containing the block
-    BlockOffsetSize offsetSize; // Offset and size of the block data
-
-    BlockLocation() : fileId(0) {}
-    BlockLocation(uint32_t fid, int64_t off, uint64_t sz)
-        : fileId(fid), offsetSize(off, sz) {}
-    BlockLocation(uint32_t fid, const BlockOffsetSize &os)
-        : fileId(fid), offsetSize(os) {}
-
-    // Convenience accessors
-    int64_t offset() const { return offsetSize.offset; }
-    uint64_t size() const { return offsetSize.size; }
-
-    /**
-     * Serialize using Archive pattern
-     */
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &fileId &offsetSize;
-    }
-  };
-
-  /**
-   * Structure representing a file's block range with locations
-   * Groups startBlockId and blockLocations together since they are logically
-   * related Block IDs are sequential starting from startBlockId, so no need to
-   * store blockId for each block
-   */
-  struct FileBlockRange {
-    uint64_t startBlockId;
-    std::vector<BlockOffsetSize>
-        blockLocations; // Sequential (offset, size) pairs
-
-    FileBlockRange() : startBlockId(0) {}
-    FileBlockRange(uint64_t startId) : startBlockId(startId) {}
-
-    /**
-     * Serialize using Archive pattern
-     */
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &startBlockId &blockLocations;
-    }
-  };
-
-  /**
-   * Structure representing an index file entry
-   * Stores file ID and the file's block range with locations
-   * Binary format: [fileId (4 bytes)][startBlockId (8 bytes)][blockCount (8
-   * bytes)][(offset, size)*]
-   */
-  struct IndexEntry {
-    uint32_t fileId;
-    FileBlockRange blockRange;
-
-    IndexEntry() : fileId(0) {}
-    IndexEntry(uint32_t fid, uint64_t startId)
-        : fileId(fid), blockRange(startId) {}
-
-    /**
-     * Serialize using Archive pattern
-     */
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &fileId &blockRange;
-    }
-  };
-
-  /**
    * Index file header structure
    * Contains magic number and version information
+   * Simplified format - BlockFile now handles individual block indexing
    */
   struct IndexFileHeader {
     static constexpr uint32_t MAGIC =
@@ -238,28 +154,49 @@ private:
     }
   };
 
+  /**
+   * Structure representing a file's starting block index
+   * Block indices are sequential starting from startBlockId
+   * BlockFile stores the actual block count and handles per-block indexing
+   */
+  struct FileIndexEntry {
+    uint32_t fileId;
+    uint64_t startBlockId;
+
+    FileIndexEntry() : fileId(0), startBlockId(0) {}
+    FileIndexEntry(uint32_t fid, uint64_t startId) 
+        : fileId(fid), startBlockId(startId) {}
+
+    /**
+     * Serialize using Archive pattern
+     */
+    template <typename Archive> void serialize(Archive &ar) {
+      ar &fileId &startBlockId;
+    }
+  };
+
   static constexpr size_t INDEX_HEADER_SIZE = sizeof(IndexFileHeader);
 
   /**
-   * Structure holding BlockFile and its block range
+   * Structure holding BlockFile and its starting block index
    */
   struct FileInfo {
     std::unique_ptr<BlockFile> blockFile;
-    FileBlockRange blockRange; // Block range with locations
+    uint64_t startBlockId; // Starting block index for this file
   };
 
   std::string dirPath_;
   size_t maxFileSize_{ 0 };
   uint32_t currentFileId_{ 0 };
 
-  // Block files with their block ID ranges indexed by file ID
+  // Block files with their starting block indices, indexed by file ID
   std::unordered_map<uint32_t, FileInfo> fileInfoMap_;
 
   // Ordered list of file IDs (tracks creation/addition order)
   std::vector<uint32_t> fileIdOrder_;
 
-  // Index mapping block ID to location (built during loading from ranges)
-  std::unordered_map<uint64_t, BlockLocation> blockIndex_;
+  // Total block count across all files
+  uint64_t totalBlockCount_{ 0 };
 
   // Path to the index file
   std::string indexFilePath_;
@@ -278,11 +215,27 @@ private:
   Roe<void> writeBlock(uint64_t blockId, const void *data, uint64_t size);
 
   /**
+   * Read a block from storage by block ID
+   * @param blockId Unique identifier for the block
+   * @param data Buffer to read data into
+   * @param maxSize Maximum size of the buffer
+   * @return Roe<int64_t> with number of bytes read, or error
+   */
+  Roe<int64_t> readBlock(uint64_t blockId, void *data, size_t maxSize) const;
+
+  /**
    * Check if a block exists in storage
    * @param blockId Unique identifier for the block
    * @return true if block exists, false otherwise
    */
   bool hasBlock(uint64_t blockId) const;
+
+  /**
+   * Find the file containing a specific block ID
+   * @param blockId Block ID to find
+   * @return Pair of (fileId, indexWithinFile), or (0, 0) if not found
+   */
+  std::pair<uint32_t, uint64_t> findBlockFile(uint64_t blockId) const;
 
   /**
    * Get the ID of the front (oldest) file
@@ -299,9 +252,10 @@ private:
   /**
    * Create a new block file
    * @param fileId ID for the new file
+   * @param startBlockId Starting block index for this file
    * @return Pointer to the new BlockFile, or nullptr on error
    */
-  BlockFile *createBlockFile(uint32_t fileId);
+  BlockFile *createBlockFile(uint32_t fileId, uint64_t startBlockId);
 
   /**
    * Get or create the current active block file for writing
@@ -311,11 +265,18 @@ private:
   BlockFile *getActiveBlockFile(uint64_t dataSize);
 
   /**
-   * Get block file by ID
+   * Get block file by ID (opens it if not already open)
    * @param fileId File ID
    * @return Pointer to the BlockFile, or nullptr if not found
    */
   BlockFile *getBlockFile(uint32_t fileId);
+
+  /**
+   * Get block file by ID (const version, doesn't open files)
+   * @param fileId File ID
+   * @return Pointer to the BlockFile, or nullptr if not found/not open
+   */
+  const BlockFile *getBlockFileConst(uint32_t fileId) const;
 
   /**
    * Generate file path for a block file

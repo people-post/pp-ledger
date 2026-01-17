@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <fstream>
 #include <string>
+#include <vector>
 
 namespace pp {
 
@@ -12,6 +13,14 @@ namespace pp {
  * BlockFile manages writing block data to a single file with a size limit.
  * When the file reaches the configured size limit, it should be closed and
  * a new file should be created by BlockDir.
+ * 
+ * File format (version 2):
+ * - Header: magic, version, blockCount, headerSize
+ * - Block data: [size (8 bytes)][data (size bytes)]*
+ * 
+ * Block sizes are stored at the beginning of each block. On file close,
+ * the total block count is written to the header. On first read by index,
+ * the block index (offsets) is built by scanning the file.
  */
 class BlockFile : public Module {
 public:
@@ -51,26 +60,40 @@ public:
   BlockFile &operator=(const BlockFile &) = delete;
 
   /**
-   * Write block data to the file
+   * Write block data to the file (with size prefix)
    * @param data Block data to write
    * @param size Size of the data in bytes
-   * @return Roe<int64_t> with file offset (from file start, including header)
-   * where data was written, or error
+   * @return Roe<int64_t> with block index (0-based within this file), or error
    */
   Roe<int64_t> write(const void *data, uint64_t size);
 
   /**
-   * Read block data from the file
-   * @param offset File offset from file start (including header) to read from
-   * @param data Buffer to read data into
-   * @param size Number of bytes to read
-   * @return Roe<int64_t> with number of bytes read, or error
+   * Read block data by index (0-based, within this file)
+   * Lazily builds the block index on first call if not already built.
+   * @param index Block index within this file (0-based)
+   * @param data Buffer to read data into (must be large enough)
+   * @param maxSize Maximum size of the buffer
+   * @return Roe<int64_t> with number of bytes read (block size), or error
    */
-  Roe<int64_t> read(int64_t offset, void *data, size_t size);
+  Roe<int64_t> readBlock(uint64_t index, void *data, size_t maxSize);
+
+  /**
+   * Get the size of a block by index (0-based, within this file)
+   * Lazily builds the block index on first call if not already built.
+   * @param index Block index within this file (0-based)
+   * @return Roe<uint64_t> with block size, or error
+   */
+  Roe<uint64_t> getBlockSize(uint64_t index);
+
+  /**
+   * Get the number of blocks stored in this file
+   * @return Number of blocks
+   */
+  uint64_t getBlockCount() const { return blockCount_; }
 
   /**
    * Check if the file can accommodate more data
-   * @param size Size of data to be written
+   * @param size Size of data to be written (excluding size prefix)
    * @return true if data can fit, false otherwise
    */
   bool canFit(uint64_t size) const;
@@ -96,14 +119,14 @@ public:
   bool isOpen() const;
 
   /**
-   * Close the file
+   * Close the file (writes block count to header)
    */
   void close();
 
 private:
   /**
    * File header structure for BlockFile
-   * Contains magic number and version information
+   * Contains magic number, version, and block count
    */
   struct FileHeader {
     static constexpr uint32_t MAGIC =
@@ -112,11 +135,24 @@ private:
 
     uint32_t magic{ MAGIC };      // Magic number to identify BlockFile type
     uint16_t version{ CURRENT_VERSION };    // File format version
-    uint16_t reserved{ 0 };   // Reserved for future use
+    uint16_t reserved{ 0 };       // Reserved for future use
+    uint64_t blockCount{ 0 };     // Number of blocks stored in this file
     uint64_t headerSize{ sizeof(FileHeader) }; // Size of this header (for future extensibility)
   };
 
+  /**
+   * Block entry in the index (offset and size)
+   */
+  struct BlockEntry {
+    int64_t offset;   // Offset to the size prefix in the file
+    uint64_t size;    // Size of the block data (excluding size prefix)
+    
+    BlockEntry() : offset(0), size(0) {}
+    BlockEntry(int64_t off, uint64_t sz) : offset(off), size(sz) {}
+  };
+
   static constexpr size_t HEADER_SIZE = sizeof(FileHeader);
+  static constexpr size_t SIZE_PREFIX_BYTES = sizeof(uint64_t);
 
   /**
    * Open the file for reading and writing
@@ -137,10 +173,29 @@ private:
   Roe<void> readHeader();
 
   /**
+   * Update the block count in the file header
+   * @return Roe<void> on success or error
+   */
+  Roe<void> updateHeaderBlockCount();
+
+  /**
    * Check if file has a valid header
    * @return true if header is valid, false otherwise
    */
   bool hasValidHeader() const;
+
+  /**
+   * Build the block index by scanning the file
+   * Called lazily on first read by index
+   * @return Roe<void> on success or error
+   */
+  Roe<void> buildBlockIndex();
+
+  /**
+   * Ensure block index is built
+   * @return Roe<void> on success or error
+   */
+  Roe<void> ensureBlockIndex();
 
   /**
    * Flush any buffered data to disk
@@ -164,6 +219,11 @@ private:
   std::fstream file_;
   FileHeader header_;
   bool headerValid_{ false };
+  
+  // Block tracking
+  uint64_t blockCount_{ 0 };           // Number of blocks written/loaded
+  std::vector<BlockEntry> blockIndex_; // Index of block offsets and sizes
+  bool indexBuilt_{ false };           // Whether block index has been built
 
 };
 
