@@ -91,14 +91,14 @@ public:
    * Get the number of blocks stored in this file
    * @return Number of blocks
    */
-  uint64_t getBlockCount() const { return blockCount_; }
+  uint64_t getBlockCount() const override { return blockCount_; }
 
   /**
    * Check if the file can accommodate more data
    * @param size Size of data to be written (excluding size prefix)
    * @return true if data can fit, false otherwise
    */
-  bool canFit(uint64_t size) const;
+  bool canFit(uint64_t size) const override;
 
   /**
    * Get current file size (including header)

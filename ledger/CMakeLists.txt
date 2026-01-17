@@ -9,6 +9,10 @@ add_library(pp_ledger STATIC
     BlockStore.hpp
     FileStore.cpp
     FileStore.h
+    FileDirStore.cpp
+    FileDirStore.h
+    DirDirStore.cpp
+    DirDirStore.h
     BlockDir.cpp
     BlockDir.h
 )

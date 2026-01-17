@@ -56,3 +56,29 @@ target_link_libraries(test_blockdir PRIVATE
 )
 
 gtest_discover_tests(test_blockdir)
+
+# Test for FileDirStore
+add_executable(test_filedirstore
+    test_filedirstore.cpp
+)
+
+target_link_libraries(test_filedirstore PRIVATE
+    pp_lib
+    pp_ledger
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_filedirstore)
+
+# Test for DirDirStore
+add_executable(test_dirdirstore
+    test_dirdirstore.cpp
+)
+
+target_link_libraries(test_dirdirstore PRIVATE
+    pp_lib
+    pp_ledger
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_dirdirstore)

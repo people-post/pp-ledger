@@ -19,7 +19,11 @@ public:
     BlockStore(const std::string &name) : Module(name) {}
     virtual ~BlockStore() = default;
 
+    virtual bool canFit(uint64_t size) const = 0;
+
     uint64_t getLevel() const { return level_; }
+
+    virtual uint64_t getBlockCount() const = 0;
 
     void setLevel(uint16_t level) { level_ = level; }
 
