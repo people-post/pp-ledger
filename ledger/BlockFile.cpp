@@ -11,6 +11,9 @@ BlockFile::Roe<void> BlockFile::init(const Config &config) {
   maxSize_ = config.maxSize;
   currentSize_ = 0;
   headerValid_ = false;
+  blockCount_ = 0;
+  blockIndex_.clear();
+  indexBuilt_ = false;
 
   if (maxSize_ < 1024 * 1024) {
     return Error("Max file size shall be at least 1MB");
@@ -38,10 +41,13 @@ BlockFile::Roe<void> BlockFile::init(const Config &config) {
 
     // Get total file size (including header)
     currentSize_ = std::filesystem::file_size(filepath_);
-
+    
+    // Load block count from header
+    blockCount_ = header_.blockCount;
     log().debug << "Opening existing file: " << filepath_
                 << " (total size: " << currentSize_
-                << " bytes, version: " << header_.version << ")";
+                << " bytes, version: " << header_.version
+                << ", blocks: " << blockCount_ << ")";
   } else {
     // Write header for new file
     auto headerResult = writeHeader();
@@ -95,9 +101,10 @@ BlockFile::Roe<int64_t> BlockFile::write(const void *data, uint64_t size) {
     return Error("File header is not valid: " + filepath_);
   }
 
+  // canFit now accounts for size prefix
   if (!canFit(size)) {
-    log().warning << "Cannot fit " << size
-                  << " bytes (current: " << currentSize_
+    log().warning << "Cannot fit " << size << " bytes + " << SIZE_PREFIX_BYTES
+                  << " prefix (current: " << currentSize_
                   << ", max: " << maxSize_ << ")";
     return Error("Cannot fit " + std::to_string(size) + " bytes");
   }
@@ -106,7 +113,15 @@ BlockFile::Roe<int64_t> BlockFile::write(const void *data, uint64_t size) {
   file_.seekp(0, std::ios::end);
   int64_t fileOffset = file_.tellp();
 
-  // Write data
+  // Write size prefix (8 bytes)
+  file_.write(reinterpret_cast<const char *>(&size), SIZE_PREFIX_BYTES);
+
+  if (!file_.good()) {
+    log().error << "Failed to write size prefix to file: " << filepath_;
+    return Error("Failed to write size prefix to file: " + filepath_);
+  }
+
+  // Write block data
   file_.write(static_cast<const char *>(data), size);
 
   if (!file_.good()) {
@@ -121,16 +136,34 @@ BlockFile::Roe<int64_t> BlockFile::write(const void *data, uint64_t size) {
     return Error("Failed to flush data to file: " + filepath_);
   }
 
-  currentSize_ += size;
-  log().debug << "Wrote " << size << " bytes at file offset " << fileOffset
+  // Update block index (always keep in sync)
+  blockIndex_.push_back(BlockEntry(fileOffset, size));
+  indexBuilt_ = true;
+
+  // Get block index before incrementing count
+  int64_t blockIdx = static_cast<int64_t>(blockCount_);
+  
+  // Update block count and file size
+  blockCount_++;
+  currentSize_ += SIZE_PREFIX_BYTES + size;
+  
+  // Update block count in header immediately (for durability)
+  auto headerResult = updateHeaderBlockCount();
+  if (!headerResult.isOk()) {
+    log().warning << "Failed to update header block count: " 
+                  << headerResult.error().message;
+  }
+  
+  log().debug << "Wrote block " << blockIdx << " (" << size 
+              << " bytes) at file offset " << fileOffset
               << " (total file size: " << currentSize_ << ")";
 
-  // Return file offset (from file start, including header)
-  return fileOffset;
+  // Return block index
+  return blockIdx;
 }
 
-BlockFile::Roe<int64_t> BlockFile::read(int64_t offset, void *data,
-                                        size_t size) {
+BlockFile::Roe<int64_t> BlockFile::readBlock(uint64_t index, void *data,
+                                             size_t maxSize) {
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -141,39 +174,84 @@ BlockFile::Roe<int64_t> BlockFile::read(int64_t offset, void *data,
     return Error("File header is not valid: " + filepath_);
   }
 
-  // Offset is from file start (including header)
-  // Seek to the file offset
-  file_.seekg(offset, std::ios::beg);
-
-  if (!file_.good()) {
-    log().error << "Failed to seek to offset " << offset
-                << " in file: " << filepath_;
-    return Error("Failed to seek to offset " + std::to_string(offset));
+  // Ensure block index is built
+  auto indexResult = ensureBlockIndex();
+  if (!indexResult.isOk()) {
+    return indexResult.error();
   }
 
-  // Read data
-  file_.read(static_cast<char *>(data), size);
+  if (index >= blockIndex_.size()) {
+    return Error("Block index " + std::to_string(index) + " out of range (max: " +
+                 std::to_string(blockIndex_.size()) + ")");
+  }
+
+  const BlockEntry &entry = blockIndex_[index];
+  
+  if (entry.size > maxSize) {
+    return Error("Buffer too small for block " + std::to_string(index) +
+                 " (need: " + std::to_string(entry.size) +
+                 ", have: " + std::to_string(maxSize) + ")");
+  }
+
+  // Calculate data offset (skip size prefix)
+  int64_t dataOffset = entry.offset + static_cast<int64_t>(SIZE_PREFIX_BYTES);
+
+  // Clear any stream errors and seek to data position
+  file_.clear();
+  file_.seekg(dataOffset, std::ios::beg);
+
+  if (!file_.good()) {
+    log().error << "Failed to seek to offset " << dataOffset
+                << " in file: " << filepath_;
+    return Error("Failed to seek to offset " + std::to_string(dataOffset));
+  }
+
+  // Read block data
+  file_.read(static_cast<char *>(data), entry.size);
 
   int64_t bytesRead = file_.gcount();
 
-  if (bytesRead != static_cast<int64_t>(size)) {
-    log().warning << "Read " << bytesRead << " bytes, expected " << size;
+  if (bytesRead != static_cast<int64_t>(entry.size)) {
+    log().warning << "Read " << bytesRead << " bytes, expected " << entry.size;
+    return Error("Failed to read complete block data");
   }
 
-  return bytesRead;
+  return static_cast<int64_t>(entry.size);
+}
+
+BlockFile::Roe<uint64_t> BlockFile::getBlockSize(uint64_t index) {
+  // Ensure block index is built
+  auto indexResult = ensureBlockIndex();
+  if (!indexResult.isOk()) {
+    return indexResult.error();
+  }
+
+  if (index >= blockIndex_.size()) {
+    return Error("Block index " + std::to_string(index) + " out of range (max: " +
+                 std::to_string(blockIndex_.size()) + ")");
+  }
+
+  return blockIndex_[index].size;
 }
 
 bool BlockFile::canFit(uint64_t size) const {
-  // currentSize_ already includes header, so just check total size
-  return (currentSize_ + size) <= maxSize_;
+  // currentSize_ already includes header, add size prefix overhead
+  return (currentSize_ + SIZE_PREFIX_BYTES + size) <= maxSize_;
 }
 
 bool BlockFile::isOpen() const { return file_.is_open() && file_.good(); }
 
 void BlockFile::close() {
   if (file_.is_open()) {
+    // Update block count in header before closing
+    auto result = updateHeaderBlockCount();
+    if (!result.isOk()) {
+      log().warning << "Failed to update header block count: " 
+                    << result.error().message;
+    }
+    
     file_.close();
-    log().debug << "Closed file: " << filepath_;
+    log().debug << "Closed file: " << filepath_ << " (blocks: " << blockCount_ << ")";
   }
 }
 
@@ -191,8 +269,9 @@ BlockFile::Roe<void> BlockFile::writeHeader() {
   // Seek to beginning of file
   file_.seekp(0, std::ios::beg);
 
-  // Initialize header
+  // Initialize header with version 2
   header_ = FileHeader();
+  header_.blockCount = blockCount_;
 
   // Write header
   file_.write(reinterpret_cast<const char *>(&header_), sizeof(FileHeader));
@@ -209,7 +288,8 @@ BlockFile::Roe<void> BlockFile::writeHeader() {
 
   headerValid_ = true;
   log().debug << "Wrote file header (magic: 0x" << std::hex << header_.magic
-              << std::dec << ", version: " << header_.version << ")";
+              << std::dec << ", version: " << header_.version 
+              << ", blocks: " << header_.blockCount << ")";
 
   return {};
 }
@@ -242,13 +322,107 @@ BlockFile::Roe<void> BlockFile::readHeader() {
 
   headerValid_ = true;
   log().debug << "Read file header (magic: 0x" << std::hex << header_.magic
-              << std::dec << ", version: " << header_.version << ")";
+              << std::dec << ", version: " << header_.version 
+              << ", blocks: " << header_.blockCount << ")";
+
+  return {};
+}
+
+BlockFile::Roe<void> BlockFile::updateHeaderBlockCount() {
+  if (!isOpen()) {
+    return Error("File is not open: " + filepath_);
+  }
+
+  // Seek to block count field in header
+  // Position: after magic (4) + version (2) + reserved (2) = offset 8
+  file_.seekp(8, std::ios::beg);
+
+  // Write updated block count
+  file_.write(reinterpret_cast<const char *>(&blockCount_), sizeof(uint64_t));
+
+  if (!file_.good()) {
+    return Error("Failed to update block count in header: " + filepath_);
+  }
+
+  // Flush to disk
+  file_.flush();
+  if (!file_.good()) {
+    return Error("Failed to flush header update to file: " + filepath_);
+  }
+
+  header_.blockCount = blockCount_;
+  log().debug << "Updated header block count to " << blockCount_;
 
   return {};
 }
 
 bool BlockFile::hasValidHeader() const {
   return headerValid_ && header_.magic == FileHeader::MAGIC;
+}
+
+BlockFile::Roe<void> BlockFile::buildBlockIndex() {
+  if (!isOpen()) {
+    return Error("File is not open: " + filepath_);
+  }
+
+  if (!hasValidHeader()) {
+    return Error("File header is not valid: " + filepath_);
+  }
+
+  blockIndex_.clear();
+  
+  // Start scanning from after header
+  int64_t offset = getDataOffset();
+  int64_t fileEnd = static_cast<int64_t>(currentSize_);
+  
+  while (offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) <= fileEnd) {
+    // Seek to current position
+    file_.seekg(offset, std::ios::beg);
+    if (!file_.good()) {
+      log().error << "Failed to seek to offset " << offset;
+      break;
+    }
+
+    // Read size prefix
+    uint64_t blockSize = 0;
+    file_.read(reinterpret_cast<char *>(&blockSize), SIZE_PREFIX_BYTES);
+    if (file_.gcount() != static_cast<std::streamsize>(SIZE_PREFIX_BYTES)) {
+      // End of file or partial read
+      break;
+    }
+
+    // Validate block size
+    if (offset + static_cast<int64_t>(SIZE_PREFIX_BYTES + blockSize) > fileEnd) {
+      log().warning << "Block at offset " << offset 
+                    << " has invalid size " << blockSize;
+      break;
+    }
+
+    // Add to index
+    blockIndex_.push_back(BlockEntry(offset, blockSize));
+    
+    // Move to next block
+    offset += static_cast<int64_t>(SIZE_PREFIX_BYTES + blockSize);
+  }
+
+  indexBuilt_ = true;
+  
+  // Update blockCount_ from scanned data if different from header
+  if (blockIndex_.size() != blockCount_) {
+    log().debug << "Block count mismatch: header says " << blockCount_
+                << ", scanned " << blockIndex_.size();
+    blockCount_ = blockIndex_.size();
+  }
+
+  log().debug << "Built block index with " << blockIndex_.size() << " blocks";
+  return {};
+}
+
+BlockFile::Roe<void> BlockFile::ensureBlockIndex() {
+  if (indexBuilt_) {
+    return {};
+  }
+  return buildBlockIndex();
 }
 
 } // namespace pp

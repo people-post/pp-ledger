@@ -51,16 +51,16 @@ TEST_F(BlockFileTest, WriteAndRead) {
   const char *testData = "Hello, BlockFile!";
   size_t dataSize = strlen(testData) + 1;
 
-  // Write data
+  // Write data (returns block index)
   auto writeResult = blockFile.write(testData, dataSize);
   ASSERT_TRUE(writeResult.isOk());
 
-  int64_t offset = writeResult.value();
-  EXPECT_GE(offset, 0);
+  int64_t blockIndex = writeResult.value();
+  EXPECT_EQ(blockIndex, 0); // First block should have index 0
 
-  // Read data back
+  // Read data back using index-based read
   char readBuffer[256] = {0};
-  auto readResult = blockFile.read(offset, readBuffer, dataSize);
+  auto readResult = blockFile.readBlock(0, readBuffer, sizeof(readBuffer));
   ASSERT_TRUE(readResult.isOk());
   EXPECT_EQ(readResult.value(), static_cast<int64_t>(dataSize));
   EXPECT_STREQ(readBuffer, testData);
@@ -80,22 +80,24 @@ TEST_F(BlockFileTest, MultipleWrites) {
   ASSERT_TRUE(result1.isOk());
   ASSERT_TRUE(result2.isOk());
 
-  int64_t offset1 = result1.value();
-  int64_t offset2 = result2.value();
+  // Write returns block index
+  EXPECT_EQ(result1.value(), 0);
+  EXPECT_EQ(result2.value(), 1);
 
-  // Offsets should be sequential
-  EXPECT_NE(offset1, offset2);
-  EXPECT_GT(offset2, offset1);
+  // Verify block count
+  EXPECT_EQ(blockFile.getBlockCount(), 2);
 
-  // Verify we can read both back
+  // Verify we can read both back using index-based read
   char readBuffer1[256] = {0};
   char readBuffer2[256] = {0};
 
-  auto read1 = blockFile.read(offset1, readBuffer1, size1);
-  auto read2 = blockFile.read(offset2, readBuffer2, size2);
+  auto read1 = blockFile.readBlock(0, readBuffer1, sizeof(readBuffer1));
+  auto read2 = blockFile.readBlock(1, readBuffer2, sizeof(readBuffer2));
 
   ASSERT_TRUE(read1.isOk());
   ASSERT_TRUE(read2.isOk());
+  EXPECT_EQ(read1.value(), static_cast<int64_t>(size1));
+  EXPECT_EQ(read2.value(), static_cast<int64_t>(size2));
   EXPECT_STREQ(readBuffer1, data1);
   EXPECT_STREQ(readBuffer2, data2);
 }
@@ -105,13 +107,13 @@ TEST_F(BlockFileTest, CanFit) {
 
   size_t maxSize = blockFile.getMaxSize();
   size_t currentSize = blockFile.getCurrentSize();
-  size_t availableSpace = maxSize - currentSize;
+  // canFit accounts for size prefix overhead internally
+  // Available space for data = maxSize - currentSize - SIZE_PREFIX_BYTES (8)
+  size_t availableForData = maxSize - currentSize - 8;
 
-  // Should be able to fit data that's less than available space
-  if (availableSpace > 0) {
-    EXPECT_TRUE(blockFile.canFit(availableSpace));
-    EXPECT_FALSE(blockFile.canFit(availableSpace + 1));
-  }
+  // Should be able to fit data that leaves room for size prefix
+  EXPECT_TRUE(blockFile.canFit(availableForData));
+  EXPECT_FALSE(blockFile.canFit(availableForData + 1));
 
   // Try to write data larger than max size
   size_t hugeSize = 1 * 1024 * 1024 * 1024; // 1GB (larger than max of 1MB)
@@ -142,8 +144,11 @@ TEST_F(BlockFileTest, ReopensPersistentFile) {
   size_t dataSize = strlen(testData) + 1;
   auto writeResult = blockFile.write(testData, dataSize);
   ASSERT_TRUE(writeResult.isOk());
-  int64_t offset = writeResult.value();
+  EXPECT_EQ(writeResult.value(), 0); // First block
+  
   size_t fileSize = blockFile.getCurrentSize();
+  uint64_t blockCount = blockFile.getBlockCount();
+  EXPECT_EQ(blockCount, 1);
 
   // Close and reopen
   blockFile.close();
@@ -153,10 +158,13 @@ TEST_F(BlockFileTest, ReopensPersistentFile) {
 
   // File size should be restored
   EXPECT_EQ(blockFile2.getCurrentSize(), fileSize);
+  
+  // Block count should be restored from header
+  EXPECT_EQ(blockFile2.getBlockCount(), blockCount);
 
-  // Data should be readable
+  // Data should be readable using index-based read
   char readBuffer[256] = {0};
-  auto readResult = blockFile2.read(offset, readBuffer, dataSize);
+  auto readResult = blockFile2.readBlock(0, readBuffer, sizeof(readBuffer));
   ASSERT_TRUE(readResult.isOk());
   EXPECT_EQ(readResult.value(), static_cast<int64_t>(dataSize));
   EXPECT_STREQ(readBuffer, testData);
@@ -181,7 +189,7 @@ TEST_F(BlockFileTest, FileSizeMatchesActualFileSize) {
   EXPECT_EQ(reportedSize, actualFileSize);
 }
 
-TEST_F(BlockFileTest, ReadReturnsCorrectByteCount) {
+TEST_F(BlockFileTest, ReadBlockReturnsCorrectByteCount) {
   blockFile.init(config);
 
   const char *testData = "Test data for byte count";
@@ -189,20 +197,20 @@ TEST_F(BlockFileTest, ReadReturnsCorrectByteCount) {
 
   auto writeResult = blockFile.write(testData, dataSize);
   ASSERT_TRUE(writeResult.isOk());
+  EXPECT_EQ(writeResult.value(), 0); // First block
 
-  int64_t offset = writeResult.value();
   char readBuffer[256] = {0};
 
-  // Read full size
-  auto readResult = blockFile.read(offset, readBuffer, dataSize);
+  // Read block and verify byte count
+  auto readResult = blockFile.readBlock(0, readBuffer, sizeof(readBuffer));
   ASSERT_TRUE(readResult.isOk());
   EXPECT_EQ(readResult.value(), static_cast<int64_t>(dataSize));
+  EXPECT_STREQ(readBuffer, testData);
 
-  // Read partial size
-  size_t partialSize = dataSize / 2;
-  auto partialResult = blockFile.read(offset, readBuffer, partialSize);
-  ASSERT_TRUE(partialResult.isOk());
-  EXPECT_EQ(partialResult.value(), static_cast<int64_t>(partialSize));
+  // Verify getBlockSize returns correct size
+  auto sizeResult = blockFile.getBlockSize(0);
+  ASSERT_TRUE(sizeResult.isOk());
+  EXPECT_EQ(sizeResult.value(), dataSize);
 }
 
 TEST_F(BlockFileTest, MultipleFilesAreIndependent) {
@@ -215,7 +223,7 @@ TEST_F(BlockFileTest, MultipleFilesAreIndependent) {
   size_t size1 = strlen(data1) + 1;
   auto result1 = blockFile.write(data1, size1);
   ASSERT_TRUE(result1.isOk());
-  int64_t offset1 = result1.value();
+  EXPECT_EQ(result1.value(), 0); // First block in file 1
 
   // Create second file
   pp::BlockFile blockFile2;
@@ -227,17 +235,23 @@ TEST_F(BlockFileTest, MultipleFilesAreIndependent) {
   size_t size2 = strlen(data2) + 1;
   auto result2 = blockFile2.write(data2, size2);
   ASSERT_TRUE(result2.isOk());
-  int64_t offset2 = result2.value();
+  EXPECT_EQ(result2.value(), 0); // First block in file 2
 
-  // Data should be independent
+  // Each file should have 1 block
+  EXPECT_EQ(blockFile.getBlockCount(), 1);
+  EXPECT_EQ(blockFile2.getBlockCount(), 1);
+
+  // Data should be independent (use index-based read)
   char buffer1[256] = {0};
   char buffer2[256] = {0};
 
-  auto read1 = blockFile.read(offset1, buffer1, size1);
-  auto read2 = blockFile2.read(offset2, buffer2, size2);
+  auto read1 = blockFile.readBlock(0, buffer1, sizeof(buffer1));
+  auto read2 = blockFile2.readBlock(0, buffer2, sizeof(buffer2));
 
   ASSERT_TRUE(read1.isOk());
   ASSERT_TRUE(read2.isOk());
+  EXPECT_EQ(read1.value(), static_cast<int64_t>(size1));
+  EXPECT_EQ(read2.value(), static_cast<int64_t>(size2));
   EXPECT_STREQ(buffer1, data1);
   EXPECT_STREQ(buffer2, data2);
 
