@@ -68,28 +68,34 @@ protected:
   void onStop() override;
 
 private:
-  // Configuration loading
+  bool shouldProduceBlock() const;
+
+  // Helper to parse host:port string
+  static bool parseHostPort(const std::string &hostPort, std::string &host,
+                            uint16_t &port);
+
   Roe<void> loadConfig(const std::string &configPath);
-
-  // Ledger initialization
   Roe<void> initLedger(const std::string &dataDir);
-
-  // Consensus management
-  void registerStakeholder(const std::string &id, uint64_t stake);
-  void setSlotDuration(uint64_t seconds);
+  Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(
+      const std::vector<std::shared_ptr<iii::Block>> &blocks) const;
 
   // Transaction management
-  void submitTransaction(const std::string &transaction);
+  void addTransaction(const std::string &transaction);
 
-  // State queries
-  uint64_t getCurrentSlot() const;
-  uint64_t getCurrentEpoch() const;
-  size_t getBlockCount() const;
-  Roe<int64_t> getBalance(const std::string &walletId) const;
+  Roe<void> produceBlock();
+
+  // State synchronization
+  Roe<void> syncState();
+  void requestBlocksFromPeers(uint64_t fromIndex);
+  Roe<std::vector<std::shared_ptr<iii::Block>>>
+  fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex);
+  void broadcastBlock(std::shared_ptr<iii::Block> block);
+
+  // Chain switching
+  Roe<void> switchToChain(std::unique_ptr<BlockChain> candidateChain);
 
   std::string handleIncomingRequest(const std::string &request);
   std::string handleClientRequest(const Client::Request &request);
-  void broadcastBlock(std::shared_ptr<iii::Block> block);
 
   // Client request handlers
   Roe<std::string> handleReqInfo();
@@ -97,22 +103,7 @@ private:
   Roe<std::string> handleReqAddTransaction(const std::string &requestData);
   Roe<std::string> handleReqValidators();
   Roe<std::string> handleReqBlocks(const std::string &requestData);
-  void requestBlocksFromPeers(uint64_t fromIndex);
-  Roe<std::vector<std::shared_ptr<iii::Block>>>
-  fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex);
 
-  // Helper to parse host:port string
-  static bool parseHostPort(const std::string &hostPort, std::string &host,
-                            uint16_t &port);
-
-  bool shouldProduceBlock() const;
-  Roe<void> produceBlock();
-  Roe<void> syncState();
-
-  // Chain switching support
-  Roe<std::unique_ptr<BlockChain>> buildCandidateChainFromBlocks(
-      const std::vector<std::shared_ptr<iii::Block>> &blocks) const;
-  Roe<void> switchToChain(std::unique_ptr<BlockChain> candidateChain);
 
   // Consensus and ledger management
   Ledger ledger_;

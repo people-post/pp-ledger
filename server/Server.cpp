@@ -77,17 +77,7 @@ void Server::onStop() {
   sFetch_.stop();
 }
 
-void Server::registerStakeholder(const std::string &id, uint64_t stake) {
-  consensus_.registerStakeholder(id, stake);
-  log().info << "Registered stakeholder '" << id << "' with stake: " << stake;
-}
-
-void Server::setSlotDuration(uint64_t seconds) {
-  consensus_.setSlotDuration(seconds);
-  log().info << "Slot duration set to " << seconds << "s";
-}
-
-void Server::submitTransaction(const std::string &transaction) {
+void Server::addTransaction(const std::string &transaction) {
   // Deserialize transaction string to Transaction struct using utility function
   auto txResult = utl::binaryUnpack<Ledger::Transaction>(transaction);
   if (!txResult) {
@@ -106,23 +96,6 @@ void Server::submitTransaction(const std::string &transaction) {
                << txResult.value().fromWallet
                << ", toWallet: " << txResult.value().toWallet
                << ", amount: " << txResult.value().amount << ")";
-}
-
-uint64_t Server::getCurrentSlot() const { return consensus_.getCurrentSlot(); }
-
-uint64_t Server::getCurrentEpoch() const {
-  return consensus_.getCurrentEpoch();
-}
-
-size_t Server::getBlockCount() const { return ledger_.getBlockCount(); }
-
-Server::Roe<int64_t> Server::getBalance(const std::string &walletId) const {
-  // Convert from Ledger::Roe to Server::Roe
-  auto result = ledger_.getBalance(walletId);
-  if (!result) {
-    return Error(1, result.error().message);
-  }
-  return result.value();
 }
 
 bool Server::shouldProduceBlock() const {
@@ -489,8 +462,7 @@ Server::handleReqAddTransaction(const std::string &requestData) {
   }
 
   const auto &reqData = reqDataResult.value();
-  // Submit transaction to the server
-  submitTransaction(reqData.transaction);
+  addTransaction(reqData.transaction);
 
   Client::RespAddTransaction respData;
   respData.transaction = reqData.transaction;
