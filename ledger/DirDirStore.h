@@ -55,7 +55,7 @@ private:
      * Index file header structure
      */
     struct IndexFileHeader {
-        static constexpr uint32_t MAGIC = 0x504C4944; // "PLID" (PP Ledger Index Directory)
+        static constexpr uint32_t MAGIC = 0x504C4444; // "PLDD" (PP Ledger Dir-Dir)
         static constexpr uint16_t CURRENT_VERSION = 1;
 
         uint32_t magic{ MAGIC };
