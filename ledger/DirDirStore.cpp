@@ -12,7 +12,7 @@
 
 namespace pp {
 
-DirDirStore::DirDirStore(const std::string &name) : BlockStore(name) {}
+DirDirStore::DirDirStore(const std::string &name) : DirStore(name) {}
 
 DirDirStore::~DirDirStore() { flush(); }
 

@@ -1,13 +1,11 @@
 #ifndef PP_LEDGER_DIR_DIR_STORE_H
 #define PP_LEDGER_DIR_DIR_STORE_H
 
-#include "BlockStore.hpp"
+#include "DirStore.h"
 #include "FileDirStore.h"
-#include "FileStore.h"
 #include "../lib/BinaryPack.hpp"
 #include <cstdint>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,7 +21,7 @@ namespace pp {
  * 2. When maxFileCount is reached, creates subdirectories with FileDirStores
  * 3. When maxDirCount is reached, creates deeper subdirectories with DirDirStores (recursive)
  */
-class DirDirStore : public BlockStore {
+class DirDirStore : public DirStore {
 public:
     struct Config {
         std::string dirPath;
@@ -55,7 +53,7 @@ private:
      * Index file header structure
      */
     struct IndexFileHeader {
-        static constexpr uint32_t MAGIC = 0x504C4444; // "PLDD" (PP Ledger Dir-Dir)
+        static constexpr uint32_t MAGIC = MAGIC_DIR_DIR;
         static constexpr uint16_t CURRENT_VERSION = 1;
 
         uint32_t magic{ MAGIC };
@@ -69,22 +67,6 @@ private:
 
         template <typename Archive> void serialize(Archive &ar) {
             ar &magic &version &reserved &headerSize &fileCount &dirCount;
-        }
-    };
-
-    /**
-     * Structure representing a file's starting block index
-     */
-    struct FileIndexEntry {
-        uint32_t fileId;
-        uint64_t startBlockId;
-
-        FileIndexEntry() : fileId(0), startBlockId(0) {}
-        FileIndexEntry(uint32_t fid, uint64_t startId) 
-            : fileId(fid), startBlockId(startId) {}
-
-        template <typename Archive> void serialize(Archive &ar) {
-            ar &fileId &startBlockId;
         }
     };
 
@@ -103,14 +85,6 @@ private:
         template <typename Archive> void serialize(Archive &ar) {
             ar &dirId &startBlockId &isRecursive;
         }
-    };
-
-    /**
-     * Structure holding FileStore and its starting block index
-     */
-    struct FileInfo {
-        std::unique_ptr<FileStore> blockFile;
-        uint64_t startBlockId;
     };
 
     /**
