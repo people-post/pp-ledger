@@ -43,6 +43,15 @@ public:
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
 
+    /**
+     * Relocates all contents of this store to a subdirectory.
+     * This is used during transition when the store needs to be nested
+     * under a parent DirDirStore.
+     * @param subdirName The name of the subdirectory (e.g., "000001")
+     * @return The full path to the new subdirectory on success
+     */
+    Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
+
 private:
     enum class Mode {
         FILES,  // Managing FileStores directly

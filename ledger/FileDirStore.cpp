@@ -470,4 +470,73 @@ void FileDirStore::flush() {
   }
 }
 
+FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string &subdirName) {
+  log().info << "Relocating FileDirStore contents to subdirectory: " << subdirName;
+
+  // Close all open files first
+  for (auto &[fileId, fileInfo] : fileInfoMap_) {
+    fileInfo.blockFile.reset();
+  }
+
+  // Save current index before moving
+  if (!saveIndex()) {
+    return Error("Failed to save index before relocation");
+  }
+
+  std::string originalPath = config_.dirPath;
+  std::filesystem::path originalDir(originalPath);
+  std::filesystem::path parentDir = originalDir.parent_path();
+  std::string dirName = originalDir.filename().string();
+  std::string tempPath = (parentDir / (dirName + "_tmp_relocate")).string();
+  std::string targetSubdir = originalPath + "/" + subdirName;
+
+  std::error_code ec;
+
+  // Step 1: Rename current dir to temp name (dir -> dir_tmp_relocate)
+  std::filesystem::rename(originalPath, tempPath, ec);
+  if (ec) {
+    return Error("Failed to rename directory to temp: " + ec.message());
+  }
+
+  // Step 2: Create the original directory again
+  if (!std::filesystem::create_directories(originalPath, ec)) {
+    // Try to restore
+    std::filesystem::rename(tempPath, originalPath, ec);
+    return Error("Failed to recreate original directory: " + ec.message());
+  }
+
+  // Step 3: Rename temp to be a subdirectory of original (dir_tmp -> dir/subdirName)
+  std::filesystem::rename(tempPath, targetSubdir, ec);
+  if (ec) {
+    // Try to restore
+    std::filesystem::remove_all(originalPath, ec);
+    std::filesystem::rename(tempPath, originalPath, ec);
+    return Error("Failed to rename temp to subdirectory: " + ec.message());
+  }
+
+  // Update internal state to point to the new location
+  config_.dirPath = targetSubdir;
+  indexFilePath_ = targetSubdir + "/idx.dat";
+
+  // Reopen the files in the new location
+  for (auto &[fileId, fileInfo] : fileInfoMap_) {
+    std::string filepath = getBlockFilePath(fileId);
+    if (std::filesystem::exists(filepath)) {
+      auto ukpBlockFile = std::make_unique<FileStore>();
+      FileStore::Config bfConfig(filepath, config_.maxFileSize);
+      auto result = ukpBlockFile->init(bfConfig);
+      if (result.isOk()) {
+        fileInfo.blockFile = std::move(ukpBlockFile);
+        log().debug << "Reopened block file after relocation: " << filepath;
+      } else {
+        log().error << "Failed to reopen block file after relocation: " << filepath;
+        return Error("Failed to reopen block file: " + result.error().message);
+      }
+    }
+  }
+
+  log().info << "Successfully relocated FileDirStore to: " << targetSubdir;
+  return targetSubdir;
+}
+
 } // namespace pp
