@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_FILE_DIR_STORE_H
 #define PP_LEDGER_FILE_DIR_STORE_H
 
-#include "BlockStore.hpp"
+#include "DirStore.h"
 #include "FileStore.h"
 #include "../lib/BinaryPack.hpp"
 #include <cstdint>
@@ -17,7 +17,7 @@ namespace pp {
  * FileDirStore is a BlockStore that stores blocks in a directory of files.
  * It implements the BlockStore interface for file-based storage.
  */
-class FileDirStore : public BlockStore {
+class FileDirStore : public DirStore {
 public:
     struct Config {
         std::string dirPath;
@@ -38,12 +38,21 @@ public:
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
 
+    /**
+     * Relocates all contents of this store to a subdirectory.
+     * This is used during transition when the store needs to be nested
+     * under a parent DirDirStore.
+     * @param subdirName The name of the subdirectory (e.g., "000001")
+     * @return The full path to the new subdirectory on success
+     */
+    Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
+
 private:
     /**
      * Index file header structure
      */
     struct IndexFileHeader {
-        static constexpr uint32_t MAGIC = 0x504C4944; // "PLID" (PP Ledger Index Directory)
+        static constexpr uint32_t MAGIC = MAGIC_FILE_DIR;
         static constexpr uint16_t CURRENT_VERSION = 1;
 
         uint32_t magic{ MAGIC };

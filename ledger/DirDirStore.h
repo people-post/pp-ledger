@@ -1,13 +1,11 @@
 #ifndef PP_LEDGER_DIR_DIR_STORE_H
 #define PP_LEDGER_DIR_DIR_STORE_H
 
-#include "BlockStore.hpp"
+#include "DirStore.h"
 #include "FileDirStore.h"
-#include "FileStore.h"
 #include "../lib/BinaryPack.hpp"
 #include <cstdint>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -19,11 +17,12 @@ namespace pp {
  * It implements the BlockStore interface for directory-based storage.
  * 
  * Behavior:
- * 1. Initially manages FileStores directly (like FileDirStore)
- * 2. When maxFileCount is reached, creates subdirectories with FileDirStores
- * 3. When maxDirCount is reached, creates deeper subdirectories with DirDirStores (recursive)
+ * 1. Initially uses a FileDirStore at the root level to manage files
+ * 2. When the root FileDirStore is full, relocates it to a subdirectory (e.g., "000001")
+ * 3. Creates new FileDirStores in subdirectories as needed
+ * 4. When maxDirCount is reached, creates deeper subdirectories with DirDirStores (recursive)
  */
-class DirDirStore : public BlockStore {
+class DirDirStore : public DirStore {
 public:
     struct Config {
         std::string dirPath;
@@ -45,46 +44,33 @@ public:
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
 
-private:
-    enum class Mode {
-        FILES,  // Managing FileStores directly
-        DIRS    // Managing FileDirStores or DirDirStores
-    };
+    /**
+     * Relocates all contents of this store to a subdirectory.
+     * This is used during transition when the store needs to be nested
+     * under a parent DirDirStore.
+     * @param subdirName The name of the subdirectory (e.g., "000001")
+     * @return The full path to the new subdirectory on success
+     */
+    Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
 
+private:
     /**
      * Index file header structure
      */
     struct IndexFileHeader {
-        static constexpr uint32_t MAGIC = 0x504C4944; // "PLID" (PP Ledger Index Directory)
+        static constexpr uint32_t MAGIC = MAGIC_DIR_DIR;
         static constexpr uint16_t CURRENT_VERSION = 1;
 
         uint32_t magic{ MAGIC };
         uint16_t version{ CURRENT_VERSION };
         uint16_t reserved{ 0 };
         uint64_t headerSize{ sizeof(IndexFileHeader) };
-        uint32_t fileCount{ 0 };  // Number of file entries
-        uint32_t dirCount{ 0 };    // Number of dir entries
+        uint32_t dirCount{ 0 };    // Number of dir entries (0 means using rootStore_)
 
         IndexFileHeader() = default;
 
         template <typename Archive> void serialize(Archive &ar) {
-            ar &magic &version &reserved &headerSize &fileCount &dirCount;
-        }
-    };
-
-    /**
-     * Structure representing a file's starting block index
-     */
-    struct FileIndexEntry {
-        uint32_t fileId;
-        uint64_t startBlockId;
-
-        FileIndexEntry() : fileId(0), startBlockId(0) {}
-        FileIndexEntry(uint32_t fid, uint64_t startId) 
-            : fileId(fid), startBlockId(startId) {}
-
-        template <typename Archive> void serialize(Archive &ar) {
-            ar &fileId &startBlockId;
+            ar &magic &version &reserved &headerSize &dirCount;
         }
     };
 
@@ -106,14 +92,6 @@ private:
     };
 
     /**
-     * Structure holding FileStore and its starting block index
-     */
-    struct FileInfo {
-        std::unique_ptr<FileStore> blockFile;
-        uint64_t startBlockId;
-    };
-
-    /**
      * Structure holding FileDirStore or DirDirStore and its starting block index
      */
     struct DirInfo {
@@ -124,16 +102,11 @@ private:
     };
 
     Config config_;
-    Mode mode_{ Mode::FILES };
-    uint32_t currentFileId_{ 0 };
     uint32_t currentDirId_{ 0 };
     std::string indexFilePath_;
 
-    // Block files with their starting block indices, indexed by file ID
-    std::unordered_map<uint32_t, FileInfo> fileInfoMap_;
-
-    // Ordered list of file IDs (tracks creation/addition order)
-    std::vector<uint32_t> fileIdOrder_;
+    // Root FileDirStore - manages files at the root level before any subdirectories are created
+    std::unique_ptr<FileDirStore> rootStore_;
 
     // Directories with their starting block indices, indexed by dir ID
     std::unordered_map<uint32_t, DirInfo> dirInfoMap_;
@@ -141,20 +114,16 @@ private:
     // Ordered list of dir IDs (tracks creation/addition order)
     std::vector<uint32_t> dirIdOrder_;
 
-    // Total block count across all files and dirs
+    // Total block count across all stores
     uint64_t totalBlockCount_{ 0 };
-
-    FileStore *createBlockFile(uint32_t fileId, uint64_t startBlockId);
-    FileStore *getActiveBlockFile(uint64_t dataSize);
-    FileStore *getBlockFile(uint32_t fileId);
-    std::string getBlockFilePath(uint32_t fileId) const;
-    std::pair<uint32_t, uint64_t> findBlockFile(uint64_t blockId) const;
 
     BlockStore *getActiveDirStore(uint64_t dataSize);
     FileDirStore *createFileDirStore(uint32_t dirId, uint64_t startBlockId);
     DirDirStore *createDirDirStore(uint32_t dirId, uint64_t startBlockId);
     std::string getDirPath(uint32_t dirId) const;
     std::pair<uint32_t, uint64_t> findBlockDir(uint64_t blockId) const;
+
+    Roe<void> relocateRootStore();
 
     bool loadIndex();
     bool saveIndex();
@@ -165,4 +134,4 @@ private:
 
 } // namespace pp
 
-#endif // PP_LEDGER_DIR_DIR_STORE_H 
+#endif // PP_LEDGER_DIR_DIR_STORE_H

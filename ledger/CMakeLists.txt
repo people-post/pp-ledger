@@ -7,6 +7,8 @@ add_library(pp_ledger STATIC
     Wallet.cpp
     Wallet.h
     BlockStore.hpp
+    DirStore.cpp
+    DirStore.h
     FileStore.cpp
     FileStore.h
     FileDirStore.cpp
