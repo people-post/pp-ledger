@@ -1,6 +1,5 @@
 #pragma once
 
-#include "BlockStore.hpp"
 #include "Module.h"
 #include "ResultOrError.hpp"
 #include <cstdint>
@@ -15,8 +14,6 @@ namespace pp {
  * When the file reaches the configured size limit, it should be closed and
  * a new file should be created by BlockDir.
  * 
- * FileStore implements the BlockStore interface for file-based storage.
- * 
  * File format (version 2):
  * - Header: magic, version, blockCount, headerSize
  * - Block data: [size (8 bytes)][data (size bytes)]*
@@ -25,8 +22,14 @@ namespace pp {
  * the total block count is written to the header. On first read by index,
  * the block index (offsets) is built by scanning the file.
  */
-class FileStore : public BlockStore {
+class FileStore : public Module {
 public:
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
+
+  template <typename T> using Roe = ResultOrError<T, Error>;
+
   /**
    * Configuration for FileStore initialization
    */
@@ -56,10 +59,10 @@ public:
   FileStore(const FileStore &) = delete;
   FileStore &operator=(const FileStore &) = delete;
 
-  // BlockStore interface implementation
-  Roe<std::string> readBlock(uint64_t index) const override;
-  Roe<uint64_t> appendBlock(const std::string &block) override;
-  Roe<void> rewindTo(uint64_t index) override;
+  // Block store interface
+  Roe<std::string> readBlock(uint64_t index) const;
+  Roe<uint64_t> appendBlock(const std::string &block);
+  Roe<void> rewindTo(uint64_t index);
 
   /**
    * Write block data to the file (with size prefix)
@@ -91,14 +94,14 @@ public:
    * Get the number of blocks stored in this file
    * @return Number of blocks
    */
-  uint64_t getBlockCount() const override { return blockCount_; }
+  uint64_t getBlockCount() const { return blockCount_; }
 
   /**
    * Check if the file can accommodate more data
    * @param size Size of data to be written (excluding size prefix)
    * @return true if data can fit, false otherwise
    */
-  bool canFit(uint64_t size) const override;
+  bool canFit(uint64_t size) const;
 
   /**
    * Get current file size (including header)

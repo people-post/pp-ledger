@@ -275,7 +275,7 @@ DirDirStore::Roe<uint64_t> DirDirStore::appendBlock(const std::string &block) {
   }
 
   // Get active subdirectory store for writing
-  BlockStore *activeStore = getActiveDirStore(block.size());
+  DirStore *activeStore = getActiveDirStore(block.size());
   if (!activeStore) {
     log().error << "Failed to get active dir store";
     return Error("Failed to get active dir store");
@@ -400,7 +400,7 @@ DirDirStore::Roe<void> DirDirStore::relocateRootStore() {
 
 // Private methods
 
-BlockStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
+DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
   // Check if current dir exists and can fit the data
   auto it = dirInfoMap_.find(currentDirId_);
   if (it != dirInfoMap_.end()) {

@@ -14,8 +14,8 @@
 namespace pp {
 
 /**
- * FileDirStore is a BlockStore that stores blocks in a directory of files.
- * It implements the BlockStore interface for file-based storage.
+ * FileDirStore stores blocks in a directory of files.
+ * It implements the DirStore interface for file-based storage.
  */
 class FileDirStore : public DirStore {
 public:
