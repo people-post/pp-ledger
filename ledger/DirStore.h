@@ -30,20 +30,6 @@ public:
     virtual ~DirStore() = default;
 
     /**
-     * Format an ID as a zero-padded 6-digit string (e.g., 1 -> "000001")
-     * @param id The ID to format
-     * @return Formatted string
-     */
-    static std::string formatId(uint32_t id);
-
-    /**
-     * Get the index file path for a directory
-     * @param dirPath The directory path
-     * @return The index file path (dirPath + "/idx.dat")
-     */
-    static std::string getIndexFilePath(const std::string &dirPath);
-
-    /**
      * Check if the store can accommodate more data
      * @param size Size of data to be written
      * @return true if data can fit, false otherwise
@@ -87,6 +73,20 @@ public:
     virtual Roe<std::string> relocateToSubdir(const std::string &subdirName) = 0;
 
 protected:
+    /**
+     * Format an ID as a zero-padded 6-digit string (e.g., 1 -> "000001")
+     * @param id The ID to format
+     * @return Formatted string
+     */
+    static std::string formatId(uint32_t id);
+
+    /**
+     * Get the index file path for a directory
+     * @param dirPath The directory path
+     * @return The index file path (dirPath + "/idx.dat")
+     */
+    static std::string getIndexFilePath(const std::string &dirPath);
+
     /**
      * Ensure a directory exists, creating it if necessary
      * @param dirPath The directory path to ensure exists
