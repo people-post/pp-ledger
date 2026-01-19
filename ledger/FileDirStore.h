@@ -23,6 +23,32 @@ public:
         std::string dirPath;
         size_t maxFileCount{ 0 };
         size_t maxFileSize{ 0 };
+
+        /**
+         * Behavior when operating on existing directories:
+         * 
+         * When init() is called on an existing directory:
+         * - Config values are NOT persisted or read from the existing directory
+         * - The config values provided to init() are stored and used for:
+         *   * Opening existing block files (FileStore instances)
+         *   * Creating new block files
+         * 
+         * This means:
+         * - Config values can be changed between runs
+         * - New config values will be applied when reopening existing files
+         * - Existing files are reopened using the new config values, not the original ones
+         * 
+         * Important considerations:
+         * - Changing maxFileSize: Existing FileStore instances will be reopened with the
+         *   new maxFileSize. This should generally be safe if only increasing the value.
+         *   Decreasing may cause issues if existing files exceed the new limit.
+         * 
+         * - Changing maxFileCount: Affects only new file creation. Existing files are
+         *   retained, but the new limit will be enforced for future file creation.
+         * 
+         * - Changing dirPath: The directory path is updated in the config, but this
+         *   should typically match the existing directory structure.
+         */
     };
 
     FileDirStore(const std::string &name);
