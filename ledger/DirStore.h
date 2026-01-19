@@ -10,7 +10,7 @@ namespace pp {
 
 /**
  * DirStore is an abstract base class for directory-based stores.
- * It provides common magic numbers for FileDirStore and DirDirStore.
+ * It provides common magic numbers and utility functions for FileDirStore and DirDirStore.
  */
 class DirStore : public Module {
 public:
@@ -28,6 +28,20 @@ public:
 
     DirStore(const std::string &name) : Module(name) {}
     virtual ~DirStore() = default;
+
+    /**
+     * Format an ID as a zero-padded 6-digit string (e.g., 1 -> "000001")
+     * @param id The ID to format
+     * @return Formatted string
+     */
+    static std::string formatId(uint32_t id);
+
+    /**
+     * Get the index file path for a directory
+     * @param dirPath The directory path
+     * @return The index file path (dirPath + "/idx.dat")
+     */
+    static std::string getIndexFilePath(const std::string &dirPath);
 
     /**
      * Check if the store can accommodate more data
@@ -71,6 +85,14 @@ public:
      * @return The full path to the new subdirectory on success, or an error
      */
     virtual Roe<std::string> relocateToSubdir(const std::string &subdirName) = 0;
+
+protected:
+    /**
+     * Ensure a directory exists, creating it if necessary
+     * @param dirPath The directory path to ensure exists
+     * @return Success or error
+     */
+    Roe<void> ensureDirectory(const std::string &dirPath);
 };
 
 } // namespace pp

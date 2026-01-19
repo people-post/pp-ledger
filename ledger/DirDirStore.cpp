@@ -18,7 +18,7 @@ DirDirStore::~DirDirStore() { flush(); }
 DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
   config_ = config;
   currentDirId_ = 0;
-  indexFilePath_ = config_.dirPath + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(config_.dirPath);
   rootStore_.reset();
   dirInfoMap_.clear();
   dirIdOrder_.clear();
@@ -37,23 +37,9 @@ DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
   }
 
   // Create directory if it doesn't exist
-  std::error_code ec;
-  if (!std::filesystem::exists(config_.dirPath, ec)) {
-    if (ec) {
-      log().error << "Failed to check directory existence " << config_.dirPath
-                  << ": " << ec.message();
-      return Error("Failed to check directory: " + ec.message());
-    }
-    if (!std::filesystem::create_directories(config_.dirPath, ec)) {
-      log().error << "Failed to create directory " << config_.dirPath << ": "
-                  << ec.message();
-      return Error("Failed to create directory: " + ec.message());
-    }
-    log().info << "Created directory: " << config_.dirPath;
-  } else if (ec) {
-    log().error << "Failed to check directory existence " << config_.dirPath
-                << ": " << ec.message();
-    return Error("Failed to check directory: " + ec.message());
+  auto dirResult = ensureDirectory(config_.dirPath);
+  if (!dirResult.isOk()) {
+    return dirResult;
   }
 
   // Load existing index if it exists
@@ -372,9 +358,7 @@ DirDirStore::Roe<void> DirDirStore::relocateRootStore() {
 
   // Determine the subdirectory name (first available ID)
   currentDirId_ = 1;
-  std::ostringstream oss;
-  oss << std::setw(6) << std::setfill('0') << currentDirId_;
-  std::string subdirName = oss.str();
+  std::string subdirName = formatId(currentDirId_);
 
   // Relocate the root store to become the first subdirectory
   auto relocateResult = rootStore_->relocateToSubdir(subdirName);
@@ -499,9 +483,7 @@ DirDirStore *DirDirStore::createDirDirStore(uint32_t dirId, uint64_t startBlockI
 }
 
 std::string DirDirStore::getDirPath(uint32_t dirId) const {
-  std::ostringstream oss;
-  oss << config_.dirPath << "/" << std::setw(6) << std::setfill('0') << dirId;
-  return oss.str();
+  return config_.dirPath + "/" + formatId(dirId);
 }
 
 std::pair<uint32_t, uint64_t> DirDirStore::findBlockDir(uint64_t blockId) const {
@@ -742,7 +724,7 @@ DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &s
 
   // Update internal state to point to the new location
   config_.dirPath = targetSubdir;
-  indexFilePath_ = targetSubdir + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(targetSubdir);
 
   // Reopen the stores in the new location
   for (auto &[dirId, dirInfo] : dirInfoMap_) {

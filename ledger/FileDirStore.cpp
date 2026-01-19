@@ -18,7 +18,7 @@ FileDirStore::~FileDirStore() { flush(); }
 FileDirStore::Roe<void> FileDirStore::init(const Config &config) {
   config_ = config;
   currentFileId_ = 0;
-  indexFilePath_ = config_.dirPath + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(config_.dirPath);
   fileInfoMap_.clear();
   fileIdOrder_.clear();
   totalBlockCount_ = 0;
@@ -32,23 +32,9 @@ FileDirStore::Roe<void> FileDirStore::init(const Config &config) {
   }
 
   // Create directory if it doesn't exist
-  std::error_code ec;
-  if (!std::filesystem::exists(config_.dirPath, ec)) {
-    if (ec) {
-      log().error << "Failed to check directory existence " << config_.dirPath
-                  << ": " << ec.message();
-      return Error("Failed to check directory: " + ec.message());
-    }
-    if (!std::filesystem::create_directories(config_.dirPath, ec)) {
-      log().error << "Failed to create directory " << config_.dirPath << ": "
-                  << ec.message();
-      return Error("Failed to create directory: " + ec.message());
-    }
-    log().info << "Created file directory: " << config_.dirPath;
-  } else if (ec) {
-    log().error << "Failed to check directory existence " << config_.dirPath
-                << ": " << ec.message();
-    return Error("Failed to check directory: " + ec.message());
+  auto dirResult = ensureDirectory(config_.dirPath);
+  if (!dirResult.isOk()) {
+    return dirResult;
   }
 
   // Load existing index if it exists
@@ -314,10 +300,7 @@ FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
 }
 
 std::string FileDirStore::getBlockFilePath(uint32_t fileId) const {
-  std::ostringstream oss;
-  oss << config_.dirPath << "/" << std::setw(6) << std::setfill('0') << fileId
-      << ".dat";
-  return oss.str();
+  return config_.dirPath + "/" + formatId(fileId) + ".dat";
 }
 
 std::pair<uint32_t, uint64_t> FileDirStore::findBlockFile(uint64_t blockId) const {
@@ -516,7 +499,7 @@ FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string 
 
   // Update internal state to point to the new location
   config_.dirPath = targetSubdir;
-  indexFilePath_ = targetSubdir + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(targetSubdir);
 
   // Reopen the files in the new location
   for (auto &[fileId, fileInfo] : fileInfoMap_) {
