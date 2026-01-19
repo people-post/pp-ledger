@@ -37,129 +37,30 @@ DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
     return Error("Max dir count must be greater than 0");
   }
 
-  // Create directory if it doesn't exist
   auto dirResult = ensureDirectory(config_.dirPath);
   if (!dirResult.isOk()) {
     return dirResult;
   }
 
-  // Load existing index if it exists
-  bool useRootStore = true;  // Default to root store mode
-  if (std::filesystem::exists(indexFilePath_)) {
-    // Check the magic number to determine if this is a DirDirStore index
-    // or a FileDirStore index (meaning we're in root store mode)
-    std::ifstream checkFile(indexFilePath_, std::ios::binary);
-    if (checkFile.is_open()) {
-      // Use archive to read magic with proper serialization
-      uint32_t magic = 0;
-      InputArchive ar(checkFile);
-      ar &magic;
-      checkFile.close();
-      
-      if (ar.failed()) {
-        log().error << "Failed to read magic from index file";
-        return Error("Failed to read magic from index file");
-      }
-      
-      if (magic == MAGIC_DIR_DIR) {
-        // This is a DirDirStore index with subdirectories
-        if (!loadIndex()) {
-          log().error << "Failed to load index file";
-          return Error("Failed to load index file");
-        }
-        log().info << "Loaded index with " << dirInfoMap_.size() << " dirs";
-
-        // Find the highest dir ID
-        for (const auto &[dirId, _] : dirInfoMap_) {
-          if (dirId > currentDirId_) {
-            currentDirId_ = dirId;
-          }
-        }
-        useRootStore = false;
-      } else if (magic == MAGIC_FILE_DIR) {
-        // This is a FileDirStore index - use root store mode
-        log().info << "Found FileDirStore index, using root store mode";
-        useRootStore = true;
-      } else {
-        log().error << "Unknown magic number in index file: 0x" << std::hex << magic << std::dec;
-        return Error("Unknown magic number in index file");
-      }
-    }
-  } else {
-    log().info << "No existing index file, starting fresh";
+  // Detect store mode from existing index
+  auto modeResult = detectStoreMode();
+  if (!modeResult.isOk()) {
+    return Error(modeResult.error().message);
   }
+  bool useRootStore = modeResult.value();
 
   // Initialize based on mode
   if (useRootStore) {
-    // Initialize rootStore_ to manage files at root level
-    rootStore_ = std::make_unique<FileDirStore>("root-filedirstore");
-    FileDirStore::Config fdConfig;
-    fdConfig.dirPath = config_.dirPath;
-    fdConfig.maxFileCount = config_.maxFileCount;
-    fdConfig.maxFileSize = config_.maxFileSize;
-    auto result = rootStore_->init(fdConfig);
-    if (!result.isOk()) {
-      log().error << "Failed to initialize root FileDirStore: " 
-                  << result.error().message;
-      return Error("Failed to initialize root FileDirStore: " + 
-                   result.error().message);
+    auto initResult = initRootStoreMode();
+    if (!initResult.isOk()) {
+      return initResult;
     }
-    
-    totalBlockCount_ = rootStore_->getBlockCount();
-    log().info << "Initialized root FileDirStore with " << totalBlockCount_ << " blocks";
   } else {
-    // Open existing FileDirStores/DirDirStores in subdirectories
-    for (auto &[dirId, dirInfo] : dirInfoMap_) {
-      std::string dirpath = getDirPath(dirId);
-      if (std::filesystem::exists(dirpath)) {
-        if (dirInfo.isRecursive) {
-          auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
-          DirDirStore::Config ddConfig;
-          ddConfig.dirPath = dirpath;
-          ddConfig.maxFileCount = config_.maxFileCount;
-          ddConfig.maxFileSize = config_.maxFileSize;
-          ddConfig.maxDirCount = config_.maxDirCount;
-          auto result = ukpDirDirStore->init(ddConfig);
-          if (result.isOk()) {
-            dirInfo.dirDirStore = std::move(ukpDirDirStore);
-            log().debug << "Opened existing DirDirStore: " << dirpath
-                        << " (blocks: " << dirInfo.dirDirStore->getBlockCount() << ")";
-          } else {
-            log().error << "Failed to open DirDirStore: " << dirpath << ": "
-                        << result.error().message;
-            return Error("Failed to open DirDirStore: " + dirpath + ": " +
-                         result.error().message);
-          }
-        } else {
-          auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");
-          FileDirStore::Config fdConfig;
-          fdConfig.dirPath = dirpath;
-          fdConfig.maxFileCount = config_.maxFileCount;
-          fdConfig.maxFileSize = config_.maxFileSize;
-          auto result = ukpFileDirStore->init(fdConfig);
-          if (result.isOk()) {
-            dirInfo.fileDirStore = std::move(ukpFileDirStore);
-            log().debug << "Opened existing FileDirStore: " << dirpath
-                        << " (blocks: " << dirInfo.fileDirStore->getBlockCount() << ")";
-          } else {
-            log().error << "Failed to open FileDirStore: " << dirpath << ": "
-                        << result.error().message;
-            return Error("Failed to open FileDirStore: " + dirpath + ": " +
-                         result.error().message);
-          }
-        }
-      }
+    auto openResult = openExistingSubdirectoryStores();
+    if (!openResult.isOk()) {
+      return openResult;
     }
-
-    // Recalculate total block count from subdirectories
-    totalBlockCount_ = 0;
-    for (const auto &[dirId, dirInfo] : dirInfoMap_) {
-      if (dirInfo.fileDirStore) {
-        totalBlockCount_ += dirInfo.fileDirStore->getBlockCount();
-      } else if (dirInfo.dirDirStore) {
-        totalBlockCount_ += dirInfo.dirDirStore->getBlockCount();
-      }
-    }
+    recalculateTotalBlockCount();
   }
 
   log().info << "DirDirStore initialized with " << dirInfoMap_.size()
@@ -674,76 +575,183 @@ void DirDirStore::flush() {
 DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &subdirName) {
   log().info << "Relocating DirDirStore contents to subdirectory: " << subdirName;
 
-  // If using root store, relocate it first
   if (rootStore_) {
     rootStore_.reset();
   }
 
-  // Close all dir stores
   for (auto &[dirId, dirInfo] : dirInfoMap_) {
     dirInfo.fileDirStore.reset();
     dirInfo.dirDirStore.reset();
   }
 
-  // Save current index before moving
-  if (!dirInfoMap_.empty()) {
-    if (!saveIndex()) {
-      return Error("Failed to save index before relocation");
-    }
+  if (!dirInfoMap_.empty() && !saveIndex()) {
+    return Error("Failed to save index before relocation");
   }
 
   std::string originalPath = config_.dirPath;
-
-  // Perform the filesystem relocation
   auto relocateResult = performDirectoryRelocation(originalPath, subdirName);
   if (!relocateResult.isOk()) {
     return relocateResult;
   }
   std::string targetSubdir = relocateResult.value();
 
-  // Update internal state to point to the new location
   config_.dirPath = targetSubdir;
   indexFilePath_ = getIndexFilePath(targetSubdir);
 
-  // Reopen the stores in the new location
-  for (auto &[dirId, dirInfo] : dirInfoMap_) {
-    std::string dirpath = getDirPath(dirId);
-    if (std::filesystem::exists(dirpath)) {
-      if (dirInfo.isRecursive) {
-        auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
-        DirDirStore::Config ddConfig;
-        ddConfig.dirPath = dirpath;
-        ddConfig.maxFileCount = config_.maxFileCount;
-        ddConfig.maxFileSize = config_.maxFileSize;
-        ddConfig.maxDirCount = config_.maxDirCount;
-        auto result = ukpDirDirStore->init(ddConfig);
-        if (result.isOk()) {
-          dirInfo.dirDirStore = std::move(ukpDirDirStore);
-          log().debug << "Reopened DirDirStore after relocation: " << dirpath;
-        } else {
-          log().error << "Failed to reopen DirDirStore after relocation: " << dirpath;
-          return Error("Failed to reopen DirDirStore: " + result.error().message);
-        }
-      } else {
-        auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");
-        FileDirStore::Config fdConfig;
-        fdConfig.dirPath = dirpath;
-        fdConfig.maxFileCount = config_.maxFileCount;
-        fdConfig.maxFileSize = config_.maxFileSize;
-        auto result = ukpFileDirStore->init(fdConfig);
-        if (result.isOk()) {
-          dirInfo.fileDirStore = std::move(ukpFileDirStore);
-          log().debug << "Reopened FileDirStore after relocation: " << dirpath;
-        } else {
-          log().error << "Failed to reopen FileDirStore after relocation: " << dirpath;
-          return Error("Failed to reopen FileDirStore: " + result.error().message);
-        }
-      }
-    }
+  auto reopenResult = reopenSubdirectoryStores();
+  if (!reopenResult.isOk()) {
+    return Error(reopenResult.error().message);
   }
 
   log().info << "Successfully relocated DirDirStore to: " << targetSubdir;
   return targetSubdir;
+}
+
+// Helper methods
+
+DirDirStore::Roe<bool> DirDirStore::detectStoreMode() {
+  if (!std::filesystem::exists(indexFilePath_)) {
+    log().info << "No existing index file, starting fresh";
+    return true; // Use root store mode
+  }
+
+  std::ifstream checkFile(indexFilePath_, std::ios::binary);
+  if (!checkFile.is_open()) {
+    return true; // Default to root store mode
+  }
+
+  uint32_t magic = 0;
+  InputArchive ar(checkFile);
+  ar &magic;
+  checkFile.close();
+
+  if (ar.failed()) {
+    log().error << "Failed to read magic from index file";
+    return Error("Failed to read magic from index file");
+  }
+
+  if (magic == MAGIC_DIR_DIR) {
+    if (!loadIndex()) {
+      log().error << "Failed to load index file";
+      return Error("Failed to load index file");
+    }
+    log().info << "Loaded index with " << dirInfoMap_.size() << " dirs";
+    updateCurrentDirId();
+    return false; // Use subdirectory mode
+  } else if (magic == MAGIC_FILE_DIR) {
+    log().info << "Found FileDirStore index, using root store mode";
+    return true;
+  } else {
+    log().error << "Unknown magic number in index file: 0x" << std::hex << magic << std::dec;
+    return Error("Unknown magic number in index file");
+  }
+}
+
+DirDirStore::Roe<void> DirDirStore::initRootStoreMode() {
+  rootStore_ = std::make_unique<FileDirStore>("root-filedirstore");
+  FileDirStore::Config fdConfig;
+  fdConfig.dirPath = config_.dirPath;
+  fdConfig.maxFileCount = config_.maxFileCount;
+  fdConfig.maxFileSize = config_.maxFileSize;
+
+  auto result = rootStore_->init(fdConfig);
+  if (!result.isOk()) {
+    log().error << "Failed to initialize root FileDirStore: " << result.error().message;
+    return Error("Failed to initialize root FileDirStore: " + result.error().message);
+  }
+
+  totalBlockCount_ = rootStore_->getBlockCount();
+  log().info << "Initialized root FileDirStore with " << totalBlockCount_ << " blocks";
+  return {};
+}
+
+DirDirStore::Roe<void> DirDirStore::openExistingSubdirectoryStores() {
+  for (auto &[dirId, dirInfo] : dirInfoMap_) {
+    std::string dirpath = getDirPath(dirId);
+    if (!std::filesystem::exists(dirpath)) {
+      continue;
+    }
+
+    auto result = openDirStore(dirInfo, dirpath);
+    if (!result.isOk()) {
+      return result;
+    }
+  }
+  return {};
+}
+
+DirDirStore::Roe<void> DirDirStore::reopenSubdirectoryStores() {
+  for (auto &[dirId, dirInfo] : dirInfoMap_) {
+    std::string dirpath = getDirPath(dirId);
+    if (!std::filesystem::exists(dirpath)) {
+      continue;
+    }
+
+    auto result = openDirStore(dirInfo, dirpath);
+    if (!result.isOk()) {
+      log().error << "Failed to reopen store after relocation: " << dirpath;
+      return result;
+    }
+    log().debug << "Reopened store after relocation: " << dirpath;
+  }
+  return {};
+}
+
+DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::string &dirpath) {
+  if (dirInfo.isRecursive) {
+    auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
+    DirDirStore::Config ddConfig;
+    ddConfig.dirPath = dirpath;
+    ddConfig.maxFileCount = config_.maxFileCount;
+    ddConfig.maxFileSize = config_.maxFileSize;
+    ddConfig.maxDirCount = config_.maxDirCount;
+
+    auto result = ukpDirDirStore->init(ddConfig);
+    if (!result.isOk()) {
+      log().error << "Failed to open DirDirStore: " << dirpath << ": " << result.error().message;
+      return Error("Failed to open DirDirStore: " + dirpath + ": " + result.error().message);
+    }
+
+    dirInfo.dirDirStore = std::move(ukpDirDirStore);
+    log().debug << "Opened DirDirStore: " << dirpath
+                << " (blocks: " << dirInfo.dirDirStore->getBlockCount() << ")";
+  } else {
+    auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");
+    FileDirStore::Config fdConfig;
+    fdConfig.dirPath = dirpath;
+    fdConfig.maxFileCount = config_.maxFileCount;
+    fdConfig.maxFileSize = config_.maxFileSize;
+
+    auto result = ukpFileDirStore->init(fdConfig);
+    if (!result.isOk()) {
+      log().error << "Failed to open FileDirStore: " << dirpath << ": " << result.error().message;
+      return Error("Failed to open FileDirStore: " + dirpath + ": " + result.error().message);
+    }
+
+    dirInfo.fileDirStore = std::move(ukpFileDirStore);
+    log().debug << "Opened FileDirStore: " << dirpath
+                << " (blocks: " << dirInfo.fileDirStore->getBlockCount() << ")";
+  }
+  return {};
+}
+
+void DirDirStore::recalculateTotalBlockCount() {
+  totalBlockCount_ = 0;
+  for (const auto &[dirId, dirInfo] : dirInfoMap_) {
+    if (dirInfo.fileDirStore) {
+      totalBlockCount_ += dirInfo.fileDirStore->getBlockCount();
+    } else if (dirInfo.dirDirStore) {
+      totalBlockCount_ += dirInfo.dirDirStore->getBlockCount();
+    }
+  }
+}
+
+void DirDirStore::updateCurrentDirId() {
+  for (const auto &[dirId, _] : dirInfoMap_) {
+    if (dirId > currentDirId_) {
+      currentDirId_ = dirId;
+    }
+  }
 }
 
 } // namespace pp

@@ -125,11 +125,21 @@ private:
 
     Roe<void> relocateRootStore();
 
+    // Index operations
     bool loadIndex();
     bool saveIndex();
     bool writeIndexHeader(std::ostream &os);
     bool readIndexHeader(std::istream &is);
     void flush();
+
+    // Helper methods for init and relocate
+    Roe<bool> detectStoreMode();
+    Roe<void> initRootStoreMode();
+    Roe<void> openExistingSubdirectoryStores();
+    Roe<void> reopenSubdirectoryStores();
+    void recalculateTotalBlockCount();
+    void updateCurrentDirId();
+    Roe<void> openDirStore(DirInfo &dirInfo, const std::string &dirpath);
 };
 
 } // namespace pp
