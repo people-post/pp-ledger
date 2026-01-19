@@ -24,8 +24,9 @@ DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
   dirIdOrder_.clear();
   totalBlockCount_ = 0;
 
-  if (config_.maxFileSize < 1024 * 1024) {
-    return Error("Max file size shall be at least 1MB");
+  auto sizeResult = validateMinFileSize(config_.maxFileSize);
+  if (!sizeResult.isOk()) {
+    return sizeResult;
   }
 
   if (config_.maxFileCount == 0) {
@@ -692,35 +693,13 @@ DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &s
   }
 
   std::string originalPath = config_.dirPath;
-  std::filesystem::path originalDir(originalPath);
-  std::filesystem::path parentDir = originalDir.parent_path();
-  std::string dirName = originalDir.filename().string();
-  std::string tempPath = (parentDir / (dirName + "_tmp_relocate")).string();
-  std::string targetSubdir = originalPath + "/" + subdirName;
 
-  std::error_code ec;
-
-  // Step 1: Rename current dir to temp name (dir -> dir_tmp_relocate)
-  std::filesystem::rename(originalPath, tempPath, ec);
-  if (ec) {
-    return Error("Failed to rename directory to temp: " + ec.message());
+  // Perform the filesystem relocation
+  auto relocateResult = performDirectoryRelocation(originalPath, subdirName);
+  if (!relocateResult.isOk()) {
+    return relocateResult;
   }
-
-  // Step 2: Create the original directory again
-  if (!std::filesystem::create_directories(originalPath, ec)) {
-    // Try to restore
-    std::filesystem::rename(tempPath, originalPath, ec);
-    return Error("Failed to recreate original directory: " + ec.message());
-  }
-
-  // Step 3: Rename temp to be a subdirectory of original (dir_tmp -> dir/subdirName)
-  std::filesystem::rename(tempPath, targetSubdir, ec);
-  if (ec) {
-    // Try to restore
-    std::filesystem::remove_all(originalPath, ec);
-    std::filesystem::rename(tempPath, originalPath, ec);
-    return Error("Failed to rename temp to subdirectory: " + ec.message());
-  }
+  std::string targetSubdir = relocateResult.value();
 
   // Update internal state to point to the new location
   config_.dirPath = targetSubdir;

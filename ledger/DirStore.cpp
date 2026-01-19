@@ -38,4 +38,47 @@ DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) {
     return {};
 }
 
+DirStore::Roe<void> DirStore::validateMinFileSize(size_t maxFileSize) {
+    if (maxFileSize < 1024 * 1024) {
+        return Error("Max file size shall be at least 1MB");
+    }
+    return {};
+}
+
+DirStore::Roe<std::string> DirStore::performDirectoryRelocation(
+    const std::string &originalPath, const std::string &subdirName) {
+    
+    std::filesystem::path originalDir(originalPath);
+    std::filesystem::path parentDir = originalDir.parent_path();
+    std::string dirName = originalDir.filename().string();
+    std::string tempPath = (parentDir / (dirName + "_tmp_relocate")).string();
+    std::string targetSubdir = originalPath + "/" + subdirName;
+
+    std::error_code ec;
+
+    // Step 1: Rename current dir to temp name (dir -> dir_tmp_relocate)
+    std::filesystem::rename(originalPath, tempPath, ec);
+    if (ec) {
+        return Error("Failed to rename directory to temp: " + ec.message());
+    }
+
+    // Step 2: Create the original directory again
+    if (!std::filesystem::create_directories(originalPath, ec)) {
+        // Try to restore
+        std::filesystem::rename(tempPath, originalPath, ec);
+        return Error("Failed to recreate original directory: " + ec.message());
+    }
+
+    // Step 3: Rename temp to be a subdirectory of original (dir_tmp -> dir/subdirName)
+    std::filesystem::rename(tempPath, targetSubdir, ec);
+    if (ec) {
+        // Try to restore
+        std::filesystem::remove_all(originalPath, ec);
+        std::filesystem::rename(tempPath, originalPath, ec);
+        return Error("Failed to rename temp to subdirectory: " + ec.message());
+    }
+
+    return targetSubdir;
+}
+
 } // namespace pp

@@ -93,6 +93,23 @@ protected:
      * @return Success or error
      */
     Roe<void> ensureDirectory(const std::string &dirPath);
+
+    /**
+     * Validate that maxFileSize meets the minimum requirement (1MB)
+     * @param maxFileSize The maximum file size to validate
+     * @return Success or error if size is too small
+     */
+    static Roe<void> validateMinFileSize(size_t maxFileSize);
+
+    /**
+     * Perform the filesystem operations to relocate directory contents to a subdirectory.
+     * Steps: rename dir to temp -> create original dir -> rename temp to subdir
+     * @param originalPath The original directory path
+     * @param subdirName The name of the subdirectory to create
+     * @return The full path to the new subdirectory on success, or an error
+     */
+    Roe<std::string> performDirectoryRelocation(const std::string &originalPath, 
+                                                 const std::string &subdirName);
 };
 
 } // namespace pp
