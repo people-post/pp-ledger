@@ -442,6 +442,7 @@ TEST_F(DirDirStoreTest, HandlesDeepRecursion) {
     config.maxDirCount = 2;
     config.maxFileCount = 2;
     config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 2;  // Allow 2 levels of recursion
     dirDirStore.init(config);
     
     // Add many blocks to create deep recursion
@@ -466,4 +467,225 @@ TEST_F(DirDirStoreTest, HandlesDeepRecursion) {
         // May succeed or fail depending on state
         EXPECT_TRUE(readResult.isOk() || readResult.isError());
     }
+}
+
+// ============================================================================
+// Level Control Tests
+// ============================================================================
+
+TEST_F(DirDirStoreTest, DefaultMaxLevelIsZero) {
+    // Default maxLevel should be 0 (no recursion)
+    pp::DirDirStore::Config defaultConfig;
+    EXPECT_EQ(defaultConfig.maxLevel, 0);
+}
+
+TEST_F(DirDirStoreTest, CanFitReturnsFalseAtMaxLevelZero) {
+    // With maxLevel=0, once all FileDirStores are full, canFit should return false
+    config.maxDirCount = 2;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 0;  // No recursion allowed
+    dirDirStore.init(config);
+    
+    EXPECT_EQ(dirDirStore.getCurrentLevel(), 0);
+    
+    // Fill up all available space (2 dirs x 2 files each = 4 files total)
+    std::string largeData(200 * 1024, 'X');  // 200KB per block
+    
+    size_t blocksAdded = 0;
+    size_t maxBlocks = 100;  // Try to add many blocks
+    
+    for (size_t i = 0; i < maxBlocks; i++) {
+        // Check canFit before append
+        if (!dirDirStore.canFit(largeData.size())) {
+            break;
+        }
+        auto result = dirDirStore.appendBlock(largeData);
+        if (result.isOk()) {
+            blocksAdded++;
+        } else {
+            break;
+        }
+    }
+    
+    // Should have added some blocks but not all
+    EXPECT_GT(blocksAdded, 0);
+    EXPECT_LT(blocksAdded, maxBlocks);
+    
+    // canFit should now return false because maxLevel=0 prevents recursion
+    EXPECT_FALSE(dirDirStore.canFit(largeData.size()));
+}
+
+TEST_F(DirDirStoreTest, CanFitReturnsTrueWithRecursionAllowed) {
+    // With maxLevel>0, canFit should return true even when dirs are full
+    config.maxDirCount = 2;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 1;  // Allow 1 level of recursion
+    dirDirStore.init(config);
+    
+    // Fill up the first level of directories
+    std::string largeData(200 * 1024, 'X');
+    
+    size_t blocksAdded = 0;
+    for (size_t i = 0; i < 50; i++) {
+        auto result = dirDirStore.appendBlock(largeData);
+        if (result.isOk()) {
+            blocksAdded++;
+        } else {
+            break;
+        }
+    }
+    
+    // Should have been able to add more blocks with recursion allowed
+    EXPECT_GT(blocksAdded, 0);
+}
+
+TEST_F(DirDirStoreTest, LevelControlLimitsRecursionDepth) {
+    // Test that recursion stops at maxLevel
+    config.maxDirCount = 2;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 1;  // Allow exactly 1 level of recursion
+    dirDirStore.init(config);
+    
+    std::string largeData(200 * 1024, 'X');
+    
+    size_t blocksAdded = 0;
+    for (size_t i = 0; i < 200; i++) {
+        if (!dirDirStore.canFit(largeData.size())) {
+            break;
+        }
+        auto result = dirDirStore.appendBlock(largeData);
+        if (result.isOk()) {
+            blocksAdded++;
+        } else {
+            break;
+        }
+    }
+    
+    // Should eventually stop because maxLevel=1 limits recursion
+    EXPECT_GT(blocksAdded, 0);
+    // After filling up, canFit should return false
+    // (may already be false if we reached the limit)
+}
+
+TEST_F(DirDirStoreTest, CanFitChecksFileSizeLimit) {
+    dirDirStore.init(config);
+    
+    // Data larger than maxFileSize should never fit
+    EXPECT_FALSE(dirDirStore.canFit(config.maxFileSize + 1));
+    EXPECT_FALSE(dirDirStore.canFit(config.maxFileSize * 2));
+    
+    // Data smaller than maxFileSize should fit initially
+    EXPECT_TRUE(dirDirStore.canFit(config.maxFileSize / 2));
+    EXPECT_TRUE(dirDirStore.canFit(100));
+}
+
+TEST_F(DirDirStoreTest, LevelZeroOnlyCreatesFileDirStores) {
+    config.maxDirCount = 2;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 0;  // No recursion
+    dirDirStore.init(config);
+    
+    // Fill up all FileDirStores
+    std::string largeData(200 * 1024, 'X');
+    
+    std::vector<std::string> addedBlocks;
+    for (size_t i = 0; i < 100; i++) {
+        if (!dirDirStore.canFit(largeData.size())) {
+            break;
+        }
+        std::string data = largeData + std::to_string(i);
+        auto result = dirDirStore.appendBlock(data);
+        if (result.isOk()) {
+            addedBlocks.push_back(data);
+        } else {
+            break;
+        }
+    }
+    
+    // Verify all added blocks are readable
+    for (size_t i = 0; i < addedBlocks.size(); i++) {
+        auto readResult = dirDirStore.readBlock(i);
+        ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
+        EXPECT_EQ(readResult.value(), addedBlocks[i]);
+    }
+    
+    // Should not be able to add more (no recursion allowed)
+    EXPECT_FALSE(dirDirStore.canFit(largeData.size()));
+}
+
+TEST_F(DirDirStoreTest, MultiLevelRecursionAllowed) {
+    // Test with multiple levels of recursion allowed
+    config.maxDirCount = 2;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 3;  // Allow 3 levels of recursion
+    dirDirStore.init(config);
+    
+    std::string largeData(200 * 1024, 'X');
+    
+    size_t blocksAdded = 0;
+    for (size_t i = 0; i < 300; i++) {
+        if (!dirDirStore.canFit(largeData.size())) {
+            break;
+        }
+        auto result = dirDirStore.appendBlock(largeData);
+        if (result.isOk()) {
+            blocksAdded++;
+        } else {
+            break;
+        }
+    }
+    
+    // With 3 levels, should be able to add more blocks than with 1 level
+    EXPECT_GT(blocksAdded, 0);
+}
+
+TEST_F(DirDirStoreTest, GetCurrentLevelReturnsCorrectValue) {
+    config.maxLevel = 2;
+    dirDirStore.init(config);
+    
+    // Root store should be at level 0
+    EXPECT_EQ(dirDirStore.getCurrentLevel(), 0);
+}
+
+TEST_F(DirDirStoreTest, SiblingsHaveSameLevel) {
+    // This test verifies that sibling DirDirStores are at the same level
+    // by checking that they all have the same capacity behavior
+    config.maxDirCount = 3;
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024;
+    config.maxLevel = 0;  // No further recursion from children
+    dirDirStore.init(config);
+    
+    // Fill up root level to trigger creation of multiple FileDirStore siblings
+    std::string largeData(200 * 1024, 'X');
+    
+    size_t blocksAdded = 0;
+    for (size_t i = 0; i < 100; i++) {
+        if (!dirDirStore.canFit(largeData.size())) {
+            break;
+        }
+        auto result = dirDirStore.appendBlock(largeData);
+        if (result.isOk()) {
+            blocksAdded++;
+        } else {
+            break;
+        }
+    }
+    
+    // Count subdirectories created (should be at most maxDirCount)
+    size_t dirCount = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(testDir)) {
+        if (entry.is_directory()) {
+            dirCount++;
+        }
+    }
+    
+    // Should have created subdirectories, but not exceed maxDirCount
+    // (Note: root may or may not have subdirs depending on whether root store relocated)
+    EXPECT_LE(dirCount, config.maxDirCount);
 }

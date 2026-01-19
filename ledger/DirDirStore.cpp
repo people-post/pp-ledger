@@ -16,6 +16,10 @@ DirDirStore::DirDirStore(const std::string &name) : DirStore(name) {}
 DirDirStore::~DirDirStore() { flush(); }
 
 DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
+  return initWithLevel(config, 0);
+}
+
+DirDirStore::Roe<void> DirDirStore::initWithLevel(const Config &config, size_t level) {
   config_ = config;
   currentDirId_ = 0;
   indexFilePath_ = getIndexFilePath(config_.dirPath);
@@ -23,6 +27,7 @@ DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
   dirInfoMap_.clear();
   dirIdOrder_.clear();
   totalBlockCount_ = 0;
+  currentLevel_ = level;
 
   auto sizeResult = validateMinFileSize(config_.maxFileSize);
   if (!sizeResult.isOk()) {
@@ -63,7 +68,8 @@ DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
     recalculateTotalBlockCount();
   }
 
-  log().info << "DirDirStore initialized with " << dirInfoMap_.size()
+  log().info << "DirDirStore initialized at level " << currentLevel_ 
+             << " with " << dirInfoMap_.size()
              << " subdirs and " << totalBlockCount_ << " total blocks"
              << (rootStore_ ? " (using root store)" : "");
 
@@ -82,6 +88,8 @@ bool DirDirStore::canFit(uint64_t size) const {
       return true;
     }
     // Root store is full, but we can relocate it and continue
+    // After relocation, we become a subdirectory store with one FileDirStore
+    // Can we fit more? Only if we can create more dirs or go recursive
     return true;
   }
 
@@ -95,15 +103,26 @@ bool DirDirStore::canFit(uint64_t size) const {
         return true;
       }
     }
-    // Current store can't fit, check if we can create more
+    // Current store can't fit, check if we can create more subdirs
     if (dirInfoMap_.size() < config_.maxDirCount) {
       return true;
     }
-    // At max dir count, can still go recursive
+    // At max dir count, check if we can go recursive (level control)
+    if (!canCreateRecursive()) {
+      // Cannot go recursive, store is full
+      return false;
+    }
+    // Can create recursive DirDirStore children
     return true;
   }
 
   return true;
+}
+
+bool DirDirStore::canCreateRecursive() const {
+  // Check if we're allowed to create recursive DirDirStore children
+  // based on the maxLevel configuration
+  return currentLevel_ < config_.maxLevel;
 }
 
 uint64_t DirDirStore::getBlockCount() const { return totalBlockCount_; }
@@ -299,6 +318,14 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
 
   // Check if we've reached max dir count
   if (dirInfoMap_.size() >= config_.maxDirCount) {
+    // Check if we're allowed to create recursive DirDirStore children
+    if (!canCreateRecursive()) {
+      log().error << "Reached max dir count " << config_.maxDirCount 
+                  << " at level " << currentLevel_ 
+                  << " (max level: " << config_.maxLevel << "), cannot create recursive stores";
+      return nullptr;
+    }
+
     // Need to create a recursive DirDirStore in current dir
     if (it != dirInfoMap_.end() && it->second.fileDirStore) {
       // Transition current FileDirStore to DirDirStore
@@ -309,7 +336,9 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
       ddConfig.maxFileCount = config_.maxFileCount;
       ddConfig.maxFileSize = config_.maxFileSize;
       ddConfig.maxDirCount = config_.maxDirCount;
-      auto result = ukpDirDirStore->init(ddConfig);
+      ddConfig.maxLevel = config_.maxLevel;  // Pass level config
+      // Child level is currentLevel_ + 1
+      auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
       if (!result.isOk()) {
         log().error << "Failed to create recursive DirDirStore: " << dirpath;
         return nullptr;
@@ -365,14 +394,16 @@ DirDirStore *DirDirStore::createDirDirStore(uint32_t dirId, uint64_t startBlockI
   ddConfig.maxFileCount = config_.maxFileCount;
   ddConfig.maxFileSize = config_.maxFileSize;
   ddConfig.maxDirCount = config_.maxDirCount;
-  auto result = ukpDirDirStore->init(ddConfig);
+  ddConfig.maxLevel = config_.maxLevel;  // Pass level config
+  // Child level is currentLevel_ + 1
+  auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
   if (!result.isOk()) {
     log().error << "Failed to create DirDirStore: " << dirpath;
     return nullptr;
   }
 
-  log().info << "Created new recursive DirDirStore: " << dirpath
-             << " (startBlockId: " << startBlockId << ")";
+  log().info << "Created new recursive DirDirStore at level " << (currentLevel_ + 1) 
+             << ": " << dirpath << " (startBlockId: " << startBlockId << ")";
 
   DirDirStore *pDirDirStore = ukpDirDirStore.get();
   DirInfo dirInfo;
@@ -705,15 +736,17 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::st
     ddConfig.maxFileCount = config_.maxFileCount;
     ddConfig.maxFileSize = config_.maxFileSize;
     ddConfig.maxDirCount = config_.maxDirCount;
+    ddConfig.maxLevel = config_.maxLevel;  // Pass level config
 
-    auto result = ukpDirDirStore->init(ddConfig);
+    // Child level is currentLevel_ + 1
+    auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
     if (!result.isOk()) {
       log().error << "Failed to open DirDirStore: " << dirpath << ": " << result.error().message;
       return Error("Failed to open DirDirStore: " + dirpath + ": " + result.error().message);
     }
 
     dirInfo.dirDirStore = std::move(ukpDirDirStore);
-    log().debug << "Opened DirDirStore: " << dirpath
+    log().debug << "Opened DirDirStore at level " << (currentLevel_ + 1) << ": " << dirpath
                 << " (blocks: " << dirInfo.dirDirStore->getBlockCount() << ")";
   } else {
     auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");

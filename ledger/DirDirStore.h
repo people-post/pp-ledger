@@ -29,6 +29,14 @@ public:
         size_t maxDirCount{ 0 };
         size_t maxFileCount{ 0 };
         size_t maxFileSize{ 0 };
+        /**
+         * Maximum nesting level for recursive DirDirStores.
+         * Level 0 means only FileDirStores as children (no recursive DirDirStore).
+         * Level 1 means DirDirStore children can have FileDirStore children only.
+         * Level N means up to N levels of nested DirDirStores.
+         * Default is 0 (no recursion).
+         */
+        size_t maxLevel{ 0 };
     };
 
     DirDirStore(const std::string &name);
@@ -39,6 +47,12 @@ public:
     uint64_t getBlockCount() const override;
 
     Roe<void> init(const Config &config);
+
+    /**
+     * Get the current nesting level of this DirDirStore
+     * @return Current level (0 for root, 1 for first child, etc.)
+     */
+    size_t getCurrentLevel() const { return currentLevel_; }
 
     Roe<std::string> readBlock(uint64_t index) const override;
     Roe<uint64_t> appendBlock(const std::string &block) override;
@@ -54,6 +68,15 @@ public:
     Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
 
 private:
+    /**
+     * Internal init method that accepts a starting level
+     * Used when creating child DirDirStores with proper level tracking
+     * @param config The configuration
+     * @param level The starting level for this store
+     * @return Success or error
+     */
+    Roe<void> initWithLevel(const Config &config, size_t level);
+
     /**
      * Index file header structure
      */
@@ -104,6 +127,7 @@ private:
     Config config_;
     uint32_t currentDirId_{ 0 };
     std::string indexFilePath_;
+    size_t currentLevel_{ 0 };  // Current nesting level (0 for root)
 
     // Root FileDirStore - manages files at the root level before any subdirectories are created
     std::unique_ptr<FileDirStore> rootStore_;
@@ -122,6 +146,12 @@ private:
     DirDirStore *createDirDirStore(uint32_t dirId, uint64_t startBlockId);
     std::string getDirPath(uint32_t dirId) const;
     std::pair<uint32_t, uint64_t> findBlockDir(uint64_t blockId) const;
+
+    /**
+     * Check if this store can create recursive DirDirStore children
+     * @return true if recursion is allowed at current level, false otherwise
+     */
+    bool canCreateRecursive() const;
 
     Roe<void> relocateRootStore();
 
