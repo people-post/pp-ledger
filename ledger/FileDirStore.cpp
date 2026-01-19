@@ -18,37 +18,23 @@ FileDirStore::~FileDirStore() { flush(); }
 FileDirStore::Roe<void> FileDirStore::init(const Config &config) {
   config_ = config;
   currentFileId_ = 0;
-  indexFilePath_ = config_.dirPath + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(config_.dirPath);
   fileInfoMap_.clear();
   fileIdOrder_.clear();
   totalBlockCount_ = 0;
 
-  if (config_.maxFileSize < 1024 * 1024) {
-    return Error("Max file size shall be at least 1MB");
+  auto sizeResult = validateMinFileSize(config_.maxFileSize);
+  if (!sizeResult.isOk()) {
+    return sizeResult;
   }
 
   if (config_.maxFileCount == 0) {
     return Error("Max file count must be greater than 0");
   }
 
-  // Create directory if it doesn't exist
-  std::error_code ec;
-  if (!std::filesystem::exists(config_.dirPath, ec)) {
-    if (ec) {
-      log().error << "Failed to check directory existence " << config_.dirPath
-                  << ": " << ec.message();
-      return Error("Failed to check directory: " + ec.message());
-    }
-    if (!std::filesystem::create_directories(config_.dirPath, ec)) {
-      log().error << "Failed to create directory " << config_.dirPath << ": "
-                  << ec.message();
-      return Error("Failed to create directory: " + ec.message());
-    }
-    log().info << "Created file directory: " << config_.dirPath;
-  } else if (ec) {
-    log().error << "Failed to check directory existence " << config_.dirPath
-                << ": " << ec.message();
-    return Error("Failed to check directory: " + ec.message());
+  auto dirResult = ensureDirectory(config_.dirPath);
+  if (!dirResult.isOk()) {
+    return dirResult;
   }
 
   // Load existing index if it exists
@@ -57,46 +43,18 @@ FileDirStore::Roe<void> FileDirStore::init(const Config &config) {
       log().error << "Failed to load index file";
       return Error("Failed to load index file");
     }
-    log().info << "Loaded index with " << fileInfoMap_.size() << " files, total "
-               << totalBlockCount_ << " blocks";
-
-    // Find the highest file ID from the file info map
-    for (const auto &[fileId, _] : fileInfoMap_) {
-      if (fileId > currentFileId_) {
-        currentFileId_ = fileId;
-      }
-    }
+    log().info << "Loaded index with " << fileInfoMap_.size() << " files";
+    updateCurrentFileId();
   } else {
     log().info << "No existing index file, starting fresh";
   }
 
-  // Open existing block files referenced in the file info map
-  for (auto &[fileId, fileInfo] : fileInfoMap_) {
-    std::string filepath = getBlockFilePath(fileId);
-    if (std::filesystem::exists(filepath)) {
-      auto ukpBlockFile = std::make_unique<FileStore>();
-      FileStore::Config bfConfig(filepath, config_.maxFileSize);
-      auto result = ukpBlockFile->init(bfConfig);
-      if (result.isOk()) {
-        fileInfo.blockFile = std::move(ukpBlockFile);
-        log().debug << "Opened existing block file: " << filepath
-                    << " (blocks: " << fileInfo.blockFile->getBlockCount() << ")";
-      } else {
-        log().error << "Failed to open block file: " << filepath << ": "
-                    << result.error().message;
-        return Error("Failed to open block file: " + filepath + ": " +
-                     result.error().message);
-      }
-    }
+  auto openResult = openExistingBlockFiles();
+  if (!openResult.isOk()) {
+    return openResult;
   }
 
-  // Recalculate total block count from opened files
-  totalBlockCount_ = 0;
-  for (const auto &[fileId, fileInfo] : fileInfoMap_) {
-    if (fileInfo.blockFile) {
-      totalBlockCount_ += fileInfo.blockFile->getBlockCount();
-    }
-  }
+  recalculateTotalBlockCount();
 
   log().info << "FileDirStore initialized with " << fileInfoMap_.size()
              << " files and " << totalBlockCount_ << " blocks";
@@ -314,10 +272,7 @@ FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
 }
 
 std::string FileDirStore::getBlockFilePath(uint32_t fileId) const {
-  std::ostringstream oss;
-  oss << config_.dirPath << "/" << std::setw(6) << std::setfill('0') << fileId
-      << ".dat";
-  return oss.str();
+  return config_.dirPath + "/" + formatId(fileId) + ".dat";
 }
 
 std::pair<uint32_t, uint64_t> FileDirStore::findBlockFile(uint64_t blockId) const {
@@ -478,65 +433,91 @@ FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string 
     fileInfo.blockFile.reset();
   }
 
-  // Save current index before moving
   if (!saveIndex()) {
     return Error("Failed to save index before relocation");
   }
 
   std::string originalPath = config_.dirPath;
-  std::filesystem::path originalDir(originalPath);
-  std::filesystem::path parentDir = originalDir.parent_path();
-  std::string dirName = originalDir.filename().string();
-  std::string tempPath = (parentDir / (dirName + "_tmp_relocate")).string();
-  std::string targetSubdir = originalPath + "/" + subdirName;
-
-  std::error_code ec;
-
-  // Step 1: Rename current dir to temp name (dir -> dir_tmp_relocate)
-  std::filesystem::rename(originalPath, tempPath, ec);
-  if (ec) {
-    return Error("Failed to rename directory to temp: " + ec.message());
+  auto relocateResult = performDirectoryRelocation(originalPath, subdirName);
+  if (!relocateResult.isOk()) {
+    return relocateResult;
   }
+  std::string targetSubdir = relocateResult.value();
 
-  // Step 2: Create the original directory again
-  if (!std::filesystem::create_directories(originalPath, ec)) {
-    // Try to restore
-    std::filesystem::rename(tempPath, originalPath, ec);
-    return Error("Failed to recreate original directory: " + ec.message());
-  }
-
-  // Step 3: Rename temp to be a subdirectory of original (dir_tmp -> dir/subdirName)
-  std::filesystem::rename(tempPath, targetSubdir, ec);
-  if (ec) {
-    // Try to restore
-    std::filesystem::remove_all(originalPath, ec);
-    std::filesystem::rename(tempPath, originalPath, ec);
-    return Error("Failed to rename temp to subdirectory: " + ec.message());
-  }
-
-  // Update internal state to point to the new location
   config_.dirPath = targetSubdir;
-  indexFilePath_ = targetSubdir + "/idx.dat";
+  indexFilePath_ = getIndexFilePath(targetSubdir);
 
-  // Reopen the files in the new location
-  for (auto &[fileId, fileInfo] : fileInfoMap_) {
-    std::string filepath = getBlockFilePath(fileId);
-    if (std::filesystem::exists(filepath)) {
-      auto ukpBlockFile = std::make_unique<FileStore>();
-      FileStore::Config bfConfig(filepath, config_.maxFileSize);
-      auto result = ukpBlockFile->init(bfConfig);
-      if (result.isOk()) {
-        fileInfo.blockFile = std::move(ukpBlockFile);
-        log().debug << "Reopened block file after relocation: " << filepath;
-      } else {
-        log().error << "Failed to reopen block file after relocation: " << filepath;
-        return Error("Failed to reopen block file: " + result.error().message);
-      }
-    }
+  auto reopenResult = reopenBlockFiles();
+  if (!reopenResult.isOk()) {
+    return Error(reopenResult.error().message);
   }
 
   log().info << "Successfully relocated FileDirStore to: " << targetSubdir;
   return targetSubdir;
+}
+
+// Helper methods
+
+FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
+  for (auto &[fileId, fileInfo] : fileInfoMap_) {
+    std::string filepath = getBlockFilePath(fileId);
+    if (!std::filesystem::exists(filepath)) {
+      continue;
+    }
+
+    auto ukpBlockFile = std::make_unique<FileStore>();
+    FileStore::Config bfConfig(filepath, config_.maxFileSize);
+    auto result = ukpBlockFile->init(bfConfig);
+    if (!result.isOk()) {
+      log().error << "Failed to open block file: " << filepath << ": "
+                  << result.error().message;
+      return Error("Failed to open block file: " + filepath + ": " +
+                   result.error().message);
+    }
+
+    fileInfo.blockFile = std::move(ukpBlockFile);
+    log().debug << "Opened existing block file: " << filepath
+                << " (blocks: " << fileInfo.blockFile->getBlockCount() << ")";
+  }
+  return {};
+}
+
+FileDirStore::Roe<void> FileDirStore::reopenBlockFiles() {
+  for (auto &[fileId, fileInfo] : fileInfoMap_) {
+    std::string filepath = getBlockFilePath(fileId);
+    if (!std::filesystem::exists(filepath)) {
+      continue;
+    }
+
+    auto ukpBlockFile = std::make_unique<FileStore>();
+    FileStore::Config bfConfig(filepath, config_.maxFileSize);
+    auto result = ukpBlockFile->init(bfConfig);
+    if (!result.isOk()) {
+      log().error << "Failed to reopen block file: " << filepath;
+      return Error("Failed to reopen block file: " + result.error().message);
+    }
+
+    fileInfo.blockFile = std::move(ukpBlockFile);
+    log().debug << "Reopened block file: " << filepath;
+  }
+  return {};
+}
+
+void FileDirStore::recalculateTotalBlockCount() {
+  totalBlockCount_ = 0;
+  for (const auto &[fileId, fileInfo] : fileInfoMap_) {
+    if (fileInfo.blockFile) {
+      totalBlockCount_ += fileInfo.blockFile->getBlockCount();
+    }
+  }
+}
+
+void FileDirStore::updateCurrentFileId() {
+  for (const auto &[fileId, _] : fileInfoMap_) {
+    if (fileId > currentFileId_) {
+      currentFileId_ = fileId;
+    }
+  }
 }
 
 } // namespace pp

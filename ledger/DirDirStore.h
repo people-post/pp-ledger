@@ -13,8 +13,8 @@
 namespace pp {
 
 /**
- * DirDirStore is a BlockStore that stores blocks in a directory of directories.
- * It implements the BlockStore interface for directory-based storage.
+ * DirDirStore stores blocks in a directory of directories.
+ * It implements the DirStore interface for directory-based storage.
  * 
  * Behavior:
  * 1. Initially uses a FileDirStore at the root level to manage files
@@ -117,7 +117,7 @@ private:
     // Total block count across all stores
     uint64_t totalBlockCount_{ 0 };
 
-    BlockStore *getActiveDirStore(uint64_t dataSize);
+    DirStore *getActiveDirStore(uint64_t dataSize);
     FileDirStore *createFileDirStore(uint32_t dirId, uint64_t startBlockId);
     DirDirStore *createDirDirStore(uint32_t dirId, uint64_t startBlockId);
     std::string getDirPath(uint32_t dirId) const;
@@ -125,11 +125,21 @@ private:
 
     Roe<void> relocateRootStore();
 
+    // Index operations
     bool loadIndex();
     bool saveIndex();
     bool writeIndexHeader(std::ostream &os);
     bool readIndexHeader(std::istream &is);
     void flush();
+
+    // Helper methods for init and relocate
+    Roe<bool> detectStoreMode();
+    Roe<void> initRootStoreMode();
+    Roe<void> openExistingSubdirectoryStores();
+    Roe<void> reopenSubdirectoryStores();
+    void recalculateTotalBlockCount();
+    void updateCurrentDirId();
+    Roe<void> openDirStore(DirInfo &dirInfo, const std::string &dirpath);
 };
 
 } // namespace pp

@@ -14,8 +14,8 @@
 namespace pp {
 
 /**
- * FileDirStore is a BlockStore that stores blocks in a directory of files.
- * It implements the BlockStore interface for file-based storage.
+ * FileDirStore stores blocks in a directory of files.
+ * It implements the DirStore interface for file-based storage.
  */
 class FileDirStore : public DirStore {
 public:
@@ -109,11 +109,19 @@ private:
     FileStore *getBlockFile(uint32_t fileId);
     std::string getBlockFilePath(uint32_t fileId) const;
     std::pair<uint32_t, uint64_t> findBlockFile(uint64_t blockId) const;
+
+    // Index operations
     bool loadIndex();
     bool saveIndex();
     bool writeIndexHeader(std::ostream &os);
     bool readIndexHeader(std::istream &is);
     void flush();
+
+    // Helper methods for init and relocate
+    Roe<void> openExistingBlockFiles();
+    Roe<void> reopenBlockFiles();
+    void recalculateTotalBlockCount();
+    void updateCurrentFileId();
 };
 
 } // namespace pp

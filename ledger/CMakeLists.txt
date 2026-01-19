@@ -6,7 +6,6 @@ add_library(pp_ledger STATIC
     BlockChain.h
     Wallet.cpp
     Wallet.h
-    BlockStore.hpp
     DirStore.cpp
     DirStore.h
     FileStore.cpp

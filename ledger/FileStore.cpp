@@ -4,7 +4,7 @@
 
 namespace pp {
 
-FileStore::FileStore() : BlockStore("filestore") {}
+FileStore::FileStore() : Module("filestore") {}
 
 FileStore::Roe<void> FileStore::init(const Config &config) {
   filepath_ = config.filepath;
@@ -425,7 +425,7 @@ FileStore::Roe<void> FileStore::ensureBlockIndex() {
   return buildBlockIndex();
 }
 
-// BlockStore interface implementation
+// Block store interface
 FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   // Need to cast away const for internal operations
   FileStore* nonConstThis = const_cast<FileStore*>(this);
@@ -433,12 +433,12 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   // Ensure block index is built
   auto indexResult = nonConstThis->ensureBlockIndex();
   if (!indexResult.isOk()) {
-    return BlockStore::Error(indexResult.error().message);
+    return Error(indexResult.error().message);
   }
 
   if (index >= blockIndex_.size()) {
-    return BlockStore::Error("Block index " + std::to_string(index) + " out of range (max: " +
-                             std::to_string(blockIndex_.size()) + ")");
+    return Error("Block index " + std::to_string(index) + " out of range (max: " +
+                 std::to_string(blockIndex_.size()) + ")");
   }
 
   const BlockEntry &entry = blockIndex_[index];
@@ -454,7 +454,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   nonConstThis->file_.seekg(dataOffset, std::ios::beg);
 
   if (!nonConstThis->file_.good()) {
-    return BlockStore::Error("Failed to seek to offset " + std::to_string(dataOffset));
+    return Error("Failed to seek to offset " + std::to_string(dataOffset));
   }
 
   // Read block data
@@ -463,7 +463,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   int64_t bytesRead = nonConstThis->file_.gcount();
 
   if (bytesRead != static_cast<int64_t>(entry.size)) {
-    return BlockStore::Error("Failed to read complete block data");
+    return Error("Failed to read complete block data");
   }
 
   return buffer;
@@ -472,7 +472,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
 FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string &block) {
   auto result = write(block.data(), block.size());
   if (!result.isOk()) {
-    return BlockStore::Error(result.error().message);
+    return Error(result.error().message);
   }
   return static_cast<uint64_t>(result.value());
 }
@@ -481,12 +481,12 @@ FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
   // Ensure block index is built
   auto indexResult = ensureBlockIndex();
   if (!indexResult.isOk()) {
-    return BlockStore::Error(indexResult.error().message);
+    return Error(indexResult.error().message);
   }
 
   if (index > blockCount_) {
-    return BlockStore::Error("Cannot rewind to index " + std::to_string(index) + 
-                             " (max: " + std::to_string(blockCount_) + ")");
+    return Error("Cannot rewind to index " + std::to_string(index) + 
+                 " (max: " + std::to_string(blockCount_) + ")");
   }
 
   // Truncate the file to remove blocks after the specified index
@@ -502,14 +502,14 @@ FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
       std::filesystem::resize_file(filepath_, HEADER_SIZE);
       auto openResult = open();
       if (!openResult.isOk()) {
-        return BlockStore::Error(openResult.error().message);
+        return Error(openResult.error().message);
       }
       
       // Rewrite header with zero block count
       header_.blockCount = 0;
       auto headerResult = writeHeader();
       if (!headerResult.isOk()) {
-        return BlockStore::Error(headerResult.error().message);
+        return Error(headerResult.error().message);
       }
     } else {
       // Rewind to specific index - keep blocks up to (but not including) index
@@ -528,14 +528,14 @@ FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
       std::filesystem::resize_file(filepath_, truncateOffset);
       auto openResult = open();
       if (!openResult.isOk()) {
-        return BlockStore::Error(openResult.error().message);
+        return Error(openResult.error().message);
       }
       
       // Update header
       header_.blockCount = blockCount_;
       auto headerResult = updateHeaderBlockCount();
       if (!headerResult.isOk()) {
-        return BlockStore::Error(headerResult.error().message);
+        return Error(headerResult.error().message);
       }
     }
   }
