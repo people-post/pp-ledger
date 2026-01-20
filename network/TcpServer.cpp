@@ -6,16 +6,28 @@
 #include <fcntl.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <string>
+
+#ifdef __APPLE__
+#include <sys/event.h>
+#include <sys/time.h>
+#else
+#include <sys/epoll.h>
+#endif
 
 namespace pp {
 namespace network {
 
 TcpServer::TcpServer()
-    : socketFd_(-1), epollFd_(-1), listening_(false), port_(0), originalHost_("") {}
+    : socketFd_(-1)
+#ifdef __APPLE__
+    , kqueueFd_(-1)
+#else
+    , epollFd_(-1)
+#endif
+    , listening_(false), port_(0), originalHost_("") {}
 
 TcpServer::~TcpServer() { stop(); }
 
@@ -84,6 +96,26 @@ TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, i
     return Error("Failed to set socket to non-blocking mode");
   }
 
+#ifdef __APPLE__
+  // Create kqueue instance
+  kqueueFd_ = kqueue();
+  if (kqueueFd_ < 0) {
+    ::close(socketFd_);
+    socketFd_ = -1;
+    return Error("Failed to create kqueue instance");
+  }
+
+  // Add server socket to kqueue
+  struct kevent event;
+  EV_SET(&event, socketFd_, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
+  if (kevent(kqueueFd_, &event, 1, nullptr, 0, nullptr) < 0) {
+    ::close(kqueueFd_);
+    ::close(socketFd_);
+    kqueueFd_ = -1;
+    socketFd_ = -1;
+    return Error("Failed to add socket to kqueue");
+  }
+#else
   // Create epoll instance
   epollFd_ = epoll_create1(0);
   if (epollFd_ < 0) {
@@ -103,6 +135,7 @@ TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, i
     socketFd_ = -1;
     return Error("Failed to add socket to epoll");
   }
+#endif
 
   listening_ = true;
   port_ = port;
@@ -134,6 +167,27 @@ TcpServer::Roe<void> TcpServer::waitForEvents(int timeoutMs) {
     return Error("Server not listening");
   }
 
+#ifdef __APPLE__
+  struct kevent event;
+  struct timespec timeout;
+  struct timespec *timeoutPtr = nullptr;
+  
+  if (timeoutMs >= 0) {
+    timeout.tv_sec = timeoutMs / 1000;
+    timeout.tv_nsec = (timeoutMs % 1000) * 1000000;
+    timeoutPtr = &timeout;
+  }
+  
+  int num_events = kevent(kqueueFd_, nullptr, 0, &event, 1, timeoutPtr);
+
+  if (num_events < 0) {
+    return Error("kevent failed");
+  }
+
+  if (num_events == 0) {
+    return Error("Timeout waiting for events");
+  }
+#else
   struct epoll_event event;
   int num_events = epoll_wait(epollFd_, &event, 1, timeoutMs);
 
@@ -144,15 +198,23 @@ TcpServer::Roe<void> TcpServer::waitForEvents(int timeoutMs) {
   if (num_events == 0) {
     return Error("Timeout waiting for events");
   }
+#endif
 
   return {};
 }
 
 void TcpServer::stop() {
+#ifdef __APPLE__
+  if (kqueueFd_ >= 0) {
+    ::close(kqueueFd_);
+    kqueueFd_ = -1;
+  }
+#else
   if (epollFd_ >= 0) {
     ::close(epollFd_);
     epollFd_ = -1;
   }
+#endif
   if (socketFd_ >= 0) {
     ::close(socketFd_);
     socketFd_ = -1;

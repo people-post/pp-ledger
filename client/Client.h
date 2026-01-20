@@ -164,7 +164,7 @@ public:
     uint64_t blockCount;
     uint64_t currentSlot;
     uint64_t currentEpoch;
-    size_t pendingTransactions;
+    uint64_t pendingTransactions;
 
     template <typename Archive> void serialize(Archive &ar) {
       ar &blockCount &currentSlot &currentEpoch &pendingTransactions;

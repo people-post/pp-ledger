@@ -36,7 +36,7 @@ target_link_libraries(test_module PRIVATE
     pp_lib
     pp_client
     pp_server
-    crypto
+    OpenSSL::Crypto
     GTest::gtest_main
 )
 

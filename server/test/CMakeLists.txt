@@ -12,7 +12,7 @@ target_link_libraries(test_agent PRIVATE
     pp_lib
     pp_ledger
     pp_server
-    crypto
+    OpenSSL::Crypto
     GTest::gtest_main
 )
 

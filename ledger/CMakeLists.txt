@@ -22,9 +22,12 @@ target_include_directories(pp_ledger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Find OpenSSL
+find_package(OpenSSL REQUIRED)
+
 target_link_libraries(pp_ledger PUBLIC
     pp_lib
-    crypto
+    OpenSSL::Crypto
 )
 
 # Add tests subdirectory if testing is enabled

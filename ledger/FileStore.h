@@ -36,6 +36,9 @@ public:
   struct Config {
     std::string filepath;
     size_t maxSize{ 0 }; // Max file size (bytes)
+    
+    Config() = default;
+    Config(const std::string &fp, size_t max) : filepath(fp), maxSize(max) {}
   };
 
   /**

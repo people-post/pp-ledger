@@ -36,6 +36,10 @@ public:
     std::string toWallet;   // Destination wallet ID
     int64_t amount{ 0 };         // Transfer amount
 
+    Transaction() = default;
+    Transaction(const std::string &from, const std::string &to, int64_t amt)
+        : fromWallet(from), toWallet(to), amount(amt) {}
+
     template <typename Archive> void serialize(Archive &ar) {
       ar &fromWallet &toWallet &amount;
     }

@@ -13,6 +13,11 @@ target_include_directories(pp_server PUBLIC
     ${CMAKE_SOURCE_DIR}/network
 )
 
+# Add nlohmann/json include directory
+target_include_directories(pp_server PRIVATE
+    ${nlohmann_json_SOURCE_DIR}/include
+)
+
 # Server requires network library
 target_link_libraries(pp_server PUBLIC
     pp_lib

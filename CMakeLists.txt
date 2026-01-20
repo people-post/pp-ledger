@@ -10,6 +10,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Treat warnings as errors
 add_compile_options(-Werror)
 
+# Find OpenSSL (required for ledger and some tests)
+find_package(OpenSSL REQUIRED)
+
 # Fetch Google Test
 include(FetchContent)
 FetchContent_Declare(
@@ -20,6 +23,14 @@ FetchContent_Declare(
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+# Fetch nlohmann/json
+FetchContent_Declare(
+  json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
 
 # Enable testing and set BUILD_TESTING before adding subdirectories
 enable_testing()

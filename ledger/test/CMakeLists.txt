@@ -24,7 +24,7 @@ add_executable(test_blockchain
 target_link_libraries(test_blockchain PRIVATE
     pp_lib
     pp_ledger
-    crypto
+    OpenSSL::Crypto
     GTest::gtest_main
 )
 
@@ -51,7 +51,7 @@ add_executable(test_blockdir
 target_link_libraries(test_blockdir PRIVATE
     pp_lib
     pp_ledger
-    crypto
+    OpenSSL::Crypto
     GTest::gtest_main
 )
 

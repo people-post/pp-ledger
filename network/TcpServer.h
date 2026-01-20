@@ -52,7 +52,11 @@ private:
   std::string getBoundAddress() const;
 
   int socketFd_;
+#ifdef __APPLE__
+  int kqueueFd_;
+#else
   int epollFd_;
+#endif
   bool listening_;
   uint16_t port_;
   std::string originalHost_; // Store original host string
