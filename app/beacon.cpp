@@ -1,4 +1,4 @@
-#include "../server/Beacon.h"
+#include "../server/BeaconServer.h"
 #include "../lib/Logger.h"
 
 #include <atomic>
@@ -87,7 +87,7 @@ int main(int argc, char *argv[]) {
 
   logger->info << "Starting beacon with work directory: " << workDir;
 
-  pp::Beacon beacon;
+  pp::BeaconServer beacon;
   beacon.redirectLogger("pp.Server");
 
   if (beacon.start(workDir)) {

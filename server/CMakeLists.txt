@@ -2,8 +2,8 @@
 add_library(pp_server STATIC
     Server.cpp
     Server.h
-    Beacon.cpp
-    Beacon.h
+    BeaconServer.cpp
+    BeaconServer.h
     Agent.cpp
     Agent.h
 )

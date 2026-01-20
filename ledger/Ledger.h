@@ -13,6 +13,18 @@ namespace pp {
 
 class Ledger : public Module {
 public:
+  struct Transaction {
+    std::string fromWallet; // Source wallet ID
+    std::string toWallet;   // Destination wallet ID
+    int64_t amount{ 0 };    // Transfer amount
+
+    Transaction() = default;
+  
+    template <typename Archive> void serialize(Archive &ar) {
+      ar &fromWallet &toWallet &amount;
+    }
+  };
+
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };

@@ -1,4 +1,4 @@
-#include "Beacon.h"
+#include "BeaconServer.h"
 #include "../client/Client.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
@@ -9,12 +9,13 @@
 
 namespace pp {
 
-Beacon::Beacon() : network::FetchServer() {
+BeaconServer::BeaconServer() {
+  setLogger("BeaconServer");
   log().info << "Beacon initialized";
 }
 
-bool Beacon::start(const std::string &dataDir) {
-  if (isRunning()) {
+bool BeaconServer::start(const std::string &dataDir) {
+  if (fetchServer_.isRunning()) {
     log().warning << "Beacon is already running";
     return false;
   }
@@ -42,7 +43,7 @@ bool Beacon::start(const std::string &dataDir) {
   fetchServerConfig.handler = [this](const std::string &request) {
     return handleServerRequest(request);
   };
-  bool serverStarted = network::FetchServer::start(fetchServerConfig);
+  bool serverStarted = fetchServer_.start(fetchServerConfig);
 
   if (!serverStarted) {
     log().error << "Failed to start FetchServer";
@@ -55,7 +56,7 @@ bool Beacon::start(const std::string &dataDir) {
   return true;
 }
 
-Beacon::Roe<void> Beacon::loadConfig(const std::string &configPath) {
+BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) {
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);
   }
@@ -114,7 +115,16 @@ Beacon::Roe<void> Beacon::loadConfig(const std::string &configPath) {
   return {};
 }
 
-std::string Beacon::handleServerRequest(const std::string &request) {
+void BeaconServer::stop() {
+  fetchServer_.stop();
+  log().info << "Beacon server stopped";
+}
+
+bool BeaconServer::isRunning() const {
+  return fetchServer_.isRunning();
+}
+
+std::string BeaconServer::handleServerRequest(const std::string &request) {
   log().debug << "Received request from server (" << request.size()
               << " bytes)";
 
@@ -188,7 +198,7 @@ std::string Beacon::handleServerRequest(const std::string &request) {
   }
 }
 
-void Beacon::registerServer(const std::string &serverAddress) {
+void BeaconServer::registerServer(const std::string &serverAddress) {
   std::lock_guard<std::mutex> lock(serversMutex_);
 
   // Get current timestamp
@@ -201,7 +211,7 @@ void Beacon::registerServer(const std::string &serverAddress) {
   log().debug << "Updated server record: " << serverAddress;
 }
 
-std::vector<std::string> Beacon::getActiveServers() const {
+std::vector<std::string> BeaconServer::getActiveServers() const {
   std::lock_guard<std::mutex> lock(serversMutex_);
 
   std::vector<std::string> servers;
@@ -211,12 +221,12 @@ std::vector<std::string> Beacon::getActiveServers() const {
   return servers;
 }
 
-size_t Beacon::getActiveServerCount() const {
+size_t BeaconServer::getActiveServerCount() const {
   std::lock_guard<std::mutex> lock(serversMutex_);
   return activeServers_.size();
 }
 
-void Beacon::connectToOtherBeacons() {
+void BeaconServer::connectToOtherBeacons() {
   if (otherBeaconAddresses_.empty()) {
     log().info << "No other beacon addresses configured";
     return;
