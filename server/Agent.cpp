@@ -8,7 +8,9 @@
 
 namespace pp {
 
-Agent::Agent() : Module("agent"), maxActiveDirSize_(500 * 1024 * 1024) {}
+Agent::Agent() : maxActiveDirSize_(500 * 1024 * 1024) {
+  setLogger("agent");
+}
 
 // Initialization
 Agent::Roe<void> Agent::init(const Config &config) {

@@ -54,11 +54,13 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
   }
 }
 
-Client::Client() : Module("client"), connected_(false) {}
+Client::Client() {
+  setLogger("client");
+}
 
 Client::~Client() { disconnect(); }
 
-bool Client::init(const std::string &address, int port) {
+bool Client::init(const std::string &address, uint16_t port) {
   address_ = address;
   port_ = port;
   connected_ = true;
@@ -89,8 +91,7 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
 
   // Send request using FetchClient
   network::FetchClient fetchClient;
-  auto result = fetchClient.fetchSync(address_, static_cast<uint16_t>(port_),
-                                      requestData);
+  auto result = fetchClient.fetchSync(address_, port_, requestData);
 
   if (!result.isOk()) {
     log().error << "Failed to send request: " << result.error().message;

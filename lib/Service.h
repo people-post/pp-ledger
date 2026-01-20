@@ -17,9 +17,8 @@ class Service : public Module {
 public:
   /**
    * Constructor
-   * @param name Hierarchical name for the service's logger
    */
-  explicit Service(const std::string &name);
+  Service() = default;
 
   /**
    * Virtual destructor - stops the service if running
@@ -46,7 +45,7 @@ public:
    * Check if the service is running
    * @return true if the service thread is active
    */
-  bool isRunning() const { return running_; }
+  bool isRunning() const { return isRunning_; }
 
 protected:
   /**
@@ -71,7 +70,7 @@ protected:
 
 private:
   /// Flag indicating if the service should continue running
-  std::atomic<bool> running_;
+  std::atomic<bool> isRunning_{ false };
 
   /// The service thread
   std::thread thread_;

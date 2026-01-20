@@ -4,7 +4,8 @@
 namespace pp {
 namespace network {
 
-FetchClient::FetchClient() : Module("network.fetch_client") {
+FetchClient::FetchClient() {
+  setLogger("FetchClient");
   log().info << "FetchClient initialized";
 }
 

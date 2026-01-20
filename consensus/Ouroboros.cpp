@@ -9,8 +9,9 @@ namespace pp {
 namespace consensus {
 
 Ouroboros::Ouroboros(uint64_t slotDuration, uint64_t slotsPerEpoch)
-    : Module("consensus"), slotDuration_(slotDuration),
+    : slotDuration_(slotDuration),
       slotsPerEpoch_(slotsPerEpoch), genesisTime_(0) {
+  setLogger("Ouroboros");
 
   // Set genesis time to current time if not set
   auto now = std::chrono::system_clock::now();

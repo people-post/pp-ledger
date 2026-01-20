@@ -2,7 +2,11 @@
 
 namespace pp {
 
-Module::Module(const std::string &name) {
+Module::Module() {
+  spLogger_ = logging::getLogger("");
+}
+
+void Module::setLogger(const std::string &name) {
   spLogger_ = logging::getLogger(name);
 }
 

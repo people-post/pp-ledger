@@ -113,6 +113,9 @@ public:
 
   const std::string &getName() const { return name_; }
 
+  // Get a child logger with hierarchical naming
+  std::shared_ptr<Logger> getLogger(const std::string &name);
+
 private:
   friend class LogStream;
   friend class LogProxy;

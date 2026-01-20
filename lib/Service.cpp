@@ -2,16 +2,14 @@
 
 namespace pp {
 
-Service::Service(const std::string &name) : Module(name), running_(false) {}
-
 Service::~Service() {
-  if (running_) {
+  if (isRunning_) {
     stop();
   }
 }
 
 bool Service::start() {
-  if (running_) {
+  if (isRunning_) {
     log().warning << "Service is already running";
     return false;
   }
@@ -22,7 +20,7 @@ bool Service::start() {
     return false;
   }
 
-  running_ = true;
+  isRunning_ = true;
   thread_ = std::thread(&Service::run, this);
 
   log().info << "Service started";
@@ -30,14 +28,14 @@ bool Service::start() {
 }
 
 void Service::stop() {
-  if (!running_) {
+  if (!isRunning_) {
     log().warning << "Service is not running";
     return;
   }
 
   log().info << "Stopping service";
 
-  running_ = false;
+  isRunning_ = false;
 
   if (thread_.joinable()) {
     thread_.join();

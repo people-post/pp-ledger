@@ -11,7 +11,7 @@
 
 namespace pp {
 
-DirDirStore::DirDirStore(const std::string &name) : DirStore(name) {}
+DirDirStore::DirDirStore() {}
 
 DirDirStore::~DirDirStore() { flush(); }
 
@@ -330,7 +330,8 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
     if (it != dirInfoMap_.end() && it->second.fileDirStore) {
       // Transition current FileDirStore to DirDirStore
       std::string dirpath = getDirPath(currentDirId_);
-      auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
+      auto ukpDirDirStore = std::make_unique<DirDirStore>();
+      ukpDirDirStore->setLogger("dirdirstore");
       DirDirStore::Config ddConfig;
       ddConfig.dirPath = dirpath;
       ddConfig.maxFileCount = config_.maxFileCount;
@@ -361,7 +362,8 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
 
 FileDirStore *DirDirStore::createFileDirStore(uint32_t dirId, uint64_t startBlockId) {
   std::string dirpath = getDirPath(dirId);
-  auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");
+  auto ukpFileDirStore = std::make_unique<FileDirStore>();
+  ukpFileDirStore->setLogger("filedirstore");
 
   FileDirStore::Config fdConfig;
   fdConfig.dirPath = dirpath;
@@ -387,7 +389,8 @@ FileDirStore *DirDirStore::createFileDirStore(uint32_t dirId, uint64_t startBloc
 
 DirDirStore *DirDirStore::createDirDirStore(uint32_t dirId, uint64_t startBlockId) {
   std::string dirpath = getDirPath(dirId);
-  auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
+  auto ukpDirDirStore = std::make_unique<DirDirStore>();
+  ukpDirDirStore->setLogger("dirdirstore");
 
   DirDirStore::Config ddConfig;
   ddConfig.dirPath = dirpath;
@@ -679,7 +682,8 @@ DirDirStore::Roe<bool> DirDirStore::detectStoreMode() {
 }
 
 DirDirStore::Roe<void> DirDirStore::initRootStoreMode() {
-  rootStore_ = std::make_unique<FileDirStore>("root-filedirstore");
+  rootStore_ = std::make_unique<FileDirStore>();
+  rootStore_->setLogger("root-filedirstore");
   FileDirStore::Config fdConfig;
   fdConfig.dirPath = config_.dirPath;
   fdConfig.maxFileCount = config_.maxFileCount;
@@ -730,7 +734,8 @@ DirDirStore::Roe<void> DirDirStore::reopenSubdirectoryStores() {
 
 DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::string &dirpath) {
   if (dirInfo.isRecursive) {
-    auto ukpDirDirStore = std::make_unique<DirDirStore>("dirdirstore");
+    auto ukpDirDirStore = std::make_unique<DirDirStore>();
+    ukpDirDirStore->setLogger("dirdirstore");
     DirDirStore::Config ddConfig;
     ddConfig.dirPath = dirpath;
     ddConfig.maxFileCount = config_.maxFileCount;
@@ -749,7 +754,8 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::st
     log().debug << "Opened DirDirStore at level " << (currentLevel_ + 1) << ": " << dirpath
                 << " (blocks: " << dirInfo.dirDirStore->getBlockCount() << ")";
   } else {
-    auto ukpFileDirStore = std::make_unique<FileDirStore>("filedirstore");
+    auto ukpFileDirStore = std::make_unique<FileDirStore>();
+    ukpFileDirStore->setLogger("filedirstore");
     FileDirStore::Config fdConfig;
     fdConfig.dirPath = dirpath;
     fdConfig.maxFileCount = config_.maxFileCount;

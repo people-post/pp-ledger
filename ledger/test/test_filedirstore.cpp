@@ -9,10 +9,11 @@
 class FileDirStoreTest : public ::testing::Test {
 protected:
     std::string testDir;
-    pp::FileDirStore fileDirStore{"filedirstore"};
+    pp::FileDirStore fileDirStore;
     pp::FileDirStore::Config config;
     
     void SetUp() override {
+        fileDirStore.setLogger("filedirstore");
         testDir = "/tmp/pp-ledger-filedirstore-test";
         
         // Clean up test directory
@@ -81,7 +82,8 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
     ASSERT_TRUE(result1.isOk());
     
     // Reinitialize - should load existing index
-    pp::FileDirStore fileDirStore2("filedirstore2");
+    pp::FileDirStore fileDirStore2;
+    fileDirStore2.setLogger("filedirstore2");
     auto result = fileDirStore2.init(config);
     EXPECT_TRUE(result.isOk());
     
@@ -335,7 +337,8 @@ TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
     }
     
     // Second session - reinitialize
-    pp::FileDirStore fileDirStore2("filedirstore2");
+    pp::FileDirStore fileDirStore2;
+    fileDirStore2.setLogger("filedirstore2");
     fileDirStore2.init(config);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
@@ -364,7 +367,8 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
     }
     
     // Reinitialize
-    pp::FileDirStore fileDirStore2("filedirstore2");
+    pp::FileDirStore fileDirStore2;
+    fileDirStore2.setLogger("filedirstore2");
     fileDirStore2.init(config);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);

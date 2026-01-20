@@ -75,7 +75,7 @@ public:
          */
     };
 
-    DirDirStore(const std::string &name);
+    DirDirStore();
     virtual ~DirDirStore();
 
     bool canFit(uint64_t size) const override;

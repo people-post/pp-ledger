@@ -9,7 +9,9 @@
 
 namespace pp {
 
-BlockDir::BlockDir() : Module("blockdir") {}
+BlockDir::BlockDir() {
+  setLogger("BlockDir");
+}
 
 BlockDir::~BlockDir() { flush(); }
 

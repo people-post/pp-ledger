@@ -6,7 +6,10 @@
 namespace pp {
 namespace consensus {
 
-VRF::VRF() : Module("consensus.vrf") { log().info << "VRF module initialized"; }
+VRF::VRF() {
+  setLogger("Vrf");
+  log().info << "VRF module initialized";
+}
 
 VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
                                        const std::string &privateKey) const {
@@ -117,7 +120,8 @@ uint64_t VRF::outputToNumber(const std::string &output) const {
 
 // ========== EpochNonce Implementation ==========
 
-EpochNonce::EpochNonce() : Module("consensus.epoch_nonce") {
+EpochNonce::EpochNonce() {
+  setLogger("EpochNonce");
   log().info << "Epoch nonce module initialized";
 }
 

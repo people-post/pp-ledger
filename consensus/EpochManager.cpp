@@ -9,9 +9,10 @@ namespace consensus {
 // ========== EpochManager Implementation ==========
 
 EpochManager::EpochManager(uint64_t slotsPerEpoch, uint64_t slotDuration)
-    : Module("consensus.epoch_manager"), slotsPerEpoch_(slotsPerEpoch),
+    : slotsPerEpoch_(slotsPerEpoch),
       slotDuration_(slotDuration), genesisTime_(0), cachedCurrentEpoch_(0),
       lastUpdateTime_(0) {
+  setLogger("EpochManager");
 
   auto now = std::chrono::system_clock::now();
   genesisTime_ =

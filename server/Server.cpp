@@ -12,7 +12,8 @@
 
 namespace pp {
 
-Server::Server() : Service("server") {
+Server::Server() {
+  setLogger("server");
   log().info << "Server initialized";
 }
 

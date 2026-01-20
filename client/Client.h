@@ -174,7 +174,7 @@ public:
   Client();
   ~Client();
 
-  bool init(const std::string &address = DEFAULT_HOST, int port = DEFAULT_PORT);
+  bool init(const std::string &address = DEFAULT_HOST, uint16_t port = DEFAULT_PORT);
 
   Roe<RespInfo> getInfo();
   Roe<RespWalletInfo> getWalletInfo(const std::string &walletId);
@@ -189,9 +189,9 @@ private:
   // Helper to send request and receive response
   Roe<Response> sendRequest(const Request &request);
 
-  bool connected_;
+  bool connected_{ false };
   std::string address_;
-  int port_;
+  uint16_t port_{ 0 };
 };
 
 } // namespace pp

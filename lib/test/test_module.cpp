@@ -6,7 +6,9 @@
 // Test Module base class functionality
 class TestModule : public pp::Module {
 public:
-    TestModule(const std::string& name) : pp::Module(name) {}
+    TestModule(const std::string& name) : pp::Module() {
+        setLogger(name);
+    }
 };
 
 TEST(ModuleTest, LogReturnsLoggerReference) {

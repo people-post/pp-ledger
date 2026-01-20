@@ -169,6 +169,19 @@ void Logger::clearRedirect() {
   redirectTarget_.clear();
 }
 
+std::shared_ptr<Logger> Logger::getLogger(const std::string &name) {
+  // Create child logger with hierarchical name
+  std::string childName;
+  if (name_.empty()) {
+    childName = name;
+  } else if (name.empty()) {
+    childName = name_;
+  } else {
+    childName = name_ + "." + name;
+  }
+  return logging::getLogger(childName);
+}
+
 // Global logger management functions
 std::shared_ptr<Logger> getLogger(const std::string &name) {
   std::lock_guard<std::mutex> lock(registryMutex);

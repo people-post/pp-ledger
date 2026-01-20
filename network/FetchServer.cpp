@@ -4,7 +4,8 @@
 namespace pp {
 namespace network {
 
-FetchServer::FetchServer() : Service("network.fetch_server") {
+FetchServer::FetchServer() {
+  setLogger("FetchServer");
   log().info << "FetchServer initialized";
 }
 

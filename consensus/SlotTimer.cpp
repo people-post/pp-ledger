@@ -5,8 +5,8 @@ namespace pp {
 namespace consensus {
 
 SlotTimer::SlotTimer(uint64_t slotDuration)
-    : Module("consensus.slot_timer"), slotDuration_(slotDuration) {
-
+    : slotDuration_(slotDuration) {
+  setLogger("SlotTimer");
   log().info << "Slot timer initialized with duration: " +
                     std::to_string(slotDuration_) + "s";
 }

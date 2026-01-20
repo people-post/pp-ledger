@@ -8,7 +8,8 @@
 namespace pp {
 
 // BlockChain implementation
-BlockChain::BlockChain() : Module("blockchain") {
+BlockChain::BlockChain() {
+  setLogger("BlockChain");
   // No auto-genesis block - blocks must be added explicitly
 }
 

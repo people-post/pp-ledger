@@ -26,7 +26,7 @@ public:
     static constexpr uint32_t MAGIC_FILE_DIR = 0x504C4944; // "PLID" (PP Ledger Index Directory)
     static constexpr uint32_t MAGIC_DIR_DIR = 0x504C4444;  // "PLDD" (PP Ledger Dir-Dir)
 
-    DirStore(const std::string &name) : Module(name) {}
+    DirStore() = default;
     virtual ~DirStore() = default;
 
     /**

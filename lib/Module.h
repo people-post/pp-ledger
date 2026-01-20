@@ -13,10 +13,10 @@ class Module {
 public:
   /**
    * Constructor
-   * @param name Hierarchical name for the module's logger (e.g.,
-   * "app.module.component")
+   * Creates a module with a default logger. Use redirectLogger() to configure
+   * the logger target.
    */
-  explicit Module(const std::string &name);
+  Module();
 
   /**
    * Virtual destructor for proper cleanup
@@ -26,6 +26,12 @@ public:
   // Delete copy operations
   Module(const Module &) = delete;
   Module &operator=(const Module &) = delete;
+
+  /**
+   * Set the logger for this module
+   * @param name Name for the module's logger
+   */
+  void setLogger(const std::string &name);
 
   /**
    * Redirect this module's logger to another logger
