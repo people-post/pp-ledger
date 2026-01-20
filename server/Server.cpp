@@ -213,7 +213,7 @@ Server::Roe<void> Server::syncState() {
 
       // Check if we should switch to this candidate chain
       auto switchResult =
-          consensus_.shouldSwitchChain(agent_, *candidateChain);
+          agent_.shouldSwitchChain(agent_, *candidateChain);
       if (!switchResult) {
         log().warning << "Chain switch check failed: "
                        << switchResult.error().message;

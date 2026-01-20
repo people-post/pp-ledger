@@ -201,6 +201,60 @@ std::shared_ptr<iii::Block> Agent::getBlock(uint64_t index) const {
   return activeBlockDir_.getBlock(index);
 }
 
+Agent::Roe<bool>
+Agent::shouldSwitchChain(const IBlockChain &currentChain,
+                         const IBlockChain &candidateChain) const {
+  // Implement chain selection rule (longest valid chain)
+  size_t currentSize = currentChain.getSize();
+  size_t candidateSize = candidateChain.getSize();
+
+  if (candidateSize <= currentSize) {
+    return false;
+  }
+
+  // Validate candidate chain density (not too sparse)
+  if (candidateSize > 0) {
+    auto latestBlock = candidateChain.getLatestBlock();
+    if (latestBlock) {
+      uint64_t latestSlot = latestBlock->getSlot();
+      // Try to get first slot - if candidateChain is an Agent, we can access getBlock
+      // Otherwise, use slot 0 as a fallback
+      uint64_t firstSlot = 0;
+      const Agent *agentChain = dynamic_cast<const Agent *>(&candidateChain);
+      if (agentChain && candidateSize > 0) {
+        auto firstBlock = agentChain->getBlock(0);
+        if (firstBlock) {
+          firstSlot = firstBlock->getSlot();
+        }
+      }
+
+      if (!validateChainDensity(candidateChain, firstSlot, latestSlot)) {
+        return Agent::Error(7, "Candidate chain density too low");
+      }
+    }
+  }
+
+  return true;
+}
+
+bool Agent::validateChainDensity(const IBlockChain &chain, uint64_t fromSlot,
+                                  uint64_t toSlot) const {
+  // Simple density check: at least 50% of slots should have blocks
+  // In production, this would be more sophisticated
+
+  if (toSlot <= fromSlot) {
+    return true;
+  }
+
+  uint64_t slotRange = toSlot - fromSlot + 1;
+  size_t blockCount = chain.getSize();
+
+  double density =
+      static_cast<double>(blockCount) / static_cast<double>(slotRange);
+
+  return density >= 0.5;
+}
+
 void Agent::transferBlocksToArchive() {
   // Transfer files from active to archive based on storage usage
   while (activeBlockDir_.getTotalStorageSize() >= maxActiveDirSize_) {

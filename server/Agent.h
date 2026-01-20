@@ -101,7 +101,14 @@ public:
   bool isValid() const;
   std::shared_ptr<iii::Block> getBlock(uint64_t index) const;
 
+  // Chain selection
+  Roe<bool> shouldSwitchChain(const IBlockChain &currentChain,
+                              const IBlockChain &candidateChain) const;
+
 private:
+  // Chain validation helpers
+  bool validateChainDensity(const IBlockChain &chain, uint64_t fromSlot,
+                            uint64_t toSlot) const;
   /**
    * Private struct to hold pending transactions with long-term storage support
    */

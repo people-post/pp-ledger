@@ -230,51 +230,6 @@ bool Ouroboros::validateBlockTiming(const Block &block, uint64_t slot) const {
   return blockTime >= slotStart && blockTime < slotEnd;
 }
 
-Ouroboros::Roe<bool>
-Ouroboros::shouldSwitchChain(const BlockChain &currentChain,
-                             const BlockChain &candidateChain) const {
-
-  // Implement chain selection rule (longest valid chain)
-  size_t currentSize = currentChain.getSize();
-  size_t candidateSize = candidateChain.getSize();
-
-  if (candidateSize <= currentSize) {
-    return false;
-  }
-
-  // Validate candidate chain density (not too sparse)
-  if (candidateSize > 0) {
-    auto latestBlock = candidateChain.getLatestBlock();
-    if (latestBlock) {
-      uint64_t latestSlot = latestBlock->getSlot();
-      if (!validateChainDensity(candidateChain, 0, latestSlot)) {
-        return Ouroboros::Error(7, "Candidate chain density too low");
-      }
-    }
-  }
-
-  return true;
-}
-
-bool Ouroboros::validateChainDensity(const BlockChain &chain, uint64_t fromSlot,
-                                     uint64_t toSlot) const {
-
-  // Simple density check: at least 50% of slots should have blocks
-  // In production, this would be more sophisticated
-
-  if (toSlot <= fromSlot) {
-    return true;
-  }
-
-  uint64_t slotRange = toSlot - fromSlot + 1;
-  size_t blockCount = chain.getSize();
-
-  double density =
-      static_cast<double>(blockCount) / static_cast<double>(slotRange);
-
-  return density >= 0.5;
-}
-
 void Ouroboros::setSlotDuration(uint64_t seconds) {
   slotDuration_ = seconds;
   log().info << "Slot duration updated to " + std::to_string(seconds) +

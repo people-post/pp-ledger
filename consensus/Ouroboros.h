@@ -70,10 +70,6 @@ public:
   // Block validation
   Roe<bool> validateBlock(const Block &block, const BlockChain &chain) const;
 
-  // Chain selection
-  Roe<bool> shouldSwitchChain(const BlockChain &currentChain,
-                              const BlockChain &candidateChain) const;
-
   // Configuration
   void setSlotDuration(uint64_t seconds);
   void setSlotsPerEpoch(uint64_t slots);
@@ -99,8 +95,6 @@ private:
   // Validation helpers
   bool validateSlotLeader(const std::string &slotLeader, uint64_t slot) const;
   bool validateBlockTiming(const Block &block, uint64_t slot) const;
-  bool validateChainDensity(const BlockChain &chain, uint64_t fromSlot,
-                            uint64_t toSlot) const;
 
   // Data members
   std::map<std::string, uint64_t> mStakeholders_;
