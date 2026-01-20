@@ -4,6 +4,12 @@ add_library(pp_server STATIC
     Server.h
     BeaconServer.cpp
     BeaconServer.h
+    Beacon.cpp
+    Beacon.h
+    MinerServer.cpp
+    MinerServer.h
+    Miner.cpp
+    Miner.h
     Agent.cpp
     Agent.h
 )

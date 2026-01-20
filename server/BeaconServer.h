@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_BEACON_SERVER_H
 #define PP_LEDGER_BEACON_SERVER_H
 
+#include "Beacon.h"
 #include "../network/FetchServer.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
@@ -9,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 namespace pp {
 
@@ -49,6 +51,12 @@ public:
    * Get count of active servers
    */
   size_t getActiveServerCount() const;
+  
+  /**
+   * Get reference to underlying Beacon
+   */
+  Beacon& getBeacon() { return beacon_; }
+  const Beacon& getBeacon() const { return beacon_; }
 
 private:
   struct NetworkConfig {
@@ -84,7 +92,30 @@ private:
    * Connect to other beacon servers from config
    */
   void connectToOtherBeacons();
+  
+  /**
+   * Handle block-related requests
+   */
+  std::string handleBlockRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle checkpoint-related requests
+   */
+  std::string handleCheckpointRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle stakeholder-related requests
+   */
+  std::string handleStakeholderRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle consensus-related requests
+   */
+  std::string handleConsensusRequest(const nlohmann::json& reqJson);
 
+  // Core beacon instance
+  Beacon beacon_;
+  
   network::FetchServer fetchServer_;
   Config config_;
 

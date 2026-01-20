@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PP_LEDGER_MINER_H
+#define PP_LEDGER_MINER_H
 
 #include "../ledger/Ledger.h"
 #include "../ledger/Block.h"
@@ -10,42 +11,134 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
+#include <queue>
+#include <mutex>
+#include <memory>
 
 namespace pp {
 
+/**
+ * Miner - Block Producer
+ * 
+ * Responsibilities:
+ * - Produce blocks when selected as slot leader
+ * - Maintain local blockchain and ledger state
+ * - Process transactions and include them in blocks
+ * - Sync with network to get latest blocks
+ * - Reinitialize from checkpoints when needed
+ * - Validate incoming blocks from other miners
+ * 
+ * Design:
+ * - Miners are the primary block producers in the network
+ * - Multiple miners compete to produce blocks based on stake
+ * - Can sync from checkpoints to reduce initial sync time
+ * - Maintains transaction pool for pending transactions
+ * - Uses Ouroboros consensus for slot leader selection
+ */
 class Miner : public Module {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
     };
+    
     template <typename T> using Roe = ResultOrError<T, Error>;
 
     struct Config {
         std::string workDir;
+        std::string minerId;
+        uint64_t stake;
+        
+        // Consensus configuration
+        uint64_t slotDuration = 1; // seconds
+        uint64_t slotsPerEpoch = 21600; // ~6 hours
+        
+        // Transaction pool limits
+        size_t maxPendingTransactions = 10000;
+        size_t maxTransactionsPerBlock = 1000;
+    };
+
+    struct CheckpointInfo {
+        uint64_t blockId;
+        std::string hash;
+        int64_t timestamp;
+        std::vector<uint8_t> stateData; // Serialized state snapshot
     };
 
     Miner();
-    virtual ~Miner() = default;
+    ~Miner() override = default;
+
+    // Initialization
     Roe<void> init(const Config &config);
+    Roe<void> reinitFromCheckpoint(const CheckpointInfo& checkpoint);
 
-    // Check if this node should produce a block in the current slot
+    // Block production
     bool shouldProduceBlock() const;
-
-    // Produce a block if eligible
-    Roe<void> produceBlock();
-
+    Roe<std::shared_ptr<Block>> produceBlock();
+    
+    // Transaction management
     Roe<void> addTransaction(const Ledger::Transaction &tx);
+    size_t getPendingTransactionCount() const;
+    void clearTransactionPool();
 
+    // Block and chain operations
+    Roe<void> addBlock(const Block& block);
+    Roe<void> validateBlock(const Block& block) const;
     uint64_t getCurrentBlockId() const;
+    Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
 
+    // Chain synchronization
     Roe<void> syncChain(const BlockChain& chain);
+    Roe<bool> needsSync(uint64_t remoteBlockId) const;
+    bool isOutOfDate(uint64_t checkpointId) const;
 
-    Roe<void> addBlock(const std::string& data);
+    // Consensus queries
+    uint64_t getCurrentSlot() const;
+    uint64_t getCurrentEpoch() const;
+    bool isSlotLeader(uint64_t slot) const;
+
+    // Status
+    std::string getMinerId() const { return config_.minerId; }
+    uint64_t getStake() const { return config_.stake; }
+    const BlockChain& getChain() const { return chain_; }
 
 private:
+    // Helper methods for block production
+    Roe<std::shared_ptr<Block>> createBlock();
+    std::vector<Ledger::Transaction> selectTransactionsForBlock();
+    std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
+    
+    // Validation helpers
+    bool isValidBlockSequence(const Block& block) const;
+    bool isValidSlotLeader(const Block& block) const;
+    bool isValidTimestamp(const Block& block) const;
+    
+    // Checkpoint management
+    Roe<void> loadCheckpoint(const CheckpointInfo& checkpoint);
+    Roe<void> applyCheckpointState(const std::vector<uint8_t>& stateData);
+    Roe<void> rebuildLedgerFromCheckpoint(uint64_t startBlockId);
+    
+    // Data cleanup
+    void pruneOldBlocks(uint64_t keepFromBlockId);
+
+    // Configuration
     Config config_;
+
+    // Core components
     consensus::Ouroboros consensus_;
     Ledger ledger_;
+    BlockChain chain_;
+
+    // Transaction pool
+    std::queue<Ledger::Transaction> pendingTransactions_;
+    mutable std::mutex transactionMutex_;
+
+    // State tracking
+    bool initialized_;
+    uint64_t lastProducedBlockId_;
+    mutable std::mutex stateMutex_;
 };
 
 } // namespace pp
+
+#endif // PP_LEDGER_MINER_H} // namespace pp

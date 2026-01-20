@@ -11,12 +11,12 @@ namespace pp {
 
 BeaconServer::BeaconServer() {
   setLogger("BeaconServer");
-  log().info << "Beacon initialized";
+  log().info << "BeaconServer initialized";
 }
 
 bool BeaconServer::start(const std::string &dataDir) {
   if (fetchServer_.isRunning()) {
-    log().warning << "Beacon is already running";
+    log().warning << "BeaconServer is already running";
     return false;
   }
 
@@ -25,7 +25,7 @@ bool BeaconServer::start(const std::string &dataDir) {
       std::filesystem::path(dataDir) / "config.json";
   std::string configPathStr = configPath.string();
 
-  log().info << "Starting beacon with work directory: " << dataDir;
+  log().info << "Starting BeaconServer with work directory: " << dataDir;
 
   log().addFileHandler(dataDir + "/beacon.log", logging::Level::DEBUG);
 
@@ -36,6 +36,20 @@ bool BeaconServer::start(const std::string &dataDir) {
                 << configResult.error().message;
     return false;
   }
+  
+  // Initialize beacon core
+  Beacon::Config beaconConfig;
+  beaconConfig.workDir = dataDir;
+  beaconConfig.slotDuration = 1;
+  beaconConfig.slotsPerEpoch = 21600;
+  
+  auto beaconInit = beacon_.init(beaconConfig);
+  if (!beaconInit) {
+    log().error << "Failed to initialize Beacon: " << beaconInit.error().message;
+    return false;
+  }
+  
+  log().info << "Beacon core initialized";
 
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
@@ -117,7 +131,7 @@ BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) 
 
 void BeaconServer::stop() {
   fetchServer_.stop();
-  log().info << "Beacon server stopped";
+  log().info << "BeaconServer stopped";
 }
 
 bool BeaconServer::isRunning() const {
@@ -125,8 +139,7 @@ bool BeaconServer::isRunning() const {
 }
 
 std::string BeaconServer::handleServerRequest(const std::string &request) {
-  log().debug << "Received request from server (" << request.size()
-              << " bytes)";
+  log().debug << "Received request (" << request.size() << " bytes)";
 
   // Try to parse as JSON
   nlohmann::json reqJson;
@@ -140,60 +153,68 @@ std::string BeaconServer::handleServerRequest(const std::string &request) {
   }
 
   // Handle different request types
-  if (reqJson.contains("type")) {
-    std::string type = reqJson["type"].get<std::string>();
+  if (!reqJson.contains("type")) {
+    nlohmann::json resp;
+    resp["error"] = "missing type field";
+    return resp.dump();
+  }
+  
+  std::string type = reqJson["type"].get<std::string>();
 
-    if (type == "register") {
-      // Server is registering itself
-      if (reqJson.contains("address") && reqJson["address"].is_string()) {
-        std::string serverAddress = reqJson["address"].get<std::string>();
-        registerServer(serverAddress);
-        log().info << "Registered server: " << serverAddress;
+  if (type == "register") {
+    // Server is registering itself
+    if (reqJson.contains("address") && reqJson["address"].is_string()) {
+      std::string serverAddress = reqJson["address"].get<std::string>();
+      registerServer(serverAddress);
+      log().info << "Registered server: " << serverAddress;
 
-        nlohmann::json resp;
-        resp["status"] = "ok";
-        resp["message"] = "Server registered";
-        return resp.dump();
-      } else {
-        nlohmann::json resp;
-        resp["error"] = "missing address field";
-        return resp.dump();
-      }
-    } else if (type == "heartbeat") {
-      // Server is sending heartbeat
-      if (reqJson.contains("address") && reqJson["address"].is_string()) {
-        std::string serverAddress = reqJson["address"].get<std::string>();
-        registerServer(serverAddress);
-        log().debug << "Received heartbeat from: " << serverAddress;
-
-        nlohmann::json resp;
-        resp["status"] = "ok";
-        return resp.dump();
-      } else {
-        nlohmann::json resp;
-        resp["error"] = "missing address field";
-        return resp.dump();
-      }
-    } else if (type == "query") {
-      // Query active servers
       nlohmann::json resp;
       resp["status"] = "ok";
-      resp["servers"] = nlohmann::json::array();
-
-      std::vector<std::string> servers = getActiveServers();
-      for (const auto &server : servers) {
-        resp["servers"].push_back(server);
-      }
-
+      resp["message"] = "Server registered";
       return resp.dump();
     } else {
       nlohmann::json resp;
-      resp["error"] = "unknown request type: " + type;
+      resp["error"] = "missing address field";
       return resp.dump();
     }
+  } else if (type == "heartbeat") {
+    // Server is sending heartbeat
+    if (reqJson.contains("address") && reqJson["address"].is_string()) {
+      std::string serverAddress = reqJson["address"].get<std::string>();
+      registerServer(serverAddress);
+      log().debug << "Received heartbeat from: " << serverAddress;
+
+      nlohmann::json resp;
+      resp["status"] = "ok";
+      return resp.dump();
+    } else {
+      nlohmann::json resp;
+      resp["error"] = "missing address field";
+      return resp.dump();
+    }
+  } else if (type == "query") {
+    // Query active servers
+    nlohmann::json resp;
+    resp["status"] = "ok";
+    resp["servers"] = nlohmann::json::array();
+
+    std::vector<std::string> servers = getActiveServers();
+    for (const auto &server : servers) {
+      resp["servers"].push_back(server);
+    }
+
+    return resp.dump();
+  } else if (type == "block") {
+    return handleBlockRequest(reqJson);
+  } else if (type == "checkpoint") {
+    return handleCheckpointRequest(reqJson);
+  } else if (type == "stakeholder") {
+    return handleStakeholderRequest(reqJson);
+  } else if (type == "consensus") {
+    return handleConsensusRequest(reqJson);
   } else {
     nlohmann::json resp;
-    resp["error"] = "missing type field";
+    resp["error"] = "unknown request type: " + type;
     return resp.dump();
   }
 }
@@ -241,6 +262,248 @@ void BeaconServer::connectToOtherBeacons() {
   for (const auto &beaconAddr : otherBeaconAddresses_) {
     log().info << "  Beacon: " << beaconAddr;
   }
+}
+
+std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  if (!reqJson.contains("action")) {
+    resp["error"] = "missing action field";
+    return resp.dump();
+  }
+  
+  std::string action = reqJson["action"].get<std::string>();
+  
+  if (action == "get") {
+    if (!reqJson.contains("blockId")) {
+      resp["error"] = "missing blockId field";
+      return resp.dump();
+    }
+    
+    uint64_t blockId = reqJson["blockId"].get<uint64_t>();
+    auto result = beacon_.getBlock(blockId);
+    
+    if (!result) {
+      resp["error"] = result.error().message;
+      return resp.dump();
+    }
+    
+    auto block = result.value();
+    resp["status"] = "ok";
+    resp["block"]["index"] = block->getIndex();
+    resp["block"]["timestamp"] = block->getTimestamp();
+    resp["block"]["hash"] = block->getHash();
+    resp["block"]["previousHash"] = block->getPreviousHash();
+    resp["block"]["slot"] = block->getSlot();
+    resp["block"]["slotLeader"] = block->getSlotLeader();
+    
+  } else if (action == "add") {
+    if (!reqJson.contains("block")) {
+      resp["error"] = "missing block field";
+      return resp.dump();
+    }
+    
+    auto& blockJson = reqJson["block"];
+    Block block;
+    
+    if (blockJson.contains("index")) block.setIndex(blockJson["index"].get<uint64_t>());
+    if (blockJson.contains("timestamp")) block.setTimestamp(blockJson["timestamp"].get<int64_t>());
+    if (blockJson.contains("data")) block.setData(blockJson["data"].get<std::string>());
+    if (blockJson.contains("previousHash")) block.setPreviousHash(blockJson["previousHash"].get<std::string>());
+    if (blockJson.contains("slot")) block.setSlot(blockJson["slot"].get<uint64_t>());
+    if (blockJson.contains("slotLeader")) block.setSlotLeader(blockJson["slotLeader"].get<std::string>());
+    
+    block.calculateHash();
+    
+    auto result = beacon_.addBlock(block);
+    if (!result) {
+      resp["error"] = result.error().message;
+      return resp.dump();
+    }
+    
+    resp["status"] = "ok";
+    resp["message"] = "Block added successfully";
+    
+  } else if (action == "current") {
+    resp["status"] = "ok";
+    resp["currentBlockId"] = beacon_.getCurrentBlockId();
+    
+  } else {
+    resp["error"] = "unknown block action: " + action;
+  }
+  
+  return resp.dump();
+}
+
+std::string BeaconServer::handleCheckpointRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  if (!reqJson.contains("action")) {
+    resp["error"] = "missing action field";
+    return resp.dump();
+  }
+  
+  std::string action = reqJson["action"].get<std::string>();
+  
+  if (action == "list") {
+    auto result = beacon_.getCheckpoints();
+    if (!result) {
+      resp["error"] = result.error().message;
+      return resp.dump();
+    }
+    
+    resp["status"] = "ok";
+    resp["checkpoints"] = nlohmann::json::array();
+    for (uint64_t checkpointId : result.value()) {
+      resp["checkpoints"].push_back(checkpointId);
+    }
+    
+  } else if (action == "current") {
+    resp["status"] = "ok";
+    resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
+    
+  } else if (action == "evaluate") {
+    auto result = beacon_.evaluateCheckpoints();
+    if (!result) {
+      resp["error"] = result.error().message;
+      return resp.dump();
+    }
+    
+    resp["status"] = "ok";
+    resp["message"] = "Checkpoints evaluated";
+    
+  } else {
+    resp["error"] = "unknown checkpoint action: " + action;
+  }
+  
+  return resp.dump();
+}
+
+std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  if (!reqJson.contains("action")) {
+    resp["error"] = "missing action field";
+    return resp.dump();
+  }
+  
+  std::string action = reqJson["action"].get<std::string>();
+  
+  if (action == "list") {
+    const auto& stakeholders = beacon_.getStakeholders();
+    resp["status"] = "ok";
+    resp["stakeholders"] = nlohmann::json::array();
+    
+    for (const auto& sh : stakeholders) {
+      nlohmann::json shJson;
+      shJson["id"] = sh.id;
+      shJson["address"] = sh.endpoint.address;
+      shJson["port"] = sh.endpoint.port;
+      shJson["stake"] = sh.stake;
+      resp["stakeholders"].push_back(shJson);
+    }
+    
+    resp["totalStake"] = beacon_.getTotalStake();
+    
+  } else if (action == "add") {
+    if (!reqJson.contains("stakeholder")) {
+      resp["error"] = "missing stakeholder field";
+      return resp.dump();
+    }
+    
+    auto& shJson = reqJson["stakeholder"];
+    Beacon::Stakeholder sh;
+    
+    if (!shJson.contains("id") || !shJson.contains("stake")) {
+      resp["error"] = "missing required stakeholder fields (id, stake)";
+      return resp.dump();
+    }
+    
+    sh.id = shJson["id"].get<std::string>();
+    sh.stake = shJson["stake"].get<uint64_t>();
+    
+    if (shJson.contains("address")) {
+      sh.endpoint.address = shJson["address"].get<std::string>();
+    }
+    if (shJson.contains("port")) {
+      sh.endpoint.port = shJson["port"].get<uint16_t>();
+    }
+    
+    beacon_.addStakeholder(sh);
+    resp["status"] = "ok";
+    resp["message"] = "Stakeholder added";
+    
+  } else if (action == "remove") {
+    if (!reqJson.contains("id")) {
+      resp["error"] = "missing id field";
+      return resp.dump();
+    }
+    
+    std::string id = reqJson["id"].get<std::string>();
+    beacon_.removeStakeholder(id);
+    resp["status"] = "ok";
+    resp["message"] = "Stakeholder removed";
+    
+  } else if (action == "updateStake") {
+    if (!reqJson.contains("id") || !reqJson.contains("stake")) {
+      resp["error"] = "missing id or stake field";
+      return resp.dump();
+    }
+    
+    std::string id = reqJson["id"].get<std::string>();
+    uint64_t stake = reqJson["stake"].get<uint64_t>();
+    
+    beacon_.updateStake(id, stake);
+    resp["status"] = "ok";
+    resp["message"] = "Stake updated";
+    
+  } else {
+    resp["error"] = "unknown stakeholder action: " + action;
+  }
+  
+  return resp.dump();
+}
+
+std::string BeaconServer::handleConsensusRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  if (!reqJson.contains("action")) {
+    resp["error"] = "missing action field";
+    return resp.dump();
+  }
+  
+  std::string action = reqJson["action"].get<std::string>();
+  
+  if (action == "currentSlot") {
+    resp["status"] = "ok";
+    resp["currentSlot"] = beacon_.getCurrentSlot();
+    
+  } else if (action == "currentEpoch") {
+    resp["status"] = "ok";
+    resp["currentEpoch"] = beacon_.getCurrentEpoch();
+    
+  } else if (action == "slotLeader") {
+    if (!reqJson.contains("slot")) {
+      resp["error"] = "missing slot field";
+      return resp.dump();
+    }
+    
+    uint64_t slot = reqJson["slot"].get<uint64_t>();
+    auto result = beacon_.getSlotLeader(slot);
+    
+    if (!result) {
+      resp["error"] = result.error().message;
+      return resp.dump();
+    }
+    
+    resp["status"] = "ok";
+    resp["slotLeader"] = result.value();
+    
+  } else {
+    resp["error"] = "unknown consensus action: " + action;
+  }
+  
+  return resp.dump();
 }
 
 } // namespace pp
