@@ -60,13 +60,20 @@ Client::Client() {
 
 Client::~Client() { disconnect(); }
 
-bool Client::init(const std::string &address, uint16_t port) {
-  address_ = address;
-  port_ = port;
+bool Client::init(const network::TcpEndpoint &endpoint) {
+  endpoint_ = endpoint;
   connected_ = true;
 
-  log().info << "Client initialized, target server: " << address << ":"
-              << port;
+  log().info << "Client initialized, target server: " << endpoint_;
+  return true;
+}
+
+bool Client::init(const std::string &address, uint16_t port) {
+  endpoint_.address = address;
+  endpoint_.port = port;
+  connected_ = true;
+
+  log().info << "Client initialized, target server: " << endpoint_;
   return true;
 }
 
@@ -91,7 +98,7 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
 
   // Send request using FetchClient
   network::FetchClient fetchClient;
-  auto result = fetchClient.fetchSync(address_, port_, requestData);
+  auto result = fetchClient.fetchSync(endpoint_, requestData);
 
   if (!result.isOk()) {
     log().error << "Failed to send request: " << result.error().message;

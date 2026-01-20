@@ -19,7 +19,8 @@ Server::Server() {
 
 bool Server::start(const std::string &dataDir) {
   if (isRunning()) {
-    log().warning << "Server is already running on port " << config_.network.port;
+    log().warning << "Server is already running on port "
+                  << config_.network.endpoint.port;
     return false;
   }
 
@@ -57,19 +58,19 @@ bool Server::start(const std::string &dataDir) {
 bool Server::onStart() {
   // Start fetch server (listens on main port for client connections)
   network::FetchServer::Config fetchServerConfig;
-  fetchServerConfig.host = config_.network.host;
-  fetchServerConfig.port = config_.network.port;
+  fetchServerConfig.endpoint = config_.network.endpoint;
   fetchServerConfig.handler = [this](const std::string &request) {
     return handleIncomingRequest(request);
   };
   bool fetchServerStarted = sFetch_.start(fetchServerConfig);
 
   if (!fetchServerStarted) {
-    log().error << "Failed to start fetch server on " << config_.network.host << ":" << config_.network.port;
+    log().error << "Failed to start fetch server on "
+                << config_.network.endpoint;
     return false;
   }
 
-  log().info << "Fetch server started on " << config_.network.host << ":" << config_.network.port;
+  log().info << "Fetch server started on " << config_.network.endpoint;
   return true;
 }
 
@@ -296,20 +297,20 @@ Server::Roe<void> Server::loadConfig(const std::string &configPath) {
 
   // Load host (optional, default: "localhost")
   if (config.contains("host") && config["host"].is_string()) {
-    config_.network.host = config["host"].get<std::string>();
+    config_.network.endpoint.address = config["host"].get<std::string>();
   } else {
-    config_.network.host = Client::DEFAULT_HOST;
+    config_.network.endpoint.address = Client::DEFAULT_HOST;
   }
 
   // Load port (optional, default: 8517)
   if (config.contains("port") && config["port"].is_number()) {
     if (config["port"].is_number_integer()) {
-      config_.network.port = config["port"].get<int>();
+      config_.network.endpoint.port = config["port"].get<int>();
     } else {
       return Error(3, "Configuration file 'port' field is not an integer");
     }
   } else {
-    config_.network.port = Client::DEFAULT_PORT;
+    config_.network.endpoint.port = Client::DEFAULT_PORT;
   }
 
   // Load network configuration (optional, defaults will be used if not
@@ -325,8 +326,7 @@ Server::Roe<void> Server::loadConfig(const std::string &configPath) {
   }
 
   log().info << "Configuration loaded from " << configPath;
-  log().info << "  Host: " << config_.network.host;
-  log().info << "  Port: " << config_.network.port;
+  log().info << "  Endpoint: " << config_.network.endpoint;
   return {};
 }
 
@@ -542,6 +542,8 @@ Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
     return Error(2, "Invalid peer address format");
   }
 
+  network::TcpEndpoint endpoint{host, port};
+
   // Create request
   nlohmann::json request;
   request["type"] = "get_blocks";
@@ -551,7 +553,7 @@ Server::fetchBlocksFromPeer(const std::string &hostPort, uint64_t fromIndex) {
   try {
     log().debug << "Fetching blocks from peer: " << hostPort;
 
-    auto result = cFetch_.fetchSync(host, port, request.dump());
+    auto result = cFetch_.fetchSync(endpoint, request.dump());
     if (!result.isOk()) {
       return Error(3, "Failed to fetch from peer: " + result.error().message);
     }

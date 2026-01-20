@@ -17,7 +17,8 @@ bool FetchServer::start(const Config &config) {
 
   config_ = config;
 
-  log().info << "Starting server on " << config_.host << ":" << config_.port;
+  log().info << "Starting server on " << config_.endpoint.address << ":"
+             << config_.endpoint.port;
 
   // Call base class start() which will call onStart() then spawn thread
   return Service::start();
@@ -25,14 +26,15 @@ bool FetchServer::start(const Config &config) {
 
 bool FetchServer::onStart() {
   // Start listening
-  auto listenResult = server_.listen(config_.host, config_.port);
+  auto listenResult = server_.listen(config_.endpoint);
   if (!listenResult) {
     std::string errorMsg = listenResult.error().message;
     log().error << "Failed to start listening: " + errorMsg;
     return false;
   }
 
-  log().info << "Server started successfully on " << config_.host << ":" << config_.port;
+  log().info << "Server started successfully on " << config_.endpoint.address
+             << ":" << config_.endpoint.port;
   return true;
 }
 
@@ -57,7 +59,7 @@ void FetchServer::run() {
     }
 
     auto connection = std::move(acceptResult.value());
-    log().info << "Accepted connection from " + connection.getPeerAddress();
+    log().info << "Accepted connection from " << connection.getPeerEndpoint();
 
     // Read request data
     char buffer[4096];

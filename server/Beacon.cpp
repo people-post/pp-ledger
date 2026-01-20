@@ -38,8 +38,7 @@ bool Beacon::start(const std::string &dataDir) {
 
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
-  fetchServerConfig.host = config_.network.host;
-  fetchServerConfig.port = config_.network.port;
+  fetchServerConfig.endpoint = config_.network.endpoint;
   fetchServerConfig.handler = [this](const std::string &request) {
     return handleServerRequest(request);
   };
@@ -81,20 +80,20 @@ Beacon::Roe<void> Beacon::loadConfig(const std::string &configPath) {
 
   // Load host (optional, default: "localhost")
   if (config.contains("host") && config["host"].is_string()) {
-    config_.network.host = config["host"].get<std::string>();
+    config_.network.endpoint.address = config["host"].get<std::string>();
   } else {
-    config_.network.host = Client::DEFAULT_HOST;
+    config_.network.endpoint.address = Client::DEFAULT_HOST;
   }
 
   // Load port (optional, default: 8517)
   if (config.contains("port") && config["port"].is_number()) {
     if (config["port"].is_number_integer()) {
-      config_.network.port = config["port"].get<uint16_t>();
+      config_.network.endpoint.port = config["port"].get<uint16_t>();
     } else {
       return Error(3, "Configuration file 'port' field is not an integer");
     }
   } else {
-    config_.network.port = Client::DEFAULT_PORT;
+    config_.network.endpoint.port = Client::DEFAULT_PORT;
   }
 
   // Load other beacon addresses (optional, can be empty)
@@ -110,8 +109,7 @@ Beacon::Roe<void> Beacon::loadConfig(const std::string &configPath) {
   }
 
   log().info << "Configuration loaded from " << configPath;
-  log().info << "  Host: " << config_.network.host;
-  log().info << "  Port: " << config_.network.port;
+  log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Other beacons: " << otherBeaconAddresses_.size();
   return {};
 }

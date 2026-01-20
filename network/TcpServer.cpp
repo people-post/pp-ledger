@@ -20,18 +20,11 @@
 namespace pp {
 namespace network {
 
-TcpServer::TcpServer()
-    : socketFd_(-1)
-#ifdef __APPLE__
-    , kqueueFd_(-1)
-#else
-    , epollFd_(-1)
-#endif
-    , listening_(false), port_(0), originalHost_("") {}
+TcpServer::TcpServer() {}
 
 TcpServer::~TcpServer() { stop(); }
 
-TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, int backlog) {
+TcpServer::Roe<void> TcpServer::listen(const TcpEndpoint &endpoint, int backlog) {
   if (listening_) {
     return Error("Server already listening");
   }
@@ -54,22 +47,22 @@ TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, i
   struct sockaddr_in server_addr;
   std::memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(port);
+  server_addr.sin_port = htons(endpoint.port);
 
   // Store original host for getHost()
-  originalHost_ = host;
+  endpoint_.address = endpoint.address;
 
   // Parse host address
-  if (host == "0.0.0.0" || host.empty()) {
+  if (endpoint.address == "0.0.0.0" || endpoint.address.empty()) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
-  } else if (host == "localhost" || host == "127.0.0.1") {
+  } else if (endpoint.address == "localhost" || endpoint.address == "127.0.0.1") {
     server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
   } else {
     // Try to convert host string to IP address
-    if (inet_aton(host.c_str(), &server_addr.sin_addr) == 0) {
+    if (inet_aton(endpoint.address.c_str(), &server_addr.sin_addr) == 0) {
       ::close(socketFd_);
       socketFd_ = -1;
-      return Error("Invalid host address: " + host);
+      return Error("Invalid host address: " + endpoint.address);
     }
   }
 
@@ -78,14 +71,14 @@ TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, i
       0) {
     ::close(socketFd_);
     socketFd_ = -1;
-    return Error("Failed to bind to port " + std::to_string(port));
+    return Error("Failed to bind to port " + std::to_string(endpoint.port));
   }
 
   // Listen for connections
   if (::listen(socketFd_, backlog) < 0) {
     ::close(socketFd_);
     socketFd_ = -1;
-    return Error("Failed to listen on port " + std::to_string(port));
+    return Error("Failed to listen on port " + std::to_string(endpoint.port));
   }
 
   // Set socket to non-blocking mode
@@ -138,7 +131,7 @@ TcpServer::Roe<void> TcpServer::listen(const std::string &host, uint16_t port, i
 #endif
 
   listening_ = true;
-  port_ = port;
+  endpoint_.port = endpoint.port;
   return {};
 }
 
@@ -226,16 +219,16 @@ bool TcpServer::isListening() const { return listening_; }
 
 std::string TcpServer::getHost() const {
   if (!listening_ || socketFd_ < 0) {
-    return originalHost_.empty() ? "localhost" : originalHost_;
+    return endpoint_.address.empty() ? "localhost" : endpoint_.address;
   }
 
   // If bound to INADDR_ANY (0.0.0.0), get the actual bound address
-  if (originalHost_ == "0.0.0.0" || originalHost_.empty()) {
+  if (endpoint_.address == "0.0.0.0" || endpoint_.address.empty()) {
     return getBoundAddress();
   }
 
   // Return the original host
-  return originalHost_;
+  return endpoint_.address;
 }
 
 std::string TcpServer::getBoundAddress() const {

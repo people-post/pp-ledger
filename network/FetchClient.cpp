@@ -9,28 +9,27 @@ FetchClient::FetchClient() {
   log().info << "FetchClient initialized";
 }
 
-void FetchClient::fetch(const std::string &host, uint16_t port,
-                        const std::string &data, ResponseCallback callback) {
+void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
+                        ResponseCallback callback) {
 
-  log().info << "Fetching from " + host + ":" + std::to_string(port);
+  log().info << "Fetching from " << endpoint;
 
   // Run in a separate thread for async behavior
-  std::thread([this, host, port, data, callback]() {
-    auto result = fetchSync(host, port, data);
+  std::thread([this, endpoint, data, callback]() {
+    auto result = fetchSync(endpoint, data);
     callback(result);
   }).detach();
 }
 
-FetchClient::Roe<std::string> FetchClient::fetchSync(const std::string &host,
-                                                     uint16_t port,
-                                                     const std::string &data) {
+FetchClient::Roe<std::string>
+FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
 
-  log().info << "Sync fetch from " + host + ":" + std::to_string(port);
+  log().info << "Sync fetch from " << endpoint;
 
   TcpClient client;
 
   // Connect to the server
-  auto connectResult = client.connect(host, port);
+  auto connectResult = client.connect(endpoint);
   if (!connectResult) {
     std::string errorMsg = connectResult.error().message;
     log().error << "Failed to connect: " + errorMsg;

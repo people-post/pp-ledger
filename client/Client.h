@@ -3,6 +3,7 @@
 
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../network/Types.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -174,7 +175,9 @@ public:
   Client();
   ~Client();
 
-  bool init(const std::string &address = DEFAULT_HOST, uint16_t port = DEFAULT_PORT);
+  bool init(const network::TcpEndpoint &endpoint);
+  bool init(const std::string &address = DEFAULT_HOST,
+            uint16_t port = DEFAULT_PORT);
 
   Roe<RespInfo> getInfo();
   Roe<RespWalletInfo> getWalletInfo(const std::string &walletId);
@@ -189,9 +192,8 @@ private:
   // Helper to send request and receive response
   Roe<Response> sendRequest(const Request &request);
 
-  bool connected_{ false };
-  std::string address_;
-  uint16_t port_{ 0 };
+  bool connected_{false};
+  network::TcpEndpoint endpoint_;
 };
 
 } // namespace pp

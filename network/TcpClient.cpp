@@ -27,8 +27,7 @@ TcpClient &TcpClient::operator=(TcpClient &&other) noexcept {
   return *this;
 }
 
-TcpClient::Roe<void> TcpClient::connect(const std::string &host,
-                                        uint16_t port) {
+TcpClient::Roe<void> TcpClient::connect(const TcpEndpoint &endpoint) {
   if (connection_.has_value()) {
     return Error("Already connected");
   }
@@ -40,10 +39,10 @@ TcpClient::Roe<void> TcpClient::connect(const std::string &host,
   }
 
   // Resolve hostname
-  struct hostent *server = gethostbyname(host.c_str());
+  struct hostent *server = gethostbyname(endpoint.address.c_str());
   if (server == nullptr) {
     ::close(socket_fd);
-    return Error("Failed to resolve hostname: " + host);
+    return Error("Failed to resolve hostname: " + endpoint.address);
   }
 
   // Setup address structure
@@ -51,13 +50,14 @@ TcpClient::Roe<void> TcpClient::connect(const std::string &host,
   std::memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   std::memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
-  server_addr.sin_port = htons(port);
+  server_addr.sin_port = htons(endpoint.port);
 
   // Connect to server
   if (::connect(socket_fd, (struct sockaddr *)&server_addr,
                 sizeof(server_addr)) < 0) {
     ::close(socket_fd);
-    return Error("Failed to connect to " + host + ":" + std::to_string(port));
+    return Error("Failed to connect to " + endpoint.address + ":" +
+                 std::to_string(endpoint.port));
   }
 
   // Create TcpConnection from the connected socket

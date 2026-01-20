@@ -9,35 +9,33 @@ namespace pp {
 namespace network {
 
 TcpConnection::TcpConnection(int socket_fd)
-    : socketFd_(socket_fd), peerPort_(0) {
+    : socketFd_(socket_fd) {
   // Get peer address information
   struct sockaddr_in peer_addr;
   socklen_t addr_len = sizeof(peer_addr);
   if (getpeername(socketFd_, (struct sockaddr *)&peer_addr, &addr_len) == 0) {
     char addr_str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &peer_addr.sin_addr, addr_str, INET_ADDRSTRLEN);
-    peerAddress_ = addr_str;
-    peerPort_ = ntohs(peer_addr.sin_port);
+    peer_.address = addr_str;
+    peer_.port = ntohs(peer_addr.sin_port);
   }
 }
 
 TcpConnection::~TcpConnection() { close(); }
 
 TcpConnection::TcpConnection(TcpConnection &&other) noexcept
-    : socketFd_(other.socketFd_), peerAddress_(std::move(other.peerAddress_)),
-      peerPort_(other.peerPort_) {
+    : socketFd_(other.socketFd_), peer_(std::move(other.peer_)) {
   other.socketFd_ = -1;
-  other.peerPort_ = 0;
+  other.peer_ = {};
 }
 
 TcpConnection &TcpConnection::operator=(TcpConnection &&other) noexcept {
   if (this != &other) {
     close();
     socketFd_ = other.socketFd_;
-    peerAddress_ = std::move(other.peerAddress_);
-    peerPort_ = other.peerPort_;
+    peer_ = std::move(other.peer_);
     other.socketFd_ = -1;
-    other.peerPort_ = 0;
+    other.peer_ = {};
   }
   return *this;
 }
@@ -105,9 +103,7 @@ void TcpConnection::close() {
   }
 }
 
-std::string TcpConnection::getPeerAddress() const { return peerAddress_; }
-
-uint16_t TcpConnection::getPeerPort() const { return peerPort_; }
+const TcpEndpoint &TcpConnection::getPeerEndpoint() const { return peer_; }
 
 } // namespace network
 } // namespace pp

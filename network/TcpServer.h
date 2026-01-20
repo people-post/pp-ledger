@@ -2,6 +2,7 @@
 
 #include "ResultOrError.hpp"
 #include "TcpConnection.h"
+#include "Types.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +27,7 @@ public:
   TcpServer &operator=(const TcpServer &) = delete;
 
   // Bind to a host and port and start listening
-  Roe<void> listen(const std::string &host, uint16_t port, int backlog = 10);
+  Roe<void> listen(const TcpEndpoint &endpoint, int backlog = 10);
 
   // Accept a client connection (non-blocking)
   Roe<TcpConnection> accept();
@@ -45,21 +46,20 @@ public:
   std::string getHost() const;
 
   // Get the port the server is listening on
-  uint16_t getPort() const { return port_; }
+  uint16_t getPort() const { return endpoint_.port; }
 
 private:
   // Helper to get the actual bound address
   std::string getBoundAddress() const;
 
-  int socketFd_;
+  int socketFd_{ -1 };
 #ifdef __APPLE__
-  int kqueueFd_;
+  int kqueueFd_{ -1 };
 #else
-  int epollFd_;
+  int epollFd_{ -1 };
 #endif
-  bool listening_;
-  uint16_t port_;
-  std::string originalHost_; // Store original host string
+  bool listening_{ false };
+  TcpEndpoint endpoint_;
 };
 
 } // namespace network

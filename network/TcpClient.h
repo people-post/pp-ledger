@@ -2,6 +2,7 @@
 
 #include "ResultOrError.hpp"
 #include "TcpConnection.h"
+#include "Types.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,7 @@ public:
   TcpClient &operator=(TcpClient &&other) noexcept;
 
   // Connect to a server
-  Roe<void> connect(const std::string &host, uint16_t port);
+  Roe<void> connect(const TcpEndpoint &endpoint);
 
   // Send data
   Roe<size_t> send(const void *data, size_t length);

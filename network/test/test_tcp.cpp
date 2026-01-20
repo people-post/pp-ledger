@@ -47,30 +47,30 @@ TEST_F(TcpConnectionTest, ConstructsFromSocketFd) {
     TcpConnection conn(serverSocket_);
     // Connection should be valid (for socketpair, peer address might be empty)
     // Just verify construction doesn't crash
-    std::string addr = conn.getPeerAddress();
+    const auto& endpoint = conn.getPeerEndpoint();
     // Address might be empty for Unix domain sockets, which is OK
-    EXPECT_GE(addr.length(), 0);
+    EXPECT_GE(endpoint.address.length(), 0);
 }
 
 TEST_F(TcpConnectionTest, MoveConstructor) {
     TcpConnection conn1(serverSocket_);
-    std::string peerAddr = conn1.getPeerAddress();
+    auto peerEndpoint = conn1.getPeerEndpoint();
     
     TcpConnection conn2(std::move(conn1));
     
     // conn2 should have the connection
-    EXPECT_EQ(conn2.getPeerAddress(), peerAddr);
+    EXPECT_EQ(conn2.getPeerEndpoint().address, peerEndpoint.address);
 }
 
 TEST_F(TcpConnectionTest, MoveAssignment) {
     TcpConnection conn1(serverSocket_);
-    std::string peerAddr = conn1.getPeerAddress();
+    auto peerEndpoint = conn1.getPeerEndpoint();
     
     TcpConnection conn2(clientSocket_);
     conn2 = std::move(conn1);
     
     // conn2 should have moved from conn1
-    EXPECT_EQ(conn2.getPeerAddress(), peerAddr);
+    EXPECT_EQ(conn2.getPeerEndpoint().address, peerEndpoint.address);
 }
 
 TEST_F(TcpConnectionTest, SendData) {
@@ -152,12 +152,11 @@ TEST_F(TcpConnectionTest, GetPeerAddress) {
     
     // For socketpair (Unix domain socket), peer address might be empty
     // This is expected behavior - just verify the method doesn't crash
-    std::string addr = conn.getPeerAddress();
-    EXPECT_GE(addr.length(), 0);
+    const auto& endpoint = conn.getPeerEndpoint();
+    EXPECT_GE(endpoint.address.length(), 0);
     
     // Port should be 0 for Unix domain sockets
-    uint16_t port = conn.getPeerPort();
-    EXPECT_GE(port, 0);
+    EXPECT_GE(endpoint.port, 0);
 }
 
 // ============================================================================
@@ -206,7 +205,7 @@ TEST_F(TcpClientTest, MoveAssignment) {
 }
 
 TEST_F(TcpClientTest, ConnectFailsWithInvalidHost) {
-    auto result = client->connect("invalid-host-that-does-not-exist.local", 9999);
+    auto result = client->connect({"invalid-host-that-does-not-exist.local", 9999});
     
     EXPECT_TRUE(result.isError());
     EXPECT_FALSE(client->isConnected());
@@ -214,7 +213,7 @@ TEST_F(TcpClientTest, ConnectFailsWithInvalidHost) {
 
 TEST_F(TcpClientTest, ConnectFailsWithInvalidPort) {
     // Try to connect to a port that's likely not listening
-    auto result = client->connect("127.0.0.1", 1);
+    auto result = client->connect({"127.0.0.1", 1});
     
     EXPECT_TRUE(result.isError());
     EXPECT_FALSE(client->isConnected());
@@ -269,7 +268,7 @@ TEST_F(TcpServerTest, ConstructsSuccessfully) {
 }
 
 TEST_F(TcpServerTest, ListenOnPort) {
-    auto result = server->listen("127.0.0.1", testPort);
+    auto result = server->listen({"127.0.0.1", testPort});
     
     EXPECT_TRUE(result.isOk());
     EXPECT_TRUE(server->isListening());
@@ -277,7 +276,7 @@ TEST_F(TcpServerTest, ListenOnPort) {
 
 TEST_F(TcpServerTest, ListenFailsOnInvalidPort) {
     // Port 0 is typically invalid
-    auto result = server->listen("127.0.0.1", 0);
+    auto result = server->listen({"127.0.0.1", 0});
     
     // This might succeed on some systems, so we just check it doesn't crash
     // If it fails, that's expected
@@ -287,10 +286,10 @@ TEST_F(TcpServerTest, ListenFailsOnInvalidPort) {
 }
 
 TEST_F(TcpServerTest, ListenFailsWhenAlreadyListening) {
-    auto result1 = server->listen("127.0.0.1", testPort);
+    auto result1 = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(result1.isOk());
     
-    auto result2 = server->listen("127.0.0.1", testPort + 1);
+    auto result2 = server->listen({"127.0.0.1", static_cast<uint16_t>(testPort + 1)});
     
     EXPECT_TRUE(result2.isError());
 }
@@ -314,7 +313,7 @@ TEST_F(TcpServerTest, StopWhenNotListening) {
 }
 
 TEST_F(TcpServerTest, StopWhenListening) {
-    auto result = server->listen("127.0.0.1", testPort);
+    auto result = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(result.isOk());
     
     server->stop();
@@ -352,14 +351,14 @@ protected:
 
 TEST_F(TcpIntegrationTest, ClientConnectsToServer) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     // Give server time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     
     EXPECT_TRUE(connectResult.isOk());
     EXPECT_TRUE(client->isConnected());
@@ -369,13 +368,13 @@ TEST_F(TcpIntegrationTest, ClientConnectsToServer) {
 
 TEST_F(TcpIntegrationTest, ClientSendsDataToServer) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     ASSERT_TRUE(connectResult.isOk());
     
     // Wait for connection to be accepted
@@ -393,13 +392,13 @@ TEST_F(TcpIntegrationTest, ClientSendsDataToServer) {
 
 TEST_F(TcpIntegrationTest, ServerReceivesDataFromClient) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects and sends
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     ASSERT_TRUE(connectResult.isOk());
     
     std::string message = "Test Message";
@@ -432,13 +431,13 @@ TEST_F(TcpIntegrationTest, ServerReceivesDataFromClient) {
 
 TEST_F(TcpIntegrationTest, FullBidirectionalCommunication) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     ASSERT_TRUE(connectResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -483,13 +482,13 @@ TEST_F(TcpIntegrationTest, FullBidirectionalCommunication) {
 
 TEST_F(TcpIntegrationTest, ReceiveLine) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     ASSERT_TRUE(connectResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -520,7 +519,7 @@ TEST_F(TcpIntegrationTest, ReceiveLine) {
 
 TEST_F(TcpIntegrationTest, MultipleConnections) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -530,12 +529,12 @@ TEST_F(TcpIntegrationTest, MultipleConnections) {
     TcpClient client2;
     
     // Connect both
-    auto conn1 = client1.connect("127.0.0.1", testPort);
+    auto conn1 = client1.connect({"127.0.0.1", testPort});
     ASSERT_TRUE(conn1.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
-    auto conn2 = client2.connect("127.0.0.1", testPort);
+    auto conn2 = client2.connect({"127.0.0.1", testPort});
     ASSERT_TRUE(conn2.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -560,13 +559,13 @@ TEST_F(TcpIntegrationTest, MultipleConnections) {
 
 TEST_F(TcpIntegrationTest, ClientClosesConnection) {
     // Start server
-    auto listenResult = server->listen("127.0.0.1", testPort);
+    auto listenResult = server->listen({"127.0.0.1", testPort});
     ASSERT_TRUE(listenResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     
     // Client connects
-    auto connectResult = client->connect("127.0.0.1", testPort);
+    auto connectResult = client->connect({"127.0.0.1", testPort});
     ASSERT_TRUE(connectResult.isOk());
     
     std::this_thread::sleep_for(std::chrono::milliseconds(50));

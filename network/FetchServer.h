@@ -3,6 +3,7 @@
 #include "ResultOrError.hpp"
 #include "Service.h"
 #include "TcpServer.h"
+#include "Types.hpp"
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,8 +22,7 @@ public:
   using RequestHandler = std::function<std::string(const std::string &)>;
 
   struct Config {
-    std::string host;
-    uint16_t port{ 0 };
+    TcpEndpoint endpoint;
     RequestHandler handler{ nullptr };
   };
 

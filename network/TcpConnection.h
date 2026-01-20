@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ResultOrError.hpp"
+#include "Types.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -39,14 +40,12 @@ public:
   // Close connection
   void close();
 
-  // Get peer address
-  std::string getPeerAddress() const;
-  uint16_t getPeerPort() const;
+  // Get peer endpoint
+  const TcpEndpoint &getPeerEndpoint() const;
 
 private:
   int socketFd_;
-  std::string peerAddress_;
-  uint16_t peerPort_;
+  TcpEndpoint peer_;
 };
 
 } // namespace network

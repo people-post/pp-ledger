@@ -25,7 +25,7 @@ TEST_F(FetchClientTest, CreatesSuccessfully) {
 }
 
 TEST_F(FetchClientTest, FetchSyncFailsWithInvalidHost) {
-    auto result = client->fetchSync("invalid-host-that-does-not-exist.local", 9999, "Hello");
+    auto result = client->fetchSync({"invalid-host-that-does-not-exist.local", 9999}, "Hello");
     EXPECT_FALSE(result.isOk());
 }
 
@@ -52,8 +52,7 @@ TEST_F(FetchServerTest, CreatesSuccessfully) {
 
 TEST_F(FetchServerTest, StartsAndStops) {
     FetchServer::Config config;
-    config.host = "127.0.0.1";
-    config.port = 18880;
+    config.endpoint = {"127.0.0.1", 18880};
     config.handler = [](const std::string& req) {
         return "Echo: " + req;
     };
@@ -69,8 +68,7 @@ TEST_F(FetchServerTest, StartsAndStops) {
 
 TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     FetchServer::Config config;
-    config.host = "127.0.0.1";
-    config.port = 18881;
+    config.endpoint = {"127.0.0.1", 18881};
     config.handler = [](const std::string& req) {
         return "Echo: " + req;
     };
@@ -80,8 +78,7 @@ TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     // Create second server
     FetchServer server2;
     FetchServer::Config config2;
-    config2.host = "127.0.0.1";
-    config2.port = 18881;
+    config2.endpoint = {"127.0.0.1", 18881};
     config2.handler = [](const std::string& req) {
         return "Echo: " + req;
     };
@@ -115,8 +112,7 @@ protected:
 TEST_F(FetchIntegrationTest, ClientServerCommunication) {
     // Start server
     FetchServer::Config config;
-    config.host = "127.0.0.1";
-    config.port = 18882;
+    config.endpoint = {"127.0.0.1", 18882};
     config.handler = [](const std::string& req) {
         return "Echo: " + req;
     };
@@ -127,7 +123,7 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
     // Fetch from server
-    auto result = client->fetchSync("127.0.0.1", 18882, "Hello World");
+    auto result = client->fetchSync({"127.0.0.1", 18882}, "Hello World");
     
     EXPECT_TRUE(result.isOk());
     EXPECT_EQ(result.value(), "Echo: Hello World");
@@ -138,8 +134,7 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
 TEST_F(FetchIntegrationTest, MultipleRequests) {
     // Start server
     FetchServer::Config config;
-    config.host = "127.0.0.1";
-    config.port = 18883;
+    config.endpoint = {"127.0.0.1", 18883};
     config.handler = [](const std::string& req) {
         return "Response: " + req;
     };
@@ -151,7 +146,7 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
     
     // Send multiple requests
     for (int i = 0; i < 5; i++) {
-        auto result = client->fetchSync("127.0.0.1", 18883, "Request " + std::to_string(i));
+        auto result = client->fetchSync({"127.0.0.1", 18883}, "Request " + std::to_string(i));
         EXPECT_TRUE(result.isOk());
         EXPECT_EQ(result.value(), "Response: Request " + std::to_string(i));
     }
@@ -162,8 +157,7 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
 TEST_F(FetchIntegrationTest, AsyncFetch) {
     // Start server
     FetchServer::Config config;
-    config.host = "127.0.0.1";
-    config.port = 18884;
+    config.endpoint = {"127.0.0.1", 18884};
     config.handler = [](const std::string& req) {
         return "Async: " + req;
     };
@@ -177,7 +171,7 @@ TEST_F(FetchIntegrationTest, AsyncFetch) {
     bool callbackCalled = false;
     std::string receivedResponse;
     
-    client->fetch("127.0.0.1", 18884, "Hello Async",
+    client->fetch({"127.0.0.1", 18884}, "Hello Async",
         [&callbackCalled, &receivedResponse](const auto& result) {
             callbackCalled = true;
             if (result.isOk()) {

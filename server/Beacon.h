@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_H
 
 #include "../network/FetchServer.h"
+#include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
 #include "../lib/Service.h"
 #include <map>
@@ -41,8 +42,7 @@ public:
 
 private:
   struct NetworkConfig {
-    std::string host;
-    uint16_t port{ 0 };
+    network::TcpEndpoint endpoint;
     std::vector<std::string> beacons;
   };
 

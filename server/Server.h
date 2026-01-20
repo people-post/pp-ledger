@@ -7,6 +7,7 @@
 #include "../ledger/BlockChain.h"
 #include "../network/FetchClient.h"
 #include "../network/FetchServer.h"
+#include "../network/Types.hpp"
 #include "Agent.h"
 #include "ResultOrError.hpp"
 #include "Service.h"
@@ -30,8 +31,7 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct NetworkConfig {
-    std::string host;
-    uint16_t port{ 0 };
+    network::TcpEndpoint endpoint;
 
     bool enableP2P = false;
     std::string nodeId;
