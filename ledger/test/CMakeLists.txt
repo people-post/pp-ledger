@@ -82,3 +82,17 @@ target_link_libraries(test_dirdirstore PRIVATE
 )
 
 gtest_discover_tests(test_dirdirstore)
+
+# Test for Ledger
+add_executable(test_ledger
+    test_ledger.cpp
+)
+
+target_link_libraries(test_ledger PRIVATE
+    pp_lib
+    pp_ledger
+    OpenSSL::Crypto
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_ledger)
