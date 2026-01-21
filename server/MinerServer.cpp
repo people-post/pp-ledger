@@ -361,7 +361,7 @@ std::string MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
   std::string action = reqJson["action"].get<std::string>();
   
   if (action == "produce") {
-    if (!miner_.shouldProduceBlock()) {
+    if (!miner_.isSlotLeader()) {
       resp["error"] = "not slot leader for current slot";
       return resp.dump();
     }
@@ -381,7 +381,7 @@ std::string MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
     
   } else if (action == "shouldProduce") {
     resp["status"] = "ok";
-    resp["shouldProduce"] = miner_.shouldProduceBlock();
+    resp["shouldProduce"] = miner_.isSlotLeader();
     resp["currentSlot"] = miner_.getCurrentSlot();
     
   } else {
@@ -473,7 +473,7 @@ std::string MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
       resp["isSlotLeader"] = miner_.isSlotLeader(slot);
     } else {
       resp["status"] = "ok";
-      resp["isSlotLeader"] = miner_.shouldProduceBlock();
+      resp["isSlotLeader"] = miner_.isSlotLeader();
       resp["currentSlot"] = miner_.getCurrentSlot();
     }
     
@@ -490,7 +490,7 @@ void MinerServer::blockProductionLoop() {
   while (shouldRun_) {
     try {
       // Check if we should produce a block
-      if (miner_.shouldProduceBlock()) {
+      if (miner_.isSlotLeader()) {
         log().info << "Attempting to produce block for slot " << miner_.getCurrentSlot();
         
         auto result = miner_.produceBlock();

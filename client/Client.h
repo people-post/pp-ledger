@@ -102,7 +102,7 @@ public:
 
   // MinerServer API - Mining operations
   Roe<bool> produceBlock();
-  Roe<bool> shouldProduceBlock();
+  Roe<bool> isSlotLeader();
 
   // MinerServer API - Status
   Roe<MinerStatus> getMinerStatus();

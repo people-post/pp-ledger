@@ -318,7 +318,7 @@ Client::Roe<bool> Client::produceBlock() {
   return response.value("status", "") == "ok";
 }
 
-Client::Roe<bool> Client::shouldProduceBlock() {
+Client::Roe<bool> Client::isSlotLeader() {
   log().debug << "Checking if should produce block";
 
   json request = {{"type", "mining"}, {"action", "shouldProduce"}};

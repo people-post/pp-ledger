@@ -42,7 +42,7 @@ struct Config {
 
 ## Block Production Flow
 
-1. **Check Leadership**: `shouldProduceBlock()` checks if miner is slot leader
+1. **Check Leadership**: `isSlotLeader()` checks if miner is slot leader
 2. **Create Block**: `produceBlock()` creates new block with pending transactions
 3. **Validate**: Block is validated against consensus rules
 4. **Persist**: Block is added to in-memory chain and persisted to ledger
@@ -76,7 +76,7 @@ tx.amount = 100;
 miner.addTransaction(tx);
 
 // Check if we should produce a block
-if (miner.shouldProduceBlock()) {
+if (miner.isSlotLeader()) {
     auto blockResult = miner.produceBlock();
     if (blockResult) {
         auto block = blockResult.value();

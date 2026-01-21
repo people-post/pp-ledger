@@ -309,7 +309,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "should-produce") {
-      auto result = client.shouldProduceBlock();
+      auto result = client.isSlotLeader();
       if (result) {
         std::cout << "Should Produce Block: "
                   << (result.value() ? "Yes" : "No") << "\n";

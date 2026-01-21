@@ -73,6 +73,7 @@ public:
     Roe<void> reinitFromCheckpoint(const CheckpointInfo& checkpoint);
 
     // Block production
+    bool isSlotLeader() const;
     bool shouldProduceBlock() const;
     Roe<std::shared_ptr<Block>> produceBlock();
     

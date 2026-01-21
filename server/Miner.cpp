@@ -102,7 +102,7 @@ Miner::Roe<void> Miner::reinitFromCheckpoint(const CheckpointInfo& checkpoint) {
   return {};
 }
 
-bool Miner::shouldProduceBlock() const {
+bool Miner::isSlotLeader() const {
   if (!initialized_) {
     return false;
   }
@@ -111,12 +111,16 @@ bool Miner::shouldProduceBlock() const {
   return isSlotLeader(currentSlot);
 }
 
+bool Miner::shouldProduceBlock() const {
+  return isSlotLeader() && getPendingTransactionCount() > 0;
+}
+
 Miner::Roe<std::shared_ptr<Block>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
   }
 
-  if (!shouldProduceBlock()) {
+  if (!isSlotLeader()) {
     return Error(6, "Not slot leader for current slot");
   }
 
