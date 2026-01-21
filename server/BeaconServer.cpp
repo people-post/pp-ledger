@@ -31,7 +31,6 @@ bool BeaconServer::start(const std::string &dataDir) {
 }
 
 bool BeaconServer::onStart() {
-bool BeaconServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
       std::filesystem::path(dataDir_) / "config.json";
@@ -129,6 +128,8 @@ void BeaconServer::run() {
 
   log().info << "Request handler thread stopped";
 }
+
+BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) {
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);
   }

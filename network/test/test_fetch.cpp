@@ -53,8 +53,10 @@ TEST_F(FetchServerTest, CreatesSuccessfully) {
 TEST_F(FetchServerTest, StartsAndStops) {
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18880};
-    config.handler = [](const std::string& req) {
-        return "Echo: " + req;
+    config.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Echo: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started = server->start(config);
     
@@ -69,8 +71,10 @@ TEST_F(FetchServerTest, StartsAndStops) {
 TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18881};
-    config.handler = [](const std::string& req) {
-        return "Echo: " + req;
+    config.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Echo: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started1 = server->start(config);
     EXPECT_TRUE(started1);
@@ -79,8 +83,10 @@ TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     FetchServer server2;
     FetchServer::Config config2;
     config2.endpoint = {"127.0.0.1", 18881};
-    config2.handler = [](const std::string& req) {
-        return "Echo: " + req;
+    config2.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Echo: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started2 = server2.start(config2);
     EXPECT_FALSE(started2);
@@ -113,8 +119,10 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18882};
-    config.handler = [](const std::string& req) {
-        return "Echo: " + req;
+    config.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Echo: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started = server->start(config);
     ASSERT_TRUE(started);
@@ -135,8 +143,10 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18883};
-    config.handler = [](const std::string& req) {
-        return "Response: " + req;
+    config.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Response: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started = server->start(config);
     ASSERT_TRUE(started);
@@ -158,8 +168,10 @@ TEST_F(FetchIntegrationTest, AsyncFetch) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18884};
-    config.handler = [](const std::string& req) {
-        return "Async: " + req;
+    config.handler = [](const std::string& req, std::shared_ptr<TcpConnection> conn) {
+        std::string response = "Async: " + req;
+        conn->send(response);
+        conn->close();
     };
     bool started = server->start(config);
     ASSERT_TRUE(started);

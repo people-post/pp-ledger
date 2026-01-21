@@ -9,31 +9,38 @@
 
 namespace pp {
 
-MinerServer::MinerServer() : shouldRun_(false) {
+MinerServer::MinerServer() {
   setLogger("MinerServer");
   log().info << "MinerServer initialized";
 }
 
 MinerServer::~MinerServer() {
-  stop();
+  if (isRunning()) {
+    Service::stop();
+  }
 }
 
 bool MinerServer::start(const std::string &dataDir) {
-  std::lock_guard<std::mutex> lock(stateMutex_);
-  
-  if (fetchServer_.isRunning()) {
+  if (isRunning()) {
     log().warning << "MinerServer is already running";
     return false;
   }
 
-  // Construct config file path
-  std::filesystem::path configPath =
-      std::filesystem::path(dataDir) / "config.json";
-  std::string configPathStr = configPath.string();
+  // Store dataDir for onStart
+  dataDir_ = dataDir;
 
   log().info << "Starting MinerServer with work directory: " << dataDir;
-
   log().addFileHandler(dataDir + "/miner.log", logging::Level::DEBUG);
+
+  // Call base class start which will invoke onStart() then run()
+  return Service::start();
+}
+
+bool MinerServer::onStart() {
+  // Construct config file path
+  std::filesystem::path configPath =
+      std::filesystem::path(dataDir_) / "config.json";
+  std::string configPathStr = configPath.string();
 
   // Load configuration
   auto configResult = loadConfig(configPathStr);
@@ -47,7 +54,7 @@ bool MinerServer::start(const std::string &dataDir) {
   Miner::Config minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.stake = config_.stake;
-  minerConfig.workDir = dataDir;
+  minerConfig.workDir = dataDir_;
   minerConfig.slotDuration = 1;
   minerConfig.slotsPerEpoch = 21600;
   minerConfig.maxPendingTransactions = 10000;
@@ -77,15 +84,37 @@ bool MinerServer::start(const std::string &dataDir) {
     log().error << "Failed to start FetchServer";
     return false;
   }
-  
-  // Start block production thread
-  shouldRun_ = true;
-  productionThread_ = std::thread([this]() {
-    blockProductionLoop();
-  });
 
-  log().info << "MinerServer started successfully";
+  log().info << "MinerServer initialization complete";
   return true;
+}
+
+void MinerServer::onStop() {
+  fetchServer_.stop();
+  log().info << "MinerServer resources cleaned up";
+}
+
+void MinerServer::run() {
+  log().info << "Block production loop started";
+  
+  while (isRunning()) {
+    try {
+      if (miner_.isSlotLeader()) {
+        handleSlotLeaderRole();
+      } else {
+        handleValidatorRole();
+      }
+      
+      // Sleep for a short time before checking again
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      
+    } catch (const std::exception& e) {
+      log().error << "Exception in block production loop: " << e.what();
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
+  
+  log().info << "Block production loop stopped";
 }
 
 MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
@@ -156,25 +185,6 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Beacons: " << config_.network.beacons.size();
   return {};
-}
-
-void MinerServer::stop() {
-  std::lock_guard<std::mutex> lock(stateMutex_);
-  
-  // Stop production thread
-  shouldRun_ = false;
-  if (productionThread_.joinable()) {
-    productionThread_.join();
-  }
-  
-  // Stop network server
-  fetchServer_.stop();
-  
-  log().info << "MinerServer stopped";
-}
-
-bool MinerServer::isRunning() const {
-  return fetchServer_.isRunning();
 }
 
 std::string MinerServer::handleRequest(const std::string &request) {
@@ -484,29 +494,6 @@ std::string MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
   }
   
   return resp.dump();
-}
-
-void MinerServer::blockProductionLoop() {
-  log().info << "Block production loop started";
-  
-  while (shouldRun_) {
-    try {
-      if (miner_.isSlotLeader()) {
-        handleSlotLeaderRole();
-      } else {
-        handleValidatorRole();
-      }
-      
-      // Sleep for a short time before checking again
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      
-    } catch (const std::exception& e) {
-      log().error << "Exception in block production loop: " << e.what();
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-  }
-  
-  log().info << "Block production loop stopped";
 }
 
 void MinerServer::handleSlotLeaderRole() {

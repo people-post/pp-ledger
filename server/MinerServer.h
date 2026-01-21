@@ -31,22 +31,28 @@ public:
    * @return true if server started successfully
    */
   bool start(const std::string &dataDir);
-
-  /**
-   * Stop the miner server
-   */
-  void stop();
-
-  /**
-   * Check if server is running
-   */
-  bool isRunning() const;
   
   /**
    * Get reference to underlying Miner
    */
   Miner& getMiner() { return miner_; }
   const Miner& getMiner() const { return miner_; }
+
+protected:
+  /**
+   * Service thread main loop - handles block production and validation
+   */
+  void run() override;
+
+  /**
+   * Called before service thread starts - initializes miner and network
+   */
+  bool onStart() override;
+
+  /**
+   * Called after service thread stops - cleans up resources
+   */
+  void onStop() override;
 
 private:
   struct NetworkConfig {
@@ -100,11 +106,6 @@ private:
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
 
   /**
-   * Block production loop
-   */
-  void blockProductionLoop();
-
-  /**
    * Handle block production when acting as slot leader
    */
   void handleSlotLeaderRole();
@@ -114,16 +115,14 @@ private:
    */
   void handleValidatorRole();
 
+  // Configuration
+  std::string dataDir_;
+
   // Core miner instance
   Miner miner_;
   
   network::FetchServer fetchServer_;
   Config config_;
-  
-  // Block production thread
-  std::thread productionThread_;
-  std::atomic<bool> shouldRun_;
-  mutable std::mutex stateMutex_;
 };
 
 } // namespace pp
