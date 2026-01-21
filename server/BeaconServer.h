@@ -3,18 +3,23 @@
 
 #include "Beacon.h"
 #include "../network/FetchServer.h"
+#include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/Module.h"
+#include "../lib/Service.h"
+#include "../lib/ThreadSafeQueue.hpp"
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
+#include <thread>
+#include <atomic>
+#include <memory>
 #include <nlohmann/json.hpp>
 
 namespace pp {
 
-class BeaconServer : public Module {
+class BeaconServer : public Service {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -33,16 +38,6 @@ public:
   bool start(const std::string &dataDir);
 
   /**
-   * Stop the beacon server
-   */
-  void stop();
-
-  /**
-   * Check if server is running
-   */
-  bool isRunning() const;
-
-  /**
    * Get list of active server addresses
    */
   std::vector<std::string> getActiveServers() const;
@@ -57,6 +52,22 @@ public:
    */
   Beacon& getBeacon() { return beacon_; }
   const Beacon& getBeacon() const { return beacon_; }
+
+protected:
+  /**
+   * Service thread main loop - processes queued requests
+   */
+  void run() override;
+
+  /**
+   * Called before service thread starts - initializes beacon and network
+   */
+  bool onStart() override;
+
+  /**
+   * Called after service thread stops - cleans up resources
+   */
+  void onStop() override;
 
 private:
   struct NetworkConfig {
@@ -113,11 +124,22 @@ private:
    */
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
 
+  struct QueuedRequest {
+    std::string request;
+    std::shared_ptr<network::TcpConnection> connection;
+  };
+
+  // Configuration
+  std::string dataDir_;
+
   // Core beacon instance
   Beacon beacon_;
   
   network::FetchServer fetchServer_;
   Config config_;
+
+  // Request processing
+  ThreadSafeQueue<QueuedRequest> requestQueue_;
 
   // Track active servers (host:port -> last seen timestamp)
   mutable std::mutex serversMutex_;

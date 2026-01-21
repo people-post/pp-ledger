@@ -66,8 +66,10 @@ bool MinerServer::start(const std::string &dataDir) {
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](const std::string &request) {
-    return handleRequest(request);
+  fetchServerConfig.handler = [this](const std::string &request, std::shared_ptr<network::TcpConnection> conn) {
+    std::string response = handleRequest(request);
+    conn->send(response);
+    conn->close();
   };
   bool serverStarted = fetchServer_.start(fetchServerConfig);
 
@@ -489,21 +491,10 @@ void MinerServer::blockProductionLoop() {
   
   while (shouldRun_) {
     try {
-      // Check if we should produce a block
       if (miner_.isSlotLeader()) {
-        log().info << "Attempting to produce block for slot " << miner_.getCurrentSlot();
-        
-        auto result = miner_.produceBlock();
-        if (result) {
-          auto block = result.value();
-          log().info << "Successfully produced block " << block->getIndex() 
-                     << " with hash " << block->getHash();
-          
-          // In a full implementation, we would broadcast this block to beacons
-          // and other miners here
-        } else {
-          log().warning << "Failed to produce block: " << result.error().message;
-        }
+        handleSlotLeaderRole();
+      } else {
+        handleValidatorRole();
       }
       
       // Sleep for a short time before checking again
@@ -516,6 +507,39 @@ void MinerServer::blockProductionLoop() {
   }
   
   log().info << "Block production loop stopped";
+}
+
+void MinerServer::handleSlotLeaderRole() {
+  if (miner_.shouldProduceBlock()) {
+    log().info << "Attempting to produce block for slot " << miner_.getCurrentSlot();
+    
+    auto result = miner_.produceBlock();
+    if (result) {
+      auto block = result.value();
+      log().info << "Successfully produced block " << block->getIndex() 
+                << " with hash " << block->getHash();
+      
+      // In a full implementation, we would broadcast this block to beacons
+      // and other miners here
+    } else {
+      log().warning << "Failed to produce block: " << result.error().message;
+    }
+  }
+}
+
+void MinerServer::handleValidatorRole() {
+  // Not slot leader - act as validator
+  // Monitor for new blocks from other miners and validate them
+  log().debug << "Acting as validator for slot " << miner_.getCurrentSlot();
+  
+  // In a full implementation, we would:
+  // 1. Listen for blocks from the current slot leader
+  // 2. Validate received blocks
+  // 3. Add valid blocks to our chain
+  // 4. Participate in consensus voting if required
+  
+  // For now, this is a placeholder for validator behavior
+  // The actual block reception would happen via network requests
 }
 
 } // namespace pp

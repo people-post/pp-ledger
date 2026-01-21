@@ -15,19 +15,27 @@ BeaconServer::BeaconServer() {
 }
 
 bool BeaconServer::start(const std::string &dataDir) {
-  if (fetchServer_.isRunning()) {
+  if (isRunning()) {
     log().warning << "BeaconServer is already running";
     return false;
   }
 
-  // Construct config file path
-  std::filesystem::path configPath =
-      std::filesystem::path(dataDir) / "config.json";
-  std::string configPathStr = configPath.string();
+  // Store dataDir for onStart
+  dataDir_ = dataDir;
 
   log().info << "Starting BeaconServer with work directory: " << dataDir;
-
   log().addFileHandler(dataDir + "/beacon.log", logging::Level::DEBUG);
+
+  // Call base class start which will invoke onStart() then run()
+  return Service::start();
+}
+
+bool BeaconServer::onStart() {
+bool BeaconServer::onStart() {
+  // Construct config file path
+  std::filesystem::path configPath =
+      std::filesystem::path(dataDir_) / "config.json";
+  std::string configPathStr = configPath.string();
 
   // Load configuration (includes port)
   auto configResult = loadConfig(configPathStr);
@@ -39,7 +47,7 @@ bool BeaconServer::start(const std::string &dataDir) {
   
   // Initialize beacon core
   Beacon::Config beaconConfig;
-  beaconConfig.workDir = dataDir;
+  beaconConfig.workDir = dataDir_;
   beaconConfig.slotDuration = 1;
   beaconConfig.slotsPerEpoch = 21600;
   
@@ -51,11 +59,15 @@ bool BeaconServer::start(const std::string &dataDir) {
   
   log().info << "Beacon core initialized";
 
-  // Start FetchServer with handler
+  // Start FetchServer with handler that enqueues requests
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](const std::string &request) {
-    return handleServerRequest(request);
+  fetchServerConfig.handler = [this](const std::string &request, std::shared_ptr<network::TcpConnection> conn) {
+    QueuedRequest qr;
+    qr.request = request;
+    qr.connection = conn;
+    requestQueue_.push(std::move(qr));
+    log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
   };
   bool serverStarted = fetchServer_.start(fetchServerConfig);
 
@@ -70,7 +82,53 @@ bool BeaconServer::start(const std::string &dataDir) {
   return true;
 }
 
-BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) {
+void BeaconServer::onStop() {
+  fetchServer_.stop();
+  log().info << "BeaconServer resources cleaned up";
+}
+
+void BeaconServer::run() {
+  log().info << "Request handler thread started";
+
+  while (isRunning()) {
+    QueuedRequest qr;
+    
+    // Poll for a request from the queue
+    if (requestQueue_.poll(qr)) {
+      log().debug << "Processing request from queue";
+      
+      try {
+        // Process the request
+        std::string response = handleServerRequest(qr.request);
+        
+        // Send response back
+        auto sendResult = qr.connection->send(response);
+        if (!sendResult) {
+          log().error << "Failed to send response: " << sendResult.error().message;
+        } else {
+          log().debug << "Response sent (" << response.size() << " bytes)";
+        }
+        
+        // Close the connection
+        qr.connection->close();
+        
+      } catch (const std::exception& e) {
+        log().error << "Exception processing request: " << e.what();
+        // Try to close connection even on error
+        try {
+          qr.connection->close();
+        } catch (...) {
+          // Ignore close errors
+        }
+      }
+    } else {
+      // No request available, sleep briefly
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
+
+  log().info << "Request handler thread stopped";
+}
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);
   }
@@ -127,15 +185,6 @@ BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) 
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Other beacons: " << otherBeaconAddresses_.size();
   return {};
-}
-
-void BeaconServer::stop() {
-  fetchServer_.stop();
-  log().info << "BeaconServer stopped";
-}
-
-bool BeaconServer::isRunning() const {
-  return fetchServer_.isRunning();
 }
 
 std::string BeaconServer::handleServerRequest(const std::string &request) {

@@ -3,6 +3,7 @@
 #include "ResultOrError.hpp"
 #include "Service.h"
 #include "TcpServer.h"
+#include "TcpConnection.h"
 #include "Types.hpp"
 #include <functional>
 #include <memory>
@@ -19,7 +20,7 @@ namespace network {
  */
 class FetchServer : public Service {
 public:
-  using RequestHandler = std::function<std::string(const std::string &)>;
+  using RequestHandler = std::function<void(const std::string&, std::shared_ptr<TcpConnection>)>;
 
   struct Config {
     TcpEndpoint endpoint;

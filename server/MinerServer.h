@@ -5,7 +5,7 @@
 #include "../network/FetchServer.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/Module.h"
+#include "../lib/Service.h"
 #include <string>
 #include <thread>
 #include <atomic>
@@ -14,7 +14,7 @@
 
 namespace pp {
 
-class MinerServer : public Module {
+class MinerServer : public Service {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -103,6 +103,16 @@ private:
    * Block production loop
    */
   void blockProductionLoop();
+
+  /**
+   * Handle block production when acting as slot leader
+   */
+  void handleSlotLeaderRole();
+
+  /**
+   * Handle validation when not slot leader
+   */
+  void handleValidatorRole();
 
   // Core miner instance
   Miner miner_;

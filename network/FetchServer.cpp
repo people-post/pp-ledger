@@ -77,28 +77,14 @@ void FetchServer::run() {
 
     log().info << "Received request (" + std::to_string(bytesRead) + " bytes)";
 
-    // Process the request
-    std::string response;
+    // Process the request - handler now owns the connection and response
     try {
-      response = config_.handler(request);
+      auto connPtr = std::make_shared<TcpConnection>(std::move(connection));
+      config_.handler(request, connPtr);
       log().debug << "Request processed successfully";
     } catch (const std::exception &e) {
       log().error << "Error processing request: " + std::string(e.what());
-      response = "Error: " + std::string(e.what());
     }
-
-    // Send response
-    auto sendResult = connection.send(response);
-    if (!sendResult) {
-      std::string errorMsg = sendResult.error().message;
-      log().error << "Failed to send response: " + errorMsg;
-    } else {
-      log().info << "Response sent (" + std::to_string(response.size()) +
-                        " bytes)";
-    }
-
-    connection.close();
-    log().debug << "Connection closed";
   }
 
   log().debug << "Server loop ended";
