@@ -120,6 +120,12 @@ Miner::Roe<std::shared_ptr<Block>> Miner::produceBlock() {
     return Error(6, "Not slot leader for current slot");
   }
 
+  // Don't produce block if there are no transactions
+  if (getPendingTransactionCount() == 0) {
+    log().debug << "Skipping block production - no pending transactions";
+    return Error(20, "No pending transactions");
+  }
+
   uint64_t currentSlot = getCurrentSlot();
   
   log().info << "Producing block for slot " << currentSlot;
