@@ -222,14 +222,36 @@ Miner::Roe<void> Miner::addBlock(const Block& block) {
 }
 
 Miner::Roe<void> Miner::validateBlock(const Block& block) const {
-  // Validate with consensus
-  auto consensusResult = consensus_.validateBlock(block, chain_);
-  if (!consensusResult) {
-    return Error(13, "Consensus validation failed: " + consensusResult.error().message);
+  uint64_t slot = block.getSlot();
+  std::string slotLeader = block.getSlotLeader();
+
+  // Validate slot leader
+  if (!consensus_.validateSlotLeader(slotLeader, slot)) {
+    return Error(13, "Invalid slot leader for block at slot " + std::to_string(slot));
   }
 
-  if (!consensusResult.value()) {
-    return Error(14, "Block failed consensus validation");
+  // Validate block timing
+  if (!consensus_.validateBlockTiming(block, slot)) {
+    return Error(14, "Block timestamp outside valid slot range");
+  }
+
+  // Validate hash chain
+  size_t chainSize = chain_.getSize();
+  if (chainSize > 0) {
+    auto latestBlock = chain_.getLatestBlock();
+    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
+      return Error(15, "Block previous hash does not match chain");
+    }
+
+    if (latestBlock && block.getIndex() != latestBlock->getIndex() + 1) {
+      return Error(16, "Block index mismatch");
+    }
+  }
+
+  // Validate block hash
+  std::string calculatedHash = block.calculateHash();
+  if (calculatedHash != block.getHash()) {
+    return Error(17, "Block hash validation failed");
   }
 
   // Validate sequence
@@ -331,7 +353,7 @@ Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
       now.time_since_epoch()).count();
 
   // Get previous block info
-  auto latestBlock = chain_.getLatestConcreteBlock();
+  auto latestBlock = chain_.getLatestBlock();
   uint64_t blockIndex = latestBlock ? latestBlock->getIndex() + 1 : 0;
   std::string previousHash = latestBlock ? latestBlock->getHash() : "";
 
@@ -382,7 +404,7 @@ std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>&
 }
 
 bool Miner::isValidBlockSequence(const Block& block) const {
-  auto latestBlock = chain_.getLatestConcreteBlock();
+  auto latestBlock = chain_.getLatestBlock();
   
   if (!latestBlock) {
     // First block (genesis)

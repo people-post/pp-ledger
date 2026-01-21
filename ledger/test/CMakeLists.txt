@@ -1,4 +1,4 @@
-# Agent Test executables using Google Test
+# Ledger Test executables using Google Test
 
 # Include GoogleTest
 include(GoogleTest)
@@ -42,20 +42,6 @@ target_link_libraries(test_blockfile PRIVATE
 )
 
 gtest_discover_tests(test_blockfile)
-
-# Test for BlockDir
-add_executable(test_blockdir
-    test_blockdir.cpp
-)
-
-target_link_libraries(test_blockdir PRIVATE
-    pp_lib
-    pp_ledger
-    OpenSSL::Crypto
-    GTest::gtest_main
-)
-
-gtest_discover_tests(test_blockdir)
 
 # Test for FileDirStore
 add_executable(test_filedirstore

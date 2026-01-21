@@ -269,7 +269,7 @@ FileStore::Roe<void> FileStore::writeHeader() {
   // Seek to beginning of file
   file_.seekp(0, std::ios::beg);
 
-  // Initialize header with version 2
+  // Initialize header
   header_ = FileHeader();
   header_.blockCount = blockCount_;
 

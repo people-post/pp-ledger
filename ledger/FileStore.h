@@ -11,10 +11,8 @@ namespace pp {
 
 /**
  * FileStore manages writing block data to a single file with a size limit.
- * When the file reaches the configured size limit, it should be closed and
- * a new file should be created by BlockDir.
  * 
- * File format (version 2):
+ * File format:
  * - Header: magic, version, blockCount, headerSize
  * - Block data: [size (8 bytes)][data (size bytes)]*
  * 

@@ -9,7 +9,6 @@ namespace pp {
 
 // BlockChain implementation
 BlockChain::BlockChain() {
-  setLogger("BlockChain");
   // No auto-genesis block - blocks must be added explicitly
 }
 
@@ -23,14 +22,7 @@ bool BlockChain::addBlock(std::shared_ptr<Block> block) {
   return true;
 }
 
-std::shared_ptr<iii::Block> BlockChain::getLatestBlock() const {
-  if (chain_.empty()) {
-    return nullptr;
-  }
-  return chain_.back();
-}
-
-std::shared_ptr<Block> BlockChain::getLatestConcreteBlock() const {
+std::shared_ptr<Block> BlockChain::getLatestBlock() const {
   if (chain_.empty()) {
     return nullptr;
   }

@@ -1,8 +1,7 @@
 #pragma once
 
-#include "../interface/BlockChain.hpp"
 #include "Block.h"
-#include "Module.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -14,19 +13,15 @@ namespace pp {
  * Concrete implementation of BlockChain data structure
  *
  * Manages an in-memory chain of blocks.
- * Storage management is handled by Agent.
  */
-class BlockChain : public Module, public iii::BlockChain {
+class BlockChain {
 public:
   BlockChain();
   ~BlockChain() = default;
 
-  // Blockchain operations (also implements iii::BlockChain interface)
-  std::shared_ptr<iii::Block> getLatestBlock() const override;
-  size_t getSize() const override;
-
-  // Convenience method to get concrete Block type
-  std::shared_ptr<Block> getLatestConcreteBlock() const;
+  // Blockchain operations
+  std::shared_ptr<Block> getLatestBlock() const;
+  size_t getSize() const;
 
   // Additional blockchain operations
   bool addBlock(std::shared_ptr<Block> block);

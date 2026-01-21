@@ -8,8 +8,6 @@ add_library(pp_server STATIC
     MinerServer.h
     Miner.cpp
     Miner.h
-    Agent.cpp
-    Agent.h
 )
 
 target_include_directories(pp_server PUBLIC

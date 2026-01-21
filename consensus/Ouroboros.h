@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../interface/Block.hpp"
-#include "../interface/BlockChain.hpp"
 #include "Module.h"
 #include "ResultOrError.hpp"
 #include <cstdint>
@@ -15,7 +14,6 @@ namespace consensus {
 
 // Using declarations for interfaces
 using Block = iii::Block;
-using BlockChain = iii::BlockChain;
 
 /**
  * Ouroboros Consensus Protocol Implementation
@@ -67,8 +65,9 @@ public:
   Roe<std::string> getSlotLeader(uint64_t slot) const;
   bool isSlotLeader(uint64_t slot, const std::string &stakeholderId) const;
 
-  // Block validation
-  Roe<bool> validateBlock(const Block &block, const BlockChain &chain) const;
+  // Validation helpers
+  bool validateSlotLeader(const std::string &slotLeader, uint64_t slot) const;
+  bool validateBlockTiming(const Block &block, uint64_t slot) const;
 
   // Configuration
   void setSlotDuration(uint64_t seconds);
@@ -91,10 +90,6 @@ private:
   uint64_t calculateStakeThreshold(const std::string &stakeholderId,
                                    uint64_t totalStake) const;
   std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
-
-  // Validation helpers
-  bool validateSlotLeader(const std::string &slotLeader, uint64_t slot) const;
-  bool validateBlockTiming(const Block &block, uint64_t slot) const;
 
   // Data members
   std::map<std::string, uint64_t> mStakeholders_;

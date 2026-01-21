@@ -16,8 +16,6 @@ add_library(pp_ledger STATIC
     FileDirStore.h
     DirDirStore.cpp
     DirDirStore.h
-    BlockDir.cpp
-    BlockDir.h
 )
 
 target_include_directories(pp_ledger PUBLIC

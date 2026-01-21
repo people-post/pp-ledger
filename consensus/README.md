@@ -10,16 +10,11 @@ Ouroboros is a provably secure proof-of-stake blockchain protocol. This implemen
 
 ### Core Components
 
-#### 1. Interfaces (`../interface/IBlock.hpp`, `../interface/IBlockChain.hpp`)
+#### 1. Interfaces (`../interface/IBlock.hpp`)
 - **IBlock**: Interface for block data structures
   - Defines standard block properties (index, timestamp, hash, etc.)
   - Adds Ouroboros-specific fields (slot, slot leader)
   - Independent of server implementation
-
-- **IBlockChain**: Interface for blockchain data structures
-  - Defines chain operations (add, get, validate)
-  - Query operations for blocks
-  - Validation methods
 
 #### 2. Consensus Core (`Ouroboros.h/cpp`)
 - **Ouroboros**: Main consensus protocol implementation
@@ -169,7 +164,7 @@ This library uses the following from the `lib` directory:
 
 To integrate with the main blockchain:
 
-1. Implement `IBlock` and `IBlockChain` interfaces in your block/blockchain classes
+1. Implement `IBlock` interface in your block classes
 2. Use `Ouroboros` for leader selection and validation
 3. Use `EpochManager` to track epochs and slots
 4. Use `VRF` for cryptographic proof of leadership

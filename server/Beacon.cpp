@@ -187,14 +187,36 @@ Beacon::Roe<void> Beacon::addBlock(const Block& block) {
 }
 
 Beacon::Roe<void> Beacon::validateBlock(const Block& block) const {
-  // Validate with consensus protocol
-  auto consensusResult = consensus_.validateBlock(block, chain_);
-  if (!consensusResult) {
-    return Error(7, "Consensus validation failed: " + consensusResult.error().message);
+  uint64_t slot = block.getSlot();
+  std::string slotLeader = block.getSlotLeader();
+
+  // Validate slot leader
+  if (!consensus_.validateSlotLeader(slotLeader, slot)) {
+    return Error(7, "Invalid slot leader for block at slot " + std::to_string(slot));
   }
 
-  if (!consensusResult.value()) {
-    return Error(8, "Block failed consensus validation");
+  // Validate block timing
+  if (!consensus_.validateBlockTiming(block, slot)) {
+    return Error(8, "Block timestamp outside valid slot range");
+  }
+
+  // Validate hash chain
+  size_t chainSize = chain_.getSize();
+  if (chainSize > 0) {
+    auto latestBlock = chain_.getLatestBlock();
+    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
+      return Error(9, "Block previous hash does not match chain");
+    }
+
+    if (latestBlock && block.getIndex() != latestBlock->getIndex() + 1) {
+      return Error(10, "Block index mismatch");
+    }
+  }
+
+  // Validate block hash
+  std::string calculatedHash = block.calculateHash();
+  if (calculatedHash != block.getHash()) {
+    return Error(11, "Block hash validation failed");
   }
 
   // Validate block sequence
@@ -395,7 +417,7 @@ Beacon::Roe<void> Beacon::pruneOldData(uint64_t checkpointId) {
 }
 
 bool Beacon::isValidBlockSequence(const Block& block) const {
-  auto latestBlock = chain_.getLatestConcreteBlock();
+  auto latestBlock = chain_.getLatestBlock();
   
   if (!latestBlock) {
     // First block (genesis)

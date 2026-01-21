@@ -178,44 +178,6 @@ std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
   return result;
 }
 
-Ouroboros::Roe<bool> Ouroboros::validateBlock(const Block &block,
-                                              const BlockChain &chain) const {
-
-  uint64_t slot = block.getSlot();
-  std::string slotLeader = block.getSlotLeader();
-
-  // Validate slot leader
-  if (!validateSlotLeader(slotLeader, slot)) {
-    return Ouroboros::Error(2, "Invalid slot leader for block at slot " +
-                                   std::to_string(slot));
-  }
-
-  // Validate block timing
-  if (!validateBlockTiming(block, slot)) {
-    return Ouroboros::Error(3, "Block timestamp outside valid slot range");
-  }
-
-  // Validate hash chain
-  if (chain.getSize() > 0) {
-    auto latestBlock = chain.getLatestBlock();
-    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
-      return Ouroboros::Error(4, "Block previous hash does not match chain");
-    }
-
-    if (block.getIndex() != latestBlock->getIndex() + 1) {
-      return Ouroboros::Error(5, "Block index mismatch");
-    }
-  }
-
-  // Validate block hash
-  std::string calculatedHash = block.calculateHash();
-  if (calculatedHash != block.getHash()) {
-    return Ouroboros::Error(6, "Block hash validation failed");
-  }
-
-  return true;
-}
-
 bool Ouroboros::validateSlotLeader(const std::string &slotLeader,
                                    uint64_t slot) const {
   std::string expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
