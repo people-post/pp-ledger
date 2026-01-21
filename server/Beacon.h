@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
+#include "Validator.h"
 #include "../ledger/Ledger.h"
 #include "../ledger/BlockChain.h"
 #include "../consensus/Ouroboros.h"
@@ -33,7 +34,7 @@ namespace pp {
  * - Checkpoints are created when data exceeds 1GB and is older than 1 year
  * - Miners produce blocks, Beacons verify and archive them
  */
-class Beacon : public Module {
+class Beacon : public Validator {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -41,16 +42,10 @@ public:
   
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  struct Config {
-    std::string workDir;
-    
+  struct Config : public BaseConfig {
     // Checkpoint configuration
     uint64_t checkpointMinSizeBytes = 1024ULL * 1024 * 1024; // 1GB default
     uint64_t checkpointAgeSeconds = 365ULL * 24 * 3600; // 1 year default
-    
-    // Consensus configuration
-    uint64_t slotDuration = 1; // seconds
-    uint64_t slotsPerEpoch = 21600; // ~6 hours at 1s per slot
   };
 
   struct Stakeholder {
@@ -67,7 +62,6 @@ public:
 
   // Version and metadata
   uint32_t getVersion() const { return VERSION; }
-  uint64_t getCurrentBlockId() const;
   uint64_t getCurrentCheckpointId() const;
   uint64_t getTotalStake() const;
   
@@ -77,7 +71,7 @@ public:
   void removeStakeholder(const std::string& stakeholderId);
   void updateStake(const std::string& stakeholderId, uint64_t newStake);
 
-  // Block operations
+  // Block operations (override base class)
   Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
   Roe<std::vector<std::shared_ptr<Block>>> getBlocks(uint64_t fromId, uint64_t count) const;
   Roe<void> addBlock(const Block& block);
@@ -94,8 +88,6 @@ public:
 
   // Consensus queries
   Roe<std::string> getSlotLeader(uint64_t slot) const;
-  uint64_t getCurrentSlot() const;
-  uint64_t getCurrentEpoch() const;
 
 private:
   // Helper methods
@@ -103,19 +95,9 @@ private:
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
   Roe<void> pruneOldData(uint64_t checkpointId);
-  
-  // Validation helpers
-  bool isValidBlockSequence(const Block& block) const;
-  bool isValidSlotLeader(const Block& block) const;
-  bool isValidTimestamp(const Block& block) const;
 
   // Constants
   static constexpr uint32_t VERSION = 1;
-
-  // Core components
-  consensus::Ouroboros consensus_;
-  Ledger ledger_;
-  BlockChain chain_;
 
   // Configuration
   Config config_;
@@ -126,7 +108,6 @@ private:
 
   // State tracking
   uint64_t currentCheckpointId_;
-  mutable std::mutex stateMutex_;
 };
 
 } // namespace pp

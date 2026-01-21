@@ -94,39 +94,42 @@ void BeaconServer::run() {
     
     // Poll for a request from the queue
     if (requestQueue_.poll(qr)) {
-      log().debug << "Processing request from queue";
-      
-      try {
-        // Process the request
-        std::string response = handleServerRequest(qr.request);
-        
-        // Send response back
-        auto sendResult = qr.connection->send(response);
-        if (!sendResult) {
-          log().error << "Failed to send response: " << sendResult.error().message;
-        } else {
-          log().debug << "Response sent (" << response.size() << " bytes)";
-        }
-        
-        // Close the connection
-        qr.connection->close();
-        
-      } catch (const std::exception& e) {
-        log().error << "Exception processing request: " << e.what();
-        // Try to close connection even on error
-        try {
-          qr.connection->close();
-        } catch (...) {
-          // Ignore close errors
-        }
-      }
+      processQueuedRequest(qr);
     } else {
       // No request available, sleep briefly
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
   }
 
   log().info << "Request handler thread stopped";
+}
+
+void BeaconServer::processQueuedRequest(QueuedRequest& qr) {
+  log().debug << "Processing request from queue";
+  try {
+    // Process the request
+    std::string response = handleServerRequest(qr.request);
+    
+    // Send response back
+    auto sendResult = qr.connection->send(response);
+    if (!sendResult) {
+      log().error << "Failed to send response: " << sendResult.error().message;
+    } else {
+      log().debug << "Response sent (" << response.size() << " bytes)";
+    }
+    
+    // Close the connection
+    qr.connection->close();
+    
+  } catch (const std::exception& e) {
+    log().error << "Exception processing request: " << e.what();
+    // Try to close connection even on error
+    try {
+      qr.connection->close();
+    } catch (...) {
+      // Ignore close errors
+    }
+  }
 }
 
 BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) {
@@ -212,48 +215,11 @@ std::string BeaconServer::handleServerRequest(const std::string &request) {
   std::string type = reqJson["type"].get<std::string>();
 
   if (type == "register") {
-    // Server is registering itself
-    if (reqJson.contains("address") && reqJson["address"].is_string()) {
-      std::string serverAddress = reqJson["address"].get<std::string>();
-      registerServer(serverAddress);
-      log().info << "Registered server: " << serverAddress;
-
-      nlohmann::json resp;
-      resp["status"] = "ok";
-      resp["message"] = "Server registered";
-      return resp.dump();
-    } else {
-      nlohmann::json resp;
-      resp["error"] = "missing address field";
-      return resp.dump();
-    }
+    return handleRegisterRequest(reqJson);
   } else if (type == "heartbeat") {
-    // Server is sending heartbeat
-    if (reqJson.contains("address") && reqJson["address"].is_string()) {
-      std::string serverAddress = reqJson["address"].get<std::string>();
-      registerServer(serverAddress);
-      log().debug << "Received heartbeat from: " << serverAddress;
-
-      nlohmann::json resp;
-      resp["status"] = "ok";
-      return resp.dump();
-    } else {
-      nlohmann::json resp;
-      resp["error"] = "missing address field";
-      return resp.dump();
-    }
+    return handleHeartbeatRequest(reqJson);
   } else if (type == "query") {
-    // Query active servers
-    nlohmann::json resp;
-    resp["status"] = "ok";
-    resp["servers"] = nlohmann::json::array();
-
-    std::vector<std::string> servers = getActiveServers();
-    for (const auto &server : servers) {
-      resp["servers"].push_back(server);
-    }
-
-    return resp.dump();
+    return handleQueryRequest(reqJson);
   } else if (type == "block") {
     return handleBlockRequest(reqJson);
   } else if (type == "checkpoint") {
@@ -312,6 +278,56 @@ void BeaconServer::connectToOtherBeacons() {
   for (const auto &beaconAddr : otherBeaconAddresses_) {
     log().info << "  Beacon: " << beaconAddr;
   }
+}
+
+std::string BeaconServer::handleRegisterRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  // Server is registering itself
+  if (reqJson.contains("address") && reqJson["address"].is_string()) {
+    std::string serverAddress = reqJson["address"].get<std::string>();
+    registerServer(serverAddress);
+    log().info << "Registered server: " << serverAddress;
+
+    resp["status"] = "ok";
+    resp["message"] = "Server registered";
+  } else {
+    resp["error"] = "missing address field";
+  }
+  
+  return resp.dump();
+}
+
+std::string BeaconServer::handleHeartbeatRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  // Server is sending heartbeat
+  if (reqJson.contains("address") && reqJson["address"].is_string()) {
+    std::string serverAddress = reqJson["address"].get<std::string>();
+    registerServer(serverAddress);
+    log().debug << "Received heartbeat from: " << serverAddress;
+
+    resp["status"] = "ok";
+  } else {
+    resp["error"] = "missing address field";
+  }
+  
+  return resp.dump();
+}
+
+std::string BeaconServer::handleQueryRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  // Query active servers
+  resp["status"] = "ok";
+  resp["servers"] = nlohmann::json::array();
+
+  std::vector<std::string> servers = getActiveServers();
+  for (const auto &server : servers) {
+    resp["servers"].push_back(server);
+  }
+  
+  return resp.dump();
 }
 
 std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {

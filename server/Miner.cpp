@@ -9,7 +9,7 @@
 namespace pp {
 
 Miner::Miner() 
-    : consensus_(1, 21600), 
+    : Validator(),
       initialized_(false),
       lastProducedBlockId_(0) {
   setLogger("Miner");
@@ -25,47 +25,22 @@ Miner::Roe<void> Miner::init(const Config &config) {
 
   config_ = config;
 
-  // Create work directory if it doesn't exist
-  if (!std::filesystem::exists(config_.workDir)) {
-    std::filesystem::create_directories(config_.workDir);
-  }
-
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Stake: " << config_.stake;
-  log().info << "  Work directory: " << config_.workDir;
 
-  // Initialize consensus
-  consensus_.setSlotDuration(config_.slotDuration);
-  consensus_.setSlotsPerEpoch(config_.slotsPerEpoch);
-  
-  // Set genesis time if not already set
-  if (consensus_.getGenesisTime() == 0) {
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch()).count();
-    consensus_.setGenesisTime(timestamp);
+  // Initialize base class
+  auto baseResult = initBase(config);
+  if (!baseResult) {
+    return Error(2, "Failed to initialize base: " + baseResult.error().message);
   }
 
   // Register self as stakeholder
   consensus_.registerStakeholder(config_.minerId, config_.stake);
 
-  // Initialize ledger
-  Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = config_.workDir + "/ledger";
-  ledgerConfig.startingBlockId = 0;
-
-  auto ledgerResult = ledger_.init(ledgerConfig);
-  if (!ledgerResult) {
-    return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
-  }
-
   initialized_ = true;
 
   log().info << "Miner initialized successfully";
-  log().info << "  Genesis time: " << consensus_.getGenesisTime();
-  log().info << "  Current slot: " << getCurrentSlot();
-  log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
 }
@@ -197,91 +172,31 @@ void Miner::clearTransactionPool() {
 }
 
 Miner::Roe<void> Miner::addBlock(const Block& block) {
-  // Validate the block first
-  auto validationResult = validateBlock(block);
-  if (!validationResult) {
-    return Error(10, "Block validation failed: " + validationResult.error().message);
+  // Call base class implementation which validates and adds to chain/ledger
+  auto result = Validator::addBlockBase(block);
+  if (!result) {
+    return Error(10, result.error().message);
   }
-
-  // Add to chain
-  auto blockPtr = std::make_shared<Block>(block);
-  if (!chain_.addBlock(blockPtr)) {
-    return Error(11, "Failed to add block to chain");
-  }
-
-  // Persist to ledger
-  auto ledgerResult = ledger_.addBlock(block);
-  if (!ledgerResult) {
-    return Error(12, "Failed to persist block: " + ledgerResult.error().message);
-  }
-
-  log().info << "Block added: " << block.getIndex() 
-             << " from slot leader: " << block.getSlotLeader();
 
   return {};
 }
 
 Miner::Roe<void> Miner::validateBlock(const Block& block) const {
-  uint64_t slot = block.getSlot();
-  std::string slotLeader = block.getSlotLeader();
-
-  // Validate slot leader
-  if (!consensus_.validateSlotLeader(slotLeader, slot)) {
-    return Error(13, "Invalid slot leader for block at slot " + std::to_string(slot));
+  // Call base class implementation
+  auto result = Validator::validateBlockBase(block);
+  if (!result) {
+    return Error(13, result.error().message);
   }
-
-  // Validate block timing
-  if (!consensus_.validateBlockTiming(block, slot)) {
-    return Error(14, "Block timestamp outside valid slot range");
-  }
-
-  // Validate hash chain
-  size_t chainSize = chain_.getSize();
-  if (chainSize > 0) {
-    auto latestBlock = chain_.getLatestBlock();
-    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
-      return Error(15, "Block previous hash does not match chain");
-    }
-
-    if (latestBlock && block.getIndex() != latestBlock->getIndex() + 1) {
-      return Error(16, "Block index mismatch");
-    }
-  }
-
-  // Validate block hash
-  std::string calculatedHash = block.calculateHash();
-  if (calculatedHash != block.getHash()) {
-    return Error(17, "Block hash validation failed");
-  }
-
-  // Validate sequence
-  if (!isValidBlockSequence(block)) {
-    return Error(15, "Invalid block sequence");
-  }
-
-  // Validate slot leader
-  if (!isValidSlotLeader(block)) {
-    return Error(16, "Invalid slot leader");
-  }
-
-  // Validate timestamp
-  if (!isValidTimestamp(block)) {
-    return Error(17, "Invalid timestamp");
-  }
-
   return {};
 }
 
-uint64_t Miner::getCurrentBlockId() const {
-  return ledger_.getCurrentBlockId();
-}
-
 Miner::Roe<std::shared_ptr<Block>> Miner::getBlock(uint64_t blockId) const {
-  auto block = chain_.getBlock(blockId);
-  if (!block) {
-    return Error(18, "Block not found: " + std::to_string(blockId));
+  // Call base class implementation
+  auto result = Validator::getBlockBase(blockId);
+  if (!result) {
+    return Error(18, result.error().message);
   }
-  return block;
+  return result.value();
 }
 
 Miner::Roe<void> Miner::syncChain(const BlockChain& otherChain) {
@@ -329,14 +244,6 @@ bool Miner::isOutOfDate(uint64_t checkpointId) const {
   }
 
   return false;
-}
-
-uint64_t Miner::getCurrentSlot() const {
-  return consensus_.getCurrentSlot();
-}
-
-uint64_t Miner::getCurrentEpoch() const {
-  return consensus_.getCurrentEpoch();
 }
 
 bool Miner::isSlotLeader(uint64_t slot) const {
@@ -403,48 +310,6 @@ std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>&
   return oss.str();
 }
 
-bool Miner::isValidBlockSequence(const Block& block) const {
-  auto latestBlock = chain_.getLatestBlock();
-  
-  if (!latestBlock) {
-    // First block (genesis)
-    return block.getIndex() == 0;
-  }
-
-  // Check index is sequential
-  if (block.getIndex() != latestBlock->getIndex() + 1) {
-    log().warning << "Invalid block index: expected " << (latestBlock->getIndex() + 1)
-                  << " got " << block.getIndex();
-    return false;
-  }
-
-  // Check previous hash matches
-  if (block.getPreviousHash() != latestBlock->getHash()) {
-    log().warning << "Invalid previous hash";
-    return false;
-  }
-
-  return true;
-}
-
-bool Miner::isValidSlotLeader(const Block& block) const {
-  return consensus_.isSlotLeader(block.getSlot(), block.getSlotLeader());
-}
-
-bool Miner::isValidTimestamp(const Block& block) const {
-  int64_t slotStartTime = consensus_.getSlotStartTime(block.getSlot());
-  int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
-  
-  int64_t blockTime = block.getTimestamp();
-
-  if (blockTime < slotStartTime || blockTime > slotEndTime) {
-    log().warning << "Block timestamp out of slot range";
-    return false;
-  }
-
-  return true;
-}
-
 Miner::Roe<void> Miner::loadCheckpoint(const CheckpointInfo& checkpoint) {
   log().info << "Loading checkpoint at block " << checkpoint.blockId;
 
@@ -482,7 +347,7 @@ Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
 
   // Reinitialize ledger with new starting block ID
   Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = config_.workDir + "/ledger";
+  ledgerConfig.workDir = baseConfig_.workDir + "/ledger";
   ledgerConfig.startingBlockId = startBlockId;
 
   auto result = ledger_.init(ledgerConfig);

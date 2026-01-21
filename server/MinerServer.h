@@ -104,6 +104,11 @@ private:
    * Handle consensus-related requests
    */
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle status requests
+   */
+  std::string handleStatusRequest(const nlohmann::json& reqJson);
 
   /**
    * Handle block production when acting as slot leader

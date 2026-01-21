@@ -8,7 +8,8 @@
 namespace pp {
 
 Beacon::Beacon() 
-    : consensus_(1, 21600), currentCheckpointId_(0) {
+    : Validator(),
+      currentCheckpointId_(0) {
   setLogger("Beacon");
   log().info << "Beacon initialized";
 }
@@ -16,47 +17,19 @@ Beacon::Beacon()
 Beacon::Roe<void> Beacon::init(const Config& config) {
   config_ = config;
 
-  // Create work directory if it doesn't exist
-  if (!std::filesystem::exists(config_.workDir)) {
-    std::filesystem::create_directories(config_.workDir);
-  }
+  log().info << "Initializing Beacon";
 
-  log().info << "Initializing Beacon with work directory: " << config_.workDir;
-
-  // Initialize consensus with configuration
-  consensus_.setSlotDuration(config_.slotDuration);
-  consensus_.setSlotsPerEpoch(config_.slotsPerEpoch);
-  
-  // Set genesis time if not already set
-  if (consensus_.getGenesisTime() == 0) {
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch()).count();
-    consensus_.setGenesisTime(timestamp);
-  }
-
-  // Initialize ledger
-  Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = config_.workDir + "/ledger";
-  ledgerConfig.startingBlockId = 0;
-
-  auto ledgerResult = ledger_.init(ledgerConfig);
-  if (!ledgerResult) {
-    return Error(1, "Failed to initialize ledger: " + ledgerResult.error().message);
+  // Initialize base class
+  auto baseResult = initBase(config);
+  if (!baseResult) {
+    return Error(1, "Failed to initialize base: " + baseResult.error().message);
   }
 
   log().info << "Beacon initialized successfully";
-  log().info << "  Genesis time: " << consensus_.getGenesisTime();
-  log().info << "  Slot duration: " << consensus_.getSlotDuration() << "s";
-  log().info << "  Slots per epoch: " << consensus_.getSlotsPerEpoch();
   log().info << "  Checkpoint min size: " << (config_.checkpointMinSizeBytes / (1024*1024)) << " MB";
   log().info << "  Checkpoint age: " << (config_.checkpointAgeSeconds / (24*3600)) << " days";
 
   return {};
-}
-
-uint64_t Beacon::getCurrentBlockId() const {
-  return ledger_.getCurrentBlockId();
 }
 
 uint64_t Beacon::getCurrentCheckpointId() const {
@@ -125,11 +98,12 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
 }
 
 Beacon::Roe<std::shared_ptr<Block>> Beacon::getBlock(uint64_t blockId) const {
-  auto block = chain_.getBlock(blockId);
-  if (!block) {
-    return Error(2, "Block not found: " + std::to_string(blockId));
+  // Call base class implementation
+  auto result = Validator::getBlockBase(blockId);
+  if (!result) {
+    return Error(2, result.error().message);
   }
-  return block;
+  return result.value();
 }
 
 Beacon::Roe<std::vector<std::shared_ptr<Block>>> Beacon::getBlocks(
@@ -153,27 +127,11 @@ Beacon::Roe<std::vector<std::shared_ptr<Block>>> Beacon::getBlocks(
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Block& block) {
-  // Validate the block
-  auto validationResult = validateBlock(block);
-  if (!validationResult) {
-    return Error(4, "Block validation failed: " + validationResult.error().message);
+  // Call base class implementation which validates and adds to chain/ledger
+  auto result = Validator::addBlockBase(block);
+  if (!result) {
+    return Error(4, result.error().message);
   }
-
-  // Add to blockchain
-  auto blockPtr = std::make_shared<Block>(block);
-  if (!chain_.addBlock(blockPtr)) {
-    return Error(5, "Failed to add block to chain");
-  }
-
-  // Persist to ledger
-  auto ledgerResult = ledger_.addBlock(block);
-  if (!ledgerResult) {
-    return Error(6, "Failed to persist block to ledger: " + ledgerResult.error().message);
-  }
-
-  log().info << "Block added: " << block.getIndex() 
-             << " slot: " << block.getSlot()
-             << " leader: " << block.getSlotLeader();
 
   // Check if we need to evaluate checkpoints
   if (needsCheckpoint()) {
@@ -187,53 +145,11 @@ Beacon::Roe<void> Beacon::addBlock(const Block& block) {
 }
 
 Beacon::Roe<void> Beacon::validateBlock(const Block& block) const {
-  uint64_t slot = block.getSlot();
-  std::string slotLeader = block.getSlotLeader();
-
-  // Validate slot leader
-  if (!consensus_.validateSlotLeader(slotLeader, slot)) {
-    return Error(7, "Invalid slot leader for block at slot " + std::to_string(slot));
+  // Call base class implementation
+  auto result = Validator::validateBlockBase(block);
+  if (!result) {
+    return Error(7, result.error().message);
   }
-
-  // Validate block timing
-  if (!consensus_.validateBlockTiming(block, slot)) {
-    return Error(8, "Block timestamp outside valid slot range");
-  }
-
-  // Validate hash chain
-  size_t chainSize = chain_.getSize();
-  if (chainSize > 0) {
-    auto latestBlock = chain_.getLatestBlock();
-    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
-      return Error(9, "Block previous hash does not match chain");
-    }
-
-    if (latestBlock && block.getIndex() != latestBlock->getIndex() + 1) {
-      return Error(10, "Block index mismatch");
-    }
-  }
-
-  // Validate block hash
-  std::string calculatedHash = block.calculateHash();
-  if (calculatedHash != block.getHash()) {
-    return Error(11, "Block hash validation failed");
-  }
-
-  // Validate block sequence
-  if (!isValidBlockSequence(block)) {
-    return Error(9, "Invalid block sequence");
-  }
-
-  // Validate slot leader
-  if (!isValidSlotLeader(block)) {
-    return Error(10, "Invalid slot leader");
-  }
-
-  // Validate timestamp
-  if (!isValidTimestamp(block)) {
-    return Error(11, "Invalid timestamp");
-  }
-
   return {};
 }
 
@@ -339,14 +255,6 @@ Beacon::Roe<std::string> Beacon::getSlotLeader(uint64_t slot) const {
   return result.value();
 }
 
-uint64_t Beacon::getCurrentSlot() const {
-  return consensus_.getCurrentSlot();
-}
-
-uint64_t Beacon::getCurrentEpoch() const {
-  return consensus_.getCurrentEpoch();
-}
-
 // Private helper methods
 
 uint64_t Beacon::calculateBlockchainSize() const {
@@ -414,50 +322,6 @@ Beacon::Roe<void> Beacon::pruneOldData(uint64_t checkpointId) {
   
   // For now, this is a placeholder
   return {};
-}
-
-bool Beacon::isValidBlockSequence(const Block& block) const {
-  auto latestBlock = chain_.getLatestBlock();
-  
-  if (!latestBlock) {
-    // First block (genesis)
-    return block.getIndex() == 0;
-  }
-
-  // Check index is sequential
-  if (block.getIndex() != latestBlock->getIndex() + 1) {
-    log().warning << "Invalid block index: expected " << (latestBlock->getIndex() + 1)
-                  << " got " << block.getIndex();
-    return false;
-  }
-
-  // Check previous hash matches
-  if (block.getPreviousHash() != latestBlock->getHash()) {
-    log().warning << "Invalid previous hash";
-    return false;
-  }
-
-  return true;
-}
-
-bool Beacon::isValidSlotLeader(const Block& block) const {
-  return consensus_.isSlotLeader(block.getSlot(), block.getSlotLeader());
-}
-
-bool Beacon::isValidTimestamp(const Block& block) const {
-  // Check if timestamp is within acceptable range for the slot
-  int64_t slotStartTime = consensus_.getSlotStartTime(block.getSlot());
-  int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
-  
-  int64_t blockTime = block.getTimestamp();
-
-  if (blockTime < slotStartTime || blockTime > slotEndTime) {
-    log().warning << "Block timestamp out of slot range: " << blockTime
-                  << " (slot: " << slotStartTime << "-" << slotEndTime << ")";
-    return false;
-  }
-
-  return true;
 }
 
 } // namespace pp

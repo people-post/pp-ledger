@@ -221,16 +221,7 @@ std::string MinerServer::handleRequest(const std::string &request) {
   } else if (type == "consensus") {
     return handleConsensusRequest(reqJson);
   } else if (type == "status") {
-    nlohmann::json resp;
-    resp["status"] = "ok";
-    resp["minerId"] = config_.minerId;
-    resp["stake"] = config_.stake;
-    resp["currentBlockId"] = miner_.getCurrentBlockId();
-    resp["currentSlot"] = miner_.getCurrentSlot();
-    resp["currentEpoch"] = miner_.getCurrentEpoch();
-    resp["pendingTransactions"] = miner_.getPendingTransactionCount();
-    resp["isSlotLeader"] = miner_.shouldProduceBlock();
-    return resp.dump();
+    return handleStatusRequest(reqJson);
   } else {
     nlohmann::json resp;
     resp["error"] = "unknown request type: " + type;
@@ -492,6 +483,21 @@ std::string MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
   } else {
     resp["error"] = "unknown consensus action: " + action;
   }
+  
+  return resp.dump();
+}
+
+std::string MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+  
+  resp["status"] = "ok";
+  resp["minerId"] = config_.minerId;
+  resp["stake"] = config_.stake;
+  resp["currentBlockId"] = miner_.getCurrentBlockId();
+  resp["currentSlot"] = miner_.getCurrentSlot();
+  resp["currentEpoch"] = miner_.getCurrentEpoch();
+  resp["pendingTransactions"] = miner_.getPendingTransactionCount();
+  resp["isSlotLeader"] = miner_.shouldProduceBlock();
   
   return resp.dump();
 }

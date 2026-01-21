@@ -70,6 +70,11 @@ protected:
   void onStop() override;
 
 private:
+  struct QueuedRequest {
+    std::string request;
+    std::shared_ptr<network::TcpConnection> connection;
+  };
+
   struct NetworkConfig {
     network::TcpEndpoint endpoint;
     std::vector<std::string> beacons;
@@ -105,6 +110,21 @@ private:
   void connectToOtherBeacons();
   
   /**
+   * Handle register requests
+   */
+  std::string handleRegisterRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle heartbeat requests
+   */
+  std::string handleHeartbeatRequest(const nlohmann::json& reqJson);
+  
+  /**
+   * Handle query requests
+   */
+  std::string handleQueryRequest(const nlohmann::json& reqJson);
+  
+  /**
    * Handle block-related requests
    */
   std::string handleBlockRequest(const nlohmann::json& reqJson);
@@ -123,11 +143,12 @@ private:
    * Handle consensus-related requests
    */
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
-
-  struct QueuedRequest {
-    std::string request;
-    std::shared_ptr<network::TcpConnection> connection;
-  };
+  
+  /**
+   * Process a single queued request from the request queue
+   * @param qr The queued request to process
+   */
+  void processQueuedRequest(QueuedRequest& qr);
 
   // Configuration
   std::string dataDir_;

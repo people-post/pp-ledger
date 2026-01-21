@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
+#include "Validator.h"
 #include "../ledger/Ledger.h"
 #include "../ledger/Block.h"
 #include "../ledger/BlockChain.h"
@@ -36,7 +37,7 @@ namespace pp {
  * - Maintains transaction pool for pending transactions
  * - Uses Ouroboros consensus for slot leader selection
  */
-class Miner : public Module {
+class Miner : public Validator {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
@@ -44,14 +45,9 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
-    struct Config {
-        std::string workDir;
+    struct Config : public BaseConfig {
         std::string minerId;
         uint64_t stake;
-        
-        // Consensus configuration
-        uint64_t slotDuration = 1; // seconds
-        uint64_t slotsPerEpoch = 21600; // ~6 hours
         
         // Transaction pool limits
         size_t maxPendingTransactions = 10000;
@@ -83,10 +79,9 @@ public:
     void clearTransactionPool();
 
     // Block and chain operations
+    Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
     Roe<void> addBlock(const Block& block);
     Roe<void> validateBlock(const Block& block) const;
-    uint64_t getCurrentBlockId() const;
-    Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
 
     // Chain synchronization
     Roe<void> syncChain(const BlockChain& chain);
@@ -94,25 +89,17 @@ public:
     bool isOutOfDate(uint64_t checkpointId) const;
 
     // Consensus queries
-    uint64_t getCurrentSlot() const;
-    uint64_t getCurrentEpoch() const;
     bool isSlotLeader(uint64_t slot) const;
 
     // Status
     std::string getMinerId() const { return config_.minerId; }
     uint64_t getStake() const { return config_.stake; }
-    const BlockChain& getChain() const { return chain_; }
 
 private:
     // Helper methods for block production
     Roe<std::shared_ptr<Block>> createBlock();
     std::vector<Ledger::Transaction> selectTransactionsForBlock();
     std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
-    
-    // Validation helpers
-    bool isValidBlockSequence(const Block& block) const;
-    bool isValidSlotLeader(const Block& block) const;
-    bool isValidTimestamp(const Block& block) const;
     
     // Checkpoint management
     Roe<void> loadCheckpoint(const CheckpointInfo& checkpoint);
@@ -125,11 +112,6 @@ private:
     // Configuration
     Config config_;
 
-    // Core components
-    consensus::Ouroboros consensus_;
-    Ledger ledger_;
-    BlockChain chain_;
-
     // Transaction pool
     std::queue<Ledger::Transaction> pendingTransactions_;
     mutable std::mutex transactionMutex_;
@@ -137,7 +119,6 @@ private:
     // State tracking
     bool initialized_;
     uint64_t lastProducedBlockId_;
-    mutable std::mutex stateMutex_;
 };
 
 } // namespace pp
