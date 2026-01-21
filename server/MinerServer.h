@@ -119,6 +119,12 @@ private:
    * Handle validation when not slot leader
    */
   void handleValidatorRole();
+  
+  /**
+   * Connect to beacon server and fetch initial state
+   * @return ResultOrError indicating success or failure
+   */
+  Roe<void> connectToBeacon();
 
   // Configuration
   std::string dataDir_;

@@ -12,7 +12,7 @@ Client::Client() : Module() {
   setLogger("client");
 }
 
-Client::~Client() { disconnect(); }
+Client::~Client() {}
 
 std::string Client::getErrorMessage(uint16_t errorCode) {
   switch (errorCode) {
@@ -31,41 +31,21 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
   }
 }
 
-bool Client::initBeacon(const network::TcpEndpoint &endpoint) {
-  endpoint_ = endpoint;
-  connected_ = true;
-  log().info << "Connected to BeaconServer at " << endpoint_.address << ":"
-             << endpoint_.port;
-  return true;
-}
-
-bool Client::initBeacon(const std::string &address, uint16_t port) {
-  return initBeacon(network::TcpEndpoint{address, port});
-}
-
-bool Client::initMiner(const network::TcpEndpoint &endpoint) {
-  endpoint_ = endpoint;
-  connected_ = true;
-  log().info << "Connected to MinerServer at " << endpoint_.address << ":"
-             << endpoint_.port;
-  return true;
-}
-
-bool Client::initMiner(const std::string &address, uint16_t port) {
-  return initMiner(network::TcpEndpoint{address, port});
-}
-
-void Client::disconnect() {
-  if (connected_) {
-    log().info << "Disconnected from server";
-    connected_ = false;
+Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
+  auto ep = network::TcpEndpoint::fromString(endpoint);
+  if (ep.port == 0) {
+    return Error(E_NOT_CONNECTED, "Invalid endpoint: " + endpoint);
   }
+  endpoint_ = ep;
+  return {};
 }
 
-bool Client::isConnected() const { return connected_; }
+void Client::setEndpoint(const network::TcpEndpoint &endpoint) {
+  endpoint_ = endpoint;
+}
 
 Client::Roe<json> Client::sendRequest(const json &request) {
-  if (!connected_) {
+  if (endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
 
@@ -149,11 +129,30 @@ Client::Roe<uint64_t> Client::getCurrentBlockId() {
 
   const json &response = result.value();
 
-  if (!response.contains("blockId")) {
+  if (!response.contains("currentBlockId")) {
     return Error(E_INVALID_RESPONSE, "Response missing 'blockId' field");
   }
 
-  return response["blockId"].get<uint64_t>();
+  return response["currentBlockId"].get<uint64_t>();
+}
+
+Client::Roe<uint64_t> Client::getCurrentCheckpointId() {
+  log().debug << "Requesting current checkpoint ID";
+
+  json request = {{"type", "checkpoint"}, {"action", "current"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  if (!response.contains("currentCheckpointId")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'currentCheckpointId' field");
+  }
+
+  return response["currentCheckpointId"].get<uint64_t>();
 }
 
 Client::Roe<bool> Client::addBlock(const BlockInfo &block) {

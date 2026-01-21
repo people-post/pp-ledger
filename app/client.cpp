@@ -165,17 +165,8 @@ int main(int argc, char *argv[]) {
   pp::Client client;
 
   // Initialize connection
-  if (connectToBeacon) {
-    if (!client.initBeacon(host, port)) {
-      std::cerr << "Error: Failed to initialize client\n";
-      return 1;
-    }
-  } else {
-    if (!client.initMiner(host, port)) {
-      std::cerr << "Error: Failed to initialize client\n";
-      return 1;
-    }
-  }
+  pp::network::TcpEndpoint endpoint{host, port};
+  client.setEndpoint(endpoint);
 
   int exitCode = 0;
 
@@ -332,6 +323,5 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  client.disconnect();
   return exitCode;
 }

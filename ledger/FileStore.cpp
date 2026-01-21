@@ -4,7 +4,9 @@
 
 namespace pp {
 
-FileStore::FileStore() {}
+FileStore::FileStore() {
+  setLogger("FileStore");
+}
 
 FileStore::Roe<void> FileStore::init(const Config &config) {
   filepath_ = config.filepath;

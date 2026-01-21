@@ -70,6 +70,14 @@ bool MinerServer::onStart() {
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Stake: " << config_.stake;
 
+  // Connect to beacon server and fetch initial state
+  auto beaconResult = connectToBeacon();
+  if (!beaconResult) {
+    log().error << "Failed to connect to beacon: " << beaconResult.error().message;
+    return false;
+  }
+  log().info << "Successfully connected to beacon and synchronized initial state";
+
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
@@ -170,15 +178,29 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
     config_.network.endpoint.port = 8518; // Default miner port
   }
 
-  // Load beacon addresses (optional)
-  if (config.contains("beacons") && config["beacons"].is_array()) {
-    for (const auto &beaconAddr : config["beacons"]) {
-      if (beaconAddr.is_string()) {
-        std::string addr = beaconAddr.get<std::string>();
-        config_.network.beacons.push_back(addr);
-        log().info << "Found beacon address in config: " << addr;
-      }
+  // Load beacon addresses (required)
+  if (!config.contains("beacons")) {
+    return Error(7, "Configuration file missing required 'beacons' field");
+  }
+  
+  if (!config["beacons"].is_array()) {
+    return Error(8, "Configuration file 'beacons' field must be an array");
+  }
+  
+  if (config["beacons"].empty()) {
+    return Error(9, "Configuration file 'beacons' array must contain at least one beacon address");
+  }
+  
+  for (const auto &beaconAddr : config["beacons"]) {
+    if (beaconAddr.is_string()) {
+      std::string addr = beaconAddr.get<std::string>();
+      config_.network.beacons.push_back(addr);
+      log().info << "Found beacon address in config: " << addr;
     }
+  }
+  
+  if (config_.network.beacons.empty()) {
+    return Error(10, "Configuration file 'beacons' array must contain at least one valid string address");
   }
 
   log().info << "Configuration loaded from " << configPath;
@@ -533,6 +555,60 @@ void MinerServer::handleValidatorRole() {
   
   // For now, this is a placeholder for validator behavior
   // The actual block reception would happen via network requests
+}
+
+MinerServer::Roe<void> MinerServer::connectToBeacon() {
+  if (config_.network.beacons.empty()) {
+    return Error(100, "No beacon servers configured");
+  }
+
+  // Try to connect to the first beacon in the list
+  std::string beaconAddr = config_.network.beacons[0];
+  log().info << "Connecting to beacon server: " << beaconAddr;
+
+  Client client;
+  client.setLogger(log().getName() + ".Client");
+  if (!client.setEndpoint(beaconAddr)) {
+    return Error(101, "Failed to connect to beacon at " + beaconAddr);
+  }
+
+  // Fetch latest checkpoint ID
+  auto checkpointResult = client.getCurrentCheckpointId();
+  if (!checkpointResult) {
+    log().warning << "Failed to get checkpoint ID: " << checkpointResult.error().message;
+  } else {
+    uint64_t checkpointId = checkpointResult.value();
+    log().info << "Latest checkpoint ID: " << checkpointId;
+  }
+
+  // Fetch latest block ID
+  auto blockResult = client.getCurrentBlockId();
+  if (!blockResult) {
+    return Error(102, "Failed to get current block ID: " + blockResult.error().message);
+  }
+  uint64_t currentBlockId = blockResult.value();
+  log().info << "Latest block ID: " << currentBlockId;
+
+  // Fetch stakeholder list
+  auto stakeholdersResult = client.listStakeholders();
+  if (!stakeholdersResult) {
+    return Error(103, "Failed to get stakeholders: " + stakeholdersResult.error().message);
+  }
+  
+  auto stakeholders = stakeholdersResult.value();
+  log().info << "Retrieved " << stakeholders.size() << " stakeholders from beacon";
+
+  // Register stakeholders with the miner's consensus module
+  // Note: We need to access the consensus module through the miner
+  // For now, we'll just log the stakeholders
+  uint64_t totalStake = 0;
+  for (const auto& sh : stakeholders) {
+    log().info << "  Stakeholder: " << sh.id << " with stake " << sh.stake;
+    totalStake += sh.stake;
+  }
+  log().info << "Total stake in network: " << totalStake;
+
+  return {};
 }
 
 } // namespace pp

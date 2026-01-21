@@ -11,7 +11,9 @@
 
 namespace pp {
 
-DirDirStore::DirDirStore() {}
+DirDirStore::DirDirStore() {
+  setLogger("DirDirStore");
+}
 
 DirDirStore::~DirDirStore() { flush(); }
 

@@ -71,22 +71,16 @@ public:
   Client();
   ~Client();
 
-  // Connection management
-  bool initBeacon(const network::TcpEndpoint &endpoint);
-  bool initBeacon(const std::string &address = DEFAULT_HOST,
-                  uint16_t port = DEFAULT_BEACON_PORT);
-
-  bool initMiner(const network::TcpEndpoint &endpoint);
-  bool initMiner(const std::string &address = DEFAULT_HOST,
-                 uint16_t port = DEFAULT_MINER_PORT);
-
-  void disconnect();
-  bool isConnected() const;
+  Roe<void> setEndpoint(const std::string& endpoint);
+  void setEndpoint(const network::TcpEndpoint &endpoint);
 
   // BeaconServer API - Block operations
   Roe<BlockInfo> getBlock(uint64_t blockId);
   Roe<uint64_t> getCurrentBlockId();
   Roe<bool> addBlock(const BlockInfo &block);
+
+  // BeaconServer API - Checkpoint operations
+  Roe<uint64_t> getCurrentCheckpointId();
 
   // BeaconServer API - Stakeholder operations
   Roe<std::vector<StakeholderInfo>> listStakeholders();
