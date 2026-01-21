@@ -1,13 +1,3 @@
-# Server executable
-add_executable(pp-server
-    server.cpp
-)
-
-target_link_libraries(pp-server PRIVATE
-    pp_lib
-    pp_server
-)
-
 # Client executable
 add_executable(pp-client
     client.cpp
@@ -25,6 +15,16 @@ add_executable(pp-beacon
 )
 
 target_link_libraries(pp-beacon PRIVATE
+    pp_lib
+    pp_server
+)
+
+# Miner executable
+add_executable(pp-miner
+    miner.cpp
+)
+
+target_link_libraries(pp-miner PRIVATE
     pp_lib
     pp_server
 )

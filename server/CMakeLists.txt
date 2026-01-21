@@ -1,7 +1,5 @@
 # Server library
 add_library(pp_server STATIC
-    Server.cpp
-    Server.h
     BeaconServer.cpp
     BeaconServer.h
     Beacon.cpp

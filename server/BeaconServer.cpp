@@ -108,7 +108,7 @@ BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) 
       return Error(3, "Configuration file 'port' field is not an integer");
     }
   } else {
-    config_.network.endpoint.port = Client::DEFAULT_PORT;
+    config_.network.endpoint.port = Client::DEFAULT_BEACON_PORT;
   }
 
   // Load other beacon addresses (optional, can be empty)

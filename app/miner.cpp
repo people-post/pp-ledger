@@ -1,4 +1,4 @@
-#include "Server.h"
+#include "MinerServer.h"
 #include "Logger.h"
 
 #include <atomic>
@@ -23,33 +23,28 @@ void signalHandler(int signal) {
 } // namespace
 
 void printUsage() {
-  std::cout << "Usage: pp-ledger-server -d <work-dir>\n";
+  std::cout << "Usage: pp-miner -d <work-dir>\n";
   std::cout << "  -d <work-dir>  - Work directory (required)\n";
   std::cout << "\n";
   std::cout << "The work directory must contain:\n";
-  std::cout << "  - config.json  - Server configuration file (required)\n";
+  std::cout << "  - config.json  - Miner configuration file (required)\n";
   std::cout << "\n";
   std::cout << "Example:\n";
-  std::cout << "  pp-ledger-server -d /some/path/to/work-dir\n";
+  std::cout << "  pp-miner -d /some/path/to/work-dir\n";
   std::cout << "\n";
   std::cout << "The config.json file should contain:\n";
   std::cout << "  {\n";
+  std::cout << "    \"minerId\": \"miner1\",\n";
+  std::cout << "    \"stake\": 1000000,\n";
   std::cout << "    \"host\": \"localhost\",\n";
-  std::cout << "    \"port\": 8517,\n";
-  std::cout << "    \"network\": {\n";
-  std::cout << "      \"enableP2P\": false,\n";
-  std::cout << "      \"nodeId\": \"\",\n";
-  std::cout << "      \"bootstrapPeers\": [],\n";
-  std::cout << "      \"listenAddr\": \"0.0.0.0\",\n";
-  std::cout << "      \"p2pPort\": 9000,\n";
-  std::cout << "      \"maxPeers\": 50\n";
-  std::cout << "    }\n";
+  std::cout << "    \"port\": 8518,\n";
+  std::cout << "    \"beacons\": [\"127.0.0.1:8517\"]\n";
   std::cout << "  }\n";
 }
 
 int main(int argc, char *argv[]) {
   auto rootLogger = pp::logging::getRootLogger();
-  rootLogger->info << "PP-Ledger Server v" << pp::Client::VERSION;
+  rootLogger->info << "PP-Ledger Miner v1.0";
 
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
@@ -82,32 +77,32 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  auto logger = pp::logging::getLogger("server");
+  auto logger = pp::logging::getLogger("miner");
   logger->setLevel(pp::logging::Level::INFO);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
 
-  logger->info << "Starting server with work directory: " << workDir;
+  logger->info << "Starting miner with work directory: " << workDir;
 
-  pp::Server server;
-  server.redirectLogger("pp.Server");
-  if (server.start(workDir)) {
-    logger->info << "Server started successfully";
-    std::cout << "Server running\n";
+  pp::MinerServer miner;
+  miner.redirectLogger("pp.MinerServer");
+  if (miner.start(workDir)) {
+    logger->info << "Miner started successfully";
+    std::cout << "Miner running\n";
     std::cout << "Work directory: " << workDir << "\n";
-    std::cout << "Press Ctrl+C to stop the server...\n";
+    std::cout << "Press Ctrl+C to stop the miner...\n";
 
     // Wait for SIGINT
     std::unique_lock<std::mutex> lock(g_mutex);
     g_cv.wait(lock, [] { return !g_running.load(); });
 
-    server.stop();
-    logger->info << "Server stopped";
+    miner.stop();
+    logger->info << "Miner stopped";
     return 0;
   } else {
-    logger->error << "Failed to start server";
-    std::cerr << "Error: Failed to start server\n";
+    logger->error << "Failed to start miner";
+    std::cerr << "Error: Failed to start miner\n";
     return 1;
   }
 }

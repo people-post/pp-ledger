@@ -1,5 +1,5 @@
 #include "Module.h"
-#include "Server.h"
+#include "MinerServer.h"
 #include "Client.h"
 #include <gtest/gtest.h>
 
@@ -57,16 +57,16 @@ TEST(ModuleTest, LoggerRedirect) {
 }
 
 TEST(ModuleTest, LoggerWorksForDerivedClasses) {
-    pp::Server server;
+    pp::MinerServer miner;
     pp::Client client;
     
     // Test that derived classes can use logging
     EXPECT_NO_THROW({
-        server.log().info << "Server message";
+        miner.log().info << "Miner message";
         client.log().info << "Client message";
     });
     
     // Verify logger names
-    EXPECT_EQ(server.log().getName(), "server");
+    EXPECT_EQ(miner.log().getName(), "MinerServer");
     EXPECT_EQ(client.log().getName(), "client");
 }

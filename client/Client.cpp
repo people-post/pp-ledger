@@ -1,100 +1,78 @@
 #include "Client.h"
-#include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../network/FetchClient.h"
 
+#include <nlohmann/json.hpp>
+
 namespace pp {
 
-std::string Client::getErrorMessage(uint16_t errorCode) {
-  switch (errorCode) {
-  case E_VERSION:
-    return "Protocol version mismatch. Please update your client to match the "
-           "server version.";
-  case E_INVALID_REQUEST:
-    return "Invalid request format. The request could not be understood by the "
-           "server.";
-  case E_INVALID_RESPONSE:
-    return "Invalid response from server. The server response could not be "
-           "processed.";
-  case E_INVALID_DATA:
-    return "Invalid data format. The data provided is malformed or cannot be "
-           "parsed.";
-  case E_INVALID_SIGNATURE:
-    return "Invalid cryptographic signature. The signature verification "
-           "failed.";
-  case E_INVALID_TIMESTAMP:
-    return "Invalid timestamp. The timestamp is outside the acceptable range.";
-  case E_INVALID_NONCE:
-    return "Invalid nonce value. The nonce does not match the expected value.";
-  case E_INVALID_HASH:
-    return "Invalid hash value. The hash does not match the expected value.";
-  case E_INVALID_BLOCK:
-    return "Invalid block. The block data is corrupted or does not meet "
-           "validation requirements.";
-  case E_INVALID_TRANSACTION:
-    return "Invalid transaction. The transaction data is malformed or violates "
-           "protocol rules.";
-  case E_INVALID_VALIDATOR:
-    return "Invalid validator. The validator information is incorrect or not "
-           "authorized.";
-  case E_INVALID_BLOCKCHAIN:
-    return "Invalid blockchain state. The blockchain data is corrupted or "
-           "inconsistent.";
-  case E_INVALID_LEDGER:
-    return "Invalid ledger state. The ledger data is corrupted or "
-           "inconsistent.";
-  case E_INVALID_WALLET:
-    return "Wallet not found. The specified wallet does not exist in the "
-           "system.";
-  case E_INVALID_ADDRESS:
-    return "Invalid address format. The address provided is not in the correct "
-           "format.";
-  default:
-    return "Unknown error occurred. Error code: " + std::to_string(errorCode);
-  }
-}
+using json = nlohmann::json;
 
-Client::Client() {
+Client::Client() : Module() {
   setLogger("client");
 }
 
 Client::~Client() { disconnect(); }
 
-bool Client::init(const network::TcpEndpoint &endpoint) {
+std::string Client::getErrorMessage(uint16_t errorCode) {
+  switch (errorCode) {
+  case E_NOT_CONNECTED:
+    return "Not connected to server";
+  case E_INVALID_RESPONSE:
+    return "Invalid response from server";
+  case E_SERVER_ERROR:
+    return "Server error";
+  case E_PARSE_ERROR:
+    return "Failed to parse response";
+  case E_REQUEST_FAILED:
+    return "Request failed";
+  default:
+    return "Unknown error";
+  }
+}
+
+bool Client::initBeacon(const network::TcpEndpoint &endpoint) {
   endpoint_ = endpoint;
   connected_ = true;
-
-  log().info << "Client initialized, target server: " << endpoint_;
+  log().info << "Connected to BeaconServer at " << endpoint_.address << ":"
+             << endpoint_.port;
   return true;
 }
 
-bool Client::init(const std::string &address, uint16_t port) {
-  endpoint_.address = address;
-  endpoint_.port = port;
-  connected_ = true;
+bool Client::initBeacon(const std::string &address, uint16_t port) {
+  return initBeacon(network::TcpEndpoint{address, port});
+}
 
-  log().info << "Client initialized, target server: " << endpoint_;
+bool Client::initMiner(const network::TcpEndpoint &endpoint) {
+  endpoint_ = endpoint;
+  connected_ = true;
+  log().info << "Connected to MinerServer at " << endpoint_.address << ":"
+             << endpoint_.port;
   return true;
+}
+
+bool Client::initMiner(const std::string &address, uint16_t port) {
+  return initMiner(network::TcpEndpoint{address, port});
 }
 
 void Client::disconnect() {
   if (connected_) {
-    log().info << "Client disconnected";
+    log().info << "Disconnected from server";
     connected_ = false;
   }
 }
 
 bool Client::isConnected() const { return connected_; }
 
-Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
+Client::Roe<json> Client::sendRequest(const json &request) {
   if (!connected_) {
-    return Error(E_INVALID_REQUEST,
-                 getErrorMessage(E_INVALID_REQUEST) +
-                     " Client is not connected to the server.");
+    return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
 
-  // Serialize request
-  std::string requestData = utl::binaryPack(request);
+  // Serialize request to string
+  std::string requestData = request.dump();
+
+  log().debug << "Sending request: " << requestData;
 
   // Send request using FetchClient
   network::FetchClient fetchClient;
@@ -102,217 +80,287 @@ Client::Roe<Client::Response> Client::sendRequest(const Request &request) {
 
   if (!result.isOk()) {
     log().error << "Failed to send request: " << result.error().message;
-    return Error(E_INVALID_RESPONSE, getErrorMessage(E_INVALID_RESPONSE) +
-                                         " Details: " + result.error().message);
+    return Error(E_REQUEST_FAILED,
+                 getErrorMessage(E_REQUEST_FAILED) + ": " +
+                     result.error().message);
   }
 
-  // Deserialize response
-  auto responseResult = utl::binaryUnpack<Response>(result.value());
-  if (!responseResult) {
-    log().error << "Failed to deserialize response: "
-                 << responseResult.error().message;
-    return Error(E_INVALID_RESPONSE,
-                 getErrorMessage(E_INVALID_RESPONSE) +
-                     " Details: " + responseResult.error().message);
+  // Parse JSON response
+  json response;
+  try {
+    response = json::parse(result.value());
+  } catch (const json::exception &e) {
+    log().error << "Failed to parse response: " << e.what();
+    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + e.what());
   }
 
-  Response response = responseResult.value();
-  if (response.version != VERSION) {
-    return Error(E_VERSION, getErrorMessage(E_VERSION));
+  log().debug << "Received response: " << response.dump();
+
+  // Check for error in response
+  if (response.contains("status") && response["status"] == "error") {
+    std::string errorMsg = response.value("error", "Unknown server error");
+    return Error(E_SERVER_ERROR, getErrorMessage(E_SERVER_ERROR) + ": " + errorMsg);
   }
 
   return response;
 }
 
-Client::Roe<Client::RespInfo> Client::getInfo() {
-  log().debug << "Requesting server info";
+// BeaconServer API - Block operations
 
-  // Create request
-  Request request;
-  request.version = VERSION;
-  request.type = T_REQ_INFO;
-  request.data = ""; // No data needed for info request
+Client::Roe<Client::BlockInfo> Client::getBlock(uint64_t blockId) {
+  log().debug << "Requesting block " << blockId;
 
-  // Send request
+  json request = {{"type", "block"}, {"action", "get"}, {"blockId", blockId}};
+
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const Response &response = result.value();
-  if (response.errorCode != 0) {
-    std::string friendlyMsg = getErrorMessage(response.errorCode);
-    return Error(response.errorCode, friendlyMsg);
+  const json &response = result.value();
+
+  if (!response.contains("block")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'block' field");
   }
 
-  // Deserialize response data
-  auto respDataResult = utl::binaryUnpack<RespInfo>(response.data);
-  if (!respDataResult) {
-    return Error(E_INVALID_DATA,
-                 getErrorMessage(E_INVALID_DATA) +
-                     " Details: " + respDataResult.error().message);
-  }
+  const json &blockJson = response["block"];
 
-  log().debug << "Server info received: blocks="
-               << respDataResult.value().blockCount
-               << ", slot=" << respDataResult.value().currentSlot
-               << ", epoch=" << respDataResult.value().currentEpoch;
-  return respDataResult.value();
+  BlockInfo block;
+  block.index = blockJson.value("index", 0);
+  block.timestamp = blockJson.value("timestamp", 0);
+  block.data = blockJson.value("data", "");
+  block.previousHash = blockJson.value("previousHash", "");
+  block.hash = blockJson.value("hash", "");
+  block.slot = blockJson.value("slot", 0);
+  block.slotLeader = blockJson.value("slotLeader", "");
+
+  return block;
 }
 
-Client::Roe<Client::RespWalletInfo>
-Client::getWalletInfo(const std::string &walletId) {
-  log().debug << "Requesting wallet info for: " << walletId;
+Client::Roe<uint64_t> Client::getCurrentBlockId() {
+  log().debug << "Requesting current block ID";
 
-  // Create request data
-  ReqWalletInfo reqData;
-  reqData.walletId = walletId;
+  json request = {{"type", "block"}, {"action", "current"}};
 
-  // Create request
-  Request request;
-  request.version = VERSION;
-  request.type = T_REQ_QUERY_WALLET;
-  request.data = utl::binaryPack(reqData);
-
-  // Send request
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const Response &response = result.value();
-  if (response.errorCode != 0) {
-    std::string friendlyMsg = getErrorMessage(response.errorCode);
-    return Error(response.errorCode, friendlyMsg);
+  const json &response = result.value();
+
+  if (!response.contains("blockId")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'blockId' field");
   }
 
-  // Deserialize response data
-  auto respDataResult = utl::binaryUnpack<RespWalletInfo>(response.data);
-  if (!respDataResult) {
-    return Error(E_INVALID_DATA,
-                 getErrorMessage(E_INVALID_DATA) +
-                     " Details: " + respDataResult.error().message);
-  }
-
-  log().debug << "Wallet info received: balance="
-               << respDataResult.value().balance;
-  return respDataResult.value();
+  return response["blockId"].get<uint64_t>();
 }
 
-Client::Roe<Client::RespAddTransaction>
-Client::addTransaction(const std::string &transaction) {
-  log().debug << "Submitting transaction";
+Client::Roe<bool> Client::addBlock(const BlockInfo &block) {
+  log().debug << "Adding block " << block.index;
 
-  // Create request data
-  ReqAddTransaction reqData;
-  reqData.transaction = transaction;
+  json blockJson = {{"index", block.index},
+                    {"timestamp", block.timestamp},
+                    {"data", block.data},
+                    {"previousHash", block.previousHash},
+                    {"hash", block.hash},
+                    {"slot", block.slot},
+                    {"slotLeader", block.slotLeader}};
 
-  // Create request
-  Request request;
-  request.version = VERSION;
-  request.type = T_REQ_ADD_TRANSACTION;
-  request.data = utl::binaryPack(reqData);
+  json request = {{"type", "block"}, {"action", "add"}, {"block", blockJson}};
 
-  // Send request
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const Response &response = result.value();
-  if (response.errorCode != 0) {
-    std::string friendlyMsg = getErrorMessage(response.errorCode);
-    return Error(response.errorCode, friendlyMsg);
-  }
-
-  // Deserialize response data
-  auto respDataResult = utl::binaryUnpack<RespAddTransaction>(response.data);
-  if (!respDataResult) {
-    return Error(E_INVALID_DATA,
-                 getErrorMessage(E_INVALID_DATA) +
-                     " Details: " + respDataResult.error().message);
-  }
-
-  log().debug << "Transaction submitted successfully";
-  return respDataResult.value();
+  const json &response = result.value();
+  return response.value("status", "") == "ok";
 }
 
-Client::Roe<Client::RespValidators> Client::getValidators() {
-  log().debug << "Requesting validators";
+// BeaconServer API - Stakeholder operations
 
-  // Create request data
-  ReqValidators reqData;
-  reqData.validators = "";
+Client::Roe<std::vector<Client::StakeholderInfo>>
+Client::listStakeholders() {
+  log().debug << "Requesting stakeholder list";
 
-  // Create request
-  Request request;
-  request.version = VERSION;
-  request.type = T_REQ_BEACON_VALIDATORS;
-  request.data = utl::binaryPack(reqData);
+  json request = {{"type", "stakeholder"}, {"action", "list"}};
 
-  // Send request
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const Response &response = result.value();
-  if (response.errorCode != 0) {
-    std::string friendlyMsg = getErrorMessage(response.errorCode);
-    return Error(response.errorCode, friendlyMsg);
+  const json &response = result.value();
+
+  if (!response.contains("stakeholders")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'stakeholders' field");
   }
 
-  // Deserialize response data
-  auto respDataResult = utl::binaryUnpack<RespValidators>(response.data);
-  if (!respDataResult) {
-    return Error(E_INVALID_DATA,
-                 getErrorMessage(E_INVALID_DATA) +
-                     " Details: " + respDataResult.error().message);
+  std::vector<StakeholderInfo> stakeholders;
+  for (const auto &item : response["stakeholders"]) {
+    StakeholderInfo info;
+    info.id = item.value("id", "");
+    info.stake = item.value("stake", 0);
+    stakeholders.push_back(info);
   }
 
-  log().debug << "Validators received";
-  return respDataResult.value();
+  return stakeholders;
 }
 
-Client::Roe<Client::RespBlocks> Client::getBlocks(uint64_t fromIndex,
-                                                  uint64_t count) {
-  log().debug << "Requesting blocks from index " << fromIndex
-               << ", count=" << count;
+// BeaconServer API - Consensus queries
 
-  // Create request data
-  ReqBlocks reqData;
-  reqData.fromIndex = fromIndex;
-  reqData.count = count;
+Client::Roe<uint64_t> Client::getCurrentSlot() {
+  log().debug << "Requesting current slot";
 
-  // Create request
-  Request request;
-  request.version = VERSION;
-  request.type = T_REQ_BLOCKS;
-  request.data = utl::binaryPack(reqData);
+  json request = {{"type", "consensus"}, {"action", "currentSlot"}};
 
-  // Send request
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const Response &response = result.value();
-  if (response.errorCode != 0) {
-    std::string friendlyMsg = getErrorMessage(response.errorCode);
-    return Error(response.errorCode, friendlyMsg);
+  const json &response = result.value();
+
+  if (!response.contains("slot")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'slot' field");
   }
 
-  // Deserialize response data
-  auto respDataResult = utl::binaryUnpack<RespBlocks>(response.data);
-  if (!respDataResult) {
-    return Error(E_INVALID_DATA,
-                 getErrorMessage(E_INVALID_DATA) +
-                     " Details: " + respDataResult.error().message);
+  return response["slot"].get<uint64_t>();
+}
+
+Client::Roe<uint64_t> Client::getCurrentEpoch() {
+  log().debug << "Requesting current epoch";
+
+  json request = {{"type", "consensus"}, {"action", "currentEpoch"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
   }
 
-  log().debug << "Received " << respDataResult.value().blocks.size()
-               << " blocks";
-  return respDataResult.value();
+  const json &response = result.value();
+
+  if (!response.contains("epoch")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'epoch' field");
+  }
+
+  return response["epoch"].get<uint64_t>();
+}
+
+Client::Roe<std::string> Client::getSlotLeader(uint64_t slot) {
+  log().debug << "Requesting slot leader for slot " << slot;
+
+  json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  if (!response.contains("slotLeader")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'slotLeader' field");
+  }
+
+  return response["slotLeader"].get<std::string>();
+}
+
+// MinerServer API - Transaction operations
+
+Client::Roe<bool> Client::addTransaction(const json &transaction) {
+  log().debug << "Adding transaction";
+
+  json request = {{"type", "transaction"}, {"action", "add"}, {"transaction", transaction}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+  return response.value("status", "") == "ok";
+}
+
+Client::Roe<uint64_t> Client::getPendingTransactionCount() {
+  log().debug << "Requesting pending transaction count";
+
+  json request = {{"type", "transaction"}, {"action", "count"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  if (!response.contains("count")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'count' field");
+  }
+
+  return response["count"].get<uint64_t>();
+}
+
+// MinerServer API - Mining operations
+
+Client::Roe<bool> Client::produceBlock() {
+  log().debug << "Requesting block production";
+
+  json request = {{"type", "mining"}, {"action", "produce"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+  return response.value("status", "") == "ok";
+}
+
+Client::Roe<bool> Client::shouldProduceBlock() {
+  log().debug << "Checking if should produce block";
+
+  json request = {{"type", "mining"}, {"action", "shouldProduce"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  if (!response.contains("shouldProduce")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'shouldProduce' field");
+  }
+
+  return response["shouldProduce"].get<bool>();
+}
+
+// MinerServer API - Status
+
+Client::Roe<Client::MinerStatus> Client::getMinerStatus() {
+  log().debug << "Requesting miner status";
+
+  json request = {{"type", "status"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  MinerStatus status;
+  status.minerId = response.value("minerId", "");
+  status.stake = response.value("stake", 0);
+  status.currentBlockId = response.value("currentBlockId", 0);
+  status.currentSlot = response.value("currentSlot", 0);
+  status.currentEpoch = response.value("currentEpoch", 0);
+  status.pendingTransactions = response.value("pendingTransactions", 0);
+  status.isSlotLeader = response.value("isSlotLeader", false);
+
+  return status;
 }
 
 } // namespace pp
