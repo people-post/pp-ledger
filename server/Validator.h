@@ -50,9 +50,6 @@ public:
     // Consensus queries
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
-    
-    // Chain access
-    const BlockChain& getChain() const { return chain_; }
 
 protected:
     // Initialization helper
@@ -69,6 +66,7 @@ protected:
     Ledger& getLedger() { return ledger_; }
     const Ledger& getLedger() const { return ledger_; }
     BlockChain& getChainMutable() { return chain_; }
+    const BlockChain& getChain() const { return chain_; }
     const BaseConfig& getBaseConfig() const { return baseConfig_; }
     std::mutex& getStateMutex() const { return stateMutex_; }
 
