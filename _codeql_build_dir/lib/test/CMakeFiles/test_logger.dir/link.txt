@@ -1,1 +1,0 @@
-/home/runner/work/pp-ledger/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test_logger.dir/link.d CMakeFiles/test_logger.dir/test_logger.cpp.o -o test_logger  ../libpp_lib.a ../libgtest_main.a ../libgtest.a

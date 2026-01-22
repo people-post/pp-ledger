@@ -1,5 +1,0 @@
-if(EXISTS "/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/consensus/test/test_ouroboros_vrf[1]_tests.cmake")
-  include("/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/consensus/test/test_ouroboros_vrf[1]_tests.cmake")
-else()
-  add_test(test_ouroboros_vrf_NOT_BUILT test_ouroboros_vrf_NOT_BUILT)
-endif()

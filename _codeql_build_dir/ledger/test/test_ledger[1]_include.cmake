@@ -1,5 +1,0 @@
-if(EXISTS "/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/ledger/test/test_ledger[1]_tests.cmake")
-  include("/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/ledger/test/test_ledger[1]_tests.cmake")
-else()
-  add_test(test_ledger_NOT_BUILT test_ledger_NOT_BUILT)
-endif()

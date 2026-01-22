@@ -1,1 +1,0 @@
-/home/runner/work/pp-ledger/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test_fetch.dir/link.d CMakeFiles/test_fetch.dir/test_fetch.cpp.o -o test_fetch  ../../lib/libpp_lib.a ../libpp_network.a ../../lib/libgtest_main.a ../../lib/libgmock.a ../../lib/libpp_lib.a ../../lib/libgtest.a

@@ -1,1 +1,0 @@
-/home/runner/work/pp-ledger/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/test_dirdirstore.dir/link.d CMakeFiles/test_dirdirstore.dir/test_dirdirstore.cpp.o -o test_dirdirstore  ../../lib/libpp_lib.a ../libpp_ledger.a ../../lib/libgtest_main.a ../../lib/libpp_lib.a /usr/lib/x86_64-linux-gnu/libcrypto.so ../../lib/libgtest.a
