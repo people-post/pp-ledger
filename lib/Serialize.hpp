@@ -47,7 +47,11 @@ template <typename T> T swapBytes(T value) {
 
 // Endian conversion helpers - convert to/from big endian (network byte order)
 // These ensure machine-independent serialization
-inline uint16_t toBigEndian(uint16_t value) {
+template <typename T>
+inline T toBigEndian(T value) {
+  static_assert(std::is_same_v<T, uint16_t> || std::is_same_v<T, uint32_t> ||
+                    std::is_same_v<T, uint64_t>,
+                "toBigEndian only supports uint16_t, uint32_t, and uint64_t");
   if (isLittleEndian()) {
     return swapBytes(value);
   } else {
@@ -55,39 +59,11 @@ inline uint16_t toBigEndian(uint16_t value) {
   }
 }
 
-inline uint32_t toBigEndian(uint32_t value) {
-  if (isLittleEndian()) {
-    return swapBytes(value);
-  } else {
-    return value; // Already big endian
-  }
-}
-
-inline uint64_t toBigEndian(uint64_t value) {
-  if (isLittleEndian()) {
-    return swapBytes(value);
-  } else {
-    return value; // Already big endian
-  }
-}
-
-inline uint16_t fromBigEndian(uint16_t value) {
-  if (isLittleEndian()) {
-    return swapBytes(value);
-  } else {
-    return value; // Already big endian
-  }
-}
-
-inline uint32_t fromBigEndian(uint32_t value) {
-  if (isLittleEndian()) {
-    return swapBytes(value);
-  } else {
-    return value; // Already big endian
-  }
-}
-
-inline uint64_t fromBigEndian(uint64_t value) {
+template <typename T>
+inline T fromBigEndian(T value) {
+  static_assert(std::is_same_v<T, uint16_t> || std::is_same_v<T, uint32_t> ||
+                    std::is_same_v<T, uint64_t>,
+                "fromBigEndian only supports uint16_t, uint32_t, and uint64_t");
   if (isLittleEndian()) {
     return swapBytes(value);
   } else {
@@ -97,36 +73,49 @@ inline uint64_t fromBigEndian(uint64_t value) {
 
 // Floating point conversion helpers - convert to/from IEEE 754 big endian
 // format
-inline void floatToBigEndian(float value, uint8_t *bytes) {
-  uint32_t bits;
-  std::memcpy(&bits, &value, sizeof(float));
+template <typename FloatType, typename IntType>
+inline void floatingPointToBigEndian(FloatType value, uint8_t *bytes) {
+  static_assert((std::is_same_v<FloatType, float> && std::is_same_v<IntType, uint32_t>) ||
+                    (std::is_same_v<FloatType, double> && std::is_same_v<IntType, uint64_t>),
+                "Invalid type combination for floating point conversion");
+  static_assert(sizeof(FloatType) == sizeof(IntType),
+                "Float and integer types must have the same size");
+  IntType bits;
+  std::memcpy(&bits, &value, sizeof(FloatType));
   bits = toBigEndian(bits);
-  std::memcpy(bytes, &bits, sizeof(float));
+  std::memcpy(bytes, &bits, sizeof(FloatType));
+}
+
+template <typename FloatType, typename IntType>
+inline FloatType floatingPointFromBigEndian(const uint8_t *bytes) {
+  static_assert((std::is_same_v<FloatType, float> && std::is_same_v<IntType, uint32_t>) ||
+                    (std::is_same_v<FloatType, double> && std::is_same_v<IntType, uint64_t>),
+                "Invalid type combination for floating point conversion");
+  static_assert(sizeof(FloatType) == sizeof(IntType),
+                "Float and integer types must have the same size");
+  IntType bits;
+  std::memcpy(&bits, bytes, sizeof(FloatType));
+  bits = fromBigEndian(bits);
+  FloatType value;
+  std::memcpy(&value, &bits, sizeof(FloatType));
+  return value;
+}
+
+// Convenience wrappers for backward compatibility
+inline void floatToBigEndian(float value, uint8_t *bytes) {
+  floatingPointToBigEndian<float, uint32_t>(value, bytes);
 }
 
 inline float floatFromBigEndian(const uint8_t *bytes) {
-  uint32_t bits;
-  std::memcpy(&bits, bytes, sizeof(float));
-  bits = fromBigEndian(bits);
-  float value;
-  std::memcpy(&value, &bits, sizeof(float));
-  return value;
+  return floatingPointFromBigEndian<float, uint32_t>(bytes);
 }
 
 inline void doubleToBigEndian(double value, uint8_t *bytes) {
-  uint64_t bits;
-  std::memcpy(&bits, &value, sizeof(double));
-  bits = toBigEndian(bits);
-  std::memcpy(bytes, &bits, sizeof(double));
+  floatingPointToBigEndian<double, uint64_t>(value, bytes);
 }
 
 inline double doubleFromBigEndian(const uint8_t *bytes) {
-  uint64_t bits;
-  std::memcpy(&bits, bytes, sizeof(double));
-  bits = fromBigEndian(bits);
-  double value;
-  std::memcpy(&value, &bits, sizeof(double));
-  return value;
+  return floatingPointFromBigEndian<double, uint64_t>(bytes);
 }
 
 } // namespace detail

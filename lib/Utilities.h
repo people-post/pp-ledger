@@ -3,8 +3,22 @@
 
 #include <string>
 #include <cstdint>
+#include "ResultOrError.hpp"
+#include <nlohmann/json.hpp>
 
 namespace pp {
+
+// Error type for utility functions
+struct Error : public RoeErrorBase {
+  Error() : RoeErrorBase() {}
+  Error(int32_t c, const std::string &msg) : RoeErrorBase(c, msg) {}
+  Error(int32_t c, std::string &&msg) : RoeErrorBase(c, std::move(msg)) {}
+  explicit Error(const std::string &msg) : RoeErrorBase(msg) {}
+  explicit Error(std::string &&msg) : RoeErrorBase(std::move(msg)) {}
+};
+
+template <typename T> using Roe = ResultOrError<T, Error>;
+
 namespace utl {
 
 /**
@@ -47,6 +61,22 @@ bool parsePort(const std::string &str, uint16_t &port);
  * @return true if parsing succeeded, false otherwise
  */
 bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &port);
+
+/**
+ * Load and parse a JSON configuration file
+ * @param configPath Path to the JSON configuration file
+ * @param config Output parameter for the parsed JSON object
+ * @return Roe<void> indicating success or error
+ */
+pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath);
+
+/**
+ * Parse and validate a JSON request string
+ * @param request The JSON request string to parse
+ * @param reqJson Output parameter for the parsed JSON object
+ * @return Roe<void> indicating success or error
+ */
+pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request);
 
 } // namespace utl
 } // namespace pp

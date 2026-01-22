@@ -1,6 +1,8 @@
 #include "Utilities.h"
 #include <charconv>
 #include <cstdint>
+#include <fstream>
+#include <filesystem>
 
 namespace pp {
 namespace utl {
@@ -42,6 +44,47 @@ bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &por
   host = hostPort.substr(0, colonPos);
   std::string portStr = hostPort.substr(colonPos + 1);
   return parsePort(portStr, port);
+}
+
+pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath) {
+  if (!std::filesystem::exists(configPath)) {
+    return Error(1, "Configuration file not found: " + configPath);
+  }
+
+  std::ifstream configFile(configPath);
+  if (!configFile.is_open()) {
+    return Error(2, "Failed to open configuration file: " + configPath);
+  }
+
+  // Read file content
+  std::string content((std::istreambuf_iterator<char>(configFile)),
+                      std::istreambuf_iterator<char>());
+  configFile.close();
+
+  // Parse JSON
+  nlohmann::json config;
+  try {
+    config = nlohmann::json::parse(content);
+  } catch (const nlohmann::json::parse_error &e) {
+    return Error(3, "Failed to parse JSON: " + std::string(e.what()));
+  }
+
+  return config;
+}
+
+pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request) {
+  nlohmann::json reqJson;
+  try {
+    reqJson = nlohmann::json::parse(request);
+  } catch (const nlohmann::json::parse_error &e) {
+    return Error(1, "Failed to parse request JSON: " + std::string(e.what()));
+  }
+  
+  if (!reqJson.contains("type")) {
+    return Error(2, "missing type field");
+  }
+  
+  return reqJson;
 }
 
 } // namespace utl

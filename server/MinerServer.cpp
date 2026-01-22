@@ -126,27 +126,14 @@ void MinerServer::run() {
 }
 
 MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
-  if (!std::filesystem::exists(configPath)) {
-    return Error(1, "Configuration file not found: " + configPath);
+  // Use the utility function for loading JSON
+  auto jsonResult = utl::loadJsonFile(configPath);
+  if (jsonResult.isError()) {
+    // Convert pp::Error to MinerServer::Error
+    return Error(jsonResult.error().code, jsonResult.error().message);
   }
 
-  std::ifstream configFile(configPath);
-  if (!configFile.is_open()) {
-    return Error(2, "Failed to open configuration file: " + configPath);
-  }
-
-  // Read file content
-  std::string content((std::istreambuf_iterator<char>(configFile)),
-                      std::istreambuf_iterator<char>());
-  configFile.close();
-
-  // Parse JSON
-  nlohmann::json config;
-  try {
-    config = nlohmann::json::parse(content);
-  } catch (const nlohmann::json::parse_error &e) {
-    return Error(3, "Failed to parse JSON: " + std::string(e.what()));
-  }
+  nlohmann::json config = jsonResult.value();
 
   // Load miner ID (required)
   if (!config.contains("minerId") || !config["minerId"].is_string()) {
@@ -212,24 +199,15 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
 std::string MinerServer::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
 
-  // Try to parse as JSON
-  nlohmann::json reqJson;
-  try {
-    reqJson = nlohmann::json::parse(request);
-  } catch (const nlohmann::json::parse_error &e) {
-    log().error << "Failed to parse request JSON: " << e.what();
+  // Use the utility function for parsing JSON request
+  auto jsonResult = utl::parseJsonRequest(request);
+  if (jsonResult.isError()) {
     nlohmann::json errorResp;
-    errorResp["error"] = "invalid json";
+    errorResp["error"] = jsonResult.error().message;
     return errorResp.dump();
   }
-
-  // Handle different request types
-  if (!reqJson.contains("type")) {
-    nlohmann::json resp;
-    resp["error"] = "missing type field";
-    return resp.dump();
-  }
   
+  nlohmann::json reqJson = jsonResult.value();
   std::string type = reqJson["type"].get<std::string>();
 
   if (type == "transaction") {
