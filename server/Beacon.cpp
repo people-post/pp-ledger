@@ -33,12 +33,12 @@ Beacon::Roe<void> Beacon::init(const Config& config) {
 }
 
 uint64_t Beacon::getCurrentCheckpointId() const {
-  std::lock_guard<std::mutex> lock(stateMutex_);
+  std::lock_guard<std::mutex> lock(getStateMutex());
   return currentCheckpointId_;
 }
 
 uint64_t Beacon::getTotalStake() const {
-  return consensus_.getTotalStake();
+  return getConsensus().getTotalStake();
 }
 
 const std::list<Beacon::Stakeholder>& Beacon::getStakeholders() const {
@@ -67,7 +67,7 @@ void Beacon::addStakeholder(const Stakeholder& stakeholder) {
   }
 
   // Register with consensus
-  consensus_.registerStakeholder(stakeholder.id, stakeholder.stake);
+  getConsensus().registerStakeholder(stakeholder.id, stakeholder.stake);
 }
 
 void Beacon::removeStakeholder(const std::string& stakeholderId) {
@@ -78,7 +78,7 @@ void Beacon::removeStakeholder(const std::string& stakeholderId) {
     });
   }
 
-  consensus_.removeStakeholder(stakeholderId);
+  getConsensus().removeStakeholder(stakeholderId);
   log().info << "Removed stakeholder: " << stakeholderId;
 }
 
@@ -93,7 +93,7 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
     }
   }
 
-  consensus_.updateStake(stakeholderId, newStake);
+  getConsensus().updateStake(stakeholderId, newStake);
   log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
@@ -112,7 +112,7 @@ Beacon::Roe<std::vector<std::shared_ptr<Block>>> Beacon::getBlocks(
   
   for (uint64_t i = 0; i < count; ++i) {
     uint64_t blockId = fromId + i;
-    auto block = chain_.getBlock(blockId);
+    auto block = getChain().getBlock(blockId);
     if (!block) {
       break; // Stop at first missing block
     }
@@ -180,9 +180,9 @@ Beacon::Roe<void> Beacon::syncChain(const BlockChain& otherChain) {
 
 Beacon::Roe<bool> Beacon::shouldAcceptChain(const BlockChain& candidateChain) const {
   // Ouroboros chain selection rule: longest valid chain wins
-  if (candidateChain.getSize() > chain_.getSize()) {
+  if (candidateChain.getSize() > getChain().getSize()) {
     log().info << "Candidate chain is longer: " << candidateChain.getSize() 
-               << " vs " << chain_.getSize();
+               << " vs " << getChain().getSize();
     return true;
   }
 
@@ -248,7 +248,7 @@ bool Beacon::needsCheckpoint() const {
 }
 
 Beacon::Roe<std::string> Beacon::getSlotLeader(uint64_t slot) const {
-  auto result = consensus_.getSlotLeader(slot);
+  auto result = getConsensus().getSlotLeader(slot);
   if (!result) {
     return Error(15, "Failed to get slot leader: " + result.error().message);
   }
@@ -260,14 +260,14 @@ Beacon::Roe<std::string> Beacon::getSlotLeader(uint64_t slot) const {
 uint64_t Beacon::calculateBlockchainSize() const {
   // Estimate blockchain size
   // In a real implementation, this would query actual storage
-  size_t blockCount = chain_.getSize();
+  size_t blockCount = getChain().getSize();
   
   // Rough estimate: ~1KB per block on average
   return blockCount * 1024;
 }
 
 uint64_t Beacon::getBlockAge(uint64_t blockId) const {
-  auto block = chain_.getBlock(blockId);
+  auto block = getChain().getBlock(blockId);
   if (!block) {
     return 0;
   }
@@ -286,13 +286,13 @@ uint64_t Beacon::getBlockAge(uint64_t blockId) const {
 }
 
 Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
-  std::lock_guard<std::mutex> lock(stateMutex_);
+  std::lock_guard<std::mutex> lock(getStateMutex());
 
   // Update checkpoint in ledger
   std::vector<uint64_t> checkpoints;
   checkpoints.push_back(blockId);
   
-  auto result = ledger_.updateCheckpoints(checkpoints);
+  auto result = getLedger().updateCheckpoints(checkpoints);
   if (!result) {
     return Error(14, "Failed to update ledger checkpoints: " + result.error().message);
   }
