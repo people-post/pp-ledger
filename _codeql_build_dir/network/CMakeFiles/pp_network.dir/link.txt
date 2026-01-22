@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_network.a CMakeFiles/pp_network.dir/FetchClient.cpp.o CMakeFiles/pp_network.dir/FetchServer.cpp.o CMakeFiles/pp_network.dir/TcpClient.cpp.o CMakeFiles/pp_network.dir/TcpConnection.cpp.o CMakeFiles/pp_network.dir/TcpServer.cpp.o
+/usr/bin/ranlib libpp_network.a

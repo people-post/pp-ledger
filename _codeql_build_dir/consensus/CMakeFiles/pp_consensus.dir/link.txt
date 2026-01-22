@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_consensus.a CMakeFiles/pp_consensus.dir/Ouroboros.cpp.o CMakeFiles/pp_consensus.dir/SlotLeaderSelection.cpp.o CMakeFiles/pp_consensus.dir/EpochManager.cpp.o CMakeFiles/pp_consensus.dir/SlotTimer.cpp.o
+/usr/bin/ranlib libpp_consensus.a

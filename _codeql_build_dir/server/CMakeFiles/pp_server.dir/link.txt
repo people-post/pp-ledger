@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_server.a CMakeFiles/pp_server.dir/Validator.cpp.o CMakeFiles/pp_server.dir/BeaconServer.cpp.o CMakeFiles/pp_server.dir/Beacon.cpp.o CMakeFiles/pp_server.dir/MinerServer.cpp.o CMakeFiles/pp_server.dir/Miner.cpp.o
+/usr/bin/ranlib libpp_server.a

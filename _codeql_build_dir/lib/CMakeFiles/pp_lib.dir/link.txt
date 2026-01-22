@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_lib.a CMakeFiles/pp_lib.dir/Logger.cpp.o CMakeFiles/pp_lib.dir/Module.cpp.o CMakeFiles/pp_lib.dir/Service.cpp.o CMakeFiles/pp_lib.dir/Utilities.cpp.o
+/usr/bin/ranlib libpp_lib.a

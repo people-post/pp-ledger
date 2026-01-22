@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_client.a CMakeFiles/pp_client.dir/Client.cpp.o
+/usr/bin/ranlib libpp_client.a

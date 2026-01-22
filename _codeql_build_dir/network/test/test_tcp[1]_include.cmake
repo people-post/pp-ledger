@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/network/test/test_tcp[1]_tests.cmake")
+  include("/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/network/test/test_tcp[1]_tests.cmake")
+else()
+  add_test(test_tcp_NOT_BUILT test_tcp_NOT_BUILT)
+endif()

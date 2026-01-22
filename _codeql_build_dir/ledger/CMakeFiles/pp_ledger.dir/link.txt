@@ -1,0 +1,2 @@
+/usr/bin/ar qc libpp_ledger.a CMakeFiles/pp_ledger.dir/Block.cpp.o CMakeFiles/pp_ledger.dir/BlockChain.cpp.o CMakeFiles/pp_ledger.dir/Wallet.cpp.o CMakeFiles/pp_ledger.dir/Ledger.cpp.o CMakeFiles/pp_ledger.dir/DirStore.cpp.o CMakeFiles/pp_ledger.dir/FileStore.cpp.o CMakeFiles/pp_ledger.dir/FileDirStore.cpp.o CMakeFiles/pp_ledger.dir/DirDirStore.cpp.o
+/usr/bin/ranlib libpp_ledger.a

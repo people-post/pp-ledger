@@ -1,0 +1,1 @@
+/home/runner/work/pp-ledger/.codeql-scratch/dbs/cpp/working/autobuild/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/pp-client.dir/link.d "CMakeFiles/pp-client.dir/client.cpp.o" -o pp-client  ../lib/libpp_lib.a ../client/libpp_client.a ../ledger/libpp_ledger.a ../network/libpp_network.a ../lib/libpp_lib.a /usr/lib/x86_64-linux-gnu/libcrypto.so

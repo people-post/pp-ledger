@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/ledger/test/test_blockfile[1]_tests.cmake")
+  include("/home/runner/work/pp-ledger/pp-ledger/_codeql_build_dir/ledger/test/test_blockfile[1]_tests.cmake")
+else()
+  add_test(test_blockfile_NOT_BUILT test_blockfile_NOT_BUILT)
+endif()
