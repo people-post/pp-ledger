@@ -17,7 +17,7 @@ Miner::Miner()
 }
 
 Miner::Roe<void> Miner::init(const Config &config) {
-  std::lock_guard<std::mutex> lock(stateMutex_);
+  std::lock_guard<std::mutex> lock(getStateMutex());
 
   if (initialized_) {
     return Error(1, "Miner already initialized");
@@ -36,7 +36,7 @@ Miner::Roe<void> Miner::init(const Config &config) {
   }
 
   // Register self as stakeholder
-  consensus_.registerStakeholder(config_.minerId, config_.stake);
+  getConsensus().registerStakeholder(config_.minerId, config_.stake);
 
   initialized_ = true;
 
@@ -46,7 +46,7 @@ Miner::Roe<void> Miner::init(const Config &config) {
 }
 
 Miner::Roe<void> Miner::reinitFromCheckpoint(const CheckpointInfo& checkpoint) {
-  std::lock_guard<std::mutex> lock(stateMutex_);
+  std::lock_guard<std::mutex> lock(getStateMutex());
 
   log().info << "Reinitializing from checkpoint at block " << checkpoint.blockId;
 
@@ -118,19 +118,19 @@ Miner::Roe<std::shared_ptr<Block>> Miner::produceBlock() {
   auto block = blockResult.value();
 
   // Add to our chain
-  if (!chain_.addBlock(block)) {
+  if (!getChainMutable().addBlock(block)) {
     return Error(8, "Failed to add produced block to chain");
   }
 
   // Persist to ledger
-  auto ledgerResult = ledger_.addBlock(*block);
+  auto ledgerResult = getLedger().addBlock(*block);
   if (!ledgerResult) {
     log().error << "Failed to persist block to ledger: " << ledgerResult.error().message;
     // Don't fail the block production, just log the error
   }
 
   {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::lock_guard<std::mutex> lock(getStateMutex());
     lastProducedBlockId_ = block->getIndex();
   }
 
@@ -200,7 +200,7 @@ Miner::Roe<std::shared_ptr<Block>> Miner::getBlock(uint64_t blockId) const {
 }
 
 Miner::Roe<void> Miner::syncChain(const BlockChain& otherChain) {
-  size_t ourSize = chain_.getSize();
+  size_t ourSize = getChain().getSize();
   size_t theirSize = otherChain.getSize();
 
   log().info << "Syncing chain - our size: " << ourSize << " their size: " << theirSize;
@@ -247,7 +247,7 @@ bool Miner::isOutOfDate(uint64_t checkpointId) const {
 }
 
 bool Miner::isSlotLeader(uint64_t slot) const {
-  return consensus_.isSlotLeader(slot, config_.minerId);
+  return getConsensus().isSlotLeader(slot, config_.minerId);
 }
 
 // Private helper methods
@@ -260,7 +260,7 @@ Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
       now.time_since_epoch()).count();
 
   // Get previous block info
-  auto latestBlock = chain_.getLatestBlock();
+  auto latestBlock = getChain().getLatestBlock();
   uint64_t blockIndex = latestBlock ? latestBlock->getIndex() + 1 : 0;
   std::string previousHash = latestBlock ? latestBlock->getHash() : "";
 
@@ -347,10 +347,10 @@ Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
 
   // Reinitialize ledger with new starting block ID
   Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = baseConfig_.workDir + "/ledger";
+  ledgerConfig.workDir = getBaseConfig().workDir + "/ledger";
   ledgerConfig.startingBlockId = startBlockId;
 
-  auto result = ledger_.init(ledgerConfig);
+  auto result = getLedger().init(ledgerConfig);
   if (!result) {
     return Error(21, "Failed to reinitialize ledger: " + result.error().message);
   }
@@ -364,12 +364,12 @@ Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
 }
 
 void Miner::pruneOldBlocks(uint64_t keepFromBlockId) {
-  size_t originalSize = chain_.getSize();
+  size_t originalSize = getChain().getSize();
   
   // Calculate how many blocks to trim
   if (keepFromBlockId > 0) {
     size_t blocksToTrim = std::min(static_cast<size_t>(keepFromBlockId), originalSize);
-    size_t trimmed = chain_.trimBlocks(blocksToTrim);
+    size_t trimmed = getChainMutable().trimBlocks(blocksToTrim);
     
     log().info << "Pruned " << trimmed << " blocks before checkpoint";
   }

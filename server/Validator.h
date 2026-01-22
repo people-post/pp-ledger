@@ -63,7 +63,17 @@ protected:
     bool isValidSlotLeader(const Block& block) const;
     bool isValidTimestamp(const Block& block) const;
 
-    // Core components (protected so derived classes can access)
+    // Getters for derived classes
+    consensus::Ouroboros& getConsensus() { return consensus_; }
+    const consensus::Ouroboros& getConsensus() const { return consensus_; }
+    Ledger& getLedger() { return ledger_; }
+    const Ledger& getLedger() const { return ledger_; }
+    BlockChain& getChainMutable() { return chain_; }
+    const BaseConfig& getBaseConfig() const { return baseConfig_; }
+    std::mutex& getStateMutex() const { return stateMutex_; }
+
+private:
+    // Core components
     consensus::Ouroboros consensus_;
     Ledger ledger_;
     BlockChain chain_;
