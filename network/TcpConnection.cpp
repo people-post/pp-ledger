@@ -1,6 +1,7 @@
 #include "TcpConnection.h"
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstring>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -83,7 +84,7 @@ TcpConnection::Roe<void> TcpConnection::shutdownWrite() {
   }
 
   if (shutdown(socketFd_, SHUT_WR) < 0) {
-    return Error("Failed to shutdown write");
+    return Error("Failed to shutdown write: " + std::string(std::strerror(errno)));
   }
 
   return {};
