@@ -203,7 +203,6 @@ TEST_F(TcpConnectionTest, SendAndShutdown) {
     EXPECT_EQ(received, 0); // recv returns 0 when peer has shutdown write
 }
 
-
 // ============================================================================
 // TcpClient Tests
 // ============================================================================
