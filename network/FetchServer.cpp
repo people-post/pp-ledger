@@ -61,21 +61,35 @@ void FetchServer::run() {
     auto connection = std::move(acceptResult.value());
     log().info << "Accepted connection from " << connection.getPeerEndpoint();
 
-    // Read request data
+    // Read all request data until client shutdown write
+    std::string request;
     char buffer[4096];
-    auto recvResult = connection.receive(buffer, sizeof(buffer) - 1);
-    if (!recvResult) {
-      std::string errorMsg = recvResult.error().message;
-      log().error << "Failed to read data: " + errorMsg;
-      connection.close();
+    bool readError = false;
+    while (true) {
+      auto recvResult = connection.receive(buffer, sizeof(buffer));
+      if (!recvResult) {
+        std::string errorMsg = recvResult.error().message;
+        // Check if this is a clean shutdown (client closed write side)
+        if (errorMsg.find("closed by peer") != std::string::npos) {
+          // Expected shutdown signal from client
+          log().debug << "Client shutdown writing, received all data";
+          break;
+        }
+        log().error << "Failed to read data: " + errorMsg;
+        connection.close();
+        readError = true;
+        break;
+      }
+
+      size_t bytesRead = recvResult.value();
+      request.append(buffer, bytesRead);
+    }
+
+    if (readError) {
       continue;
     }
 
-    size_t bytesRead = recvResult.value();
-    buffer[bytesRead] = '\0';
-    std::string request(buffer, bytesRead);
-
-    log().info << "Received request (" + std::to_string(bytesRead) + " bytes)";
+    log().info << "Received complete request (" + std::to_string(request.length()) + " bytes)";
 
     // Process the request - handler now owns the connection and response
     try {

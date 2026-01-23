@@ -58,6 +58,38 @@ TcpConnection::Roe<size_t> TcpConnection::send(const std::string &message) {
   return send(message.c_str(), message.length());
 }
 
+TcpConnection::Roe<size_t> TcpConnection::sendAndShutdown(const void *data,
+                                                           size_t length) {
+  auto result = send(data, length);
+  if (!result) {
+    return result;
+  }
+  
+  auto shutdownResult = shutdownWrite();
+  if (!shutdownResult) {
+    return Error("Failed to shutdown write: " + shutdownResult.error().message);
+  }
+  
+  return result;
+}
+
+TcpConnection::Roe<size_t> TcpConnection::sendAndShutdown(const std::string &message) {
+  return sendAndShutdown(message.c_str(), message.length());
+}
+
+TcpConnection::Roe<void> TcpConnection::shutdownWrite() {
+  if (socketFd_ < 0) {
+    return Error("Connection closed");
+  }
+
+  if (shutdown(socketFd_, SHUT_WR) < 0) {
+    return Error("Failed to shutdown write");
+  }
+
+  return {};
+}
+
+
 TcpConnection::Roe<size_t> TcpConnection::receive(void *buffer,
                                                   size_t maxLength) {
   if (socketFd_ < 0) {

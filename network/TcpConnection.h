@@ -33,6 +33,13 @@ public:
   Roe<size_t> send(const void *data, size_t length);
   Roe<size_t> send(const std::string &message);
 
+  // Send data and shutdown writing in one call
+  Roe<size_t> sendAndShutdown(const void *data, size_t length);
+  Roe<size_t> sendAndShutdown(const std::string &message);
+
+  // Shutdown writing (half-close the connection)
+  Roe<void> shutdownWrite();
+
   // Receive data
   Roe<size_t> receive(void *buffer, size_t maxLength);
   Roe<std::string> receiveLine();
