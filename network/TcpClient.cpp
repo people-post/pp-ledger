@@ -127,7 +127,6 @@ TcpClient::Roe<void> TcpClient::shutdownWrite() {
   return {};
 }
 
-
 TcpClient::Roe<size_t> TcpClient::receive(void *buffer, size_t maxLength) {
   if (!connection_.has_value()) {
     return Error("Not connected");

@@ -90,7 +90,6 @@ TcpConnection::Roe<void> TcpConnection::shutdownWrite() {
   return {};
 }
 
-
 TcpConnection::Roe<size_t> TcpConnection::receive(void *buffer,
                                                   size_t maxLength) {
   if (socketFd_ < 0) {
