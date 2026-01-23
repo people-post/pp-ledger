@@ -90,6 +90,43 @@ TcpClient::Roe<size_t> TcpClient::send(const std::string &message) {
   return Roe<size_t>(result.value());
 }
 
+TcpClient::Roe<size_t> TcpClient::sendAndShutdown(const void *data,
+                                                   size_t length) {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+
+  auto result = connection_->sendAndShutdown(data, length);
+  if (result.isError()) {
+    return Error(result.error().message);
+  }
+  return Roe<size_t>(result.value());
+}
+
+TcpClient::Roe<size_t> TcpClient::sendAndShutdown(const std::string &message) {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+
+  auto result = connection_->sendAndShutdown(message);
+  if (result.isError()) {
+    return Error(result.error().message);
+  }
+  return Roe<size_t>(result.value());
+}
+
+TcpClient::Roe<void> TcpClient::shutdownWrite() {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+
+  auto result = connection_->shutdownWrite();
+  if (result.isError()) {
+    return Error(result.error().message);
+  }
+  return {};
+}
+
 TcpClient::Roe<size_t> TcpClient::receive(void *buffer, size_t maxLength) {
   if (!connection_.has_value()) {
     return Error("Not connected");

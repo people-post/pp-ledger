@@ -38,7 +38,7 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
 
   log().debug << "Connected successfully";
 
-  // Send the data
+  // Send the data and shutdown writing
   auto sendResult = client.send(data);
   if (!sendResult) {
     std::string errorMsg = sendResult.error().message;
@@ -47,7 +47,16 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
     return FetchClient::Error(2, "Failed to send data: " + errorMsg);
   }
 
-  log().debug << "Data sent, waiting for response";
+  // Shutdown writing to signal end of data
+  auto shutdownResult = client.shutdownWrite();
+  if (!shutdownResult) {
+    std::string errorMsg = shutdownResult.error().message;
+    log().error << "Failed to shutdown write: " + errorMsg;
+    client.close();
+    return FetchClient::Error(2, "Failed to shutdown write: " + errorMsg);
+  }
+
+  log().debug << "Data sent and write shutdown, waiting for response";
 
   // Receive response
   char buffer[4096];

@@ -159,6 +159,50 @@ TEST_F(TcpConnectionTest, GetPeerAddress) {
     EXPECT_GE(endpoint.port, 0);
 }
 
+TEST_F(TcpConnectionTest, ShutdownWrite) {
+    TcpConnection conn(serverSocket_);
+    
+    // Shutdown write should succeed
+    auto result = conn.shutdownWrite();
+    EXPECT_TRUE(result.isOk());
+    
+    // After shutdown write, we can still receive data
+    const char* testData = "Hello";
+    ::send(clientSocket_, testData, strlen(testData), 0);
+    
+    char buffer[256] = {0};
+    auto recvResult = conn.receive(buffer, sizeof(buffer) - 1);
+    EXPECT_TRUE(recvResult.isOk());
+    EXPECT_EQ(recvResult.value(), strlen(testData));
+    EXPECT_STREQ(buffer, testData);
+    
+    // Verify client can detect the shutdown
+    char clientBuffer[256] = {0};
+    ssize_t received = recv(clientSocket_, clientBuffer, sizeof(clientBuffer), 0);
+    EXPECT_EQ(received, 0); // recv returns 0 when peer has shutdown write
+}
+
+TEST_F(TcpConnectionTest, SendAndShutdown) {
+    TcpConnection conn(serverSocket_);
+    
+    // Send data and shutdown in one call
+    const std::string testMessage = "Test Message";
+    auto result = conn.sendAndShutdown(testMessage);
+    EXPECT_TRUE(result.isOk());
+    EXPECT_EQ(result.value(), testMessage.length());
+    
+    // Verify data was sent
+    char buffer[256] = {0};
+    ssize_t received = recv(clientSocket_, buffer, sizeof(buffer), 0);
+    EXPECT_EQ(received, static_cast<ssize_t>(testMessage.length()));
+    EXPECT_STREQ(buffer, testMessage.c_str());
+    
+    // Verify shutdown signal
+    char shutdownBuffer[256] = {0};
+    received = recv(clientSocket_, shutdownBuffer, sizeof(shutdownBuffer), 0);
+    EXPECT_EQ(received, 0); // recv returns 0 when peer has shutdown write
+}
+
 // ============================================================================
 // TcpClient Tests
 // ============================================================================
@@ -239,6 +283,21 @@ TEST_F(TcpClientTest, CloseWhenNotConnected) {
     client->close();
     EXPECT_FALSE(client->isConnected());
 }
+
+TEST_F(TcpClientTest, ShutdownWriteFailsWhenNotConnected) {
+    auto result = client->shutdownWrite();
+    
+    EXPECT_TRUE(result.isError());
+    EXPECT_FALSE(client->isConnected());
+}
+
+TEST_F(TcpClientTest, SendAndShutdownFailsWhenNotConnected) {
+    auto result = client->sendAndShutdown("test message");
+    
+    EXPECT_TRUE(result.isError());
+    EXPECT_FALSE(client->isConnected());
+}
+
 
 // ============================================================================
 // TcpServer Tests
@@ -592,3 +651,105 @@ TEST_F(TcpIntegrationTest, ClientClosesConnection) {
     
     server->stop();
 }
+
+TEST_F(TcpIntegrationTest, ClientShutdownWrite) {
+    // Start server
+    auto listenResult = server->listen({"127.0.0.1", testPort});
+    ASSERT_TRUE(listenResult.isOk());
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    // Connect client
+    auto connectResult = client->connect({"127.0.0.1", testPort});
+    ASSERT_TRUE(connectResult.isOk());
+    
+    // Accept connection on server side
+    auto waitResult = server->waitForEvents(1000);
+    ASSERT_TRUE(waitResult.isOk());
+    
+    auto acceptResult = server->accept();
+    ASSERT_TRUE(acceptResult.isOk());
+    
+    TcpConnection serverConn = std::move(acceptResult.value());
+    
+    // Client sends data and shuts down write
+    const std::string message = "Hello Server";
+    auto sendResult = client->send(message);
+    ASSERT_TRUE(sendResult.isOk());
+    
+    auto shutdownResult = client->shutdownWrite();
+    ASSERT_TRUE(shutdownResult.isOk());
+    
+    // Server reads all data until shutdown detected
+    std::string receivedData;
+    char buffer[256];
+    while (true) {
+        auto recvResult = serverConn.receive(buffer, sizeof(buffer));
+        if (!recvResult) {
+            // Should get "closed by peer" error when client shutdown write
+            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos);
+            break;
+        }
+        receivedData.append(buffer, recvResult.value());
+    }
+    
+    EXPECT_EQ(receivedData, message);
+    
+    // Server can still send response
+    const std::string response = "Got it!";
+    auto serverSendResult = serverConn.send(response);
+    EXPECT_TRUE(serverSendResult.isOk());
+    
+    // Client can still receive
+    char clientBuffer[256] = {0};
+    auto clientRecvResult = client->receive(clientBuffer, sizeof(clientBuffer) - 1);
+    EXPECT_TRUE(clientRecvResult.isOk());
+    EXPECT_STREQ(clientBuffer, response.c_str());
+    
+    server->stop();
+}
+
+TEST_F(TcpIntegrationTest, ClientSendAndShutdown) {
+    // Start server
+    auto listenResult = server->listen({"127.0.0.1", testPort});
+    ASSERT_TRUE(listenResult.isOk());
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    
+    // Connect client
+    auto connectResult = client->connect({"127.0.0.1", testPort});
+    ASSERT_TRUE(connectResult.isOk());
+    
+    // Accept connection on server side
+    auto waitResult = server->waitForEvents(1000);
+    ASSERT_TRUE(waitResult.isOk());
+    
+    auto acceptResult = server->accept();
+    ASSERT_TRUE(acceptResult.isOk());
+    
+    TcpConnection serverConn = std::move(acceptResult.value());
+    
+    // Client sends data and shuts down write in one call
+    const std::string message = "Hello from client";
+    auto sendAndShutdownResult = client->sendAndShutdown(message);
+    ASSERT_TRUE(sendAndShutdownResult.isOk());
+    EXPECT_EQ(sendAndShutdownResult.value(), message.length());
+    
+    // Server reads all data until shutdown detected
+    std::string receivedData;
+    char buffer[256];
+    while (true) {
+        auto recvResult = serverConn.receive(buffer, sizeof(buffer));
+        if (!recvResult) {
+            // Should get "closed by peer" error when client shutdown write
+            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos);
+            break;
+        }
+        receivedData.append(buffer, recvResult.value());
+    }
+    
+    EXPECT_EQ(receivedData, message);
+    
+    server->stop();
+}
+
