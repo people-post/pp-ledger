@@ -44,6 +44,7 @@ public:
   Roe<void> init(const Config& config);
   Roe<void> addBlock(const Block& block);
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
+  Roe<Block> readBlock(uint64_t blockId) const;
 
 private:
   /**
