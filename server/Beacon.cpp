@@ -97,35 +97,6 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
   log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
-Beacon::Roe<std::shared_ptr<Block>> Beacon::getBlock(uint64_t blockId) const {
-  // Call base class implementation
-  auto result = Validator::getBlockBase(blockId);
-  if (!result) {
-    return Error(2, result.error().message);
-  }
-  return result.value();
-}
-
-Beacon::Roe<std::vector<std::shared_ptr<Block>>> Beacon::getBlocks(
-    uint64_t fromId, uint64_t count) const {
-  std::vector<std::shared_ptr<Block>> blocks;
-  
-  for (uint64_t i = 0; i < count; ++i) {
-    uint64_t blockId = fromId + i;
-    auto block = getChain().getBlock(blockId);
-    if (!block) {
-      break; // Stop at first missing block
-    }
-    blocks.push_back(block);
-  }
-
-  if (blocks.empty()) {
-    return Error(3, "No blocks found starting from: " + std::to_string(fromId));
-  }
-
-  return blocks;
-}
-
 Beacon::Roe<void> Beacon::addBlock(const Block& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);

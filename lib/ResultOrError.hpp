@@ -35,8 +35,16 @@ struct RoeErrorBase {
 template <typename T, typename E = std::string> class ResultOrError {
 public:
   // Constructors for success case
-  ResultOrError(const T &value) : hasValue_(true) { new (&storage_) T(value); }
+  // For reference types, store the underlying type
+  ResultOrError(const T &value) : hasValue_(true) { 
+    using StorageType = typename std::remove_reference<T>::type;
+    new (&storage_) StorageType(value); 
+  }
 
+  // Move constructor - only enabled when T is not a reference type
+  // (when T is a reference, T&& collapses to T&, causing overload conflict)
+  template <typename U = T, typename = typename std::enable_if<
+                                !std::is_reference<U>::value>::type>
   ResultOrError(T &&value) : hasValue_(true) {
     new (&storage_) T(std::move(value));
   }
@@ -74,7 +82,8 @@ public:
   // Copy constructor
   ResultOrError(const ResultOrError &other) : hasValue_(other.hasValue_) {
     if (hasValue_) {
-      new (&storage_) T(*reinterpret_cast<const T *>(&other.storage_));
+      using StorageType = typename std::remove_reference<T>::type;
+      new (&storage_) StorageType(*reinterpret_cast<const StorageType *>(&other.storage_));
     } else {
       new (&storage_) E(*reinterpret_cast<const E *>(&other.storage_));
     }
@@ -83,7 +92,8 @@ public:
   // Move constructor
   ResultOrError(ResultOrError &&other) noexcept : hasValue_(other.hasValue_) {
     if (hasValue_) {
-      new (&storage_) T(std::move(*reinterpret_cast<T *>(&other.storage_)));
+      using StorageType = typename std::remove_reference<T>::type;
+      new (&storage_) StorageType(std::move(*reinterpret_cast<StorageType *>(&other.storage_)));
     } else {
       new (&storage_) E(std::move(*reinterpret_cast<E *>(&other.storage_)));
     }
@@ -98,7 +108,8 @@ public:
       destroy();
       hasValue_ = other.hasValue_;
       if (hasValue_) {
-        new (&storage_) T(*reinterpret_cast<const T *>(&other.storage_));
+        using StorageType = typename std::remove_reference<T>::type;
+        new (&storage_) StorageType(*reinterpret_cast<const StorageType *>(&other.storage_));
       } else {
         new (&storage_) E(*reinterpret_cast<const E *>(&other.storage_));
       }
@@ -112,7 +123,8 @@ public:
       destroy();
       hasValue_ = other.hasValue_;
       if (hasValue_) {
-        new (&storage_) T(std::move(*reinterpret_cast<T *>(&other.storage_)));
+        using StorageType = typename std::remove_reference<T>::type;
+        new (&storage_) StorageType(std::move(*reinterpret_cast<StorageType *>(&other.storage_)));
       } else {
         new (&storage_) E(std::move(*reinterpret_cast<E *>(&other.storage_)));
       }
@@ -132,14 +144,16 @@ public:
     if (!hasValue_) {
       throw std::runtime_error("Attempting to access value of error result");
     }
-    return *reinterpret_cast<const T *>(&storage_);
+    using StorageType = typename std::remove_reference<T>::type;
+    return *reinterpret_cast<const StorageType *>(&storage_);
   }
 
   T &value() {
     if (!hasValue_) {
       throw std::runtime_error("Attempting to access value of error result");
     }
-    return *reinterpret_cast<T *>(&storage_);
+    using StorageType = typename std::remove_reference<T>::type;
+    return *reinterpret_cast<StorageType *>(&storage_);
   }
 
   // Access value with default if error
@@ -166,8 +180,22 @@ public:
   const T &operator*() const { return value(); }
   T &operator*() { return value(); }
 
-  const T *operator->() const { return &value(); }
-  T *operator->() { return &value(); }
+  // operator-> only enabled when T is not a reference type
+  template <typename U = T>
+  typename std::enable_if<!std::is_reference<U>::value, 
+                          typename std::remove_reference<T>::type*>::type
+  operator->() const { 
+    using StorageType = typename std::remove_reference<T>::type;
+    return reinterpret_cast<const StorageType *>(&storage_);
+  }
+  
+  template <typename U = T>
+  typename std::enable_if<!std::is_reference<U>::value,
+                          typename std::remove_reference<T>::type*>::type
+  operator->() { 
+    using StorageType = typename std::remove_reference<T>::type;
+    return reinterpret_cast<StorageType *>(&storage_);
+  }
 
 private:
   // Private default constructor for error case
@@ -175,14 +203,16 @@ private:
 
   void destroy() {
     if (hasValue_) {
-      reinterpret_cast<T *>(&storage_)->~T();
+      using StorageType = typename std::remove_reference<T>::type;
+      reinterpret_cast<StorageType *>(&storage_)->~StorageType();
     } else {
       reinterpret_cast<E *>(&storage_)->~E();
     }
   }
 
   bool hasValue_;
-  typename std::aligned_union<0, T, E>::type storage_;
+  using StorageType = typename std::remove_reference<T>::type;
+  typename std::aligned_union<0, StorageType, E>::type storage_;
 };
 
 // Specialization for void return type

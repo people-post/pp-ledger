@@ -332,14 +332,14 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
       return resp.dump();
     }
     
-    auto block = result.value();
+    const Block& block = result.value();
     resp["status"] = "ok";
-    resp["block"]["index"] = block->getIndex();
-    resp["block"]["timestamp"] = block->getTimestamp();
-    resp["block"]["hash"] = block->getHash();
-    resp["block"]["previousHash"] = block->getPreviousHash();
-    resp["block"]["slot"] = block->getSlot();
-    resp["block"]["slotLeader"] = block->getSlotLeader();
+    resp["block"]["index"] = block.getIndex();
+    resp["block"]["timestamp"] = block.getTimestamp();
+    resp["block"]["hash"] = block.getHash();
+    resp["block"]["previousHash"] = block.getPreviousHash();
+    resp["block"]["slot"] = block.getSlot();
+    resp["block"]["slotLeader"] = block.getSlotLeader();
     
   } else if (action == "add") {
     if (!reqJson.contains("block")) {

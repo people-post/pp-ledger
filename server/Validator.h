@@ -42,7 +42,7 @@ public:
     virtual ~Validator() = default;
 
     // Block operations (non-virtual, to be used by derived classes)
-    Roe<std::shared_ptr<Block>> getBlockBase(uint64_t blockId) const;
+    Roe<const Block&> getBlock(uint64_t blockId) const;
     Roe<void> addBlockBase(const Block& block);
     Roe<void> validateBlockBase(const Block& block) const;
     uint64_t getCurrentBlockId() const;
@@ -69,6 +69,8 @@ protected:
     const BlockChain& getChain() const { return chain_; }
     const BaseConfig& getBaseConfig() const { return baseConfig_; }
     std::mutex& getStateMutex() const { return stateMutex_; }
+
+    Roe<void> syncChain(const BlockChain& chain);
 
 private:
     // Core components

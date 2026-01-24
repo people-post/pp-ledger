@@ -55,12 +55,12 @@ uint64_t Validator::getCurrentBlockId() const {
   return ledger_.getCurrentBlockId();
 }
 
-Validator::Roe<std::shared_ptr<Block>> Validator::getBlockBase(uint64_t blockId) const {
-  auto block = chain_.getBlock(blockId);
-  if (!block) {
+Validator::Roe<const Block&> Validator::getBlock(uint64_t blockId) const {
+  auto spBlock = chain_.getBlock(blockId);
+  if (!spBlock) {
     return Error(2, "Block not found: " + std::to_string(blockId));
   }
-  return block;
+  return *spBlock;
 }
 
 Validator::Roe<void> Validator::addBlockBase(const Block& block) {
@@ -85,6 +85,11 @@ Validator::Roe<void> Validator::addBlockBase(const Block& block) {
   log().info << "Block added: " << block.getIndex() 
              << " from slot leader: " << block.getSlotLeader();
 
+  return {};
+}
+
+Validator::Roe<void> Validator::syncChain(const BlockChain& chain) {
+  chain_ = chain;
   return {};
 }
 

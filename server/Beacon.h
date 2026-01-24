@@ -72,8 +72,6 @@ public:
   void updateStake(const std::string& stakeholderId, uint64_t newStake);
 
   // Block operations (override base class)
-  Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
-  Roe<std::vector<std::shared_ptr<Block>>> getBlocks(uint64_t fromId, uint64_t count) const;
   Roe<void> addBlock(const Block& block);
   Roe<void> validateBlock(const Block& block) const;
 

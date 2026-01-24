@@ -79,7 +79,6 @@ public:
     void clearTransactionPool();
 
     // Block and chain operations
-    Roe<std::shared_ptr<Block>> getBlock(uint64_t blockId) const;
     Roe<void> addBlock(const Block& block);
     Roe<void> validateBlock(const Block& block) const;
 

@@ -190,15 +190,6 @@ Miner::Roe<void> Miner::validateBlock(const Block& block) const {
   return {};
 }
 
-Miner::Roe<std::shared_ptr<Block>> Miner::getBlock(uint64_t blockId) const {
-  // Call base class implementation
-  auto result = Validator::getBlockBase(blockId);
-  if (!result) {
-    return Error(18, result.error().message);
-  }
-  return result.value();
-}
-
 Miner::Roe<void> Miner::syncChain(const BlockChain& otherChain) {
   size_t ourSize = getChain().getSize();
   size_t theirSize = otherChain.getSize();
