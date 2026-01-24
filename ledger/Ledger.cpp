@@ -161,6 +161,38 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   return {};
 }
 
+Ledger::Roe<Block> Ledger::readBlock(uint64_t blockId) const {
+  // Block IDs are 1-based
+  if (blockId == 0) {
+    return Error("Block ID must be greater than 0");
+  }
+
+  // Check if block ID is within valid range
+  uint64_t currentBlockId = getCurrentBlockId();
+  if (blockId > currentBlockId) {
+    return Error("Block ID " + std::to_string(blockId) + 
+                 " exceeds current block ID " + std::to_string(currentBlockId));
+  }
+
+  // Convert 1-based block ID to 0-based index
+  uint64_t index = blockId - 1;
+
+  // Read block data from store
+  auto readResult = store_.readBlock(index);
+  if (!readResult.isOk()) {
+    return Error("Failed to read block " + std::to_string(blockId) + 
+                 ": " + readResult.error().message);
+  }
+
+  // Deserialize block from binary string
+  Block block;
+  if (!block.ltsFromString(readResult.value())) {
+    return Error("Failed to deserialize block " + std::to_string(blockId));
+  }
+
+  return block;
+}
+
 bool Ledger::loadIndex() {
   std::ifstream file(indexFilePath_, std::ios::binary);
   if (!file) {

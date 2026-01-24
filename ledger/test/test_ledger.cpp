@@ -391,6 +391,122 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
   }
 }
 
+TEST_F(LedgerTest, ReadBlockSuccessfully) {
+  Ledger ledger;
+  Ledger::Config config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 0;
+
+  auto result = ledger.init(config);
+  ASSERT_TRUE(result.isOk());
+
+  // Add test blocks
+  std::vector<Block> testBlocks;
+  for (uint64_t i = 1; i <= 5; ++i) {
+    Block block = createTestBlock(i, "data_" + std::to_string(i));
+    testBlocks.push_back(block);
+    auto addResult = ledger.addBlock(block);
+    ASSERT_TRUE(addResult.isOk());
+  }
+
+  // Read back blocks and verify
+  for (uint64_t i = 1; i <= 5; ++i) {
+    auto readResult = ledger.readBlock(i);
+    ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << ": " 
+                                    << readResult.error().message;
+    
+    const Block& readBlock = readResult.value();
+    EXPECT_EQ(readBlock.getIndex(), testBlocks[i-1].getIndex());
+    EXPECT_EQ(readBlock.getData(), testBlocks[i-1].getData());
+    EXPECT_EQ(readBlock.getHash(), testBlocks[i-1].getHash());
+    EXPECT_EQ(readBlock.getPreviousHash(), testBlocks[i-1].getPreviousHash());
+  }
+}
+
+TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
+  Ledger ledger;
+  Ledger::Config config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 0;
+
+  auto result = ledger.init(config);
+  ASSERT_TRUE(result.isOk());
+
+  // Add some blocks
+  for (uint64_t i = 1; i <= 3; ++i) {
+    Block block = createTestBlock(i, "data_" + std::to_string(i));
+    auto addResult = ledger.addBlock(block);
+    ASSERT_TRUE(addResult.isOk());
+  }
+
+  // Try to read block with ID 0 (invalid)
+  auto readResult0 = ledger.readBlock(0);
+  ASSERT_FALSE(readResult0.isOk());
+  EXPECT_NE(readResult0.error().message.find("greater than 0"), std::string::npos);
+
+  // Try to read block beyond current (ID 10 > 3)
+  auto readResult10 = ledger.readBlock(10);
+  ASSERT_FALSE(readResult10.isOk());
+  EXPECT_NE(readResult10.error().message.find("exceeds"), std::string::npos);
+}
+
+TEST_F(LedgerTest, ReadBlockFromEmptyLedgerFails) {
+  Ledger ledger;
+  Ledger::Config config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 0;
+
+  auto result = ledger.init(config);
+  ASSERT_TRUE(result.isOk());
+
+  // Try to read from empty ledger
+  auto readResult = ledger.readBlock(1);
+  ASSERT_FALSE(readResult.isOk());
+  EXPECT_NE(readResult.error().message.find("exceeds"), std::string::npos);
+}
+
+TEST_F(LedgerTest, ReadBlockAfterReopen) {
+  // Create ledger and add blocks
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 0;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+
+    for (uint64_t i = 1; i <= 5; ++i) {
+      Block block = createTestBlock(i, "data_" + std::to_string(i));
+      auto addResult = ledger.addBlock(block);
+      ASSERT_TRUE(addResult.isOk());
+    }
+  }
+
+  // Reopen ledger and read blocks
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 0;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+
+    // Read blocks after reopening
+    for (uint64_t i = 1; i <= 5; ++i) {
+      auto readResult = ledger.readBlock(i);
+      ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i 
+                                      << " after reopen: " 
+                                      << readResult.error().message;
+      
+      const Block& readBlock = readResult.value();
+      EXPECT_EQ(readBlock.getIndex(), i);
+      EXPECT_EQ(readBlock.getData(), "data_" + std::to_string(i));
+    }
+  }
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
