@@ -21,6 +21,13 @@ namespace pp {
  * 2. When the root FileDirStore is full, relocates it to a subdirectory (e.g., "000001")
  * 3. Creates new FileDirStores in subdirectories as needed
  * 4. When maxDirCount is reached, creates deeper subdirectories with DirDirStores (recursive)
+ * 
+ * Recursion Strategy (Breadth-First):
+ * - When maxDirCount is reached at a level, creates DirDirStore children at that level
+ * - Those DirDirStore children initially only create FileDirStore children (not deeper recursion)
+ * - Only when all direct children at a level are DirDirStore (no FileDirStore left) does it
+ *   allow those DirDirStore children to create deeper recursive DirDirStore children
+ * - This ensures breadth-first expansion: all direct children are created before going deeper
  */
 class DirDirStore : public DirStore {
 public:
@@ -205,7 +212,7 @@ private:
     Roe<void> reopenSubdirectoryStores();
     void recalculateTotalBlockCount();
     void updateCurrentDirId();
-    Roe<void> openDirStore(DirInfo &dirInfo, const std::string &dirpath);
+    Roe<void> openDirStore(DirInfo &dirInfo, uint32_t dirId, const std::string &dirpath);
 };
 
 } // namespace pp

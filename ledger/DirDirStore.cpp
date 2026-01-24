@@ -328,7 +328,16 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
       return nullptr;
     }
 
-    // Need to create a recursive DirDirStore in current dir
+    // Breadth-first: First try to find an existing DirDirStore child that can fit
+    for (auto &[dirId, dirInfo] : dirInfoMap_) {
+      if (dirInfo.dirDirStore && dirInfo.dirDirStore->canFit(dataSize)) {
+        currentDirId_ = dirId;
+        return dirInfo.dirDirStore.get();
+      }
+    }
+
+    // No existing DirDirStore can fit, need to create a new one
+    // Check if we should transition a FileDirStore or create a new DirDirStore
     if (it != dirInfoMap_.end() && it->second.fileDirStore) {
       // Transition current FileDirStore to DirDirStore
       std::string dirpath = getDirPath(currentDirId_);
@@ -339,7 +348,22 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
       ddConfig.maxFileCount = config_.maxFileCount;
       ddConfig.maxFileSize = config_.maxFileSize;
       ddConfig.maxDirCount = config_.maxDirCount;
-      ddConfig.maxLevel = config_.maxLevel;  // Pass level config
+      // Breadth-first: Check if all OTHER children (excluding current) are DirDirStore
+      // If yes, allow deeper recursion. If no, only allow FileDirStore children.
+      bool allOtherChildrenAreRecursive = true;
+      for (const auto &[did, dinfo] : dirInfoMap_) {
+        if (did != currentDirId_ && dinfo.fileDirStore) {
+          allOtherChildrenAreRecursive = false;
+          break;
+        }
+      }
+      if (allOtherChildrenAreRecursive && canCreateRecursive()) {
+        // All other children are DirDirStore, allow deeper recursion
+        ddConfig.maxLevel = config_.maxLevel;
+      } else {
+        // Still have FileDirStore children, only allow FileDirStore in new DirDirStore
+        ddConfig.maxLevel = currentLevel_ + 1;  // Can only create FileDirStore children
+      }
       // Child level is currentLevel_ + 1
       auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
       if (!result.isOk()) {
@@ -399,7 +423,22 @@ DirDirStore *DirDirStore::createDirDirStore(uint32_t dirId, uint64_t startBlockI
   ddConfig.maxFileCount = config_.maxFileCount;
   ddConfig.maxFileSize = config_.maxFileSize;
   ddConfig.maxDirCount = config_.maxDirCount;
-  ddConfig.maxLevel = config_.maxLevel;  // Pass level config
+  // Breadth-first: Check if all OTHER children (excluding the one we're creating) are DirDirStore
+  // If yes, allow deeper recursion. If no, only allow FileDirStore children.
+  bool allOtherChildrenAreRecursive = true;
+  for (const auto &[did, dinfo] : dirInfoMap_) {
+    if (did != dirId && dinfo.fileDirStore) {
+      allOtherChildrenAreRecursive = false;
+      break;
+    }
+  }
+  if (allOtherChildrenAreRecursive && canCreateRecursive()) {
+    // All other children are DirDirStore, allow deeper recursion
+    ddConfig.maxLevel = config_.maxLevel;
+  } else {
+    // Still have FileDirStore children, only allow FileDirStore in new DirDirStore
+    ddConfig.maxLevel = currentLevel_ + 1;  // Can only create FileDirStore children
+  }
   // Child level is currentLevel_ + 1
   auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
   if (!result.isOk()) {
@@ -709,7 +748,7 @@ DirDirStore::Roe<void> DirDirStore::openExistingSubdirectoryStores() {
       continue;
     }
 
-    auto result = openDirStore(dirInfo, dirpath);
+    auto result = openDirStore(dirInfo, dirId, dirpath);
     if (!result.isOk()) {
       return result;
     }
@@ -724,7 +763,7 @@ DirDirStore::Roe<void> DirDirStore::reopenSubdirectoryStores() {
       continue;
     }
 
-    auto result = openDirStore(dirInfo, dirpath);
+    auto result = openDirStore(dirInfo, dirId, dirpath);
     if (!result.isOk()) {
       log().error << "Failed to reopen store after relocation: " << dirpath;
       return result;
@@ -734,7 +773,7 @@ DirDirStore::Roe<void> DirDirStore::reopenSubdirectoryStores() {
   return {};
 }
 
-DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::string &dirpath) {
+DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirId, const std::string &dirpath) {
   if (dirInfo.isRecursive) {
     auto ukpDirDirStore = std::make_unique<DirDirStore>();
     ukpDirDirStore->setLogger("dirdirstore");
@@ -743,7 +782,22 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, const std::st
     ddConfig.maxFileCount = config_.maxFileCount;
     ddConfig.maxFileSize = config_.maxFileSize;
     ddConfig.maxDirCount = config_.maxDirCount;
-    ddConfig.maxLevel = config_.maxLevel;  // Pass level config
+    // Breadth-first: Check if all OTHER children (excluding the one we're opening) are DirDirStore
+    // If yes, allow deeper recursion. If no, only allow FileDirStore children.
+    bool allOtherChildrenAreRecursive = true;
+    for (const auto &[did, dinfo] : dirInfoMap_) {
+      if (did != dirId && dinfo.fileDirStore) {
+        allOtherChildrenAreRecursive = false;
+        break;
+      }
+    }
+    if (allOtherChildrenAreRecursive && canCreateRecursive()) {
+      // All other children are DirDirStore, allow deeper recursion
+      ddConfig.maxLevel = config_.maxLevel;
+    } else {
+      // Still have FileDirStore children, only allow FileDirStore in new DirDirStore
+      ddConfig.maxLevel = currentLevel_ + 1;  // Can only create FileDirStore children
+    }
 
     // Child level is currentLevel_ + 1
     auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
