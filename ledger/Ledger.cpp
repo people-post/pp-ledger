@@ -7,14 +7,13 @@
 
 namespace pp {
 
-uint64_t Ledger::getCurrentBlockId() const {
-  // Return 0 if no data found
+uint64_t Ledger::getNextBlockId() const {
   uint64_t blockCount = store_.getBlockCount();
-  if (blockCount == 0) {
-    return 0;
-  }
-  // Block IDs are 0-based, so currentBlockId = blockCount - 1
-  return blockCount - 1;
+  // Next block ID = startingBlockId + blockCount
+  // This handles both cases:
+  // - No blocks: returns startingBlockId (the first block to be added)
+  // - Has blocks: returns startingBlockId + blockCount (the next block after the last one)
+  return meta_.startingBlockId + blockCount;
 }
 
 Ledger::Roe<void> Ledger::init(const Config& config) {
@@ -34,6 +33,7 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
   // Check if data directory exists
   bool dataExists = std::filesystem::exists(dataDir_, ec);
   uint64_t existingStartingBlockId = 0;
+  bool didCleanup = false;
 
   if (dataExists) {
     // Load existing index to get current state
@@ -59,14 +59,16 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
     return Error("Failed to initialize DirDirStore: " + initResult.error().message);
   }
 
-  // Now check if we need to cleanup based on currentBlockId
+  // Now check if we need to cleanup based on startingBlockId comparison
   if (dataExists) {
-    uint64_t currentBlockId = store_.getBlockCount();
+    uint64_t blockCount = store_.getBlockCount();
+    // Calculate existing nextBlockId = existingStartingBlockId + blockCount
+    uint64_t existingNextBlockId = existingStartingBlockId + blockCount;
     
-    // If startingBlockId is newer than the currentBlockId, cleanup and start fresh
-    if (config.startingBlockId > currentBlockId) {
+    // If new startingBlockId is greater than existing nextBlockId, cleanup and start fresh
+    if (config.startingBlockId > existingNextBlockId) {
       log().info << "Starting block ID (" << config.startingBlockId 
-                << ") is newer than current block ID (" << currentBlockId 
+                << ") is newer than existing next block ID (" << existingNextBlockId 
                 << "). Cleaning up and starting fresh.";
       
       auto cleanupResult = cleanupData();
@@ -75,19 +77,24 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
       }
       
       meta_.checkpointIds.clear();
+      didCleanup = true;
       
       // Re-initialize the store after cleanup
       auto reinitResult = store_.init(storeConfig);
       if (!reinitResult.isOk()) {
         return Error("Failed to re-initialize DirDirStore: " + reinitResult.error().message);
       }
+      // After cleanup, use the new startingBlockId
+      meta_.startingBlockId = config.startingBlockId;
     } else {
-      log().info << "Loaded existing ledger with currentBlockId=" << currentBlockId;
+      log().info << "Loaded existing ledger with blockCount=" << blockCount;
+      // Keep existing blocks - use the same startingBlockId as loaded from existing data
+      meta_.startingBlockId = existingStartingBlockId;
     }
+  } else {
+    // New ledger, use the configured startingBlockId
+    meta_.startingBlockId = config.startingBlockId;
   }
-
-  // Set the startingBlockId for this session
-  meta_.startingBlockId = config.startingBlockId;
 
   // Save initial index with startingBlockId and checkpoints
   if (!saveIndex()) {
@@ -96,7 +103,7 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
 
   log().info << "Ledger initialized at " << workDir_ 
             << " with startingBlockId=" << meta_.startingBlockId
-            << ", currentBlockId=" << getCurrentBlockId();
+            << ", nextBlockId=" << getNextBlockId();
 
   return {};
 }
@@ -140,11 +147,12 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   }
 
   // Verify all checkpoint IDs are within valid range
-  uint64_t currentBlockId = getCurrentBlockId();
+  // Checkpoints must be less than the next block ID (i.e., <= last block ID)
+  uint64_t nextBlockId = getNextBlockId();
   for (uint64_t checkpointId : blockIds) {
-    if (checkpointId > currentBlockId) {
+    if (checkpointId >= nextBlockId) {
       return Error("Checkpoint ID " + std::to_string(checkpointId) + 
-                   " exceeds current block ID " + std::to_string(currentBlockId));
+                   " exceeds or equals next block ID " + std::to_string(nextBlockId));
     }
   }
 
@@ -163,22 +171,27 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
 
 Ledger::Roe<Block> Ledger::readBlock(uint64_t blockId) const {
   // Check if block ID is within valid range
-  uint64_t currentBlockId = getCurrentBlockId();
+  uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
   
   // If ledger is empty, any read should fail
   if (blockCount == 0) {
     return Error("Block ID " + std::to_string(blockId) + 
-                 " exceeds current block ID (ledger is empty)");
+                 " exceeds last block ID (ledger is empty)");
   }
   
-  if (blockId > currentBlockId) {
+  // Block ID must be less than nextBlockId (i.e., <= last block ID)
+  if (blockId >= nextBlockId) {
     return Error("Block ID " + std::to_string(blockId) + 
-                 " exceeds current block ID " + std::to_string(currentBlockId));
+                 " exceeds or equals next block ID " + std::to_string(nextBlockId));
   }
 
-  // Block IDs are 0-based, so blockId is the index
-  uint64_t index = blockId;
+  // Convert blockId to store index: index = blockId - startingBlockId
+  if (blockId < meta_.startingBlockId) {
+    return Error("Block ID " + std::to_string(blockId) + 
+                 " is less than starting block ID " + std::to_string(meta_.startingBlockId));
+  }
+  uint64_t index = blockId - meta_.startingBlockId;
 
   // Read block data from store
   auto readResult = store_.readBlock(index);

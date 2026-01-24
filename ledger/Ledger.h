@@ -39,7 +39,7 @@ public:
     uint64_t startingBlockId{ 0 };
   };
 
-  uint64_t getCurrentBlockId() const;
+  uint64_t getNextBlockId() const;
 
   Roe<void> init(const Config& config);
   Roe<void> addBlock(const Block& block);

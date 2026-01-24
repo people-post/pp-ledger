@@ -47,7 +47,7 @@ TEST_F(LedgerTest, InitializeNewLedger) {
 
   auto result = ledger.init(config);
   ASSERT_TRUE(result.isOk()) << result.error().message;
-  EXPECT_EQ(ledger.getCurrentBlockId(), 0);
+  EXPECT_EQ(ledger.getNextBlockId(), 0);
 
   // Verify directory structure
   EXPECT_TRUE(std::filesystem::exists(testDir_ / "data"));
@@ -62,7 +62,7 @@ TEST_F(LedgerTest, GetCurrentBlockIdReturnsZeroWhenNoData) {
 
   auto result = ledger.init(config);
   ASSERT_TRUE(result.isOk());
-  EXPECT_EQ(ledger.getCurrentBlockId(), 0);
+  EXPECT_EQ(ledger.getNextBlockId(), 0);
 }
 
 TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
@@ -79,7 +79,7 @@ TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
     Block block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
-    EXPECT_EQ(ledger.getCurrentBlockId(), i - 1);
+    EXPECT_EQ(ledger.getNextBlockId(), i);
   }
 }
 
@@ -99,7 +99,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
+    EXPECT_EQ(ledger.getNextBlockId(), 3);
   }
 
   // Reopen ledger
@@ -111,7 +111,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
+    EXPECT_EQ(ledger.getNextBlockId(), 3);
 
     // Add more blocks
     for (uint64_t i = 4; i <= 5; ++i) {
@@ -119,7 +119,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 4);
+    EXPECT_EQ(ledger.getNextBlockId(), 5);
   }
 }
 
@@ -139,7 +139,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
+    EXPECT_EQ(ledger.getNextBlockId(), 3);
   }
 
   // Reopen with newer startingBlockId
@@ -151,13 +151,13 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 0); // Should be reset
+    EXPECT_EQ(ledger.getNextBlockId(), 10); // Should be startingBlockId (no blocks yet)
 
     // Old data should be cleaned up, can add new blocks
     Block block = createTestBlock(1, "new_data");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 0);
+    EXPECT_EQ(ledger.getNextBlockId(), 11); // startingBlockId + blockCount = 10 + 1 = 11
   }
 }
 
@@ -177,7 +177,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 4);
+    EXPECT_EQ(ledger.getNextBlockId(), 5);
   }
 
   // Reopen with older startingBlockId
@@ -189,13 +189,13 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 4); // Should keep existing data
+    EXPECT_EQ(ledger.getNextBlockId(), 5); // Should keep existing data
 
     // Can continue adding blocks
     Block block = createTestBlock(6, "data_6");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 5);
+    EXPECT_EQ(ledger.getNextBlockId(), 6);
   }
 }
 
@@ -499,6 +499,185 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
       EXPECT_EQ(readBlock.getIndex(), i + 1);
       EXPECT_EQ(readBlock.getData(), "data_" + std::to_string(i + 1));
     }
+  }
+}
+
+TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
+  // Create ledger with startingBlockId = 10 and add some blocks
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 10;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+
+    // Add 3 blocks, so nextBlockId = 10 + 3 = 13
+    for (uint64_t i = 1; i <= 3; ++i) {
+      Block block = createTestBlock(i, "data_" + std::to_string(i));
+      auto addResult = ledger.addBlock(block);
+      ASSERT_TRUE(addResult.isOk());
+    }
+    EXPECT_EQ(ledger.getNextBlockId(), 13); // startingBlockId + blockCount = 10 + 3
+  }
+
+  // Reopen with startingBlockId = 15, which is > existingNextBlockId (13)
+  // Should trigger cleanup
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 15; // Greater than existing nextBlockId (13)
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_EQ(ledger.getNextBlockId(), 15); // Should be startingBlockId (no blocks after cleanup)
+
+    // Verify old data is gone - should have 0 blocks
+    uint64_t blockCount = 0;
+    for (uint64_t i = 10; i < 13; ++i) {
+      auto readResult = ledger.readBlock(i);
+      if (readResult.isOk()) {
+        blockCount++;
+      }
+    }
+    EXPECT_EQ(blockCount, 0); // Old blocks should be cleaned up
+  }
+}
+
+TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
+  // Create ledger with startingBlockId = 5 and add some blocks
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 5;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+
+    // Add 2 blocks, so nextBlockId = 5 + 2 = 7
+    for (uint64_t i = 1; i <= 2; ++i) {
+      Block block = createTestBlock(i, "data_" + std::to_string(i));
+      auto addResult = ledger.addBlock(block);
+      ASSERT_TRUE(addResult.isOk());
+    }
+    EXPECT_EQ(ledger.getNextBlockId(), 7);
+  }
+
+  // Reopen with startingBlockId = 3, which is < existingNextBlockId (7)
+  // Should preserve existing startingBlockId = 5
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 3; // Less than existing nextBlockId (7)
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+    // Should preserve existing startingBlockId (5), so nextBlockId = 5 + 2 = 7
+    EXPECT_EQ(ledger.getNextBlockId(), 7);
+
+    // Verify existing blocks are still accessible
+    auto readResult1 = ledger.readBlock(5);
+    ASSERT_TRUE(readResult1.isOk());
+    EXPECT_EQ(readResult1.value().getData(), "data_1");
+
+    auto readResult2 = ledger.readBlock(6);
+    ASSERT_TRUE(readResult2.isOk());
+    EXPECT_EQ(readResult2.value().getData(), "data_2");
+
+    // Add a new block - should get ID 7 (nextBlockId)
+    Block block = createTestBlock(3, "data_3");
+    auto addResult = ledger.addBlock(block);
+    ASSERT_TRUE(addResult.isOk());
+    EXPECT_EQ(ledger.getNextBlockId(), 8); // 5 + 3 = 8
+  }
+}
+
+TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
+  // Create ledger with startingBlockId = 20 and add some blocks
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 20;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+
+    // Add 4 blocks, so nextBlockId = 20 + 4 = 24
+    for (uint64_t i = 1; i <= 4; ++i) {
+      Block block = createTestBlock(i, "data_" + std::to_string(i));
+      auto addResult = ledger.addBlock(block);
+      ASSERT_TRUE(addResult.isOk());
+    }
+    EXPECT_EQ(ledger.getNextBlockId(), 24);
+  }
+
+  // Reopen with startingBlockId = 24, which equals existingNextBlockId
+  // Should preserve existing startingBlockId = 20 (not cleanup)
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 24; // Equals existing nextBlockId (24)
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+    // Should preserve existing startingBlockId (20), so nextBlockId = 20 + 4 = 24
+    EXPECT_EQ(ledger.getNextBlockId(), 24);
+
+    // Verify existing blocks are still accessible
+    for (uint64_t i = 20; i < 24; ++i) {
+      auto readResult = ledger.readBlock(i);
+      ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i;
+    }
+  }
+}
+
+TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
+  // Create ledger with startingBlockId = 100
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 100;
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+    EXPECT_EQ(ledger.getNextBlockId(), 100); // No blocks yet
+
+    // Add 5 blocks
+    for (uint64_t i = 1; i <= 5; ++i) {
+      Block block = createTestBlock(i, "data_" + std::to_string(i));
+      auto addResult = ledger.addBlock(block);
+      ASSERT_TRUE(addResult.isOk());
+    }
+    EXPECT_EQ(ledger.getNextBlockId(), 105); // 100 + 5
+  }
+
+  // Reopen with same startingBlockId - should preserve it
+  {
+    Ledger ledger;
+    Ledger::Config config;
+    config.workDir = testDir_.string();
+    config.startingBlockId = 100; // Same as original
+
+    auto result = ledger.init(config);
+    ASSERT_TRUE(result.isOk());
+    // Should preserve startingBlockId = 100, so nextBlockId = 100 + 5 = 105
+    EXPECT_EQ(ledger.getNextBlockId(), 105);
+
+    // Verify blocks are accessible with correct IDs
+    auto readResult = ledger.readBlock(100);
+    ASSERT_TRUE(readResult.isOk());
+    EXPECT_EQ(readResult.value().getData(), "data_1");
+
+    auto readResult2 = ledger.readBlock(104);
+    ASSERT_TRUE(readResult2.isOk());
+    EXPECT_EQ(readResult2.value().getData(), "data_5");
   }
 }
 

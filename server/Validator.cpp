@@ -52,7 +52,9 @@ Validator::Roe<void> Validator::initBase(const BaseConfig& config) {
 }
 
 uint64_t Validator::getCurrentBlockId() const {
-  return ledger_.getCurrentBlockId();
+  // Return the last block ID (nextBlockId - 1)
+  uint64_t nextBlockId = ledger_.getNextBlockId();
+  return nextBlockId > 0 ? nextBlockId - 1 : 0;
 }
 
 Validator::Roe<const Block&> Validator::getBlock(uint64_t blockId) const {
