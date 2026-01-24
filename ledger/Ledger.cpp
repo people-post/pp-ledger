@@ -13,8 +13,8 @@ uint64_t Ledger::getCurrentBlockId() const {
   if (blockCount == 0) {
     return 0;
   }
-  // Block IDs are 1-based, so currentBlockId = blockCount
-  return blockCount;
+  // Block IDs are 0-based, so currentBlockId = blockCount - 1
+  return blockCount - 1;
 }
 
 Ledger::Roe<void> Ledger::init(const Config& config) {
@@ -162,20 +162,23 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
 }
 
 Ledger::Roe<Block> Ledger::readBlock(uint64_t blockId) const {
-  // Block IDs are 1-based
-  if (blockId == 0) {
-    return Error("Block ID must be greater than 0");
-  }
-
   // Check if block ID is within valid range
   uint64_t currentBlockId = getCurrentBlockId();
+  uint64_t blockCount = store_.getBlockCount();
+  
+  // If ledger is empty, any read should fail
+  if (blockCount == 0) {
+    return Error("Block ID " + std::to_string(blockId) + 
+                 " exceeds current block ID (ledger is empty)");
+  }
+  
   if (blockId > currentBlockId) {
     return Error("Block ID " + std::to_string(blockId) + 
                  " exceeds current block ID " + std::to_string(currentBlockId));
   }
 
-  // Convert 1-based block ID to 0-based index
-  uint64_t index = blockId - 1;
+  // Block IDs are 0-based, so blockId is the index
+  uint64_t index = blockId;
 
   // Read block data from store
   auto readResult = store_.readBlock(index);
