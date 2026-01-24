@@ -79,7 +79,7 @@ TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
     Block block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
-    EXPECT_EQ(ledger.getCurrentBlockId(), i);
+    EXPECT_EQ(ledger.getCurrentBlockId(), i - 1);
   }
 }
 
@@ -99,7 +99,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 3);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
   }
 
   // Reopen ledger
@@ -111,7 +111,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 3);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
 
     // Add more blocks
     for (uint64_t i = 4; i <= 5; ++i) {
@@ -119,7 +119,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 5);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 4);
   }
 }
 
@@ -139,7 +139,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 3);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 2);
   }
 
   // Reopen with newer startingBlockId
@@ -147,7 +147,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     Ledger ledger;
     Ledger::Config config;
     config.workDir = testDir_.string();
-    config.startingBlockId = 10; // Newer than current (3)
+    config.startingBlockId = 10; // Newer than current (2)
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
@@ -157,7 +157,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     Block block = createTestBlock(1, "new_data");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 1);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 0);
   }
 }
 
@@ -177,7 +177,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
-    EXPECT_EQ(ledger.getCurrentBlockId(), 5);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 4);
   }
 
   // Reopen with older startingBlockId
@@ -185,17 +185,17 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     Ledger ledger;
     Ledger::Config config;
     config.workDir = testDir_.string();
-    config.startingBlockId = 3; // Older than current (5)
+    config.startingBlockId = 3; // Older than current (4)
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 5); // Should keep existing data
+    EXPECT_EQ(ledger.getCurrentBlockId(), 4); // Should keep existing data
 
     // Can continue adding blocks
     Block block = createTestBlock(6, "data_6");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
-    EXPECT_EQ(ledger.getCurrentBlockId(), 6);
+    EXPECT_EQ(ledger.getCurrentBlockId(), 5);
   }
 }
 
@@ -215,8 +215,8 @@ TEST_F(LedgerTest, UpdateCheckpointsSorted) {
     ASSERT_TRUE(addResult.isOk());
   }
 
-  // Update checkpoints with sorted IDs
-  std::vector<uint64_t> checkpoints = {2, 5, 8, 10};
+  // Update checkpoints with sorted IDs (0-based)
+  std::vector<uint64_t> checkpoints = {1, 4, 7, 9};
   auto updateResult = ledger.updateCheckpoints(checkpoints);
   ASSERT_TRUE(updateResult.isOk()) << updateResult.error().message;
 }
@@ -238,7 +238,7 @@ TEST_F(LedgerTest, UpdateCheckpointsNotSortedFails) {
   }
 
   // Update checkpoints with unsorted IDs (should fail)
-  std::vector<uint64_t> checkpoints = {5, 2, 8, 10};
+  std::vector<uint64_t> checkpoints = {4, 1, 7, 9};
   auto updateResult = ledger.updateCheckpoints(checkpoints);
   ASSERT_FALSE(updateResult.isOk());
   EXPECT_NE(updateResult.error().message.find("sorted"), std::string::npos);
@@ -261,7 +261,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithDuplicatesFails) {
   }
 
   // Update checkpoints with duplicates (should fail)
-  std::vector<uint64_t> checkpoints = {2, 5, 5, 10};
+  std::vector<uint64_t> checkpoints = {1, 4, 4, 9};
   auto updateResult = ledger.updateCheckpoints(checkpoints);
   ASSERT_FALSE(updateResult.isOk());
   EXPECT_NE(updateResult.error().message.find("duplicate"), std::string::npos);
@@ -284,7 +284,7 @@ TEST_F(LedgerTest, UpdateCheckpointsExceedingCurrentBlockIdFails) {
   }
 
   // Update checkpoints with ID exceeding current (should fail)
-  std::vector<uint64_t> checkpoints = {2, 4, 10}; // 10 > 5
+  std::vector<uint64_t> checkpoints = {1, 3, 9}; // 9 > 4 (current block ID)
   auto updateResult = ledger.updateCheckpoints(checkpoints);
   ASSERT_FALSE(updateResult.isOk());
   EXPECT_NE(updateResult.error().message.find("exceeds"), std::string::npos);
@@ -307,12 +307,12 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMatches) {
   }
 
   // Set initial checkpoints
-  std::vector<uint64_t> checkpoints1 = {2, 5, 8};
+  std::vector<uint64_t> checkpoints1 = {1, 4, 7};
   auto updateResult1 = ledger.updateCheckpoints(checkpoints1);
   ASSERT_TRUE(updateResult1.isOk());
 
   // Update with overlapping data that matches
-  std::vector<uint64_t> checkpoints2 = {2, 5, 8, 10};
+  std::vector<uint64_t> checkpoints2 = {1, 4, 7, 9};
   auto updateResult2 = ledger.updateCheckpoints(checkpoints2);
   ASSERT_TRUE(updateResult2.isOk());
 }
@@ -334,12 +334,12 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMismatchFails) {
   }
 
   // Set initial checkpoints
-  std::vector<uint64_t> checkpoints1 = {2, 5, 8};
+  std::vector<uint64_t> checkpoints1 = {1, 4, 7};
   auto updateResult1 = ledger.updateCheckpoints(checkpoints1);
   ASSERT_TRUE(updateResult1.isOk());
 
   // Update with overlapping data that doesn't match (should fail)
-  std::vector<uint64_t> checkpoints2 = {2, 6, 8, 10}; // 6 != 5
+  std::vector<uint64_t> checkpoints2 = {1, 5, 7, 9}; // 5 != 4
   auto updateResult2 = ledger.updateCheckpoints(checkpoints2);
   ASSERT_FALSE(updateResult2.isOk());
   EXPECT_NE(updateResult2.error().message.find("mismatch"), std::string::npos);
@@ -364,7 +364,7 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
     }
 
     // Set checkpoints
-    std::vector<uint64_t> checkpoints = {2, 5, 8, 10};
+    std::vector<uint64_t> checkpoints = {1, 4, 7, 9};
     auto updateResult = ledger.updateCheckpoints(checkpoints);
     ASSERT_TRUE(updateResult.isOk());
   }
@@ -380,12 +380,12 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
     ASSERT_TRUE(result.isOk());
 
     // Update with same checkpoints (should succeed)
-    std::vector<uint64_t> checkpoints = {2, 5, 8, 10};
+    std::vector<uint64_t> checkpoints = {1, 4, 7, 9};
     auto updateResult = ledger.updateCheckpoints(checkpoints);
     ASSERT_TRUE(updateResult.isOk());
 
     // Can extend checkpoints
-    std::vector<uint64_t> extendedCheckpoints = {2, 5, 8, 10};
+    std::vector<uint64_t> extendedCheckpoints = {1, 4, 7, 9};
     auto extendResult = ledger.updateCheckpoints(extendedCheckpoints);
     ASSERT_TRUE(extendResult.isOk());
   }
@@ -409,17 +409,17 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
     ASSERT_TRUE(addResult.isOk());
   }
 
-  // Read back blocks and verify
-  for (uint64_t i = 1; i <= 5; ++i) {
+  // Read back blocks and verify (0-based IDs)
+  for (uint64_t i = 0; i < 5; ++i) {
     auto readResult = ledger.readBlock(i);
     ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << ": " 
                                     << readResult.error().message;
     
     const Block& readBlock = readResult.value();
-    EXPECT_EQ(readBlock.getIndex(), testBlocks[i-1].getIndex());
-    EXPECT_EQ(readBlock.getData(), testBlocks[i-1].getData());
-    EXPECT_EQ(readBlock.getHash(), testBlocks[i-1].getHash());
-    EXPECT_EQ(readBlock.getPreviousHash(), testBlocks[i-1].getPreviousHash());
+    EXPECT_EQ(readBlock.getIndex(), testBlocks[i].getIndex());
+    EXPECT_EQ(readBlock.getData(), testBlocks[i].getData());
+    EXPECT_EQ(readBlock.getHash(), testBlocks[i].getHash());
+    EXPECT_EQ(readBlock.getPreviousHash(), testBlocks[i].getPreviousHash());
   }
 }
 
@@ -439,12 +439,7 @@ TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
     ASSERT_TRUE(addResult.isOk());
   }
 
-  // Try to read block with ID 0 (invalid)
-  auto readResult0 = ledger.readBlock(0);
-  ASSERT_FALSE(readResult0.isOk());
-  EXPECT_NE(readResult0.error().message.find("greater than 0"), std::string::npos);
-
-  // Try to read block beyond current (ID 10 > 3)
+  // Try to read block beyond current (ID 10 > 2)
   auto readResult10 = ledger.readBlock(10);
   ASSERT_FALSE(readResult10.isOk());
   EXPECT_NE(readResult10.error().message.find("exceeds"), std::string::npos);
@@ -460,7 +455,7 @@ TEST_F(LedgerTest, ReadBlockFromEmptyLedgerFails) {
   ASSERT_TRUE(result.isOk());
 
   // Try to read from empty ledger
-  auto readResult = ledger.readBlock(1);
+  auto readResult = ledger.readBlock(0);
   ASSERT_FALSE(readResult.isOk());
   EXPECT_NE(readResult.error().message.find("exceeds"), std::string::npos);
 }
@@ -493,16 +488,16 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
 
-    // Read blocks after reopening
-    for (uint64_t i = 1; i <= 5; ++i) {
+    // Read blocks after reopening (0-based IDs)
+    for (uint64_t i = 0; i < 5; ++i) {
       auto readResult = ledger.readBlock(i);
       ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i 
                                       << " after reopen: " 
                                       << readResult.error().message;
       
       const Block& readBlock = readResult.value();
-      EXPECT_EQ(readBlock.getIndex(), i);
-      EXPECT_EQ(readBlock.getData(), "data_" + std::to_string(i));
+      EXPECT_EQ(readBlock.getIndex(), i + 1);
+      EXPECT_EQ(readBlock.getData(), "data_" + std::to_string(i + 1));
     }
   }
 }
