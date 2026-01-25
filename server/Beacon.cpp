@@ -97,7 +97,7 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
   log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
-Beacon::Roe<void> Beacon::addBlock(const Block& block) {
+Beacon::Roe<void> Beacon::addBlock(const Ledger::Block& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -115,7 +115,7 @@ Beacon::Roe<void> Beacon::addBlock(const Block& block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::validateBlock(const Block& block) const {
+Beacon::Roe<void> Beacon::validateBlock(const Ledger::Block& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {
@@ -124,7 +124,7 @@ Beacon::Roe<void> Beacon::validateBlock(const Block& block) const {
   return {};
 }
 
-Beacon::Roe<void> Beacon::syncChain(const BlockChain& otherChain) {
+Beacon::Roe<void> Beacon::syncChain(const Validator::BlockChain& otherChain) {
   // Check if we should accept the other chain
   auto shouldAccept = shouldAcceptChain(otherChain);
   if (!shouldAccept) {
@@ -149,7 +149,7 @@ Beacon::Roe<void> Beacon::syncChain(const BlockChain& otherChain) {
   return {};
 }
 
-Beacon::Roe<bool> Beacon::shouldAcceptChain(const BlockChain& candidateChain) const {
+Beacon::Roe<bool> Beacon::shouldAcceptChain(const Validator::BlockChain& candidateChain) const {
   // Ouroboros chain selection rule: longest valid chain wins
   if (candidateChain.getSize() > getChain().getSize()) {
     log().info << "Candidate chain is longer: " << candidateChain.getSize() 

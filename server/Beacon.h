@@ -3,7 +3,6 @@
 
 #include "Validator.h"
 #include "../ledger/Ledger.h"
-#include "../ledger/BlockChain.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
 #include "../lib/Module.h"
@@ -72,12 +71,12 @@ public:
   void updateStake(const std::string& stakeholderId, uint64_t newStake);
 
   // Block operations (override base class)
-  Roe<void> addBlock(const Block& block);
-  Roe<void> validateBlock(const Block& block) const;
+  Roe<void> addBlock(const Ledger::Block& block);
+  Roe<void> validateBlock(const Ledger::Block& block) const;
 
   // Chain synchronization
-  Roe<void> syncChain(const BlockChain& otherChain);
-  Roe<bool> shouldAcceptChain(const BlockChain& candidateChain) const;
+  Roe<void> syncChain(const Validator::BlockChain& otherChain);
+  Roe<bool> shouldAcceptChain(const Validator::BlockChain& candidateChain) const;
 
   // Checkpoint management
   Roe<void> evaluateCheckpoints();

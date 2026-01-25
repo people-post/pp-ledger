@@ -90,7 +90,7 @@ bool Miner::shouldProduceBlock() const {
   return isSlotLeader() && getPendingTransactionCount() > 0;
 }
 
-Miner::Roe<std::shared_ptr<Block>> Miner::produceBlock() {
+Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
   }
@@ -171,7 +171,7 @@ void Miner::clearTransactionPool() {
   log().info << "Transaction pool cleared";
 }
 
-Miner::Roe<void> Miner::addBlock(const Block& block) {
+Miner::Roe<void> Miner::addBlock(const Ledger::Block& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -181,7 +181,7 @@ Miner::Roe<void> Miner::addBlock(const Block& block) {
   return {};
 }
 
-Miner::Roe<void> Miner::validateBlock(const Block& block) const {
+Miner::Roe<void> Miner::validateBlock(const Ledger::Block& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {
@@ -190,7 +190,7 @@ Miner::Roe<void> Miner::validateBlock(const Block& block) const {
   return {};
 }
 
-Miner::Roe<void> Miner::syncChain(const BlockChain& otherChain) {
+Miner::Roe<void> Miner::syncChain(const Validator::BlockChain& otherChain) {
   size_t ourSize = getChain().getSize();
   size_t theirSize = otherChain.getSize();
 
@@ -243,7 +243,7 @@ bool Miner::isSlotLeader(uint64_t slot) const {
 
 // Private helper methods
 
-Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
+Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::createBlock() {
   // Get current slot info
   uint64_t currentSlot = getCurrentSlot();
   auto now = std::chrono::system_clock::now();
@@ -260,7 +260,7 @@ Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
   std::string data = serializeTransactions(transactions);
 
   // Create the block
-  auto block = std::make_shared<Block>();
+  auto block = std::make_shared<Ledger::Block>();
   block->index = blockIndex;
   block->timestamp = timestamp;
   block->data = data;

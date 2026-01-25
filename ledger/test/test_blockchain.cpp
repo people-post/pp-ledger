@@ -1,12 +1,13 @@
-#include "BlockChain.h"
+#include "../Ledger.h"
+#include "../../server/Validator.h"
 #include <gtest/gtest.h>
 
 class BlockChainTest : public ::testing::Test {
 protected:
-    pp::BlockChain* blockchain;
+    pp::Validator::BlockChain* blockchain;
     
     void SetUp() override {
-        blockchain = new pp::BlockChain();
+        blockchain = new pp::Validator::BlockChain();
     }
     
     void TearDown() override {
@@ -24,28 +25,28 @@ TEST_F(BlockChainTest, StartsEmpty) {
 
 TEST_F(BlockChainTest, AddsBlocksToChain) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Genesis block";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block1 = std::make_shared<pp::Block>();
+    auto block1 = std::make_shared<pp::Ledger::Block>();
     block1->index = 1;
     block1->data = "Transaction 1: Alice -> Bob: 10 coins";
     block1->previousHash = blockchain->getLastBlockHash();
     block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
-    auto block2 = std::make_shared<pp::Block>();
+    auto block2 = std::make_shared<pp::Ledger::Block>();
     block2->index = 2;
     block2->data = "Transaction 2: Bob -> Charlie: 5 coins";
     block2->previousHash = blockchain->getLastBlockHash();
     block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
-    auto block3 = std::make_shared<pp::Block>();
+    auto block3 = std::make_shared<pp::Ledger::Block>();
     block3->index = 3;
     block3->data = "Transaction 3: Charlie -> Alice: 3 coins";
     block3->previousHash = blockchain->getLastBlockHash();
@@ -57,21 +58,21 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
 
 TEST_F(BlockChainTest, ValidatesCorrectChain) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Genesis";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block1 = std::make_shared<pp::Block>();
+    auto block1 = std::make_shared<pp::Ledger::Block>();
     block1->index = 1;
     block1->data = "Transaction 1";
     block1->previousHash = blockchain->getLastBlockHash();
     block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
-    auto block2 = std::make_shared<pp::Block>();
+    auto block2 = std::make_shared<pp::Ledger::Block>();
     block2->index = 2;
     block2->data = "Transaction 2";
     block2->previousHash = blockchain->getLastBlockHash();
@@ -83,21 +84,21 @@ TEST_F(BlockChainTest, ValidatesCorrectChain) {
 
 TEST_F(BlockChainTest, DetectsTampering) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Genesis";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block1 = std::make_shared<pp::Block>();
+    auto block1 = std::make_shared<pp::Ledger::Block>();
     block1->index = 1;
     block1->data = "Original Transaction";
     block1->previousHash = blockchain->getLastBlockHash();
     block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
-    auto block2 = std::make_shared<pp::Block>();
+    auto block2 = std::make_shared<pp::Ledger::Block>();
     block2->index = 2;
     block2->data = "Another Transaction";
     block2->previousHash = blockchain->getLastBlockHash();
@@ -119,21 +120,21 @@ TEST_F(BlockChainTest, DetectsTampering) {
 
 TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Block 0";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block1 = std::make_shared<pp::Block>();
+    auto block1 = std::make_shared<pp::Ledger::Block>();
     block1->index = 1;
     block1->data = "Block 1";
     block1->previousHash = blockchain->getLastBlockHash();
     block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
-    auto block2 = std::make_shared<pp::Block>();
+    auto block2 = std::make_shared<pp::Ledger::Block>();
     block2->index = 2;
     block2->data = "Block 2";
     block2->previousHash = blockchain->getLastBlockHash();
@@ -147,21 +148,21 @@ TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
 
 TEST_F(BlockChainTest, BlocksLinkedByHash) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Block 0";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block1 = std::make_shared<pp::Block>();
+    auto block1 = std::make_shared<pp::Ledger::Block>();
     block1->index = 1;
     block1->data = "Block 1";
     block1->previousHash = blockchain->getLastBlockHash();
     block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
-    auto block2 = std::make_shared<pp::Block>();
+    auto block2 = std::make_shared<pp::Ledger::Block>();
     block2->index = 2;
     block2->data = "Block 2";
     block2->previousHash = blockchain->getLastBlockHash();
@@ -174,14 +175,14 @@ TEST_F(BlockChainTest, BlocksLinkedByHash) {
 
 TEST_F(BlockChainTest, GetLatestBlock) {
     // Create first block (genesis)
-    auto block0 = std::make_shared<pp::Block>();
+    auto block0 = std::make_shared<pp::Ledger::Block>();
     block0->index = 0;
     block0->data = "Genesis";
     block0->previousHash = "0";
     block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
-    auto block = std::make_shared<pp::Block>();
+    auto block = std::make_shared<pp::Ledger::Block>();
     block->index = 1;
     block->data = "Latest Block";
     block->previousHash = blockchain->getLastBlockHash();

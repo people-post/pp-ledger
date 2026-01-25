@@ -108,7 +108,7 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
   return {};
 }
 
-Ledger::Roe<void> Ledger::addBlock(const Block& block) {
+Ledger::Roe<void> Ledger::addBlock(const Ledger::Block& block) {
   // Append block to store
   auto appendResult = store_.appendBlock(block.ltsToString());
   if (!appendResult.isOk()) {
@@ -169,7 +169,7 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   return {};
 }
 
-Ledger::Roe<Block> Ledger::readBlock(uint64_t blockId) const {
+Ledger::Roe<Ledger::Block> Ledger::readBlock(uint64_t blockId) const {
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
@@ -201,7 +201,7 @@ Ledger::Roe<Block> Ledger::readBlock(uint64_t blockId) const {
   }
 
   // Deserialize block from binary string
-  Block block;
+  Ledger::Block block;
   if (!block.ltsFromString(readResult.value())) {
     return Error("Failed to deserialize block " + std::to_string(blockId));
   }

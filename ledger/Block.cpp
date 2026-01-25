@@ -1,4 +1,4 @@
-#include "Block.h"
+#include "Ledger.h"
 
 #include <chrono>
 #include <iomanip>
@@ -45,21 +45,21 @@ static std::string sha256(const std::string &input) {
 }
 
 // Block implementation
-Block::Block()
+Ledger::Block::Block()
     : index(0),
       timestamp(std::chrono::system_clock::now().time_since_epoch().count()),
       data(""), previousHash(""), nonce(0), slot(0), slotLeader("") {
   hash = calculateHash();
 }
 
-std::string Block::calculateHash() const {
+std::string Ledger::Block::calculateHash() const {
   std::stringstream ss;
   ss << CURRENT_VERSION << index << timestamp << data << previousHash
      << nonce;
   return sha256(ss.str());
 }
 
-std::string Block::ltsToString() const {
+std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
 
   // Binary format for long-term storage:
@@ -118,7 +118,7 @@ std::string Block::ltsToString() const {
   return oss.str();
 }
 
-bool Block::ltsFromString(const std::string &str) {
+bool Ledger::Block::ltsFromString(const std::string &str) {
   std::istringstream iss(str, std::ios::binary);
 
   // Reset to default values
