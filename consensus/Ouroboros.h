@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../interface/Block.hpp"
 #include "Module.h"
 #include "ResultOrError.hpp"
 #include <cstdint>
@@ -11,9 +10,6 @@
 
 namespace pp {
 namespace consensus {
-
-// Using declarations for interfaces
-using Block = iii::Block;
 
 /**
  * Ouroboros Consensus Protocol Implementation
@@ -67,7 +63,7 @@ public:
 
   // Validation helpers
   bool validateSlotLeader(const std::string &slotLeader, uint64_t slot) const;
-  bool validateBlockTiming(const Block &block, uint64_t slot) const;
+  bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
 
   // Configuration
   void setSlotDuration(uint64_t seconds);

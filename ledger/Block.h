@@ -1,31 +1,27 @@
 #pragma once
 
-#include "../interface/Block.hpp"
 #include <cstdint>
 #include <memory>
 #include <string>
 
 namespace pp {
 
-// Using declaration for interface type
-using IBlock = iii::Block;
-
 /**
- * Concrete implementation of Block interface
+ * Block data structure
  */
-class Block : public IBlock {
+class Block {
 public:
   Block();
 
-  // IBlock interface implementation (consensus methods)
-  uint64_t getIndex() const override;
-  int64_t getTimestamp() const override;
-  std::string getData() const override;
-  std::string getPreviousHash() const override;
-  std::string getHash() const override;
-  std::string calculateHash() const override;
-  uint64_t getSlot() const override;
-  std::string getSlotLeader() const override;
+  // Core block methods
+  uint64_t getIndex() const;
+  int64_t getTimestamp() const;
+  std::string getData() const;
+  std::string getPreviousHash() const;
+  std::string getHash() const;
+  std::string calculateHash() const;
+  uint64_t getSlot() const;
+  std::string getSlotLeader() const;
 
   // Additional methods (not part of interface, but used by tests)
   uint64_t getNonce() const;

@@ -30,7 +30,6 @@ target_include_directories(pp_consensus
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/lib
-        ${CMAKE_SOURCE_DIR}/interface
 )
 
 # Link with lib (for Module, Logger, ResultOrError)

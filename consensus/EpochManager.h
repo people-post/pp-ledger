@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../interface/Block.hpp"
 #include "Module.h"
 #include <cstdint>
 #include <map>
@@ -9,9 +8,6 @@
 
 namespace pp {
 namespace consensus {
-
-// Using declarations for interfaces
-using Block = iii::Block;
 
 /**
  * Epoch Manager

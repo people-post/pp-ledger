@@ -105,7 +105,7 @@ Validator::Roe<void> Validator::validateBlockBase(const Block& block) const {
   }
 
   // Validate block timing
-  if (!consensus_.validateBlockTiming(block, slot)) {
+  if (!consensus_.validateBlockTiming(block.getTimestamp(), slot)) {
     return Error(7, "Block timestamp outside valid slot range");
   }
 

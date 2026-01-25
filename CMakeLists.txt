@@ -38,7 +38,6 @@ option(BUILD_TESTING "Build the testing tree" ON)
 
 # Add subdirectories for each component
 add_subdirectory(lib)
-add_subdirectory(interface)
 add_subdirectory(consensus)
 add_subdirectory(network)
 add_subdirectory(client)

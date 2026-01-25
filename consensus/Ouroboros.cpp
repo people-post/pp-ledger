@@ -184,13 +184,11 @@ bool Ouroboros::validateSlotLeader(const std::string &slotLeader,
   return slotLeader == expectedLeader;
 }
 
-bool Ouroboros::validateBlockTiming(const Block &block, uint64_t slot) const {
+bool Ouroboros::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {
   int64_t slotStart = getSlotStartTime(slot);
   int64_t slotEnd = slotStart + static_cast<int64_t>(slotDuration_);
 
-  int64_t blockTime = block.getTimestamp();
-
-  return blockTime >= slotStart && blockTime < slotEnd;
+  return blockTimestamp >= slotStart && blockTimestamp < slotEnd;
 }
 
 void Ouroboros::setSlotDuration(uint64_t seconds) {

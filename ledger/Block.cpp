@@ -52,7 +52,7 @@ Block::Block()
   hash_ = calculateHash();
 }
 
-// IBlock interface implementation
+// Block methods
 uint64_t Block::getIndex() const { return index_; }
 
 int64_t Block::getTimestamp() const { return timestamp_; }
