@@ -30,7 +30,8 @@ protected:
     block.block.index = id;
     block.block.previousHash = "prev_hash_" + std::to_string(id);
     block.block.timestamp = static_cast<int64_t>(std::time(nullptr));
-    block.block.data = data;
+    // Note: data parameter is kept for API compatibility but not used
+    // Blocks now use signedTxes instead of data field
     block.hash = "hash_" + std::to_string(id);
     return block;
   }
@@ -416,7 +417,6 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
     
     const Ledger::ChainNode& readBlock = readResult.value();
     EXPECT_EQ(readBlock.block.index, testBlocks[i].block.index);
-    EXPECT_EQ(readBlock.block.data, testBlocks[i].block.data);
     EXPECT_EQ(readBlock.hash, testBlocks[i].hash);
     EXPECT_EQ(readBlock.block.previousHash, testBlocks[i].block.previousHash);
   }
@@ -496,7 +496,6 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
       
       const Ledger::ChainNode& readBlock = readResult.value();
       EXPECT_EQ(readBlock.block.index, i + 1);
-      EXPECT_EQ(readBlock.block.data, "data_" + std::to_string(i + 1));
     }
   }
 }
@@ -581,11 +580,11 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
     // Verify existing blocks are still accessible
     auto readResult1 = ledger.readBlock(5);
     ASSERT_TRUE(readResult1.isOk());
-    EXPECT_EQ(readResult1.value().block.data, "data_1");
+    EXPECT_EQ(readResult1.value().block.index, 1);
 
     auto readResult2 = ledger.readBlock(6);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().block.data, "data_2");
+    EXPECT_EQ(readResult2.value().block.index, 2);
 
     // Add a new block - should get ID 7 (nextBlockId)
     Ledger::ChainNode block = createTestBlock(3, "data_3");
@@ -672,11 +671,11 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
     // Verify blocks are accessible with correct IDs
     auto readResult = ledger.readBlock(100);
     ASSERT_TRUE(readResult.isOk());
-    EXPECT_EQ(readResult.value().block.data, "data_1");
+    EXPECT_EQ(readResult.value().block.index, 1);
 
     auto readResult2 = ledger.readBlock(104);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().block.data, "data_5");
+    EXPECT_EQ(readResult2.value().block.index, 5);
   }
 }
 

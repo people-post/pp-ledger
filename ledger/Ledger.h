@@ -13,6 +13,33 @@ namespace pp {
 
 class Ledger : public Module {
 public:
+  struct Transaction {
+    constexpr static uint16_t T_TRANSFER = 0;
+    constexpr static uint16_t T_REGISTER = 1;
+
+    uint16_t type{ T_TRANSFER };
+    std::string fromWallet; // Source wallet ID
+    std::string toWallet;   // Destination wallet ID
+    int64_t amount{ 0 };    // Transfer amount
+    std::string meta;       // Transaction metadata
+
+    Transaction() = default;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & type & fromWallet & toWallet & amount & meta;
+    }
+  };
+
+  template <typename T>
+  struct SignedData {
+    T obj;
+    std::string signature;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & obj & signature;
+    }
+  };
+
   /**
    * Block data structure (without hash)
    */
@@ -41,14 +68,14 @@ public:
     // Public fields
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
-    std::string data;
+    std::vector<SignedData<Transaction>> signedTxes;
     std::string previousHash;
     uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
     std::string slotLeader;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & data & previousHash & nonce & slot & slotLeader;
+      ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader;
     }
   };
 

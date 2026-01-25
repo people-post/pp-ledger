@@ -143,7 +143,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   return block;
 }
 
-Miner::Roe<void> Miner::addTransaction(const Validator::Transaction &tx) {
+Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
   std::lock_guard<std::mutex> lock(transactionMutex_);
 
   if (pendingTransactions_.size() >= config_.maxPendingTransactions) {
@@ -255,18 +255,25 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
   uint64_t blockIndex = latestBlock ? latestBlock->block.index + 1 : 0;
   std::string previousHash = latestBlock ? latestBlock->hash : "";
 
-  // Select transactions
+  // Select transactions and convert to SignedData
   auto transactions = selectTransactionsForBlock();
-  std::string data = serializeTransactions(transactions);
 
   // Create the block
   auto block = std::make_shared<Ledger::ChainNode>();
   block->block.index = blockIndex;
   block->block.timestamp = timestamp;
-  block->block.data = data;
   block->block.previousHash = previousHash;
   block->block.slot = currentSlot;
   block->block.slotLeader = config_.minerId;
+  
+  // Populate signedTxes
+  block->block.signedTxes.clear();
+  for (const auto& tx : transactions) {
+    Ledger::SignedData<Ledger::Transaction> signedTx;
+    signedTx.obj = tx;
+    signedTx.signature = ""; // Signature will be set when transaction is signed
+    block->block.signedTxes.push_back(signedTx);
+  }
 
   // Calculate hash
   block->hash = calculateHash(block->block);
@@ -277,10 +284,10 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
   return block;
 }
 
-std::vector<Validator::Transaction> Miner::selectTransactionsForBlock() {
+std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
   std::lock_guard<std::mutex> lock(transactionMutex_);
 
-  std::vector<Validator::Transaction> selected;
+  std::vector<Ledger::Transaction> selected;
   size_t maxTxs = std::min(config_.maxTransactionsPerBlock, pendingTransactions_.size());
 
   for (size_t i = 0; i < maxTxs && !pendingTransactions_.empty(); ++i) {
@@ -291,7 +298,7 @@ std::vector<Validator::Transaction> Miner::selectTransactionsForBlock() {
   return selected;
 }
 
-std::string Miner::serializeTransactions(const std::vector<Validator::Transaction>& txs) {
+std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>& txs) {
   // Simple serialization - in production use proper binary format
   std::ostringstream oss;
   oss << txs.size();

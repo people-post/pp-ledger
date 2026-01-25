@@ -72,7 +72,7 @@ public:
     Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
     
     // Transaction management
-    Roe<void> addTransaction(const Validator::Transaction &tx);
+    Roe<void> addTransaction(const Ledger::Transaction &tx);
     size_t getPendingTransactionCount() const;
     void clearTransactionPool();
 
@@ -95,8 +95,8 @@ public:
 private:
     // Helper methods for block production
     Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
-    std::vector<Validator::Transaction> selectTransactionsForBlock();
-    std::string serializeTransactions(const std::vector<Validator::Transaction>& txs);
+    std::vector<Ledger::Transaction> selectTransactionsForBlock();
+    std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
     
     // Checkpoint management
     Roe<void> loadCheckpoint(const CheckpointInfo& checkpoint);
@@ -110,7 +110,7 @@ private:
     Config config_;
 
     // Transaction pool
-    std::queue<Validator::Transaction> pendingTransactions_;
+    std::queue<Ledger::Transaction> pendingTransactions_;
     mutable std::mutex transactionMutex_;
 
     // State tracking
