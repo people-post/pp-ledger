@@ -1,5 +1,5 @@
-#include "../Ledger.h"
-#include "../../server/Validator.h"
+#include "../Validator.h"
+#include "../../ledger/Ledger.h"
 #include <gtest/gtest.h>
 
 class BlockChainTest : public ::testing::Test {

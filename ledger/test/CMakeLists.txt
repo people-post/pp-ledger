@@ -15,18 +15,6 @@ target_link_libraries(test_wallet PRIVATE
 
 gtest_discover_tests(test_wallet)
 
-# Test for BlockChain
-add_executable(test_blockchain
-    test_blockchain.cpp
-)
-
-target_link_libraries(test_blockchain PRIVATE
-    pp_ledger
-    GTest::gtest_main
-)
-
-gtest_discover_tests(test_blockchain)
-
 # Test for FileStore
 add_executable(test_blockfile
     test_blockfile.cpp
