@@ -2,7 +2,6 @@
 #define PP_LEDGER_VALIDATOR_H
 
 #include "../ledger/Ledger.h"
-#include "../ledger/Block.h"
 #include "../ledger/BlockChain.h"
 #include "../consensus/Ouroboros.h"
 #include "../lib/Module.h"
@@ -42,9 +41,9 @@ public:
     virtual ~Validator() = default;
 
     // Block operations (non-virtual, to be used by derived classes)
-    Roe<const Block&> getBlock(uint64_t blockId) const;
-    Roe<void> addBlockBase(const Block& block);
-    Roe<void> validateBlockBase(const Block& block) const;
+    Roe<const Ledger::Block&> getBlock(uint64_t blockId) const;
+    Roe<void> addBlockBase(const Ledger::Block& block);
+    Roe<void> validateBlockBase(const Ledger::Block& block) const;
     uint64_t getCurrentBlockId() const;
 
     // Consensus queries
@@ -56,9 +55,9 @@ protected:
     Roe<void> initBase(const BaseConfig& config);
     
     // Validation helpers
-    bool isValidBlockSequence(const Block& block) const;
-    bool isValidSlotLeader(const Block& block) const;
-    bool isValidTimestamp(const Block& block) const;
+    bool isValidBlockSequence(const Ledger::Block& block) const;
+    bool isValidSlotLeader(const Ledger::Block& block) const;
+    bool isValidTimestamp(const Ledger::Block& block) const;
 
     // Getters for derived classes
     consensus::Ouroboros& getConsensus() { return consensus_; }

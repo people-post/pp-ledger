@@ -72,8 +72,8 @@ public:
   void updateStake(const std::string& stakeholderId, uint64_t newStake);
 
   // Block operations (override base class)
-  Roe<void> addBlock(const Block& block);
-  Roe<void> validateBlock(const Block& block) const;
+  Roe<void> addBlock(const Ledger::Block& block);
+  Roe<void> validateBlock(const Ledger::Block& block) const;
 
   // Chain synchronization
   Roe<void> syncChain(const BlockChain& otherChain);

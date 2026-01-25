@@ -57,7 +57,7 @@ uint64_t Validator::getCurrentBlockId() const {
   return nextBlockId > 0 ? nextBlockId - 1 : 0;
 }
 
-Validator::Roe<const Block&> Validator::getBlock(uint64_t blockId) const {
+Validator::Roe<const Ledger::Block&> Validator::getBlock(uint64_t blockId) const {
   auto spBlock = chain_.getBlock(blockId);
   if (!spBlock) {
     return Error(2, "Block not found: " + std::to_string(blockId));
@@ -65,7 +65,7 @@ Validator::Roe<const Block&> Validator::getBlock(uint64_t blockId) const {
   return *spBlock;
 }
 
-Validator::Roe<void> Validator::addBlockBase(const Block& block) {
+Validator::Roe<void> Validator::addBlockBase(const Ledger::Block& block) {
   // Validate the block first
   auto validationResult = validateBlockBase(block);
   if (!validationResult) {
@@ -73,7 +73,7 @@ Validator::Roe<void> Validator::addBlockBase(const Block& block) {
   }
 
   // Add to chain
-  auto blockPtr = std::make_shared<Block>(block);
+  auto blockPtr = std::make_shared<Ledger::Block>(block);
   if (!chain_.addBlock(blockPtr)) {
     return Error(4, "Failed to add block to chain");
   }
@@ -95,7 +95,7 @@ Validator::Roe<void> Validator::syncChain(const BlockChain& chain) {
   return {};
 }
 
-Validator::Roe<void> Validator::validateBlockBase(const Block& block) const {
+Validator::Roe<void> Validator::validateBlockBase(const Ledger::Block& block) const {
   uint64_t slot = block.slot;
   std::string slotLeader = block.slotLeader;
 
@@ -154,7 +154,7 @@ uint64_t Validator::getCurrentEpoch() const {
   return consensus_.getCurrentEpoch();
 }
 
-bool Validator::isValidBlockSequence(const Block& block) const {
+bool Validator::isValidBlockSequence(const Ledger::Block& block) const {
   auto latestBlock = chain_.getLatestBlock();
   
   if (!latestBlock) {
@@ -178,11 +178,11 @@ bool Validator::isValidBlockSequence(const Block& block) const {
   return true;
 }
 
-bool Validator::isValidSlotLeader(const Block& block) const {
+bool Validator::isValidSlotLeader(const Ledger::Block& block) const {
   return consensus_.isSlotLeader(block.slot, block.slotLeader);
 }
 
-bool Validator::isValidTimestamp(const Block& block) const {
+bool Validator::isValidTimestamp(const Ledger::Block& block) const {
   int64_t slotStartTime = consensus_.getSlotStartTime(block.slot);
   int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
   

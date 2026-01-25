@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Block.h"
+#include "Ledger.h"
 
 #include <cstdint>
 #include <memory>
@@ -20,12 +20,12 @@ public:
   ~BlockChain() = default;
 
   // Blockchain operations
-  std::shared_ptr<Block> getLatestBlock() const;
+  std::shared_ptr<Ledger::Block> getLatestBlock() const;
   size_t getSize() const;
 
   // Additional blockchain operations
-  bool addBlock(std::shared_ptr<Block> block);
-  std::shared_ptr<Block> getBlock(uint64_t index) const;
+  bool addBlock(std::shared_ptr<Ledger::Block> block);
+  std::shared_ptr<Ledger::Block> getBlock(uint64_t index) const;
   bool isValid() const;
   std::string getLastBlockHash() const;
 
@@ -39,11 +39,11 @@ public:
 
 private:
   // Internal helper methods
-  bool validateBlock(const Block &block) const;
-  std::vector<std::shared_ptr<Block>> getBlocks(uint64_t fromIndex,
+  bool validateBlock(const Ledger::Block &block) const;
+  std::vector<std::shared_ptr<Ledger::Block>> getBlocks(uint64_t fromIndex,
                                                 uint64_t toIndex) const;
 
-  std::vector<std::shared_ptr<Block>> chain_;
+  std::vector<std::shared_ptr<Ledger::Block>> chain_;
 };
 
 } // namespace pp

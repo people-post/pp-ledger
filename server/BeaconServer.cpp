@@ -332,7 +332,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
       return resp.dump();
     }
     
-    const Block& block = result.value();
+    const Ledger::Block& block = result.value();
     resp["status"] = "ok";
     resp["block"]["index"] = block.index;
     resp["block"]["timestamp"] = block.timestamp;
@@ -348,7 +348,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Block block;
+    Ledger::Block block;
     
     if (blockJson.contains("index")) block.index = blockJson["index"].get<uint64_t>();
     if (blockJson.contains("timestamp")) block.timestamp = blockJson["timestamp"].get<int64_t>();

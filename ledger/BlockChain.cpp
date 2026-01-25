@@ -1,5 +1,5 @@
 #include "BlockChain.h"
-#include "Block.h"
+#include "Ledger.h"
 
 #include <algorithm>
 #include <openssl/evp.h>
@@ -13,7 +13,7 @@ BlockChain::BlockChain() {
 }
 
 // Blockchain operations
-bool BlockChain::addBlock(std::shared_ptr<Block> block) {
+bool BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
   if (!block) {
     return false;
   }
@@ -22,14 +22,14 @@ bool BlockChain::addBlock(std::shared_ptr<Block> block) {
   return true;
 }
 
-std::shared_ptr<Block> BlockChain::getLatestBlock() const {
+std::shared_ptr<Ledger::Block> BlockChain::getLatestBlock() const {
   if (chain_.empty()) {
     return nullptr;
   }
   return chain_.back();
 }
 
-std::shared_ptr<Block> BlockChain::getBlock(uint64_t index) const {
+std::shared_ptr<Ledger::Block> BlockChain::getBlock(uint64_t index) const {
   if (index >= chain_.size()) {
     return nullptr;
   }
@@ -66,7 +66,7 @@ bool BlockChain::isValid() const {
   return true;
 }
 
-bool BlockChain::validateBlock(const Block &block) const {
+bool BlockChain::validateBlock(const Ledger::Block &block) const {
   // Verify block's hash
   if (block.hash != block.calculateHash()) {
     return false;
@@ -75,9 +75,9 @@ bool BlockChain::validateBlock(const Block &block) const {
   return true;
 }
 
-std::vector<std::shared_ptr<Block>>
+std::vector<std::shared_ptr<Ledger::Block>>
 BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
-  std::vector<std::shared_ptr<Block>> result;
+  std::vector<std::shared_ptr<Ledger::Block>> result;
 
   if (fromIndex > toIndex || fromIndex >= chain_.size()) {
     return result;

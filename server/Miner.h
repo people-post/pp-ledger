@@ -3,7 +3,6 @@
 
 #include "Validator.h"
 #include "../ledger/Ledger.h"
-#include "../ledger/Block.h"
 #include "../ledger/BlockChain.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
@@ -71,7 +70,7 @@ public:
     // Block production
     bool isSlotLeader() const;
     bool shouldProduceBlock() const;
-    Roe<std::shared_ptr<Block>> produceBlock();
+    Roe<std::shared_ptr<Ledger::Block>> produceBlock();
     
     // Transaction management
     Roe<void> addTransaction(const Ledger::Transaction &tx);
@@ -79,8 +78,8 @@ public:
     void clearTransactionPool();
 
     // Block and chain operations
-    Roe<void> addBlock(const Block& block);
-    Roe<void> validateBlock(const Block& block) const;
+    Roe<void> addBlock(const Ledger::Block& block);
+    Roe<void> validateBlock(const Ledger::Block& block) const;
 
     // Chain synchronization
     Roe<void> syncChain(const BlockChain& chain);
@@ -96,7 +95,7 @@ public:
 
 private:
     // Helper methods for block production
-    Roe<std::shared_ptr<Block>> createBlock();
+    Roe<std::shared_ptr<Ledger::Block>> createBlock();
     std::vector<Ledger::Transaction> selectTransactionsForBlock();
     std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
     
