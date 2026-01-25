@@ -246,7 +246,7 @@ std::string MinerServer::handleTransactionRequest(const nlohmann::json& reqJson)
     }
     
     auto& txJson = reqJson["transaction"];
-    Ledger::Transaction tx;
+    Validator::Transaction tx;
     
     if (!txJson.contains("from") || !txJson.contains("to") || !txJson.contains("amount")) {
       resp["error"] = "missing required transaction fields (from, to, amount)";

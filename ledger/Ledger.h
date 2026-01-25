@@ -57,41 +57,6 @@ public:
     }
   };
 
-
-  struct TransactionData {
-    std::string data;
-    std::string signature;
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &data &signature;
-    }
-  };
-
-  struct BlockData {
-    std::vector<TransactionData> transactions;
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &transactions;
-    }
-  };
-
-  struct Transaction {
-    constexpr static uint16_t T_TRANSFER = 0;
-    constexpr static uint16_t T_REGISTER = 1;
-
-    uint16_t type{ T_TRANSFER };
-    std::string fromWallet; // Source wallet ID
-    std::string toWallet;   // Destination wallet ID
-    int64_t amount{ 0 };    // Transfer amount
-    std::string meta;       // Transaction metadata
-
-    Transaction() = default;
-  
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &type &fromWallet &toWallet &amount &meta;
-    }
-  };
-
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };

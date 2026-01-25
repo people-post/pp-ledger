@@ -143,7 +143,7 @@ Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::produceBlock() {
   return block;
 }
 
-Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
+Miner::Roe<void> Miner::addTransaction(const Validator::Transaction &tx) {
   std::lock_guard<std::mutex> lock(transactionMutex_);
 
   if (pendingTransactions_.size() >= config_.maxPendingTransactions) {
@@ -277,10 +277,10 @@ Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::createBlock() {
   return block;
 }
 
-std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
+std::vector<Validator::Transaction> Miner::selectTransactionsForBlock() {
   std::lock_guard<std::mutex> lock(transactionMutex_);
 
-  std::vector<Ledger::Transaction> selected;
+  std::vector<Validator::Transaction> selected;
   size_t maxTxs = std::min(config_.maxTransactionsPerBlock, pendingTransactions_.size());
 
   for (size_t i = 0; i < maxTxs && !pendingTransactions_.empty(); ++i) {
@@ -291,7 +291,7 @@ std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
   return selected;
 }
 
-std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>& txs) {
+std::string Miner::serializeTransactions(const std::vector<Validator::Transaction>& txs) {
   // Simple serialization - in production use proper binary format
   std::ostringstream oss;
   oss << txs.size();
