@@ -97,7 +97,7 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
   log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
-Beacon::Roe<void> Beacon::addBlock(const Ledger::RawBlock& block) {
+Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -115,7 +115,7 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::RawBlock& block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::validateBlock(const Ledger::RawBlock& block) const {
+Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {

@@ -21,8 +21,22 @@ public:
 
     Block();
 
-    // Core block methods
-    std::string calculateHash() const;
+    // Long-term support serialization for disk persistence
+    /**
+     * Serialize block to binary format for long-term storage
+     * Format is version-aware and compact for efficient disk storage
+     * Binary format:
+     * [version][index][timestamp][data_size+data][prevHash_size+prevHash][nonce][slot][leader_size+leader]
+     * @return Serialized binary string representation
+     */
+    std::string ltsToString() const;
+
+    /**
+     * Deserialize block from binary format
+     * @param str Serialized binary string representation
+     * @return true if successful, false on error
+     */
+    bool ltsFromString(const std::string &str);
 
     // Public fields
     uint64_t index{ 0 };
@@ -39,37 +53,12 @@ public:
   };
 
   /**
-   * RawBlock data structure (Block + hash)
+   * ChainNode data structure (Block + hash)
+   * Simple struct for in-memory representation
    */
-  struct RawBlock {
-    static constexpr uint16_t CURRENT_VERSION = 1;
-
-    RawBlock();
-
-    // Long-term support serialization for disk persistence
-    /**
-     * Serialize block to binary format for long-term storage
-     * Format is version-aware and compact for efficient disk storage
-     * Binary format:
-     * [version][block][hash_size+hash]
-     * @return Serialized binary string representation
-     */
-    std::string ltsToString() const;
-
-    /**
-     * Deserialize block from binary format
-     * @param str Serialized binary string representation
-     * @return true if successful, false on error
-     */
-    bool ltsFromString(const std::string &str);
-
-    // Public fields
+  struct ChainNode {
     Block block;
     std::string hash;
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar & block & hash;
-    }
   };
 
   struct Error : RoeErrorBase {
@@ -89,11 +78,24 @@ public:
   uint64_t getNextBlockId() const;
 
   Roe<void> init(const Config& config);
-  Roe<void> addBlock(const RawBlock& block);
+  Roe<void> addBlock(const ChainNode& block);
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
-  Roe<RawBlock> readBlock(uint64_t blockId) const;
+  Roe<ChainNode> readBlock(uint64_t blockId) const;
 
 private:
+  /**
+   * RawBlock data structure for file storage
+   * Stores block as serialized string to be version-agnostic
+   */
+  struct RawBlock {
+    std::string data;  // Serialized Block data (from Block::ltsToString())
+    std::string hash;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & data & hash;
+    }
+  };
+
   /**
    * Index file header structure - minimal header
    */

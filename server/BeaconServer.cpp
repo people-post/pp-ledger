@@ -332,7 +332,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
       return resp.dump();
     }
     
-    const Ledger::RawBlock& block = result.value();
+    const Ledger::ChainNode& block = result.value();
     resp["status"] = "ok";
     resp["block"]["index"] = block.block.index;
     resp["block"]["timestamp"] = block.block.timestamp;
@@ -348,7 +348,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Ledger::RawBlock block;
+    Ledger::ChainNode block;
     
     if (blockJson.contains("index")) block.block.index = blockJson["index"].get<uint64_t>();
     if (blockJson.contains("timestamp")) block.block.timestamp = blockJson["timestamp"].get<int64_t>();
@@ -357,7 +357,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     if (blockJson.contains("slot")) block.block.slot = blockJson["slot"].get<uint64_t>();
     if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<std::string>();
     
-    block.hash = block.block.calculateHash();
+    block.hash = beacon_.calculateHash(block.block);
     
     auto result = beacon_.addBlock(block);
     if (!result) {

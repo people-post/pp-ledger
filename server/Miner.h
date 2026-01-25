@@ -69,7 +69,7 @@ public:
     // Block production
     bool isSlotLeader() const;
     bool shouldProduceBlock() const;
-    Roe<std::shared_ptr<Ledger::RawBlock>> produceBlock();
+    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
     
     // Transaction management
     Roe<void> addTransaction(const Validator::Transaction &tx);
@@ -77,8 +77,8 @@ public:
     void clearTransactionPool();
 
     // Block and chain operations
-    Roe<void> addBlock(const Ledger::RawBlock& block);
-    Roe<void> validateBlock(const Ledger::RawBlock& block) const;
+    Roe<void> addBlock(const Ledger::ChainNode& block);
+    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
 
     // Chain synchronization
     Roe<void> syncChain(const Validator::BlockChain& chain);
@@ -94,7 +94,7 @@ public:
 
 private:
     // Helper methods for block production
-    Roe<std::shared_ptr<Ledger::RawBlock>> createBlock();
+    Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
     std::vector<Validator::Transaction> selectTransactionsForBlock();
     std::string serializeTransactions(const std::vector<Validator::Transaction>& txs);
     

@@ -90,7 +90,7 @@ bool Miner::shouldProduceBlock() const {
   return isSlotLeader() && getPendingTransactionCount() > 0;
 }
 
-Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::produceBlock() {
+Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
   }
@@ -171,7 +171,7 @@ void Miner::clearTransactionPool() {
   log().info << "Transaction pool cleared";
 }
 
-Miner::Roe<void> Miner::addBlock(const Ledger::RawBlock& block) {
+Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -181,7 +181,7 @@ Miner::Roe<void> Miner::addBlock(const Ledger::RawBlock& block) {
   return {};
 }
 
-Miner::Roe<void> Miner::validateBlock(const Ledger::RawBlock& block) const {
+Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {
@@ -243,7 +243,7 @@ bool Miner::isSlotLeader(uint64_t slot) const {
 
 // Private helper methods
 
-Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::createBlock() {
+Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
   // Get current slot info
   uint64_t currentSlot = getCurrentSlot();
   auto now = std::chrono::system_clock::now();
@@ -260,7 +260,7 @@ Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::createBlock() {
   std::string data = serializeTransactions(transactions);
 
   // Create the block
-  auto block = std::make_shared<Ledger::RawBlock>();
+  auto block = std::make_shared<Ledger::ChainNode>();
   block->block.index = blockIndex;
   block->block.timestamp = timestamp;
   block->block.data = data;
@@ -269,7 +269,7 @@ Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::createBlock() {
   block->block.slotLeader = config_.minerId;
 
   // Calculate hash
-  block->hash = block->block.calculateHash();
+  block->hash = calculateHash(block->block);
 
   log().debug << "Created block " << blockIndex 
               << " with " << transactions.size() << " transactions";

@@ -15,30 +15,19 @@ Ledger::Block::Block()
     : timestamp(std::chrono::system_clock::now().time_since_epoch().count()) {
 }
 
-std::string Ledger::Block::calculateHash() const {
-  std::stringstream ss;
-  ss << CURRENT_VERSION << index << timestamp << data << previousHash
-     << nonce;
-  return utl::sha256(ss.str());
-}
 
-// RawBlock implementation
-Ledger::RawBlock::RawBlock() {
-  hash = block.calculateHash();
-}
-
-std::string Ledger::RawBlock::ltsToString() const {
+std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
 
-  // Serialize version, block, and hash
+  // Serialize version and block fields
   uint16_t version = CURRENT_VERSION;
-  ar & version & block & hash;
+  ar & version & *this;
 
   return oss.str();
 }
 
-bool Ledger::RawBlock::ltsFromString(const std::string &str) {
+bool Ledger::Block::ltsFromString(const std::string &str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
 
@@ -55,8 +44,8 @@ bool Ledger::RawBlock::ltsFromString(const std::string &str) {
     return false; // Unsupported future version
   }
 
-  // Deserialize block and hash
-  ar & block & hash;
+  // Deserialize block fields
+  ar & *this;
 
   if (ar.failed()) {
     return false;
@@ -166,9 +155,17 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
   return {};
 }
 
-Ledger::Roe<void> Ledger::addBlock(const Ledger::RawBlock& block) {
+Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
+  // Serialize Block using Block::ltsToString()
+  std::string blockData = block.block.ltsToString();
+  
+  // Create RawBlock with serialized block data and hash
+  RawBlock rawBlock;
+  rawBlock.data = blockData;
+  rawBlock.hash = block.hash;
+  
   // Append block to store
-  auto appendResult = store_.appendBlock(block.ltsToString());
+  auto appendResult = store_.appendBlock(utl::binaryPack(rawBlock));
   if (!appendResult.isOk()) {
     return Error("Failed to append block: " + appendResult.error().message);
   }
@@ -227,7 +224,7 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   return {};
 }
 
-Ledger::Roe<Ledger::RawBlock> Ledger::readBlock(uint64_t blockId) const {
+Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
@@ -258,13 +255,25 @@ Ledger::Roe<Ledger::RawBlock> Ledger::readBlock(uint64_t blockId) const {
                  ": " + readResult.error().message);
   }
 
-  // Deserialize block from binary string
-  Ledger::RawBlock block;
-  if (!block.ltsFromString(readResult.value())) {
-    return Error("Failed to deserialize block " + std::to_string(blockId));
+  // Deserialize RawBlock from binary string
+  auto rawBlockResult = utl::binaryUnpack<Ledger::RawBlock>(readResult.value());
+  if (!rawBlockResult.isOk()) {
+    return Error("Failed to deserialize block " + std::to_string(blockId) + ": " + rawBlockResult.error().message);
+  }
+  Ledger::RawBlock rawBlock = rawBlockResult.value();
+
+  // Deserialize Block from RawBlock's data string
+  Ledger::Block block;
+  if (!block.ltsFromString(rawBlock.data)) {
+    return Error("Failed to deserialize block data " + std::to_string(blockId));
   }
 
-  return block;
+  // Create ChainNode from deserialized Block and hash
+  Ledger::ChainNode node;
+  node.block = block;
+  node.hash = rawBlock.hash;
+
+  return node;
 }
 
 bool Ledger::loadIndex() {
