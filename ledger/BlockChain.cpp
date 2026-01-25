@@ -48,7 +48,7 @@ bool BlockChain::isValid() const {
     const auto &currentBlock = chain_[i];
 
     // Verify current block's hash
-    if (currentBlock->getHash() != currentBlock->calculateHash()) {
+    if (currentBlock->hash != currentBlock->calculateHash()) {
       return false;
     }
 
@@ -57,7 +57,7 @@ bool BlockChain::isValid() const {
     // TODO: Skip validation by index saved in block, not by position in chain
     if (i > 0) {
       const auto &previousBlock = chain_[i - 1];
-      if (currentBlock->getPreviousHash() != previousBlock->getHash()) {
+      if (currentBlock->previousHash != previousBlock->hash) {
         return false;
       }
     }
@@ -68,7 +68,7 @@ bool BlockChain::isValid() const {
 
 bool BlockChain::validateBlock(const Block &block) const {
   // Verify block's hash
-  if (block.getHash() != block.calculateHash()) {
+  if (block.hash != block.calculateHash()) {
     return false;
   }
 
@@ -96,7 +96,7 @@ std::string BlockChain::getLastBlockHash() const {
   if (chain_.empty()) {
     return "0";
   }
-  return chain_.back()->getHash();
+  return chain_.back()->hash;
 }
 
 size_t BlockChain::trimBlocks(size_t count) {

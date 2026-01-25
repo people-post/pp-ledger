@@ -247,7 +247,7 @@ uint64_t Beacon::getBlockAge(uint64_t blockId) const {
   auto currentTime = std::chrono::duration_cast<std::chrono::seconds>(
       now.time_since_epoch()).count();
 
-  int64_t blockTime = block->getTimestamp();
+  int64_t blockTime = block->timestamp;
   
   if (currentTime > blockTime) {
     return static_cast<uint64_t>(currentTime - blockTime);

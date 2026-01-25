@@ -28,11 +28,11 @@ protected:
 
   Block createTestBlock(uint64_t id, const std::string& data) {
     Block block;
-    block.setIndex(id);
-    block.setPreviousHash("prev_hash_" + std::to_string(id));
-    block.setTimestamp(static_cast<int64_t>(std::time(nullptr)));
-    block.setData(data);
-    block.setHash("hash_" + std::to_string(id));
+    block.index = id;
+    block.previousHash = "prev_hash_" + std::to_string(id);
+    block.timestamp = static_cast<int64_t>(std::time(nullptr));
+    block.data = data;
+    block.hash = "hash_" + std::to_string(id);
     return block;
   }
 
@@ -416,10 +416,10 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
                                     << readResult.error().message;
     
     const Block& readBlock = readResult.value();
-    EXPECT_EQ(readBlock.getIndex(), testBlocks[i].getIndex());
-    EXPECT_EQ(readBlock.getData(), testBlocks[i].getData());
-    EXPECT_EQ(readBlock.getHash(), testBlocks[i].getHash());
-    EXPECT_EQ(readBlock.getPreviousHash(), testBlocks[i].getPreviousHash());
+    EXPECT_EQ(readBlock.index, testBlocks[i].index);
+    EXPECT_EQ(readBlock.data, testBlocks[i].data);
+    EXPECT_EQ(readBlock.hash, testBlocks[i].hash);
+    EXPECT_EQ(readBlock.previousHash, testBlocks[i].previousHash);
   }
 }
 
@@ -496,8 +496,8 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
                                       << readResult.error().message;
       
       const Block& readBlock = readResult.value();
-      EXPECT_EQ(readBlock.getIndex(), i + 1);
-      EXPECT_EQ(readBlock.getData(), "data_" + std::to_string(i + 1));
+      EXPECT_EQ(readBlock.index, i + 1);
+      EXPECT_EQ(readBlock.data, "data_" + std::to_string(i + 1));
     }
   }
 }
@@ -582,11 +582,11 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
     // Verify existing blocks are still accessible
     auto readResult1 = ledger.readBlock(5);
     ASSERT_TRUE(readResult1.isOk());
-    EXPECT_EQ(readResult1.value().getData(), "data_1");
+    EXPECT_EQ(readResult1.value().data, "data_1");
 
     auto readResult2 = ledger.readBlock(6);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().getData(), "data_2");
+    EXPECT_EQ(readResult2.value().data, "data_2");
 
     // Add a new block - should get ID 7 (nextBlockId)
     Block block = createTestBlock(3, "data_3");
@@ -673,11 +673,11 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
     // Verify blocks are accessible with correct IDs
     auto readResult = ledger.readBlock(100);
     ASSERT_TRUE(readResult.isOk());
-    EXPECT_EQ(readResult.value().getData(), "data_1");
+    EXPECT_EQ(readResult.value().data, "data_1");
 
     auto readResult2 = ledger.readBlock(104);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().getData(), "data_5");
+    EXPECT_EQ(readResult2.value().data, "data_5");
   }
 }
 

@@ -46,54 +46,18 @@ static std::string sha256(const std::string &input) {
 
 // Block implementation
 Block::Block()
-    : index_(0),
-      timestamp_(std::chrono::system_clock::now().time_since_epoch().count()),
-      data_(""), previousHash_(""), nonce_(0), slot_(0), slotLeader_("") {
-  hash_ = calculateHash();
+    : index(0),
+      timestamp(std::chrono::system_clock::now().time_since_epoch().count()),
+      data(""), previousHash(""), nonce(0), slot(0), slotLeader("") {
+  hash = calculateHash();
 }
-
-// Block methods
-uint64_t Block::getIndex() const { return index_; }
-
-int64_t Block::getTimestamp() const { return timestamp_; }
-
-std::string Block::getData() const { return data_; }
-
-std::string Block::getPreviousHash() const { return previousHash_; }
-
-std::string Block::getHash() const { return hash_; }
-
-uint64_t Block::getNonce() const { return nonce_; }
 
 std::string Block::calculateHash() const {
   std::stringstream ss;
-  ss << CURRENT_VERSION << index_ << timestamp_ << data_ << previousHash_
-     << nonce_;
+  ss << CURRENT_VERSION << index << timestamp << data << previousHash
+     << nonce;
   return sha256(ss.str());
 }
-
-uint64_t Block::getSlot() const { return slot_; }
-
-std::string Block::getSlotLeader() const { return slotLeader_; }
-
-void Block::setHash(const std::string &hash) { hash_ = hash; }
-
-void Block::setNonce(uint64_t nonce) { nonce_ = nonce; }
-
-// Additional setters
-void Block::setIndex(uint64_t index) { index_ = index; }
-
-void Block::setTimestamp(int64_t timestamp) { timestamp_ = timestamp; }
-
-void Block::setData(const std::string &data) { data_ = data; }
-
-void Block::setPreviousHash(const std::string &hash) { previousHash_ = hash; }
-
-void Block::setSlot(uint64_t slot) { slot_ = slot; }
-
-void Block::setSlotLeader(const std::string &leader) { slotLeader_ = leader; }
-
-uint16_t Block::getVersion() const { return CURRENT_VERSION; }
 
 std::string Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
@@ -111,44 +75,44 @@ std::string Block::ltsToString() const {
   oss.write(reinterpret_cast<const char *>(&version), sizeof(version));
 
   // Index (uint64_t)
-  oss.write(reinterpret_cast<const char *>(&index_), sizeof(index_));
+  oss.write(reinterpret_cast<const char *>(&index), sizeof(index));
 
   // Timestamp (int64_t)
-  oss.write(reinterpret_cast<const char *>(&timestamp_), sizeof(timestamp_));
+  oss.write(reinterpret_cast<const char *>(&timestamp), sizeof(timestamp));
 
   // Data: size + content
-  uint64_t dataSize = data_.size();
+  uint64_t dataSize = data.size();
   oss.write(reinterpret_cast<const char *>(&dataSize), sizeof(dataSize));
   if (dataSize > 0) {
-    oss.write(data_.data(), dataSize);
+    oss.write(data.data(), dataSize);
   }
 
   // Previous hash: size + content
-  uint64_t prevHashSize = previousHash_.size();
+  uint64_t prevHashSize = previousHash.size();
   oss.write(reinterpret_cast<const char *>(&prevHashSize),
             sizeof(prevHashSize));
   if (prevHashSize > 0) {
-    oss.write(previousHash_.data(), prevHashSize);
+    oss.write(previousHash.data(), prevHashSize);
   }
 
   // Hash: size + content
-  uint64_t hashSize = hash_.size();
+  uint64_t hashSize = hash.size();
   oss.write(reinterpret_cast<const char *>(&hashSize), sizeof(hashSize));
   if (hashSize > 0) {
-    oss.write(hash_.data(), hashSize);
+    oss.write(hash.data(), hashSize);
   }
 
   // Nonce (uint64_t)
-  oss.write(reinterpret_cast<const char *>(&nonce_), sizeof(nonce_));
+  oss.write(reinterpret_cast<const char *>(&nonce), sizeof(nonce));
 
   // Slot (uint64_t)
-  oss.write(reinterpret_cast<const char *>(&slot_), sizeof(slot_));
+  oss.write(reinterpret_cast<const char *>(&slot), sizeof(slot));
 
   // Slot leader: size + content
-  uint64_t leaderSize = slotLeader_.size();
+  uint64_t leaderSize = slotLeader.size();
   oss.write(reinterpret_cast<const char *>(&leaderSize), sizeof(leaderSize));
   if (leaderSize > 0) {
-    oss.write(slotLeader_.data(), leaderSize);
+    oss.write(slotLeader.data(), leaderSize);
   }
 
   return oss.str();
@@ -158,14 +122,14 @@ bool Block::ltsFromString(const std::string &str) {
   std::istringstream iss(str, std::ios::binary);
 
   // Reset to default values
-  index_ = 0;
-  timestamp_ = 0;
-  data_.clear();
-  previousHash_.clear();
-  hash_.clear();
-  nonce_ = 0;
-  slot_ = 0;
-  slotLeader_.clear();
+  index = 0;
+  timestamp = 0;
+  data.clear();
+  previousHash.clear();
+  hash.clear();
+  nonce = 0;
+  slot = 0;
+  slotLeader.clear();
 
   // Read version (uint16_t) - read but don't store, validate compatibility
   uint16_t version = 0;
@@ -179,12 +143,12 @@ bool Block::ltsFromString(const std::string &str) {
   }
 
   // Read index (uint64_t)
-  if (!iss.read(reinterpret_cast<char *>(&index_), sizeof(index_))) {
+  if (!iss.read(reinterpret_cast<char *>(&index), sizeof(index))) {
     return false;
   }
 
   // Read timestamp (int64_t)
-  if (!iss.read(reinterpret_cast<char *>(&timestamp_), sizeof(timestamp_))) {
+  if (!iss.read(reinterpret_cast<char *>(&timestamp), sizeof(timestamp))) {
     return false;
   }
 
@@ -194,8 +158,8 @@ bool Block::ltsFromString(const std::string &str) {
     return false;
   }
   if (dataSize > 0) {
-    data_.resize(dataSize);
-    if (!iss.read(&data_[0], dataSize)) {
+    data.resize(dataSize);
+    if (!iss.read(&data[0], dataSize)) {
       return false;
     }
   }
@@ -207,8 +171,8 @@ bool Block::ltsFromString(const std::string &str) {
     return false;
   }
   if (prevHashSize > 0) {
-    previousHash_.resize(prevHashSize);
-    if (!iss.read(&previousHash_[0], prevHashSize)) {
+    previousHash.resize(prevHashSize);
+    if (!iss.read(&previousHash[0], prevHashSize)) {
       return false;
     }
   }
@@ -219,19 +183,19 @@ bool Block::ltsFromString(const std::string &str) {
     return false;
   }
   if (hashSize > 0) {
-    hash_.resize(hashSize);
-    if (!iss.read(&hash_[0], hashSize)) {
+    hash.resize(hashSize);
+    if (!iss.read(&hash[0], hashSize)) {
       return false;
     }
   }
 
   // Read nonce (uint64_t)
-  if (!iss.read(reinterpret_cast<char *>(&nonce_), sizeof(nonce_))) {
+  if (!iss.read(reinterpret_cast<char *>(&nonce), sizeof(nonce))) {
     return false;
   }
 
   // Read slot (uint64_t)
-  if (!iss.read(reinterpret_cast<char *>(&slot_), sizeof(slot_))) {
+  if (!iss.read(reinterpret_cast<char *>(&slot), sizeof(slot))) {
     return false;
   }
 
@@ -241,8 +205,8 @@ bool Block::ltsFromString(const std::string &str) {
     return false;
   }
   if (leaderSize > 0) {
-    slotLeader_.resize(leaderSize);
-    if (!iss.read(&slotLeader_[0], leaderSize)) {
+    slotLeader.resize(leaderSize);
+    if (!iss.read(&slotLeader[0], leaderSize)) {
       return false;
     }
   }

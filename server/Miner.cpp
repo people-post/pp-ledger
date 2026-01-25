@@ -131,14 +131,14 @@ Miner::Roe<std::shared_ptr<Block>> Miner::produceBlock() {
 
   {
     std::lock_guard<std::mutex> lock(getStateMutex());
-    lastProducedBlockId_ = block->getIndex();
+    lastProducedBlockId_ = block->index;
   }
 
   log().info << "Block produced successfully";
-  log().info << "  Block ID: " << block->getIndex();
-  log().info << "  Slot: " << block->getSlot();
+  log().info << "  Block ID: " << block->index;
+  log().info << "  Slot: " << block->slot;
   log().info << "  Transactions: " << pendingTransactions_.size();
-  log().info << "  Hash: " << block->getHash();
+  log().info << "  Hash: " << block->hash;
 
   return block;
 }
@@ -252,8 +252,8 @@ Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
 
   // Get previous block info
   auto latestBlock = getChain().getLatestBlock();
-  uint64_t blockIndex = latestBlock ? latestBlock->getIndex() + 1 : 0;
-  std::string previousHash = latestBlock ? latestBlock->getHash() : "";
+  uint64_t blockIndex = latestBlock ? latestBlock->index + 1 : 0;
+  std::string previousHash = latestBlock ? latestBlock->hash : "";
 
   // Select transactions
   auto transactions = selectTransactionsForBlock();
@@ -261,15 +261,15 @@ Miner::Roe<std::shared_ptr<Block>> Miner::createBlock() {
 
   // Create the block
   auto block = std::make_shared<Block>();
-  block->setIndex(blockIndex);
-  block->setTimestamp(timestamp);
-  block->setData(data);
-  block->setPreviousHash(previousHash);
-  block->setSlot(currentSlot);
-  block->setSlotLeader(config_.minerId);
+  block->index = blockIndex;
+  block->timestamp = timestamp;
+  block->data = data;
+  block->previousHash = previousHash;
+  block->slot = currentSlot;
+  block->slotLeader = config_.minerId;
 
   // Calculate hash
-  block->calculateHash();
+  block->hash = block->calculateHash();
 
   log().debug << "Created block " << blockIndex 
               << " with " << transactions.size() << " transactions";

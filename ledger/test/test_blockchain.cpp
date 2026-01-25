@@ -25,31 +25,31 @@ TEST_F(BlockChainTest, StartsEmpty) {
 TEST_F(BlockChainTest, AddsBlocksToChain) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Genesis block");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Genesis block";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block1 = std::make_shared<pp::Block>();
-    block1->setIndex(1);
-    block1->setData("Transaction 1: Alice -> Bob: 10 coins");
-    block1->setPreviousHash(blockchain->getLastBlockHash());
-    block1->setHash(block1->calculateHash());
+    block1->index = 1;
+    block1->data = "Transaction 1: Alice -> Bob: 10 coins";
+    block1->previousHash = blockchain->getLastBlockHash();
+    block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
-    block2->setIndex(2);
-    block2->setData("Transaction 2: Bob -> Charlie: 5 coins");
-    block2->setPreviousHash(blockchain->getLastBlockHash());
-    block2->setHash(block2->calculateHash());
+    block2->index = 2;
+    block2->data = "Transaction 2: Bob -> Charlie: 5 coins";
+    block2->previousHash = blockchain->getLastBlockHash();
+    block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
     auto block3 = std::make_shared<pp::Block>();
-    block3->setIndex(3);
-    block3->setData("Transaction 3: Charlie -> Alice: 3 coins");
-    block3->setPreviousHash(blockchain->getLastBlockHash());
-    block3->setHash(block3->calculateHash());
+    block3->index = 3;
+    block3->data = "Transaction 3: Charlie -> Alice: 3 coins";
+    block3->previousHash = blockchain->getLastBlockHash();
+    block3->hash = block3->calculateHash();
     blockchain->addBlock(block3);
     
     EXPECT_EQ(blockchain->getSize(), 4);
@@ -58,24 +58,24 @@ TEST_F(BlockChainTest, AddsBlocksToChain) {
 TEST_F(BlockChainTest, ValidatesCorrectChain) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Genesis");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Genesis";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block1 = std::make_shared<pp::Block>();
-    block1->setIndex(1);
-    block1->setData("Transaction 1");
-    block1->setPreviousHash(blockchain->getLastBlockHash());
-    block1->setHash(block1->calculateHash());
+    block1->index = 1;
+    block1->data = "Transaction 1";
+    block1->previousHash = blockchain->getLastBlockHash();
+    block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
-    block2->setIndex(2);
-    block2->setData("Transaction 2");
-    block2->setPreviousHash(blockchain->getLastBlockHash());
-    block2->setHash(block2->calculateHash());
+    block2->index = 2;
+    block2->data = "Transaction 2";
+    block2->previousHash = blockchain->getLastBlockHash();
+    block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
     EXPECT_TRUE(blockchain->isValid());
@@ -84,24 +84,24 @@ TEST_F(BlockChainTest, ValidatesCorrectChain) {
 TEST_F(BlockChainTest, DetectsTampering) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Genesis");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Genesis";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block1 = std::make_shared<pp::Block>();
-    block1->setIndex(1);
-    block1->setData("Original Transaction");
-    block1->setPreviousHash(blockchain->getLastBlockHash());
-    block1->setHash(block1->calculateHash());
+    block1->index = 1;
+    block1->data = "Original Transaction";
+    block1->previousHash = blockchain->getLastBlockHash();
+    block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
-    block2->setIndex(2);
-    block2->setData("Another Transaction");
-    block2->setPreviousHash(blockchain->getLastBlockHash());
-    block2->setHash(block2->calculateHash());
+    block2->index = 2;
+    block2->data = "Another Transaction";
+    block2->previousHash = blockchain->getLastBlockHash();
+    block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
     // Verify chain is initially valid
@@ -111,7 +111,7 @@ TEST_F(BlockChainTest, DetectsTampering) {
     auto blockPtr = blockchain->getBlock(1);
     if (blockPtr) {
         // Tamper by modifying hash without proper recalculation
-        blockPtr->setHash("tampered");
+        blockPtr->hash = "tampered";
     }
     
     EXPECT_FALSE(blockchain->isValid());
@@ -120,75 +120,75 @@ TEST_F(BlockChainTest, DetectsTampering) {
 TEST_F(BlockChainTest, BlocksHaveCorrectIndices) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Block 0");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Block 0";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block1 = std::make_shared<pp::Block>();
-    block1->setIndex(1);
-    block1->setData("Block 1");
-    block1->setPreviousHash(blockchain->getLastBlockHash());
-    block1->setHash(block1->calculateHash());
+    block1->index = 1;
+    block1->data = "Block 1";
+    block1->previousHash = blockchain->getLastBlockHash();
+    block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
-    block2->setIndex(2);
-    block2->setData("Block 2");
-    block2->setPreviousHash(blockchain->getLastBlockHash());
-    block2->setHash(block2->calculateHash());
+    block2->index = 2;
+    block2->data = "Block 2";
+    block2->previousHash = blockchain->getLastBlockHash();
+    block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
-    EXPECT_EQ(blockchain->getBlock(0)->getIndex(), 0);
-    EXPECT_EQ(blockchain->getBlock(1)->getIndex(), 1);
-    EXPECT_EQ(blockchain->getBlock(2)->getIndex(), 2);
+    EXPECT_EQ(blockchain->getBlock(0)->index, 0);
+    EXPECT_EQ(blockchain->getBlock(1)->index, 1);
+    EXPECT_EQ(blockchain->getBlock(2)->index, 2);
 }
 
 TEST_F(BlockChainTest, BlocksLinkedByHash) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Block 0");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Block 0";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block1 = std::make_shared<pp::Block>();
-    block1->setIndex(1);
-    block1->setData("Block 1");
-    block1->setPreviousHash(blockchain->getLastBlockHash());
-    block1->setHash(block1->calculateHash());
+    block1->index = 1;
+    block1->data = "Block 1";
+    block1->previousHash = blockchain->getLastBlockHash();
+    block1->hash = block1->calculateHash();
     blockchain->addBlock(block1);
     
     auto block2 = std::make_shared<pp::Block>();
-    block2->setIndex(2);
-    block2->setData("Block 2");
-    block2->setPreviousHash(blockchain->getLastBlockHash());
-    block2->setHash(block2->calculateHash());
+    block2->index = 2;
+    block2->data = "Block 2";
+    block2->previousHash = blockchain->getLastBlockHash();
+    block2->hash = block2->calculateHash();
     blockchain->addBlock(block2);
     
-    EXPECT_EQ(blockchain->getBlock(1)->getPreviousHash(), blockchain->getBlock(0)->getHash());
-    EXPECT_EQ(blockchain->getBlock(2)->getPreviousHash(), blockchain->getBlock(1)->getHash());
+    EXPECT_EQ(blockchain->getBlock(1)->previousHash, blockchain->getBlock(0)->hash);
+    EXPECT_EQ(blockchain->getBlock(2)->previousHash, blockchain->getBlock(1)->hash);
 }
 
 TEST_F(BlockChainTest, GetLatestBlock) {
     // Create first block (genesis)
     auto block0 = std::make_shared<pp::Block>();
-    block0->setIndex(0);
-    block0->setData("Genesis");
-    block0->setPreviousHash("0");
-    block0->setHash(block0->calculateHash());
+    block0->index = 0;
+    block0->data = "Genesis";
+    block0->previousHash = "0";
+    block0->hash = block0->calculateHash();
     blockchain->addBlock(block0);
     
     auto block = std::make_shared<pp::Block>();
-    block->setIndex(1);
-    block->setData("Latest Block");
-    block->setPreviousHash(blockchain->getLastBlockHash());
-    block->setHash(block->calculateHash());
+    block->index = 1;
+    block->data = "Latest Block";
+    block->previousHash = blockchain->getLastBlockHash();
+    block->hash = block->calculateHash();
     blockchain->addBlock(block);
     
     auto latest = blockchain->getLatestBlock();
     EXPECT_NE(latest, nullptr);
-    EXPECT_EQ(latest->getData(), "Latest Block");
+    EXPECT_EQ(latest->data, "Latest Block");
 }

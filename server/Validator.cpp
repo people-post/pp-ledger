@@ -84,8 +84,8 @@ Validator::Roe<void> Validator::addBlockBase(const Block& block) {
     return Error(5, "Failed to persist block: " + ledgerResult.error().message);
   }
 
-  log().info << "Block added: " << block.getIndex() 
-             << " from slot leader: " << block.getSlotLeader();
+  log().info << "Block added: " << block.index 
+             << " from slot leader: " << block.slotLeader;
 
   return {};
 }
@@ -96,8 +96,8 @@ Validator::Roe<void> Validator::syncChain(const BlockChain& chain) {
 }
 
 Validator::Roe<void> Validator::validateBlockBase(const Block& block) const {
-  uint64_t slot = block.getSlot();
-  std::string slotLeader = block.getSlotLeader();
+  uint64_t slot = block.slot;
+  std::string slotLeader = block.slotLeader;
 
   // Validate slot leader
   if (!consensus_.validateSlotLeader(slotLeader, slot)) {
@@ -105,7 +105,7 @@ Validator::Roe<void> Validator::validateBlockBase(const Block& block) const {
   }
 
   // Validate block timing
-  if (!consensus_.validateBlockTiming(block.getTimestamp(), slot)) {
+  if (!consensus_.validateBlockTiming(block.timestamp, slot)) {
     return Error(7, "Block timestamp outside valid slot range");
   }
 
@@ -113,18 +113,18 @@ Validator::Roe<void> Validator::validateBlockBase(const Block& block) const {
   size_t chainSize = chain_.getSize();
   if (chainSize > 0) {
     auto latestBlock = chain_.getLatestBlock();
-    if (latestBlock && block.getPreviousHash() != latestBlock->getHash()) {
+    if (latestBlock && block.previousHash != latestBlock->hash) {
       return Error(8, "Block previous hash does not match chain");
     }
 
-    if (latestBlock && block.getIndex() != latestBlock->getIndex() + 1) {
+    if (latestBlock && block.index != latestBlock->index + 1) {
       return Error(9, "Block index mismatch");
     }
   }
 
   // Validate block hash
   std::string calculatedHash = block.calculateHash();
-  if (calculatedHash != block.getHash()) {
+  if (calculatedHash != block.hash) {
     return Error(10, "Block hash validation failed");
   }
 
@@ -159,18 +159,18 @@ bool Validator::isValidBlockSequence(const Block& block) const {
   
   if (!latestBlock) {
     // First block (genesis)
-    return block.getIndex() == 0;
+    return block.index == 0;
   }
 
   // Check index is sequential
-  if (block.getIndex() != latestBlock->getIndex() + 1) {
-    log().warning << "Invalid block index: expected " << (latestBlock->getIndex() + 1)
-                  << " got " << block.getIndex();
+  if (block.index != latestBlock->index + 1) {
+    log().warning << "Invalid block index: expected " << (latestBlock->index + 1)
+                  << " got " << block.index;
     return false;
   }
 
   // Check previous hash matches
-  if (block.getPreviousHash() != latestBlock->getHash()) {
+  if (block.previousHash != latestBlock->hash) {
     log().warning << "Invalid previous hash";
     return false;
   }
@@ -179,14 +179,14 @@ bool Validator::isValidBlockSequence(const Block& block) const {
 }
 
 bool Validator::isValidSlotLeader(const Block& block) const {
-  return consensus_.isSlotLeader(block.getSlot(), block.getSlotLeader());
+  return consensus_.isSlotLeader(block.slot, block.slotLeader);
 }
 
 bool Validator::isValidTimestamp(const Block& block) const {
-  int64_t slotStartTime = consensus_.getSlotStartTime(block.getSlot());
+  int64_t slotStartTime = consensus_.getSlotStartTime(block.slot);
   int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
   
-  int64_t blockTime = block.getTimestamp();
+  int64_t blockTime = block.timestamp;
 
   if (blockTime < slotStartTime || blockTime > slotEndTime) {
     log().warning << "Block timestamp out of slot range";
