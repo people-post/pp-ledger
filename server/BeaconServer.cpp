@@ -334,25 +334,7 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     
     const Ledger::ChainNode& block = result.value();
     resp["status"] = "ok";
-    resp["block"]["index"] = block.block.index;
-    resp["block"]["timestamp"] = block.block.timestamp;
-    resp["block"]["hash"] = block.hash;
-    resp["block"]["previousHash"] = block.block.previousHash;
-    resp["block"]["slot"] = block.block.slot;
-    resp["block"]["slotLeader"] = block.block.slotLeader;
-    
-    // Serialize transactions
-    resp["block"]["signedTxes"] = nlohmann::json::array();
-    for (const auto& signedTx : block.block.signedTxes) {
-      nlohmann::json txJson;
-      txJson["type"] = signedTx.obj.type;
-      txJson["fromWallet"] = signedTx.obj.fromWallet;
-      txJson["toWallet"] = signedTx.obj.toWallet;
-      txJson["amount"] = signedTx.obj.amount;
-      txJson["meta"] = signedTx.obj.meta;
-      txJson["signature"] = signedTx.signature;
-      resp["block"]["signedTxes"].push_back(txJson);
-    }
+    resp["block"] = blockToJson(block);
     
   } else if (action == "add") {
     if (!reqJson.contains("block")) {
@@ -361,29 +343,9 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Ledger::ChainNode block;
+    Ledger::ChainNode block = jsonToBlock(blockJson);
     
-    if (blockJson.contains("index")) block.block.index = blockJson["index"].get<uint64_t>();
-    if (blockJson.contains("timestamp")) block.block.timestamp = blockJson["timestamp"].get<int64_t>();
-    if (blockJson.contains("previousHash")) block.block.previousHash = blockJson["previousHash"].get<std::string>();
-    if (blockJson.contains("slot")) block.block.slot = blockJson["slot"].get<uint64_t>();
-    if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<std::string>();
-    
-    // Parse signedTxes array
-    if (blockJson.contains("signedTxes") && blockJson["signedTxes"].is_array()) {
-      block.block.signedTxes.clear();
-      for (const auto& txJson : blockJson["signedTxes"]) {
-        Ledger::SignedData<Ledger::Transaction> signedTx;
-        if (txJson.contains("type")) signedTx.obj.type = txJson["type"].get<uint16_t>();
-        if (txJson.contains("fromWallet")) signedTx.obj.fromWallet = txJson["fromWallet"].get<std::string>();
-        if (txJson.contains("toWallet")) signedTx.obj.toWallet = txJson["toWallet"].get<std::string>();
-        if (txJson.contains("amount")) signedTx.obj.amount = txJson["amount"].get<int64_t>();
-        if (txJson.contains("meta")) signedTx.obj.meta = txJson["meta"].get<std::string>();
-        if (txJson.contains("signature")) signedTx.signature = txJson["signature"].get<std::string>();
-        block.block.signedTxes.push_back(signedTx);
-      }
-    }
-    
+    // Calculate hash if not provided or if we want to verify/override
     block.hash = beacon_.calculateHash(block.block);
     
     auto result = beacon_.addBlock(block);

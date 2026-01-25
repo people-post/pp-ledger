@@ -2,10 +2,10 @@
 #define PP_LEDGER_MINER_SERVER_H
 
 #include "Miner.h"
+#include "ValidatorServer.h"
 #include "../network/FetchServer.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/Service.h"
 #include <string>
 #include <thread>
 #include <atomic>
@@ -14,7 +14,7 @@
 
 namespace pp {
 
-class MinerServer : public Service {
+class MinerServer : public ValidatorServer {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
