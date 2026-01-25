@@ -13,7 +13,6 @@ namespace pp {
 // Block implementation
 Ledger::Block::Block()
     : timestamp(std::chrono::system_clock::now().time_since_epoch().count()) {
-  hash = calculateHash();
 }
 
 std::string Ledger::Block::calculateHash() const {
@@ -23,18 +22,23 @@ std::string Ledger::Block::calculateHash() const {
   return utl::sha256(ss.str());
 }
 
-std::string Ledger::Block::ltsToString() const {
+// RawBlock implementation
+Ledger::RawBlock::RawBlock() {
+  hash = block.calculateHash();
+}
+
+std::string Ledger::RawBlock::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
 
-  // Serialize all fields using archive
+  // Serialize version, block, and hash
   uint16_t version = CURRENT_VERSION;
-  ar & version & *this;
+  ar & version & block & hash;
 
   return oss.str();
 }
 
-bool Ledger::Block::ltsFromString(const std::string &str) {
+bool Ledger::RawBlock::ltsFromString(const std::string &str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
 
@@ -51,7 +55,8 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
     return false; // Unsupported future version
   }
 
-  ar & *this;
+  // Deserialize block and hash
+  ar & block & hash;
 
   if (ar.failed()) {
     return false;
@@ -161,7 +166,7 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
   return {};
 }
 
-Ledger::Roe<void> Ledger::addBlock(const Ledger::Block& block) {
+Ledger::Roe<void> Ledger::addBlock(const Ledger::RawBlock& block) {
   // Append block to store
   auto appendResult = store_.appendBlock(block.ltsToString());
   if (!appendResult.isOk()) {
@@ -222,7 +227,7 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
   return {};
 }
 
-Ledger::Roe<Ledger::Block> Ledger::readBlock(uint64_t blockId) const {
+Ledger::Roe<Ledger::RawBlock> Ledger::readBlock(uint64_t blockId) const {
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
@@ -254,7 +259,7 @@ Ledger::Roe<Ledger::Block> Ledger::readBlock(uint64_t blockId) const {
   }
 
   // Deserialize block from binary string
-  Ledger::Block block;
+  Ledger::RawBlock block;
   if (!block.ltsFromString(readResult.value())) {
     return Error("Failed to deserialize block " + std::to_string(blockId));
   }

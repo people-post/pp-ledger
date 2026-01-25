@@ -90,7 +90,7 @@ bool Miner::shouldProduceBlock() const {
   return isSlotLeader() && getPendingTransactionCount() > 0;
 }
 
-Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::produceBlock() {
+Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
   }
@@ -131,12 +131,12 @@ Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::produceBlock() {
 
   {
     std::lock_guard<std::mutex> lock(getStateMutex());
-    lastProducedBlockId_ = block->index;
+    lastProducedBlockId_ = block->block.index;
   }
 
   log().info << "Block produced successfully";
-  log().info << "  Block ID: " << block->index;
-  log().info << "  Slot: " << block->slot;
+  log().info << "  Block ID: " << block->block.index;
+  log().info << "  Slot: " << block->block.slot;
   log().info << "  Transactions: " << pendingTransactions_.size();
   log().info << "  Hash: " << block->hash;
 
@@ -171,7 +171,7 @@ void Miner::clearTransactionPool() {
   log().info << "Transaction pool cleared";
 }
 
-Miner::Roe<void> Miner::addBlock(const Ledger::Block& block) {
+Miner::Roe<void> Miner::addBlock(const Ledger::RawBlock& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -181,7 +181,7 @@ Miner::Roe<void> Miner::addBlock(const Ledger::Block& block) {
   return {};
 }
 
-Miner::Roe<void> Miner::validateBlock(const Ledger::Block& block) const {
+Miner::Roe<void> Miner::validateBlock(const Ledger::RawBlock& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {
@@ -243,7 +243,7 @@ bool Miner::isSlotLeader(uint64_t slot) const {
 
 // Private helper methods
 
-Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::createBlock() {
+Miner::Roe<std::shared_ptr<Ledger::RawBlock>> Miner::createBlock() {
   // Get current slot info
   uint64_t currentSlot = getCurrentSlot();
   auto now = std::chrono::system_clock::now();
@@ -252,7 +252,7 @@ Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::createBlock() {
 
   // Get previous block info
   auto latestBlock = getChain().getLatestBlock();
-  uint64_t blockIndex = latestBlock ? latestBlock->index + 1 : 0;
+  uint64_t blockIndex = latestBlock ? latestBlock->block.index + 1 : 0;
   std::string previousHash = latestBlock ? latestBlock->hash : "";
 
   // Select transactions
@@ -260,16 +260,16 @@ Miner::Roe<std::shared_ptr<Ledger::Block>> Miner::createBlock() {
   std::string data = serializeTransactions(transactions);
 
   // Create the block
-  auto block = std::make_shared<Ledger::Block>();
-  block->index = blockIndex;
-  block->timestamp = timestamp;
-  block->data = data;
-  block->previousHash = previousHash;
-  block->slot = currentSlot;
-  block->slotLeader = config_.minerId;
+  auto block = std::make_shared<Ledger::RawBlock>();
+  block->block.index = blockIndex;
+  block->block.timestamp = timestamp;
+  block->block.data = data;
+  block->block.previousHash = previousHash;
+  block->block.slot = currentSlot;
+  block->block.slotLeader = config_.minerId;
 
   // Calculate hash
-  block->hash = block->calculateHash();
+  block->hash = block->block.calculateHash();
 
   log().debug << "Created block " << blockIndex 
               << " with " << transactions.size() << " transactions";

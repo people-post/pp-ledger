@@ -14,7 +14,7 @@ namespace pp {
 class Ledger : public Module {
 public:
   /**
-   * Block data structure
+   * Block data structure (without hash)
    */
   struct Block {
     static constexpr uint16_t CURRENT_VERSION = 1;
@@ -24,12 +24,34 @@ public:
     // Core block methods
     std::string calculateHash() const;
 
+    // Public fields
+    uint64_t index{ 0 };
+    int64_t timestamp{ 0 };
+    std::string data;
+    std::string previousHash;
+    uint64_t nonce{ 0 };
+    uint64_t slot{ 0 };
+    std::string slotLeader;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & index & timestamp & data & previousHash & nonce & slot & slotLeader;
+    }
+  };
+
+  /**
+   * RawBlock data structure (Block + hash)
+   */
+  struct RawBlock {
+    static constexpr uint16_t CURRENT_VERSION = 1;
+
+    RawBlock();
+
     // Long-term support serialization for disk persistence
     /**
      * Serialize block to binary format for long-term storage
      * Format is version-aware and compact for efficient disk storage
      * Binary format:
-     * [version][index][timestamp][data_size+data][prevHash_size+prevHash][hash_size+hash][nonce][slot][leader_size+leader]
+     * [version][block][hash_size+hash]
      * @return Serialized binary string representation
      */
     std::string ltsToString() const;
@@ -42,18 +64,11 @@ public:
     bool ltsFromString(const std::string &str);
 
     // Public fields
-    uint64_t index{ 0 };
-    int64_t timestamp{ 0 };
-    std::string data;
-    std::string previousHash;
+    Block block;
     std::string hash;
-    uint64_t nonce{ 0 };
-    uint64_t slot{ 0 };
-    std::string slotLeader;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & data & previousHash & hash & nonce & slot &
-          slotLeader;
+      ar & block & hash;
     }
   };
 
@@ -74,9 +89,9 @@ public:
   uint64_t getNextBlockId() const;
 
   Roe<void> init(const Config& config);
-  Roe<void> addBlock(const Block& block);
+  Roe<void> addBlock(const RawBlock& block);
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
-  Roe<Block> readBlock(uint64_t blockId) const;
+  Roe<RawBlock> readBlock(uint64_t blockId) const;
 
 private:
   /**

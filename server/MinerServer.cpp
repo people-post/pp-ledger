@@ -306,14 +306,14 @@ std::string MinerServer::handleBlockRequest(const nlohmann::json& reqJson) {
       return resp.dump();
     }
     
-    const Ledger::Block& block = result.value();
+    const Ledger::RawBlock& block = result.value();
     resp["status"] = "ok";
-    resp["block"]["index"] = block.index;
-    resp["block"]["timestamp"] = block.timestamp;
+    resp["block"]["index"] = block.block.index;
+    resp["block"]["timestamp"] = block.block.timestamp;
     resp["block"]["hash"] = block.hash;
-    resp["block"]["previousHash"] = block.previousHash;
-    resp["block"]["slot"] = block.slot;
-    resp["block"]["slotLeader"] = block.slotLeader;
+    resp["block"]["previousHash"] = block.block.previousHash;
+    resp["block"]["slot"] = block.block.slot;
+    resp["block"]["slotLeader"] = block.block.slotLeader;
     
   } else if (action == "add") {
     if (!reqJson.contains("block")) {
@@ -322,16 +322,16 @@ std::string MinerServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Ledger::Block block;
+    Ledger::RawBlock block;
     
-    if (blockJson.contains("index")) block.index = blockJson["index"].get<uint64_t>();
-    if (blockJson.contains("timestamp")) block.timestamp = blockJson["timestamp"].get<int64_t>();
-    if (blockJson.contains("data")) block.data = blockJson["data"].get<std::string>();
-    if (blockJson.contains("previousHash")) block.previousHash = blockJson["previousHash"].get<std::string>();
-    if (blockJson.contains("slot")) block.slot = blockJson["slot"].get<uint64_t>();
-    if (blockJson.contains("slotLeader")) block.slotLeader = blockJson["slotLeader"].get<std::string>();
+    if (blockJson.contains("index")) block.block.index = blockJson["index"].get<uint64_t>();
+    if (blockJson.contains("timestamp")) block.block.timestamp = blockJson["timestamp"].get<int64_t>();
+    if (blockJson.contains("data")) block.block.data = blockJson["data"].get<std::string>();
+    if (blockJson.contains("previousHash")) block.block.previousHash = blockJson["previousHash"].get<std::string>();
+    if (blockJson.contains("slot")) block.block.slot = blockJson["slot"].get<uint64_t>();
+    if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<std::string>();
     
-    block.hash = block.calculateHash();
+    block.hash = block.block.calculateHash();
     
     auto result = miner_.addBlock(block);
     if (!result) {
@@ -378,9 +378,9 @@ std::string MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
     auto block = result.value();
     resp["status"] = "ok";
     resp["message"] = "Block produced";
-    resp["block"]["index"] = block->index;
+    resp["block"]["index"] = block->block.index;
     resp["block"]["hash"] = block->hash;
-    resp["block"]["slot"] = block->slot;
+    resp["block"]["slot"] = block->block.slot;
     
   } else if (action == "shouldProduce") {
     resp["status"] = "ok";
@@ -509,7 +509,7 @@ void MinerServer::handleSlotLeaderRole() {
     auto result = miner_.produceBlock();
     if (result) {
       auto block = result.value();
-      log().info << "Successfully produced block " << block->index 
+      log().info << "Successfully produced block " << block->block.index 
                 << " with hash " << block->hash;
       
       // In a full implementation, we would broadcast this block to beacons

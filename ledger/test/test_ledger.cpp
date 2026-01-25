@@ -25,12 +25,12 @@ protected:
     }
   }
 
-  Ledger::Block createTestBlock(uint64_t id, const std::string& data) {
-    Ledger::Block block;
-    block.index = id;
-    block.previousHash = "prev_hash_" + std::to_string(id);
-    block.timestamp = static_cast<int64_t>(std::time(nullptr));
-    block.data = data;
+  Ledger::RawBlock createTestBlock(uint64_t id, const std::string& data) {
+    Ledger::RawBlock block;
+    block.block.index = id;
+    block.block.previousHash = "prev_hash_" + std::to_string(id);
+    block.block.timestamp = static_cast<int64_t>(std::time(nullptr));
+    block.block.data = data;
     block.hash = "hash_" + std::to_string(id);
     return block;
   }
@@ -75,7 +75,7 @@ TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
     EXPECT_EQ(ledger.getNextBlockId(), i);
@@ -94,7 +94,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -114,7 +114,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
 
     // Add more blocks
     for (uint64_t i = 4; i <= 5; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -134,7 +134,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -153,7 +153,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     EXPECT_EQ(ledger.getNextBlockId(), 10); // Should be startingBlockId (no blocks yet)
 
     // Old data should be cleaned up, can add new blocks
-    Ledger::Block block = createTestBlock(1, "new_data");
+    Ledger::RawBlock block = createTestBlock(1, "new_data");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 11); // startingBlockId + blockCount = 10 + 1 = 11
@@ -172,7 +172,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -191,7 +191,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     EXPECT_EQ(ledger.getNextBlockId(), 5); // Should keep existing data
 
     // Can continue adding blocks
-    Ledger::Block block = createTestBlock(6, "data_6");
+    Ledger::RawBlock block = createTestBlock(6, "data_6");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 6);
@@ -209,7 +209,7 @@ TEST_F(LedgerTest, UpdateCheckpointsSorted) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -231,7 +231,7 @@ TEST_F(LedgerTest, UpdateCheckpointsNotSortedFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -254,7 +254,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithDuplicatesFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -277,7 +277,7 @@ TEST_F(LedgerTest, UpdateCheckpointsExceedingCurrentBlockIdFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -300,7 +300,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMatches) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -327,7 +327,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMismatchFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -357,7 +357,7 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
 
     // Add blocks
     for (uint64_t i = 1; i <= 10; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -400,9 +400,9 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
   ASSERT_TRUE(result.isOk());
 
   // Add test blocks
-  std::vector<Ledger::Block> testBlocks;
+  std::vector<Ledger::RawBlock> testBlocks;
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     testBlocks.push_back(block);
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
@@ -414,11 +414,11 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
     ASSERT_TRUE(readResult.isOk()) << "Failed to read block " << i << ": " 
                                     << readResult.error().message;
     
-    const Ledger::Block& readBlock = readResult.value();
-    EXPECT_EQ(readBlock.index, testBlocks[i].index);
-    EXPECT_EQ(readBlock.data, testBlocks[i].data);
+    const Ledger::RawBlock& readBlock = readResult.value();
+    EXPECT_EQ(readBlock.block.index, testBlocks[i].block.index);
+    EXPECT_EQ(readBlock.block.data, testBlocks[i].block.data);
     EXPECT_EQ(readBlock.hash, testBlocks[i].hash);
-    EXPECT_EQ(readBlock.previousHash, testBlocks[i].previousHash);
+    EXPECT_EQ(readBlock.block.previousHash, testBlocks[i].block.previousHash);
   }
 }
 
@@ -433,7 +433,7 @@ TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
 
   // Add some blocks
   for (uint64_t i = 1; i <= 3; ++i) {
-    Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -471,7 +471,7 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -494,9 +494,9 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
                                       << " after reopen: " 
                                       << readResult.error().message;
       
-      const Ledger::Block& readBlock = readResult.value();
-      EXPECT_EQ(readBlock.index, i + 1);
-      EXPECT_EQ(readBlock.data, "data_" + std::to_string(i + 1));
+      const Ledger::RawBlock& readBlock = readResult.value();
+      EXPECT_EQ(readBlock.block.index, i + 1);
+      EXPECT_EQ(readBlock.block.data, "data_" + std::to_string(i + 1));
     }
   }
 }
@@ -514,7 +514,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
 
     // Add 3 blocks, so nextBlockId = 10 + 3 = 13
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -558,7 +558,7 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
 
     // Add 2 blocks, so nextBlockId = 5 + 2 = 7
     for (uint64_t i = 1; i <= 2; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -581,14 +581,14 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
     // Verify existing blocks are still accessible
     auto readResult1 = ledger.readBlock(5);
     ASSERT_TRUE(readResult1.isOk());
-    EXPECT_EQ(readResult1.value().data, "data_1");
+    EXPECT_EQ(readResult1.value().block.data, "data_1");
 
     auto readResult2 = ledger.readBlock(6);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().data, "data_2");
+    EXPECT_EQ(readResult2.value().block.data, "data_2");
 
     // Add a new block - should get ID 7 (nextBlockId)
-    Ledger::Block block = createTestBlock(3, "data_3");
+    Ledger::RawBlock block = createTestBlock(3, "data_3");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 8); // 5 + 3 = 8
@@ -608,7 +608,7 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
 
     // Add 4 blocks, so nextBlockId = 20 + 4 = 24
     for (uint64_t i = 1; i <= 4; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -650,7 +650,7 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
 
     // Add 5 blocks
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::Block block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::RawBlock block = createTestBlock(i, "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -672,11 +672,11 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
     // Verify blocks are accessible with correct IDs
     auto readResult = ledger.readBlock(100);
     ASSERT_TRUE(readResult.isOk());
-    EXPECT_EQ(readResult.value().data, "data_1");
+    EXPECT_EQ(readResult.value().block.data, "data_1");
 
     auto readResult2 = ledger.readBlock(104);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().data, "data_5");
+    EXPECT_EQ(readResult2.value().block.data, "data_5");
   }
 }
 

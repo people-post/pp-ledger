@@ -97,7 +97,7 @@ void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
   log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
-Beacon::Roe<void> Beacon::addBlock(const Ledger::Block& block) {
+Beacon::Roe<void> Beacon::addBlock(const Ledger::RawBlock& block) {
   // Call base class implementation which validates and adds to chain/ledger
   auto result = Validator::addBlockBase(block);
   if (!result) {
@@ -115,7 +115,7 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::Block& block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::validateBlock(const Ledger::Block& block) const {
+Beacon::Roe<void> Beacon::validateBlock(const Ledger::RawBlock& block) const {
   // Call base class implementation
   auto result = Validator::validateBlockBase(block);
   if (!result) {
@@ -247,7 +247,7 @@ uint64_t Beacon::getBlockAge(uint64_t blockId) const {
   auto currentTime = std::chrono::duration_cast<std::chrono::seconds>(
       now.time_since_epoch()).count();
 
-  int64_t blockTime = block->timestamp;
+  int64_t blockTime = block->block.timestamp;
   
   if (currentTime > blockTime) {
     return static_cast<uint64_t>(currentTime - blockTime);

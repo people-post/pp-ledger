@@ -332,14 +332,14 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
       return resp.dump();
     }
     
-    const Ledger::Block& block = result.value();
+    const Ledger::RawBlock& block = result.value();
     resp["status"] = "ok";
-    resp["block"]["index"] = block.index;
-    resp["block"]["timestamp"] = block.timestamp;
+    resp["block"]["index"] = block.block.index;
+    resp["block"]["timestamp"] = block.block.timestamp;
     resp["block"]["hash"] = block.hash;
-    resp["block"]["previousHash"] = block.previousHash;
-    resp["block"]["slot"] = block.slot;
-    resp["block"]["slotLeader"] = block.slotLeader;
+    resp["block"]["previousHash"] = block.block.previousHash;
+    resp["block"]["slot"] = block.block.slot;
+    resp["block"]["slotLeader"] = block.block.slotLeader;
     
   } else if (action == "add") {
     if (!reqJson.contains("block")) {
@@ -348,16 +348,16 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Ledger::Block block;
+    Ledger::RawBlock block;
     
-    if (blockJson.contains("index")) block.index = blockJson["index"].get<uint64_t>();
-    if (blockJson.contains("timestamp")) block.timestamp = blockJson["timestamp"].get<int64_t>();
-    if (blockJson.contains("data")) block.data = blockJson["data"].get<std::string>();
-    if (blockJson.contains("previousHash")) block.previousHash = blockJson["previousHash"].get<std::string>();
-    if (blockJson.contains("slot")) block.slot = blockJson["slot"].get<uint64_t>();
-    if (blockJson.contains("slotLeader")) block.slotLeader = blockJson["slotLeader"].get<std::string>();
+    if (blockJson.contains("index")) block.block.index = blockJson["index"].get<uint64_t>();
+    if (blockJson.contains("timestamp")) block.block.timestamp = blockJson["timestamp"].get<int64_t>();
+    if (blockJson.contains("data")) block.block.data = blockJson["data"].get<std::string>();
+    if (blockJson.contains("previousHash")) block.block.previousHash = blockJson["previousHash"].get<std::string>();
+    if (blockJson.contains("slot")) block.block.slot = blockJson["slot"].get<uint64_t>();
+    if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<std::string>();
     
-    block.hash = block.calculateHash();
+    block.hash = block.block.calculateHash();
     
     auto result = beacon_.addBlock(block);
     if (!result) {

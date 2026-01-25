@@ -36,12 +36,12 @@ public:
       ~BlockChain() = default;
 
       // Blockchain operations
-      std::shared_ptr<Ledger::Block> getLatestBlock() const;
+      std::shared_ptr<Ledger::RawBlock> getLatestBlock() const;
       size_t getSize() const;
 
       // Additional blockchain operations
-      bool addBlock(std::shared_ptr<Ledger::Block> block);
-      std::shared_ptr<Ledger::Block> getBlock(uint64_t index) const;
+      bool addBlock(std::shared_ptr<Ledger::RawBlock> block);
+      std::shared_ptr<Ledger::RawBlock> getBlock(uint64_t index) const;
       bool isValid() const;
       std::string getLastBlockHash() const;
 
@@ -55,11 +55,11 @@ public:
 
     private:
       // Internal helper methods
-      bool validateBlock(const Ledger::Block &block) const;
-      std::vector<std::shared_ptr<Ledger::Block>> getBlocks(uint64_t fromIndex,
+      bool validateBlock(const Ledger::RawBlock &block) const;
+      std::vector<std::shared_ptr<Ledger::RawBlock>> getBlocks(uint64_t fromIndex,
                                                     uint64_t toIndex) const;
 
-      std::vector<std::shared_ptr<Ledger::Block>> chain_;
+      std::vector<std::shared_ptr<Ledger::RawBlock>> chain_;
     };
 
     struct Error : RoeErrorBase {
@@ -112,9 +112,9 @@ public:
     virtual ~Validator() = default;
 
     // Block operations (non-virtual, to be used by derived classes)
-    Roe<const Ledger::Block&> getBlock(uint64_t blockId) const;
-    Roe<void> addBlockBase(const Ledger::Block& block);
-    Roe<void> validateBlockBase(const Ledger::Block& block) const;
+    Roe<const Ledger::RawBlock&> getBlock(uint64_t blockId) const;
+    Roe<void> addBlockBase(const Ledger::RawBlock& block);
+    Roe<void> validateBlockBase(const Ledger::RawBlock& block) const;
     uint64_t getCurrentBlockId() const;
 
     // Consensus queries
@@ -126,9 +126,9 @@ protected:
     Roe<void> initBase(const BaseConfig& config);
     
     // Validation helpers
-    bool isValidBlockSequence(const Ledger::Block& block) const;
-    bool isValidSlotLeader(const Ledger::Block& block) const;
-    bool isValidTimestamp(const Ledger::Block& block) const;
+    bool isValidBlockSequence(const Ledger::RawBlock& block) const;
+    bool isValidSlotLeader(const Ledger::RawBlock& block) const;
+    bool isValidTimestamp(const Ledger::RawBlock& block) const;
 
     // Getters for derived classes
     consensus::Ouroboros& getConsensus() { return consensus_; }

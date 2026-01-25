@@ -12,7 +12,7 @@ Validator::BlockChain::BlockChain() {
 }
 
 // Blockchain operations
-bool Validator::BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
+bool Validator::BlockChain::addBlock(std::shared_ptr<Ledger::RawBlock> block) {
   if (!block) {
     return false;
   }
@@ -21,14 +21,14 @@ bool Validator::BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
   return true;
 }
 
-std::shared_ptr<Ledger::Block> Validator::BlockChain::getLatestBlock() const {
+std::shared_ptr<Ledger::RawBlock> Validator::BlockChain::getLatestBlock() const {
   if (chain_.empty()) {
     return nullptr;
   }
   return chain_.back();
 }
 
-std::shared_ptr<Ledger::Block> Validator::BlockChain::getBlock(uint64_t index) const {
+std::shared_ptr<Ledger::RawBlock> Validator::BlockChain::getBlock(uint64_t index) const {
   if (index >= chain_.size()) {
     return nullptr;
   }
@@ -47,7 +47,7 @@ bool Validator::BlockChain::isValid() const {
     const auto &currentBlock = chain_[i];
 
     // Verify current block's hash
-    if (currentBlock->hash != currentBlock->calculateHash()) {
+    if (currentBlock->hash != currentBlock->block.calculateHash()) {
       return false;
     }
 
@@ -56,7 +56,7 @@ bool Validator::BlockChain::isValid() const {
     // TODO: Skip validation by index saved in block, not by position in chain
     if (i > 0) {
       const auto &previousBlock = chain_[i - 1];
-      if (currentBlock->previousHash != previousBlock->hash) {
+      if (currentBlock->block.previousHash != previousBlock->hash) {
         return false;
       }
     }
@@ -65,18 +65,18 @@ bool Validator::BlockChain::isValid() const {
   return true;
 }
 
-bool Validator::BlockChain::validateBlock(const Ledger::Block &block) const {
+bool Validator::BlockChain::validateBlock(const Ledger::RawBlock &block) const {
   // Verify block's hash
-  if (block.hash != block.calculateHash()) {
+  if (block.hash != block.block.calculateHash()) {
     return false;
   }
 
   return true;
 }
 
-std::vector<std::shared_ptr<Ledger::Block>>
+std::vector<std::shared_ptr<Ledger::RawBlock>>
 Validator::BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
-  std::vector<std::shared_ptr<Ledger::Block>> result;
+  std::vector<std::shared_ptr<Ledger::RawBlock>> result;
 
   if (fromIndex > toIndex || fromIndex >= chain_.size()) {
     return result;
@@ -162,7 +162,7 @@ uint64_t Validator::getCurrentBlockId() const {
   return nextBlockId > 0 ? nextBlockId - 1 : 0;
 }
 
-Validator::Roe<const Ledger::Block&> Validator::getBlock(uint64_t blockId) const {
+Validator::Roe<const Ledger::RawBlock&> Validator::getBlock(uint64_t blockId) const {
   auto spBlock = chain_.getBlock(blockId);
   if (!spBlock) {
     return Error(2, "Block not found: " + std::to_string(blockId));
@@ -170,7 +170,7 @@ Validator::Roe<const Ledger::Block&> Validator::getBlock(uint64_t blockId) const
   return *spBlock;
 }
 
-Validator::Roe<void> Validator::addBlockBase(const Ledger::Block& block) {
+Validator::Roe<void> Validator::addBlockBase(const Ledger::RawBlock& block) {
   // Validate the block first
   auto validationResult = validateBlockBase(block);
   if (!validationResult) {
@@ -178,7 +178,7 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::Block& block) {
   }
 
   // Add to chain
-  auto blockPtr = std::make_shared<Ledger::Block>(block);
+  auto blockPtr = std::make_shared<Ledger::RawBlock>(block);
   if (!chain_.addBlock(blockPtr)) {
     return Error(4, "Failed to add block to chain");
   }
@@ -189,8 +189,8 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::Block& block) {
     return Error(5, "Failed to persist block: " + ledgerResult.error().message);
   }
 
-  log().info << "Block added: " << block.index 
-             << " from slot leader: " << block.slotLeader;
+  log().info << "Block added: " << block.block.index 
+             << " from slot leader: " << block.block.slotLeader;
 
   return {};
 }
@@ -200,9 +200,9 @@ Validator::Roe<void> Validator::syncChain(const Validator::BlockChain& chain) {
   return {};
 }
 
-Validator::Roe<void> Validator::validateBlockBase(const Ledger::Block& block) const {
-  uint64_t slot = block.slot;
-  std::string slotLeader = block.slotLeader;
+Validator::Roe<void> Validator::validateBlockBase(const Ledger::RawBlock& block) const {
+  uint64_t slot = block.block.slot;
+  std::string slotLeader = block.block.slotLeader;
 
   // Validate slot leader
   if (!consensus_.validateSlotLeader(slotLeader, slot)) {
@@ -210,7 +210,7 @@ Validator::Roe<void> Validator::validateBlockBase(const Ledger::Block& block) co
   }
 
   // Validate block timing
-  if (!consensus_.validateBlockTiming(block.timestamp, slot)) {
+  if (!consensus_.validateBlockTiming(block.block.timestamp, slot)) {
     return Error(7, "Block timestamp outside valid slot range");
   }
 
@@ -218,17 +218,17 @@ Validator::Roe<void> Validator::validateBlockBase(const Ledger::Block& block) co
   size_t chainSize = chain_.getSize();
   if (chainSize > 0) {
     auto latestBlock = chain_.getLatestBlock();
-    if (latestBlock && block.previousHash != latestBlock->hash) {
+    if (latestBlock && block.block.previousHash != latestBlock->hash) {
       return Error(8, "Block previous hash does not match chain");
     }
 
-    if (latestBlock && block.index != latestBlock->index + 1) {
+    if (latestBlock && block.block.index != latestBlock->block.index + 1) {
       return Error(9, "Block index mismatch");
     }
   }
 
   // Validate block hash
-  std::string calculatedHash = block.calculateHash();
+  std::string calculatedHash = block.block.calculateHash();
   if (calculatedHash != block.hash) {
     return Error(10, "Block hash validation failed");
   }
@@ -259,23 +259,23 @@ uint64_t Validator::getCurrentEpoch() const {
   return consensus_.getCurrentEpoch();
 }
 
-bool Validator::isValidBlockSequence(const Ledger::Block& block) const {
+bool Validator::isValidBlockSequence(const Ledger::RawBlock& block) const {
   auto latestBlock = chain_.getLatestBlock();
   
   if (!latestBlock) {
     // First block (genesis)
-    return block.index == 0;
+    return block.block.index == 0;
   }
 
   // Check index is sequential
-  if (block.index != latestBlock->index + 1) {
-    log().warning << "Invalid block index: expected " << (latestBlock->index + 1)
-                  << " got " << block.index;
+  if (block.block.index != latestBlock->block.index + 1) {
+    log().warning << "Invalid block index: expected " << (latestBlock->block.index + 1)
+                  << " got " << block.block.index;
     return false;
   }
 
   // Check previous hash matches
-  if (block.previousHash != latestBlock->hash) {
+  if (block.block.previousHash != latestBlock->hash) {
     log().warning << "Invalid previous hash";
     return false;
   }
@@ -283,15 +283,15 @@ bool Validator::isValidBlockSequence(const Ledger::Block& block) const {
   return true;
 }
 
-bool Validator::isValidSlotLeader(const Ledger::Block& block) const {
-  return consensus_.isSlotLeader(block.slot, block.slotLeader);
+bool Validator::isValidSlotLeader(const Ledger::RawBlock& block) const {
+  return consensus_.isSlotLeader(block.block.slot, block.block.slotLeader);
 }
 
-bool Validator::isValidTimestamp(const Ledger::Block& block) const {
-  int64_t slotStartTime = consensus_.getSlotStartTime(block.slot);
+bool Validator::isValidTimestamp(const Ledger::RawBlock& block) const {
+  int64_t slotStartTime = consensus_.getSlotStartTime(block.block.slot);
   int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
   
-  int64_t blockTime = block.timestamp;
+  int64_t blockTime = block.block.timestamp;
 
   if (blockTime < slotStartTime || blockTime > slotEndTime) {
     log().warning << "Block timestamp out of slot range";
