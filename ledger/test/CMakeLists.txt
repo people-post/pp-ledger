@@ -9,7 +9,6 @@ add_executable(test_wallet
 )
 
 target_link_libraries(test_wallet PRIVATE
-    pp_lib
     pp_ledger
     GTest::gtest_main
 )
@@ -22,9 +21,7 @@ add_executable(test_blockchain
 )
 
 target_link_libraries(test_blockchain PRIVATE
-    pp_lib
     pp_ledger
-    OpenSSL::Crypto
     GTest::gtest_main
 )
 
@@ -36,7 +33,6 @@ add_executable(test_blockfile
 )
 
 target_link_libraries(test_blockfile PRIVATE
-    pp_lib
     pp_ledger
     GTest::gtest_main
 )
@@ -49,7 +45,6 @@ add_executable(test_filedirstore
 )
 
 target_link_libraries(test_filedirstore PRIVATE
-    pp_lib
     pp_ledger
     GTest::gtest_main
 )
@@ -62,7 +57,6 @@ add_executable(test_dirdirstore
 )
 
 target_link_libraries(test_dirdirstore PRIVATE
-    pp_lib
     pp_ledger
     GTest::gtest_main
 )
@@ -75,9 +69,7 @@ add_executable(test_ledger
 )
 
 target_link_libraries(test_ledger PRIVATE
-    pp_lib
     pp_ledger
-    OpenSSL::Crypto
     GTest::gtest_main
 )
 

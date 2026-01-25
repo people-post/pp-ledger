@@ -1,11 +1,64 @@
 #include "Ledger.h"
 #include "BinaryPack.hpp"
 #include "Serialize.hpp"
+#include "Utilities.h"
 #include <filesystem>
 #include <fstream>
 #include <algorithm>
+#include <chrono>
+#include <sstream>
 
 namespace pp {
+
+// Block implementation
+Ledger::Block::Block()
+    : timestamp(std::chrono::system_clock::now().time_since_epoch().count()) {
+  hash = calculateHash();
+}
+
+std::string Ledger::Block::calculateHash() const {
+  std::stringstream ss;
+  ss << CURRENT_VERSION << index << timestamp << data << previousHash
+     << nonce;
+  return utl::sha256(ss.str());
+}
+
+std::string Ledger::Block::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+
+  // Serialize all fields using archive
+  uint16_t version = CURRENT_VERSION;
+  ar & version & *this;
+
+  return oss.str();
+}
+
+bool Ledger::Block::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+
+  // Read version (uint16_t) - validate compatibility
+  uint16_t version = 0;
+  ar & version;
+  if (ar.failed()) {
+    return false;
+  }
+
+  // Validate version compatibility (can read current and future versions up
+  // to a limit)
+  if (version > CURRENT_VERSION) {
+    return false; // Unsupported future version
+  }
+
+  ar & *this;
+
+  if (ar.failed()) {
+    return false;
+  }
+
+  return true;
+}
 
 uint64_t Ledger::getNextBlockId() const {
   uint64_t blockCount = store_.getBlockCount();

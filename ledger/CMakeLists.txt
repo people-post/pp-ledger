@@ -1,6 +1,5 @@
 # Ledger library
 add_library(pp_ledger STATIC
-    Block.cpp
     BlockChain.cpp
     Wallet.cpp
     Wallet.h
@@ -20,12 +19,12 @@ target_include_directories(pp_ledger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Find OpenSSL
-find_package(OpenSSL REQUIRED)
-
+# Link to pp_lib - automatically gets all pp_lib dependencies:
+# - pp_lib headers and libraries
+# - OpenSSL (via pp_lib)
+# - nlohmann/json headers (via pp_lib)
 target_link_libraries(pp_ledger PUBLIC
     pp_lib
-    OpenSSL::Crypto
 )
 
 # Add tests subdirectory if testing is enabled

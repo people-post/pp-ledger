@@ -42,14 +42,19 @@ public:
     bool ltsFromString(const std::string &str);
 
     // Public fields
-    uint64_t index;
-    int64_t timestamp;
+    uint64_t index{ 0 };
+    int64_t timestamp{ 0 };
     std::string data;
     std::string previousHash;
     std::string hash;
-    uint64_t nonce;
-    uint64_t slot;
+    uint64_t nonce{ 0 };
+    uint64_t slot{ 0 };
     std::string slotLeader;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & index & timestamp & data & previousHash & hash & nonce & slot &
+          slotLeader;
+    }
   };
 
 

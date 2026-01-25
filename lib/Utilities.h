@@ -78,6 +78,14 @@ pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath);
  */
 pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request);
 
+/**
+ * Compute SHA-256 hash using OpenSSL 3.0 EVP API
+ * @param input Input string to hash
+ * @return Hexadecimal string representation of the SHA-256 hash
+ * @throws std::runtime_error if hash computation fails
+ */
+std::string sha256(const std::string &input);
+
 } // namespace utl
 } // namespace pp
 
