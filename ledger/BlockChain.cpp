@@ -1,5 +1,5 @@
-#include "BlockChain.h"
-#include "Ledger.h"
+#include "../server/Validator.h"
+#include "../ledger/Ledger.h"
 
 #include <algorithm>
 #include <openssl/evp.h>
@@ -8,12 +8,12 @@
 namespace pp {
 
 // BlockChain implementation
-BlockChain::BlockChain() {
+Validator::BlockChain::BlockChain() {
   // No auto-genesis block - blocks must be added explicitly
 }
 
 // Blockchain operations
-bool BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
+bool Validator::BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
   if (!block) {
     return false;
   }
@@ -22,23 +22,23 @@ bool BlockChain::addBlock(std::shared_ptr<Ledger::Block> block) {
   return true;
 }
 
-std::shared_ptr<Ledger::Block> BlockChain::getLatestBlock() const {
+std::shared_ptr<Ledger::Block> Validator::BlockChain::getLatestBlock() const {
   if (chain_.empty()) {
     return nullptr;
   }
   return chain_.back();
 }
 
-std::shared_ptr<Ledger::Block> BlockChain::getBlock(uint64_t index) const {
+std::shared_ptr<Ledger::Block> Validator::BlockChain::getBlock(uint64_t index) const {
   if (index >= chain_.size()) {
     return nullptr;
   }
   return chain_[index];
 }
 
-size_t BlockChain::getSize() const { return chain_.size(); }
+size_t Validator::BlockChain::getSize() const { return chain_.size(); }
 
-bool BlockChain::isValid() const {
+bool Validator::BlockChain::isValid() const {
   if (chain_.empty()) {
     return false;
   }
@@ -66,7 +66,7 @@ bool BlockChain::isValid() const {
   return true;
 }
 
-bool BlockChain::validateBlock(const Ledger::Block &block) const {
+bool Validator::BlockChain::validateBlock(const Ledger::Block &block) const {
   // Verify block's hash
   if (block.hash != block.calculateHash()) {
     return false;
@@ -76,7 +76,7 @@ bool BlockChain::validateBlock(const Ledger::Block &block) const {
 }
 
 std::vector<std::shared_ptr<Ledger::Block>>
-BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
+Validator::BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
   std::vector<std::shared_ptr<Ledger::Block>> result;
 
   if (fromIndex > toIndex || fromIndex >= chain_.size()) {
@@ -92,14 +92,14 @@ BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
   return result;
 }
 
-std::string BlockChain::getLastBlockHash() const {
+std::string Validator::BlockChain::getLastBlockHash() const {
   if (chain_.empty()) {
     return "0";
   }
   return chain_.back()->hash;
 }
 
-size_t BlockChain::trimBlocks(size_t count) {
+size_t Validator::BlockChain::trimBlocks(size_t count) {
   if (count == 0 || chain_.empty()) {
     return 0; // Nothing to trim or empty chain
   }

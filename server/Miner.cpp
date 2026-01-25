@@ -190,7 +190,7 @@ Miner::Roe<void> Miner::validateBlock(const Ledger::Block& block) const {
   return {};
 }
 
-Miner::Roe<void> Miner::syncChain(const BlockChain& otherChain) {
+Miner::Roe<void> Miner::syncChain(const Validator::BlockChain& otherChain) {
   size_t ourSize = getChain().getSize();
   size_t theirSize = otherChain.getSize();
 

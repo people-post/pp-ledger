@@ -90,7 +90,7 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::Block& block) {
   return {};
 }
 
-Validator::Roe<void> Validator::syncChain(const BlockChain& chain) {
+Validator::Roe<void> Validator::syncChain(const Validator::BlockChain& chain) {
   chain_ = chain;
   return {};
 }

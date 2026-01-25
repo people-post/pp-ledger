@@ -1,13 +1,14 @@
 #include "../BlockChain.h"
 #include "../Ledger.h"
+#include "../../server/Validator.h"
 #include <gtest/gtest.h>
 
 class BlockChainTest : public ::testing::Test {
 protected:
-    pp::BlockChain* blockchain;
+    pp::Validator::BlockChain* blockchain;
     
     void SetUp() override {
-        blockchain = new pp::BlockChain();
+        blockchain = new pp::Validator::BlockChain();
     }
     
     void TearDown() override {

@@ -3,7 +3,6 @@
 
 #include "Validator.h"
 #include "../ledger/Ledger.h"
-#include "../ledger/BlockChain.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
 #include "../lib/Module.h"
@@ -82,7 +81,7 @@ public:
     Roe<void> validateBlock(const Ledger::Block& block) const;
 
     // Chain synchronization
-    Roe<void> syncChain(const BlockChain& chain);
+    Roe<void> syncChain(const Validator::BlockChain& chain);
     Roe<bool> needsSync(uint64_t remoteBlockId) const;
     bool isOutOfDate(uint64_t checkpointId) const;
 
