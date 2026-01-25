@@ -25,8 +25,8 @@ protected:
     }
   }
 
-  Ledger::Ledger::Block createTestBlock(uint64_t id, const std::string& data) {
-    Ledger::Ledger::Block block;
+  Ledger::Block createTestBlock(uint64_t id, const std::string& data) {
+    Ledger::Block block;
     block.index = id;
     block.previousHash = "prev_hash_" + std::to_string(id);
     block.timestamp = static_cast<int64_t>(std::time(nullptr));

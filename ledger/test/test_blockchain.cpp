@@ -1,4 +1,3 @@
-#include "../BlockChain.h"
 #include "../Ledger.h"
 #include "../../server/Validator.h"
 #include <gtest/gtest.h>
