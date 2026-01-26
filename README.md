@@ -141,8 +141,8 @@ The client can connect to either the beacon server or miner server.
 
 **Client Options:**
 - `-h <host>` - Server host (default: localhost)
+- `-h <host:port>` - Server host and port in one argument (alternative format)
 - `-p <port>` - Server port
-- `-h <host:port>` - Combined host and port
 - `-b` - Connect to BeaconServer (default port: 8517)
 - `-m` - Connect to MinerServer (default port: 8518)
 
