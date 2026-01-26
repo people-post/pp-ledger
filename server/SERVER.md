@@ -501,7 +501,7 @@ EOF
 2. **Start the beacon:**
 
 ```bash
-./build/app/pp-beacon -d beacon
+./app/pp-beacon -d beacon
 ```
 
 The beacon will:
@@ -529,7 +529,7 @@ EOF
 2. **Start the miner:**
 
 ```bash
-./build/app/pp-miner -d miner1
+./app/pp-miner -d miner1
 ```
 
 The miner will:
@@ -547,35 +547,35 @@ The client can connect to either the beacon server or miner server.
 
 ```bash
 # Get current block ID
-./build/app/pp-client -b current-block
+./app/pp-client -b current-block
 
 # List stakeholders
-./build/app/pp-client -b stakeholders
+./app/pp-client -b stakeholders
 
 # Get current slot
-./build/app/pp-client -b current-slot
+./app/pp-client -b current-slot
 
 # Get current epoch
-./build/app/pp-client -b current-epoch
+./app/pp-client -b current-epoch
 
 # Get block by ID
-./build/app/pp-client -b block 0
+./app/pp-client -b block 0
 ```
 
 **Connect to Miner Server:**
 
 ```bash
 # Get miner status
-./build/app/pp-client -m status
+./app/pp-client -m status
 
 # Add a transaction
-./build/app/pp-client -m add-tx alice bob 100
+./app/pp-client -m add-tx alice bob 100
 
 # Get pending transaction count
-./build/app/pp-client -m pending-txs
+./app/pp-client -m pending-txs
 
 # Manually trigger block production
-./build/app/pp-client -m produce-block
+./app/pp-client -m produce-block
 ```
 
 **Client Options:**
@@ -599,7 +599,7 @@ cat > beacon1/config.json << EOF
   "beacons": ["localhost:8527"]
 }
 EOF
-./build/app/pp-beacon -d beacon1
+./app/pp-beacon -d beacon1
 ```
 
 **Beacon 2:**
@@ -612,7 +612,7 @@ cat > beacon2/config.json << EOF
   "beacons": ["localhost:8517"]
 }
 EOF
-./build/app/pp-beacon -d beacon2
+./app/pp-beacon -d beacon2
 ```
 
 **Miner 1:**
@@ -627,7 +627,7 @@ cat > miner1/config.json << EOF
   "beacons": ["localhost:8517"]
 }
 EOF
-./build/app/pp-miner -d miner1
+./app/pp-miner -d miner1
 ```
 
 **Miner 2:**
@@ -642,7 +642,7 @@ cat > miner2/config.json << EOF
   "beacons": ["localhost:8517"]
 }
 EOF
-./build/app/pp-miner -d miner2
+./app/pp-miner -d miner2
 ```
 
 ### Testing the Setup
@@ -651,17 +651,17 @@ After starting a beacon and miner, you can test the system:
 
 ```bash
 # Check beacon status
-./build/app/pp-client -b -p 8517 current-block
+./app/pp-client -b -p 8517 current-block
 
 # Check miner status
-./build/app/pp-client -m -p 8518 status
+./app/pp-client -m -p 8518 status
 
 # Add a transaction
-./build/app/pp-client -m -p 8518 add-tx wallet1 wallet2 1000
+./app/pp-client -m -p 8518 add-tx wallet1 wallet2 1000
 
 # Wait for block production...
 # Check if block was created
-./build/app/pp-client -b -p 8517 current-block
+./app/pp-client -b -p 8517 current-block
 ```
 
 ### Stopping the Servers
