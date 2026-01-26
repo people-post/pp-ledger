@@ -14,10 +14,11 @@ namespace pp {
 class Ledger : public Module {
 public:
   struct Transaction {
-    constexpr static uint16_t T_TRANSFER = 0;
-    constexpr static uint16_t T_REGISTER = 1;
+    constexpr static uint16_t T_DEFAULT = 0;
+    constexpr static uint16_t T_SYSTEM = 1;
+    constexpr static uint16_t T_USER = 2;
 
-    uint16_t type{ T_TRANSFER };
+    uint16_t type{ T_DEFAULT };
     std::string fromWallet; // Source wallet ID
     std::string toWallet;   // Destination wallet ID
     int64_t amount{ 0 };    // Transfer amount
