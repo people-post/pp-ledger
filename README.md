@@ -48,7 +48,6 @@ pp-ledger/
 ├── server/           # Server implementation
 ├── client/           # Client library
 ├── network/          # Network library (FetchClient/Server, TcpClient/Server)
-├── interface/        # Block interfaces
 ├── app/              # Client and server applications
 └── docs/             # Documentation
 ```
@@ -76,10 +75,10 @@ pp-ledger/
 
 ```bash
 # Start server
-./build/app/pp-ledger-server
+./build/app/pp-server
 
 # Run client
-./build/app/pp-ledger-client
+./build/app/pp-client
 ```
 
 ### Running Specific Tests
@@ -87,7 +86,7 @@ pp-ledger/
 ```bash
 cd build
 ./consensus/test/test_ouroboros_consensus
-./ledger/test/test_blockchain
+./server/test/test_blockchain
 ./ledger/test/test_ledger
 ```
 
