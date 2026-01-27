@@ -82,7 +82,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   log().info << "Ledger work directory created: " << workDir_;
 
   // Initialize DirDirStore with new directory
-  DirDirStore::Config storeConfig;
+  DirDirStore::InitConfig storeConfig;
   storeConfig.dirPath = dataDir_;
   storeConfig.maxDirCount = 1000;    // Default values - can be made configurable
   storeConfig.maxFileCount = 1000;

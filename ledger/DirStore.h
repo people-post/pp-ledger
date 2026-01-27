@@ -92,14 +92,14 @@ protected:
      * @param dirPath The directory path to ensure exists
      * @return Success or error
      */
-    Roe<void> ensureDirectory(const std::string &dirPath);
+    Roe<void> ensureDirectory(const std::string &dirPath) const;
 
     /**
      * Validate that maxFileSize meets the minimum requirement (1MB)
      * @param maxFileSize The maximum file size to validate
      * @return Success or error if size is too small
      */
-    static Roe<void> validateMinFileSize(size_t maxFileSize);
+    Roe<void> validateMinFileSize(size_t maxFileSize) const;
 
     /**
      * Perform the filesystem operations to relocate directory contents to a subdirectory.

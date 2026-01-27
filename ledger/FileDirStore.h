@@ -138,7 +138,7 @@ private:
         uint64_t startBlockId;
     };
 
-    InitConfig config_;
+    Config config_;
     uint32_t currentFileId_{ 0 };
     std::string indexFilePath_;
 

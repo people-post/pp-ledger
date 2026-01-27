@@ -10,7 +10,7 @@ class DirDirStoreTest : public ::testing::Test {
 protected:
     std::string testDir;
     pp::DirDirStore dirDirStore;
-    pp::DirDirStore::Config config;
+    pp::DirDirStore::InitConfig config;
     
     void SetUp() override {
         dirDirStore.setLogger("dirdirstore");
@@ -22,7 +22,7 @@ protected:
         }
         std::filesystem::create_directories(testDir);
         
-        config = pp::DirDirStore::Config();
+        config = pp::DirDirStore::InitConfig();
         config.dirPath = testDir;
         config.maxDirCount = 3;
         config.maxFileCount = 3;
@@ -56,7 +56,7 @@ TEST_F(DirDirStoreTest, InitializesSuccessfully) {
 }
 
 TEST_F(DirDirStoreTest, FailsWithInvalidConfig) {
-    pp::DirDirStore::Config invalidConfig;
+    pp::DirDirStore::InitConfig invalidConfig;
     invalidConfig.dirPath = testDir;
     invalidConfig.maxDirCount = 0; // Invalid
     invalidConfig.maxFileCount = 3;
@@ -67,7 +67,7 @@ TEST_F(DirDirStoreTest, FailsWithInvalidConfig) {
 }
 
 TEST_F(DirDirStoreTest, FailsWithSmallFileSize) {
-    pp::DirDirStore::Config smallConfig;
+    pp::DirDirStore::InitConfig smallConfig;
     smallConfig.dirPath = testDir;
     smallConfig.maxDirCount = 3;
     smallConfig.maxFileCount = 3;
@@ -497,7 +497,7 @@ TEST_F(DirDirStoreTest, HandlesDeepRecursion) {
 
 TEST_F(DirDirStoreTest, DefaultMaxLevelIsZero) {
     // Default maxLevel should be 0 (no recursion)
-    pp::DirDirStore::Config defaultConfig;
+    pp::DirDirStore::InitConfig defaultConfig;
     EXPECT_EQ(defaultConfig.maxLevel, 0);
 }
 

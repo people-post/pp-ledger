@@ -46,9 +46,6 @@ public:
         size_t maxLevel{ 0 };
     };
 
-    // Deprecated: Use InitConfig instead
-    using Config = InitConfig;
-
     struct MountConfig {
         std::string dirPath;
         size_t maxDirCount{ 0 };
@@ -145,15 +142,31 @@ public:
     Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
 
 private:
+    struct Config {
+        std::string dirPath;
+        size_t maxDirCount{ 0 };
+        size_t maxFileCount{ 0 };
+        size_t maxFileSize{ 0 };
+        size_t maxLevel{ 0 };
+    };
+
     /**
      * Internal init method that accepts a starting level
      * Used when creating child DirDirStores with proper level tracking
      * @param config The configuration
      * @param level The starting level for this store
-     * @param isMount Whether this is mounting existing (true) or creating new (false)
      * @return Success or error
      */
-    Roe<void> initWithLevel(const InitConfig &config, size_t level, bool isMount);
+    Roe<void> initWithLevel(const InitConfig &config, size_t level);
+
+    /**
+     * Internal mount method that accepts a starting level
+     * Used when mounting existing child DirDirStores with proper level tracking
+     * @param config The configuration
+     * @param level The starting level for this store
+     * @return Success or error
+     */
+    Roe<void> mountWithLevel(const MountConfig &config, size_t level);
 
     /**
      * Index file header structure
@@ -179,13 +192,9 @@ private:
      * Structure representing a directory's starting block index
      */
     struct DirIndexEntry {
-        uint32_t dirId;
-        uint64_t startBlockId;
-        bool isRecursive; // true if it's a DirDirStore, false if FileDirStore
-
-        DirIndexEntry() : dirId(0), startBlockId(0), isRecursive(false) {}
-        DirIndexEntry(uint32_t did, uint64_t startId, bool recursive) 
-            : dirId(did), startBlockId(startId), isRecursive(recursive) {}
+        uint32_t dirId{ 0 };
+        uint64_t startBlockId{ 0 };
+        bool isRecursive{ false }; // true if it's a DirDirStore, false if FileDirStore
 
         template <typename Archive> void serialize(Archive &ar) {
             ar &dirId &startBlockId &isRecursive;
@@ -202,7 +211,7 @@ private:
         bool isRecursive{ false };
     };
 
-    InitConfig config_;
+    Config config_;
     uint32_t currentDirId_{ 0 };
     std::string indexFilePath_;
     size_t currentLevel_{ 0 };  // Current nesting level (0 for root)

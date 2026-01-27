@@ -18,21 +18,23 @@ FileDirStore::FileDirStore() {
 FileDirStore::~FileDirStore() { flush(); }
 
 FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
-  config_ = config;
-  currentFileId_ = 0;
-  indexFilePath_ = getIndexFilePath(config_.dirPath);
-  fileInfoMap_.clear();
-  fileIdOrder_.clear();
-  totalBlockCount_ = 0;
-
-  auto sizeResult = validateMinFileSize(config_.maxFileSize);
+  auto sizeResult = validateMinFileSize(config.maxFileSize);
   if (!sizeResult.isOk()) {
     return sizeResult;
   }
 
-  if (config_.maxFileCount == 0) {
+  if (config.maxFileCount == 0) {
     return Error("Max file count must be greater than 0");
   }
+
+  config_.dirPath = config.dirPath;
+  config_.maxFileCount = config.maxFileCount;
+  config_.maxFileSize = config.maxFileSize;
+  currentFileId_ = 0;
+  indexFilePath_ = getIndexFilePath(config.dirPath);
+  fileInfoMap_.clear();
+  fileIdOrder_.clear();
+  totalBlockCount_ = 0;
 
   // Verify index file does NOT exist (fresh initialization)
   if (std::filesystem::exists(indexFilePath_)) {
@@ -40,7 +42,7 @@ FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
   }
 
   // Create directory if it doesn't exist
-  auto dirResult = ensureDirectory(config_.dirPath);
+  auto dirResult = ensureDirectory(config.dirPath);
   if (!dirResult.isOk()) {
     return dirResult;
   }
@@ -58,31 +60,28 @@ FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
 }
 
 FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath, size_t maxFileCount, size_t maxFileSize) {
-  InitConfig config;
-  config.dirPath = dirPath;
-  config.maxFileCount = maxFileCount;
-  config.maxFileSize = maxFileSize;
+  auto sizeResult = validateMinFileSize(maxFileSize);
+  if (!sizeResult.isOk()) {
+    return sizeResult;
+  }
 
-  config_ = config;
+  if (maxFileCount == 0) {
+    return Error("Max file count must be greater than 0");
+  }
+
+  // Verify directory exists (mounting existing directory)
+  if (!std::filesystem::exists(dirPath)) {
+    return Error("Directory does not exist: " + dirPath + ". Use init() to create new directory.");
+  }
+
+  config_.dirPath = dirPath;
+  config_.maxFileCount = maxFileCount;
+  config_.maxFileSize = maxFileSize;
   currentFileId_ = 0;
   indexFilePath_ = getIndexFilePath(config_.dirPath);
   fileInfoMap_.clear();
   fileIdOrder_.clear();
   totalBlockCount_ = 0;
-
-  auto sizeResult = validateMinFileSize(config_.maxFileSize);
-  if (!sizeResult.isOk()) {
-    return sizeResult;
-  }
-
-  if (config_.maxFileCount == 0) {
-    return Error("Max file count must be greater than 0");
-  }
-
-  // Verify directory exists (mounting existing directory)
-  if (!std::filesystem::exists(config_.dirPath)) {
-    return Error("Directory does not exist: " + config_.dirPath + ". Use init() to create new directory.");
-  }
 
   if (!std::filesystem::exists(indexFilePath_)) {
     return Error("Index file does not exist: " + indexFilePath_);

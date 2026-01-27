@@ -16,7 +16,7 @@ std::string DirStore::getIndexFilePath(const std::string &dirPath) {
     return dirPath + "/idx.dat";
 }
 
-DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) {
+DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) const {
     std::error_code ec;
     if (!std::filesystem::exists(dirPath, ec)) {
         if (ec) {
@@ -38,7 +38,7 @@ DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) {
     return {};
 }
 
-DirStore::Roe<void> DirStore::validateMinFileSize(size_t maxFileSize) {
+DirStore::Roe<void> DirStore::validateMinFileSize(size_t maxFileSize) const {
     if (maxFileSize < 1024 * 1024) {
         return Error("Max file size shall be at least 1MB");
     }
