@@ -472,7 +472,8 @@ void FileDirStore::flush() {
   }
 }
 
-FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string &subdirName) {
+FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string &subdirName,
+                                                               const std::vector<std::string> &excludeFiles) {
   log().info << "Relocating FileDirStore contents to subdirectory: " << subdirName;
 
   // Close all open files first
@@ -485,7 +486,7 @@ FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string 
   }
 
   std::string originalPath = config_.dirPath;
-  auto relocateResult = performDirectoryRelocation(originalPath, subdirName);
+  auto relocateResult = performDirectoryRelocation(originalPath, subdirName, excludeFiles);
   if (!relocateResult.isOk()) {
     return relocateResult;
   }

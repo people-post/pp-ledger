@@ -89,9 +89,6 @@ TEST_F(DirDirStoreTest, LoadsExistingIndex) {
     dirDirStore2.setLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
-    mountConfig.maxDirCount = config.maxDirCount;
-    mountConfig.maxFileCount = config.maxFileCount;
-    mountConfig.maxFileSize = config.maxFileSize;
     mountConfig.maxLevel = config.maxLevel;
     auto result = dirDirStore2.mount(mountConfig);
     EXPECT_TRUE(result.isOk());
@@ -377,9 +374,6 @@ TEST_F(DirDirStoreTest, PersistsAcrossRestarts) {
     dirDirStore2.setLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
-    mountConfig.maxDirCount = config.maxDirCount;
-    mountConfig.maxFileCount = config.maxFileCount;
-    mountConfig.maxFileSize = config.maxFileSize;
     mountConfig.maxLevel = config.maxLevel;
     dirDirStore2.mount(mountConfig);
     
@@ -413,9 +407,6 @@ TEST_F(DirDirStoreTest, PersistsMultipleFiles) {
     dirDirStore2.setLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
-    mountConfig.maxDirCount = config.maxDirCount;
-    mountConfig.maxFileCount = config.maxFileCount;
-    mountConfig.maxFileSize = config.maxFileSize;
     mountConfig.maxLevel = config.maxLevel;
     dirDirStore2.mount(mountConfig);
     

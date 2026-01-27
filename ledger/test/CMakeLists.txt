@@ -51,6 +51,18 @@ target_link_libraries(test_dirdirstore PRIVATE
 
 gtest_discover_tests(test_dirdirstore)
 
+# Test for DirDirStore Relocation
+add_executable(test_dirdirstore_relocation
+    test_dirdirstore_relocation.cpp
+)
+
+target_link_libraries(test_dirdirstore_relocation PRIVATE
+    pp_ledger
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_dirdirstore_relocation)
+
 # Test for Ledger
 add_executable(test_ledger
     test_ledger.cpp

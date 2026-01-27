@@ -86,7 +86,8 @@ public:
      * @param subdirName The name of the subdirectory (e.g., "000001")
      * @return The full path to the new subdirectory on success
      */
-    Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
+    Roe<std::string> relocateToSubdir(const std::string &subdirName,
+                                       const std::vector<std::string> &excludeFiles = {}) override;
 
 private:
     struct Config {

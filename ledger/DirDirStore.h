@@ -48,9 +48,6 @@ public:
 
     struct MountConfig {
         std::string dirPath;
-        size_t maxDirCount{ 0 };
-        size_t maxFileCount{ 0 };
-        size_t maxFileSize{ 0 };
         /**
          * Maximum nesting level for recursive DirDirStores.
          * Level 0 means only FileDirStores as children (no recursive DirDirStore).
@@ -63,37 +60,21 @@ public:
         /**
          * Behavior when operating on existing directories:
          * 
-         * When init() is called on an existing directory:
-         * - Config values are NOT persisted or read from the existing directory
-         * - The config values provided to init() are stored and used for:
+         * When mount() is called on an existing directory:
+         * - maxDirCount, maxFileCount, and maxFileSize are read from the index file
+         *   (saved during init())
+         * - Only maxLevel can be changed between runs to control recursion depth
+         * - The saved config values are used for:
          *   * Opening existing subdirectory stores (FileDirStore/DirDirStore)
          *   * Creating new subdirectory stores
          *   * Creating new recursive DirDirStore children
          * 
-         * This means:
-         * - Config values can be changed between runs
-         * - New config values will be applied when reopening existing stores
-         * - Existing stores are reopened using the new config values, not the original ones
-         * 
          * Important considerations:
-         * - Changing maxFileSize: Existing FileStore instances will be reopened with the
-         *   new maxFileSize. This should generally be safe if only increasing the value.
-         *   Decreasing may cause issues if existing files exceed the new limit.
-         * 
-         * - Changing maxFileCount: Affects only new FileDirStore instances. Existing
-         *   FileDirStore instances retain their current file count but will use the
-         *   new limit for future file creation.
-         * 
-         * - Changing maxDirCount: Affects only new DirDirStore instances. Existing
-         *   DirDirStore instances retain their current directory count but will use
-         *   the new limit for future directory creation.
-         * 
          * - Changing maxLevel: Affects only new recursive DirDirStore creation.
          *   Existing recursive stores retain their current level but will use the new
          *   maxLevel for future recursive store creation.
          * 
-         * - Changing dirPath: The directory path is updated in the config, but this
-         *   should typically match the existing directory structure.
+         * - dirPath: The directory path must match the existing directory structure.
          */
     };
 
@@ -137,11 +118,15 @@ public:
      * This is used during transition when the store needs to be nested
      * under a parent DirDirStore.
      * @param subdirName The name of the subdirectory (e.g., "000001")
+     * @param excludeFiles Files to exclude from relocation (kept in parent)
      * @return The full path to the new subdirectory on success
      */
-    Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
+    Roe<std::string> relocateToSubdir(const std::string &subdirName,
+                                       const std::vector<std::string> &excludeFiles = {}) override;
 
 private:
+    static constexpr const char* DIRDIR_INDEX_FILENAME = "dirdir_idx.dat";
+
     struct Config {
         std::string dirPath;
         size_t maxDirCount{ 0 };
@@ -169,6 +154,13 @@ private:
     Roe<void> mountWithLevel(const MountConfig &config, size_t level);
 
     /**
+     * Get the DirDirStore index file path for a directory
+     * @param dirPath The directory path
+     * @return The index file path (dirPath + "/" + DIRDIR_INDEX_FILENAME)
+     */
+    static std::string getDirDirIndexFilePath(const std::string &dirPath);
+
+    /**
      * Index file header structure
      */
     struct IndexFileHeader {
@@ -180,11 +172,14 @@ private:
         uint16_t reserved{ 0 };
         uint64_t headerSize{ sizeof(IndexFileHeader) };
         uint32_t dirCount{ 0 };    // Number of dir entries (0 means using rootStore_)
+        uint64_t maxDirCount{ 0 };
+        uint64_t maxFileCount{ 0 };
+        uint64_t maxFileSize{ 0 };
 
         IndexFileHeader() = default;
 
         template <typename Archive> void serialize(Archive &ar) {
-            ar &magic &version &reserved &headerSize &dirCount;
+            ar &magic &version &reserved &headerSize &dirCount &maxDirCount &maxFileCount &maxFileSize;
         }
     };
 

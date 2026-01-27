@@ -68,9 +68,11 @@ public:
      * After this call, the current directory will only contain the new subdirectory.
      * Uses filesystem rename: renames dir to dir_tmp, creates dir, renames dir_tmp to dir/subdirName
      * @param subdirName The name of the subdirectory to create (e.g., "000001")
+     * @param excludeFiles Files to exclude from relocation (kept in parent)
      * @return The full path to the new subdirectory on success, or an error
      */
-    virtual Roe<std::string> relocateToSubdir(const std::string &subdirName) = 0;
+    virtual Roe<std::string> relocateToSubdir(const std::string &subdirName,
+                                               const std::vector<std::string> &excludeFiles = {}) = 0;
 
 protected:
     /**
@@ -106,10 +108,12 @@ protected:
      * Steps: rename dir to temp -> create original dir -> rename temp to subdir
      * @param originalPath The original directory path
      * @param subdirName The name of the subdirectory to create
+     * @param excludeFiles Files to exclude from relocation (kept in parent)
      * @return The full path to the new subdirectory on success, or an error
      */
     Roe<std::string> performDirectoryRelocation(const std::string &originalPath, 
-                                                 const std::string &subdirName);
+                                                 const std::string &subdirName,
+                                                 const std::vector<std::string> &excludeFiles = {});
 };
 
 } // namespace pp

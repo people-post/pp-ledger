@@ -135,12 +135,9 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 
   log().info << "Loaded existing ledger with startingBlockId=" << meta_.startingBlockId;
 
-  // Mount existing DirDirStore
+  // Mount existing DirDirStore (config values are loaded from index)
   DirDirStore::MountConfig storeConfig;
   storeConfig.dirPath = dataDir_;
-  storeConfig.maxDirCount = 1000;
-  storeConfig.maxFileCount = 1000;
-  storeConfig.maxFileSize = 10 * 1024 * 1024; // 10 MB
   storeConfig.maxLevel = 2;
 
   auto mountResult = store_.mount(storeConfig);

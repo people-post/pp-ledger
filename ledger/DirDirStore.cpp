@@ -17,6 +17,10 @@ DirDirStore::DirDirStore() {
 
 DirDirStore::~DirDirStore() { flush(); }
 
+std::string DirDirStore::getDirDirIndexFilePath(const std::string &dirPath) {
+  return dirPath + "/" + DIRDIR_INDEX_FILENAME;
+}
+
 DirDirStore::Roe<void> DirDirStore::init(const InitConfig &config) {
   return initWithLevel(config, 0);
 }
@@ -32,7 +36,7 @@ DirDirStore::Roe<void> DirDirStore::initWithLevel(const InitConfig &config, size
   config_.maxFileSize = config.maxFileSize;
   config_.maxLevel = config.maxLevel;
   currentDirId_ = 0;
-  indexFilePath_ = getIndexFilePath(config_.dirPath);
+  indexFilePath_ = getDirDirIndexFilePath(config_.dirPath);
   rootStore_.reset();
   dirInfoMap_.clear();
   dirIdOrder_.clear();
@@ -89,30 +93,14 @@ DirDirStore::Roe<void> DirDirStore::initWithLevel(const InitConfig &config, size
 
 DirDirStore::Roe<void> DirDirStore::mountWithLevel(const MountConfig &config, size_t level) {
   config_.dirPath = config.dirPath;
-  config_.maxDirCount = config.maxDirCount;
-  config_.maxFileCount = config.maxFileCount;
-  config_.maxFileSize = config.maxFileSize;
   config_.maxLevel = config.maxLevel;
   currentDirId_ = 0;
-  indexFilePath_ = getIndexFilePath(config_.dirPath);
+  indexFilePath_ = getDirDirIndexFilePath(config_.dirPath);
   rootStore_.reset();
   dirInfoMap_.clear();
   dirIdOrder_.clear();
   totalBlockCount_ = 0;
   currentLevel_ = level;
-
-  auto sizeResult = validateMinFileSize(config_.maxFileSize);
-  if (!sizeResult.isOk()) {
-    return sizeResult;
-  }
-
-  if (config_.maxFileCount == 0) {
-    return Error("Max file count must be greater than 0");
-  }
-
-  if (config_.maxDirCount == 0) {
-    return Error("Max dir count must be greater than 0");
-  }
 
   // For mount, verify directory and index exist
   if (!std::filesystem::exists(config_.dirPath)) {
@@ -146,6 +134,20 @@ DirDirStore::Roe<void> DirDirStore::mountWithLevel(const MountConfig &config, si
       return openResult;
     }
     recalculateTotalBlockCount();
+  }
+
+  // Validate loaded config values
+  auto sizeResult = validateMinFileSize(config_.maxFileSize);
+  if (!sizeResult.isOk()) {
+    return sizeResult;
+  }
+
+  if (config_.maxFileCount == 0) {
+    return Error("Max file count must be greater than 0");
+  }
+
+  if (config_.maxDirCount == 0) {
+    return Error("Max dir count must be greater than 0");
   }
 
   log().info << "DirDirStore mounted at level " << currentLevel_ 
@@ -362,7 +364,9 @@ DirDirStore::Roe<void> DirDirStore::relocateRootStore() {
   std::string subdirName = formatId(currentDirId_);
 
   // Relocate the root store to become the first subdirectory
-  auto relocateResult = rootStore_->relocateToSubdir(subdirName);
+  // Preserve the DirDirStore index file in the parent directory
+  std::vector<std::string> excludeFiles = {DIRDIR_INDEX_FILENAME};
+  auto relocateResult = rootStore_->relocateToSubdir(subdirName, excludeFiles);
   if (!relocateResult.isOk()) {
     return Error("Failed to relocate root store: " + relocateResult.error().message);
   }
@@ -597,6 +601,14 @@ bool DirDirStore::loadIndex() {
     return false;
   }
 
+  // Load config values from header
+  config_.maxDirCount = header.maxDirCount;
+  config_.maxFileCount = header.maxFileCount;
+  config_.maxFileSize = header.maxFileSize;
+  log().debug << "Loaded config from index: maxDirCount=" << config_.maxDirCount
+              << ", maxFileCount=" << config_.maxFileCount
+              << ", maxFileSize=" << config_.maxFileSize;
+
   log().debug << "Read index file header (magic: 0x" << std::hex << header.magic
               << std::dec << ", version: " << header.version
               << ", dirs: " << header.dirCount << ")";
@@ -630,12 +642,6 @@ bool DirDirStore::loadIndex() {
 }
 
 bool DirDirStore::saveIndex() {
-  // Only save index if we have subdirectories (not using root store)
-  if (rootStore_ && dirInfoMap_.empty()) {
-    // Root store manages its own index, we don't need a separate one
-    return true;
-  }
-
   std::ofstream indexFile(indexFilePath_, std::ios::binary | std::ios::trunc);
   if (!indexFile.is_open()) {
     log().error << "Failed to open index file for writing: " << indexFilePath_;
@@ -672,6 +678,9 @@ bool DirDirStore::saveIndex() {
 bool DirDirStore::writeIndexHeader(std::ostream &os) {
   IndexFileHeader header;
   header.dirCount = static_cast<uint32_t>(dirInfoMap_.size());
+  header.maxDirCount = config_.maxDirCount;
+  header.maxFileCount = config_.maxFileCount;
+  header.maxFileSize = config_.maxFileSize;
   OutputArchive ar(os);
   ar &header;
 
@@ -727,7 +736,8 @@ void DirDirStore::flush() {
   }
 }
 
-DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &subdirName) {
+DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &subdirName,
+                                                             const std::vector<std::string> &excludeFiles) {
   log().info << "Relocating DirDirStore contents to subdirectory: " << subdirName;
 
   if (rootStore_) {
@@ -744,14 +754,14 @@ DirDirStore::Roe<std::string> DirDirStore::relocateToSubdir(const std::string &s
   }
 
   std::string originalPath = config_.dirPath;
-  auto relocateResult = performDirectoryRelocation(originalPath, subdirName);
+  auto relocateResult = performDirectoryRelocation(originalPath, subdirName, excludeFiles);
   if (!relocateResult.isOk()) {
     return relocateResult;
   }
   std::string targetSubdir = relocateResult.value();
 
   config_.dirPath = targetSubdir;
-  indexFilePath_ = getIndexFilePath(targetSubdir);
+  indexFilePath_ = getDirDirIndexFilePath(targetSubdir);
 
   auto reopenResult = reopenSubdirectoryStores();
   if (!reopenResult.isOk()) {
@@ -792,7 +802,8 @@ DirDirStore::Roe<bool> DirDirStore::detectStoreMode() {
     }
     log().info << "Loaded index with " << dirInfoMap_.size() << " dirs";
     updateCurrentDirId();
-    return false; // Use subdirectory mode
+    // If no directories in the map, we're in root store mode
+    return dirInfoMap_.empty();
   } else if (magic == MAGIC_FILE_DIR) {
     log().info << "Found FileDirStore index, using root store mode";
     return true;
@@ -828,8 +839,14 @@ DirDirStore::Roe<void> DirDirStore::initRootStoreMode(bool isMount) {
     }
     totalBlockCount_ = rootStore_->getBlockCount();
     log().info << "Initialized root FileDirStore with " << totalBlockCount_ << " blocks";
+    
+    // Save index file with config values even in root store mode
+    if (!saveIndex()) {
+      log().error << "Failed to save initial index file";
+      return Error("Failed to save initial index file");
+    }
   }
-
+  
   return {};
 }
 
@@ -871,9 +888,6 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirI
     ukpDirDirStore->setLogger("dirdirstore");
     DirDirStore::MountConfig ddConfig;
     ddConfig.dirPath = dirpath;
-    ddConfig.maxFileCount = config_.maxFileCount;
-    ddConfig.maxFileSize = config_.maxFileSize;
-    ddConfig.maxDirCount = config_.maxDirCount;
     // Breadth-first: Check if all OTHER children (excluding the one we're opening) are DirDirStore
     // If yes, allow deeper recursion. If no, only allow FileDirStore children.
     bool allOtherChildrenAreRecursive = true;
@@ -892,6 +906,7 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirI
     }
 
     // Child level is currentLevel_ + 1
+    // Note: maxDirCount, maxFileCount, maxFileSize will be loaded from the child's index file
     auto result = ukpDirDirStore->mountWithLevel(ddConfig, currentLevel_ + 1);
     if (!result.isOk()) {
       log().error << "Failed to open DirDirStore: " << dirpath << ": " << result.error().message;
