@@ -31,6 +31,13 @@ public:
   ~BeaconServer() = default;
 
   /**
+   * Initialize a new beacon with configuration
+   * @param config Beacon initialization configuration
+   * @return Result with void on success, Error on failure
+   */
+  Roe<void> init(const Beacon::InitConfig& config);
+
+  /**
    * Start the beacon server
    * @param dataDir Work directory containing config.json
    * @return true if server started successfully
@@ -82,6 +89,7 @@ private:
 
   struct Config {
     NetworkConfig network;
+    Beacon::CheckpointConfig checkpoint;
   };
 
   /**

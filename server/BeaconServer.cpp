@@ -14,6 +14,29 @@ BeaconServer::BeaconServer() {
   log().info << "BeaconServer initialized";
 }
 
+BeaconServer::Roe<void> BeaconServer::init(const Beacon::InitConfig& config) {
+  log().info << "Initializing BeaconServer";
+  
+  // Clean up work directory if it exists
+  if (std::filesystem::exists(config.workDir)) {
+    log().info << "  Removing existing work directory: " << config.workDir;
+    std::error_code ec;
+    std::filesystem::remove_all(config.workDir, ec);
+    if (ec) {
+      return Error("Failed to remove existing work directory: " + ec.message());
+    }
+  }
+  
+  // Initialize beacon (which will create fresh directory)
+  auto result = beacon_.init(config);
+  if (!result) {
+    return Error("Failed to initialize beacon: " + result.error().message);
+  }
+  
+  log().info << "BeaconServer initialization complete";
+  return {};
+}
+
 bool BeaconServer::start(const std::string &dataDir) {
   if (isRunning()) {
     log().warning << "BeaconServer is already running";
@@ -36,6 +59,28 @@ bool BeaconServer::onStart() {
       std::filesystem::path(dataDir_) / "config.json";
   std::string configPathStr = configPath.string();
 
+  // Create default config.json if it doesn't exist
+  if (!std::filesystem::exists(configPath)) {
+    log().info << "No config.json found, creating with default values";
+    
+    nlohmann::json defaultConfig;
+    defaultConfig["host"] = "localhost";
+    defaultConfig["port"] = Client::DEFAULT_BEACON_PORT;
+    defaultConfig["beacons"] = nlohmann::json::array();
+    defaultConfig["checkpointSize"] = 1024 * 1024 * 1024; // 1 GB
+    defaultConfig["checkpointAge"] = 365 * 24 * 3600; // 1 year
+    
+    std::ofstream configFile(configPath);
+    if (!configFile) {
+      log().error << "Failed to create config.json";
+      return false;
+    }
+    configFile << defaultConfig.dump(2) << std::endl;
+    configFile.close();
+    
+    log().info << "Created config.json at: " << configPathStr;
+  }
+
   // Load configuration (includes port)
   auto configResult = loadConfig(configPathStr);
   if (!configResult) {
@@ -44,8 +89,13 @@ bool BeaconServer::onStart() {
     return false;
   }
   
-  // Initialize beacon core  
-  auto beaconMount = beacon_.mount(dataDir_);
+  // Initialize beacon core with mount config
+  Beacon::MountConfig mountConfig;
+  mountConfig.workDir = dataDir_;
+  // Use checkpoint config from loaded config (or defaults)
+  mountConfig.checkpoint = config_.checkpoint;
+  
+  auto beaconMount = beacon_.mount(mountConfig);
   if (!beaconMount) {
     log().error << "Failed to mount Beacon: " << beaconMount.error().message;
     return false;
@@ -167,9 +217,19 @@ BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) 
     }
   }
 
+  // Load checkpoint configuration (optional)
+  if (config.contains("checkpointSize") && config["checkpointSize"].is_number()) {
+    config_.checkpoint.minSizeBytes = config["checkpointSize"].get<uint64_t>();
+  }
+  if (config.contains("checkpointAge") && config["checkpointAge"].is_number()) {
+    config_.checkpoint.ageSeconds = config["checkpointAge"].get<uint64_t>();
+  }
+
   log().info << "Configuration loaded from " << configPath;
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Other beacons: " << otherBeaconAddresses_.size();
+  log().info << "  Checkpoint size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
+  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   return {};
 }
 

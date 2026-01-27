@@ -16,10 +16,11 @@ Beacon::Beacon()
 
 Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
+  log().debug << "Init config: " << config;
 
   // Verify work directory does NOT exist (fresh initialization)
   if (std::filesystem::exists(config.workDir)) {
-    return Error(1, "Work directory already exists: " + config.workDir + ". Use mount() to load existing state.");
+    return Error("Work directory already exists: " + config.workDir + ". Use mount() to load existing beacon.");
   }
 
   // Create work directory
@@ -51,32 +52,33 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   config_.workDir = config.workDir;
   config_.chain.slotDuration = config.chain.slotDuration;
   config_.chain.slotsPerEpoch = config.chain.slotsPerEpoch;
-  config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
-  config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << getConsensus().getGenesisTime();
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
-  log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
-  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
 
   return {};
 }
 
-Beacon::Roe<void> Beacon::mount(const std::string& workDir) {
-  log().info << "Mounting Beacon at: " << workDir;
+Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
+  log().info << "Mounting Beacon at: " << config.workDir;
+  log().debug << "Mount config: " << config;
 
   // Verify work directory exists (loading existing state)
-  if (!std::filesystem::exists(workDir)) {
-    return Error(3, "Work directory does not exist: " + workDir + ". Use init() to create new beacon.");
+  if (!std::filesystem::exists(config.workDir)) {
+    return Error(3, "Work directory does not exist: " + config.workDir + ". Use init() to create new beacon.");
   }
 
   // In a full implementation, this would involve loading existing state
   // from disk, including the ledger, chain, and checkpoints.
-  config_.workDir = workDir;
+  config_.workDir = config.workDir;
+  config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
+  config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
   log().info << "Beacon mounted successfully";
+  log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
+  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
 
   return {};
 }
@@ -107,11 +109,11 @@ void Beacon::addStakeholder(const Stakeholder& stakeholder) {
       // Update existing stakeholder
       it->endpoint = stakeholder.endpoint;
       it->stake = stakeholder.stake;
-      log().info << "Updated stakeholder: " << stakeholder.id << " stake: " << stakeholder.stake;
+      log().info << "Updated stakeholder: " << stakeholder;
     } else {
       // Add new stakeholder
       stakeholders_.push_back(stakeholder);
-      log().info << "Added stakeholder: " << stakeholder.id << " stake: " << stakeholder.stake;
+      log().info << "Added stakeholder: " << stakeholder;
     }
   }
 

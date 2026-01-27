@@ -50,7 +50,10 @@ public:
     // Base configuration
     std::string workDir;
     BlockChainConfig chain;
-    
+  };
+
+  struct MountConfig {
+    std::string workDir;
     CheckpointConfig checkpoint;
   };
 
@@ -65,7 +68,7 @@ public:
 
   // Initialization
   Roe<void> init(const InitConfig& config);
-  Roe<void> mount(const std::string& workDir);
+  Roe<void> mount(const MountConfig& config);
 
   // Version and metadata
   uint32_t getVersion() const { return VERSION; }
@@ -120,6 +123,35 @@ private:
   // State tracking
   uint64_t currentCheckpointId_;
 };
+
+// Ostream operators for easy logging
+inline std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config) {
+  os << "CheckpointConfig{minSizeBytes=" << config.minSizeBytes 
+     << " (" << (config.minSizeBytes / (1024*1024)) << " MB), "
+     << "ageSeconds=" << config.ageSeconds
+     << " (" << (config.ageSeconds / (24*3600)) << " days)}";
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
+  os << "InitConfig{workDir=\"" << config.workDir << "\", "
+     << "chain{slotDuration=" << config.chain.slotDuration << ", "
+     << "slotsPerEpoch=" << config.chain.slotsPerEpoch << "}}";
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
+  os << "MountConfig{workDir=\"" << config.workDir << "\", "
+     << "checkpoint=" << config.checkpoint << "}";
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Beacon::Stakeholder& stakeholder) {
+  os << "Stakeholder{id=\"" << stakeholder.id << "\", "
+     << "endpoint=" << stakeholder.endpoint << ", "
+     << "stake=" << stakeholder.stake << "}";
+  return os;
+}
 
 } // namespace pp
 
