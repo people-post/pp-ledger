@@ -79,47 +79,6 @@ Validator::Validator()
   setLogger("Validator");
 }
 
-Validator::Roe<void> Validator::initBase(const BaseConfig& config) {
-  baseConfig_ = config;
-
-  // Create work directory if it doesn't exist
-  if (!std::filesystem::exists(config.workDir)) {
-    std::filesystem::create_directories(config.workDir);
-  }
-
-  log().info << "Initializing Validator base";
-  log().info << "  Work directory: " << config.workDir;
-
-  // Initialize consensus
-  consensus_.setSlotDuration(config.slotDuration);
-  consensus_.setSlotsPerEpoch(config.slotsPerEpoch);
-  
-  // Set genesis time if not already set
-  if (consensus_.getGenesisTime() == 0) {
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch()).count();
-    consensus_.setGenesisTime(timestamp);
-  }
-
-  // Initialize ledger
-  Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = config.workDir + "/ledger";
-  ledgerConfig.startingBlockId = 0;
-
-  auto ledgerResult = ledger_.init(ledgerConfig);
-  if (!ledgerResult) {
-    return Error(1, "Failed to initialize ledger: " + ledgerResult.error().message);
-  }
-
-  log().info << "Validator base initialized successfully";
-  log().info << "  Genesis time: " << consensus_.getGenesisTime();
-  log().info << "  Current slot: " << getCurrentSlot();
-  log().info << "  Current epoch: " << getCurrentEpoch();
-
-  return {};
-}
-
 uint64_t Validator::getCurrentBlockId() const {
   // Return the last block ID (nextBlockId - 1)
   uint64_t nextBlockId = ledger_.getNextBlockId();

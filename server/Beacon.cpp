@@ -14,20 +14,69 @@ Beacon::Beacon()
   log().info << "Beacon initialized";
 }
 
-Beacon::Roe<void> Beacon::init(const Config& config) {
-  config_ = config;
-
+Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
 
-  // Initialize base class
-  auto baseResult = initBase(config);
-  if (!baseResult) {
-    return Error(1, "Failed to initialize base: " + baseResult.error().message);
+  // Verify work directory does NOT exist (fresh initialization)
+  if (std::filesystem::exists(config.workDir)) {
+    return Error(1, "Work directory already exists: " + config.workDir + ". Use mount() to load existing state.");
   }
 
+  // Create work directory
+  std::filesystem::create_directories(config.workDir);
+  log().info << "  Work directory created: " << config.workDir;
+
+  // Initialize consensus
+  getConsensus().setSlotDuration(config.slotDuration);
+  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
+  
+  // Set genesis time if not already set
+  if (getConsensus().getGenesisTime() == 0) {
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+        now.time_since_epoch()).count();
+    getConsensus().setGenesisTime(timestamp);
+  }
+
+  // Initialize ledger
+  Ledger::Config ledgerConfig;
+  ledgerConfig.workDir = config.workDir + "/ledger";
+  ledgerConfig.startingBlockId = 0;
+
+  auto ledgerResult = getLedger().init(ledgerConfig);
+  if (!ledgerResult) {
+    return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
+  }
+
+  config_.workDir = config.workDir;
+  config_.slotDuration = config.slotDuration;
+  config_.slotsPerEpoch = config.slotsPerEpoch;
+  config_.checkpointMinSizeBytes = config.checkpointMinSizeBytes;
+  config_.checkpointAgeSeconds = config.checkpointAgeSeconds;
+
   log().info << "Beacon initialized successfully";
+  log().info << "  Genesis time: " << getConsensus().getGenesisTime();
+  log().info << "  Current slot: " << getCurrentSlot();
+  log().info << "  Current epoch: " << getCurrentEpoch();
   log().info << "  Checkpoint min size: " << (config_.checkpointMinSizeBytes / (1024*1024)) << " MB";
   log().info << "  Checkpoint age: " << (config_.checkpointAgeSeconds / (24*3600)) << " days";
+
+  return {};
+}
+
+Beacon::Roe<void> Beacon::mount(const std::string& workDir) {
+  log().info << "Mounting Beacon at: " << workDir;
+
+  // Verify work directory exists (loading existing state)
+  if (!std::filesystem::exists(workDir)) {
+    return Error(3, "Work directory does not exist: " + workDir + ". Use init() to create new beacon.");
+  }
+
+  // In a full implementation, this would involve loading existing state
+  // from disk, including the ledger, chain, and checkpoints.
+  config_.workDir = workDir;
+
+  log().info << "Beacon mounted successfully";
 
   return {};
 }

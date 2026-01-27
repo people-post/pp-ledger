@@ -43,7 +43,13 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
-    struct Config : public BaseConfig {
+    struct Config {
+        // Base configuration
+        std::string workDir;
+        uint64_t slotDuration = 1; // seconds
+        uint64_t slotsPerEpoch = 21600; // ~6 hours
+        
+        // Miner-specific configuration
         std::string minerId;
         uint64_t stake;
         

@@ -29,10 +29,33 @@ Miner::Roe<void> Miner::init(const Config &config) {
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Stake: " << config_.stake;
 
-  // Initialize base class
-  auto baseResult = initBase(config);
-  if (!baseResult) {
-    return Error(2, "Failed to initialize base: " + baseResult.error().message);
+  // Create work directory if it doesn't exist
+  if (!std::filesystem::exists(config.workDir)) {
+    std::filesystem::create_directories(config.workDir);
+  }
+
+  log().info << "  Work directory: " << config.workDir;
+
+  // Initialize consensus
+  getConsensus().setSlotDuration(config.slotDuration);
+  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
+  
+  // Set genesis time if not already set
+  if (getConsensus().getGenesisTime() == 0) {
+    auto now = std::chrono::system_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+        now.time_since_epoch()).count();
+    getConsensus().setGenesisTime(timestamp);
+  }
+
+  // Initialize ledger
+  Ledger::Config ledgerConfig;
+  ledgerConfig.workDir = config.workDir + "/ledger";
+  ledgerConfig.startingBlockId = 0;
+
+  auto ledgerResult = getLedger().init(ledgerConfig);
+  if (!ledgerResult) {
+    return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
   }
 
   // Register self as stakeholder
@@ -41,6 +64,9 @@ Miner::Roe<void> Miner::init(const Config &config) {
   initialized_ = true;
 
   log().info << "Miner initialized successfully";
+  log().info << "  Genesis time: " << getConsensus().getGenesisTime();
+  log().info << "  Current slot: " << getCurrentSlot();
+  log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
 }
@@ -345,7 +371,7 @@ Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
 
   // Reinitialize ledger with new starting block ID
   Ledger::Config ledgerConfig;
-  ledgerConfig.workDir = getBaseConfig().workDir + "/ledger";
+  ledgerConfig.workDir = config_.workDir + "/ledger";
   ledgerConfig.startingBlockId = startBlockId;
 
   auto result = getLedger().init(ledgerConfig);

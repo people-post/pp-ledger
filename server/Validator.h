@@ -66,12 +66,6 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
-    struct BaseConfig {
-        std::string workDir;
-        uint64_t slotDuration = 1; // seconds
-        uint64_t slotsPerEpoch = 21600; // ~6 hours
-    };
-
     Validator();
     virtual ~Validator() = default;
 
@@ -92,9 +86,6 @@ public:
     std::string calculateHash(const Ledger::Block& block) const;
     
 protected:
-    // Initialization helper
-    Roe<void> initBase(const BaseConfig& config);
-    
     // Validation helpers
     bool validateBlock(const Ledger::ChainNode& block) const;
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
@@ -108,7 +99,6 @@ protected:
     const Ledger& getLedger() const { return ledger_; }
     BlockChain& getChainMutable() { return chain_; }
     const BlockChain& getChain() const { return chain_; }
-    const BaseConfig& getBaseConfig() const { return baseConfig_; }
     std::mutex& getStateMutex() const { return stateMutex_; }
 
     Roe<void> syncChain(const BlockChain& chain);
@@ -118,9 +108,6 @@ private:
     consensus::Ouroboros consensus_;
     Ledger ledger_;
     BlockChain chain_;
-    
-    // Configuration
-    BaseConfig baseConfig_;
     
     // State tracking
     mutable std::mutex stateMutex_;

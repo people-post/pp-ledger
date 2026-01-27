@@ -44,15 +44,10 @@ bool BeaconServer::onStart() {
     return false;
   }
   
-  // Initialize beacon core
-  Beacon::Config beaconConfig;
-  beaconConfig.workDir = dataDir_;
-  beaconConfig.slotDuration = 1;
-  beaconConfig.slotsPerEpoch = 21600;
-  
-  auto beaconInit = beacon_.init(beaconConfig);
-  if (!beaconInit) {
-    log().error << "Failed to initialize Beacon: " << beaconInit.error().message;
+  // Initialize beacon core  
+  auto beaconMount = beacon_.mount(dataDir_);
+  if (!beaconMount) {
+    log().error << "Failed to mount Beacon: " << beaconMount.error().message;
     return false;
   }
   

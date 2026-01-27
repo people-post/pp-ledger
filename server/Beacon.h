@@ -41,7 +41,12 @@ public:
   
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  struct Config : public BaseConfig {
+  struct InitConfig {
+    // Base configuration
+    std::string workDir;
+    uint64_t slotDuration = 1; // seconds
+    uint64_t slotsPerEpoch = 21600; // ~6 hours
+    
     // Checkpoint configuration
     uint64_t checkpointMinSizeBytes = 1024ULL * 1024 * 1024; // 1GB default
     uint64_t checkpointAgeSeconds = 365ULL * 24 * 3600; // 1 year default
@@ -57,7 +62,8 @@ public:
   ~Beacon() override = default;
 
   // Initialization
-  Roe<void> init(const Config& config);
+  Roe<void> init(const InitConfig& config);
+  Roe<void> mount(const std::string& workDir);
 
   // Version and metadata
   uint32_t getVersion() const { return VERSION; }
@@ -87,6 +93,14 @@ public:
   Roe<std::string> getSlotLeader(uint64_t slot) const;
 
 private:
+  struct Config {
+    std::string workDir;
+    uint64_t slotDuration{ 0 };
+    uint64_t slotsPerEpoch{ 0 };
+    uint64_t checkpointMinSizeBytes{ 0 };
+    uint64_t checkpointAgeSeconds{ 0 };
+  };
+
   // Helper methods
   uint64_t calculateBlockchainSize() const;
   uint64_t getBlockAge(uint64_t blockId) const;
