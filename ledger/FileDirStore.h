@@ -19,17 +19,21 @@ namespace pp {
  */
 class FileDirStore : public DirStore {
 public:
-    struct Config {
+    struct InitConfig {
         std::string dirPath;
         size_t maxFileCount{ 0 };
         size_t maxFileSize{ 0 };
 
         /**
-         * Behavior when operating on existing directories:
+         * Config behavior:
          * 
-         * When init() is called on an existing directory:
+         * For init():
+         * - Creates a new directory with the specified config values
+         * - Directory must NOT already exist
+         * 
+         * For mount():
          * - Config values are NOT persisted or read from the existing directory
-         * - The config values provided to init() are stored and used for:
+         * - The config values provided to mount() are stored and used for:
          *   * Opening existing block files (FileStore instances)
          *   * Creating new block files
          * 
@@ -38,16 +42,13 @@ public:
          * - New config values will be applied when reopening existing files
          * - Existing files are reopened using the new config values, not the original ones
          * 
-         * Important considerations:
+         * Important considerations when mounting with different config:
          * - Changing maxFileSize: Existing FileStore instances will be reopened with the
          *   new maxFileSize. This should generally be safe if only increasing the value.
          *   Decreasing may cause issues if existing files exceed the new limit.
          * 
          * - Changing maxFileCount: Affects only new file creation. Existing files are
          *   retained, but the new limit will be enforced for future file creation.
-         * 
-         * - Changing dirPath: The directory path is updated in the config, but this
-         *   should typically match the existing directory structure.
          */
     };
 
@@ -58,7 +59,21 @@ public:
 
     uint64_t getBlockCount() const override;
 
-    Roe<void> init(const Config &config);
+    /**
+     * Initialize a new FileDirStore (creates new directory)
+     * @param config Configuration for the new store
+     * @return Error if directory already exists or creation fails
+     */
+    Roe<void> init(const InitConfig &config);
+
+    /**
+     * Mount an existing FileDirStore (loads existing directory)
+     * @param dirPath Path to existing directory
+     * @param maxFileCount Maximum number of files
+     * @param maxFileSize Maximum size per file
+     * @return Error if directory doesn't exist or loading fails
+     */
+    Roe<void> mount(const std::string &dirPath, size_t maxFileCount, size_t maxFileSize);
 
     Roe<std::string> readBlock(uint64_t index) const override;
     Roe<uint64_t> appendBlock(const std::string &block) override;
@@ -117,7 +132,7 @@ private:
         uint64_t startBlockId;
     };
 
-    Config config_;
+    InitConfig config_;
     uint32_t currentFileId_{ 0 };
     std::string indexFilePath_;
 

@@ -10,7 +10,7 @@ class FileDirStoreTest : public ::testing::Test {
 protected:
     std::string testDir;
     pp::FileDirStore fileDirStore;
-    pp::FileDirStore::Config config;
+    pp::FileDirStore::InitConfig config;
     
     void SetUp() override {
         fileDirStore.setLogger("filedirstore");
@@ -20,9 +20,9 @@ protected:
         if (std::filesystem::exists(testDir)) {
             std::filesystem::remove_all(testDir);
         }
-        std::filesystem::create_directories(testDir);
+        // Don't create the directory here - let init() do it
         
-        config = pp::FileDirStore::Config();
+        config = pp::FileDirStore::InitConfig();
         config.dirPath = testDir;
         config.maxFileCount = 5;
         config.maxFileSize = 1024 * 1024; // 1MB per file
@@ -52,10 +52,15 @@ TEST_F(FileDirStoreTest, InitializesSuccessfully) {
     // Directory should exist
     EXPECT_TRUE(std::filesystem::exists(testDir));
     EXPECT_EQ(fileDirStore.getBlockCount(), 0);
+    
+    // Should fail to init again on existing directory
+    pp::FileDirStore fileDirStore2;
+    auto result2 = fileDirStore2.init(config);
+    EXPECT_TRUE(result2.isError());
 }
 
 TEST_F(FileDirStoreTest, FailsWithInvalidConfig) {
-    pp::FileDirStore::Config invalidConfig;
+    pp::FileDirStore::InitConfig invalidConfig;
     invalidConfig.dirPath = testDir;
     invalidConfig.maxFileCount = 0; // Invalid
     invalidConfig.maxFileSize = 1024 * 1024;
@@ -65,7 +70,7 @@ TEST_F(FileDirStoreTest, FailsWithInvalidConfig) {
 }
 
 TEST_F(FileDirStoreTest, FailsWithSmallFileSize) {
-    pp::FileDirStore::Config smallConfig;
+    pp::FileDirStore::InitConfig smallConfig;
     smallConfig.dirPath = testDir;
     smallConfig.maxFileCount = 5;
     smallConfig.maxFileSize = 100; // Too small (must be at least 1MB)
@@ -81,10 +86,10 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
     auto result1 = fileDirStore.appendBlock(block1);
     ASSERT_TRUE(result1.isOk());
     
-    // Reinitialize - should load existing index
+    // Mount existing directory - should load existing index
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    auto result = fileDirStore2.init(config);
+    auto result = fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
     EXPECT_TRUE(result.isOk());
     
     // Should have the block
@@ -336,10 +341,10 @@ TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
         fileDirStore.appendBlock(data);
     }
     
-    // Second session - reinitialize
+    // Second session - mount existing directory
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    fileDirStore2.init(config);
+    fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
     
@@ -366,10 +371,10 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
         fileDirStore.appendBlock(data);
     }
     
-    // Reinitialize
+    // Mount existing directory
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    fileDirStore2.init(config);
+    fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
     

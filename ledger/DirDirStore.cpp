@@ -391,7 +391,7 @@ FileDirStore *DirDirStore::createFileDirStore(uint32_t dirId, uint64_t startBloc
   auto ukpFileDirStore = std::make_unique<FileDirStore>();
   ukpFileDirStore->setLogger("filedirstore");
 
-  FileDirStore::Config fdConfig;
+  FileDirStore::InitConfig fdConfig;
   fdConfig.dirPath = dirpath;
   fdConfig.maxFileCount = config_.maxFileCount;
   fdConfig.maxFileSize = config_.maxFileSize;
@@ -725,19 +725,35 @@ DirDirStore::Roe<bool> DirDirStore::detectStoreMode() {
 DirDirStore::Roe<void> DirDirStore::initRootStoreMode() {
   rootStore_ = std::make_unique<FileDirStore>();
   rootStore_->setLogger("root-filedirstore");
-  FileDirStore::Config fdConfig;
+  FileDirStore::InitConfig fdConfig;
   fdConfig.dirPath = config_.dirPath;
   fdConfig.maxFileCount = config_.maxFileCount;
   fdConfig.maxFileSize = config_.maxFileSize;
 
-  auto result = rootStore_->init(fdConfig);
-  if (!result.isOk()) {
-    log().error << "Failed to initialize root FileDirStore: " << result.error().message;
-    return Error("Failed to initialize root FileDirStore: " + result.error().message);
+  // Check if FileDirStore index already exists, TODO: move to FileDirStore?
+  std::string fileDirIndexPath = config_.dirPath + "/idx.dat";
+  bool exists = std::filesystem::exists(fileDirIndexPath);
+  
+  if (exists) {
+    // Mount existing FileDirStore
+    auto result = rootStore_->mount(config_.dirPath, config_.maxFileCount, config_.maxFileSize);
+    if (!result.isOk()) {
+      log().error << "Failed to mount root FileDirStore: " << result.error().message;
+      return Error("Failed to mount root FileDirStore: " + result.error().message);
+    }
+    totalBlockCount_ = rootStore_->getBlockCount();
+    log().info << "Mounted root FileDirStore with " << totalBlockCount_ << " blocks";
+  } else {
+    // Initialize new FileDirStore
+    auto result = rootStore_->init(fdConfig);
+    if (!result.isOk()) {
+      log().error << "Failed to initialize root FileDirStore: " << result.error().message;
+      return Error("Failed to initialize root FileDirStore: " + result.error().message);
+    }
+    totalBlockCount_ = rootStore_->getBlockCount();
+    log().info << "Initialized root FileDirStore with " << totalBlockCount_ << " blocks";
   }
 
-  totalBlockCount_ = rootStore_->getBlockCount();
-  log().info << "Initialized root FileDirStore with " << totalBlockCount_ << " blocks";
   return {};
 }
 
@@ -812,12 +828,8 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirI
   } else {
     auto ukpFileDirStore = std::make_unique<FileDirStore>();
     ukpFileDirStore->setLogger("filedirstore");
-    FileDirStore::Config fdConfig;
-    fdConfig.dirPath = dirpath;
-    fdConfig.maxFileCount = config_.maxFileCount;
-    fdConfig.maxFileSize = config_.maxFileSize;
 
-    auto result = ukpFileDirStore->init(fdConfig);
+    auto result = ukpFileDirStore->mount(dirpath, config_.maxFileCount, config_.maxFileSize);
     if (!result.isOk()) {
       log().error << "Failed to open FileDirStore: " << dirpath << ": " << result.error().message;
       return Error("Failed to open FileDirStore: " + dirpath + ": " + result.error().message);
