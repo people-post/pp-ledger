@@ -25,6 +25,11 @@ namespace pp {
  */
 class Validator : public Module {
 public:
+    struct BlockChainConfig {
+      uint64_t slotDuration{ 0 };
+      uint64_t slotsPerEpoch{ 0 };
+    };
+
     /**
      * Concrete implementation of BlockChain data structure
      *

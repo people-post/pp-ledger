@@ -2,6 +2,7 @@
     "chat.tools.terminal.autoApprove": {
         "make": true,
         "nproc": true,
-        "ctest": true
+        "ctest": true,
+        "/workspaces/pp-ledger/build/app/pp-beacon": true
     }
 }

@@ -41,15 +41,17 @@ public:
   
   template <typename T> using Roe = ResultOrError<T, Error>;
 
+  struct CheckpointConfig {
+    uint64_t minSizeBytes{ 1024ULL * 1024 * 1024 }; // 1GB default
+    uint64_t ageSeconds{ 365ULL * 24 * 3600 }; // 1 year default
+  };
+
   struct InitConfig {
     // Base configuration
     std::string workDir;
-    uint64_t slotDuration = 1; // seconds
-    uint64_t slotsPerEpoch = 21600; // ~6 hours
+    BlockChainConfig chain;
     
-    // Checkpoint configuration
-    uint64_t checkpointMinSizeBytes = 1024ULL * 1024 * 1024; // 1GB default
-    uint64_t checkpointAgeSeconds = 365ULL * 24 * 3600; // 1 year default
+    CheckpointConfig checkpoint;
   };
 
   struct Stakeholder {
@@ -95,10 +97,8 @@ public:
 private:
   struct Config {
     std::string workDir;
-    uint64_t slotDuration{ 0 };
-    uint64_t slotsPerEpoch{ 0 };
-    uint64_t checkpointMinSizeBytes{ 0 };
-    uint64_t checkpointAgeSeconds{ 0 };
+    BlockChainConfig chain;
+    CheckpointConfig checkpoint;
   };
 
   // Helper methods

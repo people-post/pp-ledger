@@ -27,8 +27,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  getConsensus().setSlotDuration(config.slotDuration);
-  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
+  getConsensus().setSlotDuration(config.chain.slotDuration);
+  getConsensus().setSlotsPerEpoch(config.chain.slotsPerEpoch);
   
   // Set genesis time if not already set
   if (getConsensus().getGenesisTime() == 0) {
@@ -49,17 +49,17 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
 
   config_.workDir = config.workDir;
-  config_.slotDuration = config.slotDuration;
-  config_.slotsPerEpoch = config.slotsPerEpoch;
-  config_.checkpointMinSizeBytes = config.checkpointMinSizeBytes;
-  config_.checkpointAgeSeconds = config.checkpointAgeSeconds;
+  config_.chain.slotDuration = config.chain.slotDuration;
+  config_.chain.slotsPerEpoch = config.chain.slotsPerEpoch;
+  config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
+  config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << getConsensus().getGenesisTime();
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
-  log().info << "  Checkpoint min size: " << (config_.checkpointMinSizeBytes / (1024*1024)) << " MB";
-  log().info << "  Checkpoint age: " << (config_.checkpointAgeSeconds / (24*3600)) << " days";
+  log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
+  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
 
   return {};
 }
@@ -217,13 +217,13 @@ Beacon::Roe<void> Beacon::evaluateCheckpoints() {
               << " MB, current block: " << currentBlock;
 
   // Check if we have enough data to consider checkpointing
-  if (currentSize < config_.checkpointMinSizeBytes) {
+  if (currentSize < config_.checkpoint.minSizeBytes) {
     log().debug << "Blockchain size below checkpoint threshold";
     return {};
   }
 
   // Find blocks older than checkpoint age
-  uint64_t checkpointAge = config_.checkpointAgeSeconds;
+  uint64_t checkpointAge = config_.checkpoint.ageSeconds;
   std::vector<uint64_t> checkpointCandidates;
 
   // Iterate through blocks to find old enough blocks
@@ -264,7 +264,7 @@ bool Beacon::needsCheckpoint() const {
   uint64_t currentSize = calculateBlockchainSize();
   
   // Only evaluate if we have enough data
-  return currentSize >= config_.checkpointMinSizeBytes;
+  return currentSize >= config_.checkpoint.minSizeBytes;
 }
 
 Beacon::Roe<std::string> Beacon::getSlotLeader(uint64_t slot) const {

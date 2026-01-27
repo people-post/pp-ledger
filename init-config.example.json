@@ -1,0 +1,6 @@
+{
+  "slotDuration": 5,
+  "slotsPerEpoch": 432,
+  "checkpointSize": 1073741824,
+  "checkpointAge": 31536000
+}
