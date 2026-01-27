@@ -89,7 +89,7 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
     // Mount existing directory - should load existing index
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    auto result = fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
+    auto result = fileDirStore2.mount(config.dirPath);
     EXPECT_TRUE(result.isOk());
     
     // Should have the block
@@ -344,7 +344,7 @@ TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
     // Second session - mount existing directory
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
+    fileDirStore2.mount(config.dirPath);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
     
@@ -374,7 +374,7 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
     // Mount existing directory
     pp::FileDirStore fileDirStore2;
     fileDirStore2.setLogger("filedirstore2");
-    fileDirStore2.mount(config.dirPath, config.maxFileCount, config.maxFileSize);
+    fileDirStore2.mount(config.dirPath);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
     

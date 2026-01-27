@@ -57,81 +57,39 @@ DirStore::Roe<std::string> DirStore::performDirectoryRelocation(
 
     std::error_code ec;
 
-    // Step 1: If we have files to exclude, move them to temp location first
-    std::vector<std::string> movedExcludedFiles;
-    if (!excludeFiles.empty()) {
-        std::string excludeTempDir = (parentDir / (dirName + "_exclude_tmp")).string();
-        if (!std::filesystem::create_directories(excludeTempDir, ec)) {
-            return Error("Failed to create temp directory for excluded files: " + ec.message());
-        }
-
-        for (const auto &fileName : excludeFiles) {
-            std::string srcFile = originalPath + "/" + fileName;
-            if (std::filesystem::exists(srcFile)) {
-                std::string destFile = excludeTempDir + "/" + fileName;
-                std::filesystem::rename(srcFile, destFile, ec);
-                if (ec) {
-                    // Clean up and return error
-                    std::filesystem::remove_all(excludeTempDir, ec);
-                    return Error("Failed to move excluded file " + fileName + ": " + ec.message());
-                }
-                movedExcludedFiles.push_back(fileName);
-            }
-        }
-    }
-
-    // Step 2: Rename current dir to temp name (dir -> dir_tmp_relocate)
+    // Step 1: Move to tmp dir (originalPath -> tempPath)
     std::filesystem::rename(originalPath, tempPath, ec);
     if (ec) {
-        // Restore excluded files if any
-        if (!movedExcludedFiles.empty()) {
-            std::string excludeTempDir = (parentDir / (dirName + "_exclude_tmp")).string();
-            for (const auto &fileName : movedExcludedFiles) {
-                std::string srcFile = excludeTempDir + "/" + fileName;
-                std::string destFile = originalPath + "/" + fileName;
-                std::filesystem::rename(srcFile, destFile, ec);
-            }
-            std::filesystem::remove_all(excludeTempDir, ec);
-        }
-        return Error("Failed to rename directory to temp: " + ec.message());
+        return Error("Failed to move directory to temp location: " + ec.message());
     }
 
-    // Step 3: Create the original directory again
+    // Step 2: Create original dir
     if (!std::filesystem::create_directories(originalPath, ec)) {
         // Try to restore
         std::filesystem::rename(tempPath, originalPath, ec);
-        if (!movedExcludedFiles.empty()) {
-            std::string excludeTempDir = (parentDir / (dirName + "_exclude_tmp")).string();
-            std::filesystem::remove_all(excludeTempDir, ec);
-        }
         return Error("Failed to recreate original directory: " + ec.message());
     }
 
-    // Step 4: Restore excluded files to original directory
-    if (!movedExcludedFiles.empty()) {
-        std::string excludeTempDir = (parentDir / (dirName + "_exclude_tmp")).string();
-        for (const auto &fileName : movedExcludedFiles) {
-            std::string srcFile = excludeTempDir + "/" + fileName;
-            std::string destFile = originalPath + "/" + fileName;
-            std::filesystem::rename(srcFile, destFile, ec);
-            if (ec) {
-                // This is bad - try to restore everything
-                std::filesystem::remove_all(originalPath, ec);
-                std::filesystem::rename(tempPath, originalPath, ec);
-                std::filesystem::remove_all(excludeTempDir, ec);
-                return Error("Failed to restore excluded file " + fileName + ": " + ec.message());
-            }
-        }
-        std::filesystem::remove_all(excludeTempDir, ec);
-    }
-
-    // Step 5: Rename temp to be a subdirectory of original (dir_tmp -> dir/subdirName)
+    // Step 3: Move tmp to original as target sub dir (tempPath -> targetSubdir)
     std::filesystem::rename(tempPath, targetSubdir, ec);
     if (ec) {
         // Try to restore
         std::filesystem::remove_all(originalPath, ec);
         std::filesystem::rename(tempPath, originalPath, ec);
-        return Error("Failed to rename temp to subdirectory: " + ec.message());
+        return Error("Failed to move temp to subdirectory: " + ec.message());
+    }
+
+    // Step 4: Move exclude files back to original dir
+    for (const auto &fileName : excludeFiles) {
+        std::string srcFile = targetSubdir + "/" + fileName;
+        if (std::filesystem::exists(srcFile)) {
+            std::string destFile = originalPath + "/" + fileName;
+            std::filesystem::rename(srcFile, destFile, ec);
+            if (ec) {
+                return Error("Failed to move excluded file " + fileName + 
+                             " back to original directory: " + ec.message());
+            }
+        }
     }
 
     return targetSubdir;

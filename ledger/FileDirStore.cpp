@@ -59,24 +59,13 @@ FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
   return {};
 }
 
-FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath, size_t maxFileCount, size_t maxFileSize) {
-  auto sizeResult = validateMinFileSize(maxFileSize);
-  if (!sizeResult.isOk()) {
-    return sizeResult;
-  }
-
-  if (maxFileCount == 0) {
-    return Error("Max file count must be greater than 0");
-  }
-
+FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath) {
   // Verify directory exists (mounting existing directory)
   if (!std::filesystem::exists(dirPath)) {
     return Error("Directory does not exist: " + dirPath + ". Use init() to create new directory.");
   }
 
   config_.dirPath = dirPath;
-  config_.maxFileCount = maxFileCount;
-  config_.maxFileSize = maxFileSize;
   currentFileId_ = 0;
   indexFilePath_ = getIndexFilePath(config_.dirPath);
   fileInfoMap_.clear();
@@ -87,8 +76,19 @@ FileDirStore::Roe<void> FileDirStore::mount(const std::string &dirPath, size_t m
     return Error("Index file does not exist: " + indexFilePath_);
   }
 
+  // Load index (this will also load maxFileCount and maxFileSize from the index file)
   if (!loadIndex()) {
     return Error("Failed to load index file");
+  }
+
+  // Validate the loaded config values
+  auto sizeResult = validateMinFileSize(config_.maxFileSize);
+  if (!sizeResult.isOk()) {
+    return sizeResult;
+  }
+
+  if (config_.maxFileCount == 0) {
+    return Error("Invalid max file count loaded from index: " + std::to_string(config_.maxFileCount));
   }
 
   log().info << "Loaded index with " << fileInfoMap_.size() << " files";
@@ -422,6 +422,8 @@ bool FileDirStore::saveIndex() {
 
 bool FileDirStore::writeIndexHeader(std::ostream &os) {
   IndexFileHeader header;
+  header.maxFileCount = config_.maxFileCount;
+  header.maxFileSize = config_.maxFileSize;
   OutputArchive ar(os);
   ar &header;
 
@@ -431,7 +433,9 @@ bool FileDirStore::writeIndexHeader(std::ostream &os) {
   }
 
   log().debug << "Wrote index file header (magic: 0x" << std::hex << header.magic
-              << std::dec << ", version: " << header.version << ")";
+              << std::dec << ", version: " << header.version
+              << ", maxFileCount: " << header.maxFileCount
+              << ", maxFileSize: " << header.maxFileSize << ")";
 
   return true;
 }
@@ -459,8 +463,14 @@ bool FileDirStore::readIndexHeader(std::istream &is) {
     return false;
   }
 
+  // Load config values from header
+  config_.maxFileCount = header.maxFileCount;
+  config_.maxFileSize = header.maxFileSize;
+
   log().debug << "Read index file header (magic: 0x" << std::hex << header.magic
-              << std::dec << ", version: " << header.version << ")";
+              << std::dec << ", version: " << header.version
+              << ", maxFileCount: " << header.maxFileCount
+              << ", maxFileSize: " << header.maxFileSize << ")";
 
   return true;
 }

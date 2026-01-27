@@ -823,7 +823,7 @@ DirDirStore::Roe<void> DirDirStore::initRootStoreMode(bool isMount) {
 
   if (isMount) {
     // Mount existing FileDirStore
-    auto result = rootStore_->mount(config_.dirPath, config_.maxFileCount, config_.maxFileSize);
+    auto result = rootStore_->mount(config_.dirPath);
     if (!result.isOk()) {
       log().error << "Failed to mount root FileDirStore: " << result.error().message;
       return Error("Failed to mount root FileDirStore: " + result.error().message);
@@ -920,7 +920,7 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirI
     auto ukpFileDirStore = std::make_unique<FileDirStore>();
     ukpFileDirStore->setLogger("filedirstore");
 
-    auto result = ukpFileDirStore->mount(dirpath, config_.maxFileCount, config_.maxFileSize);
+    auto result = ukpFileDirStore->mount(dirpath);
     if (!result.isOk()) {
       log().error << "Failed to open FileDirStore: " << dirpath << ": " << result.error().message;
       return Error("Failed to open FileDirStore: " + dirpath + ": " + result.error().message);

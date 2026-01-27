@@ -30,25 +30,14 @@ public:
          * For init():
          * - Creates a new directory with the specified config values
          * - Directory must NOT already exist
+         * - maxFileCount and maxFileSize are saved in the index file
          * 
          * For mount():
-         * - Config values are NOT persisted or read from the existing directory
-         * - The config values provided to mount() are stored and used for:
+         * - Config values (maxFileCount and maxFileSize) are read from the index file
+         * - The loaded config values are used for:
          *   * Opening existing block files (FileStore instances)
          *   * Creating new block files
-         * 
-         * This means:
-         * - Config values can be changed between runs
-         * - New config values will be applied when reopening existing files
-         * - Existing files are reopened using the new config values, not the original ones
-         * 
-         * Important considerations when mounting with different config:
-         * - Changing maxFileSize: Existing FileStore instances will be reopened with the
-         *   new maxFileSize. This should generally be safe if only increasing the value.
-         *   Decreasing may cause issues if existing files exceed the new limit.
-         * 
-         * - Changing maxFileCount: Affects only new file creation. Existing files are
-         *   retained, but the new limit will be enforced for future file creation.
+         * - Config values are persisted and cannot be changed after initialization
          */
     };
 
@@ -68,12 +57,11 @@ public:
 
     /**
      * Mount an existing FileDirStore (loads existing directory)
+     * maxFileCount and maxFileSize are loaded from the index file.
      * @param dirPath Path to existing directory
-     * @param maxFileCount Maximum number of files
-     * @param maxFileSize Maximum size per file
      * @return Error if directory doesn't exist or loading fails
      */
-    Roe<void> mount(const std::string &dirPath, size_t maxFileCount, size_t maxFileSize);
+    Roe<void> mount(const std::string &dirPath);
 
     Roe<std::string> readBlock(uint64_t index) const override;
     Roe<uint64_t> appendBlock(const std::string &block) override;
@@ -107,11 +95,13 @@ private:
         uint16_t version{ CURRENT_VERSION };
         uint16_t reserved{ 0 };
         uint64_t headerSize{ sizeof(IndexFileHeader) };
+        uint64_t maxFileCount{ 0 };
+        uint64_t maxFileSize{ 0 };
 
         IndexFileHeader() = default;
 
         template <typename Archive> void serialize(Archive &ar) {
-            ar &magic &version &reserved &headerSize;
+            ar &magic &version &reserved &headerSize &maxFileCount &maxFileSize;
         }
     };
 
