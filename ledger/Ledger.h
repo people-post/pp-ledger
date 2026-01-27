@@ -15,9 +15,8 @@ class Ledger : public Module {
 public:
   struct Transaction {
     constexpr static uint16_t T_DEFAULT = 0;
-    constexpr static uint16_t T_SYSTEM = 1;
+    constexpr static uint16_t T_CHECKPOINT = 1;
     constexpr static uint16_t T_USER = 2;
-    constexpr static uint16_t T_CHECKPOINT = 3;
 
     uint16_t type{ T_DEFAULT };
     std::string fromWallet; // Source wallet ID
