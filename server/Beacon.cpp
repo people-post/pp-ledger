@@ -53,39 +53,9 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   config_.chain.slotDuration = config.slotDuration;
   config_.chain.slotsPerEpoch = config.slotsPerEpoch;
 
-  // Create genesis block with checkpoint transaction containing BlockChainConfig
-  Ledger::ChainNode genesisBlock;
-  genesisBlock.block.index = 0;
-  genesisBlock.block.timestamp = timestamp;
-  genesisBlock.block.previousHash = "0";
-  genesisBlock.block.nonce = 0;
-  genesisBlock.block.slot = 0;
-  genesisBlock.block.slotLeader = "genesis";
-
-  // Create checkpoint transaction with BlockChainConfig
-  Ledger::Transaction checkpointTx;
-  checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.fromWallet = "system";
-  checkpointTx.toWallet = "system";
-  checkpointTx.amount = 0;
+  // Create and add genesis block
+  auto genesisBlock = createGenesisBlock(config_.chain);
   
-  // Serialize BlockChainConfig to transaction metadata
-  BlockChainConfig chainConfig;
-  chainConfig.genesisTime = timestamp;
-  chainConfig.slotDuration = config.slotDuration;
-  chainConfig.slotsPerEpoch = config.slotsPerEpoch;
-  checkpointTx.meta = utl::binaryPack(chainConfig);
-
-  // Add signed transaction (no signature for genesis)
-  Ledger::SignedData<Ledger::Transaction> signedTx;
-  signedTx.obj = checkpointTx;
-  signedTx.signature = "genesis";
-  genesisBlock.block.signedTxes.push_back(signedTx);
-
-  // Calculate hash for genesis block
-  genesisBlock.hash = calculateHash(genesisBlock.block);
-
-  // Add genesis block to ledger and chain
   auto addBlockResult = getLedger().addBlock(genesisBlock);
   if (!addBlockResult) {
     return Error(2, "Failed to add genesis block to ledger: " + addBlockResult.error().message);
@@ -138,29 +108,9 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
     // Process checkpoint transactions to restore BlockChainConfig
     for (const auto& signedTx : block.block.signedTxes) {
       if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
-        log().info << "Processing checkpoint transaction in block " << blockId;
-        
-        // Deserialize BlockChainConfig from transaction metadata
-        auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
-        if (configResult) {
-          BlockChainConfig restoredConfig = configResult.value();
-          
-          // Restore consensus parameters
-          config_.chain.genesisTime = restoredConfig.genesisTime;
-          config_.chain.slotDuration = restoredConfig.slotDuration;
-          config_.chain.slotsPerEpoch = restoredConfig.slotsPerEpoch;
-          
-          getConsensus().setGenesisTime(restoredConfig.genesisTime);
-          getConsensus().setSlotDuration(restoredConfig.slotDuration);
-          getConsensus().setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
-          
-          log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
-          log().info << "  Genesis time: " << restoredConfig.genesisTime;
-          log().info << "  Slot duration: " << restoredConfig.slotDuration;
-          log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
-        } else {
-          log().warning << "Failed to deserialize checkpoint config: " 
-                       << configResult.error().message;
+        auto processResult = processCheckpointTransaction(signedTx, blockId);
+        if (!processResult) {
+          log().warning << "Failed to process checkpoint: " << processResult.error().message;
         }
       }
     }
@@ -440,6 +390,70 @@ Beacon::Roe<void> Beacon::pruneOldData(uint64_t checkpointId) {
   log().info << "Pruning data before checkpoint " << checkpointId;
   
   // For now, this is a placeholder
+  return {};
+}
+
+Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) const {
+  log().info << "Creating genesis block";
+
+  // Create genesis block with checkpoint transaction containing BlockChainConfig
+  Ledger::ChainNode genesisBlock;
+  genesisBlock.block.index = 0;
+  genesisBlock.block.timestamp = config.genesisTime;
+  genesisBlock.block.previousHash = "0";
+  genesisBlock.block.nonce = 0;
+  genesisBlock.block.slot = 0;
+  genesisBlock.block.slotLeader = "genesis";
+
+  // Create checkpoint transaction with BlockChainConfig
+  Ledger::Transaction checkpointTx;
+  checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
+  checkpointTx.fromWallet = "system";
+  checkpointTx.toWallet = "system";
+  checkpointTx.amount = 0;
+  
+  // Serialize BlockChainConfig to transaction metadata
+  checkpointTx.meta = utl::binaryPack(config);
+
+  // Add signed transaction (no signature for genesis)
+  Ledger::SignedData<Ledger::Transaction> signedTx;
+  signedTx.obj = checkpointTx;
+  signedTx.signature = "genesis";
+  genesisBlock.block.signedTxes.push_back(signedTx);
+
+  // Calculate hash for genesis block
+  genesisBlock.hash = calculateHash(genesisBlock.block);
+
+  log().debug << "Genesis block created with hash: " << genesisBlock.hash;
+
+  return genesisBlock;
+}
+
+Beacon::Roe<void> Beacon::processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId) {
+  log().info << "Processing checkpoint transaction in block " << blockId;
+  
+  // Deserialize BlockChainConfig from transaction metadata
+  auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
+  if (!configResult) {
+    return Error(16, "Failed to deserialize checkpoint config: " + configResult.error().message);
+  }
+
+  BlockChainConfig restoredConfig = configResult.value();
+  
+  // Restore consensus parameters
+  config_.chain.genesisTime = restoredConfig.genesisTime;
+  config_.chain.slotDuration = restoredConfig.slotDuration;
+  config_.chain.slotsPerEpoch = restoredConfig.slotsPerEpoch;
+  
+  getConsensus().setGenesisTime(restoredConfig.genesisTime);
+  getConsensus().setSlotDuration(restoredConfig.slotDuration);
+  getConsensus().setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
+  
+  log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
+  log().info << "  Genesis time: " << restoredConfig.genesisTime;
+  log().info << "  Slot duration: " << restoredConfig.slotDuration;
+  log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
+
   return {};
 }
 

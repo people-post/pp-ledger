@@ -110,6 +110,10 @@ private:
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
   Roe<void> pruneOldData(uint64_t checkpointId);
+  
+  // Genesis and checkpoint processing
+  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config) const;
+  Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
 
   // Constants
   static constexpr uint32_t VERSION = 1;
