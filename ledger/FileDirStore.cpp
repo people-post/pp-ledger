@@ -206,7 +206,7 @@ FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId)
   std::string filepath = getBlockFilePath(fileId);
   auto ukpBlockFile = std::make_unique<FileStore>();
 
-  FileStore::Config bfConfig(filepath, config_.maxFileSize);
+  FileStore::InitConfig bfConfig(filepath, config_.maxFileSize);
   auto result = ukpBlockFile->init(bfConfig);
   if (!result.isOk()) {
     log().error << "Failed to create block file: " << filepath;
@@ -254,8 +254,7 @@ FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
   std::string filepath = getBlockFilePath(fileId);
   if (std::filesystem::exists(filepath)) {
     auto ukpBlockFile = std::make_unique<FileStore>();
-    FileStore::Config bfConfig(filepath, config_.maxFileSize);
-    auto result = ukpBlockFile->init(bfConfig);
+    auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (result.isOk()) {
       FileStore *pBlockFile = ukpBlockFile.get();
       if (fileInfoMap_.find(fileId) == fileInfoMap_.end()) {
@@ -468,8 +467,7 @@ FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
     }
 
     auto ukpBlockFile = std::make_unique<FileStore>();
-    FileStore::Config bfConfig(filepath, config_.maxFileSize);
-    auto result = ukpBlockFile->init(bfConfig);
+    auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (!result.isOk()) {
       log().error << "Failed to open block file: " << filepath << ": "
                   << result.error().message;
@@ -492,8 +490,7 @@ FileDirStore::Roe<void> FileDirStore::reopenBlockFiles() {
     }
 
     auto ukpBlockFile = std::make_unique<FileStore>();
-    FileStore::Config bfConfig(filepath, config_.maxFileSize);
-    auto result = ukpBlockFile->init(bfConfig);
+    auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (!result.isOk()) {
       log().error << "Failed to reopen block file: " << filepath;
       return Error("Failed to reopen block file: " + result.error().message);

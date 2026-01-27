@@ -31,12 +31,12 @@ public:
   /**
    * Configuration for FileStore initialization
    */
-  struct Config {
+  struct InitConfig {
     std::string filepath;
     size_t maxSize{ 0 }; // Max file size (bytes)
     
-    Config() = default;
-    Config(const std::string &fp, size_t max) : filepath(fp), maxSize(max) {}
+    InitConfig() = default;
+    InitConfig(const std::string &fp, size_t max) : filepath(fp), maxSize(max) {}
   };
 
   /**
@@ -50,11 +50,19 @@ public:
   ~FileStore();
 
   /**
-   * Initialize the file store
+   * Initialize the file store (creates new file)
    * @param config Configuration for the file store
    * @return Roe<void> on success or error
    */
-  Roe<void> init(const Config &config);
+  Roe<void> init(const InitConfig &config);
+
+  /**
+   * Mount an existing file store
+   * @param filepath Path to existing file
+   * @param maxSize Maximum file size
+   * @return Roe<void> on success or error
+   */
+  Roe<void> mount(const std::string &filepath, size_t maxSize);
 
   // Delete copy constructor and assignment
   FileStore(const FileStore &) = delete;

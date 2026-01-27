@@ -8,7 +8,7 @@ FileStore::FileStore() {
   setLogger("FileStore");
 }
 
-FileStore::Roe<void> FileStore::init(const Config &config) {
+FileStore::Roe<void> FileStore::init(const InitConfig &config) {
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
   currentSize_ = 0;
@@ -25,7 +25,50 @@ FileStore::Roe<void> FileStore::init(const Config &config) {
     return Error("Filepath is not set");
   }
 
-  bool fileExists = std::filesystem::exists(filepath_);
+  // Verify file does NOT exist (fresh initialization)
+  if (std::filesystem::exists(filepath_)) {
+    return Error("File already exists: " + filepath_ + ". Use mount() to load existing file.");
+  }
+
+  auto result = open();
+  if (!result) {
+    log().error << "Failed to create file: " << filepath_;
+    return result.error();
+  }
+
+  // Write header for new file
+  auto headerResult = writeHeader();
+  if (!headerResult) {
+    log().error << "Failed to write header to new file: " << filepath_;
+    return headerResult.error();
+  }
+  currentSize_ = HEADER_SIZE;
+  log().debug << "Created new file with header: " << filepath_;
+
+  return {};
+}
+
+FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSize) {
+  filepath_ = filepath;
+  maxSize_ = maxSize;
+  currentSize_ = 0;
+  headerValid_ = false;
+  blockCount_ = 0;
+  blockIndex_.clear();
+  indexBuilt_ = false;
+
+  if (maxSize_ < 1024 * 1024) {
+    return Error("Max file size shall be at least 1MB");
+  }
+
+  if (filepath_.empty()) {
+    return Error("Filepath is not set");
+  }
+
+  // Verify file exists (mounting existing file)
+  if (!std::filesystem::exists(filepath_)) {
+    return Error("File does not exist: " + filepath_ + ". Use init() to create new file.");
+  }
 
   auto result = open();
   if (!result) {
@@ -33,33 +76,22 @@ FileStore::Roe<void> FileStore::init(const Config &config) {
     return result.error();
   }
 
-  if (fileExists) {
-    // Read and validate existing header
-    auto headerResult = readHeader();
-    if (!headerResult) {
-      log().error << "Failed to read header from existing file: " << filepath_;
-      return headerResult.error();
-    }
-
-    // Get total file size (including header)
-    currentSize_ = std::filesystem::file_size(filepath_);
-    
-    // Load block count from header
-    blockCount_ = header_.blockCount;
-    log().debug << "Opening existing file: " << filepath_
-                << " (total size: " << currentSize_
-                << " bytes, version: " << header_.version
-                << ", blocks: " << blockCount_ << ")";
-  } else {
-    // Write header for new file
-    auto headerResult = writeHeader();
-    if (!headerResult) {
-      log().error << "Failed to write header to new file: " << filepath_;
-      return headerResult.error();
-    }
-    currentSize_ = HEADER_SIZE;
-    log().debug << "Created new file with header: " << filepath_;
+  // Read and validate existing header
+  auto headerResult = readHeader();
+  if (!headerResult) {
+    log().error << "Failed to read header from existing file: " << filepath_;
+    return headerResult.error();
   }
+
+  // Get total file size (including header)
+  currentSize_ = std::filesystem::file_size(filepath_);
+  
+  // Load block count from header
+  blockCount_ = header_.blockCount;
+  log().debug << "Mounted existing file: " << filepath_
+              << " (total size: " << currentSize_
+              << " bytes, version: " << header_.version
+              << ", blocks: " << blockCount_ << ")";
 
   return {};
 }

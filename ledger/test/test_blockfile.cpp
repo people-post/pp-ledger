@@ -10,7 +10,7 @@ protected:
   std::string testDir;
   std::string testFile;
   pp::FileStore fileStore;
-  pp::FileStore::Config config;
+  pp::FileStore::InitConfig config;
 
   void SetUp() override {
     testDir = "/tmp/pp-ledger-test";
@@ -24,7 +24,7 @@ protected:
     }
 
     // FileStore requires at least 1MB max size
-    config = pp::FileStore::Config(testFile, 1024 * 1024); // 1MB
+    config = pp::FileStore::InitConfig(testFile, 1024 * 1024); // 1MB
   }
 
   void TearDown() override {
@@ -153,7 +153,7 @@ TEST_F(FileStoreTest, ReopensPersistentFile) {
   // Close and reopen
   fileStore.close();
   pp::FileStore fileStore2;
-  auto reopenResult = fileStore2.init(config);
+  auto reopenResult = fileStore2.mount(testFile, 1024 * 1024);
   ASSERT_TRUE(reopenResult.isOk());
 
   // File size should be restored
@@ -227,7 +227,7 @@ TEST_F(FileStoreTest, MultipleFilesAreIndependent) {
 
   // Create second file
   pp::FileStore fileStore2;
-  pp::FileStore::Config config2(testFile2, 1024 * 1024);
+  pp::FileStore::InitConfig config2(testFile2, 1024 * 1024);
   auto init2 = fileStore2.init(config2);
   ASSERT_TRUE(init2.isOk());
 
@@ -282,7 +282,7 @@ TEST_F(FileStoreTest, CannotWriteBeyondMaxSize) {
 
 TEST_F(FileStoreTest, RequiresMinimumMaxSize) {
   // Test that init fails with max size less than 1MB
-  pp::FileStore::Config smallConfig(testFile, 512 * 1024); // 512KB (too small)
+  pp::FileStore::InitConfig smallConfig(testFile, 512 * 1024); // 512KB (too small)
   auto result = fileStore.init(smallConfig);
   EXPECT_FALSE(result.isOk());
 }
