@@ -26,8 +26,15 @@ namespace pp {
 class Validator : public Module {
 public:
     struct BlockChainConfig {
+      constexpr static uint32_t VERSION = 1;
+
+      int64_t genesisTime{ 0 };
       uint64_t slotDuration{ 0 };
       uint64_t slotsPerEpoch{ 0 };
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & genesisTime & slotDuration & slotsPerEpoch;
+      }
     };
 
     /**

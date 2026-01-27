@@ -170,8 +170,8 @@ int main(int argc, char *argv[]) {
     // Prepare init configuration
     pp::Beacon::InitConfig initConfig;
     initConfig.workDir = workDir;
-    initConfig.chain.slotDuration = slotDuration;
-    initConfig.chain.slotsPerEpoch = slotsPerEpoch;
+    initConfig.slotDuration = slotDuration;
+    initConfig.slotsPerEpoch = slotsPerEpoch;
     
     logger->info << "Configuration:";
     logger->info << "  Slot duration: " << slotDuration << " seconds";

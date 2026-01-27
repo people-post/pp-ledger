@@ -1,6 +1,7 @@
 #include "Beacon.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
+#include "../lib/BinaryPack.hpp"
 #include <chrono>
 #include <filesystem>
 #include <algorithm>
@@ -28,16 +29,14 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  getConsensus().setSlotDuration(config.chain.slotDuration);
-  getConsensus().setSlotsPerEpoch(config.chain.slotsPerEpoch);
+  getConsensus().setSlotDuration(config.slotDuration);
+  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
   
-  // Set genesis time if not already set
-  if (getConsensus().getGenesisTime() == 0) {
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch()).count();
-    getConsensus().setGenesisTime(timestamp);
-  }
+  // Set genesis time
+  auto now = std::chrono::system_clock::now();
+  auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+      now.time_since_epoch()).count();
+  getConsensus().setGenesisTime(timestamp);
 
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
@@ -50,8 +49,52 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
 
   config_.workDir = config.workDir;
-  config_.chain.slotDuration = config.chain.slotDuration;
-  config_.chain.slotsPerEpoch = config.chain.slotsPerEpoch;
+  config_.chain.genesisTime = timestamp;
+  config_.chain.slotDuration = config.slotDuration;
+  config_.chain.slotsPerEpoch = config.slotsPerEpoch;
+
+  // Create genesis block with checkpoint transaction containing BlockChainConfig
+  Ledger::ChainNode genesisBlock;
+  genesisBlock.block.index = 0;
+  genesisBlock.block.timestamp = timestamp;
+  genesisBlock.block.previousHash = "0";
+  genesisBlock.block.nonce = 0;
+  genesisBlock.block.slot = 0;
+  genesisBlock.block.slotLeader = "genesis";
+
+  // Create checkpoint transaction with BlockChainConfig
+  Ledger::Transaction checkpointTx;
+  checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
+  checkpointTx.fromWallet = "system";
+  checkpointTx.toWallet = "system";
+  checkpointTx.amount = 0;
+  
+  // Serialize BlockChainConfig to transaction metadata
+  BlockChainConfig chainConfig;
+  chainConfig.genesisTime = timestamp;
+  chainConfig.slotDuration = config.slotDuration;
+  chainConfig.slotsPerEpoch = config.slotsPerEpoch;
+  checkpointTx.meta = utl::binaryPack(chainConfig);
+
+  // Add signed transaction (no signature for genesis)
+  Ledger::SignedData<Ledger::Transaction> signedTx;
+  signedTx.obj = checkpointTx;
+  signedTx.signature = "genesis";
+  genesisBlock.block.signedTxes.push_back(signedTx);
+
+  // Calculate hash for genesis block
+  genesisBlock.hash = calculateHash(genesisBlock.block);
+
+  // Add genesis block to ledger and chain
+  auto addBlockResult = getLedger().addBlock(genesisBlock);
+  if (!addBlockResult) {
+    return Error(2, "Failed to add genesis block to ledger: " + addBlockResult.error().message);
+  }
+  
+  getChainMutable().addBlock(std::make_shared<Ledger::ChainNode>(genesisBlock));
+  
+  log().info << "Genesis block created with checkpoint transaction (version " 
+             << BlockChainConfig::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << getConsensus().getGenesisTime();
@@ -70,15 +113,69 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
     return Error(3, "Work directory does not exist: " + config.workDir + ". Use init() to create new beacon.");
   }
 
-  // In a full implementation, this would involve loading existing state
-  // from disk, including the ledger, chain, and checkpoints.
   config_.workDir = config.workDir;
   config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
   config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
+  // Mount the ledger
+  std::string ledgerPath = config.workDir + "/ledger";
+  auto ledgerMountResult = getLedger().mount(ledgerPath);
+  if (!ledgerMountResult) {
+    return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
+  }
+
+  // Process blocks from ledger one by one
+  uint64_t blockId = 0;
+  while (true) {
+    auto blockResult = getLedger().readBlock(blockId);
+    if (!blockResult) {
+      // No more blocks to read
+      break;
+    }
+
+    Ledger::ChainNode block = blockResult.value();
+    
+    // Process checkpoint transactions to restore BlockChainConfig
+    for (const auto& signedTx : block.block.signedTxes) {
+      if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
+        log().info << "Processing checkpoint transaction in block " << blockId;
+        
+        // Deserialize BlockChainConfig from transaction metadata
+        auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
+        if (configResult) {
+          BlockChainConfig restoredConfig = configResult.value();
+          
+          // Restore consensus parameters
+          config_.chain.genesisTime = restoredConfig.genesisTime;
+          config_.chain.slotDuration = restoredConfig.slotDuration;
+          config_.chain.slotsPerEpoch = restoredConfig.slotsPerEpoch;
+          
+          getConsensus().setGenesisTime(restoredConfig.genesisTime);
+          getConsensus().setSlotDuration(restoredConfig.slotDuration);
+          getConsensus().setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
+          
+          log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
+          log().info << "  Genesis time: " << restoredConfig.genesisTime;
+          log().info << "  Slot duration: " << restoredConfig.slotDuration;
+          log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
+        } else {
+          log().warning << "Failed to deserialize checkpoint config: " 
+                       << configResult.error().message;
+        }
+      }
+    }
+    
+    // Add block to in-memory chain
+    getChainMutable().addBlock(std::make_shared<Ledger::ChainNode>(block));
+    blockId++;
+  }
+
   log().info << "Beacon mounted successfully";
+  log().info << "  Loaded " << blockId << " blocks from ledger";
   log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
   log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
+  log().info << "  Current slot: " << getCurrentSlot();
+  log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
 }

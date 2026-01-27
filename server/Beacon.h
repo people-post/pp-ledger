@@ -49,7 +49,8 @@ public:
   struct InitConfig {
     // Base configuration
     std::string workDir;
-    BlockChainConfig chain;
+    uint64_t slotDuration{ 0 };
+    uint64_t slotsPerEpoch{ 0 };
   };
 
   struct MountConfig {
@@ -135,8 +136,8 @@ inline std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig
 
 inline std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
-     << "chain{slotDuration=" << config.chain.slotDuration << ", "
-     << "slotsPerEpoch=" << config.chain.slotsPerEpoch << "}}";
+     << "slotDuration=" << config.slotDuration << ", "
+     << "slotsPerEpoch=" << config.slotsPerEpoch << "}";
   return os;
 }
 
