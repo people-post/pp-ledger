@@ -89,6 +89,12 @@ public:
     Roe<std::string> relocateToSubdir(const std::string &subdirName) override;
 
 private:
+    struct Config {
+        std::string dirPath;
+        size_t maxFileCount{ 0 };
+        size_t maxFileSize{ 0 };
+    };
+
     /**
      * Index file header structure
      */

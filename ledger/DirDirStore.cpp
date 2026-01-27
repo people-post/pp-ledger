@@ -17,11 +17,22 @@ DirDirStore::DirDirStore() {
 
 DirDirStore::~DirDirStore() { flush(); }
 
-DirDirStore::Roe<void> DirDirStore::init(const Config &config) {
-  return initWithLevel(config, 0);
+DirDirStore::Roe<void> DirDirStore::init(const InitConfig &config) {
+  return initWithLevel(config, 0, false);
 }
 
-DirDirStore::Roe<void> DirDirStore::initWithLevel(const Config &config, size_t level) {
+DirDirStore::Roe<void> DirDirStore::mount(const MountConfig &config) {
+  // Convert MountConfig to InitConfig
+  InitConfig initConfig;
+  initConfig.dirPath = config.dirPath;
+  initConfig.maxDirCount = config.maxDirCount;
+  initConfig.maxFileCount = config.maxFileCount;
+  initConfig.maxFileSize = config.maxFileSize;
+  initConfig.maxLevel = config.maxLevel;
+  return initWithLevel(initConfig, 0, true);
+}
+
+DirDirStore::Roe<void> DirDirStore::initWithLevel(const InitConfig &config, size_t level, bool isMount) {
   config_ = config;
   currentDirId_ = 0;
   indexFilePath_ = getIndexFilePath(config_.dirPath);
@@ -44,6 +55,21 @@ DirDirStore::Roe<void> DirDirStore::initWithLevel(const Config &config, size_t l
     return Error("Max dir count must be greater than 0");
   }
 
+  // For init (not mount), verify index doesn't exist
+  if (!isMount && std::filesystem::exists(indexFilePath_)) {
+    return Error("Index file already exists: " + indexFilePath_ + ". Use mount() to load existing directory.");
+  }
+
+  // For mount, verify directory and index exist
+  if (isMount) {
+    if (!std::filesystem::exists(config_.dirPath)) {
+      return Error("Directory does not exist: " + config_.dirPath);
+    }
+    if (!std::filesystem::exists(indexFilePath_)) {
+      return Error("Index file does not exist: " + indexFilePath_);
+    }
+  }
+
   auto dirResult = ensureDirectory(config_.dirPath);
   if (!dirResult.isOk()) {
     return dirResult;
@@ -58,19 +84,23 @@ DirDirStore::Roe<void> DirDirStore::initWithLevel(const Config &config, size_t l
 
   // Initialize based on mode
   if (useRootStore) {
-    auto initResult = initRootStoreMode();
+    auto initResult = initRootStoreMode(isMount);
     if (!initResult.isOk()) {
       return initResult;
     }
   } else {
-    auto openResult = openExistingSubdirectoryStores();
-    if (!openResult.isOk()) {
-      return openResult;
+    if (isMount) {
+      auto openResult = openExistingSubdirectoryStores();
+      if (!openResult.isOk()) {
+        return openResult;
+      }
+      recalculateTotalBlockCount();
+    } else {
+      return Error("Cannot initialize new store with existing subdirectory structure");
     }
-    recalculateTotalBlockCount();
   }
 
-  log().info << "DirDirStore initialized at level " << currentLevel_ 
+  log().info << "DirDirStore " << (isMount ? "mounted" : "initialized") << " at level " << currentLevel_ 
              << " with " << dirInfoMap_.size()
              << " subdirs and " << totalBlockCount_ << " total blocks"
              << (rootStore_ ? " (using root store)" : "");
@@ -365,7 +395,7 @@ DirStore *DirDirStore::getActiveDirStore(uint64_t dataSize) {
         ddConfig.maxLevel = currentLevel_ + 1;  // Can only create FileDirStore children
       }
       // Child level is currentLevel_ + 1
-      auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
+      auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1, false);
       if (!result.isOk()) {
         log().error << "Failed to create recursive DirDirStore: " << dirpath;
         return nullptr;
@@ -440,7 +470,7 @@ DirDirStore *DirDirStore::createDirDirStore(uint32_t dirId, uint64_t startBlockI
     ddConfig.maxLevel = currentLevel_ + 1;  // Can only create FileDirStore children
   }
   // Child level is currentLevel_ + 1
-  auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
+  auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1, false);
   if (!result.isOk()) {
     log().error << "Failed to create DirDirStore: " << dirpath;
     return nullptr;
@@ -722,7 +752,7 @@ DirDirStore::Roe<bool> DirDirStore::detectStoreMode() {
   }
 }
 
-DirDirStore::Roe<void> DirDirStore::initRootStoreMode() {
+DirDirStore::Roe<void> DirDirStore::initRootStoreMode(bool isMount) {
   rootStore_ = std::make_unique<FileDirStore>();
   rootStore_->setLogger("root-filedirstore");
   FileDirStore::InitConfig fdConfig;
@@ -730,11 +760,7 @@ DirDirStore::Roe<void> DirDirStore::initRootStoreMode() {
   fdConfig.maxFileCount = config_.maxFileCount;
   fdConfig.maxFileSize = config_.maxFileSize;
 
-  // Check if FileDirStore index already exists, TODO: move to FileDirStore?
-  std::string fileDirIndexPath = config_.dirPath + "/idx.dat";
-  bool exists = std::filesystem::exists(fileDirIndexPath);
-  
-  if (exists) {
+  if (isMount) {
     // Mount existing FileDirStore
     auto result = rootStore_->mount(config_.dirPath, config_.maxFileCount, config_.maxFileSize);
     if (!result.isOk()) {
@@ -816,7 +842,7 @@ DirDirStore::Roe<void> DirDirStore::openDirStore(DirInfo &dirInfo, uint32_t dirI
     }
 
     // Child level is currentLevel_ + 1
-    auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1);
+    auto result = ukpDirDirStore->initWithLevel(ddConfig, currentLevel_ + 1, true);
     if (!result.isOk()) {
       log().error << "Failed to open DirDirStore: " << dirpath << ": " << result.error().message;
       return Error("Failed to open DirDirStore: " + dirpath + ": " + result.error().message);

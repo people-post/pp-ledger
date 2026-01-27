@@ -31,7 +31,25 @@ namespace pp {
  */
 class DirDirStore : public DirStore {
 public:
-    struct Config {
+    struct InitConfig {
+        std::string dirPath;
+        size_t maxDirCount{ 0 };
+        size_t maxFileCount{ 0 };
+        size_t maxFileSize{ 0 };
+        /**
+         * Maximum nesting level for recursive DirDirStores.
+         * Level 0 means only FileDirStores as children (no recursive DirDirStore).
+         * Level 1 means DirDirStore children can have FileDirStore children only.
+         * Level N means up to N levels of nested DirDirStores.
+         * Default is 0 (no recursion).
+         */
+        size_t maxLevel{ 0 };
+    };
+
+    // Deprecated: Use InitConfig instead
+    using Config = InitConfig;
+
+    struct MountConfig {
         std::string dirPath;
         size_t maxDirCount{ 0 };
         size_t maxFileCount{ 0 };
@@ -89,7 +107,23 @@ public:
 
     uint64_t getBlockCount() const override;
 
-    Roe<void> init(const Config &config);
+    /**
+     * Initialize a new DirDirStore.
+     * Creates a new directory structure and index file.
+     * Fails if the index file already exists.
+     * @param config Configuration for the new store
+     * @return Success or error
+     */
+    Roe<void> init(const InitConfig &config);
+
+    /**
+     * Mount an existing DirDirStore.
+     * Loads the existing directory structure and index file.
+     * Fails if the index file or directory does not exist.
+     * @param config Configuration for mounting the existing store
+     * @return Success or error
+     */
+    Roe<void> mount(const MountConfig &config);
 
     /**
      * Get the current nesting level of this DirDirStore
@@ -116,9 +150,10 @@ private:
      * Used when creating child DirDirStores with proper level tracking
      * @param config The configuration
      * @param level The starting level for this store
+     * @param isMount Whether this is mounting existing (true) or creating new (false)
      * @return Success or error
      */
-    Roe<void> initWithLevel(const Config &config, size_t level);
+    Roe<void> initWithLevel(const InitConfig &config, size_t level, bool isMount);
 
     /**
      * Index file header structure
@@ -167,7 +202,7 @@ private:
         bool isRecursive{ false };
     };
 
-    Config config_;
+    InitConfig config_;
     uint32_t currentDirId_{ 0 };
     std::string indexFilePath_;
     size_t currentLevel_{ 0 };  // Current nesting level (0 for root)
@@ -207,7 +242,7 @@ private:
 
     // Helper methods for init and relocate
     Roe<bool> detectStoreMode();
-    Roe<void> initRootStoreMode();
+    Roe<void> initRootStoreMode(bool isMount);
     Roe<void> openExistingSubdirectoryStores();
     Roe<void> reopenSubdirectoryStores();
     void recalculateTotalBlockCount();

@@ -84,10 +84,16 @@ TEST_F(DirDirStoreTest, LoadsExistingIndex) {
     auto result1 = dirDirStore.appendBlock(block1);
     ASSERT_TRUE(result1.isOk());
     
-    // Reinitialize - should load existing index
+    // Mount existing store - should load existing index
     pp::DirDirStore dirDirStore2;
     dirDirStore2.setLogger("dirdirstore2");
-    auto result = dirDirStore2.init(config);
+    pp::DirDirStore::MountConfig mountConfig;
+    mountConfig.dirPath = config.dirPath;
+    mountConfig.maxDirCount = config.maxDirCount;
+    mountConfig.maxFileCount = config.maxFileCount;
+    mountConfig.maxFileSize = config.maxFileSize;
+    mountConfig.maxLevel = config.maxLevel;
+    auto result = dirDirStore2.mount(mountConfig);
     EXPECT_TRUE(result.isOk());
     
     // Should have the block
@@ -366,10 +372,16 @@ TEST_F(DirDirStoreTest, PersistsAcrossRestarts) {
         dirDirStore.appendBlock(data);
     }
     
-    // Second session - reinitialize
+    // Second session - mount existing store
     pp::DirDirStore dirDirStore2;
     dirDirStore2.setLogger("dirdirstore2");
-    dirDirStore2.init(config);
+    pp::DirDirStore::MountConfig mountConfig;
+    mountConfig.dirPath = config.dirPath;
+    mountConfig.maxDirCount = config.maxDirCount;
+    mountConfig.maxFileCount = config.maxFileCount;
+    mountConfig.maxFileSize = config.maxFileSize;
+    mountConfig.maxLevel = config.maxLevel;
+    dirDirStore2.mount(mountConfig);
     
     EXPECT_EQ(dirDirStore2.getBlockCount(), numBlocks);
     
@@ -396,10 +408,16 @@ TEST_F(DirDirStoreTest, PersistsMultipleFiles) {
         dirDirStore.appendBlock(data);
     }
     
-    // Reinitialize
+    // Mount existing store
     pp::DirDirStore dirDirStore2;
     dirDirStore2.setLogger("dirdirstore2");
-    dirDirStore2.init(config);
+    pp::DirDirStore::MountConfig mountConfig;
+    mountConfig.dirPath = config.dirPath;
+    mountConfig.maxDirCount = config.maxDirCount;
+    mountConfig.maxFileCount = config.maxFileCount;
+    mountConfig.maxFileSize = config.maxFileSize;
+    mountConfig.maxLevel = config.maxLevel;
+    dirDirStore2.mount(mountConfig);
     
     EXPECT_EQ(dirDirStore2.getBlockCount(), numBlocks);
     

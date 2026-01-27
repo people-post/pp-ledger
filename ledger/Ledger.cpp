@@ -135,17 +135,17 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 
   log().info << "Loaded existing ledger with startingBlockId=" << meta_.startingBlockId;
 
-  // Initialize DirDirStore with existing directory
-  DirDirStore::Config storeConfig;
+  // Mount existing DirDirStore
+  DirDirStore::MountConfig storeConfig;
   storeConfig.dirPath = dataDir_;
   storeConfig.maxDirCount = 1000;
   storeConfig.maxFileCount = 1000;
   storeConfig.maxFileSize = 10 * 1024 * 1024; // 10 MB
   storeConfig.maxLevel = 2;
 
-  auto initResult = store_.init(storeConfig);
-  if (!initResult.isOk()) {
-    return Error("Failed to initialize DirDirStore: " + initResult.error().message);
+  auto mountResult = store_.mount(storeConfig);
+  if (!mountResult.isOk()) {
+    return Error("Failed to mount DirDirStore: " + mountResult.error().message);
   }
 
   log().info << "Ledger mounted successfully at " << workDir_ 
