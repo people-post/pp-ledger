@@ -49,7 +49,7 @@ Miner::Roe<void> Miner::init(const Config &config) {
   }
 
   // Initialize ledger
-  Ledger::Config ledgerConfig;
+  Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config.workDir + "/ledger";
   ledgerConfig.startingBlockId = 0;
 
@@ -370,7 +370,7 @@ Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
   log().info << "Rebuilding ledger from block " << startBlockId;
 
   // Reinitialize ledger with new starting block ID
-  Ledger::Config ledgerConfig;
+  Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config_.workDir + "/ledger";
   ledgerConfig.startingBlockId = startBlockId;
 

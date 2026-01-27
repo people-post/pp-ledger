@@ -98,14 +98,15 @@ public:
   Ledger() { setLogger("ledger"); }
   virtual ~Ledger() = default;
 
-  struct Config {
+  struct InitConfig {
     std::string workDir;
     uint64_t startingBlockId{ 0 };
   };
 
   uint64_t getNextBlockId() const;
 
-  Roe<void> init(const Config& config);
+  Roe<void> init(const InitConfig& config);
+  Roe<void> mount(const std::string& workDir);
   Roe<void> addBlock(const ChainNode& block);
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
   Roe<ChainNode> readBlock(uint64_t blockId) const;

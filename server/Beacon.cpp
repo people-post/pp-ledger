@@ -39,7 +39,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
 
   // Initialize ledger
-  Ledger::Config ledgerConfig;
+  Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config.workDir + "/ledger";
   ledgerConfig.startingBlockId = 0;
 

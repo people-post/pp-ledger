@@ -8,10 +8,9 @@ using namespace pp;
 class LedgerTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    // Create a unique test directory
+    // Create a unique test directory path (but don't create the directory itself)
     testDir_ = std::filesystem::temp_directory_path() / "ledger_test";
     cleanupTestDir();
-    std::filesystem::create_directories(testDir_);
   }
 
   void TearDown() override {
@@ -19,6 +18,13 @@ protected:
   }
 
   void cleanupTestDir() {
+    std::error_code ec;
+    if (std::filesystem::exists(testDir_, ec)) {
+      std::filesystem::remove_all(testDir_, ec);
+    }
+  }
+
+  void ensureTestDirDoesNotExist() {
     std::error_code ec;
     if (std::filesystem::exists(testDir_, ec)) {
       std::filesystem::remove_all(testDir_, ec);
@@ -40,8 +46,9 @@ protected:
 };
 
 TEST_F(LedgerTest, InitializeNewLedger) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -55,8 +62,9 @@ TEST_F(LedgerTest, InitializeNewLedger) {
 }
 
 TEST_F(LedgerTest, GetCurrentBlockIdReturnsZeroWhenNoData) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -66,8 +74,9 @@ TEST_F(LedgerTest, GetCurrentBlockIdReturnsZeroWhenNoData) {
 }
 
 TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -86,8 +95,9 @@ TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
 TEST_F(LedgerTest, ReopenExistingLedger) {
   // Create ledger and add blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 0;
 
@@ -102,14 +112,10 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
     EXPECT_EQ(ledger.getNextBlockId(), 3);
   }
 
-  // Reopen ledger
+  // Reopen ledger using mount()
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 0;
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 3);
 
@@ -126,8 +132,9 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
 TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
   // Create ledger with some blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 0;
 
@@ -142,18 +149,19 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     EXPECT_EQ(ledger.getNextBlockId(), 3);
   }
 
-  // Reopen with newer startingBlockId
+  // For cleanup scenario, we need to delete and reinit with newer startingBlockId
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
-    config.startingBlockId = 10; // Newer than current (2)
+    config.startingBlockId = 10; // Newer than previous
 
     auto result = ledger.init(config);
     ASSERT_TRUE(result.isOk());
-    EXPECT_EQ(ledger.getNextBlockId(), 10); // Should be startingBlockId (no blocks yet)
+    EXPECT_EQ(ledger.getNextBlockId(), 10); // Should be startingBlockId (fresh init)
 
-    // Old data should be cleaned up, can add new blocks
+    // Can add new blocks
     Ledger::ChainNode block = createTestBlock(1, "new_data");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
@@ -164,8 +172,9 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
 TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
   // Create ledger with some blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 0;
 
@@ -180,14 +189,10 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     EXPECT_EQ(ledger.getNextBlockId(), 5);
   }
 
-  // Reopen with older startingBlockId
+  // Reopen with mount() - existing data is preserved
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 3; // Older than current (4)
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 5); // Should keep existing data
 
@@ -200,8 +205,9 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsSorted) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -222,8 +228,9 @@ TEST_F(LedgerTest, UpdateCheckpointsSorted) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsNotSortedFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -245,8 +252,9 @@ TEST_F(LedgerTest, UpdateCheckpointsNotSortedFails) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsWithDuplicatesFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -268,8 +276,9 @@ TEST_F(LedgerTest, UpdateCheckpointsWithDuplicatesFails) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsExceedingCurrentBlockIdFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -291,8 +300,9 @@ TEST_F(LedgerTest, UpdateCheckpointsExceedingCurrentBlockIdFails) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMatches) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -318,8 +328,9 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMatches) {
 }
 
 TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMismatchFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -348,8 +359,9 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMismatchFails) {
 TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
   // Create ledger and set checkpoints
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 0;
 
@@ -372,11 +384,7 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
   // Reopen and verify checkpoints persist
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 0;
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
 
     // Update with same checkpoints (should succeed)
@@ -392,8 +400,9 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
 }
 
 TEST_F(LedgerTest, ReadBlockSuccessfully) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -423,8 +432,9 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
 }
 
 TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -445,8 +455,9 @@ TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
 }
 
 TEST_F(LedgerTest, ReadBlockFromEmptyLedgerFails) {
+  ensureTestDirDoesNotExist();
   Ledger ledger;
-  Ledger::Config config;
+  Ledger::InitConfig config;
   config.workDir = testDir_.string();
   config.startingBlockId = 0;
 
@@ -462,8 +473,9 @@ TEST_F(LedgerTest, ReadBlockFromEmptyLedgerFails) {
 TEST_F(LedgerTest, ReadBlockAfterReopen) {
   // Create ledger and add blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 0;
 
@@ -480,11 +492,7 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
   // Reopen ledger and read blocks
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 0;
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
 
     // Read blocks after reopening (0-based IDs)
@@ -503,8 +511,9 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
 TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
   // Create ledger with startingBlockId = 10 and add some blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 10;
 
@@ -523,8 +532,9 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
   // Reopen with startingBlockId = 15, which is > existingNextBlockId (13)
   // Should trigger cleanup
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 15; // Greater than existing nextBlockId (13)
 
@@ -547,8 +557,9 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
 TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
   // Create ledger with startingBlockId = 5 and add some blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 5;
 
@@ -564,15 +575,10 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
     EXPECT_EQ(ledger.getNextBlockId(), 7);
   }
 
-  // Reopen with startingBlockId = 3, which is < existingNextBlockId (7)
-  // Should preserve existing startingBlockId = 5
+  // Reopen with mount() - preserves existing startingBlockId
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 3; // Less than existing nextBlockId (7)
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
     // Should preserve existing startingBlockId (5), so nextBlockId = 5 + 2 = 7
     EXPECT_EQ(ledger.getNextBlockId(), 7);
@@ -597,8 +603,9 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
 TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
   // Create ledger with startingBlockId = 20 and add some blocks
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 20;
 
@@ -614,15 +621,10 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
     EXPECT_EQ(ledger.getNextBlockId(), 24);
   }
 
-  // Reopen with startingBlockId = 24, which equals existingNextBlockId
-  // Should preserve existing startingBlockId = 20 (not cleanup)
+  // Reopen with mount() - preserves existing startingBlockId
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 24; // Equals existing nextBlockId (24)
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
     // Should preserve existing startingBlockId (20), so nextBlockId = 20 + 4 = 24
     EXPECT_EQ(ledger.getNextBlockId(), 24);
@@ -638,8 +640,9 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
 TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
   // Create ledger with startingBlockId = 100
   {
+    ensureTestDirDoesNotExist();
     Ledger ledger;
-    Ledger::Config config;
+    Ledger::InitConfig config;
     config.workDir = testDir_.string();
     config.startingBlockId = 100;
 
@@ -656,14 +659,10 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
     EXPECT_EQ(ledger.getNextBlockId(), 105); // 100 + 5
   }
 
-  // Reopen with same startingBlockId - should preserve it
+  // Reopen with mount() - should preserve existing startingBlockId
   {
     Ledger ledger;
-    Ledger::Config config;
-    config.workDir = testDir_.string();
-    config.startingBlockId = 100; // Same as original
-
-    auto result = ledger.init(config);
+    auto result = ledger.mount(testDir_.string());
     ASSERT_TRUE(result.isOk());
     // Should preserve startingBlockId = 100, so nextBlockId = 100 + 5 = 105
     EXPECT_EQ(ledger.getNextBlockId(), 105);

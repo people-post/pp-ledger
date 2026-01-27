@@ -63,37 +63,25 @@ uint64_t Ledger::getNextBlockId() const {
   return meta_.startingBlockId + blockCount;
 }
 
-Ledger::Roe<void> Ledger::init(const Config& config) {
+Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   workDir_ = config.workDir;
   dataDir_ = workDir_ + "/data";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
-  meta_.startingBlockId = config.startingBlockId;
   
-  // Ensure work directory exists
+  // Verify work directory does NOT exist (fresh initialization)
   std::error_code ec;
-  if (!std::filesystem::exists(workDir_, ec)) {
-    if (!std::filesystem::create_directories(workDir_, ec)) {
-      return Error("Failed to create work directory: " + workDir_);
-    }
+  if (std::filesystem::exists(workDir_, ec)) {
+    return Error("Work directory already exists: " + workDir_ + ". Use mount() to load existing ledger.");
   }
 
-  // Check if data directory exists
-  bool dataExists = std::filesystem::exists(dataDir_, ec);
-  uint64_t existingStartingBlockId = 0;
-  bool didCleanup = false;
-
-  if (dataExists) {
-    // Load existing index to get current state
-    if (loadIndex()) {
-      // After loading, meta_ is populated from the index
-      existingStartingBlockId = meta_.startingBlockId;
-      log().info << "Loaded existing ledger with startingBlockId=" << existingStartingBlockId;
-    } else {
-      log().warning << "Data directory exists but no valid index found";
-    }
+  // Create work directory
+  if (!std::filesystem::create_directories(workDir_, ec)) {
+    return Error("Failed to create work directory: " + workDir_);
   }
 
-  // Initialize DirDirStore first to get the current block count
+  log().info << "Ledger work directory created: " << workDir_;
+
+  // Initialize DirDirStore with new directory
   DirDirStore::Config storeConfig;
   storeConfig.dirPath = dataDir_;
   storeConfig.maxDirCount = 1000;    // Default values - can be made configurable
@@ -106,42 +94,8 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
     return Error("Failed to initialize DirDirStore: " + initResult.error().message);
   }
 
-  // Now check if we need to cleanup based on startingBlockId comparison
-  if (dataExists) {
-    uint64_t blockCount = store_.getBlockCount();
-    // Calculate existing nextBlockId = existingStartingBlockId + blockCount
-    uint64_t existingNextBlockId = existingStartingBlockId + blockCount;
-    
-    // If new startingBlockId is greater than existing nextBlockId, cleanup and start fresh
-    if (config.startingBlockId > existingNextBlockId) {
-      log().info << "Starting block ID (" << config.startingBlockId 
-                << ") is newer than existing next block ID (" << existingNextBlockId 
-                << "). Cleaning up and starting fresh.";
-      
-      auto cleanupResult = cleanupData();
-      if (!cleanupResult.isOk()) {
-        return cleanupResult;
-      }
-      
-      meta_.checkpointIds.clear();
-      didCleanup = true;
-      
-      // Re-initialize the store after cleanup
-      auto reinitResult = store_.init(storeConfig);
-      if (!reinitResult.isOk()) {
-        return Error("Failed to re-initialize DirDirStore: " + reinitResult.error().message);
-      }
-      // After cleanup, use the new startingBlockId
-      meta_.startingBlockId = config.startingBlockId;
-    } else {
-      log().info << "Loaded existing ledger with blockCount=" << blockCount;
-      // Keep existing blocks - use the same startingBlockId as loaded from existing data
-      meta_.startingBlockId = existingStartingBlockId;
-    }
-  } else {
-    // New ledger, use the configured startingBlockId
-    meta_.startingBlockId = config.startingBlockId;
-  }
+  // Set starting block ID for fresh initialization
+  meta_.startingBlockId = config.startingBlockId;
 
   // Save initial index with startingBlockId and checkpoints
   if (!saveIndex()) {
@@ -149,6 +103,52 @@ Ledger::Roe<void> Ledger::init(const Config& config) {
   }
 
   log().info << "Ledger initialized at " << workDir_ 
+            << " with startingBlockId=" << meta_.startingBlockId
+            << ", nextBlockId=" << getNextBlockId();
+
+  return {};
+}
+
+Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
+  workDir_ = workDir;
+  dataDir_ = workDir_ + "/data";
+  indexFilePath_ = workDir_ + "/ledger_index.dat";
+
+  // Verify work directory exists (loading existing ledger)
+  std::error_code ec;
+  if (!std::filesystem::exists(workDir_, ec)) {
+    return Error("Work directory does not exist: " + workDir_ + ". Use init() to create new ledger.");
+  }
+
+  log().info << "Mounting ledger at: " << workDir_;
+
+  // Check if data directory exists
+  bool dataExists = std::filesystem::exists(dataDir_, ec);
+  if (!dataExists) {
+    return Error("Ledger data directory not found: " + dataDir_);
+  }
+
+  // Load existing index to get current state
+  if (!loadIndex()) {
+    return Error("Failed to load ledger index from: " + indexFilePath_);
+  }
+
+  log().info << "Loaded existing ledger with startingBlockId=" << meta_.startingBlockId;
+
+  // Initialize DirDirStore with existing directory
+  DirDirStore::Config storeConfig;
+  storeConfig.dirPath = dataDir_;
+  storeConfig.maxDirCount = 1000;
+  storeConfig.maxFileCount = 1000;
+  storeConfig.maxFileSize = 10 * 1024 * 1024; // 10 MB
+  storeConfig.maxLevel = 2;
+
+  auto initResult = store_.init(storeConfig);
+  if (!initResult.isOk()) {
+    return Error("Failed to initialize DirDirStore: " + initResult.error().message);
+  }
+
+  log().info << "Ledger mounted successfully at " << workDir_ 
             << " with startingBlockId=" << meta_.startingBlockId
             << ", nextBlockId=" << getNextBlockId();
 
