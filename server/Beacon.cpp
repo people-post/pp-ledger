@@ -87,41 +87,17 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
   config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
-  // Mount the ledger
+  // Mount the ledger using Validator's mountLedger function
   std::string ledgerPath = config.workDir + "/ledger";
-  auto ledgerMountResult = getLedger().mount(ledgerPath);
-  if (!ledgerMountResult) {
-    return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
+  auto mountResult = mountLedger(ledgerPath);
+  if (!mountResult) {
+    return Error(3, "Failed to mount ledger: " + mountResult.error().message);
   }
 
-  // Process blocks from ledger one by one
-  uint64_t blockId = 0;
-  while (true) {
-    auto blockResult = getLedger().readBlock(blockId);
-    if (!blockResult) {
-      // No more blocks to read
-      break;
-    }
-
-    Ledger::ChainNode block = blockResult.value();
-    
-    // Process checkpoint transactions to restore BlockChainConfig
-    for (const auto& signedTx : block.block.signedTxes) {
-      if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
-        auto processResult = processCheckpointTransaction(signedTx, blockId);
-        if (!processResult) {
-          log().warning << "Failed to process checkpoint: " << processResult.error().message;
-        }
-      }
-    }
-    
-    // Add block to in-memory chain
-    getChainMutable().addBlock(std::make_shared<Ledger::ChainNode>(block));
-    blockId++;
-  }
+  uint64_t blockCount = mountResult.value();
 
   log().info << "Beacon mounted successfully";
-  log().info << "  Loaded " << blockId << " blocks from ledger";
+  log().info << "  Loaded " << blockCount << " blocks from ledger";
   log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
   log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   log().info << "  Current slot: " << getCurrentSlot();
@@ -408,8 +384,8 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Create checkpoint transaction with BlockChainConfig
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.fromWalletId = 0; // system wallet ID
-  checkpointTx.toWalletId = 0;   // system wallet ID
+  checkpointTx.fromWalletId = WID_SYSTEM; // system wallet ID
+  checkpointTx.toWalletId = WID_SYSTEM;   // system wallet ID
   checkpointTx.amount = 0;
   
   // Serialize BlockChainConfig to transaction metadata
@@ -427,34 +403,6 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;
 
   return genesisBlock;
-}
-
-Beacon::Roe<void> Beacon::processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId) {
-  log().info << "Processing checkpoint transaction in block " << blockId;
-  
-  // Deserialize BlockChainConfig from transaction metadata
-  auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
-  if (!configResult) {
-    return Error(16, "Failed to deserialize checkpoint config: " + configResult.error().message);
-  }
-
-  BlockChainConfig restoredConfig = configResult.value();
-  
-  // Restore consensus parameters
-  config_.chain.genesisTime = restoredConfig.genesisTime;
-  config_.chain.slotDuration = restoredConfig.slotDuration;
-  config_.chain.slotsPerEpoch = restoredConfig.slotsPerEpoch;
-  
-  getConsensus().setGenesisTime(restoredConfig.genesisTime);
-  getConsensus().setSlotDuration(restoredConfig.slotDuration);
-  getConsensus().setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
-  
-  log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
-  log().info << "  Genesis time: " << restoredConfig.genesisTime;
-  log().info << "  Slot duration: " << restoredConfig.slotDuration;
-  log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
-
-  return {};
 }
 
 } // namespace pp

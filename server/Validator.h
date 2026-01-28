@@ -25,6 +25,9 @@ namespace pp {
  */
 class Validator : public Module {
 public:
+    constexpr static uint64_t WID_SYSTEM = 0;
+    constexpr static uint64_t WID_FIRST_USER = 256;
+
     struct BlockChainConfig {
       constexpr static uint32_t VERSION = 1;
 
@@ -114,6 +117,9 @@ protected:
     std::mutex& getStateMutex() const { return stateMutex_; }
 
     Roe<void> syncChain(const BlockChain& chain);
+    Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
+    Roe<uint64_t> mountLedger(const std::string& ledgerPath);
+    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);
 
 private:
     // Core components

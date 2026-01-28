@@ -275,4 +275,84 @@ bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
   return true;
 }
 
+Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId) {
+  log().info << "Processing checkpoint transaction in block " << blockId;
+  
+  // Deserialize BlockChainConfig from transaction metadata
+  auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
+  if (!configResult) {
+    return Error(16, "Failed to deserialize checkpoint config: " + configResult.error().message);
+  }
+
+  BlockChainConfig restoredConfig = configResult.value();
+  
+  // Restore consensus parameters
+  consensus_.setGenesisTime(restoredConfig.genesisTime);
+  consensus_.setSlotDuration(restoredConfig.slotDuration);
+  consensus_.setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
+  
+  log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
+  log().info << "  Genesis time: " << restoredConfig.genesisTime;
+  log().info << "  Slot duration: " << restoredConfig.slotDuration;
+  log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
+
+  return {};
+}
+
+Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId) {
+  // Process checkpoint transactions to restore BlockChainConfig
+  for (const auto& signedTx : block.block.signedTxes) {
+    if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
+      auto processResult = processCheckpointTransaction(signedTx, blockId);
+      if (!processResult) {
+        log().warning << "Failed to process checkpoint: " << processResult.error().message;
+      }
+    }
+  }
+  
+  // Add block to in-memory chain
+  chain_.addBlock(std::make_shared<Ledger::ChainNode>(block));
+  
+  return {};
+}
+
+Validator::Roe<uint64_t> Validator::mountLedger(const std::string& ledgerPath) {
+  log().info << "Mounting ledger at: " << ledgerPath;
+
+  // Mount the ledger
+  auto ledgerMountResult = ledger_.mount(ledgerPath);
+  if (!ledgerMountResult) {
+    return Error(17, "Failed to mount ledger: " + ledgerMountResult.error().message);
+  }
+
+  // Process blocks from ledger one by one
+  uint64_t blockId = 0;
+  uint64_t logInterval = 1000; // Log every 1000 blocks
+  while (true) {
+    auto blockResult = ledger_.readBlock(blockId);
+    if (!blockResult) {
+      // No more blocks to read
+      break;
+    }
+
+    Ledger::ChainNode block = blockResult.value();
+    
+    // Process the block
+    auto processResult = processBlock(block, blockId);
+    if (!processResult) {
+      return Error(18, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
+    }
+    
+    blockId++;
+    
+    // Periodic progress logging
+    if (blockId % logInterval == 0) {
+      log().info << "Processed " << blockId << " blocks...";
+    }
+  }
+
+  log().info << "Loaded " << blockId << " blocks from ledger";
+  return blockId;
+}
+
 } // namespace pp
