@@ -95,7 +95,7 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  Ledger() {}
+  Ledger();
   virtual ~Ledger() = default;
 
   struct InitConfig {

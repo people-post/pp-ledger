@@ -54,6 +54,11 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   return true;
 }
 
+Ledger::Ledger() {
+  redirectLogger("Ledger");
+  store_.redirectLogger(log().getFullName() + ".Store");
+}
+
 uint64_t Ledger::getNextBlockId() const {
   uint64_t blockCount = store_.getBlockCount();
   // Next block ID = startingBlockId + blockCount

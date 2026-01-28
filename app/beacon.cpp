@@ -28,17 +28,18 @@ void signalHandler(int signal) {
 } // namespace
 
 void printUsage() {
-  std::cout << "Usage: pp-beacon -d <work-dir> [--init]\n";
+  std::cout << "Usage: pp-beacon -d <work-dir> [--init] [--debug]\n";
   std::cout << "  -d <work-dir>              - Work directory (required)\n";
   std::cout << "  --init                     - Initialize a new beacon\n";
+  std::cout << "  --debug                    - Enable debug logging (default: warning level)\n";
   std::cout << "\n";
   std::cout << "Mode 1: Mount existing beacon:\n";
-  std::cout << "  pp-beacon -d /some/path/to/work-dir\n";
+  std::cout << "  pp-beacon -d /some/path/to/work-dir [--debug]\n";
   std::cout << "  The work directory must contain:\n";
   std::cout << "    - config.json  - Beacon configuration file (required)\n";
   std::cout << "\n";
   std::cout << "Mode 2: Initialize new beacon:\n";
-  std::cout << "  pp-beacon -d /some/path/to/work-dir --init\n";
+  std::cout << "  pp-beacon -d /some/path/to/work-dir --init [--debug]\n";
   std::cout << "\n";
   std::cout << "  When initializing, the command will:\n";
   std::cout << "  1. Create work-dir/init-config.json with default parameters if it doesn't exist\n";
@@ -150,11 +151,12 @@ int initBeacon(const std::string& workDir) {
 }
 
 int runBeacon(const std::string& workDir) {
-  auto logger = pp::logging::getLogger("beacon");
+  auto logger = pp::logging::getLogger("pp");
+  
   logger.info << "Starting beacon with work directory: " << workDir;
 
   pp::BeaconServer beacon;
-  beacon.redirectLogger("pp.BeaconServer");
+  beacon.redirectLogger("pp.B");
 
   if (beacon.start(workDir)) {
     logger.info << "Beacon started successfully";
@@ -177,9 +179,6 @@ int runBeacon(const std::string& workDir) {
 }
 
 int main(int argc, char *argv[]) {
-  auto rootLogger = pp::logging::getRootLogger();
-  rootLogger.info << "PP-Ledger Beacon Server";
-
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
     printUsage();
@@ -188,6 +187,7 @@ int main(int argc, char *argv[]) {
 
   std::string workDir;
   bool initMode = false;
+  bool debugMode = false;
 
   // Parse arguments
   for (int i = 1; i < argc; ++i) {
@@ -201,6 +201,8 @@ int main(int argc, char *argv[]) {
       }
     } else if (strcmp(argv[i], "--init") == 0) {
       initMode = true;
+    } else if (strcmp(argv[i], "--debug") == 0) {
+      debugMode = true;
     } else {
       std::cerr << "Error: Unknown argument: " << argv[i] << "\n";
       printUsage();
@@ -214,8 +216,10 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  auto logger = pp::logging::getLogger("beacon");
-  logger.setLevel(pp::logging::Level::INFO);
+  auto logger = pp::logging::getRootLogger();
+  pp::logging::Level logLevel = debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;
+  logger.setLevel(logLevel);
+  logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);

@@ -247,6 +247,7 @@ FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
 FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId) {
   std::string filepath = getBlockFilePath(fileId);
   auto ukpBlockFile = std::make_unique<FileStore>();
+  ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
 
   FileStore::InitConfig bfConfig;
   bfConfig.filepath = filepath;
@@ -298,6 +299,7 @@ FileStore *FileDirStore::getBlockFile(uint32_t fileId) {
   std::string filepath = getBlockFilePath(fileId);
   if (std::filesystem::exists(filepath)) {
     auto ukpBlockFile = std::make_unique<FileStore>();
+    ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
     auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (result.isOk()) {
       FileStore *pBlockFile = ukpBlockFile.get();
@@ -522,6 +524,7 @@ FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
     }
 
     auto ukpBlockFile = std::make_unique<FileStore>();
+    ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
     auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (!result.isOk()) {
       log().error << "Failed to open block file: " << filepath << ": "
@@ -545,6 +548,7 @@ FileDirStore::Roe<void> FileDirStore::reopenBlockFiles() {
     }
 
     auto ukpBlockFile = std::make_unique<FileStore>();
+    ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
     auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
     if (!result.isOk()) {
       log().error << "Failed to reopen block file: " << filepath;

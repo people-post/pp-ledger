@@ -74,7 +74,11 @@ size_t Validator::BlockChain::trimBlocks(size_t count) {
   return toRemove;
 }
 
-Validator::Validator() {}
+Validator::Validator() {
+  redirectLogger("Validator");
+  ledger_.redirectLogger(log().getFullName() + ".Ledger");
+  consensus_.redirectLogger(log().getFullName() + ".Obo");
+}
 
 uint64_t Validator::getCurrentBlockId() const {
   // Return the last block ID (nextBlockId - 1)

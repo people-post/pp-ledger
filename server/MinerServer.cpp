@@ -10,7 +10,9 @@
 namespace pp {
 
 MinerServer::MinerServer() {
-  log().info << "MinerServer initialized";
+  redirectLogger("MinerServer");
+  miner_.redirectLogger(log().getFullName() + ".Miner");
+  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
 
 MinerServer::~MinerServer() {

@@ -10,6 +10,7 @@
 namespace pp {
 
 BeaconServer::BeaconServer() {
+  redirectLogger("BeaconServer");
   beacon_.redirectLogger(log().getFullName() + ".Beacon");
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
@@ -46,7 +47,7 @@ bool BeaconServer::start(const std::string &dataDir) {
   // Store dataDir for onStart
   dataDir_ = dataDir;
 
-  log().info << "Starting BeaconServer with work directory: " << dataDir;
+  log().info << "Starting with work directory: " << dataDir;
   log().addFileHandler(dataDir + "/beacon.log", logging::Level::DEBUG);
 
   // Call base class start which will invoke onStart() then run()

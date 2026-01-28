@@ -23,14 +23,15 @@ void signalHandler(int signal) {
 } // namespace
 
 void printUsage() {
-  std::cout << "Usage: pp-miner -d <work-dir>\n";
+  std::cout << "Usage: pp-miner -d <work-dir> [--debug]\n";
   std::cout << "  -d <work-dir>  - Work directory (required)\n";
+  std::cout << "  --debug        - Enable debug logging (default: warning level)\n";
   std::cout << "\n";
   std::cout << "The work directory must contain:\n";
   std::cout << "  - config.json  - Miner configuration file (required)\n";
   std::cout << "\n";
   std::cout << "Example:\n";
-  std::cout << "  pp-miner -d /some/path/to/work-dir\n";
+  std::cout << "  pp-miner -d /some/path/to/work-dir [--debug]\n";
   std::cout << "\n";
   std::cout << "The config.json file should contain:\n";
   std::cout << "  {\n";
@@ -43,9 +44,6 @@ void printUsage() {
 }
 
 int main(int argc, char *argv[]) {
-  auto rootLogger = pp::logging::getRootLogger();
-  rootLogger.info << "PP-Ledger Miner v1.0";
-
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
     printUsage();
@@ -53,6 +51,7 @@ int main(int argc, char *argv[]) {
   }
 
   std::string workDir;
+  bool debugMode = false;
 
   // Parse arguments
   for (int i = 1; i < argc; ++i) {
@@ -64,6 +63,8 @@ int main(int argc, char *argv[]) {
         printUsage();
         return 1;
       }
+    } else if (strcmp(argv[i], "--debug") == 0) {
+      debugMode = true;
     } else {
       std::cerr << "Error: Unknown argument: " << argv[i] << "\n";
       printUsage();
@@ -78,7 +79,9 @@ int main(int argc, char *argv[]) {
   }
 
   auto logger = pp::logging::getLogger("miner");
-  logger.setLevel(pp::logging::Level::INFO);
+  pp::logging::Level logLevel = debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;
+  logger.setLevel(logLevel);
+  logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
@@ -86,7 +89,7 @@ int main(int argc, char *argv[]) {
   logger.info << "Starting miner with work directory: " << workDir;
 
   pp::MinerServer miner;
-  miner.redirectLogger("pp.MinerServer");
+  miner.redirectLogger("pp.M");
   if (miner.start(workDir)) {
     logger.info << "Miner started successfully";
     std::cout << "Miner running\n";
