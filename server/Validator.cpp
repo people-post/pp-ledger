@@ -75,9 +75,7 @@ size_t Validator::BlockChain::trimBlocks(size_t count) {
 }
 
 Validator::Validator()
-    : consensus_(1, 21600) {
-  setLogger("Validator");
-}
+    : consensus_(1, 21600) {}
 
 uint64_t Validator::getCurrentBlockId() const {
   // Return the last block ID (nextBlockId - 1)

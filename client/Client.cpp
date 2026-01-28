@@ -8,9 +8,7 @@ namespace pp {
 
 using json = nlohmann::json;
 
-Client::Client() : Module() {
-  setLogger("client");
-}
+Client::Client() : Module() {}
 
 Client::~Client() {}
 

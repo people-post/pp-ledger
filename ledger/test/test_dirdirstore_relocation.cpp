@@ -10,7 +10,7 @@ protected:
     pp::DirDirStore::InitConfig config;
     
     void SetUp() override {
-        dirDirStore.setLogger("dirdirstore");
+        dirDirStore.redirectLogger("dirdirstore");
         testDir = "/tmp/pp-ledger-dirdirstore-relocation-test";
         
         // Clean up test directory
@@ -126,7 +126,7 @@ TEST_F(DirDirStoreRelocationTest, CanMountAfterRelocationWithPreservedIndex) {
     
     // Mount the store again - should load config from preserved index
     pp::DirDirStore dirDirStore2;
-    dirDirStore2.setLogger("dirdirstore2");
+    dirDirStore2.redirectLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = testDir;
     mountConfig.maxLevel = 0;
@@ -168,7 +168,7 @@ TEST_F(DirDirStoreRelocationTest, IndexFileContainsCorrectConfigAfterRelocation)
     // dirDirStore destructor called here
     
     pp::DirDirStore dirDirStore2;
-    dirDirStore2.setLogger("dirdirstore2");
+    dirDirStore2.redirectLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = testDir;
     mountConfig.maxLevel = 1; // Only maxLevel needs to be provided

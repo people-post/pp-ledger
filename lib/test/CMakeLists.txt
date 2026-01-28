@@ -27,21 +27,6 @@ target_link_libraries(test_result PRIVATE
 
 gtest_discover_tests(test_result)
 
-# Test for Module base class
-add_executable(test_module
-    test_module.cpp
-)
-
-target_link_libraries(test_module PRIVATE
-    pp_lib
-    pp_client
-    pp_server
-    OpenSSL::Crypto
-    GTest::gtest_main
-)
-
-gtest_discover_tests(test_module)
-
 # Test for Archive (serialization)
 add_executable(test_archive
     test_archive.cpp

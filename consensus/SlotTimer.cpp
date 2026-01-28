@@ -6,7 +6,6 @@ namespace consensus {
 
 SlotTimer::SlotTimer(uint64_t slotDuration)
     : slotDuration_(slotDuration) {
-  setLogger("SlotTimer");
   log().info << "Slot timer initialized with duration: " +
                     std::to_string(slotDuration_) + "s";
 }

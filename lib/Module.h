@@ -28,22 +28,12 @@ public:
   Module &operator=(const Module &) = delete;
 
   /**
-   * Set the logger for this module
-   * @param name Name for the module's logger
-   */
-  void setLogger(const std::string &name);
-
-  /**
    * Redirect this module's logger to another logger
    * @param targetLoggerName Name of the target logger
    */
   void redirectLogger(const std::string &targetLoggerName);
 
-  /**
-   * Clear logger redirect
-   */
-  void clearLoggerRedirect();
-
+protected:
   /**
    * Get the logger instance for this module.
    * Use this to access the logger in derived classes and externally.

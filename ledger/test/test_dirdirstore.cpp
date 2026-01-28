@@ -13,7 +13,7 @@ protected:
     pp::DirDirStore::InitConfig config;
     
     void SetUp() override {
-        dirDirStore.setLogger("dirdirstore");
+        dirDirStore.redirectLogger("dirdirstore");
         testDir = "/tmp/pp-ledger-dirdirstore-test";
         
         // Clean up test directory
@@ -86,7 +86,7 @@ TEST_F(DirDirStoreTest, LoadsExistingIndex) {
     
     // Mount existing store - should load existing index
     pp::DirDirStore dirDirStore2;
-    dirDirStore2.setLogger("dirdirstore2");
+    dirDirStore2.redirectLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
     mountConfig.maxLevel = config.maxLevel;
@@ -371,7 +371,7 @@ TEST_F(DirDirStoreTest, PersistsAcrossRestarts) {
     
     // Second session - mount existing store
     pp::DirDirStore dirDirStore2;
-    dirDirStore2.setLogger("dirdirstore2");
+    dirDirStore2.redirectLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
     mountConfig.maxLevel = config.maxLevel;
@@ -404,7 +404,7 @@ TEST_F(DirDirStoreTest, PersistsMultipleFiles) {
     
     // Mount existing store
     pp::DirDirStore dirDirStore2;
-    dirDirStore2.setLogger("dirdirstore2");
+    dirDirStore2.redirectLogger("dirdirstore2");
     pp::DirDirStore::MountConfig mountConfig;
     mountConfig.dirPath = config.dirPath;
     mountConfig.maxLevel = config.maxLevel;

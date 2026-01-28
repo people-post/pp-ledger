@@ -12,8 +12,6 @@ EpochManager::EpochManager(uint64_t slotsPerEpoch, uint64_t slotDuration)
     : slotsPerEpoch_(slotsPerEpoch),
       slotDuration_(slotDuration), genesisTime_(0), cachedCurrentEpoch_(0),
       lastUpdateTime_(0) {
-  setLogger("EpochManager");
-
   auto now = std::chrono::system_clock::now();
   genesisTime_ =
       std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())

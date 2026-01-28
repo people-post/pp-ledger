@@ -8,12 +8,7 @@
 
 namespace pp {
 
-Beacon::Beacon() 
-    : Validator(),
-      currentCheckpointId_(0) {
-  setLogger("Beacon");
-  log().info << "Beacon initialized";
-}
+Beacon::Beacon() {}
 
 Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";

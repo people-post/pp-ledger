@@ -12,7 +12,6 @@ Miner::Miner()
     : Validator(),
       initialized_(false),
       lastProducedBlockId_(0) {
-  setLogger("Miner");
   log().info << "Miner initialized";
 }
 

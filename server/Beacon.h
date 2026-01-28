@@ -125,7 +125,7 @@ private:
   mutable std::mutex stakeholdersMutex_;
 
   // State tracking
-  uint64_t currentCheckpointId_;
+  uint64_t currentCheckpointId_{ 0 };
 };
 
 // Ostream operators for easy logging

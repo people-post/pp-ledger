@@ -5,7 +5,6 @@ namespace pp {
 namespace network {
 
 FetchClient::FetchClient() {
-  setLogger("FetchClient");
   log().info << "FetchClient initialized";
 }
 

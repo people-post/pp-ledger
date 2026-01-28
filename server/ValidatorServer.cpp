@@ -3,9 +3,7 @@
 
 namespace pp {
 
-ValidatorServer::ValidatorServer() {
-  setLogger("ValidatorServer");
-}
+ValidatorServer::ValidatorServer() {}
 
 nlohmann::json ValidatorServer::blockToJson(const Ledger::ChainNode& block) const {
   nlohmann::json blockJson;

@@ -7,7 +7,6 @@ namespace pp {
 namespace consensus {
 
 VRF::VRF() {
-  setLogger("Vrf");
   log().info << "VRF module initialized";
 }
 
@@ -121,7 +120,6 @@ uint64_t VRF::outputToNumber(const std::string &output) const {
 // ========== EpochNonce Implementation ==========
 
 EpochNonce::EpochNonce() {
-  setLogger("EpochNonce");
   log().info << "Epoch nonce module initialized";
 }
 

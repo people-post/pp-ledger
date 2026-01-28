@@ -10,7 +10,6 @@
 namespace pp {
 
 MinerServer::MinerServer() {
-  setLogger("MinerServer");
   log().info << "MinerServer initialized";
 }
 
@@ -534,7 +533,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   log().info << "Connecting to beacon server: " << beaconAddr;
 
   Client client;
-  client.setLogger(log().getName() + ".Client");
+  client.redirectLogger(log().getName() + ".Client");
   if (!client.setEndpoint(beaconAddr)) {
     return Error(101, "Failed to connect to beacon at " + beaconAddr);
   }

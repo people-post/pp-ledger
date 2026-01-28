@@ -10,8 +10,7 @@
 namespace pp {
 
 BeaconServer::BeaconServer() {
-  setLogger("BeaconServer");
-  log().info << "BeaconServer initialized";
+  beacon_.redirectLogger(log().getName() + ".Beacon");
 }
 
 BeaconServer::Roe<void> BeaconServer::init(const Beacon::InitConfig& config) {

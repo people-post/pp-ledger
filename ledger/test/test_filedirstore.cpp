@@ -13,7 +13,7 @@ protected:
     pp::FileDirStore::InitConfig config;
     
     void SetUp() override {
-        fileDirStore.setLogger("filedirstore");
+        fileDirStore.redirectLogger("filedirstore");
         testDir = "/tmp/pp-ledger-filedirstore-test";
         
         // Clean up test directory
@@ -88,7 +88,7 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
     
     // Mount existing directory - should load existing index
     pp::FileDirStore fileDirStore2;
-    fileDirStore2.setLogger("filedirstore2");
+    fileDirStore2.redirectLogger("filedirstore2");
     auto result = fileDirStore2.mount(config.dirPath);
     EXPECT_TRUE(result.isOk());
     
@@ -343,7 +343,7 @@ TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
     
     // Second session - mount existing directory
     pp::FileDirStore fileDirStore2;
-    fileDirStore2.setLogger("filedirstore2");
+    fileDirStore2.redirectLogger("filedirstore2");
     fileDirStore2.mount(config.dirPath);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
@@ -373,7 +373,7 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
     
     // Mount existing directory
     pp::FileDirStore fileDirStore2;
-    fileDirStore2.setLogger("filedirstore2");
+    fileDirStore2.redirectLogger("filedirstore2");
     fileDirStore2.mount(config.dirPath);
     
     EXPECT_EQ(fileDirStore2.getBlockCount(), numBlocks);
