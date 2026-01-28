@@ -7,7 +7,9 @@ using namespace pp::consensus;
 class EpochManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        epochMgr = std::make_unique<EpochManager>(10, 2);
+        epochMgr = std::make_unique<EpochManager>();
+        epochMgr->setSlotsPerEpoch(10);
+        epochMgr->setSlotDuration(2);
         genesisTime = 1000000000;
         epochMgr->setGenesisTime(genesisTime);
     }

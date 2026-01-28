@@ -21,17 +21,13 @@ namespace consensus {
 class EpochManager : public Module {
 public:
   struct EpochInfo {
-    uint64_t number;
-    int64_t startTime;
-    int64_t endTime;
-    uint64_t startSlot;
-    uint64_t endSlot;
+    uint64_t number{ 0 };
+    int64_t startTime{ 0 };
+    int64_t endTime{ 0 };
+    uint64_t startSlot{ 0 };
+    uint64_t endSlot{ 0 };
     std::string nonce;
     std::map<uint64_t, std::string> slotLeaders; // slot -> leader mapping
-
-    EpochInfo()
-        : number(0), startTime(0), endTime(0), startSlot(0), endSlot(0),
-          nonce("") {}
   };
 
   /**
@@ -39,8 +35,7 @@ public:
    * @param slotsPerEpoch Number of slots in each epoch
    * @param slotDuration Duration of each slot in seconds
    */
-  explicit EpochManager(uint64_t slotsPerEpoch = 21600,
-                        uint64_t slotDuration = 1);
+  EpochManager();
 
   ~EpochManager() override = default;
 
@@ -76,12 +71,12 @@ public:
   int64_t getSlotEndTime(uint64_t slot) const;
 
 private:
-  uint64_t slotsPerEpoch_;
-  uint64_t slotDuration_;
-  int64_t genesisTime_;
+  uint64_t slotsPerEpoch_{ 0 };
+  uint64_t slotDuration_{ 0 };
+  int64_t genesisTime_{ 0 };
   std::map<uint64_t, EpochInfo> epochs_;
-  mutable uint64_t cachedCurrentEpoch_;
-  mutable int64_t lastUpdateTime_;
+  mutable uint64_t cachedCurrentEpoch_{ 0 };
+  mutable int64_t lastUpdateTime_{ 0 };
 };
 
 } // namespace consensus

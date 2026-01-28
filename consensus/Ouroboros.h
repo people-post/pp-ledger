@@ -42,7 +42,7 @@ public:
    * @param slotDuration Duration of each slot in seconds
    * @param slotsPerEpoch Number of slots in each epoch
    */
-  explicit Ouroboros(uint64_t slotDuration = 1, uint64_t slotsPerEpoch = 21600);
+  Ouroboros();
 
   ~Ouroboros() override = default;
 
@@ -89,9 +89,9 @@ private:
 
   // Data members
   std::map<std::string, uint64_t> mStakeholders_;
-  uint64_t slotDuration_;  // Duration of each slot in seconds
-  uint64_t slotsPerEpoch_; // Number of slots per epoch
-  int64_t genesisTime_;    // Timestamp of genesis block
+  uint64_t slotDuration_{ 0 };  // Duration of each slot in seconds
+  uint64_t slotsPerEpoch_{ 0 }; // Number of slots per epoch
+  int64_t genesisTime_{ 0 };    // Timestamp of genesis block
 };
 
 } // namespace consensus

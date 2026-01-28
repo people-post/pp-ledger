@@ -18,17 +18,6 @@ static std::string trimLeadingDot(const std::string& name) {
   return name;
 }
 
-static std::mutex& getRegistryMutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
-// LoggerNode registry (forward declaration for use in Logger methods)
-static std::unordered_map<std::string, std::shared_ptr<LoggerNode>>& getLoggerRegistry() {
-  static std::unordered_map<std::string, std::shared_ptr<LoggerNode>> registry;
-  return registry;
-}
-
 // Helper function to get current timestamp
 static std::string getCurrentTimestamp() {
   auto now = std::chrono::system_clock::now();
@@ -111,9 +100,7 @@ LogStream &LogStream::operator=(LogStream &&other) noexcept {
 // ========== LoggerNode Implementation ==========
 
 LoggerNode::LoggerNode(const std::string &name)
-    : name_(name), level_(Level::DEBUG), propagate_(true) {
-  // Add default console handler
-  addHandler(std::make_shared<ConsoleHandler>());
+    : name_(name) {
 }
 
 std::string LoggerNode::getFullName() const {
@@ -153,16 +140,21 @@ void LoggerNode::addFileHandler(const std::string &filename, Level level) {
 }
 
 void LoggerNode::log(Level level, const std::string &message) {
+  // Use this logger's full name as the originating name
+  logWithOriginatingName(level, message, getFullName());
+}
+
+void LoggerNode::logWithOriginatingName(Level level, const std::string &message, const std::string &originatingLoggerName) {
   // Log to own handlers if level is sufficient
   if (level >= level_) {
-    logToHandlers(level, message);
+    logToHandlersWithOriginatingName(level, message, originatingLoggerName);
   }
 
-  // Propagate to parent if enabled
+  // Propagate to parent if enabled, preserving the originating logger name
   if (propagate_) {
     auto parentNode = getParent();
     if (parentNode) {
-      parentNode->log(level, message);
+      parentNode->logWithOriginatingName(level, message, originatingLoggerName);
     }
   }
 }
@@ -176,6 +168,15 @@ void LoggerNode::logToHandlers(Level level, const std::string &message) {
   }
 }
 
+void LoggerNode::logToHandlersWithOriginatingName(Level level, const std::string &message, const std::string &originatingLoggerName) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::string formattedMessage = formatMessage(level, message, originatingLoggerName);
+
+  for (auto &spHandler : spHandlers_) {
+    spHandler->emit(level, originatingLoggerName, formattedMessage);
+  }
+}
+
 std::string LoggerNode::formatMessage(Level level, const std::string &message) {
   std::stringstream ss;
   ss << "[" << getCurrentTimestamp() << "] ";
@@ -183,6 +184,17 @@ std::string LoggerNode::formatMessage(Level level, const std::string &message) {
   std::string fullName = getFullName();
   if (!fullName.empty()) {
     ss << "[" << fullName << "] ";
+  }
+  ss << message;
+  return ss.str();
+}
+
+std::string LoggerNode::formatMessage(Level level, const std::string &message, const std::string &originatingLoggerName) {
+  std::stringstream ss;
+  ss << "[" << getCurrentTimestamp() << "] ";
+  ss << "[" << levelToString(level) << "] ";
+  if (!originatingLoggerName.empty()) {
+    ss << "[" << originatingLoggerName << "] ";
   }
   ss << message;
   return ss.str();
@@ -207,25 +219,65 @@ std::string LoggerNode::levelToString(Level level) {
 
 void LoggerNode::addChild(std::shared_ptr<LoggerNode> child) {
   std::lock_guard<std::mutex> lock(mutex_);
-  children_.push_back(child);
+  spChildren_.push_back(child);
 }
 
 void LoggerNode::removeChild(LoggerNode* child) {
   std::lock_guard<std::mutex> lock(mutex_);
-  children_.erase(
-    std::remove_if(children_.begin(), children_.end(),
-      [child](const std::weak_ptr<LoggerNode>& weak) {
-        auto ptr = weak.lock();
-        return !ptr || ptr.get() == child;
+  spChildren_.erase(
+    std::remove_if(spChildren_.begin(), spChildren_.end(),
+      [child](const std::shared_ptr<LoggerNode>& ptr) {
+        return ptr.get() == child;
       }),
-    children_.end()
+    spChildren_.end()
   );
 }
+
+std::shared_ptr<LoggerNode> LoggerNode::getOrInitChild(const std::string& fullName) {
+  std::string trimmedName = trimLeadingDot(fullName);
+  if (trimmedName.empty()) {
+    return shared_from_this();
+  }
+
+  auto firstDot = trimmedName.find('.');
+  if (firstDot == std::string::npos) {
+    return getOrInitDirectChild(trimmedName);
+  } else {
+    auto sp = getOrInitChild(trimmedName.substr(0, firstDot));
+    return sp->getOrInitChild(trimmedName.substr(firstDot + 1));
+  }
+}
+
+std::shared_ptr<LoggerNode> LoggerNode::getOrInitDirectChild(const std::string& name) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  
+  // Search for existing child with this name
+  for (auto& child : spChildren_) {
+    if (child->getName() == name) {
+      return child;
+    }
+  }
+  
+  // Child doesn't exist, create a new one
+  auto newChild = std::make_shared<LoggerNode>(name);
+  newChild->setParent(shared_from_this());
+  spChildren_.push_back(newChild);
+  
+  return newChild;
+}
+
+static std::shared_ptr<LoggerNode> initRootLogger() {
+  auto root = std::make_shared<LoggerNode>("");
+  root->addHandler(std::make_shared<ConsoleHandler>());
+  return root;
+}
+
+static std::shared_ptr<LoggerNode> g_spRoot = initRootLogger();
 
 // ========== Logger Implementation ==========
 
 Logger::Logger(std::shared_ptr<LoggerNode> node)
-    : node_(node),
+    : spNode_(node),
       debug(this, Level::DEBUG),
       info(this, Level::INFO),
       warning(this, Level::WARNING),
@@ -233,124 +285,61 @@ Logger::Logger(std::shared_ptr<LoggerNode> node)
       critical(this, Level::CRITICAL) {
 }
 
-Logger Logger::getParent() const {
-  auto parentNode = node_->getParent();
-  if (parentNode) {
-    return Logger(parentNode);
-  }
-  return Logger(nullptr);
-}
-
-std::vector<Logger> Logger::getChildren() const {
-  std::vector<Logger> result;
-  const auto& children = node_->getChildren();
-  for (const auto& weakChild : children) {
-    auto childNode = weakChild.lock();
-    if (childNode) {
-      result.push_back(Logger(childNode));
-    }
-  }
-  return result;
-}
-
 void Logger::redirectTo(const std::string &targetLoggerName) {
   // Get the target logger - use global registry, not hierarchical child
   auto targetLogger = logging::getLogger(targetLoggerName);
-  redirectTo(targetLogger);
-}
-
-void Logger::switchTo(const std::string &targetLoggerName) {
-  // Switch this Logger wrapper to point to a different logger node
-  auto targetLogger = logging::getLogger(trimLeadingDot(targetLoggerName));
-  node_ = targetLogger.getNode();
-}
-
-void Logger::redirectTo(Logger targetLogger) {
   if (!targetLogger.getNode()) {
     throw std::invalid_argument("Cannot redirect to null logger");
   }
   
-  if (targetLogger.getNode() == node_) {
+  if (targetLogger.getNode() == spNode_) {
     throw std::invalid_argument("Cannot redirect logger to itself");
   }
   
   auto targetNode = targetLogger.getNode();
   
+  // If this is the root logger, only switch the wrapper (don't move the root node)
+  if (spNode_ == g_spRoot) {
+    spNode_ = targetNode;
+    return;
+  }
+  
   // Check for circular redirection by checking if target is a descendant
   auto ancestor = targetNode;
   while (ancestor) {
-    if (ancestor == node_) {
+    if (ancestor == spNode_) {
       throw std::invalid_argument("Cannot create circular parent relationship");
     }
     ancestor = ancestor->getParent();
   }
   
   // Remove from current parent's children list
-  auto oldParent = node_->getParent();
+  auto oldParent = spNode_->getParent();
   if (oldParent) {
-    oldParent->removeChild(node_.get());
+    oldParent->removeChild(spNode_.get());
   }
   
-  // Set new parent and add to new parent's children
-  node_->setParent(targetNode);
-  targetNode->addChild(node_);
+  // Merge all children of current node to the target node
+  // Make a copy of the children vector since we'll be modifying it
+  auto children = spNode_->getChildren();
+  for (auto& child : children) {
+    child->setParent(targetNode);
+    targetNode->addChild(child);
+  }
+  
+  // Switch the wrapper to point to target node (dissolve current node)
+  spNode_ = targetNode;
 }
 
 // ========== Global logger management ==========
 
 Logger getLogger(const std::string &name) {
-  std::string trimmedName = trimLeadingDot(name);
-  std::lock_guard<std::mutex> lock(getRegistryMutex());
-  auto& registry = getLoggerRegistry();
-
-  // Check if node already exists
-  auto it = registry.find(trimmedName);
-  if (it != registry.end()) {
-    return Logger(it->second);
-  }
-
-  // Parse the hierarchical name to extract node name and parent path
-  std::string nodeName = trimmedName;
-  std::string parentPath;
-  auto lastDot = trimmedName.rfind('.');
-  if (lastDot != std::string::npos) {
-    parentPath = trimmedName.substr(0, lastDot);
-    nodeName = trimmedName.substr(lastDot + 1);
-  }
-
-  // Create new node with just the node name (not full path)
-  auto node = std::make_shared<LoggerNode>(nodeName);
-  registry[trimmedName] = node;  // Registry uses full path as key
-
-  // Establish parent-child relationship for hierarchical loggers
-  if (!trimmedName.empty()) {
-    if (lastDot != std::string::npos) {
-      // Has a parent in the hierarchy
-      // Create parent if it doesn't exist (releases lock temporarily via recursion)
-      getRegistryMutex().unlock();
-      auto parentLogger = getLogger(parentPath);
-      getRegistryMutex().lock();
-      auto parentNode = parentLogger.getNode();
-      
-      // Establish parent-child relationship
-      node->setParent(parentNode);
-      parentNode->addChild(node);
-    } else {
-      // Top-level logger, attach to root
-      auto rootIt = registry.find("");
-      if (rootIt != registry.end()) {
-        auto rootNode = rootIt->second;
-        node->setParent(rootNode);
-        rootNode->addChild(node);
-      }
-    }
-  }
-
-  return Logger(node);
+  auto spNode = g_spRoot->getOrInitChild(name);
+  return Logger(spNode);
 }
 
 Logger getRootLogger() {
-  return getLogger("");
+  return Logger(g_spRoot);
 }
 
 } // namespace logging

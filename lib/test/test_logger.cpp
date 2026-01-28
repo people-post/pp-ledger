@@ -1,6 +1,173 @@
 #include "Logger.h"
 #include <gtest/gtest.h>
 
+TEST(LoggerNodeTest, BasicNodeCreation) {
+    auto node = std::make_shared<pp::logging::LoggerNode>("test");
+    EXPECT_EQ(node->getName(), "test");
+    EXPECT_EQ(node->getLevel(), pp::logging::Level::DEBUG);
+    EXPECT_TRUE(node->getPropagate());
+}
+
+TEST(LoggerNodeTest, NodeLogging) {
+    auto node = std::make_shared<pp::logging::LoggerNode>("test_logging");
+    EXPECT_NO_THROW({
+        node->log(pp::logging::Level::DEBUG, "Debug message");
+        node->log(pp::logging::Level::INFO, "Info message");
+        node->log(pp::logging::Level::WARNING, "Warning message");
+        node->log(pp::logging::Level::ERROR, "Error message");
+        node->log(pp::logging::Level::CRITICAL, "Critical message");
+    });
+}
+
+TEST(LoggerNodeTest, LevelFiltering) {
+    auto node = std::make_shared<pp::logging::LoggerNode>("level_test");
+    node->setLevel(pp::logging::Level::WARNING);
+    
+    EXPECT_EQ(node->getLevel(), pp::logging::Level::WARNING);
+    
+    // All levels should not throw, filtering happens internally
+    EXPECT_NO_THROW({
+        node->log(pp::logging::Level::DEBUG, "Debug message");
+        node->log(pp::logging::Level::INFO, "Info message");
+        node->log(pp::logging::Level::WARNING, "Warning message");
+        node->log(pp::logging::Level::ERROR, "Error message");
+    });
+}
+
+TEST(LoggerNodeTest, FileHandler) {
+    auto node = std::make_shared<pp::logging::LoggerNode>("file_test");
+    EXPECT_NO_THROW(node->addFileHandler("test.log", pp::logging::Level::DEBUG));
+    
+    node->setLevel(pp::logging::Level::INFO);
+    EXPECT_NO_THROW(node->addFileHandler("detailed.log", pp::logging::Level::DEBUG));
+    
+    EXPECT_NO_THROW({
+        node->log(pp::logging::Level::DEBUG, "Debug message");
+        node->log(pp::logging::Level::INFO, "Info message");
+        node->log(pp::logging::Level::WARNING, "Warning message");
+    });
+}
+
+TEST(LoggerNodeTest, ParentChildRelationships) {
+    auto parent = std::make_shared<pp::logging::LoggerNode>("parent");
+    auto child = std::make_shared<pp::logging::LoggerNode>("child");
+    
+    // Initially, child has no parent
+    EXPECT_EQ(child->getParent(), nullptr);
+    
+    // Add child to parent
+    child->setParent(parent);
+    parent->addChild(child);
+    
+    EXPECT_EQ(child->getParent(), parent);
+    EXPECT_EQ(parent->getChildren().size(), 1);
+    EXPECT_EQ(parent->getChildren()[0], child);
+}
+
+TEST(LoggerNodeTest, HierarchicalLoggerCreatesTree) {
+    // Create hierarchical structure manually
+    auto root = std::make_shared<pp::logging::LoggerNode>("");
+    auto moduleA = root->getOrInitChild("moduleA");
+    auto service1 = moduleA->getOrInitChild("service1");
+    auto service2 = moduleA->getOrInitChild("service2");
+    
+    // Verify tree structure
+    EXPECT_EQ(moduleA->getParent(), root);
+    EXPECT_EQ(service1->getParent(), moduleA);
+    EXPECT_EQ(service2->getParent(), moduleA);
+    
+    // moduleA should have 2 children
+    EXPECT_EQ(moduleA->getChildren().size(), 2);
+}
+
+TEST(LoggerNodeTest, GetOrInitChildCreatesIfNeeded) {
+    auto root = std::make_shared<pp::logging::LoggerNode>("root");
+    
+    // First call creates the child
+    auto child1 = root->getOrInitChild("child");
+    EXPECT_NE(child1, nullptr);
+    EXPECT_EQ(child1->getName(), "child");
+    EXPECT_EQ(child1->getParent(), root);
+    EXPECT_EQ(root->getChildren().size(), 1);
+    
+    // Second call returns the same child
+    auto child2 = root->getOrInitChild("child");
+    EXPECT_EQ(child1, child2);
+    EXPECT_EQ(root->getChildren().size(), 1);
+}
+
+TEST(LoggerNodeTest, GetOrInitChildHandlesHierarchicalNames) {
+    auto root = std::make_shared<pp::logging::LoggerNode>("root");
+    
+    // Create hierarchical path
+    auto deepNode = root->getOrInitChild("level1.level2.level3");
+    EXPECT_NE(deepNode, nullptr);
+    EXPECT_EQ(deepNode->getName(), "level3");
+    
+    // Verify intermediate nodes were created
+    auto level1 = root->getOrInitChild("level1");
+    EXPECT_NE(level1, nullptr);
+    EXPECT_EQ(level1->getName(), "level1");
+    
+    auto level2 = level1->getOrInitChild("level2");
+    EXPECT_NE(level2, nullptr);
+    EXPECT_EQ(level2->getName(), "level2");
+    EXPECT_EQ(level2->getParent(), level1);
+    
+    EXPECT_EQ(deepNode->getParent(), level2);
+}
+
+TEST(LoggerNodeTest, FullNameReflectsHierarchy) {
+    auto root = std::make_shared<pp::logging::LoggerNode>("");
+    auto parent = root->getOrInitChild("parent");
+    auto child = parent->getOrInitChild("child");
+    
+    EXPECT_EQ(root->getFullName(), "");
+    EXPECT_EQ(parent->getFullName(), "parent");
+    EXPECT_EQ(child->getFullName(), "parent.child");
+}
+
+TEST(LoggerNodeTest, LogPropagation) {
+    auto parent = std::make_shared<pp::logging::LoggerNode>("parent");
+    auto child = std::make_shared<pp::logging::LoggerNode>("child");
+    
+    child->setParent(parent);
+    parent->addChild(child);
+    
+    // By default, logs propagate up the tree
+    EXPECT_TRUE(child->getPropagate());
+    
+    // Logging should work
+    EXPECT_NO_THROW(child->log(pp::logging::Level::INFO, "Child message"));
+    
+    // Can disable propagation
+    child->setPropagate(false);
+    EXPECT_FALSE(child->getPropagate());
+    
+    EXPECT_NO_THROW(child->log(pp::logging::Level::INFO, "No propagation"));
+}
+
+TEST(LoggerNodeTest, RemoveChild) {
+    auto parent = std::make_shared<pp::logging::LoggerNode>("parent");
+    auto child1 = std::make_shared<pp::logging::LoggerNode>("child1");
+    auto child2 = std::make_shared<pp::logging::LoggerNode>("child2");
+    
+    parent->addChild(child1);
+    parent->addChild(child2);
+    
+    EXPECT_EQ(parent->getChildren().size(), 2);
+    
+    // Remove child1
+    parent->removeChild(child1.get());
+    EXPECT_EQ(parent->getChildren().size(), 1);
+    EXPECT_EQ(parent->getChildren()[0], child2);
+    
+    // Remove child2
+    parent->removeChild(child2.get());
+    EXPECT_EQ(parent->getChildren().size(), 0);
+}
+
+// Integration tests using the Logger wrapper
 TEST(LoggerTest, RootLoggerWorks) {
     auto rootLogger = pp::logging::getRootLogger();
     EXPECT_NO_THROW({
@@ -18,267 +185,96 @@ TEST(LoggerTest, NamedLoggerHasCorrectName) {
     EXPECT_NO_THROW(namedLogger.info << "Test message");
 }
 
-TEST(LoggerTest, LoggingLevelFiltersMessages) {
-    auto levelLogger = pp::logging::getLogger("level_test");
-    levelLogger.setLevel(pp::logging::Level::WARNING);
+TEST(LoggerNodeTest, GetLoggerWithEmptyName) {
+    // Getting a logger with empty name should return the root logger
+    auto emptyLogger = pp::logging::getLogger("");
+    auto rootLogger = pp::logging::getRootLogger();
     
-    EXPECT_EQ(levelLogger.getLevel(), pp::logging::Level::WARNING);
-    
-    // All levels should not throw, filtering happens internally
-    EXPECT_NO_THROW({
-        levelLogger.debug << "Debug message";
-        levelLogger.info << "Info message";
-        levelLogger.warning << "Warning message";
-        levelLogger.error << "Error message";
-    });
+    EXPECT_EQ(emptyLogger.getName(), "");
+    EXPECT_EQ(emptyLogger, rootLogger);
+    EXPECT_EQ(emptyLogger.getFullName(), "");
 }
 
-TEST(LoggerTest, FileHandlerWorks) {
-    auto fileLogger = pp::logging::getLogger("file_test");
-    EXPECT_NO_THROW(fileLogger.addFileHandler("test.log", pp::logging::Level::DEBUG));
+TEST(LoggerNodeTest, GetOrInitChildWithEmptyName) {
+    auto root = std::make_shared<pp::logging::LoggerNode>("root");
     
-    fileLogger.setLevel(pp::logging::Level::INFO);
-    EXPECT_NO_THROW(fileLogger.addFileHandler("detailed.log", pp::logging::Level::DEBUG));
+    // Getting a child with empty name should return the node itself
+    auto emptyChild = root->getOrInitChild("");
     
-    EXPECT_NO_THROW({
-        fileLogger.debug << "Debug message";
-        fileLogger.info << "Info message";
-        fileLogger.warning << "Warning message";
-    });
+    // Should return the same node (root itself)
+    EXPECT_EQ(emptyChild, root);
+    EXPECT_EQ(emptyChild->getName(), "root");
+    
+    // Second call should return the same node
+    auto emptyChild2 = root->getOrInitChild("");
+    EXPECT_EQ(emptyChild, emptyChild2);
+    EXPECT_EQ(emptyChild2, root);
 }
 
-TEST(LoggerTest, LoggerRedirect) {
-    auto sourceLogger = pp::logging::getLogger("source");
+TEST(LoggerNodeTest, EmptyNameInHierarchicalPath) {
+    auto root = std::make_shared<pp::logging::LoggerNode>("root");
+    
+    // Test leading dot (empty first component)
+    auto child1 = root->getOrInitChild(".child");
+    EXPECT_EQ(child1->getName(), "child");
+    
+    // Should be the same as without the leading dot
+    auto child2 = root->getOrInitChild("child");
+    EXPECT_EQ(child1, child2);
+}
+
+TEST(LoggerTest, RootLoggerRedirectSwitchesInsteadOfMoving) {
+    auto rootLogger = pp::logging::getRootLogger();
     auto targetLogger = pp::logging::getLogger("target");
     
-    sourceLogger.setLevel(pp::logging::Level::DEBUG);
-    targetLogger.setLevel(pp::logging::Level::INFO);
+    // Save original root for comparison
+    auto originalRootNode = rootLogger.getFullName();
+    EXPECT_EQ(originalRootNode, "");
     
-    // Initially, source and target are both children of root
-    auto root = pp::logging::getRootLogger();
-    EXPECT_EQ(sourceLogger.getParent(), root);
-    EXPECT_EQ(targetLogger.getParent(), root);
+    // When root logger redirects, it should switch to target, not move the root node
+    rootLogger.redirectTo("target");
     
-    // Redirect source to target - moves source in the tree
-    sourceLogger.redirectTo("target");
-    EXPECT_EQ(sourceLogger.getParent(), targetLogger);
+    // The wrapper should now point to target
+    EXPECT_EQ(rootLogger.getFullName(), "target");
+    EXPECT_EQ(rootLogger, targetLogger);
     
-    EXPECT_NO_THROW({
-        sourceLogger.info << "Message via redirect";
-        sourceLogger.debug << "Debug message (filtered by target level)";
-        targetLogger.warning << "Direct message to target";
-    });
-    
-    // Source is now a child of target (permanent)
-    EXPECT_EQ(sourceLogger.getParent(), targetLogger);
-    
-    EXPECT_NO_THROW(sourceLogger.info << "Back to source logger");
+    // Get root logger again - should still be the actual root
+    auto actualRoot = pp::logging::getRootLogger();
+    EXPECT_EQ(actualRoot.getFullName(), "");
+    EXPECT_NE(actualRoot, rootLogger); // rootLogger has switched to target
 }
 
-TEST(LoggerTest, HierarchicalLoggerCreatesTree) {
-    // Create hierarchical loggers
-    auto moduleA = pp::logging::getLogger("moduleA");
-    auto service1 = pp::logging::getLogger("moduleA.service1");
-    auto service2 = pp::logging::getLogger("moduleA.service2");
-    
-    // Verify tree structure
-    auto root = pp::logging::getRootLogger();
-    EXPECT_EQ(moduleA.getParent(), root);
-    EXPECT_EQ(service1.getParent(), moduleA);
-    EXPECT_EQ(service2.getParent(), moduleA);
-    
-    // moduleA should have 2 children
-    EXPECT_EQ(moduleA.getChildren().size(), 2);
-}
-
-TEST(LoggerTest, RedirectMovesLoggerAndChildren) {
-    // Create tree structure:
-    // root
-    // ├── moduleA
-    // │   ├── moduleA.service1
-    // │   └── moduleA.service2
-    // └── moduleB
-    
-    auto root = pp::logging::getRootLogger();
-    auto moduleA = pp::logging::getLogger("moduleA");
-    auto service1 = pp::logging::getLogger("moduleA.service1");
-    auto service2 = pp::logging::getLogger("moduleA.service2");
-    auto moduleB = pp::logging::getLogger("moduleB");
-    
-    // Disable propagation to see only direct handler output
-    moduleA.setPropagate(false);
-    service1.setPropagate(false);
-    service2.setPropagate(false);
-    moduleB.setPropagate(false);
-    root.setPropagate(false);
-    
-    // Initial state
-    EXPECT_EQ(moduleA.getParent(), root);
-    EXPECT_EQ(service1.getParent(), moduleA);
-    EXPECT_EQ(service2.getParent(), moduleA);
-    EXPECT_EQ(moduleB.getParent(), root);
-    
-    // Move moduleA (and its children) under moduleB
-    moduleA.redirectTo(moduleB);
-    
-    // New tree structure:
-    // root
-    // └── moduleB
-    //     └── moduleA
-    //         ├── moduleA.service1
-    //         └── moduleA.service2
-    
-    EXPECT_EQ(moduleA.getParent(), moduleB);
-    EXPECT_EQ(service1.getParent(), moduleA);  // Still parent of service1
-    EXPECT_EQ(service2.getParent(), moduleA);  // Still parent of service2
-    EXPECT_EQ(moduleB.getParent(), root);
-    
-    // moduleB now has moduleA as child
-    EXPECT_EQ(moduleB.getChildren().size(), 1);
-}
-
-TEST(LoggerTest, LogPropagationInTree) {
-    auto root = pp::logging::getRootLogger();
-    auto parent = pp::logging::getLogger("parent");
-    auto child = pp::logging::getLogger("parent.child");
-    
-    // By default, logs propagate up the tree
-    EXPECT_TRUE(child.getPropagate());
-    
-    // When child logs, it goes to child handlers AND propagates to parent
-    child.info << "Child message";
-    // This will show 3 times: [parent.child], [parent], and root
-    
-    // Can disable propagation
-    child.setPropagate(false);
-    EXPECT_FALSE(child.getPropagate());
-    
-    child.info << "No propagation";
-    // This will show only once: [parent.child]
-}
-
-TEST(LoggerTest, PreventCircularRedirection) {
-    auto loggerA = pp::logging::getLogger("loggerA");
-    auto loggerB = pp::logging::getLogger("loggerB");
-    auto loggerC = pp::logging::getLogger("loggerC");
-    
-    // Create chain: A . B . C
-    loggerA.redirectTo(loggerB);
-    loggerB.redirectTo(loggerC);
-    
-    // Try to create cycle: C . A (should throw)
-    EXPECT_THROW(loggerC.redirectTo(loggerA), std::invalid_argument);
-    
-    // Also prevent self-redirection
-    EXPECT_THROW(loggerA.redirectTo(loggerA), std::invalid_argument);
-}
-
-TEST(LoggerTest, ComplexTreeReorganization) {
-    // Create initial tree:
-    // root
-    // ├── app
-    // │   ├── app.ui
-    // │   └── app.backend
-    // │       └── app.backend.db
-    // └── system
-    
-    auto root = pp::logging::getRootLogger();
-    auto app = pp::logging::getLogger("app");
-    auto ui = pp::logging::getLogger("app.ui");
-    auto backend = pp::logging::getLogger("app.backend");
-    auto db = pp::logging::getLogger("app.backend.db");
-    auto system = pp::logging::getLogger("system");
+TEST(LoggerTest, RedirectMergesChildrenAndDissolvesNode) {
+    // Create a tree structure using LoggerNode directly to verify internal behavior
+    auto root = std::make_shared<pp::logging::LoggerNode>("");
+    auto sourceNode = root->getOrInitChild("source");
+    auto child1Node = sourceNode->getOrInitChild("child1");
+    auto child2Node = sourceNode->getOrInitChild("child2");
+    auto targetNode = root->getOrInitChild("target");
     
     // Verify initial structure
-    EXPECT_EQ(app.getParent(), root);
-    EXPECT_EQ(ui.getParent(), app);
-    EXPECT_EQ(backend.getParent(), app);
-    EXPECT_EQ(db.getParent(), backend);
-    EXPECT_EQ(system.getParent(), root);
+    EXPECT_EQ(sourceNode->getChildren().size(), 2);
+    EXPECT_EQ(targetNode->getChildren().size(), 0);
+    EXPECT_EQ(child1Node->getParent(), sourceNode);
+    EXPECT_EQ(child2Node->getParent(), sourceNode);
     
-    // Move entire backend subtree under system
-    backend.redirectTo(system);
+    // Now test with Logger wrapper
+    auto source = pp::logging::getLogger("source2");
+    auto child1 = pp::logging::getLogger("source2.child1");
+    auto child2 = pp::logging::getLogger("source2.child2");
+    auto target = pp::logging::getLogger("target2");
     
-    // New tree:
-    // root
-    // ├── app
-    // │   └── app.ui
-    // └── system
-    //     └── app.backend
-    //         └── app.backend.db
+    // Redirect source to target
+    source.redirectTo("target2");
     
-    EXPECT_EQ(backend.getParent(), system);
-    EXPECT_EQ(db.getParent(), backend);  // db still under backend
-    EXPECT_EQ(ui.getParent(), app);      // ui still under app
+    // After redirect:
+    // - source wrapper should point to target
+    // - children should now report being under target
     
-    // app lost backend but still has ui
-    EXPECT_EQ(app.getChildren().size(), 1);
+    EXPECT_EQ(source, target);
+    EXPECT_EQ(source.getFullName(), "target2");
     
-    // system gained backend as child
-    EXPECT_EQ(system.getChildren().size(), 1);
-}
-
-TEST(LoggerTest, RedirectToExistingLoggerMovesUnderIt) {
-    // Case 1: R.A redirect to R.B where R.B exists . moves A under R.B
-    auto loggerA = pp::logging::getLogger("root.A");
-    auto loggerB = pp::logging::getLogger("root.B");
-    auto root = pp::logging::getRootLogger();
-    
-    // Initially both are children of root
-    EXPECT_EQ(loggerA.getParent().getFullName(), "root");
-    EXPECT_EQ(loggerB.getParent().getFullName(), "root");
-    EXPECT_EQ(loggerA.getFullName(), "root.A");
-    
-    // Redirect A to B (B exists)
-    loggerA.redirectTo("root.B");
-    
-    // A should now be under B, name unchanged
-    EXPECT_EQ(loggerA.getParent(), loggerB);
-    EXPECT_EQ(loggerA.getFullName(), "root.B.A");
-}
-
-TEST(LoggerTest, RedirectToNonExistingLoggerRenames) {
-    // Case 2: R.A redirect to R.C where R.C doesn't exist . R.A becomes child of R.C
-    auto loggerA = pp::logging::getLogger("rename.A");
-    auto renameRoot = pp::logging::getLogger("rename");
-    
-    EXPECT_EQ(loggerA.getFullName(), "rename.A");
-    EXPECT_EQ(loggerA.getParent().getFullName(), "rename");
-    
-    // Redirect A to C (C doesn't exist, will be created)
-    loggerA.redirectTo("rename.C");
-    
-    // A keeps its node name but is now under C
-    EXPECT_EQ(loggerA.getName(), "A");  // Node name stays the same
-    EXPECT_EQ(loggerA.getFullName(), "rename.C.A");  // Full path changes
-    EXPECT_EQ(loggerA.getParent().getFullName(), "rename.C");
-    
-    // Verify C exists and is the parent
-    auto loggerC = pp::logging::getLogger("rename.C");
-    EXPECT_EQ(loggerC, loggerA.getParent());
-    EXPECT_EQ(loggerC.getFullName(), "rename.C");
-}
-
-TEST(LoggerTest, RedirectRenameToCompletelyNewHierarchy) {
-    // R.A redirect to S.B where S doesn't exist . R.A becomes child of S.B
-    // Use unique names to avoid interference from previous tests
-    auto loggerA = pp::logging::getLogger("hierarchy.A");
-    
-    EXPECT_EQ(loggerA.getFullName(), "hierarchy.A");
-    
-    // Redirect to completely new hierarchy
-    loggerA.redirectTo("system.B");
-    
-    // A keeps its node name but full path changes
-    EXPECT_EQ(loggerA.getName(), "A");  // Node name unchanged
-    EXPECT_EQ(loggerA.getFullName(), "system.B.A");  // Now under system.B
-    
-    // Get the parent directly (should be "system.B")
-    auto parent = loggerA.getParent();
-    EXPECT_NE(parent.getNode(), nullptr);
-    EXPECT_EQ(parent.getFullName(), "system.B");
-    
-    // Getting system.B from registry should return the same instance
-    auto systemBLogger = pp::logging::getLogger("system.B");
-    EXPECT_EQ(parent, systemBLogger);
+    // Children's full names should reflect new parent
+    EXPECT_EQ(child1.getFullName(), "target2.child1");
+    EXPECT_EQ(child2.getFullName(), "target2.child2");
 }

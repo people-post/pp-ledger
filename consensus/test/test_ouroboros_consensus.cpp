@@ -11,7 +11,9 @@ using ::testing::Eq;
 class OuroborosTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        consensus = std::make_unique<Ouroboros>(5, 10);
+        consensus = std::make_unique<Ouroboros>();
+        consensus->setSlotDuration(5);
+        consensus->setSlotsPerEpoch(10);
     }
 
     void TearDown() override {
@@ -179,7 +181,7 @@ TEST_F(OuroborosTest, SetsGenesisTime) {
 }
 
 TEST_F(OuroborosTest, ReturnsErrorWhenNoStakeholders) {
-    Ouroboros emptyConsensus(1, 10);
+    Ouroboros emptyConsensus;
     auto result = emptyConsensus.getSlotLeader(0);
     
     EXPECT_TRUE(result.isError());

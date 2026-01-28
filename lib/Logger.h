@@ -110,26 +110,35 @@ public:
   std::shared_ptr<LoggerNode> getParent() const { return parent_.lock(); }
   void addChild(std::shared_ptr<LoggerNode> child);
   void removeChild(LoggerNode* child);
-  const std::vector<std::weak_ptr<LoggerNode>>& getChildren() const { return children_; }
+  const std::vector<std::shared_ptr<LoggerNode>>& getChildren() const { return spChildren_; }
 
   // Logging
   void log(Level level, const std::string &message);
-  void logToHandlers(Level level, const std::string &message);
 
   // Name access - only stores node name, not full path
   const std::string &getName() const { return name_; }
   // Get full hierarchical name by traversing to root
   std::string getFullName() const;
 
+  std::shared_ptr<LoggerNode> getOrInitChild(const std::string& fullName);
+
 private:
+  std::shared_ptr<LoggerNode> getOrInitDirectChild(const std::string& name);
+
+  void logToHandlers(Level level, const std::string &message);
+  
+  // Internal logging with originating logger name (for propagation)
+  void logWithOriginatingName(Level level, const std::string &message, const std::string &originatingLoggerName);
+  void logToHandlersWithOriginatingName(Level level, const std::string &message, const std::string &originatingLoggerName);
   std::string formatMessage(Level level, const std::string &message);
+  std::string formatMessage(Level level, const std::string &message, const std::string &originatingLoggerName);
   std::string levelToString(Level level);
 
   std::string name_;  // Only the node name, not the full path
   std::weak_ptr<LoggerNode> parent_;  // Parent node in the tree
-  Level level_;
-  bool propagate_;
-  std::vector<std::weak_ptr<LoggerNode>> children_;
+  Level level_{ Level::DEBUG };
+  bool propagate_{ true };
+  std::vector<std::shared_ptr<LoggerNode>> spChildren_;
   std::vector<std::shared_ptr<Handler>> spHandlers_;
   mutable std::mutex mutex_;
 };
@@ -148,45 +157,36 @@ public:
   LogProxy critical;
 
   // Configuration - delegate to node
-  void setLevel(Level level) { node_->setLevel(level); }
-  Level getLevel() const { return node_->getLevel(); }
+  void setLevel(Level level) { spNode_->setLevel(level); }
+  Level getLevel() const { return spNode_->getLevel(); }
 
-  void addHandler(std::shared_ptr<Handler> spHandler) { node_->addHandler(spHandler); }
+  void addHandler(std::shared_ptr<Handler> spHandler) { spNode_->addHandler(spHandler); }
   void addFileHandler(const std::string &filename, Level level = Level::DEBUG) { 
-    node_->addFileHandler(filename, level); 
+    spNode_->addFileHandler(filename, level); 
   }
 
-  void setPropagate(bool propagate) { node_->setPropagate(propagate); }
-  bool getPropagate() const { return node_->getPropagate(); }
+  void setPropagate(bool propagate) { spNode_->setPropagate(propagate); }
+  bool getPropagate() const { return spNode_->getPropagate(); }
 
   // Tree structure: Redirect this logger (and all its children) to another parent
   void redirectTo(const std::string &targetLoggerName);
-  void redirectTo(Logger targetLogger);
-  
-  // Switch this Logger wrapper to point to a different logger node
-  void switchTo(const std::string &targetLoggerName);
-  
-  // Tree structure query methods
-  Logger getParent() const;
-  std::vector<Logger> getChildren() const;
 
-  const std::string &getName() const { return node_->getName(); }
-  std::string getFullName() const { return node_->getFullName(); }
-  
-  // Access to underlying node (for internal use)
-  std::shared_ptr<LoggerNode> getNode() const { return node_; }
+  const std::string &getName() const { return spNode_->getName(); }
+  std::string getFullName() const { return spNode_->getFullName(); }
   
   // Equality comparison based on underlying node
-  bool operator==(const Logger& other) const { return node_ == other.node_; }
-  bool operator!=(const Logger& other) const { return node_ != other.node_; }
+  bool operator==(const Logger& other) const { return spNode_ == other.spNode_; }
+  bool operator!=(const Logger& other) const { return spNode_ != other.spNode_; }
 
 private:
   friend class LogStream;
   friend class LogProxy;
 
-  void log(Level level, const std::string &message) { node_->log(level, message); }
+  // Access to underlying node (for internal use)
+  std::shared_ptr<LoggerNode> getNode() const { return spNode_; }  
+  void log(Level level, const std::string &message) { spNode_->log(level, message); }
 
-  std::shared_ptr<LoggerNode> node_;
+  std::shared_ptr<LoggerNode> spNode_;
 };
 
 // Template implementation for LogProxy (must be after LogStream definition)
@@ -197,7 +197,7 @@ template <typename T> LogStream LogProxy::operator<<(const T &value) {
 }
 
 // Global logger management
-Logger getLogger(const std::string &name = "");
+Logger getLogger(const std::string &name);
 Logger getRootLogger();
 
 } // namespace logging

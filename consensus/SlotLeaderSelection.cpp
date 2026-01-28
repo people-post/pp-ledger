@@ -6,9 +6,7 @@
 namespace pp {
 namespace consensus {
 
-VRF::VRF() {
-  log().info << "VRF module initialized";
-}
+VRF::VRF() {}
 
 VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
                                        const std::string &privateKey) const {

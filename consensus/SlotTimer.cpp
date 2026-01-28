@@ -5,10 +5,7 @@ namespace pp {
 namespace consensus {
 
 SlotTimer::SlotTimer(uint64_t slotDuration)
-    : slotDuration_(slotDuration) {
-  log().info << "Slot timer initialized with duration: " +
-                    std::to_string(slotDuration_) + "s";
-}
+    : slotDuration_(slotDuration) {}
 
 uint64_t SlotTimer::getCurrentSlot(int64_t genesisTime) const {
   int64_t currentTime = getCurrentTime();

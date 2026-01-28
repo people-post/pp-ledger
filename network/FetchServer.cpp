@@ -4,9 +4,7 @@
 namespace pp {
 namespace network {
 
-FetchServer::FetchServer() {
-  log().info << "FetchServer initialized";
-}
+FetchServer::FetchServer() {}
 
 bool FetchServer::start(const Config &config) {
   if (isRunning()) {

@@ -8,19 +8,7 @@
 namespace pp {
 namespace consensus {
 
-Ouroboros::Ouroboros(uint64_t slotDuration, uint64_t slotsPerEpoch)
-    : slotDuration_(slotDuration),
-      slotsPerEpoch_(slotsPerEpoch), genesisTime_(0) {
-  // Set genesis time to current time if not set
-  auto now = std::chrono::system_clock::now();
-  genesisTime_ =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
-
-  log().info << "Ouroboros consensus initialized with slot duration: " +
-                    std::to_string(slotDuration_) +
-                    "s, slots per epoch: " + std::to_string(slotsPerEpoch_);
-}
+Ouroboros::Ouroboros() {}
 
 void Ouroboros::registerStakeholder(const std::string &id, uint64_t stake) {
   if (stake == 0) {

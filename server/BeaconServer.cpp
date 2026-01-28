@@ -11,6 +11,7 @@ namespace pp {
 
 BeaconServer::BeaconServer() {
   beacon_.redirectLogger(log().getFullName() + ".Beacon");
+  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
 
 BeaconServer::Roe<void> BeaconServer::init(const Beacon::InitConfig& config) {

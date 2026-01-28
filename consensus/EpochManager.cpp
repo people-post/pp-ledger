@@ -8,19 +8,7 @@ namespace consensus {
 
 // ========== EpochManager Implementation ==========
 
-EpochManager::EpochManager(uint64_t slotsPerEpoch, uint64_t slotDuration)
-    : slotsPerEpoch_(slotsPerEpoch),
-      slotDuration_(slotDuration), genesisTime_(0), cachedCurrentEpoch_(0),
-      lastUpdateTime_(0) {
-  auto now = std::chrono::system_clock::now();
-  genesisTime_ =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
-
-  log().info << "Epoch manager initialized: " + std::to_string(slotsPerEpoch_) +
-                    " slots per epoch, " + std::to_string(slotDuration_) +
-                    "s slot duration";
-}
+EpochManager::EpochManager() {}
 
 void EpochManager::initializeEpoch(uint64_t epochNumber,
                                    const std::string &nonce) {
