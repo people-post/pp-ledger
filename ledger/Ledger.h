@@ -19,15 +19,15 @@ public:
     constexpr static uint16_t T_USER = 2;
 
     uint16_t type{ T_DEFAULT };
-    std::string fromWallet; // Source wallet ID
-    std::string toWallet;   // Destination wallet ID
-    int64_t amount{ 0 };    // Transfer amount
-    std::string meta;       // Transaction metadata
+    uint64_t fromWalletId{ 0 }; // Source wallet ID
+    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    int64_t amount{ 0 };        // Transfer amount
+    std::string meta;           // Transaction metadata
 
     Transaction() = default;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & type & fromWallet & toWallet & amount & meta;
+      ar & type & fromWalletId & toWalletId & amount & meta;
     }
   };
 

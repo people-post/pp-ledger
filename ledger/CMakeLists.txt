@@ -1,7 +1,5 @@
 # Ledger library
 add_library(pp_ledger STATIC
-    Wallet.cpp
-    Wallet.h
     Ledger.cpp
     Ledger.h
     DirStore.cpp

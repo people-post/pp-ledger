@@ -178,8 +178,8 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
 
   pendingTransactions_.push(tx);
   
-  log().debug << "Transaction added to pool: " << tx.fromWallet 
-              << " -> " << tx.toWallet << " (" << tx.amount << ")";
+  log().debug << "Transaction added to pool: " << tx.fromWalletId 
+              << " -> " << tx.toWalletId << " (" << tx.amount << ")";
 
   return {};
 }
@@ -329,7 +329,7 @@ std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>&
   std::ostringstream oss;
   oss << txs.size();
   for (const auto& tx : txs) {
-    oss << ";" << tx.fromWallet << "," << tx.toWallet << "," << tx.amount;
+    oss << ";" << tx.fromWalletId << "," << tx.toWalletId << "," << tx.amount;
   }
   return oss.str();
 }

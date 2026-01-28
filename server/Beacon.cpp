@@ -408,8 +408,8 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Create checkpoint transaction with BlockChainConfig
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.fromWallet = "system";
-  checkpointTx.toWallet = "system";
+  checkpointTx.fromWalletId = 0; // system wallet ID
+  checkpointTx.toWalletId = 0;   // system wallet ID
   checkpointTx.amount = 0;
   
   // Serialize BlockChainConfig to transaction metadata

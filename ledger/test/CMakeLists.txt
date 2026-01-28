@@ -3,18 +3,6 @@
 # Include GoogleTest
 include(GoogleTest)
 
-# Test for Wallet
-add_executable(test_wallet
-    test_wallet.cpp
-)
-
-target_link_libraries(test_wallet PRIVATE
-    pp_ledger
-    GTest::gtest_main
-)
-
-gtest_discover_tests(test_wallet)
-
 # Test for FileStore
 add_executable(test_blockfile
     test_blockfile.cpp

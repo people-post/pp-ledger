@@ -259,23 +259,29 @@ int main(int argc, char *argv[]) {
         printUsage();
         exitCode = 1;
       } else {
-        std::string fromWallet = positionalArgs[1];
-        std::string toWallet = positionalArgs[2];
+        uint64_t fromWalletId = 0;
+        uint64_t toWalletId = 0;
         int64_t amount = 0;
-        if (!pp::utl::parseInt64(positionalArgs[3], amount)) {
+        if (!pp::utl::parseUInt64(positionalArgs[1], fromWalletId)) {
+          std::cerr << "Error: Invalid from wallet ID: " << positionalArgs[1] << "\n";
+          exitCode = 1;
+        } else if (!pp::utl::parseUInt64(positionalArgs[2], toWalletId)) {
+          std::cerr << "Error: Invalid to wallet ID: " << positionalArgs[2] << "\n";
+          exitCode = 1;
+        } else if (!pp::utl::parseInt64(positionalArgs[3], amount)) {
           std::cerr << "Error: Invalid amount: " << positionalArgs[3] << "\n";
           exitCode = 1;
         } else {
           // Create transaction JSON
-          json txJson = {{"from", fromWallet},
-                         {"to", toWallet},
+          json txJson = {{"from", fromWalletId},
+                         {"to", toWalletId},
                          {"amount", amount}};
 
           auto result = client.addTransaction(txJson);
           if (result && result.value()) {
             std::cout << "Transaction submitted successfully\n";
-            std::cout << "  From: " << fromWallet << "\n";
-            std::cout << "  To: " << toWallet << "\n";
+            std::cout << "  From: " << fromWalletId << "\n";
+            std::cout << "  To: " << toWalletId << "\n";
             std::cout << "  Amount: " << amount << "\n";
           } else {
             std::cerr << "Error: " << result.error().message << "\n";

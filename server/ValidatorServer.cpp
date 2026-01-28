@@ -21,8 +21,8 @@ nlohmann::json ValidatorServer::blockToJson(const Ledger::ChainNode& block) cons
   for (const auto& signedTx : block.block.signedTxes) {
     nlohmann::json txJson;
     txJson["type"] = signedTx.obj.type;
-    txJson["fromWallet"] = signedTx.obj.fromWallet;
-    txJson["toWallet"] = signedTx.obj.toWallet;
+    txJson["fromWalletId"] = signedTx.obj.fromWalletId;
+    txJson["toWalletId"] = signedTx.obj.toWalletId;
     txJson["amount"] = signedTx.obj.amount;
     txJson["meta"] = signedTx.obj.meta;
     txJson["signature"] = signedTx.signature;
@@ -48,8 +48,8 @@ Ledger::ChainNode ValidatorServer::jsonToBlock(const nlohmann::json& blockJson) 
     for (const auto& txJson : blockJson["signedTxes"]) {
       Ledger::SignedData<Ledger::Transaction> signedTx;
       if (txJson.contains("type")) signedTx.obj.type = txJson["type"].get<uint16_t>();
-      if (txJson.contains("fromWallet")) signedTx.obj.fromWallet = txJson["fromWallet"].get<std::string>();
-      if (txJson.contains("toWallet")) signedTx.obj.toWallet = txJson["toWallet"].get<std::string>();
+      if (txJson.contains("fromWalletId")) signedTx.obj.fromWalletId = txJson["fromWalletId"].get<uint64_t>();
+      if (txJson.contains("toWalletId")) signedTx.obj.toWalletId = txJson["toWalletId"].get<uint64_t>();
       if (txJson.contains("amount")) signedTx.obj.amount = txJson["amount"].get<int64_t>();
       if (txJson.contains("meta")) signedTx.obj.meta = txJson["meta"].get<std::string>();
       if (txJson.contains("signature")) signedTx.signature = txJson["signature"].get<std::string>();

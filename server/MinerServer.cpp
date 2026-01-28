@@ -253,8 +253,8 @@ std::string MinerServer::handleTransactionRequest(const nlohmann::json& reqJson)
       return resp.dump();
     }
     
-    tx.fromWallet = txJson["from"].get<std::string>();
-    tx.toWallet = txJson["to"].get<std::string>();
+    tx.fromWalletId = txJson["from"].get<uint64_t>();
+    tx.toWalletId = txJson["to"].get<uint64_t>();
     tx.amount = txJson["amount"].get<int64_t>();
     
     auto result = miner_.addTransaction(tx);

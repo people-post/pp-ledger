@@ -12,6 +12,8 @@ add_library(pp_server STATIC
     MinerServer.h
     Miner.cpp
     Miner.h
+    AccountBuffer.cpp
+    AccountBuffer.h
 )
 
 target_include_directories(pp_server PUBLIC
