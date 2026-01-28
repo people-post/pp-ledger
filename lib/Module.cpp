@@ -2,14 +2,12 @@
 
 namespace pp {
 
-Module::Module() {
-  spLogger_ = logging::getLogger("");
-}
+Module::Module() : logger_(logging::getLogger("")) {}
 
 void Module::redirectLogger(const std::string &targetLoggerName) {
-  spLogger_->redirectTo(targetLoggerName);
+  logger_.switchTo(targetLoggerName);
 }
 
-logging::Logger &Module::log() const { return *spLogger_; }
+logging::Logger &Module::log() const { return logger_; }
 
 } // namespace pp

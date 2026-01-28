@@ -533,7 +533,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   log().info << "Connecting to beacon server: " << beaconAddr;
 
   Client client;
-  client.redirectLogger(log().getName() + ".Client");
+  client.redirectLogger(log().getFullName() + ".Client");
   if (!client.setEndpoint(beaconAddr)) {
     return Error(101, "Failed to connect to beacon at " + beaconAddr);
   }

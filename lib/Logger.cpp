@@ -2,15 +2,32 @@
 
 #include <chrono>
 #include <ctime>
+#include <functional>
 #include <iomanip>
 #include <iostream>
+#include <unordered_map>
 
 namespace pp {
 namespace logging {
 
-// Global logger registry
-static std::map<std::string, std::shared_ptr<Logger>> loggerRegistry;
-static std::mutex registryMutex;
+// Helper function to trim leading dot from logger name
+static std::string trimLeadingDot(const std::string& name) {
+  if (!name.empty() && name[0] == '.') {
+    return name.substr(1);
+  }
+  return name;
+}
+
+static std::mutex& getRegistryMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+// LoggerNode registry (forward declaration for use in Logger methods)
+static std::unordered_map<std::string, std::shared_ptr<LoggerNode>>& getLoggerRegistry() {
+  static std::unordered_map<std::string, std::shared_ptr<LoggerNode>> registry;
+  return registry;
+}
 
 // Helper function to get current timestamp
 static std::string getCurrentTimestamp() {
@@ -91,27 +108,66 @@ LogStream &LogStream::operator=(LogStream &&other) noexcept {
   return *this;
 }
 
-// Logger implementation
-Logger::Logger(const std::string &name)
-    : name_(name), level_(Level::DEBUG), debug(this, Level::DEBUG),
-      info(this, Level::INFO), warning(this, Level::WARNING),
-      error(this, Level::ERROR), critical(this, Level::CRITICAL) {
+// ========== LoggerNode Implementation ==========
+
+LoggerNode::LoggerNode(const std::string &name)
+    : name_(name), level_(Level::DEBUG), propagate_(true) {
   // Add default console handler
   addHandler(std::make_shared<ConsoleHandler>());
 }
 
-void Logger::log(Level level, const std::string &message) {
-  // Check for redirect first (before checking level)
-  if (!redirectTarget_.empty()) {
-    auto targetLogger = getLogger(redirectTarget_);
-    targetLogger->log(level, message);
-    return;
+std::string LoggerNode::getFullName() const {
+  std::vector<std::string> parts;
+  
+  // Traverse to root, collecting names
+  auto current = const_cast<LoggerNode*>(this)->shared_from_this();
+  while (current && !current->getName().empty()) {
+    parts.push_back(current->getName());
+    current = current->getParent();
+  }
+  
+  // Build full name from root to this node
+  if (parts.empty()) {
+    return "";
+  }
+  
+  std::string fullName;
+  for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+    if (!fullName.empty()) {
+      fullName += ".";
+    }
+    fullName += *it;
+  }
+  return fullName;
+}
+
+void LoggerNode::addHandler(std::shared_ptr<Handler> spHandler) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  spHandlers_.push_back(spHandler);
+}
+
+void LoggerNode::addFileHandler(const std::string &filename, Level level) {
+  auto spHandler = std::make_shared<FileHandler>(filename);
+  spHandler->setLevel(level);
+  addHandler(spHandler);
+}
+
+void LoggerNode::log(Level level, const std::string &message) {
+  // Log to own handlers if level is sufficient
+  if (level >= level_) {
+    logToHandlers(level, message);
   }
 
-  if (level < level_) {
-    return;
+  // Propagate to parent if enabled
+  if (propagate_) {
+    auto parentNode = getParent();
+    if (parentNode) {
+      parentNode->log(level, message);
+    }
   }
+}
 
+void LoggerNode::logToHandlers(Level level, const std::string &message) {
   std::lock_guard<std::mutex> lock(mutex_);
   std::string formattedMessage = formatMessage(level, message);
 
@@ -120,18 +176,19 @@ void Logger::log(Level level, const std::string &message) {
   }
 }
 
-std::string Logger::formatMessage(Level level, const std::string &message) {
+std::string LoggerNode::formatMessage(Level level, const std::string &message) {
   std::stringstream ss;
   ss << "[" << getCurrentTimestamp() << "] ";
   ss << "[" << levelToString(level) << "] ";
-  if (!name_.empty()) {
-    ss << "[" << name_ << "] ";
+  std::string fullName = getFullName();
+  if (!fullName.empty()) {
+    ss << "[" << fullName << "] ";
   }
   ss << message;
   return ss.str();
 }
 
-std::string Logger::levelToString(Level level) {
+std::string LoggerNode::levelToString(Level level) {
   switch (level) {
   case Level::DEBUG:
     return "DEBUG";
@@ -148,61 +205,153 @@ std::string Logger::levelToString(Level level) {
   }
 }
 
-void Logger::addHandler(std::shared_ptr<Handler> spHandler) {
+void LoggerNode::addChild(std::shared_ptr<LoggerNode> child) {
   std::lock_guard<std::mutex> lock(mutex_);
-  spHandlers_.push_back(spHandler);
+  children_.push_back(child);
 }
 
-void Logger::addFileHandler(const std::string &filename, Level level) {
-  auto spHandler = std::make_shared<FileHandler>(filename);
-  spHandler->setLevel(level);
-  addHandler(spHandler);
+void LoggerNode::removeChild(LoggerNode* child) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  children_.erase(
+    std::remove_if(children_.begin(), children_.end(),
+      [child](const std::weak_ptr<LoggerNode>& weak) {
+        auto ptr = weak.lock();
+        return !ptr || ptr.get() == child;
+      }),
+    children_.end()
+  );
+}
+
+// ========== Logger Implementation ==========
+
+Logger::Logger(std::shared_ptr<LoggerNode> node)
+    : node_(node),
+      debug(this, Level::DEBUG),
+      info(this, Level::INFO),
+      warning(this, Level::WARNING),
+      error(this, Level::ERROR),
+      critical(this, Level::CRITICAL) {
+}
+
+Logger Logger::getParent() const {
+  auto parentNode = node_->getParent();
+  if (parentNode) {
+    return Logger(parentNode);
+  }
+  return Logger(nullptr);
+}
+
+std::vector<Logger> Logger::getChildren() const {
+  std::vector<Logger> result;
+  const auto& children = node_->getChildren();
+  for (const auto& weakChild : children) {
+    auto childNode = weakChild.lock();
+    if (childNode) {
+      result.push_back(Logger(childNode));
+    }
+  }
+  return result;
 }
 
 void Logger::redirectTo(const std::string &targetLoggerName) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  redirectTarget_ = targetLoggerName;
+  // Get the target logger - use global registry, not hierarchical child
+  auto targetLogger = logging::getLogger(targetLoggerName);
+  redirectTo(targetLogger);
 }
 
-void Logger::clearRedirect() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  redirectTarget_.clear();
+void Logger::switchTo(const std::string &targetLoggerName) {
+  // Switch this Logger wrapper to point to a different logger node
+  auto targetLogger = logging::getLogger(trimLeadingDot(targetLoggerName));
+  node_ = targetLogger.getNode();
 }
 
-std::shared_ptr<Logger> Logger::getLogger(const std::string &name) {
-  // Create child logger with hierarchical name
-  std::string childName;
-  if (name_.empty()) {
-    childName = name;
-  } else if (name.empty()) {
-    childName = name_;
-  } else {
-    childName = name_ + "." + name;
+void Logger::redirectTo(Logger targetLogger) {
+  if (!targetLogger.getNode()) {
+    throw std::invalid_argument("Cannot redirect to null logger");
   }
-  return logging::getLogger(childName);
+  
+  if (targetLogger.getNode() == node_) {
+    throw std::invalid_argument("Cannot redirect logger to itself");
+  }
+  
+  auto targetNode = targetLogger.getNode();
+  
+  // Check for circular redirection by checking if target is a descendant
+  auto ancestor = targetNode;
+  while (ancestor) {
+    if (ancestor == node_) {
+      throw std::invalid_argument("Cannot create circular parent relationship");
+    }
+    ancestor = ancestor->getParent();
+  }
+  
+  // Remove from current parent's children list
+  auto oldParent = node_->getParent();
+  if (oldParent) {
+    oldParent->removeChild(node_.get());
+  }
+  
+  // Set new parent and add to new parent's children
+  node_->setParent(targetNode);
+  targetNode->addChild(node_);
 }
 
-// Global logger management functions
-std::shared_ptr<Logger> getLogger(const std::string &name) {
-  std::lock_guard<std::mutex> lock(registryMutex);
+// ========== Global logger management ==========
 
-  // Check if logger already exists
-  auto it = loggerRegistry.find(name);
-  if (it != loggerRegistry.end()) {
-    return it->second;
+Logger getLogger(const std::string &name) {
+  std::string trimmedName = trimLeadingDot(name);
+  std::lock_guard<std::mutex> lock(getRegistryMutex());
+  auto& registry = getLoggerRegistry();
+
+  // Check if node already exists
+  auto it = registry.find(trimmedName);
+  if (it != registry.end()) {
+    return Logger(it->second);
   }
 
-  // Create new logger
-  auto logger = std::make_shared<Logger>(name);
-  loggerRegistry[name] = logger;
+  // Parse the hierarchical name to extract node name and parent path
+  std::string nodeName = trimmedName;
+  std::string parentPath;
+  auto lastDot = trimmedName.rfind('.');
+  if (lastDot != std::string::npos) {
+    parentPath = trimmedName.substr(0, lastDot);
+    nodeName = trimmedName.substr(lastDot + 1);
+  }
 
-  // If this is a child logger (contains dots), we could inherit settings
-  // from parent logger, but for now we just create independent loggers
+  // Create new node with just the node name (not full path)
+  auto node = std::make_shared<LoggerNode>(nodeName);
+  registry[trimmedName] = node;  // Registry uses full path as key
 
-  return logger;
+  // Establish parent-child relationship for hierarchical loggers
+  if (!trimmedName.empty()) {
+    if (lastDot != std::string::npos) {
+      // Has a parent in the hierarchy
+      // Create parent if it doesn't exist (releases lock temporarily via recursion)
+      getRegistryMutex().unlock();
+      auto parentLogger = getLogger(parentPath);
+      getRegistryMutex().lock();
+      auto parentNode = parentLogger.getNode();
+      
+      // Establish parent-child relationship
+      node->setParent(parentNode);
+      parentNode->addChild(node);
+    } else {
+      // Top-level logger, attach to root
+      auto rootIt = registry.find("");
+      if (rootIt != registry.end()) {
+        auto rootNode = rootIt->second;
+        node->setParent(rootNode);
+        rootNode->addChild(node);
+      }
+    }
+  }
+
+  return Logger(node);
 }
 
-std::shared_ptr<Logger> getRootLogger() { return getLogger(""); }
+Logger getRootLogger() {
+  return getLogger("");
+}
 
 } // namespace logging
 } // namespace pp

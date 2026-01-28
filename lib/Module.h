@@ -43,7 +43,7 @@ protected:
   logging::Logger &log() const;
 
 private:
-  std::shared_ptr<logging::Logger> spLogger_;
+  mutable logging::Logger logger_;
 };
 
 } // namespace pp

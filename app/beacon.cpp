@@ -67,7 +67,7 @@ void printUsage() {
 
 int initBeacon(const std::string& workDir) {
   auto logger = pp::logging::getLogger("beacon");
-  logger->info << "Initializing new beacon with work directory: " << workDir;
+  logger.info << "Initializing new beacon with work directory: " << workDir;
   
   std::filesystem::path workDirPath(workDir);
   std::filesystem::path initConfigPath = workDirPath / "init-config.json";
@@ -79,12 +79,12 @@ int initBeacon(const std::string& workDir) {
   // Create work directory if it doesn't exist (to write init-config.json)
   if (!std::filesystem::exists(workDirPath)) {
     std::filesystem::create_directories(workDirPath);
-    logger->info << "Created work directory: " << workDir;
+    logger.info << "Created work directory: " << workDir;
   }
   
   // Create or load init-config.json
   if (!std::filesystem::exists(initConfigPath)) {
-    logger->info << "Creating init-config.json with default parameters";
+    logger.info << "Creating init-config.json with default parameters";
     
     nlohmann::json defaultConfig;
     defaultConfig["slotDuration"] = slotDuration;
@@ -92,25 +92,25 @@ int initBeacon(const std::string& workDir) {
     
     std::ofstream configFile(initConfigPath);
     if (!configFile) {
-      logger->error << "Failed to create init-config.json";
+      logger.error << "Failed to create init-config.json";
       std::cerr << "Error: Failed to create init-config.json\n";
       return 1;
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
     
-    logger->info << "Created: " << initConfigPath.string();
+    logger.info << "Created: " << initConfigPath.string();
     std::cout << "Created init-config.json with default parameters at: " << initConfigPath.string() << "\n";
   } else {
-    logger->info << "Found existing init-config.json";
+    logger.info << "Found existing init-config.json";
   }
   
   // Load configuration from init-config.json
-  logger->info << "Loading configuration from: " << initConfigPath.string();
+  logger.info << "Loading configuration from: " << initConfigPath.string();
   
   auto jsonResult = pp::utl::loadJsonFile(initConfigPath.string());
   if (!jsonResult) {
-    logger->error << "Failed to load init config file: " << jsonResult.error().message;
+    logger.error << "Failed to load init config file: " << jsonResult.error().message;
     std::cerr << "Error: Failed to load init config file: " << jsonResult.error().message << "\n";
     return 1;
   }
@@ -130,18 +130,18 @@ int initBeacon(const std::string& workDir) {
   initConfig.slotDuration = slotDuration;
   initConfig.slotsPerEpoch = slotsPerEpoch;
   
-  logger->info << "Configuration:";
-  logger->info << "  Slot duration: " << slotDuration << " seconds";
-  logger->info << "  Slots per epoch: " << slotsPerEpoch;
+  logger.info << "Configuration:";
+  logger.info << "  Slot duration: " << slotDuration << " seconds";
+  logger.info << "  Slots per epoch: " << slotsPerEpoch;
   
   auto result = beaconServer.init(initConfig);
   if (!result) {
-    logger->error << "Failed to initialize beacon: " << result.error().message;
+    logger.error << "Failed to initialize beacon: " << result.error().message;
     std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
     return 1;
   }
   
-  logger->info << "Beacon initialized successfully";
+  logger.info << "Beacon initialized successfully";
   std::cout << "Beacon initialized successfully\n";
   std::cout << "Work directory: " << workDir << "\n";
   std::cout << "Configuration: " << initConfigPath.string() << "\n";
@@ -151,26 +151,26 @@ int initBeacon(const std::string& workDir) {
 
 int runBeacon(const std::string& workDir) {
   auto logger = pp::logging::getLogger("beacon");
-  logger->info << "Starting beacon with work directory: " << workDir;
+  logger.info << "Starting beacon with work directory: " << workDir;
 
   pp::BeaconServer beacon;
   beacon.redirectLogger("pp.BeaconServer");
 
   if (beacon.start(workDir)) {
-    logger->info << "Beacon started successfully";
-    logger->info << "Beacon running";
-    logger->info << "Work directory: " << workDir;
-    logger->info << "Press Ctrl+C to stop the beacon...";
+    logger.info << "Beacon started successfully";
+    logger.info << "Beacon running";
+    logger.info << "Work directory: " << workDir;
+    logger.info << "Press Ctrl+C to stop the beacon...";
 
     // Wait for SIGINT
     std::unique_lock<std::mutex> lock(g_mutex);
     g_cv.wait(lock, [] { return !g_running.load(); });
 
     beacon.stop();
-    logger->info << "Beacon stopped";
+    logger.info << "Beacon stopped";
     return 0;
   } else {
-    logger->error << "Failed to start beacon";
+    logger.error << "Failed to start beacon";
     std::cerr << "Error: Failed to start beacon\n";
     return 1;
   }
@@ -178,7 +178,7 @@ int runBeacon(const std::string& workDir) {
 
 int main(int argc, char *argv[]) {
   auto rootLogger = pp::logging::getRootLogger();
-  rootLogger->info << "PP-Ledger Beacon Server";
+  rootLogger.info << "PP-Ledger Beacon Server";
 
   if (argc < 3) {
     std::cerr << "Error: Work directory required.\n";
@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
   }
 
   auto logger = pp::logging::getLogger("beacon");
-  logger->setLevel(pp::logging::Level::INFO);
+  logger.setLevel(pp::logging::Level::INFO);
 
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
