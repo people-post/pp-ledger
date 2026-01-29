@@ -45,13 +45,7 @@ public:
     struct InitConfig {
         std::string workDir;
         uint64_t minerId{ 0 };
-    };
-
-    struct CheckpointInfo {
-        uint64_t blockId{ 0 };
-        std::string hash;
-        int64_t timestamp{ 0 };
-        std::vector<uint8_t> stateData; // Serialized state snapshot
+        uint64_t startingBlockId{ 0 };
     };
 
     Miner();
@@ -59,7 +53,6 @@ public:
 
     // Initialization
     Roe<void> init(const InitConfig &config);
-    Roe<void> reinitFromCheckpoint(const CheckpointInfo& checkpoint);
 
     // Block production
     bool isSlotLeader() const;
@@ -87,23 +80,18 @@ public:
     uint64_t getStake() const { return getConsensus().getTotalStake(); }
 
 private:
+    constexpr static const char* DIR_LEDGER = "ledger";
+
     struct Config {
         std::string workDir;
         uint64_t minerId{ 0 };
-
-        uint64_t maxPendingTransactions{ 0 };
-        uint64_t maxTransactionsPerBlock{ 0 };
+        BlockChainConfig chain;
     };
 
     // Helper methods for block production
     Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
     std::vector<Ledger::Transaction> selectTransactionsForBlock();
     std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
-    
-    // Checkpoint management
-    Roe<void> loadCheckpoint(const CheckpointInfo& checkpoint);
-    Roe<void> applyCheckpointState(const std::vector<uint8_t>& stateData);
-    Roe<void> rebuildLedgerFromCheckpoint(uint64_t startBlockId);
     
     // Data cleanup
     void pruneOldBlocks(uint64_t keepFromBlockId);

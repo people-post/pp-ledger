@@ -83,12 +83,20 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 
   // Mount the ledger using Validator's mountLedger function
   std::string ledgerPath = config.workDir + "/ledger";
-  auto mountResult = mountLedger(ledgerPath);
-  if (!mountResult) {
-    return Error(3, "Failed to mount ledger: " + mountResult.error().message);
+  log().info << "Mounting ledger at: " << ledgerPath;
+
+  // Mount the ledger
+  auto ledgerMountResult = getLedger().mount(ledgerPath);
+  if (!ledgerMountResult) {
+    return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
 
-  uint64_t blockCount = mountResult.value();
+  auto loadResult = loadFromLedger(0);
+  if (!loadResult) {
+    return Error(3, "Failed to load data from ledger: " + loadResult.error().message);
+  }
+
+  uint64_t blockCount = loadResult.value();
 
   log().info << "Beacon mounted successfully";
   log().info << "  Loaded " << blockCount << " blocks from ledger";

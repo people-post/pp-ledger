@@ -60,8 +60,7 @@ Service::Roe<void> MinerServer::onStart() {
     log().info << "No " << FILE_CONFIG << " found, creating with default values";
     
     nlohmann::json defaultConfig;
-    defaultConfig["minerId"] = "miner1";
-    defaultConfig["stake"] = 1000000;
+    defaultConfig["minerId"] = 0;
     defaultConfig["host"] = Client::DEFAULT_HOST;
     defaultConfig["port"] = Client::DEFAULT_MINER_PORT;
     // Default beacon address - user should edit this
@@ -415,37 +414,7 @@ std::string MinerServer::handleCheckpointRequest(const nlohmann::json& reqJson) 
   
   std::string action = reqJson["action"].get<std::string>();
   
-  if (action == "reinit") {
-    if (!reqJson.contains("checkpoint")) {
-      resp["error"] = "missing checkpoint field";
-      return resp.dump();
-    }
-    
-    auto& cpJson = reqJson["checkpoint"];
-    
-    if (!cpJson.contains("blockId")) {
-      resp["error"] = "missing blockId in checkpoint";
-      return resp.dump();
-    }
-    
-    Miner::CheckpointInfo checkpoint;
-    checkpoint.blockId = cpJson["blockId"].get<uint64_t>();
-    
-    if (cpJson.contains("stateData") && cpJson["stateData"].is_array()) {
-      checkpoint.stateData = cpJson["stateData"].get<std::vector<uint8_t>>();
-    }
-    
-    auto result = miner_.reinitFromCheckpoint(checkpoint);
-    if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
-    }
-    
-    resp["status"] = "ok";
-    resp["message"] = "Reinitialized from checkpoint";
-    resp["currentBlockId"] = miner_.getCurrentBlockId();
-    
-  } else if (action == "isOutOfDate") {
+  if (action == "isOutOfDate") {
     if (!reqJson.contains("checkpointId")) {
       resp["error"] = "missing checkpointId field";
       return resp.dump();

@@ -118,7 +118,7 @@ protected:
 
     Roe<void> syncChain(const BlockChain& chain);
     Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
-    Roe<uint64_t> mountLedger(const std::string& ledgerPath);
+    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);
 
 private:

@@ -29,13 +29,36 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   log().info << "  Work directory: " << config.workDir;
 
   // Initialize ledger
-  Ledger::InitConfig ledgerConfig;
-  ledgerConfig.workDir = config.workDir + "/ledger";
-  ledgerConfig.startingBlockId = 0;
+  std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
-  auto ledgerResult = getLedger().init(ledgerConfig);
-  if (!ledgerResult) {
-    return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
+  if (std::filesystem::exists(ledgerDir)) {
+    auto roe = getLedger().mount(ledgerDir);
+    if (!roe) {
+      return Error(2, "Failed to mount ledger: " + roe.error().message);
+    }
+    if (getLedger().getNextBlockId() < config.startingBlockId) {
+      log().info << "Ledger data too old, removing existing work directory: " << ledgerDir;
+      std::error_code ec;
+      std::filesystem::remove_all(ledgerDir, ec);
+      if (ec) {
+        return Error("Failed to remove existing work directory: " + ec.message());
+      }
+    }
+  }
+  
+  if (!std::filesystem::exists(ledgerDir)) {
+    Ledger::InitConfig ledgerConfig;
+    ledgerConfig.workDir = ledgerDir;
+    ledgerConfig.startingBlockId = config.startingBlockId;
+    auto ledgerResult = getLedger().init(ledgerConfig);
+    if (!ledgerResult) {
+      return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
+    }
+  }
+
+  auto loadResult = loadFromLedger(config.startingBlockId);
+  if (!loadResult) {
+    return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }
 
   // Register self as stakeholder
@@ -48,33 +71,6 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
   log().info << "  Stake: " << getStake();
-
-  return {};
-}
-
-Miner::Roe<void> Miner::reinitFromCheckpoint(const CheckpointInfo& checkpoint) {
-  log().info << "Reinitializing from checkpoint at block " << checkpoint.blockId;
-
-  // Load checkpoint state
-  auto loadResult = loadCheckpoint(checkpoint);
-  if (!loadResult) {
-    return Error(3, "Failed to load checkpoint: " + loadResult.error().message);
-  }
-
-  // Clear existing transaction pool
-  while (!pendingTransactions_.empty()) {
-    pendingTransactions_.pop();
-  }
-
-  // Rebuild ledger from checkpoint
-  auto rebuildResult = rebuildLedgerFromCheckpoint(checkpoint.blockId);
-  if (!rebuildResult) {
-    return Error(4, "Failed to rebuild ledger: " + rebuildResult.error().message);
-  }
-
-  log().info << "Successfully reinitialized from checkpoint";
-  log().info << "  Starting from block: " << checkpoint.blockId;
-  log().info << "  Current block: " << getCurrentBlockId();
 
   return {};
 }
@@ -143,9 +139,11 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
+  /* TODO: update code after loadFromLedger can read maxPendingTransactions 
   if (pendingTransactions_.size() >= config_.maxPendingTransactions) {
     return Error(9, "Transaction pool full");
   }
+  */
 
   pendingTransactions_.push(tx);
   
@@ -281,13 +279,15 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
 
 std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
   std::vector<Ledger::Transaction> selected;
+  /*
+  // TODO: Revaluate later
   size_t maxTxs = std::min(config_.maxTransactionsPerBlock, pendingTransactions_.size());
 
   for (size_t i = 0; i < maxTxs && !pendingTransactions_.empty(); ++i) {
     selected.push_back(pendingTransactions_.front());
     pendingTransactions_.pop();
   }
-
+  */
   return selected;
 }
 
@@ -299,59 +299,6 @@ std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>&
     oss << ";" << tx.fromWalletId << "," << tx.toWalletId << "," << tx.amount;
   }
   return oss.str();
-}
-
-Miner::Roe<void> Miner::loadCheckpoint(const CheckpointInfo& checkpoint) {
-  log().info << "Loading checkpoint at block " << checkpoint.blockId;
-
-  // Validate checkpoint
-  if (checkpoint.stateData.empty()) {
-    return Error(19, "Checkpoint has no state data");
-  }
-
-  // Apply checkpoint state
-  auto applyResult = applyCheckpointState(checkpoint.stateData);
-  if (!applyResult) {
-    return Error(20, "Failed to apply checkpoint state: " + applyResult.error().message);
-  }
-
-  log().info << "Checkpoint loaded successfully";
-
-  return {};
-}
-
-Miner::Roe<void> Miner::applyCheckpointState(const std::vector<uint8_t>& stateData) {
-  // In a full implementation, this would:
-  // 1. Deserialize the state data
-  // 2. Extract balances, stakes, and other state
-  // 3. Update ledger with the checkpoint state
-  // 4. Initialize chain from checkpoint block
-  
-  log().info << "Applying checkpoint state (" << stateData.size() << " bytes)";
-
-  // For now, this is a placeholder
-  return {};
-}
-
-Miner::Roe<void> Miner::rebuildLedgerFromCheckpoint(uint64_t startBlockId) {
-  log().info << "Rebuilding ledger from block " << startBlockId;
-
-  // Reinitialize ledger with new starting block ID
-  Ledger::InitConfig ledgerConfig;
-  ledgerConfig.workDir = config_.workDir + "/ledger";
-  ledgerConfig.startingBlockId = startBlockId;
-
-  auto result = getLedger().init(ledgerConfig);
-  if (!result) {
-    return Error(21, "Failed to reinitialize ledger: " + result.error().message);
-  }
-
-  // Prune old blocks from chain that are before checkpoint
-  pruneOldBlocks(startBlockId);
-
-  log().info << "Ledger rebuilt successfully";
-
-  return {};
 }
 
 void Miner::pruneOldBlocks(uint64_t keepFromBlockId) {

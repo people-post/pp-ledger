@@ -317,17 +317,9 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uin
   return {};
 }
 
-Validator::Roe<uint64_t> Validator::mountLedger(const std::string& ledgerPath) {
-  log().info << "Mounting ledger at: " << ledgerPath;
-
-  // Mount the ledger
-  auto ledgerMountResult = ledger_.mount(ledgerPath);
-  if (!ledgerMountResult) {
-    return Error(17, "Failed to mount ledger: " + ledgerMountResult.error().message);
-  }
-
+Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   // Process blocks from ledger one by one
-  uint64_t blockId = 0;
+  uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
   while (true) {
     auto blockResult = ledger_.readBlock(blockId);
