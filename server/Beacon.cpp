@@ -24,8 +24,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  getConsensus().setSlotDuration(config.slotDuration);
-  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
+  getConsensus().setSlotDuration(config.chain.slotDuration);
+  getConsensus().setSlotsPerEpoch(config.chain.slotsPerEpoch);
   
   // Set genesis time
   auto now = std::chrono::system_clock::now();
@@ -44,9 +44,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
 
   config_.workDir = config.workDir;
+  config_.chain = config.chain;
   config_.chain.genesisTime = timestamp;
-  config_.chain.slotDuration = config.slotDuration;
-  config_.chain.slotsPerEpoch = config.slotsPerEpoch;
 
   // Create and add genesis block
   auto genesisBlock = createGenesisBlock(config_.chain);

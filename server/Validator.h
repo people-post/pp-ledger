@@ -33,9 +33,11 @@ public:
       int64_t genesisTime{ 0 };
       uint64_t slotDuration{ 0 };
       uint64_t slotsPerEpoch{ 0 };
+      uint64_t maxPendingTransactions{ 0 };
+      uint64_t maxTransactionsPerBlock{ 0 };
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & genesisTime & slotDuration & slotsPerEpoch;
+        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock;
       }
     };
 
@@ -125,6 +127,15 @@ private:
     Ledger ledger_;
     BlockChain chain_;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
+  os << "BlockChainConfig{genesisTime=" << config.genesisTime << ", "
+     << "slotDuration=" << config.slotDuration << ", "
+     << "slotsPerEpoch=" << config.slotsPerEpoch << ", "
+     << "maxPendingTransactions=" << config.maxPendingTransactions << ", "
+     << "maxTransactionsPerBlock=" << config.maxTransactionsPerBlock << "}";
+  return os;
+}
 
 } // namespace pp
 

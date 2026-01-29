@@ -44,6 +44,8 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
     nlohmann::json defaultConfig;
     defaultConfig["slotDuration"] = DEFAULT_SLOT_DURATION;
     defaultConfig["slotsPerEpoch"] = DEFAULT_SLOTS_PER_EPOCH;
+    defaultConfig["maxPendingTransactions"] = DEFAULT_MAX_PENDING_TRANSACTIONS;
+    defaultConfig["maxTransactionsPerBlock"] = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
     
     auto result = utl::writeToNewFile(initConfigPath.string(), defaultConfig.dump(2));
     if (!result) {
@@ -68,6 +70,8 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   // Extract configuration with defaults
   uint64_t slotDuration = config.value("slotDuration", DEFAULT_SLOT_DURATION);
   uint64_t slotsPerEpoch = config.value("slotsPerEpoch", DEFAULT_SLOTS_PER_EPOCH);
+  uint64_t maxPendingTransactions = config.value("maxPendingTransactions", DEFAULT_MAX_PENDING_TRANSACTIONS);
+  uint64_t maxTransactionsPerBlock = config.value("maxTransactionsPerBlock", DEFAULT_MAX_TRANSACTIONS_PER_BLOCK);
   
   log().info << "Configuration:";
   log().info << "  Slot duration: " << slotDuration << " seconds";
@@ -76,8 +80,10 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   // Prepare init configuration
   Beacon::InitConfig initConfig;
   initConfig.workDir = workDir + "/" + DIR_DATA;
-  initConfig.slotDuration = slotDuration;
-  initConfig.slotsPerEpoch = slotsPerEpoch;
+  initConfig.chain.slotDuration = slotDuration;
+  initConfig.chain.slotsPerEpoch = slotsPerEpoch;
+  initConfig.chain.maxPendingTransactions = maxPendingTransactions;
+  initConfig.chain.maxTransactionsPerBlock = maxTransactionsPerBlock;
   
   // Call the existing initFromWorkDir method
   auto result = initFromWorkDir(initConfig);

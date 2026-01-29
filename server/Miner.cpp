@@ -10,12 +10,13 @@ namespace pp {
 
 Miner::Miner() {}
 
-Miner::Roe<void> Miner::init(const Config &config) {
+Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (initialized_) {
     return Error(1, "Miner already initialized");
   }
 
-  config_ = config;
+  config_.workDir = config.workDir;
+  config_.minerId = config.minerId;
 
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
@@ -26,18 +27,6 @@ Miner::Roe<void> Miner::init(const Config &config) {
   }
 
   log().info << "  Work directory: " << config.workDir;
-
-  // Initialize consensus
-  getConsensus().setSlotDuration(config.slotDuration);
-  getConsensus().setSlotsPerEpoch(config.slotsPerEpoch);
-  
-  // Set genesis time if not already set
-  if (getConsensus().getGenesisTime() == 0) {
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        now.time_since_epoch()).count();
-    getConsensus().setGenesisTime(timestamp);
-  }
 
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;

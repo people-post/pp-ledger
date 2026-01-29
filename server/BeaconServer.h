@@ -87,6 +87,10 @@ private:
   // Default configuration values
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = 5;
   constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = 432;
+  constexpr static const uint64_t DEFAULT_MAX_PENDING_TRANSACTIONS = 10000;
+  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = 100;
+
+  // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_SIZE = 1024ULL * 1024 * 1024; // 1GB
   constexpr static const uint64_t DEFAULT_CHECKPOINT_AGE = 365 * 24 * 3600; // 1 year
 

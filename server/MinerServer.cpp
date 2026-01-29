@@ -108,13 +108,9 @@ Service::Roe<void> MinerServer::onStart() {
   // Initialize miner core
   std::filesystem::path minerDataDir = std::filesystem::path(workDir_) / DIR_DATA;
   
-  Miner::Config minerConfig;
+  Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.workDir = minerDataDir.string();
-  minerConfig.slotDuration = 1;
-  minerConfig.slotsPerEpoch = 21600;
-  minerConfig.maxPendingTransactions = 10000;
-  minerConfig.maxTransactionsPerBlock = 100;
   
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {

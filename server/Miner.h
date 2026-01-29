@@ -42,18 +42,9 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
-    struct Config {
-        // Base configuration
+    struct InitConfig {
         std::string workDir;
-        uint64_t slotDuration{ 0 };
-        uint64_t slotsPerEpoch{ 0 };
-        
-        // Miner-specific configuration
         uint64_t minerId{ 0 };
-        
-        // Transaction pool limits
-        size_t maxPendingTransactions{ 0 };
-        size_t maxTransactionsPerBlock{ 0 };
     };
 
     struct CheckpointInfo {
@@ -67,7 +58,7 @@ public:
     ~Miner() override = default;
 
     // Initialization
-    Roe<void> init(const Config &config);
+    Roe<void> init(const InitConfig &config);
     Roe<void> reinitFromCheckpoint(const CheckpointInfo& checkpoint);
 
     // Block production
@@ -96,6 +87,14 @@ public:
     uint64_t getStake() const { return getConsensus().getTotalStake(); }
 
 private:
+    struct Config {
+        std::string workDir;
+        uint64_t minerId{ 0 };
+
+        uint64_t maxPendingTransactions{ 0 };
+        uint64_t maxTransactionsPerBlock{ 0 };
+    };
+
     // Helper methods for block production
     Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
     std::vector<Ledger::Transaction> selectTransactionsForBlock();
