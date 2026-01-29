@@ -574,7 +574,7 @@ std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson
       return resp.dump();
     }
     
-    sh.id = shJson["id"].get<std::string>();
+    sh.id = shJson["id"].get<uint64_t>();
     sh.stake = shJson["stake"].get<uint64_t>();
     
     if (shJson.contains("address")) {
@@ -594,7 +594,7 @@ std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson
       return resp.dump();
     }
     
-    std::string id = reqJson["id"].get<std::string>();
+    uint64_t id = reqJson["id"].get<uint64_t>();
     beacon_.removeStakeholder(id);
     resp["status"] = "ok";
     resp["message"] = "Stakeholder removed";
@@ -605,7 +605,7 @@ std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson
       return resp.dump();
     }
     
-    std::string id = reqJson["id"].get<std::string>();
+    uint64_t id = reqJson["id"].get<uint64_t>();
     uint64_t stake = reqJson["stake"].get<uint64_t>();
     
     beacon_.updateStake(id, stake);

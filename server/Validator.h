@@ -9,7 +9,6 @@
 #include <string>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 namespace pp {
@@ -114,7 +113,6 @@ protected:
     const Ledger& getLedger() const { return ledger_; }
     BlockChain& getChainMutable() { return chain_; }
     const BlockChain& getChain() const { return chain_; }
-    std::mutex& getStateMutex() const { return stateMutex_; }
 
     Roe<void> syncChain(const BlockChain& chain);
     Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
@@ -126,9 +124,6 @@ private:
     consensus::Ouroboros consensus_;
     Ledger ledger_;
     BlockChain chain_;
-    
-    // State tracking
-    mutable std::mutex stateMutex_;
 };
 
 } // namespace pp

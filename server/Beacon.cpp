@@ -102,7 +102,6 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 }
 
 uint64_t Beacon::getCurrentCheckpointId() const {
-  std::lock_guard<std::mutex> lock(getStateMutex());
   return currentCheckpointId_;
 }
 
@@ -139,7 +138,7 @@ void Beacon::addStakeholder(const Stakeholder& stakeholder) {
   getConsensus().registerStakeholder(stakeholder.id, stakeholder.stake);
 }
 
-void Beacon::removeStakeholder(const std::string& stakeholderId) {
+void Beacon::removeStakeholder(uint64_t stakeholderId) {
   {
     std::lock_guard<std::mutex> lock(stakeholdersMutex_);
     stakeholders_.remove_if([&stakeholderId](const Stakeholder& s) {
@@ -151,7 +150,7 @@ void Beacon::removeStakeholder(const std::string& stakeholderId) {
   log().info << "Removed stakeholder: " << stakeholderId;
 }
 
-void Beacon::updateStake(const std::string& stakeholderId, uint64_t newStake) {
+void Beacon::updateStake(uint64_t stakeholderId, uint64_t newStake) {
   {
     std::lock_guard<std::mutex> lock(stakeholdersMutex_);
     auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
@@ -287,7 +286,7 @@ bool Beacon::needsCheckpoint() const {
   return currentSize >= config_.checkpoint.minSizeBytes;
 }
 
-Beacon::Roe<std::string> Beacon::getSlotLeader(uint64_t slot) const {
+Beacon::Roe<uint64_t> Beacon::getSlotLeader(uint64_t slot) const {
   auto result = getConsensus().getSlotLeader(slot);
   if (!result) {
     return Error(15, "Failed to get slot leader: " + result.error().message);
@@ -326,8 +325,6 @@ uint64_t Beacon::getBlockAge(uint64_t blockId) const {
 }
 
 Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
-  std::lock_guard<std::mutex> lock(getStateMutex());
-
   // Update checkpoint in ledger
   std::vector<uint64_t> checkpoints;
   checkpoints.push_back(blockId);
@@ -374,7 +371,7 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   genesisBlock.block.previousHash = "0";
   genesisBlock.block.nonce = 0;
   genesisBlock.block.slot = 0;
-  genesisBlock.block.slotLeader = "genesis";
+  genesisBlock.block.slotLeader = 0;
 
   // Create checkpoint transaction with BlockChainConfig
   Ledger::Transaction checkpointTx;

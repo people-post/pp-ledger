@@ -11,8 +11,6 @@ namespace pp {
 Miner::Miner() {}
 
 Miner::Roe<void> Miner::init(const Config &config) {
-  std::lock_guard<std::mutex> lock(getStateMutex());
-
   if (initialized_) {
     return Error(1, "Miner already initialized");
   }
@@ -21,7 +19,6 @@ Miner::Roe<void> Miner::init(const Config &config) {
 
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Stake: " << config_.stake;
 
   // Create work directory if it doesn't exist
   if (!std::filesystem::exists(config.workDir)) {
@@ -53,7 +50,7 @@ Miner::Roe<void> Miner::init(const Config &config) {
   }
 
   // Register self as stakeholder
-  getConsensus().registerStakeholder(config_.minerId, config_.stake);
+  getConsensus().registerStakeholder(config_.minerId, getStake());
 
   initialized_ = true;
 
@@ -61,13 +58,12 @@ Miner::Roe<void> Miner::init(const Config &config) {
   log().info << "  Genesis time: " << getConsensus().getGenesisTime();
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
+  log().info << "  Stake: " << getStake();
 
   return {};
 }
 
 Miner::Roe<void> Miner::reinitFromCheckpoint(const CheckpointInfo& checkpoint) {
-  std::lock_guard<std::mutex> lock(getStateMutex());
-
   log().info << "Reinitializing from checkpoint at block " << checkpoint.blockId;
 
   // Load checkpoint state
@@ -77,11 +73,8 @@ Miner::Roe<void> Miner::reinitFromCheckpoint(const CheckpointInfo& checkpoint) {
   }
 
   // Clear existing transaction pool
-  {
-    std::lock_guard<std::mutex> txLock(transactionMutex_);
-    while (!pendingTransactions_.empty()) {
-      pendingTransactions_.pop();
-    }
+  while (!pendingTransactions_.empty()) {
+    pendingTransactions_.pop();
   }
 
   // Rebuild ledger from checkpoint
@@ -149,10 +142,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
     // Don't fail the block production, just log the error
   }
 
-  {
-    std::lock_guard<std::mutex> lock(getStateMutex());
-    lastProducedBlockId_ = block->block.index;
-  }
+  lastProducedBlockId_ = block->block.index;
 
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block->block.index;
@@ -164,8 +154,6 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
-  std::lock_guard<std::mutex> lock(transactionMutex_);
-
   if (pendingTransactions_.size() >= config_.maxPendingTransactions) {
     return Error(9, "Transaction pool full");
   }
@@ -179,12 +167,10 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
 }
 
 size_t Miner::getPendingTransactionCount() const {
-  std::lock_guard<std::mutex> lock(transactionMutex_);
   return pendingTransactions_.size();
 }
 
 void Miner::clearTransactionPool() {
-  std::lock_guard<std::mutex> lock(transactionMutex_);
   while (!pendingTransactions_.empty()) {
     pendingTransactions_.pop();
   }
@@ -305,8 +291,6 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
 }
 
 std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
-  std::lock_guard<std::mutex> lock(transactionMutex_);
-
   std::vector<Ledger::Transaction> selected;
   size_t maxTxs = std::min(config_.maxTransactionsPerBlock, pendingTransactions_.size());
 

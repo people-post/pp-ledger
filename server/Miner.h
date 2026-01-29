@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <vector>
 #include <queue>
-#include <mutex>
 #include <memory>
 
 namespace pp {
@@ -46,22 +45,21 @@ public:
     struct Config {
         // Base configuration
         std::string workDir;
-        uint64_t slotDuration = 1; // seconds
-        uint64_t slotsPerEpoch = 21600; // ~6 hours
+        uint64_t slotDuration{ 0 };
+        uint64_t slotsPerEpoch{ 0 };
         
         // Miner-specific configuration
-        std::string minerId;
-        uint64_t stake;
+        uint64_t minerId{ 0 };
         
         // Transaction pool limits
-        size_t maxPendingTransactions = 10000;
-        size_t maxTransactionsPerBlock = 1000;
+        size_t maxPendingTransactions{ 0 };
+        size_t maxTransactionsPerBlock{ 0 };
     };
 
     struct CheckpointInfo {
-        uint64_t blockId;
+        uint64_t blockId{ 0 };
         std::string hash;
-        int64_t timestamp;
+        int64_t timestamp{ 0 };
         std::vector<uint8_t> stateData; // Serialized state snapshot
     };
 
@@ -95,8 +93,7 @@ public:
     bool isSlotLeader(uint64_t slot) const;
 
     // Status
-    std::string getMinerId() const { return config_.minerId; }
-    uint64_t getStake() const { return config_.stake; }
+    uint64_t getStake() const { return getConsensus().getTotalStake(); }
 
 private:
     // Helper methods for block production
@@ -117,7 +114,6 @@ private:
 
     // Transaction pool
     std::queue<Ledger::Transaction> pendingTransactions_;
-    mutable std::mutex transactionMutex_;
 
     // State tracking
     bool initialized_{ false };

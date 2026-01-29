@@ -29,20 +29,20 @@ TEST_F(OuroborosTest, CreatesWithCorrectConfiguration) {
 }
 
 TEST_F(OuroborosTest, RegistersStakeholders) {
-    consensus->registerStakeholder("alice", 1000);
-    consensus->registerStakeholder("bob", 2000);
-    consensus->registerStakeholder("charlie", 500);
-    consensus->registerStakeholder("dave", 1500);
+    consensus->registerStakeholder(1, 1000);
+    consensus->registerStakeholder(2, 2000);
+    consensus->registerStakeholder(3, 500);
+    consensus->registerStakeholder(4, 1500);
     
     EXPECT_EQ(consensus->getStakeholderCount(), 4);
     EXPECT_EQ(consensus->getTotalStake(), 5000);
 }
 
 TEST_F(OuroborosTest, RejectsZeroStake) {
-    consensus->registerStakeholder("alice", 1000);
+    consensus->registerStakeholder(1, 1000);
     size_t countBefore = consensus->getStakeholderCount();
     
-    consensus->registerStakeholder("zero_stake", 0);
+    consensus->registerStakeholder(100, 0);
     
     EXPECT_EQ(consensus->getStakeholderCount(), countBefore);
 }
@@ -57,25 +57,25 @@ TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
 }
 
 TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
-    consensus->registerStakeholder("alice", 1000);
-    consensus->registerStakeholder("bob", 2000);
-    consensus->registerStakeholder("charlie", 500);
-    consensus->registerStakeholder("dave", 1500);
+    consensus->registerStakeholder(1, 1000);
+    consensus->registerStakeholder(2, 2000);
+    consensus->registerStakeholder(3, 500);
+    consensus->registerStakeholder(4, 1500);
     
     uint64_t currentSlot = consensus->getCurrentSlot();
     
     // Select leaders for 5 consecutive slots
-    std::vector<std::string> leaders;
+    std::vector<uint64_t> leaders;
     for (uint64_t i = 0; i < 5; i++) {
         uint64_t slot = currentSlot + i;
         auto leaderResult = consensus->getSlotLeader(slot);
         
         ASSERT_TRUE(leaderResult.isOk());
-        std::string leader = leaderResult.value();
+        uint64_t leader = leaderResult.value();
         leaders.push_back(leader);
         
         // Verify leader is one of our stakeholders
-        EXPECT_THAT(leader, AnyOf(Eq("alice"), Eq("bob"), Eq("charlie"), Eq("dave")));
+        EXPECT_THAT(leader, AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
     }
     
     // Verify determinism: same slot always returns same leader
@@ -84,84 +84,85 @@ TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
         auto leaderResult = consensus->getSlotLeader(slot);
         ASSERT_TRUE(leaderResult.isOk());
         EXPECT_EQ(leaderResult.value(), leaders[i]);
+        EXPECT_THAT(leaderResult.value(), AnyOf(Eq(1), Eq(2), Eq(3), Eq(4)));
     }
 }
 
 TEST_F(OuroborosTest, VerifiesSlotLeadership) {
-    consensus->registerStakeholder("alice", 1000);
-    consensus->registerStakeholder("bob", 2000);
+    consensus->registerStakeholder(1, 1000);
+    consensus->registerStakeholder(2, 2000);
     
     uint64_t currentSlot = consensus->getCurrentSlot();
     auto leaderResult = consensus->getSlotLeader(currentSlot);
     
     ASSERT_TRUE(leaderResult.isOk());
-    std::string currentLeader = leaderResult.value();
+    uint64_t currentLeader = leaderResult.value();
     
     EXPECT_TRUE(consensus->isSlotLeader(currentSlot, currentLeader));
     
     // Check non-leader
-    std::string nonLeader = (currentLeader == "alice") ? "bob" : "alice";
+    uint64_t nonLeader = (currentLeader == 1) ? 2 : 1;
     EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
 }
 
 TEST_F(OuroborosTest, UpdatesStake) {
-    consensus->registerStakeholder("alice", 1000);
-    consensus->registerStakeholder("bob", 2000);
+    consensus->registerStakeholder(1, 1000);
+    consensus->registerStakeholder(2, 2000);
     
     uint64_t oldTotal = consensus->getTotalStake();
-    consensus->updateStake("alice", 1500);
+    consensus->updateStake(1, 1500);
     
     EXPECT_EQ(consensus->getTotalStake(), oldTotal + 500);
 }
 
 TEST_F(OuroborosTest, HandlesStakeUpdateForUnknownStakeholder) {
-    consensus->registerStakeholder("alice", 1000);
+    consensus->registerStakeholder(1, 1000);
     uint64_t oldTotal = consensus->getTotalStake();
     
-    consensus->updateStake("unknown", 2000);
+    consensus->updateStake(100, 2000);
     
     // Total should not change
     EXPECT_EQ(consensus->getTotalStake(), oldTotal);
 }
 
 TEST_F(OuroborosTest, RemovesStakeholder) {
-    consensus->registerStakeholder("alice", 1000);
-    consensus->registerStakeholder("bob", 2000);
-    consensus->registerStakeholder("charlie", 500);
+    consensus->registerStakeholder(1, 1000);
+    consensus->registerStakeholder(2, 2000);
+    consensus->registerStakeholder(3, 500);
     
-    bool removed = consensus->removeStakeholder("charlie");
+    bool removed = consensus->removeStakeholder(3);
     
     EXPECT_TRUE(removed);
     EXPECT_EQ(consensus->getStakeholderCount(), 2);
 }
 
 TEST_F(OuroborosTest, FailsToRemoveNonExistentStakeholder) {
-    consensus->registerStakeholder("alice", 1000);
+    consensus->registerStakeholder(1, 1000);
     
-    bool removed = consensus->removeStakeholder("nonexistent");
+    bool removed = consensus->removeStakeholder(100);
     
     EXPECT_FALSE(removed);
     EXPECT_EQ(consensus->getStakeholderCount(), 1);
 }
 
 TEST_F(OuroborosTest, ReturnsAllStakeholders) {
-    consensus->registerStakeholder("alice", 1500);
-    consensus->registerStakeholder("bob", 2000);
-    consensus->registerStakeholder("dave", 1500);
+    consensus->registerStakeholder(1, 1500);
+    consensus->registerStakeholder(2, 2000);
+    consensus->registerStakeholder(3, 1500);
     
     auto stakeholders = consensus->getStakeholders();
     
     EXPECT_EQ(stakeholders.size(), 3);
     
     // Verify all stakeholders are present
-    std::set<std::string> ids;
+    std::set<uint64_t> ids;
     for (const auto& sh : stakeholders) {
         ids.insert(sh.id);
     }
     
-    EXPECT_TRUE(ids.count("alice"));
-    EXPECT_TRUE(ids.count("bob"));
-    EXPECT_TRUE(ids.count("dave"));
+    EXPECT_TRUE(ids.count(1));
+    EXPECT_TRUE(ids.count(2));
+    EXPECT_TRUE(ids.count(3));
 }
 
 TEST_F(OuroborosTest, UpdatesSlotDuration) {
@@ -194,9 +195,9 @@ class OuroborosWithStakeholdersTest : public OuroborosTest {
 protected:
     void SetUp() override {
         OuroborosTest::SetUp();
-        consensus->registerStakeholder("alice", 1000);
-        consensus->registerStakeholder("bob", 2000);
-        consensus->registerStakeholder("charlie", 500);
+        consensus->registerStakeholder(1, 1000);
+        consensus->registerStakeholder(2, 2000);
+        consensus->registerStakeholder(3, 500);
     }
 };
 
@@ -211,6 +212,6 @@ TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     ASSERT_TRUE(leader2.isOk());
     
     // Leaders might be different, but should be from our stakeholder set
-    EXPECT_THAT(leader1.value(), AnyOf(Eq("alice"), Eq("bob"), Eq("charlie")));
-    EXPECT_THAT(leader2.value(), AnyOf(Eq("alice"), Eq("bob"), Eq("charlie")));
+    EXPECT_THAT(leader1.value(), AnyOf(1, 2, 3));
+    EXPECT_THAT(leader2.value(), AnyOf(1, 2, 3));
 }

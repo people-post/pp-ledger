@@ -24,11 +24,8 @@ namespace consensus {
 class Ouroboros : public Module {
 public:
   struct StakeholderInfo {
-    std::string id;
+    uint64_t id;
     uint64_t stake;
-
-    StakeholderInfo(const std::string &stakeholderId, uint64_t stakeAmount)
-        : id(stakeholderId), stake(stakeAmount) {}
   };
 
   struct Error : RoeErrorBase {
@@ -47,9 +44,9 @@ public:
   ~Ouroboros() override = default;
 
   // Stakeholder management
-  void registerStakeholder(const std::string &id, uint64_t stake);
-  void updateStake(const std::string &id, uint64_t newStake);
-  bool removeStakeholder(const std::string &id);
+  void registerStakeholder(uint64_t id, uint64_t stake);
+  void updateStake(uint64_t id, uint64_t newStake);
+  bool removeStakeholder(uint64_t id);
 
   // Epoch and slot management
   uint64_t getCurrentSlot() const;
@@ -58,11 +55,11 @@ public:
   int64_t getSlotStartTime(uint64_t slot) const;
 
   // Slot leader selection
-  Roe<std::string> getSlotLeader(uint64_t slot) const;
-  bool isSlotLeader(uint64_t slot, const std::string &stakeholderId) const;
+  Roe<uint64_t> getSlotLeader(uint64_t slot) const;
+  bool isSlotLeader(uint64_t slot, uint64_t stakeholderId) const;
 
   // Validation helpers
-  bool validateSlotLeader(const std::string &slotLeader, uint64_t slot) const;
+  bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
 
   // Configuration
@@ -82,13 +79,13 @@ public:
 
 private:
   // Helper methods for slot leader selection
-  std::string selectSlotLeader(uint64_t slot, uint64_t epoch) const;
-  uint64_t calculateStakeThreshold(const std::string &stakeholderId,
+  uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
+  uint64_t calculateStakeThreshold(uint64_t stakeholderId,
                                    uint64_t totalStake) const;
   std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
 
   // Data members
-  std::map<std::string, uint64_t> mStakeholders_;
+  std::map<uint64_t, uint64_t> mStakeholders_;
   uint64_t slotDuration_{ 0 };  // Duration of each slot in seconds
   uint64_t slotsPerEpoch_{ 0 }; // Number of slots per epoch
   int64_t genesisTime_{ 0 };    // Timestamp of genesis block

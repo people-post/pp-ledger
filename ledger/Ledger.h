@@ -73,7 +73,7 @@ public:
     std::string previousHash;
     uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
-    std::string slotLeader;
+    uint64_t slotLeader{ 0 };
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader;

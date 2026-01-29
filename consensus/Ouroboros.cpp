@@ -10,40 +10,40 @@ namespace consensus {
 
 Ouroboros::Ouroboros() {}
 
-void Ouroboros::registerStakeholder(const std::string &id, uint64_t stake) {
+void Ouroboros::registerStakeholder(uint64_t id, uint64_t stake) {
   if (stake == 0) {
-    log().warning << "Cannot register stakeholder '" + id + "' with zero stake";
+    log().warning << "Cannot register stakeholder '" + std::to_string(id) + "' with zero stake";
     return;
   }
 
   mStakeholders_[id] = stake;
-  log().info << "Registered stakeholder '" + id +
+  log().info << "Registered stakeholder '" + std::to_string(id) +
                     "' with stake: " + std::to_string(stake);
 }
 
-void Ouroboros::updateStake(const std::string &id, uint64_t newStake) {
+void Ouroboros::updateStake(uint64_t id, uint64_t newStake) {
   auto it = mStakeholders_.find(id);
   if (it == mStakeholders_.end()) {
-    log().warning << "Cannot update stake for unknown stakeholder: " + id;
+    log().warning << "Cannot update stake for unknown stakeholder: " + std::to_string(id);
     return;
   }
 
   uint64_t oldStake = it->second;
   it->second = newStake;
-  log().info << "Updated stake for '" + id + "' from " +
+  log().info << "Updated stake for '" + std::to_string(id) + "' from " +
                     std::to_string(oldStake) + " to " +
                     std::to_string(newStake);
 }
 
-bool Ouroboros::removeStakeholder(const std::string &id) {
+bool Ouroboros::removeStakeholder(uint64_t id) {
   auto it = mStakeholders_.find(id);
   if (it == mStakeholders_.end()) {
-    log().warning << "Cannot remove unknown stakeholder: " + id;
+    log().warning << "Cannot remove unknown stakeholder: " + std::to_string(id);
     return false;
   }
 
   mStakeholders_.erase(it);
-  log().info << "Removed stakeholder: " + id;
+  log().info << "Removed stakeholder: " + std::to_string(id);
   return true;
 }
 
@@ -74,19 +74,19 @@ int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
   return genesisTime_ + static_cast<int64_t>(slot * slotDuration_);
 }
 
-Ouroboros::Roe<std::string> Ouroboros::getSlotLeader(uint64_t slot) const {
+Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
   if (mStakeholders_.empty()) {
     return Ouroboros::Error(1, "No stakeholders registered");
   }
 
   uint64_t epoch = slot / slotsPerEpoch_;
-  std::string leader = selectSlotLeader(slot, epoch);
+  uint64_t leader = selectSlotLeader(slot, epoch);
 
   return leader;
 }
 
 bool Ouroboros::isSlotLeader(uint64_t slot,
-                             const std::string &stakeholderId) const {
+                             uint64_t stakeholderId) const {
   auto result = getSlotLeader(slot);
   if (!result.isOk()) {
     return false;
@@ -95,13 +95,13 @@ bool Ouroboros::isSlotLeader(uint64_t slot,
   return result.value() == stakeholderId;
 }
 
-std::string Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
+uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
   // Simple deterministic leader selection based on stake weight
   // In production, this would use VRF (Verifiable Random Function)
 
   uint64_t totalStake = getTotalStake();
   if (totalStake == 0) {
-    return "";
+    return 0;
   }
 
   // Create a deterministic hash from slot and epoch
@@ -158,15 +158,17 @@ std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
   result.reserve(mStakeholders_.size());
 
   for (const auto &[id, stake] : mStakeholders_) {
-    result.emplace_back(id, stake);
+    result.emplace_back();
+    result.back().id = id;
+    result.back().stake = stake;
   }
 
   return result;
 }
 
-bool Ouroboros::validateSlotLeader(const std::string &slotLeader,
+bool Ouroboros::validateSlotLeader(uint64_t slotLeader,
                                    uint64_t slot) const {
-  std::string expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
+  uint64_t expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
   return slotLeader == expectedLeader;
 }
 

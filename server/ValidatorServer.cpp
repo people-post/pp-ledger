@@ -37,7 +37,7 @@ Ledger::ChainNode ValidatorServer::jsonToBlock(const nlohmann::json& blockJson) 
   if (blockJson.contains("timestamp")) block.block.timestamp = blockJson["timestamp"].get<int64_t>();
   if (blockJson.contains("previousHash")) block.block.previousHash = blockJson["previousHash"].get<std::string>();
   if (blockJson.contains("slot")) block.block.slot = blockJson["slot"].get<uint64_t>();
-  if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<std::string>();
+  if (blockJson.contains("slotLeader")) block.block.slotLeader = blockJson["slotLeader"].get<uint64_t>();
   if (blockJson.contains("hash")) block.hash = blockJson["hash"].get<std::string>();
   
   // Parse signedTxes array

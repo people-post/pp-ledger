@@ -110,7 +110,6 @@ Service::Roe<void> MinerServer::onStart() {
   
   Miner::Config minerConfig;
   minerConfig.minerId = config_.minerId;
-  minerConfig.stake = config_.stake;
   minerConfig.workDir = minerDataDir.string();
   minerConfig.slotDuration = 1;
   minerConfig.slotsPerEpoch = 21600;
@@ -124,7 +123,7 @@ Service::Roe<void> MinerServer::onStart() {
   
   log().info << "Miner core initialized";
   log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Stake: " << config_.stake;
+  log().info << "  Stake: " << miner_.getStake();
 
   log().info << "MinerServer initialization complete";
   return {};
@@ -169,16 +168,10 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
   nlohmann::json config = jsonResult.value();
 
   // Load miner ID (required)
-  if (!config.contains("minerId") || !config["minerId"].is_string()) {
+  if (!config.contains("minerId") || !config["minerId"].is_number()) {
     return Error(E_CONFIG, "Configuration file missing 'minerId' field");
   }
-  config_.minerId = config["minerId"].get<std::string>();
-
-  // Load stake (required)
-  if (!config.contains("stake") || !config["stake"].is_number()) {
-    return Error(E_CONFIG, "Configuration file missing 'stake' field");
-  }
-  config_.stake = config["stake"].get<uint64_t>();
+  config_.minerId = config["minerId"].get<uint64_t>();
 
   // Load host (optional, default: "localhost")
   if (config.contains("host") && config["host"].is_string()) {
@@ -514,7 +507,7 @@ std::string MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
   
   resp["status"] = "ok";
   resp["minerId"] = config_.minerId;
-  resp["stake"] = config_.stake;
+  resp["stake"] = miner_.getStake();
   resp["currentBlockId"] = miner_.getCurrentBlockId();
   resp["currentSlot"] = miner_.getCurrentSlot();
   resp["currentEpoch"] = miner_.getCurrentEpoch();

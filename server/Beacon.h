@@ -59,7 +59,7 @@ public:
   };
 
   struct Stakeholder {
-    std::string id;
+    uint64_t id;
     network::TcpEndpoint endpoint;
     uint64_t stake;
   };
@@ -79,8 +79,8 @@ public:
   // Stakeholder management
   const std::list<Stakeholder>& getStakeholders() const;
   void addStakeholder(const Stakeholder& stakeholder);
-  void removeStakeholder(const std::string& stakeholderId);
-  void updateStake(const std::string& stakeholderId, uint64_t newStake);
+  void removeStakeholder(uint64_t stakeholderId);
+  void updateStake(uint64_t stakeholderId, uint64_t newStake);
 
   // Block operations (override base class)
   Roe<void> addBlock(const Ledger::ChainNode& block);
@@ -96,7 +96,7 @@ public:
   bool needsCheckpoint() const;
 
   // Consensus queries
-  Roe<std::string> getSlotLeader(uint64_t slot) const;
+  Roe<uint64_t> getSlotLeader(uint64_t slot) const;
 
 private:
   struct Config {

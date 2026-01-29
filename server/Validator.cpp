@@ -126,7 +126,7 @@ Validator::Roe<void> Validator::syncChain(const Validator::BlockChain& chain) {
 
 Validator::Roe<void> Validator::validateBlockBase(const Ledger::ChainNode& block) const {
   uint64_t slot = block.block.slot;
-  std::string slotLeader = block.block.slotLeader;
+  uint64_t slotLeader = block.block.slotLeader;
 
   // Validate slot leader
   if (!consensus_.validateSlotLeader(slotLeader, slot)) {

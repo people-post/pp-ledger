@@ -72,8 +72,7 @@ private:
 
   struct Config {
     NetworkConfig network;
-    std::string minerId;
-    uint64_t stake;
+    uint64_t minerId{ 0 };
   };
 
   /**
