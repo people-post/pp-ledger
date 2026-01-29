@@ -8,12 +8,7 @@
 
 namespace pp {
 
-Miner::Miner() 
-    : Validator(),
-      initialized_(false),
-      lastProducedBlockId_(0) {
-  log().info << "Miner initialized";
-}
+Miner::Miner() {}
 
 Miner::Roe<void> Miner::init(const Config &config) {
   std::lock_guard<std::mutex> lock(getStateMutex());

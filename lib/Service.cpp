@@ -8,23 +8,22 @@ Service::~Service() {
   }
 }
 
-bool Service::start() {
+Service::Roe<void> Service::start() {
   if (isRunning_) {
-    log().warning << "Service is already running";
-    return false;
+    return Error(-1, "Service is already running");
   }
 
   // Call pre-start hook
-  if (!onStart()) {
-    log().error << "Service onStart() failed";
-    return false;
+  auto result = onStart();
+  if (!result) {
+    return Error(-2, "Service onStart() failed: " + result.error().message);
   }
 
   isRunning_ = true;
   thread_ = std::thread(&Service::run, this);
 
   log().info << "Service started";
-  return true;
+  return {};
 }
 
 void Service::stop() {

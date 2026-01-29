@@ -21,64 +21,69 @@ MinerServer::~MinerServer() {
   }
 }
 
-bool MinerServer::start(const std::string &dataDir) {
+Service::Roe<void> MinerServer::start(const std::string &workDir) {
   if (isRunning()) {
-    log().warning << "MinerServer is already running";
-    return false;
+    return Service::Error(E_MINER, "MinerServer is already running");
   }
 
   // Store dataDir for onStart
-  dataDir_ = dataDir;
+  workDir_ = workDir;
 
-  log().info << "Starting MinerServer with work directory: " << dataDir;
-  log().addFileHandler(dataDir + "/miner.log", logging::Level::DEBUG);
+  auto signaturePath = std::filesystem::path(workDir) / FILE_SIGNATURE;
+  if (!std::filesystem::exists(workDir)) {
+    std::filesystem::create_directories(workDir);
+    auto result = utl::writeToNewFile(signaturePath.string(), "");
+    if (!result) {
+      return Service::Error(E_MINER, "Failed to create signature file: " + result.error().message);
+    }
+  }
+
+  if (!std::filesystem::exists(signaturePath)) {
+    return Service::Error(E_MINER, "Work directory not recognized, please remove it manually and try again");
+  }
+
+  log().info << "Starting MinerServer with work directory: " << workDir;
+  log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
   // Call base class start which will invoke onStart() then run()
   return Service::start();
 }
 
-bool MinerServer::onStart() {
+Service::Roe<void> MinerServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
-      std::filesystem::path(dataDir_) / "config.json";
+      std::filesystem::path(workDir_) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
+
+  // Create default FILE_CONFIG if it doesn't exist
+  if (!std::filesystem::exists(configPath)) {
+    log().info << "No " << FILE_CONFIG << " found, creating with default values";
+    
+    nlohmann::json defaultConfig;
+    defaultConfig["minerId"] = "miner1";
+    defaultConfig["stake"] = 1000000;
+    defaultConfig["host"] = Client::DEFAULT_HOST;
+    defaultConfig["port"] = Client::DEFAULT_MINER_PORT;
+    // Default beacon address - user should edit this
+    defaultConfig["beacons"] = nlohmann::json::array({});
+    
+    std::ofstream configFile(configPath);
+    if (!configFile) {
+      return Service::Error(E_MINER, "Failed to create " + std::string(FILE_CONFIG));
+    }
+    configFile << defaultConfig.dump(2) << std::endl;
+    configFile.close();
+    
+    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
+    log().info << "Please edit " << FILE_CONFIG << " to configure your miner settings";
+  }
 
   // Load configuration
   auto configResult = loadConfig(configPathStr);
   if (!configResult) {
-    log().error << "Failed to load configuration: "
-                << configResult.error().message;
-    return false;
+    return Service::Error(E_MINER, "Failed to load configuration: " + configResult.error().message);
   }
   
-  // Initialize miner core
-  Miner::Config minerConfig;
-  minerConfig.minerId = config_.minerId;
-  minerConfig.stake = config_.stake;
-  minerConfig.workDir = dataDir_;
-  minerConfig.slotDuration = 1;
-  minerConfig.slotsPerEpoch = 21600;
-  minerConfig.maxPendingTransactions = 10000;
-  minerConfig.maxTransactionsPerBlock = 100;
-  
-  auto minerInit = miner_.init(minerConfig);
-  if (!minerInit) {
-    log().error << "Failed to initialize Miner: " << minerInit.error().message;
-    return false;
-  }
-  
-  log().info << "Miner core initialized";
-  log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Stake: " << config_.stake;
-
-  // Connect to beacon server and fetch initial state
-  auto beaconResult = connectToBeacon();
-  if (!beaconResult) {
-    log().error << "Failed to connect to beacon: " << beaconResult.error().message;
-    return false;
-  }
-  log().info << "Successfully connected to beacon and synchronized initial state";
-
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
@@ -87,15 +92,42 @@ bool MinerServer::onStart() {
     conn->send(response);
     conn->close();
   };
-  bool serverStarted = fetchServer_.start(fetchServerConfig);
+  auto serverStarted = fetchServer_.start(fetchServerConfig);
 
   if (!serverStarted) {
-    log().error << "Failed to start FetchServer";
-    return false;
+    return Service::Error(E_MINER, "Failed to start FetchServer: " + serverStarted.error().message);
   }
 
+  // Connect to beacon server and fetch initial state
+  auto beaconResult = connectToBeacon();
+  if (!beaconResult) {
+    return Service::Error(E_NETWORK, "Failed to connect to beacon: " + beaconResult.error().message);
+  }
+  log().info << "Successfully connected to beacon and synchronized initial state";
+
+  // Initialize miner core
+  std::filesystem::path minerDataDir = std::filesystem::path(workDir_) / DIR_DATA;
+  
+  Miner::Config minerConfig;
+  minerConfig.minerId = config_.minerId;
+  minerConfig.stake = config_.stake;
+  minerConfig.workDir = minerDataDir.string();
+  minerConfig.slotDuration = 1;
+  minerConfig.slotsPerEpoch = 21600;
+  minerConfig.maxPendingTransactions = 10000;
+  minerConfig.maxTransactionsPerBlock = 100;
+  
+  auto minerInit = miner_.init(minerConfig);
+  if (!minerInit) {
+    return Service::Error(E_MINER, "Failed to initialize Miner: " + minerInit.error().message);
+  }
+  
+  log().info << "Miner core initialized";
+  log().info << "  Miner ID: " << config_.minerId;
+  log().info << "  Stake: " << config_.stake;
+
   log().info << "MinerServer initialization complete";
-  return true;
+  return {};
 }
 
 void MinerServer::onStop() {
@@ -131,20 +163,20 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
   auto jsonResult = utl::loadJsonFile(configPath);
   if (jsonResult.isError()) {
     // Convert pp::Error to MinerServer::Error
-    return Error(jsonResult.error().code, jsonResult.error().message);
+    return Error(E_CONFIG, jsonResult.error().message);
   }
 
   nlohmann::json config = jsonResult.value();
 
   // Load miner ID (required)
   if (!config.contains("minerId") || !config["minerId"].is_string()) {
-    return Error(4, "Configuration file missing 'minerId' field");
+    return Error(E_CONFIG, "Configuration file missing 'minerId' field");
   }
   config_.minerId = config["minerId"].get<std::string>();
 
   // Load stake (required)
   if (!config.contains("stake") || !config["stake"].is_number()) {
-    return Error(5, "Configuration file missing 'stake' field");
+    return Error(E_CONFIG, "Configuration file missing 'stake' field");
   }
   config_.stake = config["stake"].get<uint64_t>();
 
@@ -160,7 +192,7 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
     if (config["port"].is_number_integer()) {
       config_.network.endpoint.port = config["port"].get<uint16_t>();
     } else {
-      return Error(6, "Configuration file 'port' field is not an integer");
+      return Error(E_CONFIG, "Configuration file 'port' field is not an integer");
     }
   } else {
     config_.network.endpoint.port = 8518; // Default miner port
@@ -168,15 +200,15 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
 
   // Load beacon addresses (required)
   if (!config.contains("beacons")) {
-    return Error(7, "Configuration file missing required 'beacons' field");
+    return Error(E_CONFIG, "Configuration file missing required 'beacons' field");
   }
   
   if (!config["beacons"].is_array()) {
-    return Error(8, "Configuration file 'beacons' field must be an array");
+    return Error(E_CONFIG, "Configuration file 'beacons' field must be an array");
   }
   
   if (config["beacons"].empty()) {
-    return Error(9, "Configuration file 'beacons' array must contain at least one beacon address");
+    return Error(E_CONFIG, "Configuration file 'beacons' array must contain at least one beacon address");
   }
   
   for (const auto &beaconAddr : config["beacons"]) {
@@ -188,7 +220,7 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
   }
   
   if (config_.network.beacons.empty()) {
-    return Error(10, "Configuration file 'beacons' array must contain at least one valid string address");
+    return Error(E_CONFIG, "Configuration file 'beacons' array must contain at least one valid string address");
   }
 
   log().info << "Configuration loaded from " << configPath;
@@ -527,7 +559,7 @@ void MinerServer::handleValidatorRole() {
 
 MinerServer::Roe<void> MinerServer::connectToBeacon() {
   if (config_.network.beacons.empty()) {
-    return Error(100, "No beacon servers configured");
+    return Error(E_CONFIG, "No beacon servers configured");
   }
 
   // Try to connect to the first beacon in the list
@@ -537,13 +569,13 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   Client client;
   client.redirectLogger(log().getFullName() + ".Client");
   if (!client.setEndpoint(beaconAddr)) {
-    return Error(101, "Failed to connect to beacon at " + beaconAddr);
+    return Error(E_NETWORK, "Failed to connect to beacon at " + beaconAddr);
   }
 
   // Fetch latest checkpoint ID
   auto checkpointResult = client.getCurrentCheckpointId();
   if (!checkpointResult) {
-    log().warning << "Failed to get checkpoint ID: " << checkpointResult.error().message;
+    return Error(E_NETWORK, "Failed to get checkpoint ID: " + checkpointResult.error().message);
   } else {
     uint64_t checkpointId = checkpointResult.value();
     log().info << "Latest checkpoint ID: " << checkpointId;
@@ -552,7 +584,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   // Fetch latest block ID
   auto blockResult = client.getCurrentBlockId();
   if (!blockResult) {
-    return Error(102, "Failed to get current block ID: " + blockResult.error().message);
+    return Error(E_NETWORK, "Failed to get current block ID: " + blockResult.error().message);
   }
   uint64_t currentBlockId = blockResult.value();
   log().info << "Latest block ID: " << currentBlockId;
@@ -560,7 +592,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   // Fetch stakeholder list
   auto stakeholdersResult = client.listStakeholders();
   if (!stakeholdersResult) {
-    return Error(103, "Failed to get stakeholders: " + stakeholdersResult.error().message);
+    return Error(E_NETWORK, "Failed to get stakeholders: " + stakeholdersResult.error().message);
   }
   
   auto stakeholders = stakeholdersResult.value();

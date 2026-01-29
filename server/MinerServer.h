@@ -22,6 +22,11 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
+  // Error codes
+  static constexpr const int32_t E_CONFIG = -1;
+  static constexpr const int32_t E_NETWORK = -2;
+  static constexpr const int32_t E_MINER = -3;
+
   MinerServer();
   ~MinerServer();
 
@@ -30,7 +35,7 @@ public:
    * @param dataDir Work directory containing config.json
    * @return true if server started successfully
    */
-  bool start(const std::string &dataDir);
+  Service::Roe<void> start(const std::string &workDir);
   
   /**
    * Get reference to underlying Miner
@@ -47,7 +52,7 @@ protected:
   /**
    * Called before service thread starts - initializes miner and network
    */
-  bool onStart() override;
+  Service::Roe<void> onStart() override;
 
   /**
    * Called after service thread stops - cleans up resources
@@ -55,6 +60,11 @@ protected:
   void onStop() override;
 
 private:
+  constexpr static const char* FILE_CONFIG = "config.json";
+  constexpr static const char* FILE_LOG = "miner.log";
+  constexpr static const char* FILE_SIGNATURE = ".signature";
+  constexpr static const char* DIR_DATA = "data";
+
   struct NetworkConfig {
     network::TcpEndpoint endpoint;
     std::vector<std::string> beacons;
@@ -127,7 +137,7 @@ private:
   Roe<void> connectToBeacon();
 
   // Configuration
-  std::string dataDir_;
+  std::string workDir_;
 
   // Core miner instance
   Miner miner_;

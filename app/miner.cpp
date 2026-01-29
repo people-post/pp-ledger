@@ -1,5 +1,5 @@
-#include "MinerServer.h"
-#include "Logger.h"
+#include "../server/MinerServer.h"
+#include "../lib/Logger.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -27,13 +27,11 @@ void printUsage() {
   std::cout << "  -d <work-dir>  - Work directory (required)\n";
   std::cout << "  --debug        - Enable debug logging (default: warning level)\n";
   std::cout << "\n";
-  std::cout << "The work directory must contain:\n";
-  std::cout << "  - config.json  - Miner configuration file (required)\n";
-  std::cout << "\n";
   std::cout << "Example:\n";
   std::cout << "  pp-miner -d /some/path/to/work-dir [--debug]\n";
   std::cout << "\n";
-  std::cout << "The config.json file should contain:\n";
+  std::cout << "The miner will automatically create a default config.json file if it doesn't exist.\n";
+  std::cout << "You can edit the config.json file to customize the miner settings:\n";
   std::cout << "  {\n";
   std::cout << "    \"minerId\": \"miner1\",\n";
   std::cout << "    \"stake\": 1000000,\n";
@@ -41,6 +39,36 @@ void printUsage() {
   std::cout << "    \"port\": 8518,\n";
   std::cout << "    \"beacons\": [\"127.0.0.1:8517\"]\n";
   std::cout << "  }\n";
+  std::cout << "\n";
+  std::cout << "Note: The 'host' and 'port' fields are optional.\n";
+  std::cout << "      Defaults: host=\"localhost\", port=8518\n";
+  std::cout << "      The 'beacons' array must contain at least one beacon address.\n";
+}
+
+int runMiner(const std::string& workDir) {
+  auto logger = pp::logging::getLogger("pp");
+  
+  logger.info << "Starting miner with work directory: " << workDir;
+
+  pp::MinerServer miner;
+  miner.redirectLogger("pp.M");
+  auto startResult = miner.start(workDir);
+  if (!startResult) {
+    logger.error << "Failed to start miner: " + startResult.error().message;
+    return 1;
+  }
+  logger.info << "Miner started successfully";
+  logger.info << "Miner running";
+  logger.info << "Work directory: " << workDir;
+  logger.info << "Press Ctrl+C to stop the miner...";
+
+  // Wait for SIGINT
+  std::unique_lock<std::mutex> lock(g_mutex);
+  g_cv.wait(lock, [] { return !g_running.load(); });
+
+  miner.stop();
+  logger.info << "Miner stopped";
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -78,7 +106,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  auto logger = pp::logging::getLogger("miner");
+  auto logger = pp::logging::getRootLogger();
   pp::logging::Level logLevel = debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;
   logger.setLevel(logLevel);
   logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
@@ -86,26 +114,5 @@ int main(int argc, char *argv[]) {
   // Set up signal handler for Ctrl+C
   std::signal(SIGINT, signalHandler);
 
-  logger.info << "Starting miner with work directory: " << workDir;
-
-  pp::MinerServer miner;
-  miner.redirectLogger("pp.M");
-  if (miner.start(workDir)) {
-    logger.info << "Miner started successfully";
-    std::cout << "Miner running\n";
-    std::cout << "Work directory: " << workDir << "\n";
-    std::cout << "Press Ctrl+C to stop the miner...\n";
-
-    // Wait for SIGINT
-    std::unique_lock<std::mutex> lock(g_mutex);
-    g_cv.wait(lock, [] { return !g_running.load(); });
-
-    miner.stop();
-    logger.info << "Miner stopped";
-    return 0;
-  } else {
-    logger.error << "Failed to start miner";
-    std::cerr << "Error: Failed to start miner\n";
-    return 1;
-  }
+  return runMiner(workDir);
 }

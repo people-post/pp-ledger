@@ -20,6 +20,12 @@ namespace network {
  */
 class FetchServer : public Service {
 public:
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
+
+  template <typename T> using Roe = ResultOrError<T, Error>;
+
   using RequestHandler = std::function<void(const std::string&, std::shared_ptr<TcpConnection>)>;
 
   struct Config {
@@ -39,7 +45,7 @@ public:
    * @param config Configuration for the server
    * @return true if server started successfully
    */
-  bool start(const Config &config);
+  Service::Roe<void> start(const Config &config);
 
   /**
    * Get the port the server is listening on
@@ -61,7 +67,7 @@ protected:
   /**
    * Called before service thread starts - sets up TCP listener
    */
-  bool onStart() override;
+  Service::Roe<void> onStart() override;
 
   /**
    * Called after service thread stops - cleans up TCP server

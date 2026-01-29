@@ -58,9 +58,9 @@ TEST_F(FetchServerTest, StartsAndStops) {
         conn->send(response);
         conn->close();
     };
-    bool started = server->start(config);
+    auto started = server->start(config);
     
-    EXPECT_TRUE(started);
+    EXPECT_TRUE(started.isOk());
     EXPECT_TRUE(server->isRunning());
     EXPECT_EQ(server->getPort(), 18880);
     
@@ -76,8 +76,8 @@ TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
         conn->send(response);
         conn->close();
     };
-    bool started1 = server->start(config);
-    EXPECT_TRUE(started1);
+    auto started1 = server->start(config);
+    EXPECT_TRUE(started1.isOk());
     
     // Create second server
     FetchServer server2;
@@ -88,8 +88,8 @@ TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
         conn->send(response);
         conn->close();
     };
-    bool started2 = server2.start(config2);
-    EXPECT_FALSE(started2);
+    auto started2 = server2.start(config2);
+    EXPECT_FALSE(started2.isOk());
     
     server->stop();
     server2.stop();
@@ -124,8 +124,8 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
         conn->send(response);
         conn->close();
     };
-    bool started = server->start(config);
-    ASSERT_TRUE(started);
+    auto started = server->start(config);
+    ASSERT_TRUE(started.isOk());
     
     // Give server time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -148,8 +148,8 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
         conn->send(response);
         conn->close();
     };
-    bool started = server->start(config);
-    ASSERT_TRUE(started);
+    auto started = server->start(config);
+    ASSERT_TRUE(started.isOk());
     
     // Give server time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -173,7 +173,7 @@ TEST_F(FetchIntegrationTest, AsyncFetch) {
         conn->send(response);
         conn->close();
     };
-    bool started = server->start(config);
+    auto started = server->start(config);
     ASSERT_TRUE(started);
     
     // Give server time to start

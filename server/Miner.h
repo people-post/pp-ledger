@@ -120,8 +120,8 @@ private:
     mutable std::mutex transactionMutex_;
 
     // State tracking
-    bool initialized_;
-    uint64_t lastProducedBlockId_;
+    bool initialized_{ false };
+    uint64_t lastProducedBlockId_{ 0 };
 };
 
 } // namespace pp

@@ -4,9 +4,7 @@
 namespace pp {
 namespace network {
 
-FetchClient::FetchClient() {
-  log().info << "FetchClient initialized";
-}
+FetchClient::FetchClient() {}
 
 void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
                         ResponseCallback callback) {
@@ -22,17 +20,14 @@ void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
 
 FetchClient::Roe<std::string>
 FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
-
-  log().info << "Sync fetch from " << endpoint;
+  log().debug << "Sync fetch from " << endpoint;
 
   TcpClient client;
 
   // Connect to the server
   auto connectResult = client.connect(endpoint);
   if (!connectResult) {
-    std::string errorMsg = connectResult.error().message;
-    log().error << "Failed to connect: " + errorMsg;
-    return FetchClient::Error(1, "Failed to connect: " + errorMsg);
+    return Error(1, "Failed to connect: " + connectResult.error().message);
   }
 
   log().debug << "Connected successfully";
@@ -40,19 +35,15 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
   // Send the data and shutdown writing
   auto sendResult = client.send(data);
   if (!sendResult) {
-    std::string errorMsg = sendResult.error().message;
-    log().error << "Failed to send data: " + errorMsg;
     client.close();
-    return FetchClient::Error(2, "Failed to send data: " + errorMsg);
+    return Error(2, "Failed to send data: " + sendResult.error().message);
   }
 
   // Shutdown writing to signal end of data
   auto shutdownResult = client.shutdownWrite();
   if (!shutdownResult) {
-    std::string errorMsg = shutdownResult.error().message;
-    log().error << "Failed to shutdown write: " + errorMsg;
     client.close();
-    return FetchClient::Error(2, "Failed to shutdown write: " + errorMsg);
+    return Error(2, "Failed to shutdown write: " + shutdownResult.error().message);
   }
 
   log().debug << "Data sent and write shutdown, waiting for response";
@@ -61,17 +52,15 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
   char buffer[4096];
   auto recvResult = client.receive(buffer, sizeof(buffer) - 1);
   if (!recvResult) {
-    std::string errorMsg = recvResult.error().message;
-    log().error << "Failed to receive response: " + errorMsg;
     client.close();
-    return FetchClient::Error(3, "Failed to receive response: " + errorMsg);
+    return Error(3, "Failed to receive response: " + recvResult.error().message);
   }
 
   size_t bytesRead = recvResult.value();
   buffer[bytesRead] = '\0';
   std::string response(buffer, bytesRead);
 
-  log().info << "Received response (" + std::to_string(bytesRead) + " bytes)";
+  log().debug << "Received response (" + std::to_string(bytesRead) + " bytes)";
 
   client.close();
   return response;

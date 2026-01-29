@@ -6,10 +6,9 @@ namespace network {
 
 FetchServer::FetchServer() {}
 
-bool FetchServer::start(const Config &config) {
+Service::Roe<void> FetchServer::start(const Config &config) {
   if (isRunning()) {
-    log().warning << "Server is already running";
-    return false;
+    return Service::Error(-1, "Server is already running");
   }
 
   config_ = config;
@@ -21,18 +20,14 @@ bool FetchServer::start(const Config &config) {
   return Service::start();
 }
 
-bool FetchServer::onStart() {
+Service::Roe<void> FetchServer::onStart() {
   // Start listening
   auto listenResult = server_.listen(config_.endpoint);
   if (!listenResult) {
-    std::string errorMsg = listenResult.error().message;
-    log().error << "Failed to start listening: " + errorMsg;
-    return false;
+    return Service::Error(-2, "Failed to start listening: " + listenResult.error().message);
   }
 
-  log().info << "Server started successfully on " << config_.endpoint.address
-             << ":" << config_.endpoint.port;
-  return true;
+  return {};
 }
 
 void FetchServer::onStop() { server_.stop(); }

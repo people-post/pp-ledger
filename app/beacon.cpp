@@ -87,24 +87,25 @@ int runBeacon(const std::string& workDir) {
   pp::BeaconServer beacon;
   beacon.redirectLogger("pp.B");
 
-  if (beacon.start(workDir)) {
-    logger.info << "Beacon started successfully";
-    logger.info << "Beacon running";
-    logger.info << "Work directory: " << workDir;
-    logger.info << "Press Ctrl+C to stop the beacon...";
-
-    // Wait for SIGINT
-    std::unique_lock<std::mutex> lock(g_mutex);
-    g_cv.wait(lock, [] { return !g_running.load(); });
-
-    beacon.stop();
-    logger.info << "Beacon stopped";
-    return 0;
-  } else {
-    logger.error << "Failed to start beacon";
-    std::cerr << "Error: Failed to start beacon\n";
+  auto startResult = beacon.start(workDir);
+  if (!startResult) {
+    logger.error << "Failed to start beacon: " + startResult.error().message;
+    std::cerr << "Error: Failed to start beacon: " + startResult.error().message << "\n";
     return 1;
   }
+
+  logger.info << "Beacon started successfully";
+  logger.info << "Beacon running";
+  logger.info << "Work directory: " << workDir;
+  logger.info << "Press Ctrl+C to stop the beacon...";
+
+  // Wait for SIGINT
+  std::unique_lock<std::mutex> lock(g_mutex);
+  g_cv.wait(lock, [] { return !g_running.load(); });
+
+  beacon.stop();
+  logger.info << "Beacon stopped";
+  return 0;
 }
 
 int main(int argc, char *argv[]) {

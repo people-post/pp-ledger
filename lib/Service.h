@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Module.h"
+#include "Utilities.h"
 #include <atomic>
 #include <thread>
 
@@ -15,6 +16,12 @@ namespace pp {
  */
 class Service : public Module {
 public:
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
+
+  template <typename T> using Roe = ResultOrError<T, Error>;
+
   /**
    * Constructor
    */
@@ -31,9 +38,9 @@ public:
 
   /**
    * Start the service thread
-   * @return true if service started successfully, false if already running
+   * @return Roe<void> indicating success or error
    */
-  bool start();
+  Roe<void> start();
 
   /**
    * Stop the service thread
@@ -60,7 +67,7 @@ protected:
    * Override to perform pre-start initialization.
    * @return true if initialization succeeded, false to abort start
    */
-  virtual bool onStart() { return true; }
+  virtual Roe<void> onStart() { return {}; }
 
   /**
    * Called after the thread has stopped (in the calling thread context).

@@ -43,7 +43,7 @@ public:
    * @param dataDir Work directory containing config.json
    * @return true if server started successfully
    */
-  bool start(const std::string &dataDir);
+  Service::Roe<void> start(const std::string &workDir);
 
   /**
    * Get list of active server addresses
@@ -70,7 +70,7 @@ protected:
   /**
    * Called before service thread starts - initializes beacon and network
    */
-  bool onStart() override;
+  Service::Roe<void> onStart() override;
 
   /**
    * Called after service thread stops - cleans up resources

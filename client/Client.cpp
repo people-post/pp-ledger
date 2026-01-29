@@ -8,7 +8,7 @@ namespace pp {
 
 using json = nlohmann::json;
 
-Client::Client() : Module() {}
+Client::Client() {}
 
 Client::~Client() {}
 
@@ -54,10 +54,10 @@ Client::Roe<json> Client::sendRequest(const json &request) {
 
   // Send request using FetchClient
   network::FetchClient fetchClient;
+  fetchClient.redirectLogger(log().getFullName() + ".FetchClient");
   auto result = fetchClient.fetchSync(endpoint_, requestData);
 
   if (!result.isOk()) {
-    log().error << "Failed to send request: " << result.error().message;
     return Error(E_REQUEST_FAILED,
                  getErrorMessage(E_REQUEST_FAILED) + ": " +
                      result.error().message);

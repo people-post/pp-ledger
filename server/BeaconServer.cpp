@@ -112,10 +112,9 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
   return {};
 }
 
-bool BeaconServer::start(const std::string &workDir) {
+Service::Roe<void> BeaconServer::start(const std::string &workDir) {
   if (isRunning()) {
-    log().warning << "BeaconServer is already running";
-    return false;
+    return Service::Error(-1, "BeaconServer is already running");
   }
 
   // Store dataDir for onStart
@@ -128,7 +127,7 @@ bool BeaconServer::start(const std::string &workDir) {
   return Service::start();
 }
 
-bool BeaconServer::onStart() {
+Service::Roe<void> BeaconServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
       std::filesystem::path(workDir_) / FILE_CONFIG;
@@ -147,8 +146,7 @@ bool BeaconServer::onStart() {
     
     std::ofstream configFile(configPath);
     if (!configFile) {
-      log().error << "Failed to create " << FILE_CONFIG;
-      return false;
+      return Service::Error(-2, "Failed to create " + std::string(FILE_CONFIG));
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
@@ -159,9 +157,7 @@ bool BeaconServer::onStart() {
   // Load configuration (includes port)
   auto configResult = loadConfig(configPathStr);
   if (!configResult) {
-    log().error << "Failed to load configuration: "
-                << configResult.error().message;
-    return false;
+    return Service::Error(-3, "Failed to load configuration: " + configResult.error().message);
   }
   
   // Initialize beacon core with mount config
@@ -172,8 +168,7 @@ bool BeaconServer::onStart() {
   
   auto beaconMount = beacon_.mount(mountConfig);
   if (!beaconMount) {
-    log().error << "Failed to mount Beacon: " << beaconMount.error().message;
-    return false;
+    return Service::Error(-4, "Failed to mount Beacon: " + beaconMount.error().message);
   }
   
   log().info << "Beacon core initialized";
@@ -188,17 +183,14 @@ bool BeaconServer::onStart() {
     requestQueue_.push(std::move(qr));
     log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
   };
-  bool serverStarted = fetchServer_.start(fetchServerConfig);
-
+  auto serverStarted = fetchServer_.start(fetchServerConfig);
   if (!serverStarted) {
-    log().error << "Failed to start FetchServer";
-    return false;
+    return Service::Error(-5, "Failed to start FetchServer: " + serverStarted.error().message);
   }
 
   // Connect to other beacon servers
   connectToOtherBeacons();
-
-  return true;
+  return {};
 }
 
 void BeaconServer::onStop() {
