@@ -13,7 +13,11 @@ namespace pp {
 
 DirDirStore::DirDirStore() {}
 
-DirDirStore::~DirDirStore() { flush(); }
+DirDirStore::~DirDirStore() { 
+  if (!config_.dirPath.empty()) { 
+    flush(); 
+  }
+}
 
 std::string DirDirStore::getDirDirIndexFilePath(const std::string &dirPath) {
   return dirPath + "/" + DIRDIR_INDEX_FILENAME;

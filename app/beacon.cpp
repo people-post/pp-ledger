@@ -3,13 +3,11 @@
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
-#include <nlohmann/json.hpp>
 #include <atomic>
 #include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -67,85 +65,16 @@ void printUsage() {
 }
 
 int initBeacon(const std::string& workDir) {
-  auto logger = pp::logging::getLogger("beacon");
-  logger.info << "Initializing new beacon with work directory: " << workDir;
-  
-  std::filesystem::path workDirPath(workDir);
-  std::filesystem::path initConfigPath = workDirPath / "init-config.json";
-  
-  // Default configuration values
-  uint64_t slotDuration = 5;
-  uint64_t slotsPerEpoch = 432;
-  
-  // Create work directory if it doesn't exist (to write init-config.json)
-  if (!std::filesystem::exists(workDirPath)) {
-    std::filesystem::create_directories(workDirPath);
-    logger.info << "Created work directory: " << workDir;
-  }
-  
-  // Create or load init-config.json
-  if (!std::filesystem::exists(initConfigPath)) {
-    logger.info << "Creating init-config.json with default parameters";
-    
-    nlohmann::json defaultConfig;
-    defaultConfig["slotDuration"] = slotDuration;
-    defaultConfig["slotsPerEpoch"] = slotsPerEpoch;
-    
-    std::ofstream configFile(initConfigPath);
-    if (!configFile) {
-      logger.error << "Failed to create init-config.json";
-      std::cerr << "Error: Failed to create init-config.json\n";
-      return 1;
-    }
-    configFile << defaultConfig.dump(2) << std::endl;
-    configFile.close();
-    
-    logger.info << "Created: " << initConfigPath.string();
-    std::cout << "Created init-config.json with default parameters at: " << initConfigPath.string() << "\n";
-  } else {
-    logger.info << "Found existing init-config.json";
-  }
-  
-  // Load configuration from init-config.json
-  logger.info << "Loading configuration from: " << initConfigPath.string();
-  
-  auto jsonResult = pp::utl::loadJsonFile(initConfigPath.string());
-  if (!jsonResult) {
-    logger.error << "Failed to load init config file: " << jsonResult.error().message;
-    std::cerr << "Error: Failed to load init config file: " << jsonResult.error().message << "\n";
-    return 1;
-  }
-  
-  nlohmann::json config = jsonResult.value();
-  
-  // Extract configuration with defaults
-  slotDuration = config.value("slotDuration", slotDuration);
-  slotsPerEpoch = config.value("slotsPerEpoch", slotsPerEpoch);
-  
   pp::BeaconServer beaconServer;
   beaconServer.redirectLogger("pp.BeaconServer");
   
-  // Prepare init configuration
-  pp::Beacon::InitConfig initConfig;
-  initConfig.workDir = workDir;
-  initConfig.slotDuration = slotDuration;
-  initConfig.slotsPerEpoch = slotsPerEpoch;
-  
-  logger.info << "Configuration:";
-  logger.info << "  Slot duration: " << slotDuration << " seconds";
-  logger.info << "  Slots per epoch: " << slotsPerEpoch;
-  
-  auto result = beaconServer.init(initConfig);
+  auto result = beaconServer.init(workDir);
   if (!result) {
-    logger.error << "Failed to initialize beacon: " << result.error().message;
     std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
     return 1;
   }
   
-  logger.info << "Beacon initialized successfully";
-  std::cout << "Beacon initialized successfully\n";
-  std::cout << "Work directory: " << workDir << "\n";
-  std::cout << "Configuration: " << initConfigPath.string() << "\n";
+  std::cout << "Beacon initialized successfully (to reinitialize, edit the init config file and run the same command)\n";
   std::cout << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
   return 0;
 }

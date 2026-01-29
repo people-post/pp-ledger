@@ -86,6 +86,15 @@ pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request);
  */
 std::string sha256(const std::string &input);
 
+/**
+ * Write a string to a non-existent file
+ * Creates parent directories if needed. Fails if the file already exists.
+ * @param filePath Path to the file to write
+ * @param content String content to write to the file
+ * @return Roe<void> indicating success or error
+ */
+pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content);
+
 } // namespace utl
 } // namespace pp
 

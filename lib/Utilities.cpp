@@ -126,5 +126,38 @@ std::string sha256(const std::string &input) {
   return ss.str();
 }
 
+pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content) {
+  // Check if file already exists
+  if (std::filesystem::exists(filePath)) {
+    return Error(1, "File already exists: " + filePath);
+  }
+
+  // Create parent directories if needed
+  std::filesystem::path path(filePath);
+  std::filesystem::path parentDir = path.parent_path();
+  if (!parentDir.empty() && !std::filesystem::exists(parentDir)) {
+    std::error_code ec;
+    std::filesystem::create_directories(parentDir, ec);
+    if (ec) {
+      return Error(2, "Failed to create parent directories for " + filePath + ": " + ec.message());
+    }
+  }
+
+  // Write content to file
+  std::ofstream file(filePath);
+  if (!file.is_open()) {
+    return Error(3, "Failed to open file for writing: " + filePath);
+  }
+
+  file << content;
+  file.close();
+
+  if (!file.good()) {
+    return Error(4, "Failed to write content to file: " + filePath);
+  }
+
+  return {};
+}
+
 } // namespace utl
 } // namespace pp

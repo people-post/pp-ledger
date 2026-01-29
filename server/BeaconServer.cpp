@@ -15,7 +15,81 @@ BeaconServer::BeaconServer() {
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
 
-BeaconServer::Roe<void> BeaconServer::init(const Beacon::InitConfig& config) {
+BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
+  log().info << "Initializing new beacon with work directory: " << workDir;
+  
+  std::filesystem::path workDirPath(workDir);
+  std::filesystem::path initConfigPath = workDirPath / FILE_INIT_CONFIG;
+  std::filesystem::path signaturePath = workDirPath / FILE_SIGNATURE;
+  
+  if (std::filesystem::exists(workDirPath)) {
+    if (!std::filesystem::exists(signaturePath)) {
+      return Error("Work directory not recognized, please remove it manually and try again");
+    }
+  } else {
+    // Create work directory if it doesn't exist (to write config file)
+    std::filesystem::create_directories(workDirPath);
+    // Create signature file to mark work directory as recognized
+    auto result = utl::writeToNewFile(signaturePath.string(), "");
+    if (!result) {
+      return Error("Failed to create signature file: " + result.error().message);
+    }
+    log().info << "Created work directory: " << workDir;
+  }
+  
+  // Create or load FILE_INIT_CONFIG
+  if (!std::filesystem::exists(initConfigPath)) {
+    log().info << "Creating " << FILE_INIT_CONFIG << " with default parameters";
+    
+    nlohmann::json defaultConfig;
+    defaultConfig["slotDuration"] = DEFAULT_SLOT_DURATION;
+    defaultConfig["slotsPerEpoch"] = DEFAULT_SLOTS_PER_EPOCH;
+    
+    auto result = utl::writeToNewFile(initConfigPath.string(), defaultConfig.dump(2));
+    if (!result) {
+      return Error("Failed to create " + std::string(FILE_INIT_CONFIG) + ": " + result.error().message);
+    }
+    
+    log().info << "Created: " << initConfigPath.string();
+  } else {
+    log().info << "Found existing " << FILE_INIT_CONFIG;
+  }
+  
+  // Load configuration from FILE_INIT_CONFIG
+  log().info << "Loading configuration from: " << initConfigPath.string();
+  
+  auto jsonResult = utl::loadJsonFile(initConfigPath.string());
+  if (!jsonResult) {
+    return Error("Failed to load init config file: " + jsonResult.error().message);
+  }
+  
+  nlohmann::json config = jsonResult.value();
+  
+  // Extract configuration with defaults
+  uint64_t slotDuration = config.value("slotDuration", DEFAULT_SLOT_DURATION);
+  uint64_t slotsPerEpoch = config.value("slotsPerEpoch", DEFAULT_SLOTS_PER_EPOCH);
+  
+  log().info << "Configuration:";
+  log().info << "  Slot duration: " << slotDuration << " seconds";
+  log().info << "  Slots per epoch: " << slotsPerEpoch;
+  
+  // Prepare init configuration
+  Beacon::InitConfig initConfig;
+  initConfig.workDir = workDir + "/" + DIR_DATA;
+  initConfig.slotDuration = slotDuration;
+  initConfig.slotsPerEpoch = slotsPerEpoch;
+  
+  // Call the existing initFromWorkDir method
+  auto result = initFromWorkDir(initConfig);
+  if (!result) {
+    return result;
+  }
+  
+  log().info << "Beacon initialized successfully";
+  return {};
+}
+
+BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& config) {
   log().info << "Initializing BeaconServer";
   
   // Clean up work directory if it exists
@@ -38,17 +112,17 @@ BeaconServer::Roe<void> BeaconServer::init(const Beacon::InitConfig& config) {
   return {};
 }
 
-bool BeaconServer::start(const std::string &dataDir) {
+bool BeaconServer::start(const std::string &workDir) {
   if (isRunning()) {
     log().warning << "BeaconServer is already running";
     return false;
   }
 
   // Store dataDir for onStart
-  dataDir_ = dataDir;
+  workDir_ = workDir;
 
-  log().info << "Starting with work directory: " << dataDir;
-  log().addFileHandler(dataDir + "/beacon.log", logging::Level::DEBUG);
+  log().info << "Starting with work directory: " << workDir;
+  log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
   // Call base class start which will invoke onStart() then run()
   return Service::start();
@@ -57,29 +131,29 @@ bool BeaconServer::start(const std::string &dataDir) {
 bool BeaconServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
-      std::filesystem::path(dataDir_) / "config.json";
+      std::filesystem::path(workDir_) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
-  // Create default config.json if it doesn't exist
+  // Create default FILE_CONFIG if it doesn't exist
   if (!std::filesystem::exists(configPath)) {
-    log().info << "No config.json found, creating with default values";
+    log().info << "No " << FILE_CONFIG << " found, creating with default values";
     
     nlohmann::json defaultConfig;
-    defaultConfig["host"] = "localhost";
+    defaultConfig["host"] = Client::DEFAULT_HOST;
     defaultConfig["port"] = Client::DEFAULT_BEACON_PORT;
     defaultConfig["beacons"] = nlohmann::json::array();
-    defaultConfig["checkpointSize"] = 1024 * 1024 * 1024; // 1 GB
-    defaultConfig["checkpointAge"] = 365 * 24 * 3600; // 1 year
+    defaultConfig["checkpointSize"] = DEFAULT_CHECKPOINT_SIZE; // 1 GB
+    defaultConfig["checkpointAge"] = DEFAULT_CHECKPOINT_AGE; // 1 year
     
     std::ofstream configFile(configPath);
     if (!configFile) {
-      log().error << "Failed to create config.json";
+      log().error << "Failed to create " << FILE_CONFIG;
       return false;
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
     
-    log().info << "Created config.json at: " << configPathStr;
+    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
   }
 
   // Load configuration (includes port)
@@ -92,7 +166,7 @@ bool BeaconServer::onStart() {
   
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
-  mountConfig.workDir = dataDir_;
+  mountConfig.workDir = workDir_ + "/" + DIR_DATA;
   // Use checkpoint config from loaded config (or defaults)
   mountConfig.checkpoint = config_.checkpoint;
   

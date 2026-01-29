@@ -13,7 +13,11 @@ namespace pp {
 
 FileDirStore::FileDirStore() {}
 
-FileDirStore::~FileDirStore() { flush(); }
+FileDirStore::~FileDirStore() { 
+  if (!config_.dirPath.empty()) { 
+    flush(); 
+  }
+}
 
 FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
   auto sizeResult = validateMinFileSize(config.maxFileSize);

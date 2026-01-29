@@ -6,6 +6,8 @@ namespace pp {
 
 FileStore::FileStore() {}
 
+FileStore::~FileStore() { close(); }
+
 FileStore::Roe<void> FileStore::init(const InitConfig &config) {
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
@@ -93,8 +95,6 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
 
   return {};
 }
-
-FileStore::~FileStore() { close(); }
 
 FileStore::Roe<void> FileStore::open() {
   // Open file in binary mode for both reading and writing

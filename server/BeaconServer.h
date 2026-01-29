@@ -31,11 +31,12 @@ public:
   ~BeaconServer() = default;
 
   /**
-   * Initialize a new beacon with configuration
-   * @param config Beacon initialization configuration
+   * Initialize a new beacon from work directory
+   * Handles directory creation, init-config.json creation/loading, and initialization
+   * @param workDir Work directory path
    * @return Result with void on success, Error on failure
    */
-  Roe<void> init(const Beacon::InitConfig& config);
+  Roe<void> init(const std::string& workDir);
 
   /**
    * Start the beacon server
@@ -77,6 +78,18 @@ protected:
   void onStop() override;
 
 private:
+  constexpr static const char* FILE_INIT_CONFIG = "init-config.json";
+  constexpr static const char* FILE_CONFIG = "config.json";
+  constexpr static const char* FILE_LOG = "beacon.log";
+  constexpr static const char* FILE_SIGNATURE = ".signature";
+  constexpr static const char* DIR_DATA = "data";
+
+  // Default configuration values
+  constexpr static const uint64_t DEFAULT_SLOT_DURATION = 5;
+  constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = 432;
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_SIZE = 1024ULL * 1024 * 1024; // 1GB
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_AGE = 365 * 24 * 3600; // 1 year
+
   struct QueuedRequest {
     std::string request;
     std::shared_ptr<network::TcpConnection> connection;
@@ -98,6 +111,13 @@ private:
    * @return ResultOrError indicating success or failure
    */
   Roe<void> loadConfig(const std::string &configPath);
+
+  /**
+   * Initialize a new beacon with configuration
+   * @param config Beacon initialization configuration
+   * @return Result with void on success, Error on failure
+   */
+  Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
 
   /**
    * Handle incoming request from Server
@@ -159,7 +179,7 @@ private:
   void processQueuedRequest(QueuedRequest& qr);
 
   // Configuration
-  std::string dataDir_;
+  std::string workDir_;
 
   // Core beacon instance
   Beacon beacon_;

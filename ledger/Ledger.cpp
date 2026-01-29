@@ -15,7 +15,6 @@ Ledger::Block::Block()
     : timestamp(std::chrono::system_clock::now().time_since_epoch().count()) {
 }
 
-
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
