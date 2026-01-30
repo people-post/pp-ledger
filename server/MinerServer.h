@@ -135,6 +135,13 @@ private:
    */
   Roe<void> connectToBeacon();
 
+  /**
+   * Sync blocks from beacon one at a time until local chain is up to latest block id.
+   * Fetches each missing block from the beacon and adds it to the Miner.
+   * @return ResultOrError indicating success or failure
+   */
+  Roe<void> syncBlocksFromBeacon();
+
   // Configuration
   std::string workDir_;
 

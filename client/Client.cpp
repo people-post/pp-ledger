@@ -118,10 +118,10 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
-Client::Roe<uint64_t> Client::fetchCurrentBlockId() {
+Client::Roe<uint64_t> Client::fetchNextBlockId() {
   log().debug << "Requesting current block ID";
 
-  json request = {{"type", "block"}, {"action", "current"}};
+  json request = {{"type", "block"}, {"action", "next"}};
 
   auto result = sendRequest(request);
   if (!result) {
@@ -130,11 +130,11 @@ Client::Roe<uint64_t> Client::fetchCurrentBlockId() {
 
   const json &response = result.value();
 
-  if (!response.contains("currentBlockId")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'blockId' field");
+  if (!response.contains("nextBlockId")) {
+    return Error(E_INVALID_RESPONSE, "Response missing 'nextBlockId' field");
   }
 
-  return response["currentBlockId"].get<uint64_t>();
+  return response["nextBlockId"].get<uint64_t>();
 }
 
 Client::Roe<uint64_t> Client::fetchCurrentCheckpointId() {
@@ -168,17 +168,17 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 
   const json &response = result.value();
 
-  if (!response.contains("currentCheckpointId") || !response.contains("currentBlockId") ||
+  if (!response.contains("currentCheckpointId") || !response.contains("nextBlockId") ||
       !response.contains("currentSlot") || !response.contains("currentEpoch") ||
       !response.contains("currentTimestamp") || !response.contains("stakeholders")) {
     return Error(E_INVALID_RESPONSE,
-                 "Response missing 'currentCheckpointId', 'currentBlockId', "
+                 "Response missing 'currentCheckpointId', 'nextBlockId', "
                  "'currentSlot', 'currentEpoch', 'currentTimestamp' or 'stakeholders'");
   }
 
   BeaconState state;
   state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
-  state.blockId = response["currentBlockId"].get<uint64_t>();
+  state.nextBlockId = response["nextBlockId"].get<uint64_t>();
   state.currentSlot = response["currentSlot"].get<uint64_t>();
   state.currentEpoch = response["currentEpoch"].get<uint64_t>();
   state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
@@ -383,7 +383,7 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   MinerStatus status;
   status.minerId = response.value("minerId", "");
   status.stake = response.value("stake", 0);
-  status.currentBlockId = response.value("currentBlockId", 0);
+  status.nextBlockId = response.value("nextBlockId", 0);
   status.currentSlot = response.value("currentSlot", 0);
   status.currentEpoch = response.value("currentEpoch", 0);
   status.pendingTransactions = response.value("pendingTransactions", 0);

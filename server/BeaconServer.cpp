@@ -496,9 +496,9 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     resp["status"] = "ok";
     resp["message"] = "Block added successfully";
     
-  } else if (action == "current") {
+  } else if (action == "next") {
     resp["status"] = "ok";
-    resp["currentBlockId"] = beacon_.getCurrentBlockId();
+    resp["nextBlockId"] = beacon_.getNextBlockId();
     
   } else {
     resp["error"] = "unknown block action: " + action;
@@ -694,7 +694,7 @@ std::string BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
 
     resp["status"] = "ok";
     resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
-    resp["currentBlockId"] = beacon_.getCurrentBlockId();
+    resp["nextBlockId"] = beacon_.getNextBlockId();
     resp["currentSlot"] = beacon_.getCurrentSlot();
     resp["currentEpoch"] = beacon_.getCurrentEpoch();
     resp["currentTimestamp"] = currentTimestamp;

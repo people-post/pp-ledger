@@ -80,10 +80,8 @@ Validator::Validator() {
   consensus_.redirectLogger(log().getFullName() + ".Obo");
 }
 
-uint64_t Validator::getCurrentBlockId() const {
-  // Return the last block ID (nextBlockId - 1)
-  uint64_t nextBlockId = ledger_.getNextBlockId();
-  return nextBlockId > 0 ? nextBlockId - 1 : 0;
+uint64_t Validator::getNextBlockId() const {
+  return ledger_.getNextBlockId();
 }
 
 Validator::Roe<const Ledger::ChainNode&> Validator::getBlock(uint64_t blockId) const {
@@ -124,28 +122,74 @@ Validator::Roe<void> Validator::syncChain(const Validator::BlockChain& chain) {
   return {};
 }
 
+Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
+  // Match Beacon::createGenesisBlock exactly: index 0, previousHash "0", nonce 0, slot 0, slotLeader 0
+  if (block.block.index != 0) {
+    return Error(8, "Genesis block must have index 0");
+  }
+  if (block.block.previousHash != "0") {
+    return Error(8, "Genesis block must have previousHash \"0\"");
+  }
+  if (block.block.nonce != 0) {
+    return Error(8, "Genesis block must have nonce 0");
+  }
+  if (block.block.slot != 0) {
+    return Error(8, "Genesis block must have slot 0");
+  }
+  if (block.block.slotLeader != 0) {
+    return Error(8, "Genesis block must have slotLeader 0");
+  }
+  if (block.block.timestamp != consensus_.getGenesisTime()) {
+    return Error(7, "Genesis block timestamp must match genesis time");
+  }
+  // Exactly one checkpoint transaction: T_CHECKPOINT, WID_SYSTEM/WID_SYSTEM, amount 0, signature "genesis"
+  if (block.block.signedTxes.size() != 1) {
+    return Error(8, "Genesis block must have exactly one transaction");
+  }
+  const auto& tx = block.block.signedTxes[0];
+  if (tx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
+    return Error(8, "Genesis block must contain checkpoint transaction");
+  }
+  if (tx.obj.fromWalletId != WID_SYSTEM || tx.obj.toWalletId != WID_SYSTEM) {
+    return Error(8, "Genesis checkpoint transaction must use system wallet");
+  }
+  if (tx.obj.amount != 0) {
+    return Error(8, "Genesis checkpoint transaction must have amount 0");
+  }
+  if (tx.signature != "genesis") {
+    return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
+  }
+  std::string calculatedHash = calculateHash(block.block);
+  if (calculatedHash != block.hash) {
+    return Error(10, "Genesis block hash validation failed");
+  }
+  return {};
+}
+
 Validator::Roe<void> Validator::validateBlockBase(const Ledger::ChainNode& block) const {
+  size_t chainSize = chain_.getSize();
+  const bool isGenesis = (chainSize == 0 && block.block.index == 0);
+
+  if (isGenesis) {
+    return validateGenesisBlock(block);
+  }
+
+  // Non-genesis: validate slot leader and timing
   uint64_t slot = block.block.slot;
   uint64_t slotLeader = block.block.slotLeader;
-
-  // Validate slot leader
   if (!consensus_.validateSlotLeader(slotLeader, slot)) {
     return Error(6, "Invalid slot leader for block at slot " + std::to_string(slot));
   }
-
-  // Validate block timing
   if (!consensus_.validateBlockTiming(block.block.timestamp, slot)) {
     return Error(7, "Block timestamp outside valid slot range");
   }
 
-  // Validate hash chain
-  size_t chainSize = chain_.getSize();
+  // Validate hash chain (previous block link and index)
   if (chainSize > 0) {
     auto latestBlock = chain_.getLatestBlock();
     if (latestBlock && block.block.previousHash != latestBlock->hash) {
       return Error(8, "Block previous hash does not match chain");
     }
-
     if (latestBlock && block.block.index != latestBlock->block.index + 1) {
       return Error(9, "Block index mismatch");
     }

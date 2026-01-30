@@ -75,7 +75,7 @@ void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholde
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Beacon Status:\n";
   std::cout << "  Checkpoint ID: " << status.checkpointId << "\n";
-  std::cout << "  Current Block ID: " << status.blockId << "\n";
+  std::cout << "  Next Block ID: " << status.nextBlockId << "\n";
   std::cout << "  Current Slot: " << status.currentSlot << "\n";
   std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
   std::cout << "  Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
@@ -86,7 +86,7 @@ void printMinerStatus(const pp::Client::MinerStatus &status) {
   std::cout << "Miner Status:\n";
   std::cout << "  Miner ID: " << status.minerId << "\n";
   std::cout << "  Stake: " << status.stake << "\n";
-  std::cout << "  Current Block ID: " << status.currentBlockId << "\n";
+  std::cout << "  Next Block ID: " << status.nextBlockId << "\n";
   std::cout << "  Current Slot: " << status.currentSlot << "\n";
   std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
   std::cout << "  Pending Transactions: " << status.pendingTransactions << "\n";

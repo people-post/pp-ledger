@@ -237,10 +237,10 @@ Beacon::Roe<bool> Beacon::shouldAcceptChain(const Validator::BlockChain& candida
 
 Beacon::Roe<void> Beacon::evaluateCheckpoints() {
   uint64_t currentSize = calculateBlockchainSize();
-  uint64_t currentBlock = getCurrentBlockId();
+  uint64_t nextBlockId = getNextBlockId();
 
   log().debug << "Evaluating checkpoints - size: " << (currentSize / (1024*1024)) 
-              << " MB, current block: " << currentBlock;
+              << " MB, next block: " << nextBlockId;
 
   // Check if we have enough data to consider checkpointing
   if (currentSize < config_.checkpoint.minSizeBytes) {
@@ -253,7 +253,7 @@ Beacon::Roe<void> Beacon::evaluateCheckpoints() {
   std::vector<uint64_t> checkpointCandidates;
 
   // Iterate through blocks to find old enough blocks
-  for (uint64_t blockId = currentCheckpointId_ + 1; blockId < currentBlock; ++blockId) {
+  for (uint64_t blockId = currentCheckpointId_ + 1; blockId < nextBlockId; ++blockId) {
     uint64_t age = getBlockAge(blockId);
     
     if (age >= checkpointAge) {

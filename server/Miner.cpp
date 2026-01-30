@@ -61,17 +61,9 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }
 
-  // Register self as stakeholder
-  getConsensus().registerStakeholder(config_.minerId, getStake());
-
   initialized_ = true;
 
   log().info << "Miner initialized successfully";
-  log().info << "  Genesis time: " << getConsensus().getGenesisTime();
-  log().info << "  Current slot: " << getCurrentSlot();
-  log().info << "  Current epoch: " << getCurrentEpoch();
-  log().info << "  Stake: " << getStake();
-
   return {};
 }
 
@@ -206,7 +198,7 @@ Miner::Roe<void> Miner::syncChain(const Validator::BlockChain& otherChain) {
 }
 
 Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
-  uint64_t ourBlockId = getCurrentBlockId();
+  uint64_t ourBlockId = getNextBlockId();
   
   if (remoteBlockId > ourBlockId) {
     log().debug << "Sync needed - remote ahead by " << (remoteBlockId - ourBlockId) << " blocks";
@@ -217,7 +209,7 @@ Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
 }
 
 bool Miner::isOutOfDate(uint64_t checkpointId) const {
-  uint64_t ourBlockId = getCurrentBlockId();
+  uint64_t ourBlockId = getNextBlockId();
   
   // If checkpoint is significantly ahead of us (e.g., more than 1000 blocks),
   // we're out of date and should reinit from checkpoint

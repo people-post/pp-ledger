@@ -120,7 +120,66 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Stake: " << miner_.getStake();
 
+  auto syncResult = syncBlocksFromBeacon();
+  if (!syncResult) {
+    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + syncResult.error().message);
+  }
+
   log().info << "MinerServer initialization complete";
+  return {};
+}
+
+MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
+  if (config_.network.beacons.empty()) {
+    return Error(E_CONFIG, "No beacon servers configured");
+  }
+
+  std::string beaconAddr = config_.network.beacons[0];
+  log().info << "Syncing blocks from beacon: " << beaconAddr;
+
+  Client client;
+  client.redirectLogger(log().getFullName() + ".Client");
+  if (!client.setEndpoint(beaconAddr)) {
+    return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
+  }
+
+  auto stateResult = client.fetchBeaconState();
+  if (!stateResult) {
+    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
+  }
+
+  uint64_t latestBlockId = stateResult.value().nextBlockId;
+  uint64_t nextBlockId = miner_.getNextBlockId();
+
+  if (nextBlockId >= latestBlockId) {
+    log().info << "Already in sync: next block " << nextBlockId
+               << ", beacon latest " << latestBlockId;
+    return {};
+  }
+
+  log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
+
+  for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
+    auto blockResult = client.fetchBlock(blockId);
+    if (!blockResult) {
+      return Error(E_NETWORK,
+                   "Failed to fetch block " + std::to_string(blockId) + " from beacon: " +
+                       blockResult.error().message);
+    }
+
+    Ledger::ChainNode block = blockResult.value();
+    block.hash = miner_.calculateHash(block.block);
+
+    auto addResult = miner_.addBlock(block);
+    if (!addResult) {
+      return Error(E_MINER,
+                   "Failed to add block " + std::to_string(blockId) + ": " + addResult.error().message);
+    }
+
+    log().debug << "Synced block " << blockId;
+  }
+
+  log().info << "Sync complete: " << (latestBlockId - nextBlockId) << " blocks added";
   return {};
 }
 
@@ -359,9 +418,9 @@ std::string MinerServer::handleBlockRequest(const nlohmann::json& reqJson) {
     resp["status"] = "ok";
     resp["message"] = "Block added successfully";
     
-  } else if (action == "current") {
+  } else if (action == "next") {
     resp["status"] = "ok";
-    resp["currentBlockId"] = miner_.getCurrentBlockId();
+    resp["nextBlockId"] = miner_.getNextBlockId();
     
   } else {
     resp["error"] = "unknown block action: " + action;
@@ -480,7 +539,7 @@ std::string MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
   resp["status"] = "ok";
   resp["minerId"] = config_.minerId;
   resp["stake"] = miner_.getStake();
-  resp["currentBlockId"] = miner_.getCurrentBlockId();
+  resp["nextBlockId"] = miner_.getNextBlockId();
   resp["currentSlot"] = miner_.getCurrentSlot();
   resp["currentEpoch"] = miner_.getCurrentEpoch();
   resp["pendingTransactions"] = miner_.getPendingTransactionCount();
@@ -544,7 +603,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
 
   const auto& state = stateResult.value();
   log().info << "Latest checkpoint ID: " << state.checkpointId;
-  log().info << "Latest block ID: " << state.blockId;
+  log().info << "Next block ID: " << state.nextBlockId;
   log().info << "Retrieved " << state.stakeholders.size() << " stakeholders from beacon";
 
   // Register stakeholders with the miner's consensus module

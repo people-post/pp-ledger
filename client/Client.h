@@ -40,7 +40,7 @@ public:
 
   // Response data structures
   struct ServerInfo {
-    uint64_t currentBlockId;
+    uint64_t nextBlockId;
     uint64_t currentSlot;
     uint64_t currentEpoch;
   };
@@ -48,7 +48,7 @@ public:
   struct MinerStatus {
     std::string minerId;
     uint64_t stake;
-    uint64_t currentBlockId;
+    uint64_t nextBlockId;
     uint64_t currentSlot;
     uint64_t currentEpoch;
     uint64_t pendingTransactions;
@@ -58,7 +58,7 @@ public:
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     uint64_t checkpointId;
-    uint64_t blockId;
+    uint64_t nextBlockId;
     uint64_t currentSlot;
     uint64_t currentEpoch;
     int64_t currentTimestamp;  /**< Unix time in seconds (server's view of now) */
@@ -73,7 +73,7 @@ public:
 
   // BeaconServer API - Block operations
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
-  Roe<uint64_t> fetchCurrentBlockId();
+  Roe<uint64_t> fetchNextBlockId();
   Roe<bool> addBlock(const Ledger::ChainNode& block);
 
   // BeaconServer API - Checkpoint operations

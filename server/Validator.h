@@ -89,7 +89,7 @@ public:
     Roe<const Ledger::ChainNode&> getBlock(uint64_t blockId) const;
     Roe<void> addBlockBase(const Ledger::ChainNode& block);
     Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
-    uint64_t getCurrentBlockId() const;
+    uint64_t getNextBlockId() const;
 
     // Consensus queries
     uint64_t getCurrentSlot() const;
@@ -103,6 +103,7 @@ public:
     
 protected:
     // Validation helpers
+    Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
     bool validateBlock(const Ledger::ChainNode& block) const;
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
