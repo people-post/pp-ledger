@@ -176,8 +176,7 @@ int main(int argc, char *argv[]) {
 
   std::string command = positionalArgs[0];
 
-  auto logger = pp::logging::getLogger("client");
-  logger.setLevel(pp::logging::Level::WARNING);
+  pp::logging::getRootLogger().setLevel(pp::logging::Level::WARNING);
 
   pp::Client client;
 
