@@ -175,6 +175,11 @@ private:
    * Handle consensus-related requests
    */
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
+
+  /**
+   * Handle state request (checkpoint id, block id, stakeholders in one response)
+   */
+  std::string handleStateRequest(const nlohmann::json& reqJson);
   
   /**
    * Process a single queued request from the request queue

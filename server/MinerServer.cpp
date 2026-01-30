@@ -527,40 +527,24 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   Client client;
   client.redirectLogger(log().getFullName() + ".Client");
   if (!client.setEndpoint(beaconAddr)) {
-    return Error(E_NETWORK, "Failed to connect to beacon at " + beaconAddr);
+    return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  // Fetch latest checkpoint ID
-  auto checkpointResult = client.getCurrentCheckpointId();
-  if (!checkpointResult) {
-    return Error(E_NETWORK, "Failed to get checkpoint ID: " + checkpointResult.error().message);
-  } else {
-    uint64_t checkpointId = checkpointResult.value();
-    log().info << "Latest checkpoint ID: " << checkpointId;
+  auto stateResult = client.fetchBeaconState();
+  if (!stateResult) {
+    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
   }
 
-  // Fetch latest block ID
-  auto blockResult = client.getCurrentBlockId();
-  if (!blockResult) {
-    return Error(E_NETWORK, "Failed to get current block ID: " + blockResult.error().message);
-  }
-  uint64_t currentBlockId = blockResult.value();
-  log().info << "Latest block ID: " << currentBlockId;
-
-  // Fetch stakeholder list
-  auto stakeholdersResult = client.listStakeholders();
-  if (!stakeholdersResult) {
-    return Error(E_NETWORK, "Failed to get stakeholders: " + stakeholdersResult.error().message);
-  }
-  
-  auto stakeholders = stakeholdersResult.value();
-  log().info << "Retrieved " << stakeholders.size() << " stakeholders from beacon";
+  const auto& state = stateResult.value();
+  log().info << "Latest checkpoint ID: " << state.checkpointId;
+  log().info << "Latest block ID: " << state.blockId;
+  log().info << "Retrieved " << state.stakeholders.size() << " stakeholders from beacon";
 
   // Register stakeholders with the miner's consensus module
   // Note: We need to access the consensus module through the miner
   // For now, we'll just log the stakeholders
   uint64_t totalStake = 0;
-  for (const auto& sh : stakeholders) {
+  for (const auto& sh : state.stakeholders) {
     log().info << "  Stakeholder: " << sh.id << " with stake " << sh.stake;
     totalStake += sh.stake;
   }

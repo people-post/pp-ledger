@@ -64,6 +64,13 @@ public:
     bool isSlotLeader;
   };
 
+  /** Current checkpoint id, block id and stakeholders from beacon (single round-trip). */
+  struct BeaconState {
+    uint64_t checkpointId;
+    uint64_t blockId;
+    std::vector<consensus::Stakeholder> stakeholders;
+  };
+
   Client();
   ~Client();
 
@@ -71,31 +78,34 @@ public:
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
   // BeaconServer API - Block operations
-  Roe<BlockInfo> getBlock(uint64_t blockId);
-  Roe<uint64_t> getCurrentBlockId();
+  Roe<BlockInfo> fetchBlock(uint64_t blockId);
+  Roe<uint64_t> fetchCurrentBlockId();
   Roe<bool> addBlock(const BlockInfo &block);
 
   // BeaconServer API - Checkpoint operations
-  Roe<uint64_t> getCurrentCheckpointId();
+  Roe<uint64_t> fetchCurrentCheckpointId();
 
   // BeaconServer API - Stakeholder operations
-  Roe<std::vector<consensus::Stakeholder>> listStakeholders();
+  Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
+
+  // BeaconServer API - Combined state (checkpoint id, block id, stakeholders) in one call
+  Roe<BeaconState> fetchBeaconState();
 
   // BeaconServer API - Consensus queries
-  Roe<uint64_t> getCurrentSlot();
-  Roe<uint64_t> getCurrentEpoch();
-  Roe<std::string> getSlotLeader(uint64_t slot);
+  Roe<uint64_t> fetchCurrentSlot();
+  Roe<uint64_t> fetchCurrentEpoch();
+  Roe<std::string> fetchSlotLeader(uint64_t slot);
 
   // MinerServer API - Transaction operations
   Roe<bool> addTransaction(const nlohmann::json &transaction);
-  Roe<uint64_t> getPendingTransactionCount();
+  Roe<uint64_t> fetchPendingTransactionCount();
 
   // MinerServer API - Mining operations
   Roe<bool> produceBlock();
-  Roe<bool> isSlotLeader();
+  Roe<bool> fetchIsSlotLeader();
 
   // MinerServer API - Status
-  Roe<MinerStatus> getMinerStatus();
+  Roe<MinerStatus> fetchMinerStatus();
 
 private:
   // Helper to send JSON request and receive JSON response

@@ -184,7 +184,7 @@ int main(int argc, char *argv[]) {
           std::cerr << "Error: Invalid blockId\n";
           exitCode = 1;
         } else {
-          auto result = client.getBlock(blockId);
+          auto result = client.fetchBlock(blockId);
           if (result) {
             printBlockInfo(result.value());
           } else {
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
         }
       }
     } else if (command == "current-block") {
-      auto result = client.getCurrentBlockId();
+      auto result = client.fetchCurrentBlockId();
       if (result) {
         std::cout << "Current Block ID: " << result.value() << "\n";
       } else {
@@ -202,7 +202,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "stakeholders") {
-      auto result = client.listStakeholders();
+      auto result = client.fetchStakeholders();
       if (result) {
         printStakeholders(result.value());
       } else {
@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "current-slot") {
-      auto result = client.getCurrentSlot();
+      auto result = client.fetchCurrentSlot();
       if (result) {
         std::cout << "Current Slot: " << result.value() << "\n";
       } else {
@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "current-epoch") {
-      auto result = client.getCurrentEpoch();
+      auto result = client.fetchCurrentEpoch();
       if (result) {
         std::cout << "Current Epoch: " << result.value() << "\n";
       } else {
@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
           std::cerr << "Error: Invalid slot\n";
           exitCode = 1;
         } else {
-          auto result = client.getSlotLeader(slot);
+          auto result = client.fetchSlotLeader(slot);
           if (result) {
             std::cout << "Slot Leader for slot " << slot << ": "
                       << result.value() << "\n";
@@ -291,7 +291,7 @@ int main(int argc, char *argv[]) {
         }
       }
     } else if (command == "pending-txs") {
-      auto result = client.getPendingTransactionCount();
+      auto result = client.fetchPendingTransactionCount();
       if (result) {
         std::cout << "Pending Transactions: " << result.value() << "\n";
       } else {
@@ -307,7 +307,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "should-produce") {
-      auto result = client.isSlotLeader();
+      auto result = client.fetchIsSlotLeader();
       if (result) {
         std::cout << "Should Produce Block: "
                   << (result.value() ? "Yes" : "No") << "\n";
@@ -316,7 +316,7 @@ int main(int argc, char *argv[]) {
         exitCode = 1;
       }
     } else if (command == "status") {
-      auto result = client.getMinerStatus();
+      auto result = client.fetchMinerStatus();
       if (result) {
         printMinerStatus(result.value());
       } else {

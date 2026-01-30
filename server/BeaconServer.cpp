@@ -334,6 +334,8 @@ std::string BeaconServer::handleServerRequest(const std::string &request) {
     return handleStakeholderRequest(reqJson);
   } else if (type == "consensus") {
     return handleConsensusRequest(reqJson);
+  } else if (type == "state") {
+    return handleStateRequest(reqJson);
   } else {
     nlohmann::json resp;
     resp["error"] = "unknown request type: " + type;
@@ -663,7 +665,38 @@ std::string BeaconServer::handleConsensusRequest(const nlohmann::json& reqJson) 
   } else {
     resp["error"] = "unknown consensus action: " + action;
   }
-  
+
+  return resp.dump();
+}
+
+std::string BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
+  nlohmann::json resp;
+
+  if (!reqJson.contains("action")) {
+    resp["error"] = "missing action field";
+    return resp.dump();
+  }
+
+  std::string action = reqJson["action"].get<std::string>();
+
+  if (action == "current") {
+    resp["status"] = "ok";
+    resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
+    resp["currentBlockId"] = beacon_.getCurrentBlockId();
+    resp["stakeholders"] = nlohmann::json::array();
+
+    for (const auto& sh : beacon_.getStakeholders()) {
+      nlohmann::json shJson;
+      shJson["id"] = sh.id;
+      shJson["address"] = sh.endpoint.address;
+      shJson["port"] = sh.endpoint.port;
+      shJson["stake"] = sh.stake;
+      resp["stakeholders"].push_back(shJson);
+    }
+  } else {
+    resp["error"] = "unknown state action: " + action;
+  }
+
   return resp.dump();
 }
 

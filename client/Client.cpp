@@ -85,7 +85,7 @@ Client::Roe<json> Client::sendRequest(const json &request) {
 
 // BeaconServer API - Block operations
 
-Client::Roe<Client::BlockInfo> Client::getBlock(uint64_t blockId) {
+Client::Roe<Client::BlockInfo> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
   json request = {{"type", "block"}, {"action", "get"}, {"blockId", blockId}};
@@ -115,7 +115,7 @@ Client::Roe<Client::BlockInfo> Client::getBlock(uint64_t blockId) {
   return block;
 }
 
-Client::Roe<uint64_t> Client::getCurrentBlockId() {
+Client::Roe<uint64_t> Client::fetchCurrentBlockId() {
   log().debug << "Requesting current block ID";
 
   json request = {{"type", "block"}, {"action", "current"}};
@@ -134,7 +134,7 @@ Client::Roe<uint64_t> Client::getCurrentBlockId() {
   return response["currentBlockId"].get<uint64_t>();
 }
 
-Client::Roe<uint64_t> Client::getCurrentCheckpointId() {
+Client::Roe<uint64_t> Client::fetchCurrentCheckpointId() {
   log().debug << "Requesting current checkpoint ID";
 
   json request = {{"type", "checkpoint"}, {"action", "current"}};
@@ -151,6 +151,38 @@ Client::Roe<uint64_t> Client::getCurrentCheckpointId() {
   }
 
   return response["currentCheckpointId"].get<uint64_t>();
+}
+
+Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
+  log().debug << "Requesting beacon state (checkpoint, block, stakeholders)";
+
+  json request = {{"type", "state"}, {"action", "current"}};
+
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const json &response = result.value();
+
+  if (!response.contains("currentCheckpointId") || !response.contains("currentBlockId") ||
+      !response.contains("stakeholders")) {
+    return Error(E_INVALID_RESPONSE,
+                 "Response missing 'currentCheckpointId', 'currentBlockId' or 'stakeholders'");
+  }
+
+  BeaconState state;
+  state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
+  state.blockId = response["currentBlockId"].get<uint64_t>();
+  state.stakeholders.clear();
+  for (const auto &item : response["stakeholders"]) {
+    consensus::Stakeholder info;
+    info.id = item.value("id", 0);
+    info.stake = item.value("stake", 0);
+    state.stakeholders.push_back(info);
+  }
+
+  return state;
 }
 
 Client::Roe<bool> Client::addBlock(const BlockInfo &block) {
@@ -178,7 +210,7 @@ Client::Roe<bool> Client::addBlock(const BlockInfo &block) {
 // BeaconServer API - Stakeholder operations
 
 Client::Roe<std::vector<consensus::Stakeholder>>
-Client::listStakeholders() {
+Client::fetchStakeholders() {
   log().debug << "Requesting stakeholder list";
 
   json request = {{"type", "stakeholder"}, {"action", "list"}};
@@ -207,7 +239,7 @@ Client::listStakeholders() {
 
 // BeaconServer API - Consensus queries
 
-Client::Roe<uint64_t> Client::getCurrentSlot() {
+Client::Roe<uint64_t> Client::fetchCurrentSlot() {
   log().debug << "Requesting current slot";
 
   json request = {{"type", "consensus"}, {"action", "currentSlot"}};
@@ -226,7 +258,7 @@ Client::Roe<uint64_t> Client::getCurrentSlot() {
   return response["slot"].get<uint64_t>();
 }
 
-Client::Roe<uint64_t> Client::getCurrentEpoch() {
+Client::Roe<uint64_t> Client::fetchCurrentEpoch() {
   log().debug << "Requesting current epoch";
 
   json request = {{"type", "consensus"}, {"action", "currentEpoch"}};
@@ -245,7 +277,7 @@ Client::Roe<uint64_t> Client::getCurrentEpoch() {
   return response["epoch"].get<uint64_t>();
 }
 
-Client::Roe<std::string> Client::getSlotLeader(uint64_t slot) {
+Client::Roe<std::string> Client::fetchSlotLeader(uint64_t slot) {
   log().debug << "Requesting slot leader for slot " << slot;
 
   json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
@@ -280,7 +312,7 @@ Client::Roe<bool> Client::addTransaction(const json &transaction) {
   return response.value("status", "") == "ok";
 }
 
-Client::Roe<uint64_t> Client::getPendingTransactionCount() {
+Client::Roe<uint64_t> Client::fetchPendingTransactionCount() {
   log().debug << "Requesting pending transaction count";
 
   json request = {{"type", "transaction"}, {"action", "count"}};
@@ -315,7 +347,7 @@ Client::Roe<bool> Client::produceBlock() {
   return response.value("status", "") == "ok";
 }
 
-Client::Roe<bool> Client::isSlotLeader() {
+Client::Roe<bool> Client::fetchIsSlotLeader() {
   log().debug << "Checking if should produce block";
 
   json request = {{"type", "mining"}, {"action", "shouldProduce"}};
@@ -336,7 +368,7 @@ Client::Roe<bool> Client::isSlotLeader() {
 
 // MinerServer API - Status
 
-Client::Roe<Client::MinerStatus> Client::getMinerStatus() {
+Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   log().debug << "Requesting miner status";
 
   json request = {{"type", "status"}};
