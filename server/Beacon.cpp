@@ -24,15 +24,13 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  getConsensus().setSlotDuration(config.chain.slotDuration);
-  getConsensus().setSlotsPerEpoch(config.chain.slotsPerEpoch);
+  consensus::Ouroboros::Config cc;
+  cc.genesisTime = utl::getCurrentTime();
+  cc.timeOffset = 0;
+  cc.slotDuration = config.chain.slotDuration;
+  cc.slotsPerEpoch = config.chain.slotsPerEpoch;
+  getConsensus().init(cc);
   
-  // Set genesis time
-  auto now = std::chrono::system_clock::now();
-  auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-      now.time_since_epoch()).count();
-  getConsensus().setGenesisTime(timestamp);
-
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config.workDir + "/ledger";
@@ -45,7 +43,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
 
   config_.workDir = config.workDir;
   config_.chain = config.chain;
-  config_.chain.genesisTime = timestamp;
+  config_.chain.genesisTime = cc.genesisTime;
 
   // Create and add genesis block
   auto genesisBlock = createGenesisBlock(config_.chain);
@@ -61,7 +59,10 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
              << BlockChainConfig::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
-  log().info << "  Genesis time: " << getConsensus().getGenesisTime();
+  log().info << "  Genesis time: " << cc.genesisTime;
+  log().info << "  Time offset: " << cc.timeOffset;
+  log().info << "  Slot duration: " << cc.slotDuration;
+  log().info << "  Slots per epoch: " << cc.slotsPerEpoch;
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 

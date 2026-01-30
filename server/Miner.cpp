@@ -56,6 +56,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
     }
   }
 
+  // Initialize consensus
+  consensus::Ouroboros::Config cc;
+  cc.timeOffset = config.timeOffset;
+  getConsensus().init(cc);
+
   auto loadResult = loadFromLedger(config.startingBlockId);
   if (!loadResult) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);

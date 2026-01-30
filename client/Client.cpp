@@ -381,7 +381,7 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   const json &response = result.value();
 
   MinerStatus status;
-  status.minerId = response.value("minerId", "");
+  status.minerId = response.value("minerId", 0);
   status.stake = response.value("stake", 0);
   status.nextBlockId = response.value("nextBlockId", 0);
   status.currentSlot = response.value("currentSlot", 0);

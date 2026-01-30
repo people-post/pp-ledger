@@ -44,6 +44,7 @@ public:
 
     struct InitConfig {
         std::string workDir;
+        int64_t timeOffset{ 0 };
         uint64_t minerId{ 0 };
         uint64_t startingBlockId{ 0 };
     };

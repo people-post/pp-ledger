@@ -99,6 +99,11 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
     return Error(3, "Block validation failed: " + validationResult.error().message);
   }
 
+  auto processResult = processBlock(block, block.block.index);
+  if (!processResult) {
+    return Error(4, "Failed to process block: " + processResult.error().message);
+  }
+
   // Add to chain
   auto blockPtr = std::make_shared<Ledger::ChainNode>(block);
   if (!chain_.addBlock(blockPtr)) {
@@ -138,9 +143,6 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   }
   if (block.block.slotLeader != 0) {
     return Error(8, "Genesis block must have slotLeader 0");
-  }
-  if (block.block.timestamp != consensus_.getGenesisTime()) {
-    return Error(7, "Genesis block timestamp must match genesis time");
   }
   // Exactly one checkpoint transaction: T_CHECKPOINT, WID_SYSTEM/WID_SYSTEM, amount 0, signature "genesis"
   if (block.block.signedTxes.size() != 1) {
@@ -308,7 +310,7 @@ bool Validator::isValidSlotLeader(const Ledger::ChainNode& block) const {
 
 bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
   int64_t slotStartTime = consensus_.getSlotStartTime(block.block.slot);
-  int64_t slotEndTime = slotStartTime + static_cast<int64_t>(consensus_.getSlotDuration());
+  int64_t slotEndTime = consensus_.getSlotEndTime(block.block.slot);
   
   int64_t blockTime = block.block.timestamp;
 
@@ -332,14 +334,23 @@ Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::Signe
   BlockChainConfig restoredConfig = configResult.value();
   
   // Restore consensus parameters
-  consensus_.setGenesisTime(restoredConfig.genesisTime);
-  consensus_.setSlotDuration(restoredConfig.slotDuration);
-  consensus_.setSlotsPerEpoch(restoredConfig.slotsPerEpoch);
+  auto config = consensus_.getConfig();
+
+  if (config.genesisTime == 0) {
+    config.genesisTime = restoredConfig.genesisTime;
+  } else if (restoredConfig.genesisTime != config.genesisTime) {
+    return Error(17, "Genesis time mismatch");
+  }
+
+  config.slotDuration = restoredConfig.slotDuration;
+  config.slotsPerEpoch = restoredConfig.slotsPerEpoch;
+  consensus_.init(config);
   
   log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
-  log().info << "  Genesis time: " << restoredConfig.genesisTime;
-  log().info << "  Slot duration: " << restoredConfig.slotDuration;
-  log().info << "  Slots per epoch: " << restoredConfig.slotsPerEpoch;
+  log().info << "  Genesis time: " << config.genesisTime;
+  log().info << "  Time offset: " << config.timeOffset;
+  log().info << "  Slot duration: " << config.slotDuration;
+  log().info << "  Slots per epoch: " << config.slotsPerEpoch;
 
   return {};
 }

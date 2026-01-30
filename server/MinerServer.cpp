@@ -103,13 +103,17 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to connect to beacon: " + beaconResult.error().message);
   }
   log().info << "Successfully connected to beacon and synchronized initial state";
+  const auto& state = beaconResult.value();
 
   // Initialize miner core
   std::filesystem::path minerDataDir = std::filesystem::path(workDir_) / DIR_DATA;
   
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
+  minerConfig.timeOffset = state.currentTimestamp - utl::getCurrentTime();
   minerConfig.workDir = minerDataDir.string();
+  minerConfig.startingBlockId = state.checkpointId;
+
   
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {
@@ -581,7 +585,7 @@ void MinerServer::handleValidatorRole() {
   // The actual block reception would happen via network requests
 }
 
-MinerServer::Roe<void> MinerServer::connectToBeacon() {
+MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   if (config_.network.beacons.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
@@ -616,7 +620,7 @@ MinerServer::Roe<void> MinerServer::connectToBeacon() {
   }
   log().info << "Total stake in network: " << totalStake;
 
-  return {};
+  return state;
 }
 
 } // namespace pp

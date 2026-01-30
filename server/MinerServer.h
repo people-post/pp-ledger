@@ -2,6 +2,7 @@
 #define PP_LEDGER_MINER_SERVER_H
 
 #include "Miner.h"
+#include "../client/Client.h"
 #include "../network/FetchServer.h"
 #include "../network/Types.hpp"
 #include "../lib/Service.h"
@@ -133,7 +134,7 @@ private:
    * Connect to beacon server and fetch initial state
    * @return ResultOrError indicating success or failure
    */
-  Roe<void> connectToBeacon();
+  Roe<Client::BeaconState> connectToBeacon();
 
   /**
    * Sync blocks from beacon one at a time until local chain is up to latest block id.

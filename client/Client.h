@@ -40,28 +40,28 @@ public:
 
   // Response data structures
   struct ServerInfo {
-    uint64_t nextBlockId;
-    uint64_t currentSlot;
-    uint64_t currentEpoch;
+    uint64_t nextBlockId{ 0 };
+    uint64_t currentSlot{ 0 };
+    uint64_t currentEpoch{ 0 };
   };
 
   struct MinerStatus {
-    std::string minerId;
-    uint64_t stake;
-    uint64_t nextBlockId;
-    uint64_t currentSlot;
-    uint64_t currentEpoch;
-    uint64_t pendingTransactions;
-    bool isSlotLeader;
+    uint64_t minerId{ 0 };
+    uint64_t stake{ 0 };
+    uint64_t nextBlockId{ 0 };
+    uint64_t currentSlot{ 0 };
+    uint64_t currentEpoch{ 0 };
+    uint64_t pendingTransactions{ 0 };
+    bool isSlotLeader{ false };
   };
 
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
-    uint64_t checkpointId;
-    uint64_t nextBlockId;
-    uint64_t currentSlot;
-    uint64_t currentEpoch;
-    int64_t currentTimestamp;  /**< Unix time in seconds (server's view of now) */
+    uint64_t checkpointId{ 0 };
+    uint64_t nextBlockId { 0 };
+    uint64_t currentSlot { 0 };
+    uint64_t currentEpoch { 0 };
+    int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
     std::vector<consensus::Stakeholder> stakeholders;
   };
 

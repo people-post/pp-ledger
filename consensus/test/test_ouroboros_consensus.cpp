@@ -12,8 +12,12 @@ class OuroborosTest : public ::testing::Test {
 protected:
     void SetUp() override {
         consensus = std::make_unique<Ouroboros>();
-        consensus->setSlotDuration(5);
-        consensus->setSlotsPerEpoch(10);
+        consensus->init({
+            .genesisTime = 0,
+            .timeOffset = 0,
+            .slotDuration = 5,
+            .slotsPerEpoch = 10,
+        });
     }
 
     void TearDown() override {
@@ -24,8 +28,8 @@ protected:
 };
 
 TEST_F(OuroborosTest, CreatesWithCorrectConfiguration) {
-    EXPECT_EQ(consensus->getSlotDuration(), 5);
-    EXPECT_EQ(consensus->getSlotsPerEpoch(), 10);
+    EXPECT_EQ(consensus->getConfig().slotDuration, 5);
+    EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 10);
 }
 
 TEST_F(OuroborosTest, RegistersStakeholders) {
@@ -166,19 +170,32 @@ TEST_F(OuroborosTest, ReturnsAllStakeholders) {
 }
 
 TEST_F(OuroborosTest, UpdatesSlotDuration) {
-    consensus->setSlotDuration(10);
-    EXPECT_EQ(consensus->getSlotDuration(), 10);
+    Ouroboros::Config cfg = consensus->getConfig();
+    cfg.slotDuration = 10;
+    consensus->init(cfg);
+    EXPECT_EQ(consensus->getConfig().slotDuration, 10);
 }
 
 TEST_F(OuroborosTest, UpdatesSlotsPerEpoch) {
-    consensus->setSlotsPerEpoch(20);
-    EXPECT_EQ(consensus->getSlotsPerEpoch(), 20);
+    Ouroboros::Config cfg = consensus->getConfig();
+    cfg.slotsPerEpoch = 20;
+    consensus->init(cfg);
+    EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 20);
 }
 
 TEST_F(OuroborosTest, SetsGenesisTime) {
     int64_t genesisTime = 1234567890;
-    consensus->setGenesisTime(genesisTime);
-    EXPECT_EQ(consensus->getGenesisTime(), genesisTime);
+    Ouroboros::Config cfg = consensus->getConfig();
+    cfg.genesisTime = genesisTime;
+    consensus->init(cfg);
+    EXPECT_EQ(consensus->getConfig().genesisTime, genesisTime);
+}
+
+TEST_F(OuroborosTest, SetsTimeOffset) {
+    Ouroboros::Config cfg = consensus->getConfig();
+    cfg.timeOffset = 60;  // local 60s behind beacon
+    consensus->init(cfg);
+    EXPECT_EQ(consensus->getConfig().timeOffset, 60);
 }
 
 TEST_F(OuroborosTest, ReturnsErrorWhenNoStakeholders) {

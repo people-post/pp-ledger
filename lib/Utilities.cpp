@@ -11,6 +11,11 @@
 namespace pp {
 namespace utl {
 
+int64_t getCurrentTime() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 bool parseInt(const std::string &str, int &value) {
   auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), value);
   return ec == std::errc{} && ptr == str.data() + str.size();

@@ -10,6 +10,98 @@ namespace consensus {
 
 Ouroboros::Ouroboros() {}
 
+bool Ouroboros::isSlotLeader(uint64_t slot,
+                             uint64_t stakeholderId) const {
+  auto result = getSlotLeader(slot);
+  if (!result.isOk()) {
+    return false;
+  }
+
+  return result.value() == stakeholderId;
+}
+
+uint64_t Ouroboros::getCurrentSlot() const {
+  auto now = std::chrono::system_clock::now();
+  int64_t localTime =
+      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
+          .count();
+  // Use beacon time for slot: beacon_time = local_time + timeOffset_
+  int64_t currentTime = localTime + config_.timeOffset;
+
+  if (currentTime < config_.genesisTime) {
+    return 0;
+  }
+
+  int64_t elapsed = currentTime - config_.genesisTime;
+  if (config_.slotDuration == 0) {
+    log().error << "Slot duration is 0";
+  }
+  return static_cast<uint64_t>(elapsed / config_.slotDuration);
+}
+
+uint64_t Ouroboros::getCurrentEpoch() const {
+  uint64_t slot = getCurrentSlot();
+  if (config_.slotsPerEpoch == 0) {
+    log().error << "Slots per epoch is 0";
+  }
+  return slot / config_.slotsPerEpoch;
+}
+
+uint64_t Ouroboros::getSlotInEpoch(uint64_t slot) const {
+  return slot % config_.slotsPerEpoch;
+}
+
+int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
+  return config_.genesisTime + static_cast<int64_t>(slot * config_.slotDuration);
+}
+
+int64_t Ouroboros::getSlotEndTime(uint64_t slot) const {
+  return getSlotStartTime(slot) + static_cast<int64_t>(config_.slotDuration);
+}
+
+Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
+  if (mStakeholders_.empty()) {
+    return Error(1, "No stakeholders registered");
+  }
+
+  uint64_t epoch = getEpochFromSlot(slot);
+  uint64_t leader = selectSlotLeader(slot, epoch);
+
+  return leader;
+}
+
+uint64_t Ouroboros::getEpochFromSlot(uint64_t slot) const {
+  if (config_.slotsPerEpoch == 0) {
+    log().error << "Slots per epoch is 0";
+  }
+  return slot / config_.slotsPerEpoch;
+}
+
+uint64_t Ouroboros::getTotalStake() const {
+  return std::accumulate(
+      mStakeholders_.begin(), mStakeholders_.end(), uint64_t(0),
+      [](uint64_t sum, const auto &pair) { return sum + pair.second; });
+}
+
+size_t Ouroboros::getStakeholderCount() const { return mStakeholders_.size(); }
+
+std::vector<Stakeholder> Ouroboros::getStakeholders() const {
+  std::vector<Stakeholder> result;
+  result.reserve(mStakeholders_.size());
+
+  for (const auto &[id, stake] : mStakeholders_) {
+    result.emplace_back();
+    result.back().id = id;
+    result.back().stake = stake;
+  }
+
+  return result;
+}
+
+void Ouroboros::init(const Config& config) {
+  config_ = config;
+}
+
 void Ouroboros::registerStakeholder(uint64_t id, uint64_t stake) {
   if (stake == 0) {
     log().warning << "Cannot register stakeholder '" + std::to_string(id) + "' with zero stake";
@@ -45,54 +137,6 @@ bool Ouroboros::removeStakeholder(uint64_t id) {
   mStakeholders_.erase(it);
   log().info << "Removed stakeholder: " + std::to_string(id);
   return true;
-}
-
-uint64_t Ouroboros::getCurrentSlot() const {
-  auto now = std::chrono::system_clock::now();
-  int64_t currentTime =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
-
-  if (currentTime < genesisTime_) {
-    return 0;
-  }
-
-  int64_t elapsed = currentTime - genesisTime_;
-  return static_cast<uint64_t>(elapsed / slotDuration_);
-}
-
-uint64_t Ouroboros::getCurrentEpoch() const {
-  uint64_t slot = getCurrentSlot();
-  return slot / slotsPerEpoch_;
-}
-
-uint64_t Ouroboros::getSlotInEpoch(uint64_t slot) const {
-  return slot % slotsPerEpoch_;
-}
-
-int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
-  return genesisTime_ + static_cast<int64_t>(slot * slotDuration_);
-}
-
-Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
-  if (mStakeholders_.empty()) {
-    return Ouroboros::Error(1, "No stakeholders registered");
-  }
-
-  uint64_t epoch = slot / slotsPerEpoch_;
-  uint64_t leader = selectSlotLeader(slot, epoch);
-
-  return leader;
-}
-
-bool Ouroboros::isSlotLeader(uint64_t slot,
-                             uint64_t stakeholderId) const {
-  auto result = getSlotLeader(slot);
-  if (!result.isOk()) {
-    return false;
-  }
-
-  return result.value() == stakeholderId;
 }
 
 uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
@@ -145,54 +189,18 @@ std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
   return ss.str();
 }
 
-uint64_t Ouroboros::getTotalStake() const {
-  return std::accumulate(
-      mStakeholders_.begin(), mStakeholders_.end(), uint64_t(0),
-      [](uint64_t sum, const auto &pair) { return sum + pair.second; });
-}
-
-size_t Ouroboros::getStakeholderCount() const { return mStakeholders_.size(); }
-
-std::vector<Stakeholder> Ouroboros::getStakeholders() const {
-  std::vector<Stakeholder> result;
-  result.reserve(mStakeholders_.size());
-
-  for (const auto &[id, stake] : mStakeholders_) {
-    result.emplace_back();
-    result.back().id = id;
-    result.back().stake = stake;
-  }
-
-  return result;
-}
-
 bool Ouroboros::validateSlotLeader(uint64_t slotLeader,
                                    uint64_t slot) const {
-  uint64_t expectedLeader = selectSlotLeader(slot, slot / slotsPerEpoch_);
+  uint64_t epoch = getEpochFromSlot(slot);
+  uint64_t expectedLeader = selectSlotLeader(slot, epoch);
   return slotLeader == expectedLeader;
 }
 
 bool Ouroboros::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {
   int64_t slotStart = getSlotStartTime(slot);
-  int64_t slotEnd = slotStart + static_cast<int64_t>(slotDuration_);
+  int64_t slotEnd = slotStart + static_cast<int64_t>(config_.slotDuration);
 
   return blockTimestamp >= slotStart && blockTimestamp < slotEnd;
-}
-
-void Ouroboros::setSlotDuration(uint64_t seconds) {
-  slotDuration_ = seconds;
-  log().info << "Slot duration updated to " + std::to_string(seconds) +
-                    " seconds";
-}
-
-void Ouroboros::setSlotsPerEpoch(uint64_t slots) {
-  slotsPerEpoch_ = slots;
-  log().info << "Slots per epoch updated to " + std::to_string(slots);
-}
-
-void Ouroboros::setGenesisTime(int64_t timestamp) {
-  genesisTime_ = timestamp;
-  log().info << "Genesis time set to " + std::to_string(timestamp);
 }
 
 } // namespace consensus

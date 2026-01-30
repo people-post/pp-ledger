@@ -22,6 +22,12 @@ template <typename T> using Roe = ResultOrError<T, Error>;
 namespace utl {
 
 /**
+ * Get the current time in seconds since the epoch
+ * @return Current time in seconds
+ */
+int64_t getCurrentTime();
+
+/**
  * Parse an integer from a string
  * @param str String to parse
  * @param value Output parameter for the parsed value
