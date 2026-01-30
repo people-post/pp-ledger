@@ -92,9 +92,6 @@ void printMinerStatus(const pp::Client::MinerStatus &status) {
 }
 
 int main(int argc, char *argv[]) {
-  auto rootLogger = pp::logging::getRootLogger();
-  rootLogger.info << "PP-Ledger Client";
-
   if (argc < 2) {
     std::cerr << "Error: Command required.\n";
     printUsage();
@@ -177,8 +174,8 @@ int main(int argc, char *argv[]) {
   std::string command = positionalArgs[0];
 
   pp::logging::getRootLogger().setLevel(pp::logging::Level::WARNING);
-
   pp::Client client;
+
 
   // Initialize connection
   pp::network::TcpEndpoint endpoint{host, port};
