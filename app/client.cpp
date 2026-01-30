@@ -5,11 +5,22 @@
 
 #include <nlohmann/json.hpp>
 
+#include <ctime>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
+
+static std::string formatTimestampLocal(int64_t unixSeconds) {
+  time_t t = static_cast<time_t>(unixSeconds);
+  std::tm* local = std::localtime(&t);
+  if (!local) return std::to_string(unixSeconds);
+  char buf[64];
+  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", local) == 0)
+    return std::to_string(unixSeconds);
+  return std::string(buf);
+}
 
 using json = nlohmann::json;
 
@@ -23,29 +34,24 @@ void printUsage() {
   std::cout << "  -m               - Connect to MinerServer (default port: 8518)\n";
   std::cout << "\nBeaconServer Commands:\n";
   std::cout << "  block <blockId>                    - Get block by ID\n";
-  std::cout << "  current-block                      - Get current block ID\n";
-  std::cout << "  stakeholders                       - List stakeholders\n";
-  std::cout << "  current-slot                       - Get current slot\n";
-  std::cout << "  current-epoch                      - Get current epoch\n";
+  std::cout << "  status                             - Get beacon status\n";
   std::cout << "  slot-leader <slot>                 - Get slot leader for slot\n";
   std::cout << "\nMinerServer Commands:\n";
   std::cout << "  add-tx <from> <to> <amount>        - Add a transaction\n";
-  std::cout << "  pending-txs                        - Get pending transaction count\n";
   std::cout << "  produce-block                      - Produce a new block\n";
-  std::cout << "  should-produce                     - Check if should produce block\n";
   std::cout << "  status                             - Get miner status\n";
   std::cout << "\nExamples:\n";
-  std::cout << "  pp-client -b current-block                        # Connect to beacon (localhost:8517)\n";
-  std::cout << "  pp-client -b -h localhost -p 8517 stakeholders\n";
+  std::cout << "  pp-client -b status                               # Connect to beacon (localhost:8517)\n";
+  std::cout << "  pp-client -b -h localhost -p 8517 block 0\n";
   std::cout << "  pp-client -m status                               # Connect to miner (localhost:8518)\n";
-  std::cout << "  pp-client -m -h localhost:8518 add-tx alice bob 100\n";
+  std::cout << "  pp-client -m -h localhost:8518 add-tx 1 2 100\n";
 }
 
 void printBlockInfo(const pp::Client::BlockInfo &block) {
   std::cout << "Block #" << block.index << ":\n";
   std::cout << "  Slot: " << block.slot << "\n";
   std::cout << "  Slot Leader: " << block.slotLeader << "\n";
-  std::cout << "  Timestamp: " << block.timestamp << "\n";
+  std::cout << "  Timestamp: " << formatTimestampLocal(block.timestamp) << "\n";
   std::cout << "  Hash: " << block.hash << "\n";
   std::cout << "  Previous Hash: " << block.previousHash << "\n";
   std::cout << "  Data Size: " << block.data.size() << " bytes\n";
@@ -62,6 +68,16 @@ void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholde
       std::cout << "  " << std::setw(30) << s.id << s.stake << "\n";
     }
   }
+}
+
+void printBeaconStatus(const pp::Client::BeaconState& status) {
+  std::cout << "Beacon Status:\n";
+  std::cout << "  Checkpoint ID: " << status.checkpointId << "\n";
+  std::cout << "  Current Block ID: " << status.blockId << "\n";
+  std::cout << "  Current Slot: " << status.currentSlot << "\n";
+  std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
+  std::cout << "  Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
+  printStakeholders(status.stakeholders);
 }
 
 void printMinerStatus(const pp::Client::MinerStatus &status) {
@@ -193,34 +209,10 @@ int main(int argc, char *argv[]) {
           }
         }
       }
-    } else if (command == "current-block") {
-      auto result = client.fetchCurrentBlockId();
+    } else if (command == "status") {
+      auto result = client.fetchBeaconState();
       if (result) {
-        std::cout << "Current Block ID: " << result.value() << "\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
-    } else if (command == "stakeholders") {
-      auto result = client.fetchStakeholders();
-      if (result) {
-        printStakeholders(result.value());
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
-    } else if (command == "current-slot") {
-      auto result = client.fetchCurrentSlot();
-      if (result) {
-        std::cout << "Current Slot: " << result.value() << "\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
-    } else if (command == "current-epoch") {
-      auto result = client.fetchCurrentEpoch();
-      if (result) {
-        std::cout << "Current Epoch: " << result.value() << "\n";
+        printBeaconStatus(result.value());
       } else {
         std::cerr << "Error: " << result.error().message << "\n";
         exitCode = 1;
@@ -290,27 +282,10 @@ int main(int argc, char *argv[]) {
           }
         }
       }
-    } else if (command == "pending-txs") {
-      auto result = client.fetchPendingTransactionCount();
-      if (result) {
-        std::cout << "Pending Transactions: " << result.value() << "\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
     } else if (command == "produce-block") {
       auto result = client.produceBlock();
       if (result && result.value()) {
         std::cout << "Block production triggered\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
-    } else if (command == "should-produce") {
-      auto result = client.fetchIsSlotLeader();
-      if (result) {
-        std::cout << "Should Produce Block: "
-                  << (result.value() ? "Yes" : "No") << "\n";
       } else {
         std::cerr << "Error: " << result.error().message << "\n";
         exitCode = 1;

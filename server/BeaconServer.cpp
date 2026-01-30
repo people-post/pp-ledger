@@ -680,9 +680,15 @@ std::string BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
   std::string action = reqJson["action"].get<std::string>();
 
   if (action == "current") {
+    int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
     resp["status"] = "ok";
     resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
     resp["currentBlockId"] = beacon_.getCurrentBlockId();
+    resp["currentSlot"] = beacon_.getCurrentSlot();
+    resp["currentEpoch"] = beacon_.getCurrentEpoch();
+    resp["currentTimestamp"] = currentTimestamp;
     resp["stakeholders"] = nlohmann::json::array();
 
     for (const auto& sh : beacon_.getStakeholders()) {

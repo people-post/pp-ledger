@@ -166,14 +166,19 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   const json &response = result.value();
 
   if (!response.contains("currentCheckpointId") || !response.contains("currentBlockId") ||
-      !response.contains("stakeholders")) {
+      !response.contains("currentSlot") || !response.contains("currentEpoch") ||
+      !response.contains("currentTimestamp") || !response.contains("stakeholders")) {
     return Error(E_INVALID_RESPONSE,
-                 "Response missing 'currentCheckpointId', 'currentBlockId' or 'stakeholders'");
+                 "Response missing 'currentCheckpointId', 'currentBlockId', "
+                 "'currentSlot', 'currentEpoch', 'currentTimestamp' or 'stakeholders'");
   }
 
   BeaconState state;
   state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
   state.blockId = response["currentBlockId"].get<uint64_t>();
+  state.currentSlot = response["currentSlot"].get<uint64_t>();
+  state.currentEpoch = response["currentEpoch"].get<uint64_t>();
+  state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
   state.stakeholders.clear();
   for (const auto &item : response["stakeholders"]) {
     consensus::Stakeholder info;

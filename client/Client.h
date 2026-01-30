@@ -64,10 +64,13 @@ public:
     bool isSlotLeader;
   };
 
-  /** Current checkpoint id, block id and stakeholders from beacon (single round-trip). */
+  /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     uint64_t checkpointId;
     uint64_t blockId;
+    uint64_t currentSlot;
+    uint64_t currentEpoch;
+    int64_t currentTimestamp;  /**< Unix time in seconds (server's view of now) */
     std::vector<consensus::Stakeholder> stakeholders;
   };
 
