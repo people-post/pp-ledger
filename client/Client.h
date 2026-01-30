@@ -3,6 +3,7 @@
 
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../ledger/Ledger.h"
 #include "../network/Types.hpp"
 #include "../consensus/Types.hpp"
 
@@ -38,16 +39,6 @@ public:
   static std::string getErrorMessage(uint16_t errorCode);
 
   // Response data structures
-  struct BlockInfo {
-    uint64_t index;
-    int64_t timestamp;
-    std::string data;
-    std::string previousHash;
-    std::string hash;
-    uint64_t slot;
-    std::string slotLeader;
-  };
-
   struct ServerInfo {
     uint64_t currentBlockId;
     uint64_t currentSlot;
@@ -81,9 +72,9 @@ public:
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
   // BeaconServer API - Block operations
-  Roe<BlockInfo> fetchBlock(uint64_t blockId);
+  Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<uint64_t> fetchCurrentBlockId();
-  Roe<bool> addBlock(const BlockInfo &block);
+  Roe<bool> addBlock(const Ledger::ChainNode& block);
 
   // BeaconServer API - Checkpoint operations
   Roe<uint64_t> fetchCurrentCheckpointId();
@@ -97,7 +88,7 @@ public:
   // BeaconServer API - Consensus queries
   Roe<uint64_t> fetchCurrentSlot();
   Roe<uint64_t> fetchCurrentEpoch();
-  Roe<std::string> fetchSlotLeader(uint64_t slot);
+  Roe<uint64_t> fetchSlotLeader(uint64_t slot);
 
   // MinerServer API - Transaction operations
   Roe<bool> addTransaction(const nlohmann::json &transaction);

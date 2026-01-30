@@ -464,8 +464,8 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     
     const Ledger::ChainNode& block = result.value();
     resp["status"] = "ok";
-    resp["block"] = blockToJson(block);
-    
+    resp["block"] = utl::toJsonSafeString(block.ltsToString());
+
   } else if (action == "add") {
     if (!reqJson.contains("block")) {
       resp["error"] = "missing block field";
@@ -473,7 +473,16 @@ std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
     }
     
     auto& blockJson = reqJson["block"];
-    Ledger::ChainNode block = jsonToBlock(blockJson);
+    if (!blockJson.is_string()) {
+      resp["error"] = "block field must be hex string";
+      return resp.dump();
+    }
+    std::string hex = blockJson.get<std::string>();
+    Ledger::ChainNode block;
+    if (!block.ltsFromString(hex)) {
+      resp["error"] = "Failed to deserialize block";
+      return resp.dump();
+    }
     
     // Calculate hash if not provided or if we want to verify/override
     block.hash = beacon_.calculateHash(block.block);
@@ -653,15 +662,15 @@ std::string BeaconServer::handleConsensusRequest(const nlohmann::json& reqJson) 
     
     uint64_t slot = reqJson["slot"].get<uint64_t>();
     auto result = beacon_.getSlotLeader(slot);
-    
+
     if (!result) {
       resp["error"] = result.error().message;
       return resp.dump();
     }
-    
+
     resp["status"] = "ok";
     resp["slotLeader"] = result.value();
-    
+
   } else {
     resp["error"] = "unknown consensus action: " + action;
   }

@@ -126,6 +126,52 @@ std::string sha256(const std::string &input) {
   return ss.str();
 }
 
+std::string hexEncode(const std::string &data) {
+  std::stringstream ss;
+  for (unsigned char c : data) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+  }
+  return ss.str();
+}
+
+std::string hexDecode(const std::string &hex) {
+  if (hex.size() % 2 != 0) {
+    return {};
+  }
+  std::string out;
+  out.reserve(hex.size() / 2);
+  for (size_t i = 0; i < hex.size(); i += 2) {
+    int hi = 0, lo = 0;
+    char c1 = hex[i], c2 = hex[i + 1];
+    if (c1 >= '0' && c1 <= '9') hi = c1 - '0';
+    else if (c1 >= 'a' && c1 <= 'f') hi = c1 - 'a' + 10;
+    else if (c1 >= 'A' && c1 <= 'F') hi = c1 - 'A' + 10;
+    else return {};
+    if (c2 >= '0' && c2 <= '9') lo = c2 - '0';
+    else if (c2 >= 'a' && c2 <= 'f') lo = c2 - 'a' + 10;
+    else if (c2 >= 'A' && c2 <= 'F') lo = c2 - 'A' + 10;
+    else return {};
+    out.push_back(static_cast<char>((hi << 4) | lo));
+  }
+  return out;
+}
+
+std::string toJsonSafeString(const std::string &s) {
+  for (unsigned char c : s) {
+    if (c >= 128 || (c < 32 && c != ' ')) {
+      return "0x" + hexEncode(s);
+    }
+  }
+  return s;
+}
+
+std::string fromJsonSafeString(const std::string &s) {
+  if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+    return hexDecode(s.substr(2));
+  }
+  return s;
+}
+
 pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content) {
   // Check if file already exists
   if (std::filesystem::exists(filePath)) {

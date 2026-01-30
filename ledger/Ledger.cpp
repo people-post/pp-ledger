@@ -277,6 +277,26 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
   return node;
 }
 
+std::string Ledger::ChainNode::ltsToString() const {
+  RawBlock rawBlock;
+  rawBlock.data = block.ltsToString();
+  rawBlock.hash = hash;
+  return utl::binaryPack(rawBlock);
+}
+
+bool Ledger::ChainNode::ltsFromString(const std::string& str) {
+  auto rawBlockResult = utl::binaryUnpack<RawBlock>(str);
+  if (!rawBlockResult.isOk()) {
+    return false;
+  }
+  RawBlock rawBlock = rawBlockResult.value();
+  if (!block.ltsFromString(rawBlock.data)) {
+    return false;
+  }
+  hash = rawBlock.hash;
+  return true;
+}
+
 bool Ledger::loadIndex() {
   std::ifstream file(indexFilePath_, std::ios::binary);
   if (!file) {

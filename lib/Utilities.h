@@ -87,6 +87,35 @@ pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request);
 std::string sha256(const std::string &input);
 
 /**
+ * Encode binary data as hex string (e.g. for JSON-safe transport)
+ * @param data Raw bytes
+ * @return Lowercase hex string (two chars per byte)
+ */
+std::string hexEncode(const std::string &data);
+
+/**
+ * Decode hex string back to binary
+ * @param hex Hex string (even length, 0-9a-fA-F)
+ * @return Decoded bytes, or empty string if input is invalid
+ */
+std::string hexDecode(const std::string &hex);
+
+/**
+ * Return a string safe for JSON (UTF-8). If input contains non-UTF-8 bytes,
+ * returns "0x" + hexEncode(input) so the receiver can hexDecode.
+ * @param s Arbitrary string (may be binary)
+ * @return UTF-8-safe string
+ */
+std::string toJsonSafeString(const std::string &s);
+
+/**
+ * Reverse of toJsonSafeString: if string starts with "0x", hex-decode the rest.
+ * @param s String from JSON (either plain or "0x" + hex)
+ * @return Decoded binary or original string
+ */
+std::string fromJsonSafeString(const std::string &s);
+
+/**
  * Write a string to a non-existent file
  * Creates parent directories if needed. Fails if the file already exists.
  * @param filePath Path to the file to write

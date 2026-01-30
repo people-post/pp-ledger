@@ -329,17 +329,24 @@ std::string MinerServer::handleBlockRequest(const nlohmann::json& reqJson) {
     
     const Ledger::ChainNode& block = result.value();
     resp["status"] = "ok";
-    resp["block"] = blockToJson(block);
-    
+    resp["block"] = utl::toJsonSafeString(block.ltsToString());
+
   } else if (action == "add") {
     if (!reqJson.contains("block")) {
       resp["error"] = "missing block field";
       return resp.dump();
     }
-    
-    auto& blockJson = reqJson["block"];
-    Ledger::ChainNode block = jsonToBlock(blockJson);
-    
+    if (!reqJson["block"].is_string()) {
+      resp["error"] = "block field must be hex string";
+      return resp.dump();
+    }
+    std::string hex = utl::fromJsonSafeString(reqJson["block"].get<std::string>());
+    Ledger::ChainNode block;
+    if (!block.ltsFromString(hex)) {
+      resp["error"] = "Failed to deserialize block";
+      return resp.dump();
+    }
+
     // Calculate hash if not provided or if we want to verify/override
     block.hash = miner_.calculateHash(block.block);
     

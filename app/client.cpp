@@ -27,6 +27,7 @@ using json = nlohmann::json;
 void printUsage() {
   std::cout << "Usage: pp-client [OPTIONS] <command> [args...]\n";
   std::cout << "\nOptions:\n";
+  std::cout << "  --debug          - Enable debug logging (default: false)\n";
   std::cout << "  -h <host>        - Server host (optional, default: localhost)\n";
   std::cout << "  -h <host:port>   - Server host and port in one argument\n";
   std::cout << "  -p <port>        - Server port (optional)\n";
@@ -47,14 +48,15 @@ void printUsage() {
   std::cout << "  pp-client -m -h localhost:8518 add-tx 1 2 100\n";
 }
 
-void printBlockInfo(const pp::Client::BlockInfo &block) {
+void printBlockInfo(const pp::Ledger::ChainNode& node) {
+  const auto& block = node.block;
   std::cout << "Block #" << block.index << ":\n";
   std::cout << "  Slot: " << block.slot << "\n";
   std::cout << "  Slot Leader: " << block.slotLeader << "\n";
   std::cout << "  Timestamp: " << formatTimestampLocal(block.timestamp) << "\n";
-  std::cout << "  Hash: " << block.hash << "\n";
+  std::cout << "  Hash: " << node.hash << "\n";
   std::cout << "  Previous Hash: " << block.previousHash << "\n";
-  std::cout << "  Data Size: " << block.data.size() << " bytes\n";
+  std::cout << "  Transactions: " << block.signedTxes.size() << "\n";
 }
 
 void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholders) {
@@ -103,11 +105,14 @@ int main(int argc, char *argv[]) {
   uint16_t port = 0;
   bool connectToBeacon = false;
   bool connectToMiner = false;
+  bool debug = false;
   std::vector<std::string> positionalArgs;
 
   // Parse options
   for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "-h") == 0) {
+    if (strcmp(argv[i], "--debug") == 0) {
+      debug = true;
+    } else if (strcmp(argv[i], "-h") == 0) {
       if (i + 1 >= argc) {
         std::cerr << "Error: -h option requires a host value.\n";
         printUsage();
@@ -173,7 +178,8 @@ int main(int argc, char *argv[]) {
 
   std::string command = positionalArgs[0];
 
-  pp::logging::getRootLogger().setLevel(pp::logging::Level::WARNING);
+  pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG
+                                              : pp::logging::Level::WARNING);
   pp::Client client;
 
 

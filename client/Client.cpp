@@ -1,5 +1,6 @@
 #include "Client.h"
 #include "../lib/Logger.h"
+#include "../lib/Utilities.h"
 #include "../network/FetchClient.h"
 
 #include <nlohmann/json.hpp>
@@ -85,7 +86,7 @@ Client::Roe<json> Client::sendRequest(const json &request) {
 
 // BeaconServer API - Block operations
 
-Client::Roe<Client::BlockInfo> Client::fetchBlock(uint64_t blockId) {
+Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
   json request = {{"type", "block"}, {"action", "get"}, {"blockId", blockId}};
@@ -97,22 +98,24 @@ Client::Roe<Client::BlockInfo> Client::fetchBlock(uint64_t blockId) {
 
   const json &response = result.value();
 
+  if (response.contains("error")) {
+    return Error(E_SERVER_ERROR, response["error"].get<std::string>());
+  }
+
   if (!response.contains("block")) {
     return Error(E_INVALID_RESPONSE, "Response missing 'block' field");
   }
+  if (!response["block"].is_string()) {
+    return Error(E_INVALID_RESPONSE, "block field must be hex string");
+  }
 
-  const json &blockJson = response["block"];
-
-  BlockInfo block;
-  block.index = blockJson.value("index", 0);
-  block.timestamp = blockJson.value("timestamp", 0);
-  block.data = blockJson.value("data", "");
-  block.previousHash = blockJson.value("previousHash", "");
-  block.hash = blockJson.value("hash", "");
-  block.slot = blockJson.value("slot", 0);
-  block.slotLeader = blockJson.value("slotLeader", "");
-
-  return block;
+  std::string hex = response["block"].get<std::string>();
+  std::string binary = utl::fromJsonSafeString(hex);
+  Ledger::ChainNode node;
+  if (!node.ltsFromString(binary)) {
+    return Error(E_INVALID_RESPONSE, "Failed to deserialize block");
+  }
+  return node;
 }
 
 Client::Roe<uint64_t> Client::fetchCurrentBlockId() {
@@ -190,18 +193,10 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   return state;
 }
 
-Client::Roe<bool> Client::addBlock(const BlockInfo &block) {
-  log().debug << "Adding block " << block.index;
+Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
+  log().debug << "Adding block " << block.block.index;
 
-  json blockJson = {{"index", block.index},
-                    {"timestamp", block.timestamp},
-                    {"data", block.data},
-                    {"previousHash", block.previousHash},
-                    {"hash", block.hash},
-                    {"slot", block.slot},
-                    {"slotLeader", block.slotLeader}};
-
-  json request = {{"type", "block"}, {"action", "add"}, {"block", blockJson}};
+  json request = {{"type", "block"}, {"action", "add"}, {"block", utl::toJsonSafeString(block.ltsToString())}};
 
   auto result = sendRequest(request);
   if (!result) {
@@ -282,7 +277,7 @@ Client::Roe<uint64_t> Client::fetchCurrentEpoch() {
   return response["epoch"].get<uint64_t>();
 }
 
-Client::Roe<std::string> Client::fetchSlotLeader(uint64_t slot) {
+Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
   log().debug << "Requesting slot leader for slot " << slot;
 
   json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
@@ -298,7 +293,7 @@ Client::Roe<std::string> Client::fetchSlotLeader(uint64_t slot) {
     return Error(E_INVALID_RESPONSE, "Response missing 'slotLeader' field");
   }
 
-  return response["slotLeader"].get<std::string>();
+  return response["slotLeader"].get<uint64_t>();
 }
 
 // MinerServer API - Transaction operations

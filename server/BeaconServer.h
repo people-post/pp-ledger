@@ -2,10 +2,10 @@
 #define PP_LEDGER_BEACON_SERVER_H
 
 #include "Beacon.h"
-#include "ValidatorServer.h"
 #include "../network/FetchServer.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
+#include "../lib/Service.h"
 #include "../lib/ResultOrError.hpp"
 #include "../lib/ThreadSafeQueue.hpp"
 #include <map>
@@ -19,7 +19,7 @@
 
 namespace pp {
 
-class BeaconServer : public ValidatorServer {
+class BeaconServer : public Service {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;

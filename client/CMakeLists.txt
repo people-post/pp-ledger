@@ -10,5 +10,6 @@ target_include_directories(pp_client PUBLIC
 
 target_link_libraries(pp_client PUBLIC
     pp_lib
+    pp_ledger
     pp_network
 )

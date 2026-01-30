@@ -87,6 +87,19 @@ public:
   struct ChainNode {
     Block block;
     std::string hash;
+
+    /**
+     * Serialize to binary (same format as stored on disk).
+     * For network transport, hex-encode the result.
+     */
+    std::string ltsToString() const;
+
+    /**
+     * Deserialize from binary string.
+     * @param str Output of ltsToString() (or hex-decode of wire format).
+     * @return true if successful
+     */
+    bool ltsFromString(const std::string& str);
   };
 
   struct Error : RoeErrorBase {
