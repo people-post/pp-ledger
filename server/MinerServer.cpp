@@ -573,7 +573,6 @@ void MinerServer::handleSlotLeaderRole() {
 void MinerServer::handleValidatorRole() {
   // Not slot leader - act as validator
   // Monitor for new blocks from other miners and validate them
-  log().debug << "Acting as validator for slot " << miner_.getCurrentSlot();
   
   // In a full implementation, we would:
   // 1. Listen for blocks from the current slot leader
