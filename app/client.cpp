@@ -1,6 +1,7 @@
 #include "Client.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
+#include "../consensus/Types.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -50,7 +51,7 @@ void printBlockInfo(const pp::Client::BlockInfo &block) {
   std::cout << "  Data Size: " << block.data.size() << " bytes\n";
 }
 
-void printStakeholders(const std::vector<pp::Client::StakeholderInfo> &stakeholders) {
+void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholders) {
   std::cout << "Stakeholders (" << stakeholders.size() << "):\n";
   if (stakeholders.empty()) {
     std::cout << "  (none)\n";

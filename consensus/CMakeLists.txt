@@ -17,6 +17,7 @@ set(CONSENSUS_SOURCES
 # Header files
 set(CONSENSUS_HEADERS
     Ouroboros.h
+    Types.hpp
     SlotLeaderSelection.h
     EpochManager.h
     SlotTimer.h

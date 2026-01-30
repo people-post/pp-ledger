@@ -177,7 +177,7 @@ Client::Roe<bool> Client::addBlock(const BlockInfo &block) {
 
 // BeaconServer API - Stakeholder operations
 
-Client::Roe<std::vector<Client::StakeholderInfo>>
+Client::Roe<std::vector<consensus::Stakeholder>>
 Client::listStakeholders() {
   log().debug << "Requesting stakeholder list";
 
@@ -194,10 +194,10 @@ Client::listStakeholders() {
     return Error(E_INVALID_RESPONSE, "Response missing 'stakeholders' field");
   }
 
-  std::vector<StakeholderInfo> stakeholders;
+  std::vector<consensus::Stakeholder> stakeholders;
   for (const auto &item : response["stakeholders"]) {
-    StakeholderInfo info;
-    info.id = item.value("id", "");
+    consensus::Stakeholder info;
+    info.id = item.value("id", 0);
     info.stake = item.value("stake", 0);
     stakeholders.push_back(info);
   }

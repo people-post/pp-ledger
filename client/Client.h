@@ -4,6 +4,7 @@
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
 #include "../network/Types.hpp"
+#include "../consensus/Types.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -47,11 +48,6 @@ public:
     std::string slotLeader;
   };
 
-  struct StakeholderInfo {
-    std::string id;
-    uint64_t stake;
-  };
-
   struct ServerInfo {
     uint64_t currentBlockId;
     uint64_t currentSlot;
@@ -83,7 +79,7 @@ public:
   Roe<uint64_t> getCurrentCheckpointId();
 
   // BeaconServer API - Stakeholder operations
-  Roe<std::vector<StakeholderInfo>> listStakeholders();
+  Roe<std::vector<consensus::Stakeholder>> listStakeholders();
 
   // BeaconServer API - Consensus queries
   Roe<uint64_t> getCurrentSlot();

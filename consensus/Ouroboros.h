@@ -2,6 +2,7 @@
 
 #include "Module.h"
 #include "ResultOrError.hpp"
+#include "Types.hpp"
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -23,11 +24,6 @@ namespace consensus {
  */
 class Ouroboros : public Module {
 public:
-  struct StakeholderInfo {
-    uint64_t id;
-    uint64_t stake;
-  };
-
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
@@ -75,7 +71,7 @@ public:
   // Utilities
   uint64_t getTotalStake() const;
   size_t getStakeholderCount() const;
-  std::vector<StakeholderInfo> getStakeholders() const;
+  std::vector<Stakeholder> getStakeholders() const;
 
 private:
   // Helper methods for slot leader selection

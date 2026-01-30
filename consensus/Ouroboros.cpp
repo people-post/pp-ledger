@@ -153,8 +153,8 @@ uint64_t Ouroboros::getTotalStake() const {
 
 size_t Ouroboros::getStakeholderCount() const { return mStakeholders_.size(); }
 
-std::vector<Ouroboros::StakeholderInfo> Ouroboros::getStakeholders() const {
-  std::vector<Ouroboros::StakeholderInfo> result;
+std::vector<Stakeholder> Ouroboros::getStakeholders() const {
+  std::vector<Stakeholder> result;
   result.reserve(mStakeholders_.size());
 
   for (const auto &[id, stake] : mStakeholders_) {
