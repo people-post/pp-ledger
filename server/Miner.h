@@ -57,28 +57,20 @@ public:
 
     // Block production
     bool isSlotLeader() const;
+    bool isSlotLeader(uint64_t slot) const;
+    bool isOutOfDate(uint64_t checkpointId) const;
     bool shouldProduceBlock() const;
-    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
-    
-    // Transaction management
-    Roe<void> addTransaction(const Ledger::Transaction &tx);
+    Roe<bool> needsSync(uint64_t remoteBlockId) const;
+    uint64_t getStake() const { return getConsensus().getTotalStake(); }
     size_t getPendingTransactionCount() const;
+
+    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
+    Roe<void> addTransaction(const Ledger::Transaction &tx);
     void clearTransactionPool();
 
-    // Block and chain operations
     Roe<void> addBlock(const Ledger::ChainNode& block);
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-
-    // Chain synchronization
     Roe<void> syncChain(const Validator::BlockChain& chain);
-    Roe<bool> needsSync(uint64_t remoteBlockId) const;
-    bool isOutOfDate(uint64_t checkpointId) const;
-
-    // Consensus queries
-    bool isSlotLeader(uint64_t slot) const;
-
-    // Status
-    uint64_t getStake() const { return getConsensus().getTotalStake(); }
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
