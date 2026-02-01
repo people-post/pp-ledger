@@ -66,36 +66,29 @@ public:
   Beacon();
   ~Beacon() override = default;
 
+
+  bool needsCheckpoint() const;
+  Roe<bool> shouldAcceptChain(const Validator::BlockChain& candidateChain) const;
+
+  Roe<uint64_t> getSlotLeader(uint64_t slot) const;
+  uint32_t getVersion() const { return VERSION; }
+  uint64_t getCurrentCheckpointId() const;
+  uint64_t getTotalStake() const;
+  const std::list<Stakeholder>& getStakeholders() const;
+  Roe<std::vector<uint64_t>> getCheckpoints() const;
+
   // Initialization
   Roe<void> init(const InitConfig& config);
   Roe<void> mount(const MountConfig& config);
 
-  // Version and metadata
-  uint32_t getVersion() const { return VERSION; }
-  uint64_t getCurrentCheckpointId() const;
-  uint64_t getTotalStake() const;
-  
-  // Stakeholder management
-  const std::list<Stakeholder>& getStakeholders() const;
   void addStakeholder(const Stakeholder& stakeholder);
   void removeStakeholder(uint64_t stakeholderId);
   void updateStake(uint64_t stakeholderId, uint64_t newStake);
 
-  // Block operations (override base class)
   Roe<void> addBlock(const Ledger::ChainNode& block);
   Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-
-  // Chain synchronization
   Roe<void> syncChain(const Validator::BlockChain& otherChain);
-  Roe<bool> shouldAcceptChain(const Validator::BlockChain& candidateChain) const;
-
-  // Checkpoint management
   Roe<void> evaluateCheckpoints();
-  Roe<std::vector<uint64_t>> getCheckpoints() const;
-  bool needsCheckpoint() const;
-
-  // Consensus queries
-  Roe<uint64_t> getSlotLeader(uint64_t slot) const;
 
 private:
   struct Config {
