@@ -85,20 +85,16 @@ public:
     Validator();
     virtual ~Validator() = default;
 
-    // Block operations (non-virtual, to be used by derived classes)
-    Roe<const Ledger::ChainNode&> getBlock(uint64_t blockId) const;
-    Roe<void> addBlockBase(const Ledger::ChainNode& block);
-    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
+    bool isChainValid(const BlockChain& chain) const;
     uint64_t getNextBlockId() const;
-
-    // Consensus queries
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
 
-    // Chain validation
-    bool isChainValid(const BlockChain& chain) const;
+    // Block operations (non-virtual, to be used by derived classes)
+    Roe<const Ledger::ChainNode&> getBlock(uint64_t blockId) const;
 
-    // Block hash calculation
+    Roe<void> addBlockBase(const Ledger::ChainNode& block);
+    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
     std::string calculateHash(const Ledger::Block& block) const;
     
 protected:
