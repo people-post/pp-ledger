@@ -123,44 +123,6 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
-Client::Roe<uint64_t> Client::fetchNextBlockId() {
-  log().debug << "Requesting current block ID";
-
-  json request = {{"type", "block"}, {"action", "next"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("nextBlockId")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'nextBlockId' field");
-  }
-
-  return response["nextBlockId"].get<uint64_t>();
-}
-
-Client::Roe<uint64_t> Client::fetchCurrentCheckpointId() {
-  log().debug << "Requesting current checkpoint ID";
-
-  json request = {{"type", "checkpoint"}, {"action", "current"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("currentCheckpointId")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'currentCheckpointId' field");
-  }
-
-  return response["currentCheckpointId"].get<uint64_t>();
-}
-
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block, stakeholders)";
 
@@ -242,46 +204,6 @@ Client::fetchStakeholders() {
   return stakeholders;
 }
 
-// BeaconServer API - Consensus queries
-
-Client::Roe<uint64_t> Client::fetchCurrentSlot() {
-  log().debug << "Requesting current slot";
-
-  json request = {{"type", "consensus"}, {"action", "currentSlot"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("slot")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'slot' field");
-  }
-
-  return response["slot"].get<uint64_t>();
-}
-
-Client::Roe<uint64_t> Client::fetchCurrentEpoch() {
-  log().debug << "Requesting current epoch";
-
-  json request = {{"type", "consensus"}, {"action", "currentEpoch"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("epoch")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'epoch' field");
-  }
-
-  return response["epoch"].get<uint64_t>();
-}
-
 Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
   log().debug << "Requesting slot leader for slot " << slot;
 
@@ -317,25 +239,6 @@ Client::Roe<bool> Client::addTransaction(const json &transaction) {
   return response.value("status", "") == "ok";
 }
 
-Client::Roe<uint64_t> Client::fetchPendingTransactionCount() {
-  log().debug << "Requesting pending transaction count";
-
-  json request = {{"type", "transaction"}, {"action", "count"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("count")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'count' field");
-  }
-
-  return response["count"].get<uint64_t>();
-}
-
 // MinerServer API - Mining operations
 
 Client::Roe<bool> Client::produceBlock() {
@@ -350,25 +253,6 @@ Client::Roe<bool> Client::produceBlock() {
 
   const json &response = result.value();
   return response.value("status", "") == "ok";
-}
-
-Client::Roe<bool> Client::fetchIsSlotLeader() {
-  log().debug << "Checking if should produce block";
-
-  json request = {{"type", "mining"}, {"action", "shouldProduce"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("shouldProduce")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'shouldProduce' field");
-  }
-
-  return response["shouldProduce"].get<bool>();
 }
 
 // MinerServer API - Status
