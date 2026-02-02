@@ -122,11 +122,6 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
   return {};
 }
 
-Validator::Roe<void> Validator::syncChain(const Validator::BlockChain& chain) {
-  chain_ = chain;
-  return {};
-}
-
 Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
   // Match Beacon::createGenesisBlock exactly: index 0, previousHash "0", nonce 0, slot 0, slotLeader 0
   if (block.block.index != 0) {

@@ -87,7 +87,6 @@ public:
 
   Roe<void> addBlock(const Ledger::ChainNode& block);
   Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-  Roe<void> syncChain(const Validator::BlockChain& otherChain);
   Roe<void> evaluateCheckpoints();
 
 private:
