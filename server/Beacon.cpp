@@ -200,31 +200,6 @@ Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
   return {};
 }
 
-Beacon::Roe<void> Beacon::syncChain(const Validator::BlockChain& otherChain) {
-  // Check if we should accept the other chain
-  auto shouldAccept = shouldAcceptChain(otherChain);
-  if (!shouldAccept) {
-    return Error(12, "Chain evaluation failed: " + shouldAccept.error().message);
-  }
-
-  if (!shouldAccept.value()) {
-    log().info << "Rejecting chain - current chain is better";
-    return {};
-  }
-
-  // Accept the new chain
-  log().info << "Accepting new chain with " << otherChain.getSize() << " blocks";
-
-  // This is a simplified implementation
-  // In production, we would need to:
-  // 1. Validate all blocks in the new chain
-  // 2. Handle reorganization if needed
-  // 3. Update ledger accordingly
-  // For now, we just log the action
-
-  return {};
-}
-
 Beacon::Roe<bool> Beacon::shouldAcceptChain(const Validator::BlockChain& candidateChain) const {
   // Ouroboros chain selection rule: longest valid chain wins
   if (candidateChain.getSize() > getChain().getSize()) {
