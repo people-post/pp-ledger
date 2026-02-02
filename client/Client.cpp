@@ -256,33 +256,24 @@ Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
 
 // MinerServer API - Transaction operations
 
-Client::Roe<void> Client::addTransaction(const json &transaction) {
+Client::Roe<void> Client::addTransaction(const Ledger::Transaction &transaction) {
   log().debug << "Adding transaction";
 
-  json request = {{"type", "transaction"}, {"action", "add"}, {"transaction", transaction}};
-
-  auto result = sendRequest(request);
+  std::string payload = utl::binaryPack(transaction);
+  auto result = sendBinaryRequest(T_REQ_TRANSACTION_ADD, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack transaction response");
+  }
+  const Response &resp = respResult.value();
+  if (resp.isError()) {
+    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Transaction add failed" : resp.payload);
+  }
   return {};
-}
-
-// MinerServer API - Mining operations
-
-Client::Roe<bool> Client::produceBlock() {
-  log().debug << "Requesting block production";
-
-  json request = {{"type", "mining"}, {"action", "produce"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-  return response.value("status", "") == "ok";
 }
 
 // MinerServer API - Status

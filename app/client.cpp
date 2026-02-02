@@ -1,7 +1,8 @@
 #include "Client.h"
+#include "../ledger/Ledger.h"
+#include "../consensus/Types.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
-#include "../consensus/Types.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -39,7 +40,6 @@ void printUsage() {
   std::cout << "  slot-leader <slot>                 - Get slot leader for slot\n";
   std::cout << "\nMinerServer Commands:\n";
   std::cout << "  add-tx <from> <to> <amount>        - Add a transaction\n";
-  std::cout << "  produce-block                      - Produce a new block\n";
   std::cout << "  status                             - Get miner status\n";
   std::cout << "\nExamples:\n";
   std::cout << "  pp-client -b status                               # Connect to beacon (localhost:8517)\n";
@@ -267,30 +267,19 @@ int main(int argc, char *argv[]) {
           std::cerr << "Error: Invalid amount: " << positionalArgs[3] << "\n";
           exitCode = 1;
         } else {
-          // Create transaction JSON
-          json txJson = {{"from", fromWalletId},
-                         {"to", toWalletId},
-                         {"amount", amount}};
+          pp::Ledger::Transaction tx;
+          tx.fromWalletId = fromWalletId;
+          tx.toWalletId = toWalletId;
+          tx.amount = amount;
 
-          auto result = client.addTransaction(txJson);
-          if (result) {
-            std::cout << "Transaction submitted successfully\n";
-            std::cout << "  From: " << fromWalletId << "\n";
-            std::cout << "  To: " << toWalletId << "\n";
-            std::cout << "  Amount: " << amount << "\n";
-          } else {
+          auto result = client.addTransaction(tx);
+          if (!result) {
             std::cerr << "Error: " << result.error().message << "\n";
             exitCode = 1;
+          } else {
+            std::cout << "Transaction submitted successfully\n";
           }
         }
-      }
-    } else if (command == "produce-block") {
-      auto result = client.produceBlock();
-      if (result && result.value()) {
-        std::cout << "Block production triggered\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
       }
     } else if (command == "status") {
       auto result = client.fetchMinerStatus();

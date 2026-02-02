@@ -282,6 +282,11 @@ MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
   return {};
 }
 
+std::string MinerServer::getSlotLeaderAddress() const {
+  // TODO: Implement slot leader address selection
+  return "";
+}
+
 std::string MinerServer::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
@@ -303,6 +308,8 @@ MinerServer::Roe<std::string> MinerServer::handleRequest(const Client::Request &
     return handleBlockGetRequest(request);
   case Client::T_REQ_BLOCK_ADD:
     return handleBlockAddRequest(request);
+  case Client::T_REQ_TRANSACTION_ADD:
+    return handleTransactionAddRequest(request);
   case Client::T_REQ_JSON:
     return handleJsonRequest(request.payload);
   default:
@@ -350,11 +357,7 @@ MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::jso
   }
   std::string type = reqJson["type"].get<std::string>();
 
-  if (type == "transaction") {
-    return handleTransactionRequest(reqJson);
-  } else if (type == "mining") {
-    return handleMiningRequest(reqJson);
-  } else if (type == "checkpoint") {
+  if (type == "checkpoint") {
     return handleCheckpointRequest(reqJson);
   } else if (type == "consensus") {
     return handleConsensusRequest(reqJson);
@@ -365,79 +368,33 @@ MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::jso
   }
 }
 
-MinerServer::Roe<std::string> MinerServer::handleTransactionRequest(const nlohmann::json& reqJson) {
-  if (!reqJson.contains("action")) {
-    return Error(E_REQUEST, "Missing action field in request JSON");
+MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Client::Request &request) {
+  auto txResult = utl::binaryUnpack<Ledger::Transaction>(request.payload);
+  if (!txResult) {
+    return Error(E_REQUEST, "Failed to deserialize transaction: " + txResult.error().message);
   }
-  
-  std::string action = reqJson["action"].get<std::string>();
-  
-  nlohmann::json resp;
-  if (action == "add") {
-    if (!reqJson.contains("transaction")) {
-      return Error(E_REQUEST, "Missing transaction field in request JSON");
-    }
-    
-    auto& txJson = reqJson["transaction"];
-    Ledger::Transaction tx;
-    
-    if (!txJson.contains("from") || !txJson.contains("to") || !txJson.contains("amount")) {
-      return Error(E_REQUEST, "Missing required transaction fields (from, to, amount)");
-    }
-    
-    tx.fromWalletId = txJson["from"].get<uint64_t>();
-    tx.toWalletId = txJson["to"].get<uint64_t>();
-    tx.amount = txJson["amount"].get<int64_t>();
-    
+
+  const auto& tx = txResult.value();
+  if (miner_.isSlotLeader()) {
     auto result = miner_.addTransaction(tx);
     if (!result) {
       return Error(E_REQUEST, result.error().message);
     }
-    
-    resp["message"] = "Transaction added to pool";
-  } else if (action == "count") {
-    resp["pendingTransactions"] = miner_.getPendingTransactionCount();
-  } else if (action == "clear") {
-    miner_.clearTransactionPool();
-    resp["message"] = "Transaction pool cleared";
-  } else {
-    return Error(E_REQUEST, "Unknown transaction action: " + action);
+    return {"Transaction added to pool"};
   }
-  
-  return resp.dump();
-}
 
-MinerServer::Roe<std::string> MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
-  if (!reqJson.contains("action")) {
-    return Error(E_REQUEST, "Missing action field in request JSON");
+  std::string leaderAddr = getSlotLeaderAddress();
+  Client client;
+  client.redirectLogger(log().getFullName() + ".Client");
+  if (!client.setEndpoint(leaderAddr)) {
+    return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
   }
-  
-  std::string action = reqJson["action"].get<std::string>();
-  
-  nlohmann::json resp;
-  if (action == "produce") {
-    if (!miner_.isSlotLeader()) {
-      return Error(E_REQUEST, "not slot leader for current slot");
-    }
-    
-    auto result = miner_.produceBlock();
-    if (!result) {
-      return Error(E_REQUEST, result.error().message);
-    }
-    
-    auto block = result.value();
-    resp["message"] = "Block produced";
-    resp["block"]["index"] = block->block.index;
-    resp["block"]["hash"] = block->hash;
-    resp["block"]["slot"] = block->block.slot;
-  } else if (action == "shouldProduce") {
-    resp["shouldProduce"] = miner_.isSlotLeader();
-    resp["currentSlot"] = miner_.getCurrentSlot();
-  } else {
-    return Error(E_REQUEST, "unknown mining action: " + action);
+
+  auto result = client.addTransaction(tx);
+  if (!result) {
+    return Error(E_REQUEST, result.error().message);
   }
-  
-  return resp.dump();
+  return {"Transaction submitted to slot leader"};
 }
 
 MinerServer::Roe<std::string> MinerServer::handleCheckpointRequest(const nlohmann::json& reqJson) {

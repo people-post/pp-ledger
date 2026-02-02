@@ -82,6 +82,7 @@ private:
   Roe<void> syncBlocksFromBeacon();
   void handleSlotLeaderRole();
   void handleValidatorRole();
+  std::string getSlotLeaderAddress() const;
 
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
@@ -91,11 +92,10 @@ private:
 
   Roe<std::string> handleBlockGetRequest(const Client::Request &request);
   Roe<std::string> handleBlockAddRequest(const Client::Request &request);
+  Roe<std::string> handleTransactionAddRequest(const Client::Request &request);
   Roe<std::string> handleJsonRequest(const std::string &payload);
   Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
 
-  Roe<std::string> handleTransactionRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleMiningRequest(const nlohmann::json& reqJson);
   Roe<std::string> handleCheckpointRequest(const nlohmann::json& reqJson);
   Roe<std::string> handleConsensusRequest(const nlohmann::json& reqJson);
   Roe<std::string> handleStatusRequest(const nlohmann::json& reqJson);

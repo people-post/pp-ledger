@@ -113,9 +113,8 @@ public:
   Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
 
-  Roe<void> addTransaction(const nlohmann::json &transaction);
+  Roe<void> addTransaction(const Ledger::Transaction &transaction);
   Roe<bool> addBlock(const Ledger::ChainNode& block);
-  Roe<bool> produceBlock();
 
 private:
   // Helper to send JSON request and receive JSON response
