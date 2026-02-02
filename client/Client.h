@@ -93,9 +93,6 @@ public:
 
   Roe<bool> fetchIsSlotLeader();
   Roe<uint64_t> fetchNextBlockId();
-  Roe<uint64_t> fetchCurrentCheckpointId();
-  Roe<uint64_t> fetchCurrentSlot();
-  Roe<uint64_t> fetchCurrentEpoch();
   Roe<uint64_t> fetchSlotLeader(uint64_t slot);
   Roe<uint64_t> fetchPendingTransactionCount();
 
