@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_SERVER_H
 
 #include "Beacon.h"
+#include "../client/Client.h"
 #include "../network/FetchServer.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
@@ -26,6 +27,12 @@ public:
   };
 
   template <typename T> using Roe = ResultOrError<T, Error>;
+
+  // Error codes
+  static constexpr const int32_t E_CONFIG = -1;
+  static constexpr const int32_t E_NETWORK = -2;
+  static constexpr const int32_t E_BEACON = -3;
+  static constexpr const int32_t E_REQUEST = -4;
 
   BeaconServer();
   ~BeaconServer() = default;
@@ -124,11 +131,13 @@ private:
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
 
   /**
-   * Handle incoming request from Server
-   * @param request Request string from Server
+   * Handle incoming request (binary or JSON)
+   * @param request Request string (binary or JSON)
    * @return Response string
    */
-  std::string handleServerRequest(const std::string &request);
+  std::string handleRequest(const std::string &request);
+  Roe<std::string> handleRequest(const Client::Request &request);
+  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
 
   /**
    * Register a server as active

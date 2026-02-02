@@ -226,7 +226,7 @@ void BeaconServer::processQueuedRequest(QueuedRequest& qr) {
   log().debug << "Processing request from queue";
   try {
     // Process the request
-    std::string response = handleServerRequest(qr.request);
+    std::string response = handleRequest(qr.request);
     
     // Send response back
     auto sendResult = qr.connection->send(response);
@@ -306,18 +306,42 @@ BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) 
   return {};
 }
 
-std::string BeaconServer::handleServerRequest(const std::string &request) {
+std::string BeaconServer::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
 
-  // Use the utility function for parsing JSON request
-  auto jsonResult = utl::parseJsonRequest(request);
-  if (jsonResult.isError()) {
+  auto reqResult = utl::binaryUnpack<Client::Request>(request);
+  if (!reqResult) {
     nlohmann::json errorResp;
-    errorResp["error"] = jsonResult.error().message;
+    errorResp["error"] = reqResult.error().message;
     return errorResp.dump();
   }
-  
-  nlohmann::json reqJson = jsonResult.value();
+
+  const auto& req = reqResult.value();
+  auto result = handleRequest(req);
+  if (!result) {
+    nlohmann::json errorResp;
+    errorResp["error"] = result.error().message;
+    return errorResp.dump();
+  }
+  return result.value();
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
+  if (request.type == Client::T_REQ_JSON) {
+    auto jsonResult = utl::parseJsonRequest(request.payload);
+    if (jsonResult.isError()) {
+      return Error(E_REQUEST, "Failed to parse request JSON: " + jsonResult.error().message);
+    }
+    auto reqJson = jsonResult.value();
+    return handleJsonRequest(reqJson);
+  }
+  return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const nlohmann::json &reqJson) {
+  if (!reqJson.contains("type")) {
+    return Error(E_REQUEST, "Missing type field in request JSON");
+  }
   std::string type = reqJson["type"].get<std::string>();
 
   if (type == "register") {

@@ -27,6 +27,7 @@ public:
   static constexpr const int32_t E_CONFIG = -1;
   static constexpr const int32_t E_NETWORK = -2;
   static constexpr const int32_t E_MINER = -3;
+  static constexpr const int32_t E_REQUEST = -4;
 
   MinerServer();
   ~MinerServer();
@@ -89,6 +90,9 @@ private:
    * @return Response string
    */
   std::string handleRequest(const std::string &request);
+
+  Roe<std::string> handleRequest(const Client::Request &request);
+  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
   
   /**
    * Handle transaction-related requests

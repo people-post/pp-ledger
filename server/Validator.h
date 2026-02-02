@@ -25,7 +25,7 @@ namespace pp {
 class Validator : public Module {
 public:
     constexpr static uint64_t WID_SYSTEM = 0;
-    constexpr static uint64_t WID_FIRST_USER = 256;
+    constexpr static uint64_t WID_FIRST_USER = 1 << 20;
 
     struct BlockChainConfig {
       constexpr static uint32_t VERSION = 1;

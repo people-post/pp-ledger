@@ -1,5 +1,6 @@
 #include "Client.h"
 #include "../lib/Logger.h"
+#include "../lib/BinaryPack.hpp"
 #include "../lib/Utilities.h"
 #include "../network/FetchClient.h"
 
@@ -48,10 +49,14 @@ Client::Roe<json> Client::sendRequest(const json &request) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
 
-  // Serialize request to string
-  std::string requestData = request.dump();
+  // Wrap JSON in Request struct with type = T_REQ_JSON
+  Request req;
+  req.version = Request::VERSION;
+  req.type = T_REQ_JSON;
+  req.payload = request.dump();
 
-  log().debug << "Sending request: " << requestData;
+  std::string requestData = utl::binaryPack(req);
+  log().debug << "Sending request: " << req;
 
   // Send request using FetchClient
   network::FetchClient fetchClient;

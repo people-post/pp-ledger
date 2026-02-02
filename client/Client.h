@@ -28,6 +28,13 @@ public:
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
 
+  // Request types
+  static constexpr const uint32_t T_REQ_JSON = 1;
+
+  static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
+
+  static constexpr const uint32_t T_REQ_TRANSACTION_ADD = 2001;
+
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
   static constexpr const uint16_t E_INVALID_RESPONSE = 2;
@@ -37,6 +44,19 @@ public:
 
   // Get human-friendly error message for an error code
   static std::string getErrorMessage(uint16_t errorCode);
+
+  struct Request {
+    static constexpr const uint32_t VERSION = 1;
+
+    uint32_t version{ VERSION };
+    uint32_t type{ 0 };
+    std::string payload;
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & version & type & payload;
+    }
+  };
 
   // Response data structures
   struct ServerInfo {
@@ -108,6 +128,11 @@ private:
   bool connected_{false};
   network::TcpEndpoint endpoint_;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const Client::Request& req) {
+  os << "Request{version=" << req.version << ", type=" << req.type << ", payload=" << req.payload.size() << " bytes}";
+  return os;
+}
 
 } // namespace pp
 
