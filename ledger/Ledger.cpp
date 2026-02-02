@@ -385,6 +385,10 @@ bool Ledger::saveIndex() {
   }
 }
 
+uint64_t Ledger::countSizeFromBlockId(uint64_t blockId) const {
+  return store_.countSizeFromBlockId(blockId);
+}
+
 Ledger::Roe<void> Ledger::cleanupData() {
   std::error_code ec;
   

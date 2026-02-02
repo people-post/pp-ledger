@@ -263,6 +263,112 @@ TEST_F(DirDirStoreTest, ReadBlockOutOfRange) {
 }
 
 // ============================================================================
+// countSizeFromBlockId Tests
+// ============================================================================
+
+TEST_F(DirDirStoreTest, CountSizeFromBlockIdEmptyStore) {
+    dirDirStore.init(config);
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(0), 0);
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(1), 0);
+}
+
+TEST_F(DirDirStoreTest, CountSizeFromBlockIdSingleBlock) {
+    dirDirStore.init(config);
+    std::string blockData = "hello";
+    auto appendResult = dirDirStore.appendBlock(blockData);
+    ASSERT_TRUE(appendResult.isOk());
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(0), blockData.size());
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(1), 0);
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(100), 0);
+}
+
+TEST_F(DirDirStoreTest, CountSizeFromBlockIdMultipleBlocksRootStore) {
+    dirDirStore.init(config);
+    const size_t numBlocks = 10;
+    std::vector<std::string> blockData;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        size_t sz = 50 + (i % 20);
+        std::string data(sz, 'A' + static_cast<char>(i % 26));
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        auto result = dirDirStore.appendBlock(data);
+        ASSERT_TRUE(result.isOk());
+    }
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(0), expectedTotal);
+    for (size_t k = 0; k < numBlocks; k++) {
+        uint64_t expected = 0;
+        for (size_t i = k; i < numBlocks; i++) {
+            expected += blockData[i].size();
+        }
+        EXPECT_EQ(dirDirStore.countSizeFromBlockId(k), expected) << "k=" << k;
+    }
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(numBlocks), 0);
+}
+
+TEST_F(DirDirStoreTest, CountSizeFromBlockIdAcrossDirsAfterTransition) {
+    config.maxFileCount = 2;
+    config.maxFileSize = 1024 * 1024; // 1MB
+    dirDirStore.init(config);
+    // Fill root store then trigger transition to subdirs (~200KB per block)
+    const size_t blockPayloadSize = 200 * 1024;
+    const size_t numBlocks = 12;
+    std::vector<std::string> blockData;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        std::string data(blockPayloadSize, 'A' + static_cast<char>(i % 26));
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        auto result = dirDirStore.appendBlock(data);
+        if (!result.isOk()) break;
+    }
+    ASSERT_GE(dirDirStore.getBlockCount(), 5u)
+        << "Need enough blocks to span root and possibly subdirs";
+    uint64_t n = dirDirStore.getBlockCount();
+    expectedTotal = 0;
+    for (size_t i = 0; i < n; i++) {
+        auto r = dirDirStore.readBlock(i);
+        ASSERT_TRUE(r.isOk()) << "block " << i;
+        expectedTotal += r.value().size();
+    }
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(0), expectedTotal);
+    for (size_t k = 0; k < n; k++) {
+        uint64_t expected = 0;
+        for (size_t i = k; i < n; i++) {
+            auto r = dirDirStore.readBlock(i);
+            ASSERT_TRUE(r.isOk());
+            expected += r.value().size();
+        }
+        EXPECT_EQ(dirDirStore.countSizeFromBlockId(k), expected) << "k=" << k;
+    }
+    EXPECT_EQ(dirDirStore.countSizeFromBlockId(n), 0);
+}
+
+TEST_F(DirDirStoreTest, CountSizeFromBlockIdAfterMount) {
+    dirDirStore.init(config);
+    std::vector<std::string> blockData;
+    const size_t numBlocks = 5;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        std::string data = createTestBlock(i, 80);
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        dirDirStore.appendBlock(data);
+    }
+    pp::DirDirStore dirDirStore2;
+    dirDirStore2.redirectLogger("dirdirstore2");
+    pp::DirDirStore::MountConfig mountConfig;
+    mountConfig.dirPath = config.dirPath;
+    mountConfig.maxLevel = config.maxLevel;
+    auto mountResult = dirDirStore2.mount(mountConfig);
+    ASSERT_TRUE(mountResult.isOk());
+    EXPECT_EQ(dirDirStore2.countSizeFromBlockId(0), expectedTotal);
+    EXPECT_EQ(dirDirStore2.countSizeFromBlockId(3),
+              blockData[3].size() + blockData[4].size());
+    EXPECT_EQ(dirDirStore2.countSizeFromBlockId(5), 0);
+}
+
+// ============================================================================
 // CanFit Tests
 // ============================================================================
 

@@ -211,6 +211,54 @@ bool DirDirStore::canCreateRecursive() const {
 
 uint64_t DirDirStore::getBlockCount() const { return totalBlockCount_; }
 
+uint64_t DirDirStore::countSizeFromBlockId(uint64_t blockId) const {
+  if (blockId >= totalBlockCount_) {
+    return 0;
+  }
+
+  auto storeFromDirInfo = [this](uint32_t dirId) -> DirStore * {
+    auto it = dirInfoMap_.find(dirId);
+    if (it == dirInfoMap_.end()) return nullptr;
+    if (it->second.fileDirStore) return it->second.fileDirStore.get();
+    if (it->second.dirDirStore) return it->second.dirDirStore.get();
+    return nullptr;
+  };
+
+  uint64_t total = 0;
+
+  if (rootStore_) {
+    uint64_t rootCount = rootStore_->getBlockCount();
+    if (blockId < rootCount) {
+      total += rootStore_->countSizeFromBlockId(blockId);
+      for (uint32_t dirId : dirIdOrder_) {
+        DirStore *store = storeFromDirInfo(dirId);
+        if (store) {
+          total += store->countSizeFromBlockId(0);
+        }
+      }
+      return total;
+    }
+  }
+
+  auto [dirId, indexWithinDir] = findBlockDir(blockId);
+  if (dirId == 0 && indexWithinDir == 0 && blockId != 0) {
+    return 0;
+  }
+  DirStore *store = storeFromDirInfo(dirId);
+  if (!store) return 0;
+  total += store->countSizeFromBlockId(indexWithinDir);
+
+  auto orderIt = std::find(dirIdOrder_.begin(), dirIdOrder_.end(), dirId);
+  if (orderIt != dirIdOrder_.end()) {
+    ++orderIt;
+    for (; orderIt != dirIdOrder_.end(); ++orderIt) {
+      DirStore *s = storeFromDirInfo(*orderIt);
+      if (s) total += s->countSizeFromBlockId(0);
+    }
+  }
+  return total;
+}
+
 DirDirStore::Roe<std::string> DirDirStore::readBlock(uint64_t index) const {
   // If using root store and index is within its range
   if (rootStore_) {

@@ -53,8 +53,6 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
     return Error(2, "Failed to add genesis block to ledger: " + addBlockResult.error().message);
   }
   
-  getChainMutable().addBlock(std::make_shared<Ledger::ChainNode>(genesisBlock));
-  
   log().info << "Genesis block created with checkpoint transaction (version " 
              << BlockChainConfig::VERSION << ")";
 
@@ -200,19 +198,8 @@ Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
   return {};
 }
 
-Beacon::Roe<bool> Beacon::shouldAcceptChain(const Validator::BlockChain& candidateChain) const {
-  // Ouroboros chain selection rule: longest valid chain wins
-  if (candidateChain.getSize() > getChain().getSize()) {
-    log().info << "Candidate chain is longer: " << candidateChain.getSize() 
-               << " vs " << getChain().getSize();
-    return true;
-  }
-
-  return false;
-}
-
 Beacon::Roe<void> Beacon::evaluateCheckpoints() {
-  uint64_t currentSize = calculateBlockchainSize();
+  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
   uint64_t nextBlockId = getNextBlockId();
 
   log().debug << "Evaluating checkpoints - size: " << (currentSize / (1024*1024)) 
@@ -263,7 +250,7 @@ Beacon::Roe<std::vector<uint64_t>> Beacon::getCheckpoints() const {
 }
 
 bool Beacon::needsCheckpoint() const {
-  uint64_t currentSize = calculateBlockchainSize();
+  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
   
   // Only evaluate if we have enough data
   return currentSize >= config_.checkpoint.minSizeBytes;
@@ -279,26 +266,18 @@ Beacon::Roe<uint64_t> Beacon::getSlotLeader(uint64_t slot) const {
 
 // Private helper methods
 
-uint64_t Beacon::calculateBlockchainSize() const {
-  // Estimate blockchain size
-  // In a real implementation, this would query actual storage
-  size_t blockCount = getChain().getSize();
-  
-  // Rough estimate: ~1KB per block on average
-  return blockCount * 1024;
-}
-
 uint64_t Beacon::getBlockAge(uint64_t blockId) const {
-  auto block = getChain().getBlock(blockId);
-  if (!block) {
+  auto blockResult = getLedger().readBlock(blockId);
+  if (!blockResult) {
     return 0;
   }
+  auto block = blockResult.value();
 
   auto now = std::chrono::system_clock::now();
   auto currentTime = std::chrono::duration_cast<std::chrono::seconds>(
       now.time_since_epoch()).count();
 
-  int64_t blockTime = block->block.timestamp;
+  int64_t blockTime = block.block.timestamp;
   
   if (currentTime > blockTime) {
     return static_cast<uint64_t>(currentTime - blockTime);

@@ -112,6 +112,7 @@ public:
     Roe<std::string> readBlock(uint64_t index) const override;
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
+    uint64_t countSizeFromBlockId(uint64_t blockId) const override;
 
     /**
      * Relocates all contents of this store to a subdirectory.

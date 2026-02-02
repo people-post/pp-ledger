@@ -43,6 +43,13 @@ public:
     virtual uint64_t getBlockCount() const = 0;
 
     /**
+     * Count the size of the data stored from a block index
+     * @param blockId Block index
+     * @return Size of the data stored
+     */
+    virtual uint64_t countSizeFromBlockId(uint64_t blockId) const = 0;
+
+    /**
      * Read a block by index
      * @param index Block index (0-based)
      * @return Block data as string, or error

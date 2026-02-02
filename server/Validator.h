@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_VALIDATOR_H
 #define PP_LEDGER_VALIDATOR_H
 
+#include "AccountBuffer.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../lib/Module.h"
@@ -92,7 +93,7 @@ public:
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
 
-    Roe<const Ledger::ChainNode&> getBlock(uint64_t blockId) const;
+    Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
@@ -111,8 +112,6 @@ protected:
     const consensus::Ouroboros& getConsensus() const { return consensus_; }
     Ledger& getLedger() { return ledger_; }
     const Ledger& getLedger() const { return ledger_; }
-    BlockChain& getChainMutable() { return chain_; }
-    const BlockChain& getChain() const { return chain_; }
 
     Roe<void> addBlockBase(const Ledger::ChainNode& block);
     Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
@@ -124,7 +123,7 @@ private:
     // Core components
     consensus::Ouroboros consensus_;
     Ledger ledger_;
-    BlockChain chain_;
+    AccountBuffer bank_;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {

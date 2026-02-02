@@ -87,16 +87,8 @@ private:
     std::vector<Ledger::Transaction> selectTransactionsForBlock();
     std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
     
-    // Data cleanup
-    void pruneOldBlocks(uint64_t keepFromBlockId);
-
-    // Configuration
     Config config_;
-
-    // Transaction pool
     std::queue<Ledger::Transaction> pendingTransactions_;
-
-    // State tracking
     bool initialized_{ false };
     uint64_t lastProducedBlockId_{ 0 };
 };

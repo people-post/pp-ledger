@@ -68,7 +68,6 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool needsCheckpoint() const;
-  Roe<bool> shouldAcceptChain(const Validator::BlockChain& candidateChain) const;
 
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   uint32_t getVersion() const { return VERSION; }
@@ -96,7 +95,6 @@ private:
   };
 
   // Helper methods
-  uint64_t calculateBlockchainSize() const;
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
   Roe<void> pruneOldData(uint64_t checkpointId);

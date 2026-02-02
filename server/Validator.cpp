@@ -84,12 +84,12 @@ uint64_t Validator::getNextBlockId() const {
   return ledger_.getNextBlockId();
 }
 
-Validator::Roe<const Ledger::ChainNode&> Validator::getBlock(uint64_t blockId) const {
-  auto spBlock = chain_.getBlock(blockId);
-  if (!spBlock) {
-    return Error(2, "Block not found: " + std::to_string(blockId));
+Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
+  auto result = ledger_.readBlock(blockId);
+  if (!result) {
+    return Error(8, "Block not found: " + std::to_string(blockId));
   }
-  return *spBlock;
+  return result.value();
 }
 
 Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
@@ -104,13 +104,6 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
     return Error(4, "Failed to process block: " + processResult.error().message);
   }
 
-  // Add to chain
-  auto blockPtr = std::make_shared<Ledger::ChainNode>(block);
-  if (!chain_.addBlock(blockPtr)) {
-    return Error(4, "Failed to add block to chain");
-  }
-
-  // Persist to ledger
   auto ledgerResult = ledger_.addBlock(block);
   if (!ledgerResult) {
     return Error(5, "Failed to persist block: " + ledgerResult.error().message);
@@ -164,10 +157,7 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
 }
 
 Validator::Roe<void> Validator::validateBlockBase(const Ledger::ChainNode& block) const {
-  size_t chainSize = chain_.getSize();
-  const bool isGenesis = (chainSize == 0 && block.block.index == 0);
-
-  if (isGenesis) {
+  if (block.block.index == 0) {
     return validateGenesisBlock(block);
   }
 
@@ -182,12 +172,16 @@ Validator::Roe<void> Validator::validateBlockBase(const Ledger::ChainNode& block
   }
 
   // Validate hash chain (previous block link and index)
-  if (chainSize > 0) {
-    auto latestBlock = chain_.getLatestBlock();
-    if (latestBlock && block.block.previousHash != latestBlock->hash) {
+  if (block.block.index > 0) {
+    auto latestBlockResult = ledger_.readBlock(block.block.index - 1);
+    if (!latestBlockResult) {
+      return Error(8, "Latest block not found: " + std::to_string(block.block.index - 1));
+    }
+    auto latestBlock = latestBlockResult.value();
+    if (block.block.previousHash != latestBlock.hash) {
       return Error(8, "Block previous hash does not match chain");
     }
-    if (latestBlock && block.block.index != latestBlock->block.index + 1) {
+    if (block.block.index != latestBlock.block.index + 1) {
       return Error(9, "Block index mismatch");
     }
   }
@@ -276,22 +270,31 @@ bool Validator::validateBlock(const Ledger::ChainNode& block) const {
 }
 
 bool Validator::isValidBlockSequence(const Ledger::ChainNode& block) const {
-  auto latestBlock = chain_.getLatestBlock();
-  
-  if (!latestBlock) {
-    // First block (genesis)
-    return block.block.index == 0;
+  if (block.block.index != ledger_.getNextBlockId()) {
+    log().warning << "Invalid block index: expected " << ledger_.getNextBlockId()
+                  << " got " << block.block.index;
+    return false;
   }
 
-  // Check index is sequential
-  if (block.block.index != latestBlock->block.index + 1) {
-    log().warning << "Invalid block index: expected " << (latestBlock->block.index + 1)
+  if (block.block.index == 0) {
+    return true;
+  }
+
+  auto latestBlockResult = ledger_.readBlock(block.block.index - 1);
+  if (!latestBlockResult) {
+    log().warning << "Latest block not found: " << block.block.index - 1;
+    return false;
+  }
+  auto latestBlock = latestBlockResult.value();
+
+  if (block.block.index != latestBlock.block.index + 1) {
+    log().warning << "Invalid block index: expected " << (latestBlock.block.index + 1)
                   << " got " << block.block.index;
     return false;
   }
 
   // Check previous hash matches
-  if (block.block.previousHash != latestBlock->hash) {
+  if (block.block.previousHash != latestBlock.hash) {
     log().warning << "Invalid previous hash";
     return false;
   }
@@ -353,16 +356,13 @@ Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::Signe
 Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId) {
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
-      auto processResult = processCheckpointTransaction(signedTx, blockId);
-      if (!processResult) {
-        log().warning << "Failed to process checkpoint: " << processResult.error().message;
-      }
+    switch (signedTx.obj.type) {
+      case Ledger::Transaction::T_CHECKPOINT:
+        return processCheckpointTransaction(signedTx, blockId);
+      default:
+        return Error(18, "Unknown transaction type: " + std::to_string(signedTx.obj.type));
     }
   }
-  
-  // Add block to in-memory chain
-  chain_.addBlock(std::make_shared<Ledger::ChainNode>(block));
   
   return {};
 }

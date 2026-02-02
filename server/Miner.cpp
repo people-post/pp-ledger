@@ -112,12 +112,6 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
 
   auto block = blockResult.value();
 
-  // Add to our chain
-  if (!getChainMutable().addBlock(block)) {
-    return Error(8, "Failed to add produced block to chain");
-  }
-
-  // Persist to ledger
   auto ledgerResult = getLedger().addBlock(*block);
   if (!ledgerResult) {
     log().error << "Failed to persist block to ledger: " << ledgerResult.error().message;
@@ -219,9 +213,13 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
       now.time_since_epoch()).count();
 
   // Get previous block info
-  auto latestBlock = getChain().getLatestBlock();
-  uint64_t blockIndex = latestBlock ? latestBlock->block.index + 1 : 0;
-  std::string previousHash = latestBlock ? latestBlock->hash : "";
+  auto latestBlockResult = getLedger().readBlock(getNextBlockId() - 1);
+  if (!latestBlockResult) {
+    return Error(11, "Failed to read latest block");
+  }
+  auto latestBlock = latestBlockResult.value();
+  uint64_t blockIndex = latestBlock.block.index + 1;
+  std::string previousHash = latestBlock.hash;
 
   // Select transactions and convert to SignedData
   auto transactions = selectTransactionsForBlock();
@@ -274,18 +272,6 @@ std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>&
     oss << ";" << tx.fromWalletId << "," << tx.toWalletId << "," << tx.amount;
   }
   return oss.str();
-}
-
-void Miner::pruneOldBlocks(uint64_t keepFromBlockId) {
-  size_t originalSize = getChain().getSize();
-  
-  // Calculate how many blocks to trim
-  if (keepFromBlockId > 0) {
-    size_t blocksToTrim = std::min(static_cast<size_t>(keepFromBlockId), originalSize);
-    size_t trimmed = getChainMutable().trimBlocks(blocksToTrim);
-    
-    log().info << "Pruned " << trimmed << " blocks before checkpoint";
-  }
 }
 
 } // namespace pp

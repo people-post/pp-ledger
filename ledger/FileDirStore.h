@@ -48,6 +48,8 @@ public:
 
     uint64_t getBlockCount() const override;
 
+    uint64_t countSizeFromBlockId(uint64_t blockId) const override;
+
     /**
      * Initialize a new FileDirStore (creates new directory)
      * @param config Configuration for the new store

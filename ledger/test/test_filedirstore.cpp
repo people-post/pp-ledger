@@ -326,6 +326,107 @@ TEST_F(FileDirStoreTest, RewindOutOfRange) {
 }
 
 // ============================================================================
+// countSizeFromBlockId Tests
+// ============================================================================
+
+TEST_F(FileDirStoreTest, CountSizeFromBlockIdEmptyStore) {
+    fileDirStore.init(config);
+    // blockId >= getBlockCount() returns 0
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), 0);
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
+}
+
+TEST_F(FileDirStoreTest, CountSizeFromBlockIdSingleBlock) {
+    fileDirStore.init(config);
+    std::string blockData = "hello";
+    auto appendResult = fileDirStore.appendBlock(blockData);
+    ASSERT_TRUE(appendResult.isOk());
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), blockData.size());
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(1), 0);
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(100), 0);
+}
+
+TEST_F(FileDirStoreTest, CountSizeFromBlockIdMultipleBlocksOneFile) {
+    fileDirStore.init(config);
+    const size_t numBlocks = 10;
+    std::vector<std::string> blockData;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        size_t sz = 50 + (i % 20); // varying sizes: 50, 51, ..., 69, 50, ...
+        std::string data(sz, 'A' + static_cast<char>(i % 26));
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        auto result = fileDirStore.appendBlock(data);
+        ASSERT_TRUE(result.isOk());
+    }
+    // From block 0: sum of all block sizes
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
+    // From block k: sum of blocks k..numBlocks-1
+    for (size_t k = 0; k < numBlocks; k++) {
+        uint64_t expected = 0;
+        for (size_t i = k; i < numBlocks; i++) {
+            expected += blockData[i].size();
+        }
+        EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected)
+            << "k=" << k;
+    }
+    // Past end
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks + 1), 0);
+}
+
+TEST_F(FileDirStoreTest, CountSizeFromBlockIdAcrossMultipleFiles) {
+    config.maxFileSize = 1024 * 1024; // 1MB
+    fileDirStore.init(config);
+    // Blocks large enough to span multiple files (~200KB each)
+    const size_t blockPayloadSize = 200 * 1024;
+    const size_t numBlocks = 10;
+    std::vector<std::string> blockData;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        std::string data(blockPayloadSize, 'A' + static_cast<char>(i % 26));
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        auto result = fileDirStore.appendBlock(data);
+        ASSERT_TRUE(result.isOk());
+    }
+    EXPECT_EQ(fileDirStore.getBlockCount(), numBlocks);
+    // From block 0: all data
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(0), expectedTotal);
+    // From block k: sum from k to end
+    for (size_t k = 0; k < numBlocks; k++) {
+        uint64_t expected = 0;
+        for (size_t i = k; i < numBlocks; i++) {
+            expected += blockData[i].size();
+        }
+        EXPECT_EQ(fileDirStore.countSizeFromBlockId(k), expected)
+            << "k=" << k;
+    }
+    EXPECT_EQ(fileDirStore.countSizeFromBlockId(numBlocks), 0);
+}
+
+TEST_F(FileDirStoreTest, CountSizeFromBlockIdAfterMount) {
+    fileDirStore.init(config);
+    std::vector<std::string> blockData;
+    const size_t numBlocks = 5;
+    uint64_t expectedTotal = 0;
+    for (size_t i = 0; i < numBlocks; i++) {
+        std::string data = createTestBlock(i, 80);
+        blockData.push_back(data);
+        expectedTotal += data.size();
+        fileDirStore.appendBlock(data);
+    }
+    pp::FileDirStore fileDirStore2;
+    fileDirStore2.redirectLogger("filedirstore2");
+    auto mountResult = fileDirStore2.mount(config.dirPath);
+    ASSERT_TRUE(mountResult.isOk());
+    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(0), expectedTotal);
+    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(3),
+              blockData[3].size() + blockData[4].size());
+    EXPECT_EQ(fileDirStore2.countSizeFromBlockId(5), 0);
+}
+
+// ============================================================================
 // Persistence Tests
 // ============================================================================
 

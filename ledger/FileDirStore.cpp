@@ -170,6 +170,54 @@ FileDirStore::Roe<std::string> FileDirStore::readBlock(uint64_t index) const {
   return readResult.value();
 }
 
+uint64_t FileDirStore::countSizeFromBlockId(uint64_t blockId) const {
+  if (blockId >= totalBlockCount_) {
+    return 0;
+  }
+  auto [fileId, indexWithinFile] = findBlockFile(blockId);
+  if (fileId == 0 && indexWithinFile == 0 && blockId != 0) {
+    return 0;
+  }
+  FileDirStore *self = const_cast<FileDirStore *>(this);
+  uint64_t total = 0;
+
+  // Sum sizes in the file containing blockId, from indexWithinFile to end
+  FileStore *blockFile = self->getBlockFile(fileId);
+  if (!blockFile) {
+    return 0;
+  }
+  uint64_t blockCountInFile = blockFile->getBlockCount();
+  for (uint64_t i = indexWithinFile; i < blockCountInFile; ++i) {
+    auto sizeResult = blockFile->getBlockSize(i);
+    if (!sizeResult.isOk()) {
+      return 0;
+    }
+    total += sizeResult.value();
+  }
+
+  // Sum sizes in all subsequent files (in fileIdOrder_ order)
+  auto orderIt = std::find(fileIdOrder_.begin(), fileIdOrder_.end(), fileId);
+  if (orderIt != fileIdOrder_.end()) {
+    ++orderIt;
+    for (; orderIt != fileIdOrder_.end(); ++orderIt) {
+      uint32_t fid = *orderIt;
+      FileStore *f = self->getBlockFile(fid);
+      if (!f) {
+        return 0;
+      }
+      uint64_t n = f->getBlockCount();
+      for (uint64_t i = 0; i < n; ++i) {
+        auto sizeResult = f->getBlockSize(i);
+        if (!sizeResult.isOk()) {
+          return 0;
+        }
+        total += sizeResult.value();
+      }
+    }
+  }
+  return total;
+}
+
 FileDirStore::Roe<uint64_t> FileDirStore::appendBlock(const std::string &block) {
   // Get active block file for writing
   FileStore *blockFile = getActiveBlockFile(block.size());
