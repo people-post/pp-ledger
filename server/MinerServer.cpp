@@ -350,7 +350,7 @@ MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::jso
   }
   std::string type = reqJson["type"].get<std::string>();
 
-  if (type == "transactionAdd") {
+  if (type == "transaction") {
     return handleTransactionRequest(reqJson);
   } else if (type == "mining") {
     return handleMiningRequest(reqJson);

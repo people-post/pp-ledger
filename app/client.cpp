@@ -273,7 +273,7 @@ int main(int argc, char *argv[]) {
                          {"amount", amount}};
 
           auto result = client.addTransaction(txJson);
-          if (result && result.value()) {
+          if (result) {
             std::cout << "Transaction submitted successfully\n";
             std::cout << "  From: " << fromWalletId << "\n";
             std::cout << "  To: " << toWalletId << "\n";

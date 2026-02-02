@@ -83,6 +83,8 @@ Client::Roe<json> Client::sendRequest(const json &request) {
     return Error(E_SERVER_ERROR, getErrorMessage(E_SERVER_ERROR) + ": " + resp.payload);
   }
 
+  log().debug << "Response payload: " << resp.payload.size() << " bytes";
+
   json response;
   try {
     response = json::parse(resp.payload);
@@ -254,7 +256,7 @@ Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
 
 // MinerServer API - Transaction operations
 
-Client::Roe<bool> Client::addTransaction(const json &transaction) {
+Client::Roe<void> Client::addTransaction(const json &transaction) {
   log().debug << "Adding transaction";
 
   json request = {{"type", "transaction"}, {"action", "add"}, {"transaction", transaction}};
@@ -264,8 +266,7 @@ Client::Roe<bool> Client::addTransaction(const json &transaction) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
-  return response.value("status", "") == "ok";
+  return {};
 }
 
 // MinerServer API - Mining operations
