@@ -91,10 +91,7 @@ public:
   Roe<void> setEndpoint(const std::string& endpoint);
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
-  Roe<bool> fetchIsSlotLeader();
-  Roe<uint64_t> fetchNextBlockId();
   Roe<uint64_t> fetchSlotLeader(uint64_t slot);
-  Roe<uint64_t> fetchPendingTransactionCount();
 
   Roe<BeaconState> fetchBeaconState();
   Roe<MinerStatus> fetchMinerStatus();
