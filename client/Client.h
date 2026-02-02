@@ -91,35 +91,22 @@ public:
   Roe<void> setEndpoint(const std::string& endpoint);
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
-  // BeaconServer API - Block operations
-  Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
+  Roe<bool> fetchIsSlotLeader();
   Roe<uint64_t> fetchNextBlockId();
-  Roe<bool> addBlock(const Ledger::ChainNode& block);
-
-  // BeaconServer API - Checkpoint operations
   Roe<uint64_t> fetchCurrentCheckpointId();
-
-  // BeaconServer API - Stakeholder operations
-  Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
-
-  // BeaconServer API - Combined state (checkpoint id, block id, stakeholders) in one call
-  Roe<BeaconState> fetchBeaconState();
-
-  // BeaconServer API - Consensus queries
   Roe<uint64_t> fetchCurrentSlot();
   Roe<uint64_t> fetchCurrentEpoch();
   Roe<uint64_t> fetchSlotLeader(uint64_t slot);
-
-  // MinerServer API - Transaction operations
-  Roe<bool> addTransaction(const nlohmann::json &transaction);
   Roe<uint64_t> fetchPendingTransactionCount();
 
-  // MinerServer API - Mining operations
-  Roe<bool> produceBlock();
-  Roe<bool> fetchIsSlotLeader();
-
-  // MinerServer API - Status
+  Roe<BeaconState> fetchBeaconState();
   Roe<MinerStatus> fetchMinerStatus();
+  Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
+  Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
+
+  Roe<bool> addTransaction(const nlohmann::json &transaction);
+  Roe<bool> addBlock(const Ledger::ChainNode& block);
+  Roe<bool> produceBlock();
 
 private:
   // Helper to send JSON request and receive JSON response
