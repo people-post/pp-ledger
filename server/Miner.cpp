@@ -130,17 +130,11 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
-  /* TODO: update code after loadFromLedger can read maxPendingTransactions 
-  if (pendingTransactions_.size() >= config_.maxPendingTransactions) {
-    return Error(9, "Transaction pool full");
+  auto result = addBufferTransaction(bufferBank_, tx);
+  if (!result) {
+    return Error(9, result.error().message);
   }
-  */
-
-  pendingTransactions_.push(tx);
   
-  log().debug << "Transaction added to pool: " << tx.fromWalletId 
-              << " -> " << tx.toWalletId << " (" << tx.amount << ")";
-
   return {};
 }
 

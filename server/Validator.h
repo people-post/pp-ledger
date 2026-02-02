@@ -116,8 +116,10 @@ protected:
     Roe<void> addBlockBase(const Ledger::ChainNode& block);
     Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
     Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
+    Roe<void> processTransaction(const Ledger::Transaction& tx);
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);
+    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
 
 private:
     // Core components

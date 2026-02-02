@@ -88,6 +88,7 @@ private:
     std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
     
     Config config_;
+    AccountBuffer bufferBank_;
     std::queue<Ledger::Transaction> pendingTransactions_;
     bool initialized_{ false };
     uint64_t lastProducedBlockId_{ 0 };

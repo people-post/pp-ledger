@@ -92,6 +92,103 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   return result.value();
 }
 
+Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx) {
+  // tx.fromWalletId and tx.toWalletId correspond to bank_.Account.id
+  if (tx.amount < 0) {
+    return Error(19, "Transfer amount must be non-negative");
+  }
+  if (tx.amount == 0) {
+    return {};
+  }
+
+  if (!bank_.has(tx.fromWalletId)) {
+    return Error(20, "Source account not found: " + std::to_string(tx.fromWalletId));
+  }
+
+  // Only account id 0 can have negative balances (enforced by AccountBuffer and account creation)
+  // If toWalletId does not exist, create it in bank_
+  if (!bank_.has(tx.toWalletId)) {
+    AccountBuffer::Account newAccount;
+    newAccount.id = tx.toWalletId;
+    newAccount.balance = 0;
+    newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_SYSTEM);
+    newAccount.publicKey = "";
+    auto addResult = bank_.add(newAccount);
+    if (!addResult) {
+      return Error(21, "Failed to create destination account: " + addResult.error().message);
+    }
+  }
+
+  // fromWalletId must have sufficient balance (account 0 has isNegativeBalanceAllowed so can go negative)
+  auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+  if (!transferResult) {
+    return Error(22, "Transfer failed: " + transferResult.error().message);
+  }
+  return {};
+}
+
+Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) {
+  // All transactions happen in bufferBank; initial balances come from bank_
+  if (tx.amount < 0) {
+    return Error(19, "Transfer amount must be non-negative");
+  }
+  if (tx.amount == 0) {
+    return {};
+  }
+
+  // Ensure fromWalletId exists in bufferBank (seed from bank_ if needed)
+  if (!bufferBank.has(tx.fromWalletId)) {
+    if (bank_.has(tx.fromWalletId)) {
+      auto fromAccount = bank_.get(tx.fromWalletId);
+      if (!fromAccount) {
+        return Error(20, "Failed to get source account from bank: " + fromAccount.error().message);
+      }
+      auto addResult = bufferBank.add(fromAccount.value());
+      if (!addResult) {
+        return Error(21, "Failed to add source account to buffer: " + addResult.error().message);
+      }
+    } else {
+      return Error(20, "Source account not found: " + std::to_string(tx.fromWalletId));
+    }
+  }
+
+  // Ensure toWalletId exists in bufferBank: seed from bank_ or create if not in bank_
+  // Track if we newly created toWalletId (not in bank_) so we can remove it on transfer failure
+  bool toWalletIdNewlyCreated = false;
+  if (!bufferBank.has(tx.toWalletId)) {
+    if (bank_.has(tx.toWalletId)) {
+      auto toAccount = bank_.get(tx.toWalletId);
+      if (!toAccount) {
+        return Error(22, "Failed to get destination account from bank: " + toAccount.error().message);
+      }
+      auto addResult = bufferBank.add(toAccount.value());
+      if (!addResult) {
+        return Error(23, "Failed to add destination account to buffer: " + addResult.error().message);
+      }
+    } else {
+      AccountBuffer::Account newAccount;
+      newAccount.id = tx.toWalletId;
+      newAccount.balance = 0;
+      newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_SYSTEM);
+      newAccount.publicKey = "";
+      auto addResult = bufferBank.add(newAccount);
+      if (!addResult) {
+        return Error(24, "Failed to create destination account in buffer: " + addResult.error().message);
+      }
+      toWalletIdNewlyCreated = true;
+    }
+  }
+
+  auto transferResult = bufferBank.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+  if (!transferResult) {
+    if (toWalletIdNewlyCreated) {
+      bufferBank.remove(tx.toWalletId);
+    }
+    return Error(25, "Transfer failed: " + transferResult.error().message);
+  }
+  return {};
+}
+
 Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
   // Validate the block first
   auto validationResult = validateBlockBase(block);
@@ -323,6 +420,8 @@ bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
 Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId) {
   log().info << "Processing checkpoint transaction in block " << blockId;
   
+  bank_.clear();
+  
   // Deserialize BlockChainConfig from transaction metadata
   auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
   if (!configResult) {
@@ -343,7 +442,17 @@ Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::Signe
   config.slotDuration = restoredConfig.slotDuration;
   config.slotsPerEpoch = restoredConfig.slotsPerEpoch;
   consensus_.init(config);
-  
+
+  AccountBuffer::Account account;
+  account.id = WID_SYSTEM;
+  account.balance = 0; // TODO: Restore balance from restoredConfig
+  account.isNegativeBalanceAllowed = true;
+  account.publicKey = "";
+  auto addResult = bank_.add(account);
+  if (!addResult) {
+    return Error(26, "Failed to add system account to buffer: " + addResult.error().message);
+  }
+
   log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
   log().info << "  Genesis time: " << config.genesisTime;
   log().info << "  Time offset: " << config.timeOffset;

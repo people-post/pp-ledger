@@ -67,6 +67,10 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   return {};
 }
 
+void AccountBuffer::remove(uint64_t id) {
+  mAccounts_.erase(id);
+}
+
 void AccountBuffer::clear() {
   mAccounts_.clear();
 }
