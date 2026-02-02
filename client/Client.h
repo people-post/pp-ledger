@@ -32,6 +32,7 @@ public:
   static constexpr const uint32_t T_REQ_JSON = 1;
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
+  static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
 
   static constexpr const uint32_t T_REQ_TRANSACTION_ADD = 2001;
 
@@ -56,6 +57,20 @@ public:
     void serialize(Archive &ar) {
       ar & version & type & payload;
     }
+  };
+
+  struct Response {
+    static constexpr const uint32_t VERSION = 1;
+    uint32_t version{ VERSION };
+    uint16_t errorCode{ 0 };
+    std::string payload;
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & version & errorCode & payload;
+    }
+
+    bool isError() const { return errorCode != 0; }
   };
 
   // Response data structures
@@ -105,6 +120,9 @@ public:
 private:
   // Helper to send JSON request and receive JSON response
   Roe<nlohmann::json> sendRequest(const nlohmann::json &request);
+
+  // Helper to send binary request (type + payload) and receive raw response
+  Roe<std::string> sendBinaryRequest(uint32_t type, const std::string &payload);
 
   bool connected_{false};
   network::TcpEndpoint endpoint_;

@@ -89,35 +89,53 @@ Client::Roe<json> Client::sendRequest(const json &request) {
   return response;
 }
 
-// BeaconServer API - Block operations
+Client::Roe<std::string> Client::sendBinaryRequest(uint32_t type, const std::string &payload) {
+  if (endpoint_.port == 0) {
+    return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
+  }
+
+  Request req;
+  req.version = Request::VERSION;
+  req.type = type;
+  req.payload = payload;
+
+  std::string requestData = utl::binaryPack(req);
+  log().debug << "Sending binary request: " << req;
+
+  network::FetchClient fetchClient;
+  fetchClient.redirectLogger(log().getFullName() + ".FetchClient");
+  auto result = fetchClient.fetchSync(endpoint_, requestData);
+
+  if (!result.isOk()) {
+    return Error(E_REQUEST_FAILED,
+                 getErrorMessage(E_REQUEST_FAILED) + ": " +
+                     result.error().message);
+  }
+  return result.value();
+}
+
+// BeaconServer API - Block operations (binary T_REQ_BLOCK_GET)
 
 Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
-  json request = {{"type", "block"}, {"action", "get"}, {"blockId", blockId}};
-
-  auto result = sendRequest(request);
+  std::string payload = utl::binaryPack(blockId);
+  auto result = sendBinaryRequest(T_REQ_BLOCK_GET, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
-
-  if (response.contains("error")) {
-    return Error(E_SERVER_ERROR, response["error"].get<std::string>());
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack block response");
+  }
+  const Response &resp = respResult.value();
+  if (resp.isError()) {
+    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Block get failed" : resp.payload);
   }
 
-  if (!response.contains("block")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'block' field");
-  }
-  if (!response["block"].is_string()) {
-    return Error(E_INVALID_RESPONSE, "block field must be hex string");
-  }
-
-  std::string hex = response["block"].get<std::string>();
-  std::string binary = utl::fromJsonSafeString(hex);
   Ledger::ChainNode node;
-  if (!node.ltsFromString(binary)) {
+  if (!node.ltsFromString(resp.payload)) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize block");
   }
   return node;
@@ -163,15 +181,21 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
-  json request = {{"type", "block"}, {"action", "add"}, {"block", utl::toJsonSafeString(block.ltsToString())}};
-
-  auto result = sendRequest(request);
+  std::string payload = block.ltsToString();
+  auto result = sendBinaryRequest(T_REQ_BLOCK_ADD, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
-  return response.value("status", "") == "ok";
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack block response");
+  }
+  const Response &resp = respResult.value();
+  if (resp.isError()) {
+    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Block add failed" : resp.payload);
+  }
+  return true;
 }
 
 // BeaconServer API - Stakeholder operations

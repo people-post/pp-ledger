@@ -1,7 +1,9 @@
 #include "BeaconServer.h"
 #include "../client/Client.h"
+#include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
+#include "../ledger/Ledger.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -327,15 +329,65 @@ std::string BeaconServer::handleRequest(const std::string &request) {
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
-  if (request.type == Client::T_REQ_JSON) {
-    auto jsonResult = utl::parseJsonRequest(request.payload);
-    if (jsonResult.isError()) {
-      return Error(E_REQUEST, "Failed to parse request JSON: " + jsonResult.error().message);
-    }
-    auto reqJson = jsonResult.value();
-    return handleJsonRequest(reqJson);
+  switch (request.type) {
+  case Client::T_REQ_BLOCK_GET:
+    return handleBlockGetRequest(request);
+  case Client::T_REQ_BLOCK_ADD:
+    return handleBlockAddRequest(request);
+  case Client::T_REQ_JSON:
+    return handleJsonRequest(request.payload);
+  default:
+    return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
   }
-  return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleBlockGetRequest(const Client::Request &request) {
+  Client::Response resp;
+  resp.version = Client::Response::VERSION;
+  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!idResult) {
+    resp.errorCode = 1;
+    resp.payload = "Invalid block get payload";
+    return utl::binaryPack(resp);
+  }
+  uint64_t blockId = idResult.value();
+  auto result = beacon_.getBlock(blockId);
+  if (!result) {
+    resp.errorCode = 1;
+    resp.payload = result.error().message;
+    return utl::binaryPack(resp);
+  }
+  resp.errorCode = 0;
+  resp.payload = result.value().ltsToString();
+  return utl::binaryPack(resp);
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleBlockAddRequest(const Client::Request &request) {
+  Client::Response resp;
+  resp.version = Client::Response::VERSION;
+  Ledger::ChainNode block;
+  if (!block.ltsFromString(request.payload)) {
+    resp.errorCode = 1;
+    resp.payload = "Failed to deserialize block";
+    return utl::binaryPack(resp);
+  }
+  block.hash = beacon_.calculateHash(block.block);
+  auto result = beacon_.addBlock(block);
+  if (!result) {
+    resp.errorCode = 1;
+    resp.payload = result.error().message;
+    return utl::binaryPack(resp);
+  }
+  resp.errorCode = 0;
+  return utl::binaryPack(resp);
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const std::string &payload) {
+  auto jsonResult = utl::parseJsonRequest(payload);
+  if (jsonResult.isError()) {
+    return Error(E_REQUEST, "Failed to parse request JSON: " + jsonResult.error().message);
+  }
+  return handleJsonRequest(jsonResult.value());
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const nlohmann::json &reqJson) {
@@ -350,8 +402,6 @@ BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const nlohmann::j
     return handleHeartbeatRequest(reqJson);
   } else if (type == "query") {
     return handleQueryRequest(reqJson);
-  } else if (type == "block") {
-    return handleBlockRequest(reqJson);
   } else if (type == "checkpoint") {
     return handleCheckpointRequest(reqJson);
   } else if (type == "stakeholder") {
@@ -457,75 +507,6 @@ std::string BeaconServer::handleQueryRequest(const nlohmann::json& reqJson) {
   std::vector<std::string> servers = getActiveServers();
   for (const auto &server : servers) {
     resp["servers"].push_back(server);
-  }
-  
-  return resp.dump();
-}
-
-std::string BeaconServer::handleBlockRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
-  if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
-  }
-  
-  std::string action = reqJson["action"].get<std::string>();
-  
-  if (action == "get") {
-    if (!reqJson.contains("blockId")) {
-      resp["error"] = "missing blockId field";
-      return resp.dump();
-    }
-    
-    uint64_t blockId = reqJson["blockId"].get<uint64_t>();
-    auto result = beacon_.getBlock(blockId);
-    
-    if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
-    }
-    
-    const Ledger::ChainNode& block = result.value();
-    resp["status"] = "ok";
-    resp["block"] = utl::toJsonSafeString(block.ltsToString());
-
-  } else if (action == "add") {
-    if (!reqJson.contains("block")) {
-      resp["error"] = "missing block field";
-      return resp.dump();
-    }
-    
-    auto& blockJson = reqJson["block"];
-    if (!blockJson.is_string()) {
-      resp["error"] = "block field must be hex string";
-      return resp.dump();
-    }
-    std::string hex = blockJson.get<std::string>();
-    Ledger::ChainNode block;
-    if (!block.ltsFromString(hex)) {
-      resp["error"] = "Failed to deserialize block";
-      return resp.dump();
-    }
-    
-    // Calculate hash if not provided or if we want to verify/override
-    block.hash = beacon_.calculateHash(block.block);
-    
-    auto result = beacon_.addBlock(block);
-    if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
-    }
-    
-    resp["status"] = "ok";
-    resp["message"] = "Block added successfully";
-    
-  } else if (action == "next") {
-    resp["status"] = "ok";
-    resp["nextBlockId"] = beacon_.getNextBlockId();
-    
-  } else {
-    resp["error"] = "unknown block action: " + action;
   }
   
   return resp.dump();

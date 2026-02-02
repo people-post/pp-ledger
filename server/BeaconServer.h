@@ -116,85 +116,28 @@ private:
     Beacon::CheckpointConfig checkpoint;
   };
 
-  /**
-   * Load configuration from file
-   * @param configPath Path to config file
-   * @return ResultOrError indicating success or failure
-   */
   Roe<void> loadConfig(const std::string &configPath);
-
-  /**
-   * Initialize a new beacon with configuration
-   * @param config Beacon initialization configuration
-   * @return Result with void on success, Error on failure
-   */
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
 
-  /**
-   * Handle incoming request (binary or JSON)
-   * @param request Request string (binary or JSON)
-   * @return Response string
-   */
+  void registerServer(const std::string &serverAddress);
+  void connectToOtherBeacons();
+  void processQueuedRequest(QueuedRequest& qr);
+
   std::string handleRequest(const std::string &request);
   Roe<std::string> handleRequest(const Client::Request &request);
+
+  Roe<std::string> handleBlockGetRequest(const Client::Request &request);
+  Roe<std::string> handleBlockAddRequest(const Client::Request &request);
+  Roe<std::string> handleJsonRequest(const std::string &payload);
   Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
 
-  /**
-   * Register a server as active
-   * @param serverAddress Server address in host:port format
-   */
-  void registerServer(const std::string &serverAddress);
-
-  /**
-   * Connect to other beacon servers from config
-   */
-  void connectToOtherBeacons();
-  
-  /**
-   * Handle register requests
-   */
   std::string handleRegisterRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle heartbeat requests
-   */
   std::string handleHeartbeatRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle query requests
-   */
   std::string handleQueryRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle block-related requests
-   */
-  std::string handleBlockRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle checkpoint-related requests
-   */
   std::string handleCheckpointRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle stakeholder-related requests
-   */
   std::string handleStakeholderRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle consensus-related requests
-   */
   std::string handleConsensusRequest(const nlohmann::json& reqJson);
-
-  /**
-   * Handle state request (checkpoint id, block id, stakeholders in one response)
-   */
   std::string handleStateRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Process a single queued request from the request queue
-   * @param qr The queued request to process
-   */
-  void processQueuedRequest(QueuedRequest& qr);
 
   // Configuration
   std::string workDir_;

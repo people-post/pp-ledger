@@ -77,75 +77,25 @@ private:
     uint64_t minerId{ 0 };
   };
 
-  /**
-   * Load configuration from file
-   * @param configPath Path to config file
-   * @return ResultOrError indicating success or failure
-   */
   Roe<void> loadConfig(const std::string &configPath);
-
-  /**
-   * Handle incoming request
-   * @param request Request string
-   * @return Response string
-   */
-  std::string handleRequest(const std::string &request);
-
-  Roe<std::string> handleRequest(const Client::Request &request);
-  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
-  
-  /**
-   * Handle transaction-related requests
-   */
-  std::string handleTransactionRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle block-related requests
-   */
-  std::string handleBlockRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle mining-related requests
-   */
-  std::string handleMiningRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle checkpoint-related requests
-   */
-  std::string handleCheckpointRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle consensus-related requests
-   */
-  std::string handleConsensusRequest(const nlohmann::json& reqJson);
-  
-  /**
-   * Handle status requests
-   */
-  std::string handleStatusRequest(const nlohmann::json& reqJson);
-
-  /**
-   * Handle block production when acting as slot leader
-   */
+  Roe<Client::BeaconState> connectToBeacon();
+  Roe<void> syncBlocksFromBeacon();
   void handleSlotLeaderRole();
-
-  /**
-   * Handle validation when not slot leader
-   */
   void handleValidatorRole();
   
-  /**
-   * Connect to beacon server and fetch initial state
-   * @return ResultOrError indicating success or failure
-   */
-  Roe<Client::BeaconState> connectToBeacon();
+  std::string handleRequest(const std::string &request);
+  Roe<std::string> handleRequest(const Client::Request &request);
 
-  /**
-   * Sync blocks from beacon one at a time until local chain is up to latest block id.
-   * Fetches each missing block from the beacon and adds it to the Miner.
-   * @return ResultOrError indicating success or failure
-   */
-  Roe<void> syncBlocksFromBeacon();
+  Roe<std::string> handleBlockGetRequest(const Client::Request &request);
+  Roe<std::string> handleBlockAddRequest(const Client::Request &request);
+  Roe<std::string> handleJsonRequest(const std::string &payload);
+  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
+
+  std::string handleTransactionRequest(const nlohmann::json& reqJson);
+  std::string handleMiningRequest(const nlohmann::json& reqJson);
+  std::string handleCheckpointRequest(const nlohmann::json& reqJson);
+  std::string handleConsensusRequest(const nlohmann::json& reqJson);
+  std::string handleStatusRequest(const nlohmann::json& reqJson);
 
   // Configuration
   std::string workDir_;
