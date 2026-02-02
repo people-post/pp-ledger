@@ -180,28 +180,6 @@ Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   return {};
 }
 
-Miner::Roe<void> Miner::syncChain(const Validator::BlockChain& otherChain) {
-  size_t ourSize = getChain().getSize();
-  size_t theirSize = otherChain.getSize();
-
-  log().info << "Syncing chain - our size: " << ourSize << " their size: " << theirSize;
-
-  if (theirSize <= ourSize) {
-    log().debug << "No sync needed - we are up to date or ahead";
-    return {};
-  }
-
-  // In a full implementation, we would:
-  // 1. Validate the new chain
-  // 2. Handle reorganization if needed
-  // 3. Request missing blocks
-  // 4. Update our chain and ledger
-
-  log().info << "Chain sync would fetch " << (theirSize - ourSize) << " blocks";
-
-  return {};
-}
-
 Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
   uint64_t ourBlockId = getNextBlockId();
   
