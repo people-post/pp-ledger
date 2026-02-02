@@ -313,19 +313,15 @@ std::string BeaconServer::handleRequest(const std::string &request) {
 
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {
-    nlohmann::json errorResp;
-    errorResp["error"] = reqResult.error().message;
-    return errorResp.dump();
+    return binaryResponseError(1, reqResult.error().message);
   }
 
   const auto& req = reqResult.value();
   auto result = handleRequest(req);
   if (!result) {
-    nlohmann::json errorResp;
-    errorResp["error"] = result.error().message;
-    return errorResp.dump();
+    return binaryResponseError(1, result.error().message);
   }
-  return result.value();
+  return binaryResponseOk(result.value());
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
@@ -342,44 +338,33 @@ BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleBlockGetRequest(const Client::Request &request) {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
-    resp.errorCode = 1;
-    resp.payload = "Invalid block get payload";
-    return utl::binaryPack(resp);
+    return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
   }
+
   uint64_t blockId = idResult.value();
   auto result = beacon_.getBlock(blockId);
   if (!result) {
-    resp.errorCode = 1;
-    resp.payload = result.error().message;
-    return utl::binaryPack(resp);
+    return Error(E_REQUEST, "Failed to get block: " + result.error().message);
   }
-  resp.errorCode = 0;
-  resp.payload = result.value().ltsToString();
-  return utl::binaryPack(resp);
+
+  return result.value().ltsToString();
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleBlockAddRequest(const Client::Request &request) {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
-    resp.errorCode = 1;
-    resp.payload = "Failed to deserialize block";
-    return utl::binaryPack(resp);
+    return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
   block.hash = beacon_.calculateHash(block.block);
   auto result = beacon_.addBlock(block);
   if (!result) {
-    resp.errorCode = 1;
-    resp.payload = result.error().message;
-    return utl::binaryPack(resp);
+    return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
-  resp.errorCode = 0;
-  return utl::binaryPack(resp);
+  nlohmann::json resp;
+  resp["message"] = "Block added";
+  return resp.dump();
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const std::string &payload) {
@@ -411,9 +396,7 @@ BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const nlohmann::j
   } else if (type == "state") {
     return handleStateRequest(reqJson);
   } else {
-    nlohmann::json resp;
-    resp["error"] = "unknown request type: " + type;
-    return resp.dump();
+    return Error(E_REQUEST, "Unknown request type: " + type);
   }
 }
 
@@ -462,46 +445,31 @@ void BeaconServer::connectToOtherBeacons() {
   }
 }
 
-std::string BeaconServer::handleRegisterRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
-  // Server is registering itself
-  if (reqJson.contains("address") && reqJson["address"].is_string()) {
-    std::string serverAddress = reqJson["address"].get<std::string>();
-    registerServer(serverAddress);
-    log().info << "Registered server: " << serverAddress;
-
-    resp["status"] = "ok";
-    resp["message"] = "Server registered";
-  } else {
-    resp["error"] = "missing address field";
+BeaconServer::Roe<std::string> BeaconServer::handleRegisterRequest(const nlohmann::json& reqJson) {
+  if (!reqJson.contains("address") || !reqJson["address"].is_string()) {
+    return Error(E_REQUEST, "Missing address field in request JSON");
   }
-  
+  std::string serverAddress = reqJson["address"].get<std::string>();
+  registerServer(serverAddress);
+  nlohmann::json resp;
+  resp["message"] = "Server registered";
   return resp.dump();
 }
 
-std::string BeaconServer::handleHeartbeatRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
-  // Server is sending heartbeat
-  if (reqJson.contains("address") && reqJson["address"].is_string()) {
-    std::string serverAddress = reqJson["address"].get<std::string>();
-    registerServer(serverAddress);
-    log().debug << "Received heartbeat from: " << serverAddress;
-
-    resp["status"] = "ok";
-  } else {
-    resp["error"] = "missing address field";
+BeaconServer::Roe<std::string> BeaconServer::handleHeartbeatRequest(const nlohmann::json& reqJson) {
+  if (!reqJson.contains("address") || !reqJson["address"].is_string()) {
+    return Error(E_REQUEST, "Missing address field in request JSON");
   }
-  
+  std::string serverAddress = reqJson["address"].get<std::string>();
+  registerServer(serverAddress);
+
+  nlohmann::json resp;
+  resp["message"] = "Heartbeat received";
   return resp.dump();
 }
 
-std::string BeaconServer::handleQueryRequest(const nlohmann::json& reqJson) {
+BeaconServer::Roe<std::string> BeaconServer::handleQueryRequest(const nlohmann::json& reqJson) {
   nlohmann::json resp;
-  
-  // Query active servers
-  resp["status"] = "ok";
   resp["servers"] = nlohmann::json::array();
 
   std::vector<std::string> servers = getActiveServers();
@@ -512,63 +480,54 @@ std::string BeaconServer::handleQueryRequest(const nlohmann::json& reqJson) {
   return resp.dump();
 }
 
-std::string BeaconServer::handleCheckpointRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
+BeaconServer::Roe<std::string> BeaconServer::handleCheckpointRequest(const nlohmann::json& reqJson) {
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return Error(E_REQUEST, "Missing action field in request JSON");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
+  nlohmann::json resp;
+  
   if (action == "list") {
     auto result = beacon_.getCheckpoints();
     if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
+      return Error(E_REQUEST, "Failed to get checkpoints: " + result.error().message);
     }
     
-    resp["status"] = "ok";
     resp["checkpoints"] = nlohmann::json::array();
     for (uint64_t checkpointId : result.value()) {
       resp["checkpoints"].push_back(checkpointId);
     }
     
   } else if (action == "current") {
-    resp["status"] = "ok";
     resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
     
   } else if (action == "evaluate") {
     auto result = beacon_.evaluateCheckpoints();
     if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
+      return Error(E_REQUEST, "Failed to evaluate checkpoints: " + result.error().message);
     }
     
-    resp["status"] = "ok";
     resp["message"] = "Checkpoints evaluated";
     
   } else {
-    resp["error"] = "unknown checkpoint action: " + action;
+    return Error(E_REQUEST, "Unknown checkpoint action: " + action);
   }
   
   return resp.dump();
 }
 
-std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
+BeaconServer::Roe<std::string> BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson) {
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return Error(E_REQUEST, "Missing action field in request JSON");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
+  nlohmann::json resp;
   if (action == "list") {
     const auto& stakeholders = beacon_.getStakeholders();
-    resp["status"] = "ok";
     resp["stakeholders"] = nlohmann::json::array();
     
     for (const auto& sh : stakeholders) {
@@ -584,16 +543,14 @@ std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson
     
   } else if (action == "add") {
     if (!reqJson.contains("stakeholder")) {
-      resp["error"] = "missing stakeholder field";
-      return resp.dump();
+      return Error(E_REQUEST, "Missing stakeholder field in request JSON");
     }
     
     auto& shJson = reqJson["stakeholder"];
     Beacon::Stakeholder sh;
     
     if (!shJson.contains("id") || !shJson.contains("stake")) {
-      resp["error"] = "missing required stakeholder fields (id, stake)";
-      return resp.dump();
+      return Error(E_REQUEST, "Missing required stakeholder fields (id, stake)");
     }
     
     sh.id = shJson["id"].get<uint64_t>();
@@ -607,97 +564,79 @@ std::string BeaconServer::handleStakeholderRequest(const nlohmann::json& reqJson
     }
     
     beacon_.addStakeholder(sh);
-    resp["status"] = "ok";
     resp["message"] = "Stakeholder added";
     
   } else if (action == "remove") {
     if (!reqJson.contains("id")) {
-      resp["error"] = "missing id field";
-      return resp.dump();
+      return Error(E_REQUEST, "Missing id field in request JSON");
     }
     
     uint64_t id = reqJson["id"].get<uint64_t>();
     beacon_.removeStakeholder(id);
-    resp["status"] = "ok";
     resp["message"] = "Stakeholder removed";
     
   } else if (action == "updateStake") {
     if (!reqJson.contains("id") || !reqJson.contains("stake")) {
-      resp["error"] = "missing id or stake field";
-      return resp.dump();
+      return Error(E_REQUEST, "Missing id or stake field in request JSON");
     }
     
     uint64_t id = reqJson["id"].get<uint64_t>();
     uint64_t stake = reqJson["stake"].get<uint64_t>();
     
     beacon_.updateStake(id, stake);
-    resp["status"] = "ok";
     resp["message"] = "Stake updated";
     
   } else {
-    resp["error"] = "unknown stakeholder action: " + action;
+    return Error(E_REQUEST, "Unknown stakeholder action: " + action);
   }
   
   return resp.dump();
 }
 
-std::string BeaconServer::handleConsensusRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-  
+BeaconServer::Roe<std::string> BeaconServer::handleConsensusRequest(const nlohmann::json& reqJson) {
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return Error(E_REQUEST, "Missing action field in request JSON");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
+  nlohmann::json resp;
   if (action == "currentSlot") {
-    resp["status"] = "ok";
     resp["currentSlot"] = beacon_.getCurrentSlot();
-    
   } else if (action == "currentEpoch") {
-    resp["status"] = "ok";
     resp["currentEpoch"] = beacon_.getCurrentEpoch();
-    
   } else if (action == "slotLeader") {
     if (!reqJson.contains("slot")) {
-      resp["error"] = "missing slot field";
-      return resp.dump();
+      return Error(E_REQUEST, "Missing slot field in request JSON");
     }
     
     uint64_t slot = reqJson["slot"].get<uint64_t>();
     auto result = beacon_.getSlotLeader(slot);
 
     if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
+      return Error(E_REQUEST, "Failed to get slot leader: " + result.error().message);
     }
 
-    resp["status"] = "ok";
     resp["slotLeader"] = result.value();
-
   } else {
-    resp["error"] = "unknown consensus action: " + action;
+    return Error(E_REQUEST, "Unknown consensus action: " + action);
   }
 
   return resp.dump();
 }
 
-std::string BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
-
+BeaconServer::Roe<std::string> BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return Error(E_REQUEST, "Missing action field in request JSON");
   }
 
   std::string action = reqJson["action"].get<std::string>();
 
+  nlohmann::json resp;
   if (action == "current") {
     int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
-    resp["status"] = "ok";
     resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
     resp["nextBlockId"] = beacon_.getNextBlockId();
     resp["currentSlot"] = beacon_.getCurrentSlot();
@@ -714,10 +653,26 @@ std::string BeaconServer::handleStateRequest(const nlohmann::json& reqJson) {
       resp["stakeholders"].push_back(shJson);
     }
   } else {
-    resp["error"] = "unknown state action: " + action;
+    return Error(E_REQUEST, "Unknown state action: " + action);
   }
 
   return resp.dump();
+}
+
+std::string BeaconServer::binaryResponseOk(const std::string& payload) const {
+  Client::Response resp;
+  resp.version = Client::Response::VERSION;
+  resp.errorCode = 0;
+  resp.payload = payload;
+  return utl::binaryPack(resp);
+}
+
+std::string BeaconServer::binaryResponseError(uint16_t errorCode, const std::string& message) const {
+  Client::Response resp;
+  resp.version = Client::Response::VERSION;
+  resp.errorCode = errorCode;
+  resp.payload = message;
+  return utl::binaryPack(resp);
 }
 
 } // namespace pp

@@ -584,7 +584,12 @@ public:
       return false;
     }
 
-    value.resize(size);
+    if (size > MAX_STRING_SIZE) {
+      failed_ = true;
+      return false;
+    }
+
+    value.resize(static_cast<size_t>(size));
     if (size > 0) {
       if (!is_.read(&value[0], size)) {
         failed_ = true;
@@ -858,6 +863,8 @@ public:
   bool failed() const { return failed_; }
 
 private:
+  static constexpr uint64_t MAX_STRING_SIZE = 64 * 1024 * 1024;  // 64 MB
+
   std::istream &is_;
   bool failed_ = false;
 };

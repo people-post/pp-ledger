@@ -9,6 +9,26 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 
+namespace {
+
+static std::string jsonResponseOk(const nlohmann::json& payload) {
+  pp::Client::Response resp;
+  resp.version = pp::Client::Response::VERSION;
+  resp.errorCode = 0;
+  resp.payload = payload.dump();
+  return pp::utl::binaryPack(resp);
+}
+
+static std::string jsonResponseError(uint16_t errorCode, const std::string& message) {
+  pp::Client::Response resp;
+  resp.version = pp::Client::Response::VERSION;
+  resp.errorCode = errorCode;
+  resp.payload = message;
+  return pp::utl::binaryPack(resp);
+}
+
+} // namespace
+
 namespace pp {
 
 MinerServer::MinerServer() {
@@ -286,17 +306,13 @@ std::string MinerServer::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {
-    nlohmann::json errorResp;
-    errorResp["error"] = reqResult.error().message;
-    return errorResp.dump();
+    return jsonResponseError(1, reqResult.error().message);
   }
 
   const auto& req = reqResult.value();
   auto result = handleRequest(req);
   if (!result) {
-    nlohmann::json errorResp;
-    errorResp["error"] = result.error().message;
-    return errorResp.dump();
+    return jsonResponseError(1, result.error().message);
   }
   return result.value();
 }
@@ -380,9 +396,7 @@ MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::jso
   } else if (type == "status") {
     return handleStatusRequest(reqJson);
   } else {
-    nlohmann::json resp;
-    resp["error"] = "unknown request type: " + type;
-    return resp.dump();
+    return jsonResponseError(1, "unknown request type: " + type);
   }
 }
 
@@ -390,24 +404,21 @@ std::string MinerServer::handleTransactionRequest(const nlohmann::json& reqJson)
   nlohmann::json resp;
   
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return jsonResponseError(1, "missing action field");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
   if (action == "add") {
     if (!reqJson.contains("transaction")) {
-      resp["error"] = "missing transaction field";
-      return resp.dump();
+      return jsonResponseError(1, "missing transaction field");
     }
     
     auto& txJson = reqJson["transaction"];
     Ledger::Transaction tx;
     
     if (!txJson.contains("from") || !txJson.contains("to") || !txJson.contains("amount")) {
-      resp["error"] = "missing required transaction fields (from, to, amount)";
-      return resp.dump();
+      return jsonResponseError(1, "missing required transaction fields (from, to, amount)");
     }
     
     tx.fromWalletId = txJson["from"].get<uint64_t>();
@@ -416,8 +427,7 @@ std::string MinerServer::handleTransactionRequest(const nlohmann::json& reqJson)
     
     auto result = miner_.addTransaction(tx);
     if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
+      return jsonResponseError(1, result.error().message);
     }
     
     resp["status"] = "ok";
@@ -433,32 +443,29 @@ std::string MinerServer::handleTransactionRequest(const nlohmann::json& reqJson)
     resp["message"] = "Transaction pool cleared";
     
   } else {
-    resp["error"] = "unknown transaction action: " + action;
+    return jsonResponseError(1, "unknown transaction action: " + action);
   }
   
-  return resp.dump();
+  return jsonResponseOk(resp);
 }
 
 std::string MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
   nlohmann::json resp;
   
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return jsonResponseError(1, "missing action field");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
   if (action == "produce") {
     if (!miner_.isSlotLeader()) {
-      resp["error"] = "not slot leader for current slot";
-      return resp.dump();
+      return jsonResponseError(1, "not slot leader for current slot");
     }
     
     auto result = miner_.produceBlock();
     if (!result) {
-      resp["error"] = result.error().message;
-      return resp.dump();
+      return jsonResponseError(1, result.error().message);
     }
     
     auto block = result.value();
@@ -474,26 +481,24 @@ std::string MinerServer::handleMiningRequest(const nlohmann::json& reqJson) {
     resp["currentSlot"] = miner_.getCurrentSlot();
     
   } else {
-    resp["error"] = "unknown mining action: " + action;
+    return jsonResponseError(1, "unknown mining action: " + action);
   }
   
-  return resp.dump();
+  return jsonResponseOk(resp);
 }
 
 std::string MinerServer::handleCheckpointRequest(const nlohmann::json& reqJson) {
   nlohmann::json resp;
   
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return jsonResponseError(1, "missing action field");
   }
   
   std::string action = reqJson["action"].get<std::string>();
   
   if (action == "isOutOfDate") {
     if (!reqJson.contains("checkpointId")) {
-      resp["error"] = "missing checkpointId field";
-      return resp.dump();
+      return jsonResponseError(1, "missing checkpointId field");
     }
     
     uint64_t checkpointId = reqJson["checkpointId"].get<uint64_t>();
@@ -501,18 +506,17 @@ std::string MinerServer::handleCheckpointRequest(const nlohmann::json& reqJson) 
     resp["isOutOfDate"] = miner_.isOutOfDate(checkpointId);
     
   } else {
-    resp["error"] = "unknown checkpoint action: " + action;
+    return jsonResponseError(1, "unknown checkpoint action: " + action);
   }
   
-  return resp.dump();
+  return jsonResponseOk(resp);
 }
 
 std::string MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
   nlohmann::json resp;
   
   if (!reqJson.contains("action")) {
-    resp["error"] = "missing action field";
-    return resp.dump();
+    return jsonResponseError(1, "missing action field");
   }
   
   std::string action = reqJson["action"].get<std::string>();
@@ -537,10 +541,10 @@ std::string MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
     }
     
   } else {
-    resp["error"] = "unknown consensus action: " + action;
+    return jsonResponseError(1, "unknown consensus action: " + action);
   }
   
-  return resp.dump();
+  return jsonResponseOk(resp);
 }
 
 std::string MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
@@ -555,7 +559,7 @@ std::string MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
   resp["pendingTransactions"] = miner_.getPendingTransactionCount();
   resp["isSlotLeader"] = miner_.shouldProduceBlock();
   
-  return resp.dump();
+  return jsonResponseOk(resp);
 }
 
 void MinerServer::handleSlotLeaderRole() {

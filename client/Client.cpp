@@ -69,21 +69,26 @@ Client::Roe<json> Client::sendRequest(const json &request) {
                      result.error().message);
   }
 
-  // Parse JSON response
-  json response;
-  try {
-    response = json::parse(result.value());
-  } catch (const json::exception &e) {
-    log().error << "Failed to parse response: " << e.what();
-    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + e.what());
+  // Unpack binary Response
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    log().error << "Failed to unpack response: " << respResult.error().message;
+    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + respResult.error().message);
   }
 
-  log().debug << "Received response: " << response.dump();
+  const Response& resp = respResult.value();
+  log().debug << "Received response: errorCode=" << resp.errorCode;
 
-  // Check for error in response
-  if (response.contains("status") && response["status"] == "error") {
-    std::string errorMsg = response.value("error", "Unknown server error");
-    return Error(E_SERVER_ERROR, getErrorMessage(E_SERVER_ERROR) + ": " + errorMsg);
+  if (resp.errorCode != 0) {
+    return Error(E_SERVER_ERROR, getErrorMessage(E_SERVER_ERROR) + ": " + resp.payload);
+  }
+
+  json response;
+  try {
+    response = json::parse(resp.payload);
+  } catch (const json::exception &e) {
+    log().error << "Failed to parse response payload: " << e.what();
+    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + e.what());
   }
 
   return response;
