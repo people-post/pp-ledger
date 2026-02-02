@@ -38,3 +38,15 @@ target_link_libraries(test_archive PRIVATE
 )
 
 gtest_discover_tests(test_archive)
+
+# Test for Utilities (Ed25519, etc.)
+add_executable(test_utilities
+    test_utilities.cpp
+)
+
+target_link_libraries(test_utilities PRIVATE
+    pp_lib
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_utilities)

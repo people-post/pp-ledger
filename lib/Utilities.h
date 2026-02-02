@@ -130,6 +130,38 @@ std::string fromJsonSafeString(const std::string &s);
  */
 pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content);
 
+// --- Ed25519 (raw binary: 32-byte public key, 32-byte private key, 64-byte signature)
+
+/** Ed25519 key pair: publicKey (32 bytes), privateKey (32 bytes) */
+struct Ed25519KeyPair {
+  std::string publicKey;
+  std::string privateKey;
+};
+
+/**
+ * Generate a new Ed25519 key pair
+ * @return Roe<Ed25519KeyPair>: publicKey and privateKey as 32-byte binary strings, or error
+ */
+pp::Roe<Ed25519KeyPair> ed25519Generate();
+
+/**
+ * Sign a message with an Ed25519 private key
+ * @param privateKey 32-byte raw private key (from ed25519Generate or equivalent)
+ * @param message Message to sign (arbitrary bytes)
+ * @return Roe<std::string>: 64-byte signature, or error
+ */
+pp::Roe<std::string> ed25519Sign(const std::string &privateKey, const std::string &message);
+
+/**
+ * Verify an Ed25519 signature
+ * @param publicKey 32-byte raw public key
+ * @param message Message that was signed
+ * @param signature 64-byte signature
+ * @return true if signature is valid, false if invalid or bad key/signature format
+ */
+bool ed25519Verify(const std::string &publicKey, const std::string &message,
+                   const std::string &signature);
+
 } // namespace utl
 } // namespace pp
 

@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace pp {
 namespace utl {
@@ -208,6 +209,130 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
   }
 
   return {};
+}
+
+// --- Ed25519
+
+namespace {
+
+constexpr size_t ED25519_PRIVATE_KEY_SIZE = 32;
+constexpr size_t ED25519_PUBLIC_KEY_SIZE = 32;
+constexpr size_t ED25519_SIGNATURE_SIZE = 64;
+
+} // namespace
+
+pp::Roe<Ed25519KeyPair> ed25519Generate() {
+  EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
+  if (!ctx) {
+    return Error(1, "EVP_PKEY_CTX_new_id(ED25519) failed");
+  }
+  EVP_PKEY *pkey = nullptr;
+  if (EVP_PKEY_keygen_init(ctx) != 1) {
+    EVP_PKEY_CTX_free(ctx);
+    return Error(2, "EVP_PKEY_keygen_init failed");
+  }
+  if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
+    EVP_PKEY_CTX_free(ctx);
+    return Error(3, "EVP_PKEY_keygen failed");
+  }
+  EVP_PKEY_CTX_free(ctx);
+
+  std::vector<unsigned char> priv_buf(ED25519_PRIVATE_KEY_SIZE);
+  size_t priv_len = priv_buf.size();
+  if (EVP_PKEY_get_raw_private_key(pkey, priv_buf.data(), &priv_len) != 1 ||
+      priv_len != ED25519_PRIVATE_KEY_SIZE) {
+    EVP_PKEY_free(pkey);
+    return Error(4, "EVP_PKEY_get_raw_private_key failed");
+  }
+  std::vector<unsigned char> pub_buf(ED25519_PUBLIC_KEY_SIZE);
+  size_t pub_len = pub_buf.size();
+  if (EVP_PKEY_get_raw_public_key(pkey, pub_buf.data(), &pub_len) != 1 ||
+      pub_len != ED25519_PUBLIC_KEY_SIZE) {
+    EVP_PKEY_free(pkey);
+    return Error(5, "EVP_PKEY_get_raw_public_key failed");
+  }
+  Ed25519KeyPair pair;
+  pair.privateKey.assign(priv_buf.begin(), priv_buf.end());
+  pair.publicKey.assign(pub_buf.begin(), pub_buf.end());
+  EVP_PKEY_free(pkey);
+  return pair;
+}
+
+pp::Roe<std::string> ed25519Sign(const std::string &privateKey,
+                                 const std::string &message) {
+  if (privateKey.size() != ED25519_PRIVATE_KEY_SIZE) {
+    return Error(1, "ed25519Sign: private key must be 32 bytes");
+  }
+  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(
+      EVP_PKEY_ED25519, nullptr,
+      reinterpret_cast<const unsigned char *>(privateKey.data()),
+      privateKey.size());
+  if (!pkey) {
+    return Error(2, "EVP_PKEY_new_raw_private_key failed");
+  }
+
+  EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+  if (!md_ctx) {
+    EVP_PKEY_free(pkey);
+    return Error(3, "EVP_MD_CTX_new failed");
+  }
+  if (EVP_DigestSignInit(md_ctx, nullptr, nullptr, nullptr, pkey) != 1) {
+    EVP_MD_CTX_free(md_ctx);
+    EVP_PKEY_free(pkey);
+    return Error(4, "EVP_DigestSignInit failed");
+  }
+  size_t sig_len = 0;
+  if (EVP_DigestSign(md_ctx, nullptr, &sig_len,
+                     reinterpret_cast<const unsigned char *>(message.data()),
+                     message.size()) != 1 || sig_len != ED25519_SIGNATURE_SIZE) {
+    EVP_MD_CTX_free(md_ctx);
+    EVP_PKEY_free(pkey);
+    return Error(5, "EVP_DigestSign (size) failed");
+  }
+  std::string signature(sig_len, '\0');
+  if (EVP_DigestSign(md_ctx,
+                     reinterpret_cast<unsigned char *>(signature.data()),
+                     &sig_len,
+                     reinterpret_cast<const unsigned char *>(message.data()),
+                     message.size()) != 1) {
+    EVP_MD_CTX_free(md_ctx);
+    EVP_PKEY_free(pkey);
+    return Error(6, "EVP_DigestSign failed");
+  }
+  EVP_MD_CTX_free(md_ctx);
+  EVP_PKEY_free(pkey);
+  return signature;
+}
+
+bool ed25519Verify(const std::string &publicKey, const std::string &message,
+                  const std::string &signature) {
+  if (publicKey.size() != ED25519_PUBLIC_KEY_SIZE ||
+      signature.size() != ED25519_SIGNATURE_SIZE) {
+    return false;
+  }
+  EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(
+      EVP_PKEY_ED25519, nullptr,
+      reinterpret_cast<const unsigned char *>(publicKey.data()),
+      publicKey.size());
+  if (!pkey) {
+    return false;
+  }
+  EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
+  if (!md_ctx) {
+    EVP_PKEY_free(pkey);
+    return false;
+  }
+  bool ok = false;
+  if (EVP_DigestVerifyInit(md_ctx, nullptr, nullptr, nullptr, pkey) == 1) {
+    ok = (EVP_DigestVerify(md_ctx,
+                           reinterpret_cast<const unsigned char *>(signature.data()),
+                           signature.size(),
+                           reinterpret_cast<const unsigned char *>(message.data()),
+                           message.size()) == 1);
+  }
+  EVP_MD_CTX_free(md_ctx);
+  EVP_PKEY_free(pkey);
+  return ok;
 }
 
 } // namespace utl
