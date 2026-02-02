@@ -7,6 +7,28 @@
 
 namespace pp {
 
+std::string Validator::SystemCheckpoint::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Validator::SystemCheckpoint::ltsFromString(const std::string& str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  if (ar.failed()) {
+    return false;
+  }
+  return true;
+}
+
 // BlockChain implementation
 Validator::BlockChain::BlockChain() {
   // No auto-genesis block - blocks must be added explicitly
@@ -92,7 +114,7 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   return result.value();
 }
 
-Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx) {
+Validator::Roe<void> Validator::processNormalTransaction(const Ledger::Transaction& tx) {
   // tx.fromWalletId and tx.toWalletId correspond to bank_.Account.id
   if (tx.amount < 0) {
     return Error(19, "Transfer amount must be non-negative");
@@ -123,6 +145,40 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
   auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
   if (!transferResult) {
     return Error(22, "Transfer failed: " + transferResult.error().message);
+  }
+  return {};
+}
+
+Validator::Roe<void> Validator::processInitTransaction(const Ledger::Transaction& tx) {
+  log().info << "Processing init transaction";
+
+  if (tx.amount < 0) {
+    return Error(23, "Init transaction must have amount >= 0");
+  }
+
+  if (bank_.has(tx.fromWalletId)) {
+    if (bank_.has(tx.toWalletId)) {
+      auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+      if (!transferResult) {
+        return Error(24, "Failed to transfer balance: " + transferResult.error().message);
+      }
+    } else {
+      // To unknown wallet
+      auto withdrawResult = bank_.withdrawBalance(tx.fromWalletId, tx.amount);
+      if (!withdrawResult) {
+        return Error(25, "Failed to withdraw balance: " + withdrawResult.error().message);
+      }
+    }
+  } else {
+    // From unknown wallet
+    if (bank_.has(tx.toWalletId)) {
+      auto depositResult = bank_.depositBalance(tx.toWalletId, tx.amount);
+      if (!depositResult) {
+        return Error(26, "Failed to deposit balance: " + depositResult.error().message);
+      }
+    } else {
+      // From and to unknown wallets, ignore
+    }
   }
   return {};
 }
@@ -189,14 +245,14 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
   return {};
 }
 
-Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block) {
+Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block, bool isInitMode) {
   // Validate the block first
   auto validationResult = validateBlockBase(block);
   if (!validationResult) {
     return Error(3, "Block validation failed: " + validationResult.error().message);
   }
 
-  auto processResult = processBlock(block, block.block.index);
+  auto processResult = processBlock(block, block.block.index, isInitMode);
   if (!processResult) {
     return Error(4, "Failed to process block: " + processResult.error().message);
   }
@@ -417,69 +473,90 @@ bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
   return true;
 }
 
-Validator::Roe<void> Validator::processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId) {
-  log().info << "Processing checkpoint transaction in block " << blockId;
+Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transaction& tx) {
+  log().info << "Processing system checkpoint transaction";
   
   bank_.clear();
   
   // Deserialize BlockChainConfig from transaction metadata
-  auto configResult = utl::binaryUnpack<BlockChainConfig>(signedTx.obj.meta);
-  if (!configResult) {
-    return Error(16, "Failed to deserialize checkpoint config: " + configResult.error().message);
+  SystemCheckpoint checkpoint;
+  if (!checkpoint.ltsFromString(tx.meta)) {
+    return Error(16, "Failed to deserialize checkpoint config: " + tx.meta);
   }
-
-  BlockChainConfig restoredConfig = configResult.value();
   
   // Restore consensus parameters
   auto config = consensus_.getConfig();
 
   if (config.genesisTime == 0) {
-    config.genesisTime = restoredConfig.genesisTime;
-  } else if (restoredConfig.genesisTime != config.genesisTime) {
+    config.genesisTime = checkpoint.config.genesisTime;
+  } else if (checkpoint.config.genesisTime != config.genesisTime) {
     return Error(17, "Genesis time mismatch");
   }
 
-  config.slotDuration = restoredConfig.slotDuration;
-  config.slotsPerEpoch = restoredConfig.slotsPerEpoch;
+  config.slotDuration = checkpoint.config.slotDuration;
+  config.slotsPerEpoch = checkpoint.config.slotsPerEpoch;
   consensus_.init(config);
 
   AccountBuffer::Account account;
   account.id = WID_SYSTEM;
-  account.balance = 0; // TODO: Restore balance from restoredConfig
+  account.balance = checkpoint.genesis.balance;
   account.isNegativeBalanceAllowed = true;
-  account.publicKey = "";
+  account.publicKey = checkpoint.genesis.publicKey;
   auto addResult = bank_.add(account);
   if (!addResult) {
     return Error(26, "Failed to add system account to buffer: " + addResult.error().message);
   }
 
-  log().info << "Restored BlockChainConfig (version " << BlockChainConfig::VERSION << ")";
-  log().info << "  Genesis time: " << config.genesisTime;
-  log().info << "  Time offset: " << config.timeOffset;
-  log().info << "  Slot duration: " << config.slotDuration;
-  log().info << "  Slots per epoch: " << config.slotsPerEpoch;
+  log().info << "Restored SystemCheckpoint";
+  log().info << "  Version: " << checkpoint.VERSION;
+  log().info << "  Genesis time: " << checkpoint.config.genesisTime;
+  log().info << "  Slot duration: " << checkpoint.config.slotDuration;
+  log().info << "  Slots per epoch: " << checkpoint.config.slotsPerEpoch;
+  log().info << "  Max pending transactions: " << checkpoint.config.maxPendingTransactions;
+  log().info << "  Max transactions per block: " << checkpoint.config.maxTransactionsPerBlock;
+  log().info << "  Genesis balance: " << checkpoint.genesis.balance;
+  log().info << "  Genesis public key: " << checkpoint.genesis.publicKey;
+  log().info << "  Genesis meta: " << checkpoint.genesis.meta;
 
   return {};
 }
 
-Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId) {
+Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx) {
+  log().info << "Processing user checkpoint transaction";
+  // TODO: Implement user checkpoint processing
+  return {};
+}
+
+Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isInitMode) {
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    switch (signedTx.obj.type) {
-      case Ledger::Transaction::T_CHECKPOINT:
-        return processCheckpointTransaction(signedTx, blockId);
-      default:
-        return Error(18, "Unknown transaction type: " + std::to_string(signedTx.obj.type));
+    auto result = processTransaction(signedTx.obj, isInitMode);
+    if (!result) {
+      return Error(18, "Failed to process transaction: " + result.error().message);
     }
   }
-  
+
   return {};
+}
+
+Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, bool isInitMode) {
+  switch (tx.type) {
+    case Ledger::Transaction::T_CHECKPOINT:
+      return processSystemCheckpoint(tx);
+    case Ledger::Transaction::T_USER:
+      return processUserCheckpoint(tx);
+    case Ledger::Transaction::T_DEFAULT:
+      return isInitMode ? processInitTransaction(tx) : processNormalTransaction(tx);
+    default:
+      return Error(18, "Unknown transaction type: " + std::to_string(tx.type));
+  }
 }
 
 Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   // Process blocks from ledger one by one
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
+  bool isInitMode = startingBlockId > 0; // True if we are loading from a non-zero starting block
   while (true) {
     auto blockResult = ledger_.readBlock(blockId);
     if (!blockResult) {
@@ -490,7 +567,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
     Ledger::ChainNode block = blockResult.value();
     
     // Process the block
-    auto processResult = processBlock(block, blockId);
+    auto processResult = processBlock(block, blockId, isInitMode);
     if (!processResult) {
       return Error(18, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
     }

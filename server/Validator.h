@@ -28,9 +28,9 @@ public:
     constexpr static uint64_t WID_SYSTEM = 0;
     constexpr static uint64_t WID_FIRST_USER = 1 << 20;
 
+    // BlockChainConfig - Configuration for the block chain
+    // This is used to restore the block chain from a checkpoint transaction
     struct BlockChainConfig {
-      constexpr static uint32_t VERSION = 1;
-
       int64_t genesisTime{ 0 };
       uint64_t slotDuration{ 0 };
       uint64_t slotsPerEpoch{ 0 };
@@ -40,6 +40,30 @@ public:
       template <typename Archive> void serialize(Archive &ar) {
         ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock;
       }
+    };
+
+    struct AccountInfo {
+      int64_t balance{ 0 };
+      std::string publicKey;
+      std::string meta;
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & balance & publicKey & meta;
+      }
+    };
+
+    struct SystemCheckpoint {
+      constexpr static const uint32_t VERSION = 1;
+
+      BlockChainConfig config;
+      AccountInfo genesis;
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & config & genesis;
+      }
+
+      std::string ltsToString() const;
+      bool ltsFromString(const std::string& str);
     };
 
     /**
@@ -113,13 +137,17 @@ protected:
     Ledger& getLedger() { return ledger_; }
     const Ledger& getLedger() const { return ledger_; }
 
-    Roe<void> addBlockBase(const Ledger::ChainNode& block);
-    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
-    Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
-    Roe<void> processTransaction(const Ledger::Transaction& tx);
-    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
-    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);
+    Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isInitMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
+    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
+
+    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
+    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isInitMode);
+    Roe<void> processTransaction(const Ledger::Transaction& tx, bool isInitMode);
+    Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
+    Roe<void> processUserCheckpoint(const Ledger::Transaction& tx);
+    Roe<void> processNormalTransaction(const Ledger::Transaction& tx);
+    Roe<void> processInitTransaction(const Ledger::Transaction& tx);
 
 private:
     // Core components

@@ -637,6 +637,7 @@ BeaconServer::Roe<std::string> BeaconServer::handleStateRequest(const nlohmann::
     int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
 
+    resp["lastCheckpointId"] = beacon_.getLastCheckpointId();
     resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
     resp["nextBlockId"] = beacon_.getNextBlockId();
     resp["currentSlot"] = beacon_.getCurrentSlot();

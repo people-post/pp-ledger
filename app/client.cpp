@@ -74,6 +74,7 @@ void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholde
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Beacon Status:\n";
+  std::cout << "  Last Checkpoint ID: " << status.lastCheckpointId << "\n";
   std::cout << "  Checkpoint ID: " << status.checkpointId << "\n";
   std::cout << "  Next Block ID: " << status.nextBlockId << "\n";
   std::cout << "  Current Slot: " << status.currentSlot << "\n";

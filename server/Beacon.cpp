@@ -54,13 +54,15 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
   
   log().info << "Genesis block created with checkpoint transaction (version " 
-             << BlockChainConfig::VERSION << ")";
+             << SystemCheckpoint::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << cc.genesisTime;
   log().info << "  Time offset: " << cc.timeOffset;
   log().info << "  Slot duration: " << cc.slotDuration;
   log().info << "  Slots per epoch: " << cc.slotsPerEpoch;
+  log().info << "  Max pending transactions: " << config_.chain.maxPendingTransactions;
+  log().info << "  Max transactions per block: " << config_.chain.maxTransactionsPerBlock;
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 
@@ -105,6 +107,10 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
+}
+
+uint64_t Beacon::getLastCheckpointId() const {
+  return lastCheckpointId_;
 }
 
 uint64_t Beacon::getCurrentCheckpointId() const {
@@ -173,7 +179,7 @@ void Beacon::updateStake(uint64_t stakeholderId, uint64_t newStake) {
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block);
+  auto result = Validator::addBlockBase(block, false);
   if (!result) {
     return Error(4, result.error().message);
   }
@@ -326,7 +332,13 @@ Beacon::Roe<void> Beacon::pruneOldData(uint64_t checkpointId) {
 Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) const {
   log().info << "Creating genesis block";
 
-  // Create genesis block with checkpoint transaction containing BlockChainConfig
+  SystemCheckpoint systemCheckpoint;
+  systemCheckpoint.config = config;
+  systemCheckpoint.genesis.balance = 0;
+  systemCheckpoint.genesis.publicKey = "";
+  systemCheckpoint.genesis.meta = "";
+
+  // Create genesis block with checkpoint transaction containing SystemCheckpoint
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
   genesisBlock.block.timestamp = config.genesisTime;
@@ -335,15 +347,15 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
-  // Create checkpoint transaction with BlockChainConfig
+  // Create checkpoint transaction with SystemCheckpoint
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
   checkpointTx.fromWalletId = WID_SYSTEM; // system wallet ID
   checkpointTx.toWalletId = WID_SYSTEM;   // system wallet ID
   checkpointTx.amount = 0;
   
-  // Serialize BlockChainConfig to transaction metadata
-  checkpointTx.meta = utl::binaryPack(config);
+  // Serialize SystemCheckpoint to transaction metadata
+  checkpointTx.meta = systemCheckpoint.ltsToString();
 
   // Add signed transaction (no signature for genesis)
   Ledger::SignedData<Ledger::Transaction> signedTx;

@@ -169,6 +169,7 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   }
 
   BeaconState state;
+  state.lastCheckpointId = response["lastCheckpointId"].get<uint64_t>();
   state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
   state.nextBlockId = response["nextBlockId"].get<uint64_t>();
   state.currentSlot = response["currentSlot"].get<uint64_t>();

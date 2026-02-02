@@ -47,6 +47,7 @@ public:
         int64_t timeOffset{ 0 };
         uint64_t minerId{ 0 };
         uint64_t startingBlockId{ 0 };
+        uint64_t checkpointId{ 0 };
     };
 
     Miner();
@@ -79,6 +80,7 @@ private:
     struct Config {
         std::string workDir;
         uint64_t minerId{ 0 };
+        uint64_t checkpointId{ 0 };
         BlockChainConfig chain;
     };
 

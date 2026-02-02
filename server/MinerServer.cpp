@@ -114,7 +114,8 @@ Service::Roe<void> MinerServer::onStart() {
   minerConfig.minerId = config_.minerId;
   minerConfig.timeOffset = state.currentTimestamp - utl::getCurrentTime();
   minerConfig.workDir = minerDataDir.string();
-  minerConfig.startingBlockId = state.checkpointId;
+  minerConfig.startingBlockId = state.lastCheckpointId;
+  minerConfig.checkpointId = state.checkpointId;
 
   
   auto minerInit = miner_.init(minerConfig);

@@ -35,6 +35,41 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
   return {};
 }
 
+AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t id, int64_t amount) {
+  if (amount < 0) {
+    return Error(10, "Deposit amount must be non-negative");
+  }
+
+  auto it = mAccounts_.find(id);
+  if (it == mAccounts_.end()) {
+    return Error(9, "Account not found");
+  }
+  if (it->second.balance > INT64_MAX - amount) {
+    return Error(11, "Deposit would cause balance overflow");
+  }
+  it->second.balance += amount;
+  return {};
+}
+
+AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t id, int64_t amount) {
+  if (amount < 0) {
+    return Error(11, "Withdraw amount must be non-negative");
+  }
+
+  auto it = mAccounts_.find(id);
+  if (it == mAccounts_.end()) {
+    return Error(12, "Account not found");
+  }
+  if (!it->second.isNegativeBalanceAllowed && it->second.balance < amount) {
+    return Error(13, "Insufficient balance");
+  }
+  if (it->second.balance > INT64_MAX - amount) {
+    return Error(14, "Withdraw would cause balance overflow");
+  }
+  it->second.balance -= amount;
+  return {};
+}
+
 AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, int64_t amount) {
   if (amount < 0) {
     return Error(3, "Transfer amount must be non-negative");

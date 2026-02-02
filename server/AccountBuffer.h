@@ -36,7 +36,9 @@ public:
 
   Roe<void> update(const AccountBuffer& other);
 
+  Roe<void> depositBalance(uint64_t id, int64_t amount);
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, int64_t amount);
+  Roe<void> withdrawBalance(uint64_t id, int64_t amount);
 
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);

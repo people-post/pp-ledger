@@ -71,6 +71,7 @@ public:
 
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   uint32_t getVersion() const { return VERSION; }
+  uint64_t getLastCheckpointId() const;
   uint64_t getCurrentCheckpointId() const;
   uint64_t getTotalStake() const;
   const std::list<Stakeholder>& getStakeholders() const;
@@ -114,6 +115,7 @@ private:
 
   // State tracking
   uint64_t currentCheckpointId_{ 0 };
+  uint64_t lastCheckpointId_{ 0 };
 };
 
 // Ostream operators for easy logging

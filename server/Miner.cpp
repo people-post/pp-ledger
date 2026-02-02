@@ -17,9 +17,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
   config_.workDir = config.workDir;
   config_.minerId = config.minerId;
+  config_.checkpointId = config.checkpointId;
 
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
+  log().info << "  Checkpoint ID: " << config_.checkpointId;
 
   // Create work directory if it doesn't exist
   if (!std::filesystem::exists(config.workDir)) {
@@ -150,8 +152,10 @@ void Miner::clearTransactionPool() {
 }
 
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
+  // Adding block is in init mode if it is before the checkpoint id
+  bool isInitMode = block.block.index < config_.checkpointId;
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block);
+  auto result = Validator::addBlockBase(block, isInitMode);
   if (!result) {
     return Error(10, result.error().message);
   }

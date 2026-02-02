@@ -92,6 +92,7 @@ public:
 
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
+    uint64_t lastCheckpointId{ 0 };
     uint64_t checkpointId{ 0 };
     uint64_t nextBlockId { 0 };
     uint64_t currentSlot { 0 };
