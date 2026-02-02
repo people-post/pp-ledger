@@ -66,7 +66,7 @@ public:
   Beacon();
   ~Beacon() override = default;
 
-
+  // ----------------- accessors -------------------------------------
   bool needsCheckpoint() const;
   Roe<bool> shouldAcceptChain(const Validator::BlockChain& candidateChain) const;
 
@@ -77,16 +77,15 @@ public:
   const std::list<Stakeholder>& getStakeholders() const;
   Roe<std::vector<uint64_t>> getCheckpoints() const;
 
-  // Initialization
+  // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
   Roe<void> mount(const MountConfig& config);
 
   void addStakeholder(const Stakeholder& stakeholder);
-  void removeStakeholder(uint64_t stakeholderId);
-  void updateStake(uint64_t stakeholderId, uint64_t newStake);
-
   Roe<void> addBlock(const Ledger::ChainNode& block);
   Roe<void> validateBlock(const Ledger::ChainNode& block) const;
+  void removeStakeholder(uint64_t stakeholderId);
+  void updateStake(uint64_t stakeholderId, uint64_t newStake);
   Roe<void> evaluateCheckpoints();
 
 private:

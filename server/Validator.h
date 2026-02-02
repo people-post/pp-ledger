@@ -85,25 +85,26 @@ public:
     Validator();
     virtual ~Validator() = default;
 
+    // ----------------- accessors -------------------------------------
     bool isChainValid(const BlockChain& chain) const;
+
     uint64_t getNextBlockId() const;
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
 
-    // Block operations (non-virtual, to be used by derived classes)
     Roe<const Ledger::ChainNode&> getBlock(uint64_t blockId) const;
 
-    Roe<void> addBlockBase(const Ledger::ChainNode& block);
-    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
+    // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
     
 protected:
     // Validation helpers
-    Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
-    bool validateBlock(const Ledger::ChainNode& block) const;
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
+
+    Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
+    bool validateBlock(const Ledger::ChainNode& block) const;
 
     // Getters for derived classes
     consensus::Ouroboros& getConsensus() { return consensus_; }
@@ -113,6 +114,8 @@ protected:
     BlockChain& getChainMutable() { return chain_; }
     const BlockChain& getChain() const { return chain_; }
 
+    Roe<void> addBlockBase(const Ledger::ChainNode& block);
+    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
     Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);

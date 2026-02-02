@@ -52,24 +52,26 @@ public:
     Miner();
     ~Miner() override = default;
 
-    // Initialization
-    Roe<void> init(const InitConfig &config);
-
-    // Block production
+    // ----------------- accessors -------------------------------------
     bool isSlotLeader() const;
     bool isSlotLeader(uint64_t slot) const;
     bool isOutOfDate(uint64_t checkpointId) const;
+
     bool shouldProduceBlock() const;
     Roe<bool> needsSync(uint64_t remoteBlockId) const;
+
     uint64_t getStake() const { return getConsensus().getTotalStake(); }
     size_t getPendingTransactionCount() const;
 
-    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
-    Roe<void> addTransaction(const Ledger::Transaction &tx);
-    void clearTransactionPool();
+    // ----------------- methods -------------------------------------
+    Roe<void> init(const InitConfig &config);
 
+    Roe<void> addTransaction(const Ledger::Transaction &tx);
     Roe<void> addBlock(const Ledger::ChainNode& block);
+
+    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
+    void clearTransactionPool();
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
