@@ -113,7 +113,6 @@ protected:
     BlockChain& getChainMutable() { return chain_; }
     const BlockChain& getChain() const { return chain_; }
 
-    Roe<void> syncChain(const BlockChain& chain);
     Roe<void> processCheckpointTransaction(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId);
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId);
