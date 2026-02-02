@@ -142,25 +142,6 @@ Client::Roe<uint64_t> Client::fetchNextBlockId() {
   return response["nextBlockId"].get<uint64_t>();
 }
 
-Client::Roe<uint64_t> Client::fetchCurrentCheckpointId() {
-  log().debug << "Requesting current checkpoint ID";
-
-  json request = {{"type", "checkpoint"}, {"action", "current"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("currentCheckpointId")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'currentCheckpointId' field");
-  }
-
-  return response["currentCheckpointId"].get<uint64_t>();
-}
-
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block, stakeholders)";
 
@@ -240,46 +221,6 @@ Client::fetchStakeholders() {
   }
 
   return stakeholders;
-}
-
-// BeaconServer API - Consensus queries
-
-Client::Roe<uint64_t> Client::fetchCurrentSlot() {
-  log().debug << "Requesting current slot";
-
-  json request = {{"type", "consensus"}, {"action", "currentSlot"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("slot")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'slot' field");
-  }
-
-  return response["slot"].get<uint64_t>();
-}
-
-Client::Roe<uint64_t> Client::fetchCurrentEpoch() {
-  log().debug << "Requesting current epoch";
-
-  json request = {{"type", "consensus"}, {"action", "currentEpoch"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const json &response = result.value();
-
-  if (!response.contains("epoch")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'epoch' field");
-  }
-
-  return response["epoch"].get<uint64_t>();
 }
 
 Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
