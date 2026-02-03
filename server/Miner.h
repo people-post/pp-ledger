@@ -95,6 +95,7 @@ private:
     std::queue<Ledger::Transaction> pendingTransactions_;
     bool initialized_{ false };
     uint64_t lastProducedBlockId_{ 0 };
+    uint64_t lastProducedSlot_{ 0 };  // slot we last produced a block for (at most one per slot)
 };
 
 } // namespace pp

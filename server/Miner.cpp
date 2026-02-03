@@ -92,7 +92,21 @@ bool Miner::shouldProduceBlock() const {
     return false;
   }
 
-  // TODO: Makes sure one slot only produces one block
+  uint64_t currentSlot = getCurrentSlot();
+
+  // Only produce at end of current slot (within last second of slot)
+  int64_t nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  int64_t beaconTime = nowSec + getConsensus().getConfig().timeOffset;
+  int64_t slotEndTime = getConsensus().getSlotEndTime(currentSlot);
+  if (beaconTime < slotEndTime - 1) {
+    return false;  // not yet at end of slot
+  }
+
+  // At most one block per slot
+  if (lastProducedSlot_ == currentSlot) {
+    return false;
+  }
 
   if (getPendingTransactionCount() == 0) {
     return false;
@@ -135,6 +149,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   }
 
   lastProducedBlockId_ = block->block.index;
+  lastProducedSlot_ = currentSlot;
 
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block->block.index;
