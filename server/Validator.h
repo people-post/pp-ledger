@@ -98,8 +98,8 @@ protected:
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
 
+    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
-    bool validateBlock(const Ledger::ChainNode& block) const;
 
     // Getters for derived classes
     consensus::Ouroboros& getConsensus() { return consensus_; }
@@ -107,17 +107,16 @@ protected:
     Ledger& getLedger() { return ledger_; }
     const Ledger& getLedger() const { return ledger_; }
 
-    Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isInitMode);
+    Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
-    Roe<void> validateBlockBase(const Ledger::ChainNode& block) const;
 
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
-    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isInitMode);
-    Roe<void> processTransaction(const Ledger::Transaction& tx, bool isInitMode);
+    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode);
+    Roe<void> processTransaction(const Ledger::Transaction& tx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processUserCheckpoint(const Ledger::Transaction& tx);
-    Roe<void> processNormalTransaction(const Ledger::Transaction& tx);
-    Roe<void> processInitTransaction(const Ledger::Transaction& tx);
+    Roe<void> processTransaction(const Ledger::Transaction& tx);
+    Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
 private:
     // Core components

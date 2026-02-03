@@ -143,13 +143,13 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
 Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
-  auto result = Validator::validateBlockBase(block);
+  auto result = Validator::validateBlock(block);
   if (!result) {
     return Error(13, result.error().message);
   }
   return {};
 }
-
+  
 Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
@@ -209,10 +209,10 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
 }
 
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
-  // Adding block is in init mode if it is before the checkpoint id
-  bool isInitMode = block.block.index < config_.checkpointId;
+  // Adding block is in strict mode if it is at or after the checkpoint id
+  bool isStrictMode = block.block.index >= config_.checkpointId;
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block, isInitMode);
+  auto result = Validator::addBlockBase(block, isStrictMode);
   if (!result) {
     return Error(10, result.error().message);
   }

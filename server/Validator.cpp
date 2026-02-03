@@ -149,15 +149,6 @@ std::string Validator::calculateHash(const Ledger::Block& block) const {
   return utl::sha256(serialized);
 }
 
-bool Validator::validateBlock(const Ledger::ChainNode& block) const {
-  // Verify block's hash
-  if (block.hash != calculateHash(block.block)) {
-    return false;
-  }
-
-  return true;
-}
-
 Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
   // Match Beacon::createGenesisBlock exactly: index 0, previousHash "0", nonce 0, slot 0, slotLeader 0
   if (block.block.index != 0) {
@@ -175,23 +166,41 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (block.block.slotLeader != 0) {
     return Error(8, "Genesis block must have slotLeader 0");
   }
-  // Exactly one checkpoint transaction: T_CHECKPOINT, WID_SYSTEM/WID_SYSTEM, amount 0, signature "genesis"
-  if (block.block.signedTxes.size() != 1) {
-    return Error(8, "Genesis block must have exactly one transaction");
+  // Exactly two transactions: checkpoint transaction and initial token transaction
+  if (block.block.signedTxes.size() != 2) {
+    return Error(8, "Genesis block must have exactly two transactions");
   }
-  const auto& tx = block.block.signedTxes[0];
-  if (tx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
-    return Error(8, "Genesis block must contain checkpoint transaction");
+  
+  // First transaction: checkpoint transaction (WID_GENESIS -> WID_GENESIS, amount 0)
+  const auto& checkpointTx = block.block.signedTxes[0];
+  if (checkpointTx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
+    return Error(8, "First genesis transaction must be checkpoint transaction");
   }
-  if (tx.obj.fromWalletId != WID_GENESIS || tx.obj.toWalletId != WID_TOKEN_RESERVE) {
-    return Error(8, "Genesis checkpoint transaction must use genesis and token reserve wallets");
+  if (checkpointTx.obj.fromWalletId != WID_GENESIS || checkpointTx.obj.toWalletId != WID_GENESIS) {
+    return Error(8, "Genesis checkpoint transaction must use genesis wallet (WID_GENESIS -> WID_GENESIS)");
   }
-  if (tx.obj.amount != INITIAL_TOKEN_SUPPLY) {
-    return Error(8, "Genesis checkpoint transaction must have amount " + std::to_string(INITIAL_TOKEN_SUPPLY));
+  if (checkpointTx.obj.amount != 0) {
+    return Error(8, "Genesis checkpoint transaction must have amount 0");
   }
-  if (tx.signature != "genesis") {
+  if (checkpointTx.signature != "genesis") {
     return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
   }
+  
+  // Second transaction: initial token transaction (WID_GENESIS -> WID_TOKEN_RESERVE, INITIAL_TOKEN_SUPPLY)
+  const auto& initialTx = block.block.signedTxes[1];
+  if (initialTx.obj.type != Ledger::Transaction::T_DEFAULT) {
+    return Error(8, "Second genesis transaction must be default transaction");
+  }
+  if (initialTx.obj.fromWalletId != WID_GENESIS || initialTx.obj.toWalletId != WID_TOKEN_RESERVE) {
+    return Error(8, "Genesis initial transaction must transfer from genesis to token reserve wallet");
+  }
+  if (initialTx.obj.amount != INITIAL_TOKEN_SUPPLY) {
+    return Error(8, "Genesis initial transaction must have amount " + std::to_string(INITIAL_TOKEN_SUPPLY));
+  }
+  if (initialTx.signature != "genesis") {
+    return Error(8, "Genesis initial transaction must have signature \"genesis\"");
+  }
+  
   std::string calculatedHash = calculateHash(block.block);
   if (calculatedHash != block.hash) {
     return Error(10, "Genesis block hash validation failed");
@@ -199,7 +208,7 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   return {};
 }
 
-Validator::Roe<void> Validator::validateBlockBase(const Ledger::ChainNode& block) const {
+Validator::Roe<void> Validator::validateBlock(const Ledger::ChainNode& block) const {
   if (block.block.index == 0) {
     return validateGenesisBlock(block);
   }
@@ -319,7 +328,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   // Process blocks from ledger one by one
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  bool isInitMode = startingBlockId > 0; // True if we are loading from a non-zero starting block
+  bool isStrictMode = startingBlockId == 0; // True if we are loading from the beginning (strict validation)
   while (true) {
     auto blockResult = ledger_.readBlock(blockId);
     if (!blockResult) {
@@ -328,9 +337,14 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
     }
 
     Ledger::ChainNode block = blockResult.value();
+
+    auto validateResult = validateBlock(block);
+    if (!validateResult) {
+      return Error(17, "Block validation failed for block " + std::to_string(blockId) + ": " + validateResult.error().message);
+    }
     
     // Process the block
-    auto processResult = processBlock(block, blockId, isInitMode);
+    auto processResult = processBlock(block, blockId, isStrictMode);
     if (!processResult) {
       return Error(18, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
     }
@@ -347,14 +361,14 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   return blockId;
 }
 
-Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block, bool isInitMode) {
+Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block, bool isStrictMode) {
   // Validate the block first
-  auto validationResult = validateBlockBase(block);
+  auto validationResult = validateBlock(block);
   if (!validationResult) {
     return Error(3, "Block validation failed: " + validationResult.error().message);
   }
 
-  auto processResult = processBlock(block, block.block.index, isInitMode);
+  auto processResult = processBlock(block, block.block.index, isStrictMode);
   if (!processResult) {
     return Error(4, "Failed to process block: " + processResult.error().message);
   }
@@ -370,10 +384,10 @@ Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block, boo
   return {};
 }
 
-Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isInitMode) {
+Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode) {
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    auto result = processTransaction(signedTx.obj, isInitMode);
+    auto result = processTransaction(signedTx.obj, isStrictMode);
     if (!result) {
       return Error(18, "Failed to process transaction: " + result.error().message);
     }
@@ -382,14 +396,14 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uin
   return {};
 }
 
-Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, bool isInitMode) {
+Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, bool isStrictMode) {
   switch (tx.type) {
     case Ledger::Transaction::T_CHECKPOINT:
       return processSystemCheckpoint(tx);
     case Ledger::Transaction::T_USER:
       return processUserCheckpoint(tx);
     case Ledger::Transaction::T_DEFAULT:
-      return isInitMode ? processInitTransaction(tx) : processNormalTransaction(tx);
+      return isStrictMode ? processTransaction(tx) : looseProcessTransaction(tx);
     default:
       return Error(18, "Unknown transaction type: " + std::to_string(tx.type));
   }
@@ -450,7 +464,7 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   return {};
 }
 
-Validator::Roe<void> Validator::processNormalTransaction(const Ledger::Transaction& tx) {
+Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx) {
   // tx.fromWalletId and tx.toWalletId correspond to bank_.Account.id
   if (tx.amount < 0) {
     return Error(19, "Transfer amount must be non-negative");
@@ -485,11 +499,11 @@ Validator::Roe<void> Validator::processNormalTransaction(const Ledger::Transacti
   return {};
 }
 
-Validator::Roe<void> Validator::processInitTransaction(const Ledger::Transaction& tx) {
-  log().info << "Processing init transaction";
+Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transaction& tx) {
+  log().info << "Loosely processing transaction";
 
   if (tx.amount < 0) {
-    return Error(23, "Init transaction must have amount >= 0");
+    return Error(23, "Transaction must have amount >= 0");
   }
 
   if (bank_.has(tx.fromWalletId)) {

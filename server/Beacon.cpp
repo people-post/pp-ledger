@@ -140,7 +140,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 
 Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
-  auto result = Validator::validateBlockBase(block);
+  auto result = Validator::validateBlock(block);
   if (!result) {
     return Error(7, result.error().message);
   }
@@ -149,7 +149,7 @@ Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block, false);
+  auto result = Validator::addBlockBase(block, true);
   if (!result) {
     return Error(4, result.error().message);
   }
@@ -250,6 +250,10 @@ Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
 }
 
 Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) const {
+  // Roles of genesis block:
+  // 1. Mark initial checkpoint with blockchain parameters
+  // 2. Create native token genesis wallet with zero balance
+  // 3. Create first native token wallet that has stake to bootstrap consensus
   log().info << "Creating genesis block";
 
   SystemCheckpoint systemCheckpoint;
@@ -267,22 +271,29 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
-  // TODO: User two transactions or two blocks?
-
   // Create checkpoint transaction with SystemCheckpoint
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
   checkpointTx.fromWalletId = WID_GENESIS;     // genesis wallet ID
-  checkpointTx.toWalletId = WID_TOKEN_RESERVE; // token reserve wallet ID
-  checkpointTx.amount = INITIAL_TOKEN_SUPPLY;
-  
+  checkpointTx.toWalletId = WID_GENESIS;       // genesis wallet ID
+  checkpointTx.amount = 0;
   // Serialize SystemCheckpoint to transaction metadata
   checkpointTx.meta = systemCheckpoint.ltsToString();
 
+  // Create initial transaction to create native token reserve wallet
+  Ledger::Transaction initialTx;
+  initialTx.type = Ledger::Transaction::T_DEFAULT;
+  initialTx.fromWalletId = WID_GENESIS;        // genesis wallet ID
+  initialTx.toWalletId = WID_TOKEN_RESERVE; // token reserve wallet ID
+  initialTx.amount = INITIAL_TOKEN_SUPPLY;
+  
   // Add signed transaction (no signature for genesis)
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj = checkpointTx;
   signedTx.signature = "genesis";
+  genesisBlock.block.signedTxes.push_back(signedTx);
+
+  signedTx.obj = initialTx;
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   // Calculate hash for genesis block
