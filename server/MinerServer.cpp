@@ -456,7 +456,7 @@ MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const nlohmann::j
   resp["currentSlot"] = miner_.getCurrentSlot();
   resp["currentEpoch"] = miner_.getCurrentEpoch();
   resp["pendingTransactions"] = miner_.getPendingTransactionCount();
-  resp["isSlotLeader"] = miner_.shouldProduceBlock();
+  resp["isSlotLeader"] = miner_.isSlotLeader();
   
   return resp.dump();
 }
@@ -508,7 +508,10 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  auto stateResult = client.fetchBeaconState();
+  network::TcpEndpoint endpoint;
+  endpoint.address = fetchServer_.getHost();
+  endpoint.port = fetchServer_.getPort();
+  auto stateResult = client.registerMinerServer(endpoint);
   if (!stateResult) {
     return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
   }
@@ -524,6 +527,7 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   uint64_t totalStake = 0;
   for (const auto& sh : state.stakeholders) {
     log().info << "  Stakeholder: " << sh.id << " with stake " << sh.stake;
+    miner_.registerStakeholder(sh.id, sh.stake);
     totalStake += sh.stake;
   }
   log().info << "Total stake in network: " << totalStake;

@@ -84,7 +84,21 @@ bool Miner::isSlotLeader() const {
 }
 
 bool Miner::shouldProduceBlock() const {
-  return isSlotLeader() && getPendingTransactionCount() > 0;
+  if (!initialized_) {
+    return false;
+  }
+
+  if (!isSlotLeader()) {
+    return false;
+  }
+
+  // TODO: Makes sure one slot only produces one block
+
+  if (getPendingTransactionCount() == 0) {
+    return false;
+  }
+
+  return true;
 }
 
 Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
@@ -128,6 +142,8 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   log().info << "  Transactions: " << pendingTransactions_.size();
   log().info << "  Hash: " << block->hash;
 
+  clearTransactionPool();
+
   return block;
 }
 
@@ -136,12 +152,20 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
   if (!result) {
     return Error(9, result.error().message);
   }
+
+  pendingTransactions_.push(tx);
   
   return {};
 }
 
 size_t Miner::getPendingTransactionCount() const {
   return pendingTransactions_.size();
+}
+
+Miner::Roe<void> Miner::registerStakeholder(uint64_t stakeholderId, uint64_t stake) {
+  // TODO: Verify stake is valid
+  getConsensus().registerStakeholder(stakeholderId, stake);
+  return {};
 }
 
 void Miner::clearTransactionPool() {

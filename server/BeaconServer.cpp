@@ -325,6 +325,8 @@ std::string BeaconServer::handleRequest(const std::string &request) {
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
+  log().debug << "Handling request: " << request.type;
+
   switch (request.type) {
   case Client::T_REQ_BLOCK_GET:
     return handleBlockGetRequest(request);
@@ -401,8 +403,6 @@ BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const nlohmann::j
 }
 
 void BeaconServer::registerServer(const std::string &serverAddress) {
-  std::lock_guard<std::mutex> lock(serversMutex_);
-
   // Get current timestamp
   int64_t now = std::chrono::system_clock::now()
                     .time_since_epoch()
@@ -410,12 +410,15 @@ void BeaconServer::registerServer(const std::string &serverAddress) {
 
   // Update or add server
   activeServers_[serverAddress] = now;
+  Beacon::Stakeholder sh;
+  sh.endpoint = network::TcpEndpoint::fromString(serverAddress);
+  sh.id = 0; // TODO: Use stakeholder id
+  sh.stake = 10000; // TODO: Use stake
+  beacon_.addStakeholder(sh);
   log().debug << "Updated server record: " << serverAddress;
 }
 
 std::vector<std::string> BeaconServer::getActiveServers() const {
-  std::lock_guard<std::mutex> lock(serversMutex_);
-
   std::vector<std::string> servers;
   for (const auto &pair : activeServers_) {
     servers.push_back(pair.first);
@@ -424,7 +427,6 @@ std::vector<std::string> BeaconServer::getActiveServers() const {
 }
 
 size_t BeaconServer::getActiveServerCount() const {
-  std::lock_guard<std::mutex> lock(serversMutex_);
   return activeServers_.size();
 }
 
@@ -451,9 +453,8 @@ BeaconServer::Roe<std::string> BeaconServer::handleRegisterRequest(const nlohman
   }
   std::string serverAddress = reqJson["address"].get<std::string>();
   registerServer(serverAddress);
-  nlohmann::json resp;
-  resp["message"] = "Server registered";
-  return resp.dump();
+
+  return buildStateResponse().dump();
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleHeartbeatRequest(const nlohmann::json& reqJson) {
@@ -634,30 +635,34 @@ BeaconServer::Roe<std::string> BeaconServer::handleStateRequest(const nlohmann::
 
   nlohmann::json resp;
   if (action == "current") {
-    int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
-
-    resp["lastCheckpointId"] = beacon_.getLastCheckpointId();
-    resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
-    resp["nextBlockId"] = beacon_.getNextBlockId();
-    resp["currentSlot"] = beacon_.getCurrentSlot();
-    resp["currentEpoch"] = beacon_.getCurrentEpoch();
-    resp["currentTimestamp"] = currentTimestamp;
-    resp["stakeholders"] = nlohmann::json::array();
-
-    for (const auto& sh : beacon_.getStakeholders()) {
-      nlohmann::json shJson;
-      shJson["id"] = sh.id;
-      shJson["address"] = sh.endpoint.address;
-      shJson["port"] = sh.endpoint.port;
-      shJson["stake"] = sh.stake;
-      resp["stakeholders"].push_back(shJson);
-    }
+    resp = buildStateResponse();
   } else {
     return Error(E_REQUEST, "Unknown state action: " + action);
   }
 
   return resp.dump();
+}
+
+nlohmann::json BeaconServer::buildStateResponse() const {
+  int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+
+  nlohmann::json resp = {{"lastCheckpointId", beacon_.getLastCheckpointId()},
+          {"currentCheckpointId", beacon_.getCurrentCheckpointId()},
+          {"nextBlockId", beacon_.getNextBlockId()},
+          {"currentSlot", beacon_.getCurrentSlot()},
+          {"currentEpoch", beacon_.getCurrentEpoch()},
+          {"currentTimestamp", currentTimestamp},
+          {"stakeholders", nlohmann::json::array()}};
+  for (const auto& sh : beacon_.getStakeholders()) {
+    nlohmann::json shJson;
+    shJson["id"] = sh.id;
+    shJson["address"] = sh.endpoint.address;
+    shJson["port"] = sh.endpoint.port;
+    shJson["stake"] = sh.stake;
+    resp["stakeholders"].push_back(shJson);
+  }
+  return resp;
 }
 
 std::string BeaconServer::binaryResponseOk(const std::string& payload) const {

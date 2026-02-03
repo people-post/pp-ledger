@@ -124,6 +124,7 @@ private:
   void processQueuedRequest(QueuedRequest& qr);
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
+  nlohmann::json buildStateResponse() const;
 
   std::string handleRequest(const std::string &request);
   Roe<std::string> handleRequest(const Client::Request &request);
@@ -154,7 +155,6 @@ private:
   ThreadSafeQueue<QueuedRequest> requestQueue_;
 
   // Track active servers (host:port -> last seen timestamp)
-  mutable std::mutex serversMutex_;
   std::map<std::string, int64_t> activeServers_;
   
   // List of other beacon server addresses from config

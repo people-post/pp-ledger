@@ -8,8 +8,6 @@
 
 namespace pp {
 
-using json = nlohmann::json;
-
 Client::Client() {}
 
 Client::~Client() {}
@@ -44,7 +42,7 @@ void Client::setEndpoint(const network::TcpEndpoint &endpoint) {
   endpoint_ = endpoint;
 }
 
-Client::Roe<json> Client::sendRequest(const json &request) {
+Client::Roe<nlohmann::json> Client::sendRequest(const nlohmann::json &request) {
   if (endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
@@ -85,10 +83,10 @@ Client::Roe<json> Client::sendRequest(const json &request) {
 
   log().debug << "Response payload: " << resp.payload.size() << " bytes";
 
-  json response;
+  nlohmann::json response;
   try {
-    response = json::parse(resp.payload);
-  } catch (const json::exception &e) {
+    response = nlohmann::json::parse(resp.payload);
+  } catch (const nlohmann::json::exception &e) {
     log().error << "Failed to parse response payload: " << e.what();
     return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + e.what());
   }
@@ -148,17 +146,45 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
+Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpEndpoint &endpoint) {
+  log().debug << "Registering miner server: " << endpoint;
+
+  nlohmann::json request = {{"type", "register"}, {"address", endpoint.toString()}};
+  auto result = sendRequest(request);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  const nlohmann::json &response = result.value();
+  BeaconState state;
+  state.lastCheckpointId = response["lastCheckpointId"].get<uint64_t>();
+  state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
+  state.nextBlockId = response["nextBlockId"].get<uint64_t>();
+  state.currentSlot = response["currentSlot"].get<uint64_t>();
+  state.currentEpoch = response["currentEpoch"].get<uint64_t>();
+  state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
+  state.stakeholders.clear();
+  for (const auto &item : response["stakeholders"]) {
+    consensus::Stakeholder info;
+    info.id = item.value("id", 0);
+    info.stake = item.value("stake", 0);
+    state.stakeholders.push_back(info);
+  }
+
+  return state;
+}
+
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block, stakeholders)";
 
-  json request = {{"type", "state"}, {"action", "current"}};
+  nlohmann::json request = {{"type", "state"}, {"action", "current"}};
 
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
+  const nlohmann::json &response = result.value();
 
   if (!response.contains("currentCheckpointId") || !response.contains("nextBlockId") ||
       !response.contains("currentSlot") || !response.contains("currentEpoch") ||
@@ -206,20 +232,18 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   return true;
 }
 
-// BeaconServer API - Stakeholder operations
-
 Client::Roe<std::vector<consensus::Stakeholder>>
 Client::fetchStakeholders() {
   log().debug << "Requesting stakeholder list";
 
-  json request = {{"type", "stakeholder"}, {"action", "list"}};
+  nlohmann::json request = {{"type", "stakeholder"}, {"action", "list"}};
 
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
+  const nlohmann::json &response = result.value();
 
   if (!response.contains("stakeholders")) {
     return Error(E_INVALID_RESPONSE, "Response missing 'stakeholders' field");
@@ -239,14 +263,14 @@ Client::fetchStakeholders() {
 Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
   log().debug << "Requesting slot leader for slot " << slot;
 
-  json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
+  nlohmann::json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
 
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
+  const nlohmann::json &response = result.value();
 
   if (!response.contains("slotLeader")) {
     return Error(E_INVALID_RESPONSE, "Response missing 'slotLeader' field");
@@ -282,14 +306,14 @@ Client::Roe<void> Client::addTransaction(const Ledger::Transaction &transaction)
 Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   log().debug << "Requesting miner status";
 
-  json request = {{"type", "status"}};
+  nlohmann::json request = {{"type", "status"}};
 
   auto result = sendRequest(request);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const json &response = result.value();
+  const nlohmann::json &response = result.value();
 
   MinerStatus status;
   status.minerId = response.value("minerId", 0);

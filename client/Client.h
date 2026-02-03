@@ -110,6 +110,7 @@ public:
   Roe<uint64_t> fetchSlotLeader(uint64_t slot);
 
   Roe<BeaconState> fetchBeaconState();
+  Roe<BeaconState> registerMinerServer(const network::TcpEndpoint &endpoint);
   Roe<MinerStatus> fetchMinerStatus();
   Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);

@@ -11,6 +11,10 @@ struct TcpEndpoint {
   std::string address;
   uint16_t port{0};
 
+  std::string toString() const {
+    return address + ":" + std::to_string(port);
+  }
+
   static TcpEndpoint fromString(const std::string &endpointStr) {
     TcpEndpoint endpoint;
     size_t colonPos = endpointStr.find(':');
