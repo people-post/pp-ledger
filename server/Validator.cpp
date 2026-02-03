@@ -183,11 +183,11 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (tx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
     return Error(8, "Genesis block must contain checkpoint transaction");
   }
-  if (tx.obj.fromWalletId != WID_SYSTEM || tx.obj.toWalletId != WID_SYSTEM) {
-    return Error(8, "Genesis checkpoint transaction must use system wallet");
+  if (tx.obj.fromWalletId != WID_GENESIS || tx.obj.toWalletId != WID_TOKEN_RESERVE) {
+    return Error(8, "Genesis checkpoint transaction must use genesis and token reserve wallets");
   }
-  if (tx.obj.amount != 0) {
-    return Error(8, "Genesis checkpoint transaction must have amount 0");
+  if (tx.obj.amount != INITIAL_TOKEN_SUPPLY) {
+    return Error(8, "Genesis checkpoint transaction must have amount " + std::to_string(INITIAL_TOKEN_SUPPLY));
   }
   if (tx.signature != "genesis") {
     return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
@@ -295,7 +295,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
       AccountBuffer::Account newAccount;
       newAccount.id = tx.toWalletId;
       newAccount.balance = 0;
-      newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_SYSTEM);
+      newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
       newAccount.publicKey = "";
       auto addResult = bufferBank.add(newAccount);
       if (!addResult) {
@@ -419,8 +419,9 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   config.slotsPerEpoch = checkpoint.config.slotsPerEpoch;
   consensus_.init(config);
 
+  // TODO: Handle both genesis and token reserve accounts
   AccountBuffer::Account account;
-  account.id = WID_SYSTEM;
+  account.id = WID_GENESIS;
   account.balance = checkpoint.genesis.balance;
   account.isNegativeBalanceAllowed = true;
   account.publicKey = checkpoint.genesis.publicKey;
@@ -468,7 +469,7 @@ Validator::Roe<void> Validator::processNormalTransaction(const Ledger::Transacti
     AccountBuffer::Account newAccount;
     newAccount.id = tx.toWalletId;
     newAccount.balance = 0;
-    newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_SYSTEM);
+    newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
     newAccount.publicKey = "";
     auto addResult = bank_.add(newAccount);
     if (!addResult) {

@@ -267,12 +267,14 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
+  // TODO: User two transactions or two blocks?
+
   // Create checkpoint transaction with SystemCheckpoint
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.fromWalletId = WID_SYSTEM; // system wallet ID
-  checkpointTx.toWalletId = WID_SYSTEM;   // system wallet ID
-  checkpointTx.amount = 0;
+  checkpointTx.fromWalletId = WID_GENESIS;     // genesis wallet ID
+  checkpointTx.toWalletId = WID_TOKEN_RESERVE; // token reserve wallet ID
+  checkpointTx.amount = INITIAL_TOKEN_SUPPLY;
   
   // Serialize SystemCheckpoint to transaction metadata
   checkpointTx.meta = systemCheckpoint.ltsToString();

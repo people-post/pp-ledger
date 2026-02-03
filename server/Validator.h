@@ -25,8 +25,12 @@ namespace pp {
  */
 class Validator : public Module {
 public:
-    constexpr static uint64_t WID_SYSTEM = 0;
+    constexpr static uint64_t WID_GENESIS = 0;
+    constexpr static uint64_t WID_TOKEN_RESERVE = 1;
+
     constexpr static uint64_t WID_FIRST_USER = 1 << 20;
+
+    constexpr static uint64_t INITIAL_TOKEN_SUPPLY = 1ULL << 30; // 1 billion tokens
 
     // BlockChainConfig - Configuration for the block chain
     // This is used to restore the block chain from a checkpoint transaction
