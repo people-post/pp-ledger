@@ -24,30 +24,37 @@ public:
     bool isNegativeBalanceAllowed{ false };
     uint64_t id{ 0 };
     std::vector<std::string> publicKeys;
-    int64_t balance{ 0 };
+    std::map<uint64_t, int64_t> balances; // tokenId -> balance (WID_GENESIS = native token)
   };
 
   AccountBuffer();
   ~AccountBuffer() = default;
 
   bool has(uint64_t id) const;
-  Roe<const Account&> get(uint64_t id);
+  Roe<const Account&> get(uint64_t id) const;
+  uint64_t getTokenId() const;
 
   Roe<void> add(const Account& account);
 
   Roe<void> update(const AccountBuffer& other);
 
-  Roe<void> depositBalance(uint64_t id, int64_t amount);
-  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, int64_t amount);
-  Roe<void> withdrawBalance(uint64_t id, int64_t amount);
+  // Token-specific balance operations (tokenId: WID_GENESIS = native token, custom tokens use their genesis wallet IDs)
+  Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
+  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount);
+  Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
+  
+  // Helper to get balance for specific token (returns 0 if not found)
+  int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
 
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);
 
   void clear();
+  void reset(uint64_t tokenId);
 
 private:
   std::map<uint64_t, Account> mAccounts_;
+  uint64_t tokenId_{ 0 };
 };
 
 } // namespace pp

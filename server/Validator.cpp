@@ -29,6 +29,28 @@ bool Validator::SystemCheckpoint::ltsFromString(const std::string& str) {
   return true;
 }
 
+std::string Validator::AccountInfo::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Validator::AccountInfo::ltsFromString(const std::string& str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  if (ar.failed()) {
+    return false;
+  }
+  return true;
+}
+
 Validator::Validator() {
   redirectLogger("Validator");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
@@ -186,12 +208,12 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
     return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
   }
   
-  // Second transaction: initial token transaction (WID_GENESIS -> WID_TOKEN_RESERVE, INITIAL_TOKEN_SUPPLY)
+  // Second transaction: initial token transaction (WID_GENESIS -> WID_RESERVE, INITIAL_TOKEN_SUPPLY)
   const auto& initialTx = block.block.signedTxes[1];
   if (initialTx.obj.type != Ledger::Transaction::T_DEFAULT) {
     return Error(8, "Second genesis transaction must be default transaction");
   }
-  if (initialTx.obj.fromWalletId != WID_GENESIS || initialTx.obj.toWalletId != WID_TOKEN_RESERVE) {
+  if (initialTx.obj.fromWalletId != WID_GENESIS || initialTx.obj.toWalletId != WID_RESERVE) {
     return Error(8, "Genesis initial transaction must transfer from genesis to token reserve wallet");
   }
   if (initialTx.obj.amount != INITIAL_TOKEN_SUPPLY) {
@@ -263,6 +285,11 @@ Validator::Roe<void> Validator::validateBlock(const Ledger::ChainNode& block) co
 }
 
 Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) {
+  // Filter: Only process transactions matching the buffer's token ID
+  if (tx.tokenId != bufferBank.getTokenId()) {
+    return {}; // Skip transactions for other tokens
+  }
+  
   // All transactions happen in bufferBank; initial balances come from bank_
   if (tx.amount < 0) {
     return Error(19, "Transfer amount must be non-negative");
@@ -303,7 +330,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
     } else {
       AccountBuffer::Account newAccount;
       newAccount.id = tx.toWalletId;
-      newAccount.balance = 0;
+      newAccount.balances[tx.tokenId] = 0;
       newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
       newAccount.publicKeys = {};
       auto addResult = bufferBank.add(newAccount);
@@ -314,7 +341,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
     }
   }
 
-  auto transferResult = bufferBank.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+  auto transferResult = bufferBank.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
   if (!transferResult) {
     if (toWalletIdNewlyCreated) {
       bufferBank.remove(tx.toWalletId);
@@ -433,10 +460,9 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   config.slotsPerEpoch = checkpoint.config.slotsPerEpoch;
   consensus_.init(config);
 
-  // TODO: Handle both genesis and token reserve accounts
   AccountBuffer::Account account;
   account.id = WID_GENESIS;
-  account.balance = checkpoint.genesis.balance;
+  account.balances = checkpoint.genesis.mBalances; // Use the full balances map
   account.isNegativeBalanceAllowed = true;
   account.publicKeys = checkpoint.genesis.publicKeys;
   auto addResult = bank_.add(account);
@@ -446,21 +472,37 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 
   log().info << "Restored SystemCheckpoint";
   log().info << "  Version: " << checkpoint.VERSION;
-  log().info << "  Genesis time: " << checkpoint.config.genesisTime;
-  log().info << "  Slot duration: " << checkpoint.config.slotDuration;
-  log().info << "  Slots per epoch: " << checkpoint.config.slotsPerEpoch;
-  log().info << "  Max pending transactions: " << checkpoint.config.maxPendingTransactions;
-  log().info << "  Max transactions per block: " << checkpoint.config.maxTransactionsPerBlock;
-  log().info << "  Genesis balance: " << checkpoint.genesis.balance;
-  log().info << "  Genesis public keys: " << utl::join(checkpoint.genesis.publicKeys, ", ");
-  log().info << "  Genesis meta: " << checkpoint.genesis.meta;
+  log().info << "  Config: " << checkpoint.config;
+  log().info << "  Genesis: " << checkpoint.genesis;
 
   return {};
 }
 
 Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx) {
   log().info << "Processing user checkpoint transaction";
-  // TODO: Implement user checkpoint processing
+  
+  // Deserialize AccountInfo from transaction metadata
+  AccountInfo accountInfo;
+  if (!accountInfo.ltsFromString(tx.meta)) {
+    return Error(27, "Failed to deserialize user checkpoint: " + tx.meta);
+  }
+  
+  // Populate bank with user balance using toWalletId from transaction
+  AccountBuffer::Account account;
+  account.id = tx.toWalletId;
+  account.balances = accountInfo.mBalances; // Use the full balances map
+  account.isNegativeBalanceAllowed = false; // user accounts cannot have negative balance
+  account.publicKeys = accountInfo.publicKeys;
+  
+  auto addResult = bank_.add(account);
+  if (!addResult) {
+    return Error(28, "Failed to add user account to buffer: " + addResult.error().message);
+  }
+  
+  log().info << "Restored user checkpoint for wallet " << tx.toWalletId;
+  log().info << "  Balances: " << accountInfo.mBalances.size() << " tokens";
+  log().info << "  Public Keys: " << accountInfo.publicKeys.size();
+  
   return {};
 }
 
@@ -482,7 +524,7 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
   if (!bank_.has(tx.toWalletId)) {
     AccountBuffer::Account newAccount;
     newAccount.id = tx.toWalletId;
-    newAccount.balance = 0;
+    newAccount.balances[tx.tokenId] = 0;
     newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
     newAccount.publicKeys = {};
     auto addResult = bank_.add(newAccount);
@@ -492,7 +534,7 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
   }
 
   // fromWalletId must have sufficient balance (account 0 has isNegativeBalanceAllowed so can go negative)
-  auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+  auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
   if (!transferResult) {
     return Error(22, "Transfer failed: " + transferResult.error().message);
   }
@@ -508,13 +550,13 @@ Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transactio
 
   if (bank_.has(tx.fromWalletId)) {
     if (bank_.has(tx.toWalletId)) {
-      auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.amount);
+      auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
       if (!transferResult) {
         return Error(24, "Failed to transfer balance: " + transferResult.error().message);
       }
     } else {
       // To unknown wallet
-      auto withdrawResult = bank_.withdrawBalance(tx.fromWalletId, tx.amount);
+      auto withdrawResult = bank_.withdrawBalance(tx.fromWalletId, tx.tokenId, tx.amount);
       if (!withdrawResult) {
         return Error(25, "Failed to withdraw balance: " + withdrawResult.error().message);
       }
@@ -522,7 +564,7 @@ Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transactio
   } else {
     // From unknown wallet
     if (bank_.has(tx.toWalletId)) {
-      auto depositResult = bank_.depositBalance(tx.toWalletId, tx.amount);
+      auto depositResult = bank_.depositBalance(tx.toWalletId, tx.tokenId, tx.amount);
       if (!depositResult) {
         return Error(26, "Failed to deposit balance: " + depositResult.error().message);
       }

@@ -4,6 +4,7 @@
         "nproc": true,
         "ctest": true,
         "/workspaces/pp-ledger/build/app/pp-beacon": true,
-        "cmake": true
+        "cmake": true,
+        "./server/test/test_account_buffer": true
     }
 }

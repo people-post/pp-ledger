@@ -9,12 +9,28 @@ bool AccountBuffer::has(uint64_t id) const {
   return mAccounts_.find(id) != mAccounts_.end();
 }
 
-AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::get(uint64_t id) {
+uint64_t AccountBuffer::getTokenId() const {
+  return tokenId_;
+}
+
+AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::get(uint64_t id) const {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
     return Error(1, "Account not found");
   }
   return it->second;
+}
+
+int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
+  auto it = mAccounts_.find(accountId);
+  if (it == mAccounts_.end()) {
+    return 0;
+  }
+  auto balanceIt = it->second.balances.find(tokenId);
+  if (balanceIt == it->second.balances.end()) {
+    return 0;
+  }
+  return balanceIt->second;
 }
 
 AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
@@ -35,42 +51,56 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t id, int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(10, "Deposit amount must be non-negative");
   }
 
-  auto it = mAccounts_.find(id);
+  auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
     return Error(9, "Account not found");
   }
-  if (it->second.balance > INT64_MAX - amount) {
+  
+  int64_t currentBalance = 0;
+  auto balanceIt = it->second.balances.find(tokenId);
+  if (balanceIt != it->second.balances.end()) {
+    currentBalance = balanceIt->second;
+  }
+  
+  if (currentBalance > INT64_MAX - amount) {
     return Error(11, "Deposit would cause balance overflow");
   }
-  it->second.balance += amount;
+  it->second.balances[tokenId] = currentBalance + amount;
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t id, int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(11, "Withdraw amount must be non-negative");
   }
 
-  auto it = mAccounts_.find(id);
+  auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
     return Error(12, "Account not found");
   }
-  if (!it->second.isNegativeBalanceAllowed && it->second.balance < amount) {
+  
+  int64_t currentBalance = 0;
+  auto balanceIt = it->second.balances.find(tokenId);
+  if (balanceIt != it->second.balances.end()) {
+    currentBalance = balanceIt->second;
+  }
+  
+  if (!it->second.isNegativeBalanceAllowed && currentBalance < amount) {
     return Error(13, "Insufficient balance");
   }
-  if (it->second.balance > INT64_MAX - amount) {
-    return Error(14, "Withdraw would cause balance overflow");
+  if (currentBalance < INT64_MIN + amount) {
+    return Error(14, "Withdraw would cause balance underflow");
   }
-  it->second.balance -= amount;
+  it->second.balances[tokenId] = currentBalance - amount;
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(3, "Transfer amount must be non-negative");
   }
@@ -85,19 +115,31 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
     return Error(5, "Destination account not found");
   }
 
+  int64_t fromBalance = 0;
+  auto fromBalanceIt = fromIt->second.balances.find(tokenId);
+  if (fromBalanceIt != fromIt->second.balances.end()) {
+    fromBalance = fromBalanceIt->second;
+  }
+  
+  int64_t toBalance = 0;
+  auto toBalanceIt = toIt->second.balances.find(tokenId);
+  if (toBalanceIt != toIt->second.balances.end()) {
+    toBalance = toBalanceIt->second;
+  }
+
   // Check if source account has sufficient balance (unless negative balance is allowed)
-  if (!fromIt->second.isNegativeBalanceAllowed && fromIt->second.balance < amount) {
+  if (!fromIt->second.isNegativeBalanceAllowed && fromBalance < amount) {
     return Error(6, "Insufficient balance");
   }
 
   // Check for overflow in destination account
-  if (toIt->second.balance > INT64_MAX - amount) {
+  if (toBalance > INT64_MAX - amount) {
     return Error(7, "Transfer would cause balance overflow");
   }
 
   // Perform the transfer
-  fromIt->second.balance -= amount;
-  toIt->second.balance += amount;
+  fromIt->second.balances[tokenId] = fromBalance - amount;
+  toIt->second.balances[tokenId] = toBalance + amount;
 
   return {};
 }
@@ -108,6 +150,11 @@ void AccountBuffer::remove(uint64_t id) {
 
 void AccountBuffer::clear() {
   mAccounts_.clear();
+}
+
+void AccountBuffer::reset(uint64_t tokenId) {
+  clear();
+  tokenId_ = tokenId;
 }
 
 } // namespace pp

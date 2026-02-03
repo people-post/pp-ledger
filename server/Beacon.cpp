@@ -258,7 +258,7 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
 
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
-  systemCheckpoint.genesis.balance = 0;
+  systemCheckpoint.genesis.mBalances[WID_GENESIS] = 0; // Native token (ID WID_GENESIS) with zero balance
   systemCheckpoint.genesis.publicKeys = {};
   systemCheckpoint.genesis.meta = "";
 
@@ -274,6 +274,7 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Create checkpoint transaction with SystemCheckpoint
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
+  checkpointTx.tokenId = WID_GENESIS; // Native token
   checkpointTx.fromWalletId = WID_GENESIS;     // genesis wallet ID
   checkpointTx.toWalletId = WID_GENESIS;       // genesis wallet ID
   checkpointTx.amount = 0;
@@ -283,8 +284,9 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Create initial transaction to create native token reserve wallet
   Ledger::Transaction initialTx;
   initialTx.type = Ledger::Transaction::T_DEFAULT;
-  initialTx.fromWalletId = WID_GENESIS;        // genesis wallet ID
-  initialTx.toWalletId = WID_TOKEN_RESERVE; // token reserve wallet ID
+  initialTx.tokenId = WID_GENESIS; // Native token
+  initialTx.fromWalletId = WID_GENESIS;    // genesis wallet ID
+  initialTx.toWalletId = WID_RESERVE;      // token reserve wallet ID
   initialTx.amount = INITIAL_TOKEN_SUPPLY;
   
   // Add signed transaction (no signature for genesis)

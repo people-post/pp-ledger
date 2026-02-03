@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <ostream>
 
 namespace pp {
 
@@ -26,7 +27,8 @@ namespace pp {
 class Validator : public Module {
 public:
     constexpr static uint64_t WID_GENESIS = 0;
-    constexpr static uint64_t WID_TOKEN_RESERVE = 1;
+    constexpr static uint64_t WID_RESERVE = 1;
+    constexpr static uint64_t WID_FEE = 2;
 
     constexpr static uint64_t WID_FIRST_USER = 1 << 20;
 
@@ -40,20 +42,26 @@ public:
       uint64_t slotsPerEpoch{ 0 };
       uint64_t maxPendingTransactions{ 0 };
       uint64_t maxTransactionsPerBlock{ 0 };
+      uint64_t minFeePerTransaction{ 0 };
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock;
+        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock & minFeePerTransaction;
       }
     };
 
     struct AccountInfo {
-      int64_t balance{ 0 };
+      constexpr static const uint32_t VERSION = 1;
+
+      std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
       std::vector<std::string> publicKeys;
       std::string meta;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & balance & publicKeys & meta;
+        ar & mBalances & publicKeys & meta;
       }
+
+      std::string ltsToString() const;
+      bool ltsFromString(const std::string& str);
     };
 
     struct SystemCheckpoint {
@@ -124,6 +132,25 @@ private:
     Ledger ledger_;
     AccountBuffer bank_;
 };
+
+inline std::ostream& operator<<(std::ostream& os, const Validator::AccountInfo& info) {
+  os << "AccountInfo{balances: {";
+  bool first = true;
+  for (const auto& [tokenId, balance] : info.mBalances) {
+    if (!first) os << ", ";
+    os << tokenId << ": " << balance;
+    first = false;
+  }
+  os << "}, publicKeys: [";
+  first = true;
+  for (const auto& key : info.publicKeys) {
+    if (!first) os << ", ";
+    os << "\"" << key << "\"";
+    first = false;
+  }
+  os << "], meta: \"" << info.meta << "\"}";
+  return os;
+}
 
 inline std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
   os << "BlockChainConfig{genesisTime=" << config.genesisTime << ", "
