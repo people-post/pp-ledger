@@ -17,6 +17,182 @@ BeaconServer::BeaconServer() {
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
 
+// ============ InitFileConfig methods ============
+
+nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
+  nlohmann::json j;
+  j["slotDuration"] = slotDuration;
+  j["slotsPerEpoch"] = slotsPerEpoch;
+  j["maxPendingTransactions"] = maxPendingTransactions;
+  j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
+  return j;
+}
+
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json& jd) {
+  try {
+    // Validate JSON is an object
+    if (!jd.is_object()) {
+      return Error(E_CONFIG, "Configuration must be a JSON object");
+    }
+
+    // Load and validate slotDuration
+    if (jd.contains("slotDuration")) {
+      if (!jd["slotDuration"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'slotDuration' must be a positive number");
+      }
+      slotDuration = jd["slotDuration"].get<uint64_t>();
+      if (slotDuration == 0) {
+        return Error(E_CONFIG, "Field 'slotDuration' must be greater than 0");
+      }
+    } else {
+      slotDuration = DEFAULT_SLOT_DURATION;
+    }
+
+    // Load and validate slotsPerEpoch
+    if (jd.contains("slotsPerEpoch")) {
+      if (!jd["slotsPerEpoch"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'slotsPerEpoch' must be a positive number");
+      }
+      slotsPerEpoch = jd["slotsPerEpoch"].get<uint64_t>();
+      if (slotsPerEpoch == 0) {
+        return Error(E_CONFIG, "Field 'slotsPerEpoch' must be greater than 0");
+      }
+    } else {
+      slotsPerEpoch = DEFAULT_SLOTS_PER_EPOCH;
+    }
+
+    // Load and validate maxPendingTransactions
+    if (jd.contains("maxPendingTransactions")) {
+      if (!jd["maxPendingTransactions"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'maxPendingTransactions' must be a positive number");
+      }
+      maxPendingTransactions = jd["maxPendingTransactions"].get<uint64_t>();
+      if (maxPendingTransactions == 0) {
+        return Error(E_CONFIG, "Field 'maxPendingTransactions' must be greater than 0");
+      }
+    } else {
+      maxPendingTransactions = DEFAULT_MAX_PENDING_TRANSACTIONS;
+    }
+
+    // Load and validate maxTransactionsPerBlock
+    if (jd.contains("maxTransactionsPerBlock")) {
+      if (!jd["maxTransactionsPerBlock"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'maxTransactionsPerBlock' must be a positive number");
+      }
+      maxTransactionsPerBlock = jd["maxTransactionsPerBlock"].get<uint64_t>();
+      if (maxTransactionsPerBlock == 0) {
+        return Error(E_CONFIG, "Field 'maxTransactionsPerBlock' must be greater than 0");
+      }
+    } else {
+      maxTransactionsPerBlock = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
+    }
+
+    return {};
+  } catch (const std::exception& e) {
+    return Error(E_CONFIG, "Failed to parse init configuration: " + std::string(e.what()));
+  }
+}
+
+// ============ RunFileConfig methods ============
+
+nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
+  nlohmann::json j;
+  j["host"] = host;
+  j["port"] = port;
+  j["beacons"] = beacons;
+  j["checkpointSize"] = checkpointSize;
+  j["checkpointAge"] = checkpointAge;
+  return j;
+}
+
+BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann::json& jd) {
+  try {
+    // Validate JSON is an object
+    if (!jd.is_object()) {
+      return Error(E_CONFIG, "Configuration must be a JSON object");
+    }
+
+    // Load and validate host
+    if (jd.contains("host")) {
+      if (!jd["host"].is_string()) {
+        return Error(E_CONFIG, "Field 'host' must be a string");
+      }
+      host = jd["host"].get<std::string>();
+      if (host.empty()) {
+        return Error(E_CONFIG, "Field 'host' cannot be empty");
+      }
+    } else {
+      host = Client::DEFAULT_HOST;
+    }
+
+    // Load and validate port
+    if (jd.contains("port")) {
+      if (!jd["port"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'port' must be a positive number");
+      }
+      uint64_t portValue = jd["port"].get<uint64_t>();
+      if (portValue == 0 || portValue > 65535) {
+        return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+      }
+      port = static_cast<uint16_t>(portValue);
+    } else {
+      port = Client::DEFAULT_BEACON_PORT;
+    }
+
+    // Load and validate beacons array
+    beacons.clear();
+    if (jd.contains("beacons")) {
+      if (!jd["beacons"].is_array()) {
+        return Error(E_CONFIG, "Field 'beacons' must be an array");
+      }
+      for (size_t i = 0; i < jd["beacons"].size(); ++i) {
+        const auto& beacon = jd["beacons"][i];
+        if (!beacon.is_string()) {
+          return Error(E_CONFIG, "All elements in 'beacons' array must be strings (index " + std::to_string(i) + " is not)");
+        }
+        std::string beaconAddr = beacon.get<std::string>();
+        if (beaconAddr.empty()) {
+          return Error(E_CONFIG, "Beacon address at index " + std::to_string(i) + " cannot be empty");
+        }
+        beacons.push_back(beaconAddr);
+      }
+    }
+
+    // Load and validate checkpointSize
+    if (jd.contains("checkpointSize")) {
+      if (!jd["checkpointSize"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
+      }
+      checkpointSize = jd["checkpointSize"].get<uint64_t>();
+      if (checkpointSize == 0) {
+        return Error(E_CONFIG, "Field 'checkpointSize' must be greater than 0");
+      }
+    } else {
+      checkpointSize = DEFAULT_CHECKPOINT_SIZE;
+    }
+
+    // Load and validate checkpointAge
+    if (jd.contains("checkpointAge")) {
+      if (!jd["checkpointAge"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
+      }
+      checkpointAge = jd["checkpointAge"].get<uint64_t>();
+      if (checkpointAge == 0) {
+        return Error(E_CONFIG, "Field 'checkpointAge' must be greater than 0");
+      }
+    } else {
+      checkpointAge = DEFAULT_CHECKPOINT_AGE;
+    }
+
+    return {};
+  } catch (const std::exception& e) {
+    return Error(E_CONFIG, "Failed to parse run configuration: " + std::string(e.what()));
+  }
+}
+
+// ============ BeaconServer methods ============
+
+
 BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   log().info << "Initializing new beacon with work directory: " << workDir;
   
@@ -39,15 +215,14 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
     log().info << "Created work directory: " << workDir;
   }
   
-  // Create or load FILE_INIT_CONFIG
+  // Create or load FILE_INIT_CONFIG using InitFileConfig
+  InitFileConfig initFileConfig;
+  
   if (!std::filesystem::exists(initConfigPath)) {
     log().info << "Creating " << FILE_INIT_CONFIG << " with default parameters";
     
-    nlohmann::json defaultConfig;
-    defaultConfig["slotDuration"] = DEFAULT_SLOT_DURATION;
-    defaultConfig["slotsPerEpoch"] = DEFAULT_SLOTS_PER_EPOCH;
-    defaultConfig["maxPendingTransactions"] = DEFAULT_MAX_PENDING_TRANSACTIONS;
-    defaultConfig["maxTransactionsPerBlock"] = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
+    // Use default values from InitFileConfig struct
+    nlohmann::json defaultConfig = initFileConfig.ltsToJson();
     
     auto result = utl::writeToNewFile(initConfigPath.string(), defaultConfig.dump(2));
     if (!result) {
@@ -69,23 +244,25 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   
   nlohmann::json config = jsonResult.value();
   
-  // Extract configuration with defaults
-  uint64_t slotDuration = config.value("slotDuration", DEFAULT_SLOT_DURATION);
-  uint64_t slotsPerEpoch = config.value("slotsPerEpoch", DEFAULT_SLOTS_PER_EPOCH);
-  uint64_t maxPendingTransactions = config.value("maxPendingTransactions", DEFAULT_MAX_PENDING_TRANSACTIONS);
-  uint64_t maxTransactionsPerBlock = config.value("maxTransactionsPerBlock", DEFAULT_MAX_TRANSACTIONS_PER_BLOCK);
+  // Use InitFileConfig to parse configuration
+  auto parseResult = initFileConfig.ltsFromJson(config);
+  if (!parseResult) {
+    return Error("Failed to parse init config file: " + parseResult.error().message);
+  }
   
   log().info << "Configuration:";
-  log().info << "  Slot duration: " << slotDuration << " seconds";
-  log().info << "  Slots per epoch: " << slotsPerEpoch;
+  log().info << "  Slot duration: " << initFileConfig.slotDuration << " seconds";
+  log().info << "  Slots per epoch: " << initFileConfig.slotsPerEpoch;
+  log().info << "  Max pending transactions: " << initFileConfig.maxPendingTransactions;
+  log().info << "  Max transactions per block: " << initFileConfig.maxTransactionsPerBlock;
   
   // Prepare init configuration
   Beacon::InitConfig initConfig;
   initConfig.workDir = workDir + "/" + DIR_DATA;
-  initConfig.chain.slotDuration = slotDuration;
-  initConfig.chain.slotsPerEpoch = slotsPerEpoch;
-  initConfig.chain.maxPendingTransactions = maxPendingTransactions;
-  initConfig.chain.maxTransactionsPerBlock = maxTransactionsPerBlock;
+  initConfig.chain.slotDuration = initFileConfig.slotDuration;
+  initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
+  initConfig.chain.maxPendingTransactions = initFileConfig.maxPendingTransactions;
+  initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
   
   // Call the existing initFromWorkDir method
   auto result = initFromWorkDir(initConfig);
@@ -141,16 +318,14 @@ Service::Roe<void> BeaconServer::onStart() {
       std::filesystem::path(workDir_) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
-  // Create default FILE_CONFIG if it doesn't exist
+  // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
+  RunFileConfig runFileConfig;
+  
   if (!std::filesystem::exists(configPath)) {
     log().info << "No " << FILE_CONFIG << " found, creating with default values";
     
-    nlohmann::json defaultConfig;
-    defaultConfig["host"] = Client::DEFAULT_HOST;
-    defaultConfig["port"] = Client::DEFAULT_BEACON_PORT;
-    defaultConfig["beacons"] = nlohmann::json::array();
-    defaultConfig["checkpointSize"] = DEFAULT_CHECKPOINT_SIZE; // 1 GB
-    defaultConfig["checkpointAge"] = DEFAULT_CHECKPOINT_AGE; // 1 year
+    // Use default values from RunFileConfig struct
+    nlohmann::json defaultConfig = runFileConfig.ltsToJson();
     
     std::ofstream configFile(configPath);
     if (!configFile) {
@@ -160,13 +335,34 @@ Service::Roe<void> BeaconServer::onStart() {
     configFile.close();
     
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
+  } else {
+    // Load existing configuration
+    auto jsonResult = utl::loadJsonFile(configPathStr);
+    if (!jsonResult) {
+      return Service::Error(-3, "Failed to load config file: " + jsonResult.error().message);
+    }
+    
+    nlohmann::json config = jsonResult.value();
+    auto parseResult = runFileConfig.ltsFromJson(config);
+    if (!parseResult) {
+      return Service::Error(E_CONFIG, "Failed to parse config file: " + parseResult.error().message);
+    }
   }
 
-  // Load configuration (includes port)
-  auto configResult = loadConfig(configPathStr);
-  if (!configResult) {
-    return Service::Error(-3, "Failed to load configuration: " + configResult.error().message);
-  }
+  // Apply configuration from RunFileConfig
+  config_.network.endpoint.address = runFileConfig.host;
+  config_.network.endpoint.port = runFileConfig.port;
+  config_.checkpoint.minSizeBytes = runFileConfig.checkpointSize;
+  config_.checkpoint.ageSeconds = runFileConfig.checkpointAge;
+  
+  // Store beacon addresses
+  otherBeaconAddresses_ = runFileConfig.beacons;
+  
+  log().info << "Configuration loaded";
+  log().info << "  Endpoint: " << config_.network.endpoint;
+  log().info << "  Other beacons: " << otherBeaconAddresses_.size();
+  log().info << "  Checkpoint size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
+  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
@@ -250,62 +446,6 @@ void BeaconServer::processQueuedRequest(QueuedRequest& qr) {
       // Ignore close errors
     }
   }
-}
-
-BeaconServer::Roe<void> BeaconServer::loadConfig(const std::string &configPath) {
-  // Use the utility function for loading JSON
-  auto jsonResult = utl::loadJsonFile(configPath);
-  if (jsonResult.isError()) {
-    // Convert pp::Error to BeaconServer::Error
-    return Error(jsonResult.error().code, jsonResult.error().message);
-  }
-
-  nlohmann::json config = jsonResult.value();
-
-  // Load host (optional, default: "localhost")
-  if (config.contains("host") && config["host"].is_string()) {
-    config_.network.endpoint.address = config["host"].get<std::string>();
-  } else {
-    config_.network.endpoint.address = Client::DEFAULT_HOST;
-  }
-
-  // Load port (optional, default: 8517)
-  if (config.contains("port") && config["port"].is_number()) {
-    if (config["port"].is_number_integer()) {
-      config_.network.endpoint.port = config["port"].get<uint16_t>();
-    } else {
-      return Error(3, "Configuration file 'port' field is not an integer");
-    }
-  } else {
-    config_.network.endpoint.port = Client::DEFAULT_BEACON_PORT;
-  }
-
-  // Load other beacon addresses (optional, can be empty)
-  otherBeaconAddresses_.clear();
-  if (config.contains("beacons") && config["beacons"].is_array()) {
-    for (const auto &beaconAddr : config["beacons"]) {
-      if (beaconAddr.is_string()) {
-        std::string addr = beaconAddr.get<std::string>();
-        otherBeaconAddresses_.push_back(addr);
-        log().info << "Found beacon address in config: " << addr;
-      }
-    }
-  }
-
-  // Load checkpoint configuration (optional)
-  if (config.contains("checkpointSize") && config["checkpointSize"].is_number()) {
-    config_.checkpoint.minSizeBytes = config["checkpointSize"].get<uint64_t>();
-  }
-  if (config.contains("checkpointAge") && config["checkpointAge"].is_number()) {
-    config_.checkpoint.ageSeconds = config["checkpointAge"].get<uint64_t>();
-  }
-
-  log().info << "Configuration loaded from " << configPath;
-  log().info << "  Endpoint: " << config_.network.endpoint;
-  log().info << "  Other beacons: " << otherBeaconAddresses_.size();
-  log().info << "  Checkpoint size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
-  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
-  return {};
 }
 
 std::string BeaconServer::handleRequest(const std::string &request) {

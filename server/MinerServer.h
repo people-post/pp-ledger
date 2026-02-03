@@ -29,6 +29,16 @@ public:
   static constexpr const int32_t E_MINER = -3;
   static constexpr const int32_t E_REQUEST = -4;
 
+  struct RunFileConfig {
+    uint64_t minerId{ 0 };
+    std::string host{ Client::DEFAULT_HOST };
+    uint16_t port{ Client::DEFAULT_MINER_PORT };
+    std::vector<std::string> beacons;
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
+
   MinerServer();
   ~MinerServer();
 
@@ -77,7 +87,6 @@ private:
     uint64_t minerId{ 0 };
   };
 
-  Roe<void> loadConfig(const std::string &configPath);
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
   void handleSlotLeaderRole();

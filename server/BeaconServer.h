@@ -34,6 +34,27 @@ public:
   static constexpr const int32_t E_BEACON = -3;
   static constexpr const int32_t E_REQUEST = -4;
 
+  struct InitFileConfig {
+    uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
+    uint64_t slotsPerEpoch{ DEFAULT_SLOTS_PER_EPOCH };
+    uint64_t maxPendingTransactions{ DEFAULT_MAX_PENDING_TRANSACTIONS };
+    uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
+
+  struct RunFileConfig {
+    std::string host{ Client::DEFAULT_HOST };
+    uint16_t port{ Client::DEFAULT_BEACON_PORT };
+    std::vector<std::string> beacons;
+    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
+    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
+
   BeaconServer();
   ~BeaconServer() = default;
 
@@ -116,7 +137,6 @@ private:
     Beacon::CheckpointConfig checkpoint;
   };
 
-  Roe<void> loadConfig(const std::string &configPath);
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
 
   void registerServer(const std::string &serverAddress);

@@ -3,6 +3,7 @@
         "make": true,
         "nproc": true,
         "ctest": true,
-        "/workspaces/pp-ledger/build/app/pp-beacon": true
+        "/workspaces/pp-ledger/build/app/pp-beacon": true,
+        "cmake": true
     }
 }

@@ -17,6 +17,96 @@ MinerServer::MinerServer() {
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
 }
 
+// ============ RunFileConfig methods ============
+
+nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
+  nlohmann::json j;
+  j["minerId"] = minerId;
+  j["host"] = host;
+  j["port"] = port;
+  j["beacons"] = beacons;
+  return j;
+}
+
+MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json& jd) {
+  try {
+    // Validate JSON is an object
+    if (!jd.is_object()) {
+      return Error(E_CONFIG, "Configuration must be a JSON object");
+    }
+
+    // Load and validate minerId (required)
+    if (!jd.contains("minerId")) {
+      return Error(E_CONFIG, "Field 'minerId' is required");
+    }
+    if (!jd["minerId"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'minerId' must be a non-negative number");
+    }
+    minerId = jd["minerId"].get<uint64_t>();
+
+    // Load and validate host
+    if (jd.contains("host")) {
+      if (!jd["host"].is_string()) {
+        return Error(E_CONFIG, "Field 'host' must be a string");
+      }
+      host = jd["host"].get<std::string>();
+      if (host.empty()) {
+        return Error(E_CONFIG, "Field 'host' cannot be empty");
+      }
+    } else {
+      host = Client::DEFAULT_HOST;
+    }
+
+    // Load and validate port
+    if (jd.contains("port")) {
+      if (!jd["port"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'port' must be a positive number");
+      }
+      uint64_t portValue = jd["port"].get<uint64_t>();
+      if (portValue == 0 || portValue > 65535) {
+        return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+      }
+      port = static_cast<uint16_t>(portValue);
+    } else {
+      port = Client::DEFAULT_MINER_PORT;
+    }
+
+    // Load and validate beacons array (required, must have at least one)
+    if (!jd.contains("beacons")) {
+      return Error(E_CONFIG, "Field 'beacons' is required");
+    }
+    if (!jd["beacons"].is_array()) {
+      return Error(E_CONFIG, "Field 'beacons' must be an array");
+    }
+    if (jd["beacons"].empty()) {
+      return Error(E_CONFIG, "Field 'beacons' array must contain at least one beacon address");
+    }
+
+    beacons.clear();
+    for (size_t i = 0; i < jd["beacons"].size(); ++i) {
+      const auto& beacon = jd["beacons"][i];
+      if (!beacon.is_string()) {
+        return Error(E_CONFIG, "All elements in 'beacons' array must be strings (index " + std::to_string(i) + " is not)");
+      }
+      std::string beaconAddr = beacon.get<std::string>();
+      if (beaconAddr.empty()) {
+        return Error(E_CONFIG, "Beacon address at index " + std::to_string(i) + " cannot be empty");
+      }
+      beacons.push_back(beaconAddr);
+    }
+
+    if (beacons.empty()) {
+      return Error(E_CONFIG, "Field 'beacons' array must contain at least one valid string address");
+    }
+
+    return {};
+  } catch (const std::exception& e) {
+    return Error(E_CONFIG, "Failed to parse run configuration: " + std::string(e.what()));
+  }
+}
+
+// ============ MinerServer methods ============
+
 MinerServer::~MinerServer() {
   if (isRunning()) {
     Service::stop();
@@ -57,16 +147,15 @@ Service::Roe<void> MinerServer::onStart() {
       std::filesystem::path(workDir_) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
-  // Create default FILE_CONFIG if it doesn't exist
+  // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
+  RunFileConfig runFileConfig;
+  runFileConfig.beacons = {}; // Empty by default, user must configure
+  
   if (!std::filesystem::exists(configPath)) {
     log().info << "No " << FILE_CONFIG << " found, creating with default values";
     
-    nlohmann::json defaultConfig;
-    defaultConfig["minerId"] = 0;
-    defaultConfig["host"] = Client::DEFAULT_HOST;
-    defaultConfig["port"] = Client::DEFAULT_MINER_PORT;
-    // Default beacon address - user should edit this
-    defaultConfig["beacons"] = nlohmann::json::array({});
+    // Use default values from RunFileConfig struct
+    nlohmann::json defaultConfig = runFileConfig.ltsToJson();
     
     std::ofstream configFile(configPath);
     if (!configFile) {
@@ -77,13 +166,30 @@ Service::Roe<void> MinerServer::onStart() {
     
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
     log().info << "Please edit " << FILE_CONFIG << " to configure your miner settings";
+  } else {
+    // Load existing configuration
+    auto jsonResult = utl::loadJsonFile(configPathStr);
+    if (!jsonResult) {
+      return Service::Error(E_CONFIG, "Failed to load config file: " + jsonResult.error().message);
+    }
+    
+    nlohmann::json config = jsonResult.value();
+    auto parseResult = runFileConfig.ltsFromJson(config);
+    if (!parseResult) {
+      return Service::Error(E_CONFIG, "Failed to parse config file: " + parseResult.error().message);
+    }
   }
 
-  // Load configuration
-  auto configResult = loadConfig(configPathStr);
-  if (!configResult) {
-    return Service::Error(E_MINER, "Failed to load configuration: " + configResult.error().message);
-  }
+  // Apply configuration from RunFileConfig
+  config_.minerId = runFileConfig.minerId;
+  config_.network.endpoint.address = runFileConfig.host;
+  config_.network.endpoint.port = runFileConfig.port;
+  config_.network.beacons = runFileConfig.beacons;
+  
+  log().info << "Configuration loaded";
+  log().info << "  Miner ID: " << config_.minerId;
+  log().info << "  Endpoint: " << config_.network.endpoint;
+  log().info << "  Beacons: " << config_.network.beacons.size();
   
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
@@ -216,71 +322,6 @@ void MinerServer::run() {
   }
   
   log().info << "Block production loop stopped";
-}
-
-MinerServer::Roe<void> MinerServer::loadConfig(const std::string &configPath) {
-  // Use the utility function for loading JSON
-  auto jsonResult = utl::loadJsonFile(configPath);
-  if (jsonResult.isError()) {
-    // Convert pp::Error to MinerServer::Error
-    return Error(E_CONFIG, jsonResult.error().message);
-  }
-
-  nlohmann::json config = jsonResult.value();
-
-  // Load miner ID (required)
-  if (!config.contains("minerId") || !config["minerId"].is_number()) {
-    return Error(E_CONFIG, "Configuration file missing 'minerId' field");
-  }
-  config_.minerId = config["minerId"].get<uint64_t>();
-
-  // Load host (optional, default: "localhost")
-  if (config.contains("host") && config["host"].is_string()) {
-    config_.network.endpoint.address = config["host"].get<std::string>();
-  } else {
-    config_.network.endpoint.address = Client::DEFAULT_HOST;
-  }
-
-  // Load port (optional, default: 8518)
-  if (config.contains("port") && config["port"].is_number()) {
-    if (config["port"].is_number_integer()) {
-      config_.network.endpoint.port = config["port"].get<uint16_t>();
-    } else {
-      return Error(E_CONFIG, "Configuration file 'port' field is not an integer");
-    }
-  } else {
-    config_.network.endpoint.port = 8518; // Default miner port
-  }
-
-  // Load beacon addresses (required)
-  if (!config.contains("beacons")) {
-    return Error(E_CONFIG, "Configuration file missing required 'beacons' field");
-  }
-  
-  if (!config["beacons"].is_array()) {
-    return Error(E_CONFIG, "Configuration file 'beacons' field must be an array");
-  }
-  
-  if (config["beacons"].empty()) {
-    return Error(E_CONFIG, "Configuration file 'beacons' array must contain at least one beacon address");
-  }
-  
-  for (const auto &beaconAddr : config["beacons"]) {
-    if (beaconAddr.is_string()) {
-      std::string addr = beaconAddr.get<std::string>();
-      config_.network.beacons.push_back(addr);
-      log().info << "Found beacon address in config: " << addr;
-    }
-  }
-  
-  if (config_.network.beacons.empty()) {
-    return Error(E_CONFIG, "Configuration file 'beacons' array must contain at least one valid string address");
-  }
-
-  log().info << "Configuration loaded from " << configPath;
-  log().info << "  Endpoint: " << config_.network.endpoint;
-  log().info << "  Beacons: " << config_.network.beacons.size();
-  return {};
 }
 
 std::string MinerServer::getSlotLeaderAddress() const {
