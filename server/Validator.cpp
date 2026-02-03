@@ -29,73 +29,6 @@ bool Validator::SystemCheckpoint::ltsFromString(const std::string& str) {
   return true;
 }
 
-// BlockChain implementation
-Validator::BlockChain::BlockChain() {
-  // No auto-genesis block - blocks must be added explicitly
-}
-
-// Blockchain operations
-bool Validator::BlockChain::addBlock(std::shared_ptr<Ledger::ChainNode> block) {
-  if (!block) {
-    return false;
-  }
-
-  chain_.push_back(block);
-  return true;
-}
-
-std::shared_ptr<Ledger::ChainNode> Validator::BlockChain::getLatestBlock() const {
-  if (chain_.empty()) {
-    return nullptr;
-  }
-  return chain_.back();
-}
-
-std::shared_ptr<Ledger::ChainNode> Validator::BlockChain::getBlock(uint64_t index) const {
-  if (index >= chain_.size()) {
-    return nullptr;
-  }
-  return chain_[index];
-}
-
-size_t Validator::BlockChain::getSize() const { return chain_.size(); }
-
-std::vector<std::shared_ptr<Ledger::ChainNode>>
-Validator::BlockChain::getBlocks(uint64_t fromIndex, uint64_t toIndex) const {
-  std::vector<std::shared_ptr<Ledger::ChainNode>> result;
-
-  if (fromIndex > toIndex || fromIndex >= chain_.size()) {
-    return result;
-  }
-
-  uint64_t endIndex =
-      std::min(toIndex + 1, static_cast<uint64_t>(chain_.size()));
-  for (uint64_t i = fromIndex; i < endIndex; i++) {
-    result.push_back(chain_[i]);
-  }
-
-  return result;
-}
-
-std::string Validator::BlockChain::getLastBlockHash() const {
-  if (chain_.empty()) {
-    return "0";
-  }
-  return chain_.back()->hash;
-}
-
-size_t Validator::BlockChain::trimBlocks(size_t count) {
-  if (count == 0 || chain_.empty()) {
-    return 0; // Nothing to trim or empty chain
-  }
-
-  // Trim from the head (beginning) of the chain
-  size_t toRemove = std::min(count, chain_.size());
-  chain_.erase(chain_.begin(), chain_.begin() + toRemove);
-
-  return toRemove;
-}
-
 Validator::Validator() {
   redirectLogger("Validator");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
@@ -371,8 +304,8 @@ uint64_t Validator::getCurrentEpoch() const {
   return consensus_.getCurrentEpoch();
 }
 
-bool Validator::isChainValid(const BlockChain& chain) const {
-  size_t chainSize = chain.getSize();
+bool Validator::isChainValid(const std::vector<Ledger::ChainNode>& chain) const {
+  size_t chainSize = chain.size();
   
   if (chainSize == 0) {
     return false;
@@ -380,13 +313,9 @@ bool Validator::isChainValid(const BlockChain& chain) const {
 
   // Validate all blocks in the chain
   for (size_t i = 0; i < chainSize; i++) {
-    const auto &currentBlock = chain.getBlock(i);
-    if (!currentBlock) {
-      return false;
-    }
-
+    const auto &currentBlock = chain[i];
     // Verify current block's hash
-    if (currentBlock->hash != calculateHash(currentBlock->block)) {
+    if (currentBlock.hash != calculateHash(currentBlock.block)) {
       return false;
     }
 
@@ -394,11 +323,8 @@ bool Validator::isChainValid(const BlockChain& chain) const {
     // previousHash "0")
     // TODO: Skip validation by index saved in block, not by position in chain
     if (i > 0) {
-      const auto &previousBlock = chain.getBlock(i - 1);
-      if (!previousBlock) {
-        return false;
-      }
-      if (currentBlock->block.previousHash != previousBlock->hash) {
+      const auto &previousBlock = chain[i - 1];
+      if (currentBlock.block.previousHash != previousBlock.hash) {
         return false;
       }
     }

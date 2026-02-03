@@ -66,41 +66,6 @@ public:
       bool ltsFromString(const std::string& str);
     };
 
-    /**
-     * Concrete implementation of BlockChain data structure
-     *
-     * Manages an in-memory chain of blocks.
-     */
-    class BlockChain {
-    public:
-      BlockChain();
-      ~BlockChain() = default;
-
-      // Blockchain operations
-      std::shared_ptr<Ledger::ChainNode> getLatestBlock() const;
-      size_t getSize() const;
-
-      // Additional blockchain operations
-      bool addBlock(std::shared_ptr<Ledger::ChainNode> block);
-      std::shared_ptr<Ledger::ChainNode> getBlock(uint64_t index) const;
-      std::string getLastBlockHash() const;
-
-      /**
-       * Trim blocks from the head of the chain
-       * Removes the first n blocks from the beginning of the chain
-       * @param count Number of blocks to trim from the head
-       * @return Number of blocks removed
-       */
-      size_t trimBlocks(size_t count);
-
-    private:
-      // Internal helper methods
-      std::vector<std::shared_ptr<Ledger::ChainNode>> getBlocks(uint64_t fromIndex,
-                                                    uint64_t toIndex) const;
-
-      std::vector<std::shared_ptr<Ledger::ChainNode>> chain_;
-    };
-
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
     };
@@ -111,7 +76,7 @@ public:
     virtual ~Validator() = default;
 
     // ----------------- accessors -------------------------------------
-    bool isChainValid(const BlockChain& chain) const;
+    bool isChainValid(const std::vector<Ledger::ChainNode>& chain) const;
 
     uint64_t getNextBlockId() const;
     uint64_t getCurrentSlot() const;
