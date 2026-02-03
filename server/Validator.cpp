@@ -531,63 +531,39 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
     return Error(28, "Failed to add user account to buffer: " + addResult.error().message);
   }
   
-  log().info << "Restored user checkpoint for wallet " << tx.toWalletId;
-  log().info << "  Balances: " << accountInfo.mBalances.size() << " tokens";
-  log().info << "  Public Keys: " << accountInfo.publicKeys.size();
+  log().info << "Restored user " << tx.toWalletId << " checkpoint: " << accountInfo;
   
   return {};
 }
 
 Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx) {
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
+  }
+
   if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bank_.getTokenId()) {
     return {}; // Skip transactions for other tokens
   }
 
-  // tx.fromWalletId and tx.toWalletId correspond to bank_.Account.id
-  if (tx.amount < 0) {
-    return Error(19, "Transfer amount must be non-negative");
-  }
-  if (tx.amount == 0) {
-    return {};
+  // Use AccountBuffer's addTransaction which handles account creation and balance checks
+  auto result = bank_.addTransaction(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
+  if (!result) {
+    return Error(19, "Transaction failed: " + result.error().message);
   }
 
-  if (!bank_.has(tx.fromWalletId)) {
-    return Error(20, "Source account not found: " + std::to_string(tx.fromWalletId));
-  }
-
-  // Only genesis account can have negative balances (enforced by AccountBuffer and account creation)
-  // If toWalletId does not exist, create it in bank_
-  if (!bank_.has(tx.toWalletId)) {
-    if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-      return Error(21, "Destination account not found for non-genesis token: " + std::to_string(tx.toWalletId));
-    }
-
-    AccountBuffer::Account newAccount;
-    newAccount.id = tx.toWalletId;
-    newAccount.mBalances[tx.tokenId] = 0;
-    newAccount.isNegativeBalanceAllowed = (tx.toWalletId == AccountBuffer::ID_GENESIS);
-    newAccount.publicKeys = {};
-    auto addResult = bank_.add(newAccount);
-    if (!addResult) {
-      return Error(21, "Failed to create destination account: " + addResult.error().message);
-    }
-  }
-
-  // fromWalletId must have sufficient balance (account 0 has isNegativeBalanceAllowed so can go negative)
-  auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
-  if (!transferResult) {
-    return Error(22, "Transfer failed: " + transferResult.error().message);
-  }
   return {};
 }
 
 Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transaction& tx) {
-  log().info << "Loosely processing transaction";
+  if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bank_.getTokenId()) {
+    return {}; // Skip transactions for other tokens
+  }
 
   if (tx.amount < 0) {
     return Error(23, "Transaction must have amount >= 0");
   }
 
+  // Existing wallets are created by user checkpoints, they have correct balances.
   if (bank_.has(tx.fromWalletId)) {
     if (bank_.has(tx.toWalletId)) {
       auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);

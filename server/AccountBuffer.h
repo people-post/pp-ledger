@@ -52,6 +52,10 @@ public:
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
   
+  // Transaction processing: transfers amount of tokenId from fromId to toId, with fee in ID_GENESIS token
+  // Creates toId account automatically if fromId has sufficient balance
+  Roe<void> addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee);
+  
   // Helper to get balance for specific token (returns 0 if not found)
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
 

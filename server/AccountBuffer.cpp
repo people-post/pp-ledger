@@ -37,7 +37,18 @@ AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
   if (has(account.id)) {
     return Error(2, "Account already exists");
   }
-  mAccounts_[account.id] = account;
+
+  auto& a = mAccounts_[account.id];
+  a = account;
+  
+  // Only include balances for tokenId_ and ID_GENESIS
+  a.mBalances.clear();
+  for (const auto& [token, balance] : account.mBalances) {
+    if (token == tokenId_ || token == ID_GENESIS) {
+      a.mBalances[token] = balance;
+    }
+  }
+  
   return {};
 }
 
@@ -156,5 +167,97 @@ void AccountBuffer::reset(uint64_t tokenId) {
   clear();
   tokenId_ = tokenId;
 }
+AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee) {
+  // Validate amount
+  if (amount < 0) {
+    return Error(15, "Transfer amount must be non-negative");
+  }
+  if (amount == 0) {
+    return {}; // No-op for zero amount
+  }
+  
+  // Validate fee
+  if (fee < 0) {
+    return Error(16, "Fee must be non-negative");
+  }
 
+  // Check that source account exists
+  auto fromIt = mAccounts_.find(fromId);
+  if (fromIt == mAccounts_.end()) {
+    return Error(17, "Source account not found");
+  }
+
+  // Check if fromId has sufficient balance for the transfer amount
+  int64_t fromTokenBalance = 0;
+  auto fromTokenBalanceIt = fromIt->second.mBalances.find(tokenId);
+  if (fromTokenBalanceIt != fromIt->second.mBalances.end()) {
+    fromTokenBalance = fromTokenBalanceIt->second;
+  }
+  
+  // Check if fromId has sufficient balance for the fee (in ID_GENESIS token)
+  int64_t fromFeeBalance = 0;
+  if (tokenId == ID_GENESIS) {
+    // If tokenId is ID_GENESIS, the fee comes from the same balance as the transfer
+    fromFeeBalance = fromTokenBalance;
+  } else {
+    auto fromFeeBalanceIt = fromIt->second.mBalances.find(ID_GENESIS);
+    if (fromFeeBalanceIt != fromIt->second.mBalances.end()) {
+      fromFeeBalance = fromFeeBalanceIt->second;
+    }
+  }
+  
+  // Verify sufficient balance (unless negative balance is allowed)
+  if (!fromIt->second.isNegativeBalanceAllowed) {
+    if (tokenId == ID_GENESIS) {
+      // Both amount and fee come from the same balance
+      if (fromTokenBalance < amount + fee) {
+        return Error(18, "Insufficient balance for transfer and fee");
+      }
+    } else {
+      // Amount and fee come from different balances
+      if (fromTokenBalance < amount) {
+        return Error(19, "Insufficient balance for transfer");
+      }
+      if (fromFeeBalance < fee) {
+        return Error(20, "Insufficient balance for fee");
+      }
+    }
+  }
+
+  // Create toId account if it doesn't exist
+  bool toAccountCreated = false;
+  if (!has(toId)) {
+    Account newAccount;
+    newAccount.id = toId;
+    newAccount.mBalances[tokenId] = 0;
+    newAccount.isNegativeBalanceAllowed = (toId == tokenId_); // Only genesis account can have negative balances
+    newAccount.publicKeys = {};
+    auto addResult = add(newAccount);
+    if (!addResult) {
+      return Error(21, "Failed to create destination account: " + addResult.error().message);
+    }
+    toAccountCreated = true;
+  }
+
+  // Perform the transfer
+  auto transferResult = transferBalance(fromId, toId, tokenId, amount);
+  if (!transferResult) {
+    if (toAccountCreated) {
+      remove(toId); // Cleanup the newly created account
+    }
+    return Error(22, "Transfer failed: " + transferResult.error().message);
+  }
+
+  // Deduct the fee (if non-zero)
+  if (fee > 0) {
+    auto feeResult = withdrawBalance(fromId, ID_GENESIS, fee);
+    if (!feeResult) {
+      // This shouldn't happen since we already checked for sufficient balance,
+      // but handle it gracefully anyway
+      return Error(23, "Failed to deduct fee: " + feeResult.error().message);
+    }
+  }
+
+  return {};
+}
 } // namespace pp
