@@ -98,7 +98,6 @@ public:
     uint64_t currentSlot { 0 };
     uint64_t currentEpoch { 0 };
     int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
-    std::vector<consensus::Stakeholder> stakeholders;
   };
 
   Client();

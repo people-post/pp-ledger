@@ -519,18 +519,6 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   const auto& state = stateResult.value();
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
-  log().info << "Retrieved " << state.stakeholders.size() << " stakeholders from beacon";
-
-  // Register stakeholders with the miner's consensus module
-  // Note: We need to access the consensus module through the miner
-  // For now, we'll just log the stakeholders
-  uint64_t totalStake = 0;
-  for (const auto& sh : state.stakeholders) {
-    log().info << "  Stakeholder: " << sh.id << " with stake " << sh.stake;
-    miner_.registerStakeholder(sh.id, sh.stake);
-    totalStake += sh.stake;
-  }
-  log().info << "Total stake in network: " << totalStake;
 
   return state;
 }

@@ -163,19 +163,12 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpE
   state.currentSlot = response["currentSlot"].get<uint64_t>();
   state.currentEpoch = response["currentEpoch"].get<uint64_t>();
   state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
-  state.stakeholders.clear();
-  for (const auto &item : response["stakeholders"]) {
-    consensus::Stakeholder info;
-    info.id = item.value("id", 0);
-    info.stake = item.value("stake", 0);
-    state.stakeholders.push_back(info);
-  }
 
   return state;
 }
 
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
-  log().debug << "Requesting beacon state (checkpoint, block, stakeholders)";
+  log().debug << "Requesting beacon state (checkpoint, block)";
 
   nlohmann::json request = {{"type", "state"}, {"action", "current"}};
 
@@ -188,10 +181,10 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 
   if (!response.contains("currentCheckpointId") || !response.contains("nextBlockId") ||
       !response.contains("currentSlot") || !response.contains("currentEpoch") ||
-      !response.contains("currentTimestamp") || !response.contains("stakeholders")) {
+      !response.contains("currentTimestamp")) {
     return Error(E_INVALID_RESPONSE,
                  "Response missing 'currentCheckpointId', 'nextBlockId', "
-                 "'currentSlot', 'currentEpoch', 'currentTimestamp' or 'stakeholders'");
+                 "'currentSlot', 'currentEpoch', 'currentTimestamp'");
   }
 
   BeaconState state;
@@ -201,13 +194,6 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   state.currentSlot = response["currentSlot"].get<uint64_t>();
   state.currentEpoch = response["currentEpoch"].get<uint64_t>();
   state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
-  state.stakeholders.clear();
-  for (const auto &item : response["stakeholders"]) {
-    consensus::Stakeholder info;
-    info.id = item.value("id", 0);
-    info.stake = item.value("stake", 0);
-    state.stakeholders.push_back(info);
-  }
 
   return state;
 }

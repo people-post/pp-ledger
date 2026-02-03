@@ -150,12 +150,6 @@ Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   return {};
 }
 
-Miner::Roe<void> Miner::registerStakeholder(uint64_t stakeholderId, uint64_t stake) {
-  // TODO: Verify stake is valid
-  getConsensus().registerStakeholder(stakeholderId, stake);
-  return {};
-}
-
 Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");

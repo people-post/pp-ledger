@@ -25,14 +25,6 @@ uint64_t Beacon::getCurrentCheckpointId() const {
   return currentCheckpointId_;
 }
 
-uint64_t Beacon::getTotalStake() const {
-  return getConsensus().getTotalStake();
-}
-
-const std::list<Beacon::Stakeholder>& Beacon::getStakeholders() const {
-  return stakeholders_;
-}
-
 Beacon::Roe<std::vector<uint64_t>> Beacon::getCheckpoints() const {
   // This would retrieve checkpoints from ledger
   // For now, return empty vector
@@ -153,47 +145,6 @@ Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
     return Error(7, result.error().message);
   }
   return {};
-}
-
-void Beacon::addStakeholder(const Stakeholder& stakeholder) {
-  // Check if stakeholder already exists
-  auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
-    [&stakeholder](const Stakeholder& s) { return s.id == stakeholder.id; });
-    
-  if (it != stakeholders_.end()) {
-    // Update existing stakeholder
-    it->endpoint = stakeholder.endpoint;
-    it->stake = stakeholder.stake;
-    log().info << "Updated stakeholder: " << stakeholder;
-  } else {
-    // Add new stakeholder
-    stakeholders_.push_back(stakeholder);
-    log().info << "Added stakeholder: " << stakeholder;
-  }
-
-  // Register with consensus
-  getConsensus().registerStakeholder(stakeholder.id, stakeholder.stake);
-}
-
-void Beacon::removeStakeholder(uint64_t stakeholderId) {
-  stakeholders_.remove_if([&stakeholderId](const Stakeholder& s) {
-    return s.id == stakeholderId;
-  });
-
-  getConsensus().removeStakeholder(stakeholderId);
-  log().info << "Removed stakeholder: " << stakeholderId;
-}
-
-void Beacon::updateStake(uint64_t stakeholderId, uint64_t newStake) {
-  auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
-    [&stakeholderId](const Stakeholder& s) { return s.id == stakeholderId; });
-   
-  if (it != stakeholders_.end()) {
-    it->stake = newStake;
-  }
-
-  getConsensus().updateStake(stakeholderId, newStake);
-  log().info << "Updated stake for " << stakeholderId << ": " << newStake;
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {

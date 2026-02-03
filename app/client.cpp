@@ -80,7 +80,6 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "  Current Slot: " << status.currentSlot << "\n";
   std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
   std::cout << "  Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
-  printStakeholders(status.stakeholders);
 }
 
 void printMinerStatus(const pp::Client::MinerStatus &status) {

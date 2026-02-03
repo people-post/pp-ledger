@@ -66,7 +66,6 @@ public:
     // ----------------- methods -------------------------------------
     Roe<void> init(const InitConfig &config);
 
-    Roe<void> registerStakeholder(uint64_t stakeholderId, uint64_t stake);
     Roe<void> addTransaction(const Ledger::Transaction &tx);
     Roe<void> addBlock(const Ledger::ChainNode& block);
 

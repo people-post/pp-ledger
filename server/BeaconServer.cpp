@@ -410,11 +410,6 @@ void BeaconServer::registerServer(const std::string &serverAddress) {
 
   // Update or add server
   activeServers_[serverAddress] = now;
-  Beacon::Stakeholder sh;
-  sh.endpoint = network::TcpEndpoint::fromString(serverAddress);
-  sh.id = 0; // TODO: Use stakeholder id
-  sh.stake = 10000; // TODO: Use stake
-  beacon_.addStakeholder(sh);
   log().debug << "Updated server record: " << serverAddress;
 }
 
@@ -522,59 +517,11 @@ BeaconServer::Roe<std::string> BeaconServer::handleStakeholderRequest(const nloh
     for (const auto& sh : stakeholders) {
       nlohmann::json shJson;
       shJson["id"] = sh.id;
-      shJson["address"] = sh.endpoint.address;
-      shJson["port"] = sh.endpoint.port;
       shJson["stake"] = sh.stake;
       resp["stakeholders"].push_back(shJson);
     }
     
     resp["totalStake"] = beacon_.getTotalStake();
-    
-  } else if (action == "add") {
-    if (!reqJson.contains("stakeholder")) {
-      return Error(E_REQUEST, "Missing stakeholder field in request JSON");
-    }
-    
-    auto& shJson = reqJson["stakeholder"];
-    Beacon::Stakeholder sh;
-    
-    if (!shJson.contains("id") || !shJson.contains("stake")) {
-      return Error(E_REQUEST, "Missing required stakeholder fields (id, stake)");
-    }
-    
-    sh.id = shJson["id"].get<uint64_t>();
-    sh.stake = shJson["stake"].get<uint64_t>();
-    
-    if (shJson.contains("address")) {
-      sh.endpoint.address = shJson["address"].get<std::string>();
-    }
-    if (shJson.contains("port")) {
-      sh.endpoint.port = shJson["port"].get<uint16_t>();
-    }
-    
-    beacon_.addStakeholder(sh);
-    resp["message"] = "Stakeholder added";
-    
-  } else if (action == "remove") {
-    if (!reqJson.contains("id")) {
-      return Error(E_REQUEST, "Missing id field in request JSON");
-    }
-    
-    uint64_t id = reqJson["id"].get<uint64_t>();
-    beacon_.removeStakeholder(id);
-    resp["message"] = "Stakeholder removed";
-    
-  } else if (action == "updateStake") {
-    if (!reqJson.contains("id") || !reqJson.contains("stake")) {
-      return Error(E_REQUEST, "Missing id or stake field in request JSON");
-    }
-    
-    uint64_t id = reqJson["id"].get<uint64_t>();
-    uint64_t stake = reqJson["stake"].get<uint64_t>();
-    
-    beacon_.updateStake(id, stake);
-    resp["message"] = "Stake updated";
-    
   } else {
     return Error(E_REQUEST, "Unknown stakeholder action: " + action);
   }
@@ -640,16 +587,7 @@ nlohmann::json BeaconServer::buildStateResponse() const {
           {"nextBlockId", beacon_.getNextBlockId()},
           {"currentSlot", beacon_.getCurrentSlot()},
           {"currentEpoch", beacon_.getCurrentEpoch()},
-          {"currentTimestamp", currentTimestamp},
-          {"stakeholders", nlohmann::json::array()}};
-  for (const auto& sh : beacon_.getStakeholders()) {
-    nlohmann::json shJson;
-    shJson["id"] = sh.id;
-    shJson["address"] = sh.endpoint.address;
-    shJson["port"] = sh.endpoint.port;
-    shJson["stake"] = sh.stake;
-    resp["stakeholders"].push_back(shJson);
-  }
+          {"currentTimestamp", currentTimestamp}};
   return resp;
 }
 

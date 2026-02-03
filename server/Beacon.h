@@ -57,12 +57,6 @@ public:
     CheckpointConfig checkpoint;
   };
 
-  struct Stakeholder {
-    uint64_t id;
-    network::TcpEndpoint endpoint;
-    uint64_t stake;
-  };
-
   Beacon();
   ~Beacon() override = default;
 
@@ -72,18 +66,13 @@ public:
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   uint64_t getLastCheckpointId() const;
   uint64_t getCurrentCheckpointId() const;
-  uint64_t getTotalStake() const;
-  const std::list<Stakeholder>& getStakeholders() const;
   Roe<std::vector<uint64_t>> getCheckpoints() const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
   Roe<void> mount(const MountConfig& config);
 
-  void addStakeholder(const Stakeholder& stakeholder);
   Roe<void> addBlock(const Ledger::ChainNode& block);
-  void removeStakeholder(uint64_t stakeholderId);
-  void updateStake(uint64_t stakeholderId, uint64_t newStake);
 
 private:
   struct Config {
@@ -99,7 +88,6 @@ private:
   Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config) const;
 
   Config config_;
-  std::list<Stakeholder> stakeholders_;
   uint64_t currentCheckpointId_{ 0 };
   uint64_t lastCheckpointId_{ 0 };
 };
@@ -122,13 +110,6 @@ inline std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& conf
 inline std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
   os << "MountConfig{workDir=\"" << config.workDir << "\", "
      << "checkpoint=" << config.checkpoint << "}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Beacon::Stakeholder& stakeholder) {
-  os << "Stakeholder{id=\"" << stakeholder.id << "\", "
-     << "endpoint=" << stakeholder.endpoint << ", "
-     << "stake=" << stakeholder.stake << "}";
   return os;
 }
 
