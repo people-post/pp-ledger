@@ -127,6 +127,10 @@ uint64_t Validator::getCurrentEpoch() const {
   return consensus_.getCurrentEpoch();
 }
 
+uint64_t Validator::getTotalStake() const {
+  return consensus_.getTotalStake();
+}
+
 Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   auto result = ledger_.readBlock(blockId);
   if (!result) {

@@ -56,6 +56,7 @@ public:
   int64_t getSlotStartTime(uint64_t slot) const;
   int64_t getSlotEndTime(uint64_t slot) const;
   uint64_t getTotalStake() const;
+  uint64_t getStake(uint64_t stakeholderId) const;
   size_t getStakeholderCount() const;
   std::vector<Stakeholder> getStakeholders() const;
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;

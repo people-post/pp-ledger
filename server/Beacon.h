@@ -70,7 +70,6 @@ public:
   bool needsCheckpoint() const;
 
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
-  uint32_t getVersion() const { return VERSION; }
   uint64_t getLastCheckpointId() const;
   uint64_t getCurrentCheckpointId() const;
   uint64_t getTotalStake() const;
@@ -83,10 +82,8 @@ public:
 
   void addStakeholder(const Stakeholder& stakeholder);
   Roe<void> addBlock(const Ledger::ChainNode& block);
-  Roe<void> validateBlock(const Ledger::ChainNode& block) const;
   void removeStakeholder(uint64_t stakeholderId);
   void updateStake(uint64_t stakeholderId, uint64_t newStake);
-  Roe<void> evaluateCheckpoints();
 
 private:
   struct Config {
@@ -95,25 +92,14 @@ private:
     CheckpointConfig checkpoint;
   };
 
-  // Helper methods
+  Roe<void> validateBlock(const Ledger::ChainNode& block) const;
+  Roe<void> evaluateCheckpoints();
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
-  Roe<void> pruneOldData(uint64_t checkpointId);
-  
-  // Genesis and checkpoint processing
   Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config) const;
 
-  // Constants
-  static constexpr uint32_t VERSION = 1;
-
-  // Configuration
   Config config_;
-
-  // Stakeholders registry
   std::list<Stakeholder> stakeholders_;
-  mutable std::mutex stakeholdersMutex_;
-
-  // State tracking
   uint64_t currentCheckpointId_{ 0 };
   uint64_t lastCheckpointId_{ 0 };
 };

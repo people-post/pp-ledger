@@ -77,6 +77,14 @@ uint64_t Ouroboros::getEpochFromSlot(uint64_t slot) const {
   return slot / config_.slotsPerEpoch;
 }
 
+uint64_t Ouroboros::getStake(uint64_t stakeholderId) const {
+  auto it = mStakeholders_.find(stakeholderId);
+  if (it == mStakeholders_.end()) {
+    return 0;
+  }
+  return it->second;
+}
+
 uint64_t Ouroboros::getTotalStake() const {
   return std::accumulate(
       mStakeholders_.begin(), mStakeholders_.end(), uint64_t(0),

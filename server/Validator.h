@@ -81,6 +81,7 @@ public:
     uint64_t getNextBlockId() const;
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
+    uint64_t getTotalStake() const;
 
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
 

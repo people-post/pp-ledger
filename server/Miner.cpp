@@ -37,17 +37,6 @@ bool Miner::isOutOfDate(uint64_t checkpointId) const {
   return false;
 }
 
-Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
-  uint64_t ourBlockId = getNextBlockId();
-  
-  if (remoteBlockId > ourBlockId) {
-    log().debug << "Sync needed - remote ahead by " << (remoteBlockId - ourBlockId) << " blocks";
-    return true;
-  }
-
-  return false;
-}
-
 bool Miner::shouldProduceBlock() const {
   if (!initialized_) {
     return false;
@@ -78,6 +67,10 @@ bool Miner::shouldProduceBlock() const {
   }
 
   return true;
+}
+
+uint64_t Miner::getStake() const {
+  return getConsensus().getStake(config_.minerId);
 }
 
 size_t Miner::getPendingTransactionCount() const {

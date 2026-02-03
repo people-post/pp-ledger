@@ -500,18 +500,6 @@ BeaconServer::Roe<std::string> BeaconServer::handleCheckpointRequest(const nlohm
     for (uint64_t checkpointId : result.value()) {
       resp["checkpoints"].push_back(checkpointId);
     }
-    
-  } else if (action == "current") {
-    resp["currentCheckpointId"] = beacon_.getCurrentCheckpointId();
-    
-  } else if (action == "evaluate") {
-    auto result = beacon_.evaluateCheckpoints();
-    if (!result) {
-      return Error(E_REQUEST, "Failed to evaluate checkpoints: " + result.error().message);
-    }
-    
-    resp["message"] = "Checkpoints evaluated";
-    
   } else {
     return Error(E_REQUEST, "Unknown checkpoint action: " + action);
   }

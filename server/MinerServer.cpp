@@ -123,14 +123,14 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_MINER, "Failed to initialize Miner: " + minerInit.error().message);
   }
   
-  log().info << "Miner core initialized";
-  log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Stake: " << miner_.getStake();
-
   auto syncResult = syncBlocksFromBeacon();
   if (!syncResult) {
     return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + syncResult.error().message);
   }
+
+  log().info << "Miner core initialized";
+  log().info << "  Miner ID: " << config_.minerId;
+  log().info << "  Stake: " << miner_.getStake();
 
   log().info << "MinerServer initialization complete";
   return {};

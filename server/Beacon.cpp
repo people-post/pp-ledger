@@ -10,6 +10,43 @@ namespace pp {
 
 Beacon::Beacon() {}
 
+bool Beacon::needsCheckpoint() const {
+  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
+  
+  // Only evaluate if we have enough data
+  return currentSize >= config_.checkpoint.minSizeBytes;
+}
+
+uint64_t Beacon::getLastCheckpointId() const {
+  return lastCheckpointId_;
+}
+
+uint64_t Beacon::getCurrentCheckpointId() const {
+  return currentCheckpointId_;
+}
+
+uint64_t Beacon::getTotalStake() const {
+  return getConsensus().getTotalStake();
+}
+
+const std::list<Beacon::Stakeholder>& Beacon::getStakeholders() const {
+  return stakeholders_;
+}
+
+Beacon::Roe<std::vector<uint64_t>> Beacon::getCheckpoints() const {
+  // This would retrieve checkpoints from ledger
+  // For now, return empty vector
+  return std::vector<uint64_t>{};
+}
+
+Beacon::Roe<uint64_t> Beacon::getSlotLeader(uint64_t slot) const {
+  auto result = getConsensus().getSlotLeader(slot);
+  if (!result) {
+    return Error(15, "Failed to get slot leader: " + result.error().message);
+  }
+  return result.value();
+}
+
 Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
   log().debug << "Init config: " << config;
@@ -109,41 +146,29 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   return {};
 }
 
-uint64_t Beacon::getLastCheckpointId() const {
-  return lastCheckpointId_;
-}
-
-uint64_t Beacon::getCurrentCheckpointId() const {
-  return currentCheckpointId_;
-}
-
-uint64_t Beacon::getTotalStake() const {
-  return getConsensus().getTotalStake();
-}
-
-const std::list<Beacon::Stakeholder>& Beacon::getStakeholders() const {
-  std::lock_guard<std::mutex> lock(stakeholdersMutex_);
-  return stakeholders_;
+Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
+  // Call base class implementation
+  auto result = Validator::validateBlockBase(block);
+  if (!result) {
+    return Error(7, result.error().message);
+  }
+  return {};
 }
 
 void Beacon::addStakeholder(const Stakeholder& stakeholder) {
-  {
-    std::lock_guard<std::mutex> lock(stakeholdersMutex_);
+  // Check if stakeholder already exists
+  auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
+    [&stakeholder](const Stakeholder& s) { return s.id == stakeholder.id; });
     
-    // Check if stakeholder already exists
-    auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
-      [&stakeholder](const Stakeholder& s) { return s.id == stakeholder.id; });
-    
-    if (it != stakeholders_.end()) {
-      // Update existing stakeholder
-      it->endpoint = stakeholder.endpoint;
-      it->stake = stakeholder.stake;
-      log().info << "Updated stakeholder: " << stakeholder;
-    } else {
-      // Add new stakeholder
-      stakeholders_.push_back(stakeholder);
-      log().info << "Added stakeholder: " << stakeholder;
-    }
+  if (it != stakeholders_.end()) {
+    // Update existing stakeholder
+    it->endpoint = stakeholder.endpoint;
+    it->stake = stakeholder.stake;
+    log().info << "Updated stakeholder: " << stakeholder;
+  } else {
+    // Add new stakeholder
+    stakeholders_.push_back(stakeholder);
+    log().info << "Added stakeholder: " << stakeholder;
   }
 
   // Register with consensus
@@ -151,26 +176,20 @@ void Beacon::addStakeholder(const Stakeholder& stakeholder) {
 }
 
 void Beacon::removeStakeholder(uint64_t stakeholderId) {
-  {
-    std::lock_guard<std::mutex> lock(stakeholdersMutex_);
-    stakeholders_.remove_if([&stakeholderId](const Stakeholder& s) {
-      return s.id == stakeholderId;
-    });
-  }
+  stakeholders_.remove_if([&stakeholderId](const Stakeholder& s) {
+    return s.id == stakeholderId;
+  });
 
   getConsensus().removeStakeholder(stakeholderId);
   log().info << "Removed stakeholder: " << stakeholderId;
 }
 
 void Beacon::updateStake(uint64_t stakeholderId, uint64_t newStake) {
-  {
-    std::lock_guard<std::mutex> lock(stakeholdersMutex_);
-    auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
-      [&stakeholderId](const Stakeholder& s) { return s.id == stakeholderId; });
-    
-    if (it != stakeholders_.end()) {
-      it->stake = newStake;
-    }
+  auto it = std::find_if(stakeholders_.begin(), stakeholders_.end(),
+    [&stakeholderId](const Stakeholder& s) { return s.id == stakeholderId; });
+   
+  if (it != stakeholders_.end()) {
+    it->stake = newStake;
   }
 
   getConsensus().updateStake(stakeholderId, newStake);
@@ -192,15 +211,6 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
     }
   }
 
-  return {};
-}
-
-Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
-  // Call base class implementation
-  auto result = Validator::validateBlockBase(block);
-  if (!result) {
-    return Error(7, result.error().message);
-  }
   return {};
 }
 
@@ -249,27 +259,6 @@ Beacon::Roe<void> Beacon::evaluateCheckpoints() {
   return {};
 }
 
-Beacon::Roe<std::vector<uint64_t>> Beacon::getCheckpoints() const {
-  // This would retrieve checkpoints from ledger
-  // For now, return empty vector
-  return std::vector<uint64_t>{};
-}
-
-bool Beacon::needsCheckpoint() const {
-  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
-  
-  // Only evaluate if we have enough data
-  return currentSize >= config_.checkpoint.minSizeBytes;
-}
-
-Beacon::Roe<uint64_t> Beacon::getSlotLeader(uint64_t slot) const {
-  auto result = getConsensus().getSlotLeader(slot);
-  if (!result) {
-    return Error(15, "Failed to get slot leader: " + result.error().message);
-  }
-  return result.value();
-}
-
 // Private helper methods
 
 uint64_t Beacon::getBlockAge(uint64_t blockId) const {
@@ -306,26 +295,6 @@ Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
   currentCheckpointId_ = blockId;
 
   log().info << "Checkpoint created at block " << blockId;
-
-  // Optionally prune old data
-  auto pruneResult = pruneOldData(blockId);
-  if (!pruneResult) {
-    log().warning << "Failed to prune old data: " << pruneResult.error().message;
-  }
-
-  return {};
-}
-
-Beacon::Roe<void> Beacon::pruneOldData(uint64_t checkpointId) {
-  // In a full implementation, this would:
-  // 1. Identify blocks before the checkpoint
-  // 2. Extract essential state (balances, stakes) and append to checkpoint
-  // 3. Remove detailed transaction data from old blocks
-  // 4. Keep only block headers for chain continuity
-  
-  log().info << "Pruning data before checkpoint " << checkpointId;
-  
-  // For now, this is a placeholder
   return {};
 }
 

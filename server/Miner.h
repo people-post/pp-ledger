@@ -59,9 +59,8 @@ public:
     bool isOutOfDate(uint64_t checkpointId) const;
 
     bool shouldProduceBlock() const;
-    Roe<bool> needsSync(uint64_t remoteBlockId) const;
 
-    uint64_t getStake() const { return getConsensus().getTotalStake(); }
+    uint64_t getStake() const;
     size_t getPendingTransactionCount() const;
 
     // ----------------- methods -------------------------------------
@@ -72,7 +71,6 @@ public:
     Roe<void> addBlock(const Ledger::ChainNode& block);
 
     Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
-    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
@@ -84,7 +82,7 @@ private:
         BlockChainConfig chain;
     };
 
-    // Helper methods for block production
+    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
     Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
     
     Config config_;
