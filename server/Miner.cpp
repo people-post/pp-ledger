@@ -10,6 +10,80 @@ namespace pp {
 
 Miner::Miner() {}
 
+bool Miner::isSlotLeader() const {
+  if (!initialized_) {
+    return false;
+  }
+
+  uint64_t currentSlot = getCurrentSlot();
+  return isSlotLeader(currentSlot);
+}
+
+bool Miner::isSlotLeader(uint64_t slot) const {
+  return getConsensus().isSlotLeader(slot, config_.minerId);
+}
+
+bool Miner::isOutOfDate(uint64_t checkpointId) const {
+  uint64_t ourBlockId = getNextBlockId();
+  
+  // If checkpoint is significantly ahead of us (e.g., more than 1000 blocks),
+  // we're out of date and should reinit from checkpoint
+  if (checkpointId > ourBlockId + 1000) {
+    log().info << "Out of date - checkpoint at " << checkpointId 
+               << " vs our block " << ourBlockId;
+    return true;
+  }
+
+  return false;
+}
+
+Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
+  uint64_t ourBlockId = getNextBlockId();
+  
+  if (remoteBlockId > ourBlockId) {
+    log().debug << "Sync needed - remote ahead by " << (remoteBlockId - ourBlockId) << " blocks";
+    return true;
+  }
+
+  return false;
+}
+
+bool Miner::shouldProduceBlock() const {
+  if (!initialized_) {
+    return false;
+  }
+
+  if (!isSlotLeader()) {
+    return false;
+  }
+
+  uint64_t currentSlot = getCurrentSlot();
+
+  // Only produce at end of current slot (within last second of slot)
+  int64_t nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  int64_t beaconTime = nowSec + getConsensus().getConfig().timeOffset;
+  int64_t slotEndTime = getConsensus().getSlotEndTime(currentSlot);
+  if (beaconTime < slotEndTime - 1) {
+    return false;  // not yet at end of slot
+  }
+
+  // At most one block per slot
+  if (lastProducedSlot_ == currentSlot) {
+    return false;
+  }
+
+  if (getPendingTransactionCount() == 0) {
+    return false;
+  }
+
+  return true;
+}
+
+size_t Miner::getPendingTransactionCount() const {
+  return pendingTransactions_.size();
+}
+
 Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (initialized_) {
     return Error(1, "Miner already initialized");
@@ -74,45 +148,19 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   return {};
 }
 
-bool Miner::isSlotLeader() const {
-  if (!initialized_) {
-    return false;
+Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
+  // Call base class implementation
+  auto result = Validator::validateBlockBase(block);
+  if (!result) {
+    return Error(13, result.error().message);
   }
-
-  uint64_t currentSlot = getCurrentSlot();
-  return isSlotLeader(currentSlot);
+  return {};
 }
 
-bool Miner::shouldProduceBlock() const {
-  if (!initialized_) {
-    return false;
-  }
-
-  if (!isSlotLeader()) {
-    return false;
-  }
-
-  uint64_t currentSlot = getCurrentSlot();
-
-  // Only produce at end of current slot (within last second of slot)
-  int64_t nowSec = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-  int64_t beaconTime = nowSec + getConsensus().getConfig().timeOffset;
-  int64_t slotEndTime = getConsensus().getSlotEndTime(currentSlot);
-  if (beaconTime < slotEndTime - 1) {
-    return false;  // not yet at end of slot
-  }
-
-  // At most one block per slot
-  if (lastProducedSlot_ == currentSlot) {
-    return false;
-  }
-
-  if (getPendingTransactionCount() == 0) {
-    return false;
-  }
-
-  return true;
+Miner::Roe<void> Miner::registerStakeholder(uint64_t stakeholderId, uint64_t stake) {
+  // TODO: Verify stake is valid
+  getConsensus().registerStakeholder(stakeholderId, stake);
+  return {};
 }
 
 Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
@@ -157,7 +205,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   log().info << "  Transactions: " << pendingTransactions_.size();
   log().info << "  Hash: " << block->hash;
 
-  clearTransactionPool();
+  pendingTransactions_.clear();
 
   return block;
 }
@@ -168,26 +216,9 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
     return Error(9, result.error().message);
   }
 
-  pendingTransactions_.push(tx);
+  pendingTransactions_.push_back(tx);
   
   return {};
-}
-
-size_t Miner::getPendingTransactionCount() const {
-  return pendingTransactions_.size();
-}
-
-Miner::Roe<void> Miner::registerStakeholder(uint64_t stakeholderId, uint64_t stake) {
-  // TODO: Verify stake is valid
-  getConsensus().registerStakeholder(stakeholderId, stake);
-  return {};
-}
-
-void Miner::clearTransactionPool() {
-  while (!pendingTransactions_.empty()) {
-    pendingTransactions_.pop();
-  }
-  log().info << "Transaction pool cleared";
 }
 
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
@@ -200,44 +231,6 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
   }
 
   return {};
-}
-
-Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
-  // Call base class implementation
-  auto result = Validator::validateBlockBase(block);
-  if (!result) {
-    return Error(13, result.error().message);
-  }
-  return {};
-}
-
-Miner::Roe<bool> Miner::needsSync(uint64_t remoteBlockId) const {
-  uint64_t ourBlockId = getNextBlockId();
-  
-  if (remoteBlockId > ourBlockId) {
-    log().debug << "Sync needed - remote ahead by " << (remoteBlockId - ourBlockId) << " blocks";
-    return true;
-  }
-
-  return false;
-}
-
-bool Miner::isOutOfDate(uint64_t checkpointId) const {
-  uint64_t ourBlockId = getNextBlockId();
-  
-  // If checkpoint is significantly ahead of us (e.g., more than 1000 blocks),
-  // we're out of date and should reinit from checkpoint
-  if (checkpointId > ourBlockId + 1000) {
-    log().info << "Out of date - checkpoint at " << checkpointId 
-               << " vs our block " << ourBlockId;
-    return true;
-  }
-
-  return false;
-}
-
-bool Miner::isSlotLeader(uint64_t slot) const {
-  return getConsensus().isSlotLeader(slot, config_.minerId);
 }
 
 // Private helper methods
@@ -259,7 +252,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
   std::string previousHash = latestBlock.hash;
 
   // Select transactions and convert to SignedData
-  auto transactions = selectTransactionsForBlock();
+  auto transactions = pendingTransactions_;
 
   // Create the block
   auto block = std::make_shared<Ledger::ChainNode>();
@@ -285,30 +278,6 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
               << " with " << transactions.size() << " transactions";
 
   return block;
-}
-
-std::vector<Ledger::Transaction> Miner::selectTransactionsForBlock() {
-  std::vector<Ledger::Transaction> selected;
-  /*
-  // TODO: Revaluate later
-  size_t maxTxs = std::min(config_.maxTransactionsPerBlock, pendingTransactions_.size());
-
-  for (size_t i = 0; i < maxTxs && !pendingTransactions_.empty(); ++i) {
-    selected.push_back(pendingTransactions_.front());
-    pendingTransactions_.pop();
-  }
-  */
-  return selected;
-}
-
-std::string Miner::serializeTransactions(const std::vector<Ledger::Transaction>& txs) {
-  // Simple serialization - in production use proper binary format
-  std::ostringstream oss;
-  oss << txs.size();
-  for (const auto& tx : txs) {
-    oss << ";" << tx.fromWalletId << "," << tx.toWalletId << "," << tx.amount;
-  }
-  return oss.str();
 }
 
 } // namespace pp

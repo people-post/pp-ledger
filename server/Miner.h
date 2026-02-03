@@ -73,7 +73,6 @@ public:
 
     Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-    void clearTransactionPool();
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
@@ -87,12 +86,10 @@ private:
 
     // Helper methods for block production
     Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
-    std::vector<Ledger::Transaction> selectTransactionsForBlock();
-    std::string serializeTransactions(const std::vector<Ledger::Transaction>& txs);
     
     Config config_;
     AccountBuffer bufferBank_;
-    std::queue<Ledger::Transaction> pendingTransactions_;
+    std::vector<Ledger::Transaction> pendingTransactions_;
     bool initialized_{ false };
     uint64_t lastProducedBlockId_{ 0 };
     uint64_t lastProducedSlot_{ 0 };  // slot we last produced a block for (at most one per slot)
