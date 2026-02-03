@@ -5,6 +5,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 namespace pp {
@@ -22,7 +23,7 @@ public:
   struct Account {
     bool isNegativeBalanceAllowed{ false };
     uint64_t id{ 0 };
-    std::string publicKey;
+    std::vector<std::string> publicKeys;
     int64_t balance{ 0 };
   };
 

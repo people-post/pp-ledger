@@ -34,10 +34,10 @@ public:
   template <typename T>
   struct SignedData {
     T obj;
-    std::string signature;
+    std::vector<std::string> signatures;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & obj & signature;
+      ar & obj & signatures;
     }
   };
 

@@ -182,7 +182,7 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (checkpointTx.obj.amount != 0) {
     return Error(8, "Genesis checkpoint transaction must have amount 0");
   }
-  if (checkpointTx.signature != "genesis") {
+  if (checkpointTx.signatures.size() != 1 || checkpointTx.signatures[0] != "genesis") {
     return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
   }
   
@@ -197,7 +197,7 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (initialTx.obj.amount != INITIAL_TOKEN_SUPPLY) {
     return Error(8, "Genesis initial transaction must have amount " + std::to_string(INITIAL_TOKEN_SUPPLY));
   }
-  if (initialTx.signature != "genesis") {
+  if (initialTx.signatures.size() != 1 || initialTx.signatures[0] != "genesis") {
     return Error(8, "Genesis initial transaction must have signature \"genesis\"");
   }
   
@@ -305,7 +305,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
       newAccount.id = tx.toWalletId;
       newAccount.balance = 0;
       newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
-      newAccount.publicKey = "";
+      newAccount.publicKeys = {};
       auto addResult = bufferBank.add(newAccount);
       if (!addResult) {
         return Error(24, "Failed to create destination account in buffer: " + addResult.error().message);
@@ -342,7 +342,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
     if (!validateResult) {
       return Error(17, "Block validation failed for block " + std::to_string(blockId) + ": " + validateResult.error().message);
     }
-    
+
     // Process the block
     auto processResult = processBlock(block, blockId, isStrictMode);
     if (!processResult) {
@@ -438,7 +438,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   account.id = WID_GENESIS;
   account.balance = checkpoint.genesis.balance;
   account.isNegativeBalanceAllowed = true;
-  account.publicKey = checkpoint.genesis.publicKey;
+  account.publicKeys = checkpoint.genesis.publicKeys;
   auto addResult = bank_.add(account);
   if (!addResult) {
     return Error(26, "Failed to add system account to buffer: " + addResult.error().message);
@@ -452,7 +452,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   log().info << "  Max pending transactions: " << checkpoint.config.maxPendingTransactions;
   log().info << "  Max transactions per block: " << checkpoint.config.maxTransactionsPerBlock;
   log().info << "  Genesis balance: " << checkpoint.genesis.balance;
-  log().info << "  Genesis public key: " << checkpoint.genesis.publicKey;
+  log().info << "  Genesis public keys: " << utl::join(checkpoint.genesis.publicKeys, ", ");
   log().info << "  Genesis meta: " << checkpoint.genesis.meta;
 
   return {};
@@ -484,7 +484,7 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
     newAccount.id = tx.toWalletId;
     newAccount.balance = 0;
     newAccount.isNegativeBalanceAllowed = (tx.toWalletId == WID_GENESIS);
-    newAccount.publicKey = "";
+    newAccount.publicKeys = {};
     auto addResult = bank_.add(newAccount);
     if (!addResult) {
       return Error(21, "Failed to create destination account: " + addResult.error().message);

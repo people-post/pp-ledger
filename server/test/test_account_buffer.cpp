@@ -12,7 +12,7 @@ protected:
                                        bool isNegativeBalanceAllowed = false) {
         AccountBuffer::Account a;
         a.id = id;
-        a.publicKey = "pk-" + std::to_string(id);
+        a.publicKeys = {"pk-" + std::to_string(id)};
         a.balance = balance;
         a.isNegativeBalanceAllowed = isNegativeBalanceAllowed;
         return a;

@@ -149,7 +149,7 @@ Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   }
   return {};
 }
-  
+
 Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
@@ -254,7 +254,7 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
   for (const auto& tx : transactions) {
     Ledger::SignedData<Ledger::Transaction> signedTx;
     signedTx.obj = tx;
-    signedTx.signature = ""; // Signature will be set when transaction is signed
+    signedTx.signatures = {}; // Signatures will be set when transaction is signed
     block->block.signedTxes.push_back(signedTx);
   }
 

@@ -69,6 +69,14 @@ bool parsePort(const std::string &str, uint16_t &port);
 bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &port);
 
 /**
+ * Join a vector of strings with a delimiter
+ * @param strings Vector of strings to join
+ * @param delimiter Delimiter to insert between strings
+ * @return Joined string
+ */
+std::string join(const std::vector<std::string> &strings, const std::string &delimiter);
+
+/**
  * Load and parse a JSON configuration file
  * @param configPath Path to the JSON configuration file
  * @param config Output parameter for the parsed JSON object

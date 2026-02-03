@@ -259,7 +259,7 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
   systemCheckpoint.genesis.balance = 0;
-  systemCheckpoint.genesis.publicKey = "";
+  systemCheckpoint.genesis.publicKeys = {};
   systemCheckpoint.genesis.meta = "";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint
@@ -290,7 +290,7 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Add signed transaction (no signature for genesis)
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj = checkpointTx;
-  signedTx.signature = "genesis";
+  signedTx.signatures = {"genesis"};
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   signedTx.obj = initialTx;

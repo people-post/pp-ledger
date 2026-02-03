@@ -48,11 +48,11 @@ public:
 
     struct AccountInfo {
       int64_t balance{ 0 };
-      std::string publicKey;
+      std::vector<std::string> publicKeys;
       std::string meta;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & balance & publicKey & meta;
+        ar & balance & publicKeys & meta;
       }
     };
 
