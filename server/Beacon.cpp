@@ -121,7 +121,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
     return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
 
-  auto loadResult = loadFromLedger(0);
+  auto loadResult = loadFromLedger(0, AccountBuffer::ID_GENESIS);
   if (!loadResult) {
     return Error(3, "Failed to load data from ledger: " + loadResult.error().message);
   }
@@ -258,9 +258,15 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
 
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
-  systemCheckpoint.genesis.mBalances[WID_GENESIS] = 0; // Native token (ID WID_GENESIS) with zero balance
+  systemCheckpoint.genesis.balance = 0; // Native token (ID ID_GENESIS) with zero balance
   systemCheckpoint.genesis.publicKeys = {};
-  systemCheckpoint.genesis.meta = "";
+  systemCheckpoint.genesis.meta = "Native token genesis wallet";
+  systemCheckpoint.fee.balance = 0; // Fee wallet (ID ID_FEE) with zero balance
+  systemCheckpoint.fee.publicKeys = {};
+  systemCheckpoint.fee.meta = "Wallet for transaction fees";
+  systemCheckpoint.reserve.balance = 0; // Reserve wallet (ID ID_RESERVE) with zero balance
+  systemCheckpoint.reserve.publicKeys = {};
+  systemCheckpoint.reserve.meta = "Native token reserve wallet";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint
   Ledger::ChainNode genesisBlock;
@@ -274,28 +280,32 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   // Create checkpoint transaction with SystemCheckpoint
   Ledger::Transaction checkpointTx;
   checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.tokenId = WID_GENESIS; // Native token
-  checkpointTx.fromWalletId = WID_GENESIS;     // genesis wallet ID
-  checkpointTx.toWalletId = WID_GENESIS;       // genesis wallet ID
+  checkpointTx.tokenId = AccountBuffer::ID_GENESIS; // Native token
+  checkpointTx.fromWalletId = AccountBuffer::ID_GENESIS;     // genesis wallet ID
+  checkpointTx.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
   checkpointTx.amount = 0;
+  checkpointTx.fee = 0;
   // Serialize SystemCheckpoint to transaction metadata
   checkpointTx.meta = systemCheckpoint.ltsToString();
 
-  // Create initial transaction to create native token reserve wallet
-  Ledger::Transaction initialTx;
-  initialTx.type = Ledger::Transaction::T_DEFAULT;
-  initialTx.tokenId = WID_GENESIS; // Native token
-  initialTx.fromWalletId = WID_GENESIS;    // genesis wallet ID
-  initialTx.toWalletId = WID_RESERVE;      // token reserve wallet ID
-  initialTx.amount = INITIAL_TOKEN_SUPPLY;
-  
+  // Initial transaction to fund reserve wallet and kickstart staking
+  Ledger::Transaction minerTx;
+  minerTx.type = Ledger::Transaction::T_DEFAULT;
+  minerTx.tokenId = AccountBuffer::ID_GENESIS;             // Native token
+  minerTx.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
+  minerTx.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
+  minerTx.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
+  minerTx.fee = config.minFeePerTransaction; // minimal fee
+  minerTx.meta = "Initial reserve funding for staking";
+
   // Add signed transaction (no signature for genesis)
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj = checkpointTx;
   signedTx.signatures = {"genesis"};
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-  signedTx.obj = initialTx;
+  signedTx.obj = minerTx;
+  signedTx.signatures = {"genesis"};
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   // Calculate hash for genesis block

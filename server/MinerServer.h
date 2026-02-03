@@ -29,16 +29,6 @@ public:
   static constexpr const int32_t E_MINER = -3;
   static constexpr const int32_t E_REQUEST = -4;
 
-  struct RunFileConfig {
-    uint64_t minerId{ 0 };
-    std::string host{ Client::DEFAULT_HOST };
-    uint16_t port{ Client::DEFAULT_MINER_PORT };
-    std::vector<std::string> beacons;
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
   MinerServer();
   ~MinerServer();
 
@@ -77,14 +67,28 @@ private:
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
+  struct RunFileConfig {
+    uint64_t minerId{ 0 };
+    uint64_t tokenId{ AccountBuffer::ID_GENESIS };
+    std::string privateKey;  // hex-encoded
+    std::string host{ Client::DEFAULT_HOST };
+    uint16_t port{ Client::DEFAULT_MINER_PORT };
+    std::vector<std::string> beacons;
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
+
   struct NetworkConfig {
     network::TcpEndpoint endpoint;
     std::vector<std::string> beacons;
   };
 
   struct Config {
-    NetworkConfig network;
     uint64_t minerId{ 0 };
+    uint64_t tokenId{ AccountBuffer::ID_GENESIS };
+    std::string privateKey;  // hex-encoded
+    NetworkConfig network;
   };
 
   Roe<Client::BeaconState> connectToBeacon();

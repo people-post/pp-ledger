@@ -25,6 +25,7 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["slotsPerEpoch"] = slotsPerEpoch;
   j["maxPendingTransactions"] = maxPendingTransactions;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
+  j["minFeePerTransaction"] = minFeePerTransaction;
   return j;
 }
 
@@ -85,6 +86,16 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
       }
     } else {
       maxTransactionsPerBlock = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
+    }
+
+    // Load and validate minFeePerTransaction
+    if (jd.contains("minFeePerTransaction")) {
+      if (!jd["minFeePerTransaction"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'minFeePerTransaction' must be a positive number");
+      }
+      minFeePerTransaction = jd["minFeePerTransaction"].get<uint64_t>();
+    } else {
+      minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
     }
 
     return {};

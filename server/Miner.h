@@ -48,6 +48,8 @@ public:
         uint64_t minerId{ 0 };
         uint64_t startingBlockId{ 0 };
         uint64_t checkpointId{ 0 };
+        uint64_t tokenId{ AccountBuffer::ID_GENESIS };
+        std::string privateKey; // hex-encoded private key
     };
 
     Miner();
@@ -77,6 +79,8 @@ private:
     struct Config {
         std::string workDir;
         uint64_t minerId{ 0 };
+        uint64_t tokenId{ AccountBuffer::ID_GENESIS };
+        std::string privateKey;  // hex-encoded
         uint64_t checkpointId{ 0 };
         BlockChainConfig chain;
     };

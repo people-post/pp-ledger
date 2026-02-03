@@ -5,6 +5,7 @@
 #include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../lib/Module.h"
+#include "../lib/Utilities.h"
 #include "../lib/ResultOrError.hpp"
 
 #include <string>
@@ -26,14 +27,6 @@ namespace pp {
  */
 class Validator : public Module {
 public:
-    constexpr static uint64_t WID_GENESIS = 0;
-    constexpr static uint64_t WID_RESERVE = 1;
-    constexpr static uint64_t WID_FEE = 2;
-
-    constexpr static uint64_t WID_FIRST_USER = 1 << 20;
-
-    constexpr static uint64_t INITIAL_TOKEN_SUPPLY = 1ULL << 30; // 1 billion tokens
-
     // BlockChainConfig - Configuration for the block chain
     // This is used to restore the block chain from a checkpoint transaction
     struct BlockChainConfig {
@@ -47,6 +40,21 @@ public:
       template <typename Archive> void serialize(Archive &ar) {
         ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock & minFeePerTransaction;
       }
+    };
+
+    struct SingleTokenAccountInfo {
+      constexpr static const uint32_t VERSION = 1;
+
+      int64_t balance{ 0 };
+      std::vector<std::string> publicKeys;
+      std::string meta;
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & balance & publicKeys & meta;
+      }
+
+      std::string ltsToString() const;
+      bool ltsFromString(const std::string& str);
     };
 
     struct AccountInfo {
@@ -68,10 +76,12 @@ public:
       constexpr static const uint32_t VERSION = 1;
 
       BlockChainConfig config;
-      AccountInfo genesis;
+      SingleTokenAccountInfo genesis;
+      SingleTokenAccountInfo fee;
+      SingleTokenAccountInfo reserve;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & config & genesis;
+        ar & config & genesis & fee & reserve;
       }
 
       std::string ltsToString() const;
@@ -118,7 +128,7 @@ protected:
     Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
 
-    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
+    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId, uint64_t tokenId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode);
     Roe<void> processTransaction(const Ledger::Transaction& tx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
@@ -131,7 +141,12 @@ private:
     consensus::Ouroboros consensus_;
     Ledger ledger_;
     AccountBuffer bank_;
+    BlockChainConfig chainConfig_;
 };
+inline std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
+  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
+  return os;
+}
 
 inline std::ostream& operator<<(std::ostream& os, const Validator::AccountInfo& info) {
   os << "AccountInfo{balances: {";
@@ -141,14 +156,7 @@ inline std::ostream& operator<<(std::ostream& os, const Validator::AccountInfo& 
     os << tokenId << ": " << balance;
     first = false;
   }
-  os << "}, publicKeys: [";
-  first = true;
-  for (const auto& key : info.publicKeys) {
-    if (!first) os << ", ";
-    os << "\"" << key << "\"";
-    first = false;
-  }
-  os << "], meta: \"" << info.meta << "\"}";
+  os << "}, publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
   return os;
 }
 
@@ -157,7 +165,8 @@ inline std::ostream& operator<<(std::ostream& os, const Validator::BlockChainCon
      << "slotDuration=" << config.slotDuration << ", "
      << "slotsPerEpoch=" << config.slotsPerEpoch << ", "
      << "maxPendingTransactions=" << config.maxPendingTransactions << ", "
-     << "maxTransactionsPerBlock=" << config.maxTransactionsPerBlock << "}";
+     << "maxTransactionsPerBlock=" << config.maxTransactionsPerBlock << ", "
+     << "minFeePerTransaction=" << config.minFeePerTransaction << "}";
   return os;
 }
 

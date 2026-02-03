@@ -22,6 +22,8 @@ MinerServer::MinerServer() {
 nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
   nlohmann::json j;
   j["minerId"] = minerId;
+  j["tokenId"] = tokenId;
+  j["privateKey"] = privateKey;
   j["host"] = host;
   j["port"] = port;
   j["beacons"] = beacons;
@@ -43,6 +45,28 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
       return Error(E_CONFIG, "Field 'minerId' must be a non-negative number");
     }
     minerId = jd["minerId"].get<uint64_t>();
+
+    // Load and validate tokenId (optional, defaults to ID_GENESIS)
+    if (jd.contains("tokenId")) {
+      if (!jd["tokenId"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'tokenId' must be a non-negative number");
+      }
+      tokenId = jd["tokenId"].get<uint64_t>();
+    } else {
+      tokenId = AccountBuffer::ID_GENESIS;
+    }
+
+    // Load and validate privateKey (required)
+    if (!jd.contains("privateKey")) {
+      return Error(E_CONFIG, "Field 'privateKey' is required");
+    }
+    if (!jd["privateKey"].is_string()) {
+      return Error(E_CONFIG, "Field 'privateKey' must be a string");
+    }
+    privateKey = jd["privateKey"].get<std::string>();
+    if (privateKey.empty()) {
+      return Error(E_CONFIG, "Field 'privateKey' cannot be empty");
+    }
 
     // Load and validate host
     if (jd.contains("host")) {
@@ -149,7 +173,6 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
-  runFileConfig.beacons = {}; // Empty by default, user must configure
   
   if (!std::filesystem::exists(configPath)) {
     log().info << "No " << FILE_CONFIG << " found, creating with default values";
@@ -182,6 +205,8 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.minerId = runFileConfig.minerId;
+  config_.tokenId = runFileConfig.tokenId;
+  config_.privateKey = runFileConfig.privateKey;
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
   config_.network.beacons = runFileConfig.beacons;
@@ -218,6 +243,8 @@ Service::Roe<void> MinerServer::onStart() {
   
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
+  minerConfig.tokenId = config_.tokenId;
+  minerConfig.privateKey = config_.privateKey;
   minerConfig.timeOffset = state.currentTimestamp - utl::getCurrentTime();
   minerConfig.workDir = minerDataDir.string();
   minerConfig.startingBlockId = state.lastCheckpointId;

@@ -34,27 +34,6 @@ public:
   static constexpr const int32_t E_BEACON = -3;
   static constexpr const int32_t E_REQUEST = -4;
 
-  struct InitFileConfig {
-    uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
-    uint64_t slotsPerEpoch{ DEFAULT_SLOTS_PER_EPOCH };
-    uint64_t maxPendingTransactions{ DEFAULT_MAX_PENDING_TRANSACTIONS };
-    uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
-  struct RunFileConfig {
-    std::string host{ Client::DEFAULT_HOST };
-    uint16_t port{ Client::DEFAULT_BEACON_PORT };
-    std::vector<std::string> beacons;
-    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
-    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
   BeaconServer();
   ~BeaconServer() = default;
 
@@ -117,10 +96,33 @@ private:
   constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = 24 * 3600; // 7 days per epoch
   constexpr static const uint64_t DEFAULT_MAX_PENDING_TRANSACTIONS = 10000;
   constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = 100;
+  constexpr static const uint64_t DEFAULT_MIN_FEE_PER_TRANSACTION = 1;
 
   // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_SIZE = 1024ULL * 1024 * 1024; // 1GB
   constexpr static const uint64_t DEFAULT_CHECKPOINT_AGE = 365 * 24 * 3600; // 1 year
+
+  struct InitFileConfig {
+    uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
+    uint64_t slotsPerEpoch{ DEFAULT_SLOTS_PER_EPOCH };
+    uint64_t maxPendingTransactions{ DEFAULT_MAX_PENDING_TRANSACTIONS };
+    uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
+    uint64_t minFeePerTransaction{ DEFAULT_MIN_FEE_PER_TRANSACTION };
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
+
+  struct RunFileConfig {
+    std::string host{ Client::DEFAULT_HOST };
+    uint16_t port{ Client::DEFAULT_BEACON_PORT };
+    std::vector<std::string> beacons;
+    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
+    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
+
+    nlohmann::json ltsToJson();
+    Roe<void> ltsFromJson(const nlohmann::json& jd);
+  };
 
   struct QueuedRequest {
     std::string request;

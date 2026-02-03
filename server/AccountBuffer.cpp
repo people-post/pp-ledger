@@ -26,8 +26,8 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
   if (it == mAccounts_.end()) {
     return 0;
   }
-  auto balanceIt = it->second.balances.find(tokenId);
-  if (balanceIt == it->second.balances.end()) {
+  auto balanceIt = it->second.mBalances.find(tokenId);
+  if (balanceIt == it->second.mBalances.end()) {
     return 0;
   }
   return balanceIt->second;
@@ -62,15 +62,15 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint6
   }
   
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.balances.find(tokenId);
-  if (balanceIt != it->second.balances.end()) {
+  auto balanceIt = it->second.mBalances.find(tokenId);
+  if (balanceIt != it->second.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
   
   if (currentBalance > INT64_MAX - amount) {
     return Error(11, "Deposit would cause balance overflow");
   }
-  it->second.balances[tokenId] = currentBalance + amount;
+  it->second.mBalances[tokenId] = currentBalance + amount;
   return {};
 }
 
@@ -85,8 +85,8 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   }
   
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.balances.find(tokenId);
-  if (balanceIt != it->second.balances.end()) {
+  auto balanceIt = it->second.mBalances.find(tokenId);
+  if (balanceIt != it->second.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
   
@@ -96,7 +96,7 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   if (currentBalance < INT64_MIN + amount) {
     return Error(14, "Withdraw would cause balance underflow");
   }
-  it->second.balances[tokenId] = currentBalance - amount;
+  it->second.mBalances[tokenId] = currentBalance - amount;
   return {};
 }
 
@@ -116,14 +116,14 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   int64_t fromBalance = 0;
-  auto fromBalanceIt = fromIt->second.balances.find(tokenId);
-  if (fromBalanceIt != fromIt->second.balances.end()) {
+  auto fromBalanceIt = fromIt->second.mBalances.find(tokenId);
+  if (fromBalanceIt != fromIt->second.mBalances.end()) {
     fromBalance = fromBalanceIt->second;
   }
   
   int64_t toBalance = 0;
-  auto toBalanceIt = toIt->second.balances.find(tokenId);
-  if (toBalanceIt != toIt->second.balances.end()) {
+  auto toBalanceIt = toIt->second.mBalances.find(tokenId);
+  if (toBalanceIt != toIt->second.mBalances.end()) {
     toBalance = toBalanceIt->second;
   }
 
@@ -138,8 +138,8 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   // Perform the transfer
-  fromIt->second.balances[tokenId] = fromBalance - amount;
-  toIt->second.balances[tokenId] = toBalance + amount;
+  fromIt->second.mBalances[tokenId] = fromBalance - amount;
+  toIt->second.mBalances[tokenId] = toBalance + amount;
 
   return {};
 }
