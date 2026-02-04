@@ -733,13 +733,16 @@ nlohmann::json BeaconServer::buildStateResponse() const {
   int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::system_clock::now().time_since_epoch()).count();
 
-  nlohmann::json resp = {{"lastCheckpointId", beacon_.getLastCheckpointId()},
-          {"currentCheckpointId", beacon_.getCurrentCheckpointId()},
-          {"nextBlockId", beacon_.getNextBlockId()},
-          {"currentSlot", beacon_.getCurrentSlot()},
-          {"currentEpoch", beacon_.getCurrentEpoch()},
-          {"currentTimestamp", currentTimestamp}};
-  return resp;
+  Client::BeaconState state;
+  state.currentTimestamp = currentTimestamp;
+  state.lastCheckpointId = beacon_.getLastCheckpointId();
+  state.checkpointId = beacon_.getCurrentCheckpointId();
+  state.nextBlockId = beacon_.getNextBlockId();
+  state.currentSlot = beacon_.getCurrentSlot();
+  state.currentEpoch = beacon_.getCurrentEpoch();
+  state.nStakeholders = beacon_.getStakeholders().size();
+  
+  return state.ltsToJson();
 }
 
 std::string BeaconServer::binaryResponseOk(const std::string& payload) const {

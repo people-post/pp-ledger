@@ -87,17 +87,25 @@ public:
     uint64_t currentSlot{ 0 };
     uint64_t currentEpoch{ 0 };
     uint64_t pendingTransactions{ 0 };
+    uint64_t nStakeholders{ 0 };
     bool isSlotLeader{ false };
+
+    nlohmann::json ltsToJson() const;
+    Roe<bool> ltsFromJson(const nlohmann::json &json);
   };
 
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
+    int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
     uint64_t lastCheckpointId{ 0 };
     uint64_t checkpointId{ 0 };
     uint64_t nextBlockId { 0 };
     uint64_t currentSlot { 0 };
     uint64_t currentEpoch { 0 };
-    int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
+    uint64_t nStakeholders { 0 };
+
+    nlohmann::json ltsToJson() const;
+    Roe<bool> ltsFromJson(const nlohmann::json &json);
   };
 
   Client();

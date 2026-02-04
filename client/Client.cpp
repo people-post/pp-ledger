@@ -157,12 +157,10 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpE
 
   const nlohmann::json &response = result.value();
   BeaconState state;
-  state.lastCheckpointId = response["lastCheckpointId"].get<uint64_t>();
-  state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
-  state.nextBlockId = response["nextBlockId"].get<uint64_t>();
-  state.currentSlot = response["currentSlot"].get<uint64_t>();
-  state.currentEpoch = response["currentEpoch"].get<uint64_t>();
-  state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
+  auto parseResult = state.ltsFromJson(response);
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
 
   return state;
 }
@@ -179,21 +177,11 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 
   const nlohmann::json &response = result.value();
 
-  if (!response.contains("currentCheckpointId") || !response.contains("nextBlockId") ||
-      !response.contains("currentSlot") || !response.contains("currentEpoch") ||
-      !response.contains("currentTimestamp")) {
-    return Error(E_INVALID_RESPONSE,
-                 "Response missing 'currentCheckpointId', 'nextBlockId', "
-                 "'currentSlot', 'currentEpoch', 'currentTimestamp'");
-  }
-
   BeaconState state;
-  state.lastCheckpointId = response["lastCheckpointId"].get<uint64_t>();
-  state.checkpointId = response["currentCheckpointId"].get<uint64_t>();
-  state.nextBlockId = response["nextBlockId"].get<uint64_t>();
-  state.currentSlot = response["currentSlot"].get<uint64_t>();
-  state.currentEpoch = response["currentEpoch"].get<uint64_t>();
-  state.currentTimestamp = response["currentTimestamp"].get<int64_t>();
+  auto parseResult = state.ltsFromJson(response);
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
 
   return state;
 }
@@ -302,15 +290,82 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   const nlohmann::json &response = result.value();
 
   MinerStatus status;
-  status.minerId = response.value("minerId", 0);
-  status.stake = response.value("stake", 0);
-  status.nextBlockId = response.value("nextBlockId", 0);
-  status.currentSlot = response.value("currentSlot", 0);
-  status.currentEpoch = response.value("currentEpoch", 0);
-  status.pendingTransactions = response.value("pendingTransactions", 0);
-  status.isSlotLeader = response.value("isSlotLeader", false);
+  auto parseResult = status.ltsFromJson(response);
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
 
   return status;
+}
+
+// MinerStatus serialization
+
+nlohmann::json Client::MinerStatus::ltsToJson() const {
+  nlohmann::json j;
+  j["minerId"] = minerId;
+  j["stake"] = stake;
+  j["nextBlockId"] = nextBlockId;
+  j["currentSlot"] = currentSlot;
+  j["currentEpoch"] = currentEpoch;
+  j["pendingTransactions"] = pendingTransactions;
+  j["nStakeholders"] = nStakeholders;
+  j["isSlotLeader"] = isSlotLeader;
+  return j;
+}
+
+Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
+  try {
+    if (!json.is_object()) {
+      return Error(E_PARSE_ERROR, "MinerStatus JSON must be an object");
+    }
+
+    minerId = json.value("minerId", uint64_t(0));
+    stake = json.value("stake", uint64_t(0));
+    nextBlockId = json.value("nextBlockId", uint64_t(0));
+    currentSlot = json.value("currentSlot", uint64_t(0));
+    currentEpoch = json.value("currentEpoch", uint64_t(0));
+    pendingTransactions = json.value("pendingTransactions", uint64_t(0));
+    nStakeholders = json.value("nStakeholders", uint64_t(0));
+    isSlotLeader = json.value("isSlotLeader", false);
+
+    return true;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
+  }
+}
+
+// BeaconState serialization
+
+nlohmann::json Client::BeaconState::ltsToJson() const {
+  nlohmann::json j;
+  j["currentTimestamp"] = currentTimestamp;
+  j["lastCheckpointId"] = lastCheckpointId;
+  j["checkpointId"] = checkpointId;
+  j["nextBlockId"] = nextBlockId;
+  j["currentSlot"] = currentSlot;
+  j["currentEpoch"] = currentEpoch;
+  j["nStakeholders"] = nStakeholders;
+  return j;
+}
+
+Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
+  try {
+    if (!json.is_object()) {
+      return Error(E_PARSE_ERROR, "BeaconState JSON must be an object");
+    }
+
+    currentTimestamp = json.value("currentTimestamp", int64_t(0));
+    lastCheckpointId = json.value("lastCheckpointId", uint64_t(0));
+    checkpointId = json.value("checkpointId", uint64_t(0));
+    nextBlockId = json.value("nextBlockId", uint64_t(0));
+    currentSlot = json.value("currentSlot", uint64_t(0));
+    currentEpoch = json.value("currentEpoch", uint64_t(0));
+    nStakeholders = json.value("nStakeholders", uint64_t(0));
+
+    return true;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+  }
 }
 
 } // namespace pp

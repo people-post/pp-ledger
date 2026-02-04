@@ -515,17 +515,18 @@ MinerServer::Roe<std::string> MinerServer::handleConsensusRequest(const nlohmann
 }
 
 MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
-  nlohmann::json resp;
+  Client::MinerStatus status;
   
-  resp["minerId"] = config_.minerId;
-  resp["stake"] = miner_.getStake();
-  resp["nextBlockId"] = miner_.getNextBlockId();
-  resp["currentSlot"] = miner_.getCurrentSlot();
-  resp["currentEpoch"] = miner_.getCurrentEpoch();
-  resp["pendingTransactions"] = miner_.getPendingTransactionCount();
-  resp["isSlotLeader"] = miner_.isSlotLeader();
+  status.minerId = config_.minerId;
+  status.stake = miner_.getStake();
+  status.nextBlockId = miner_.getNextBlockId();
+  status.currentSlot = miner_.getCurrentSlot();
+  status.currentEpoch = miner_.getCurrentEpoch();
+  status.pendingTransactions = miner_.getPendingTransactionCount();
+  status.nStakeholders = miner_.getStakeholders().size();
+  status.isSlotLeader = miner_.isSlotLeader();
   
-  return resp.dump();
+  return status.ltsToJson().dump();
 }
 
 void MinerServer::handleSlotLeaderRole() {
@@ -539,10 +540,12 @@ void MinerServer::handleSlotLeaderRole() {
                 << " with hash " << block.hash;
       
       auto broadcastResult = broadcastBlock(block);
-      if (!broadcastResult) {
-        log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
-      } else {
+      if (broadcastResult) {
         log().info << "Block broadcasted";
+        miner_.confirmProducedBlock(block);
+        miner_.addBlock(block);  // Add to own ledger
+      } else {
+        log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
       }
     } else {
       log().warning << "Failed to produce block: " << result.error().message;
@@ -609,6 +612,7 @@ std::string MinerServer::binaryResponseError(uint16_t errorCode, const std::stri
 }
 
 MinerServer::Roe<void> MinerServer::broadcastBlock(const Ledger::ChainNode& block) {
+  bool anySuccess = false;
   for (const auto& beacon : config_.network.beacons) {
     if (!client_.setEndpoint(beacon)) {
       log().warning << "Failed to resolve beacon address: " + beacon;
@@ -619,6 +623,10 @@ MinerServer::Roe<void> MinerServer::broadcastBlock(const Ledger::ChainNode& bloc
       log().warning << "Failed to add block to beacon: " + beacon + ": " + clientResult.error().message;
       continue;
     }
+    anySuccess = true;
+  }
+  if (!anySuccess) {
+    return Error(E_NETWORK, "Failed to broadcast block to any beacon");
   }
   return {};
 }

@@ -176,27 +176,20 @@ Miner::Roe<Ledger::ChainNode> Miner::produceBlock() {
   if (!blockResult) {
     return Error(7, "Failed to create block: " + blockResult.error().message);
   }
+  pendingTransactions_.clear();
 
-  auto block = blockResult.value();
+  return blockResult.value();
+}
 
-  auto ledgerResult = getLedger().addBlock(block);
-  if (!ledgerResult) {
-    log().error << "Failed to persist block to ledger: " << ledgerResult.error().message;
-    // Don't fail the block production, just log the error
-  }
-
+void Miner::confirmProducedBlock(const Ledger::ChainNode& block) {
   lastProducedBlockId_ = block.block.index;
-  lastProducedSlot_ = currentSlot;
+  lastProducedSlot_ = block.block.slot;
 
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block.block.index;
   log().info << "  Slot: " << block.block.slot;
-  log().info << "  Transactions: " << pendingTransactions_.size();
+  log().info << "  Transactions: " << block.block.signedTxes.size();
   log().info << "  Hash: " << block.hash;
-
-  pendingTransactions_.clear();
-
-  return block;
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {

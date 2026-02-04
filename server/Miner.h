@@ -72,6 +72,7 @@ public:
     Roe<void> addBlock(const Ledger::ChainNode& block);
 
     Roe<Ledger::ChainNode> produceBlock();
+    void confirmProducedBlock(const Ledger::ChainNode& block);
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
