@@ -267,10 +267,10 @@ Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
 
 // MinerServer API - Transaction operations
 
-Client::Roe<void> Client::addTransaction(const Ledger::Transaction &transaction) {
+Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
   log().debug << "Adding transaction";
 
-  std::string payload = utl::binaryPack(transaction);
+  std::string payload = utl::binaryPack(signedTx);
   auto result = sendBinaryRequest(T_REQ_TRANSACTION_ADD, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);

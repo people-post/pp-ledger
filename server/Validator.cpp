@@ -285,8 +285,12 @@ Validator::Roe<void> Validator::validateBlock(const Ledger::ChainNode& block) co
 }
 
 Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) {
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
+  }
+
   // Filter: Only process transactions matching the buffer's token ID
-  if (tx.tokenId != bufferBank.getTokenId()) {
+  if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bufferBank.getTokenId()) {
     return {}; // Skip transactions for other tokens
   }
   
@@ -300,6 +304,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
 
   // Ensure fromWalletId exists in bufferBank (seed from bank_ if needed)
   if (!bufferBank.has(tx.fromWalletId)) {
+    // Try to get from bank_ if not in bufferBank
     if (bank_.has(tx.fromWalletId)) {
       auto fromAccount = bank_.get(tx.fromWalletId);
       if (!fromAccount) {
@@ -315,9 +320,8 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
   }
 
   // Ensure toWalletId exists in bufferBank: seed from bank_ or create if not in bank_
-  // Track if we newly created toWalletId (not in bank_) so we can remove it on transfer failure
-  bool toWalletIdNewlyCreated = false;
   if (!bufferBank.has(tx.toWalletId)) {
+    // Try to get from bank_ if not in bufferBank
     if (bank_.has(tx.toWalletId)) {
       auto toAccount = bank_.get(tx.toWalletId);
       if (!toAccount) {
@@ -327,26 +331,12 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
       if (!addResult) {
         return Error(23, "Failed to add destination account to buffer: " + addResult.error().message);
       }
-    } else {
-      AccountBuffer::Account newAccount;
-      newAccount.id = tx.toWalletId;
-      newAccount.mBalances[tx.tokenId] = 0;
-      newAccount.isNegativeBalanceAllowed = (tx.toWalletId == AccountBuffer::ID_GENESIS);
-      newAccount.publicKeys = {};
-      auto addResult = bufferBank.add(newAccount);
-      if (!addResult) {
-        return Error(24, "Failed to create destination account in buffer: " + addResult.error().message);
-      }
-      toWalletIdNewlyCreated = true;
     }
   }
 
-  auto transferResult = bufferBank.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
-  if (!transferResult) {
-    if (toWalletIdNewlyCreated) {
-      bufferBank.remove(tx.toWalletId);
-    }
-    return Error(25, "Transfer failed: " + transferResult.error().message);
+  auto addTransactionResult = bufferBank.addTransaction(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
+  if (!addTransactionResult) {
+    return Error(25, "Transaction failed: " + addTransactionResult.error().message);
   }
   return {};
 }

@@ -15,6 +15,7 @@ MinerServer::MinerServer() {
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
+  client_.redirectLogger(log().getFullName() + ".Client");
 }
 
 // ============ RunFileConfig methods ============
@@ -277,13 +278,11 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
   std::string beaconAddr = config_.network.beacons[0];
   log().info << "Syncing blocks from beacon: " << beaconAddr;
 
-  Client client;
-  client.redirectLogger(log().getFullName() + ".Client");
-  if (!client.setEndpoint(beaconAddr)) {
+  if (!client_.setEndpoint(beaconAddr)) {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  auto stateResult = client.fetchBeaconState();
+  auto stateResult = client_.fetchBeaconState();
   if (!stateResult) {
     return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
   }
@@ -300,7 +299,7 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
   log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
 
   for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
-    auto blockResult = client.fetchBlock(blockId);
+    auto blockResult = client_.fetchBlock(blockId);
     if (!blockResult) {
       return Error(E_NETWORK,
                    "Failed to fetch block " + std::to_string(blockId) + " from beacon: " +
@@ -438,14 +437,14 @@ MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::jso
 }
 
 MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Client::Request &request) {
-  auto txResult = utl::binaryUnpack<Ledger::Transaction>(request.payload);
-  if (!txResult) {
-    return Error(E_REQUEST, "Failed to deserialize transaction: " + txResult.error().message);
+  auto signedTxResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(request.payload);
+  if (!signedTxResult) {
+    return Error(E_REQUEST, "Failed to deserialize transaction: " + signedTxResult.error().message);
   }
 
-  const auto& tx = txResult.value();
+  const auto& signedTx = signedTxResult.value();
   if (miner_.isSlotLeader()) {
-    auto result = miner_.addTransaction(tx);
+    auto result = miner_.addTransaction(signedTx);
     if (!result) {
       return Error(E_REQUEST, result.error().message);
     }
@@ -453,13 +452,11 @@ MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Cli
   }
 
   std::string leaderAddr = getSlotLeaderAddress();
-  Client client;
-  client.redirectLogger(log().getFullName() + ".Client");
-  if (!client.setEndpoint(leaderAddr)) {
+  if (!client_.setEndpoint(leaderAddr)) {
     return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
   }
 
-  auto result = client.addTransaction(tx);
+  auto result = client_.addTransaction(signedTx);
   if (!result) {
     return Error(E_REQUEST, result.error().message);
   }
@@ -536,11 +533,15 @@ void MinerServer::handleSlotLeaderRole() {
     auto result = miner_.produceBlock();
     if (result) {
       auto block = result.value();
-      log().info << "Successfully produced block " << block->block.index 
-                << " with hash " << block->hash;
+      log().info << "Successfully produced block " << block.block.index 
+                << " with hash " << block.hash;
       
-      // In a full implementation, we would broadcast this block to beacons
-      // and other miners here
+      auto broadcastResult = broadcastBlock(block);
+      if (!broadcastResult) {
+        log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
+      } else {
+        log().info << "Block broadcasted";
+      }
     } else {
       log().warning << "Failed to produce block: " << result.error().message;
     }
@@ -570,16 +571,14 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   std::string beaconAddr = config_.network.beacons[0];
   log().info << "Connecting to beacon server: " << beaconAddr;
 
-  Client client;
-  client.redirectLogger(log().getFullName() + ".Client");
-  if (!client.setEndpoint(beaconAddr)) {
+  if (!client_.setEndpoint(beaconAddr)) {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
   network::TcpEndpoint endpoint;
   endpoint.address = fetchServer_.getHost();
   endpoint.port = fetchServer_.getPort();
-  auto stateResult = client.registerMinerServer(endpoint);
+  auto stateResult = client_.registerMinerServer(endpoint);
   if (!stateResult) {
     return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
   }
@@ -605,6 +604,21 @@ std::string MinerServer::binaryResponseError(uint16_t errorCode, const std::stri
   resp.errorCode = errorCode;
   resp.payload = message;
   return utl::binaryPack(resp);
+}
+
+MinerServer::Roe<void> MinerServer::broadcastBlock(const Ledger::ChainNode& block) {
+  for (const auto& beacon : config_.network.beacons) {
+    if (!client_.setEndpoint(beacon)) {
+      log().warning << "Failed to resolve beacon address: " + beacon;
+      continue;
+    }
+    auto clientResult = client_.addBlock(block);
+    if (!clientResult) {
+      log().warning << "Failed to add block to beacon: " + beacon + ": " + clientResult.error().message;
+      continue;
+    }
+  }
+  return {};
 }
 
 } // namespace pp

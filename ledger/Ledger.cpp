@@ -389,6 +389,14 @@ uint64_t Ledger::countSizeFromBlockId(uint64_t blockId) const {
   return store_.countSizeFromBlockId(blockId);
 }
 
+Ledger::Roe<Ledger::ChainNode> Ledger::readLastBlock() const {
+  uint64_t nextBlockId = getNextBlockId();
+  if (nextBlockId == 0) {
+    return Error("No blocks in ledger");
+  }
+  return readBlock(nextBlockId - 1);
+}
+
 Ledger::Roe<void> Ledger::cleanupData() {
   std::error_code ec;
   

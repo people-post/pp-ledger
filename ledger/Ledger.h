@@ -125,6 +125,7 @@ public:
   Roe<void> addBlock(const ChainNode& block);
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
   Roe<ChainNode> readBlock(uint64_t blockId) const;
+  Roe<ChainNode> readLastBlock() const;
   uint64_t countSizeFromBlockId(uint64_t blockId) const;
 
 private:

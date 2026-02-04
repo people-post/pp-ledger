@@ -267,12 +267,13 @@ int main(int argc, char *argv[]) {
           std::cerr << "Error: Invalid amount: " << positionalArgs[3] << "\n";
           exitCode = 1;
         } else {
-          pp::Ledger::Transaction tx;
-          tx.fromWalletId = fromWalletId;
-          tx.toWalletId = toWalletId;
-          tx.amount = amount;
+          pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
+          signedTx.obj.fromWalletId = fromWalletId;
+          signedTx.obj.toWalletId = toWalletId;
+          signedTx.obj.amount = amount;
+          signedTx.signatures = {};
 
-          auto result = client.addTransaction(tx);
+          auto result = client.addTransaction(signedTx);
           if (!result) {
             std::cerr << "Error: " << result.error().message << "\n";
             exitCode = 1;

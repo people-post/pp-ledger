@@ -20,14 +20,16 @@ bool Ouroboros::isSlotLeader(uint64_t slot,
   return result.value() == stakeholderId;
 }
 
-uint64_t Ouroboros::getCurrentSlot() const {
+int64_t Ouroboros::getTimestamp() const {
   auto now = std::chrono::system_clock::now();
   int64_t localTime =
       std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
           .count();
-  // Use beacon time for slot: beacon_time = local_time + timeOffset_
-  int64_t currentTime = localTime + config_.timeOffset;
+  return localTime + config_.timeOffset;
+}
 
+uint64_t Ouroboros::getCurrentSlot() const {
+  int64_t currentTime = getTimestamp();
   if (currentTime < config_.genesisTime) {
     return 0;
   }

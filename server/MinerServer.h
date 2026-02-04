@@ -91,11 +91,12 @@ private:
     NetworkConfig network;
   };
 
+  std::string getSlotLeaderAddress() const;
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
   void handleSlotLeaderRole();
   void handleValidatorRole();
-  std::string getSlotLeaderAddress() const;
+  Roe<void> broadcastBlock(const Ledger::ChainNode& block);
 
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
@@ -113,13 +114,10 @@ private:
   Roe<std::string> handleConsensusRequest(const nlohmann::json& reqJson);
   Roe<std::string> handleStatusRequest(const nlohmann::json& reqJson);
 
-  // Configuration
   std::string workDir_;
-
-  // Core miner instance
   Miner miner_;
-  
   network::FetchServer fetchServer_;
+  Client client_;
   Config config_;
 };
 

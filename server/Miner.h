@@ -68,10 +68,10 @@ public:
     // ----------------- methods -------------------------------------
     Roe<void> init(const InitConfig &config);
 
-    Roe<void> addTransaction(const Ledger::Transaction &tx);
+    Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
     Roe<void> addBlock(const Ledger::ChainNode& block);
 
-    Roe<std::shared_ptr<Ledger::ChainNode>> produceBlock();
+    Roe<Ledger::ChainNode> produceBlock();
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
@@ -86,11 +86,11 @@ private:
     };
 
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-    Roe<std::shared_ptr<Ledger::ChainNode>> createBlock();
+    Roe<Ledger::ChainNode> createBlock();
     
     Config config_;
     AccountBuffer bufferBank_;
-    std::vector<Ledger::Transaction> pendingTransactions_;
+    std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTransactions_;
     bool initialized_{ false };
     uint64_t lastProducedBlockId_{ 0 };
     uint64_t lastProducedSlot_{ 0 };  // slot we last produced a block for (at most one per slot)

@@ -152,7 +152,7 @@ Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   return {};
 }
 
-Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
+Miner::Roe<Ledger::ChainNode> Miner::produceBlock() {
   if (!initialized_) {
     return Error(5, "Miner not initialized");
   }
@@ -179,33 +179,35 @@ Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::produceBlock() {
 
   auto block = blockResult.value();
 
-  auto ledgerResult = getLedger().addBlock(*block);
+  auto ledgerResult = getLedger().addBlock(block);
   if (!ledgerResult) {
     log().error << "Failed to persist block to ledger: " << ledgerResult.error().message;
     // Don't fail the block production, just log the error
   }
 
-  lastProducedBlockId_ = block->block.index;
+  lastProducedBlockId_ = block.block.index;
   lastProducedSlot_ = currentSlot;
 
   log().info << "Block produced successfully";
-  log().info << "  Block ID: " << block->block.index;
-  log().info << "  Slot: " << block->block.slot;
+  log().info << "  Block ID: " << block.block.index;
+  log().info << "  Slot: " << block.block.slot;
   log().info << "  Transactions: " << pendingTransactions_.size();
-  log().info << "  Hash: " << block->hash;
+  log().info << "  Hash: " << block.hash;
 
   pendingTransactions_.clear();
 
   return block;
 }
 
-Miner::Roe<void> Miner::addTransaction(const Ledger::Transaction &tx) {
-  auto result = addBufferTransaction(bufferBank_, tx);
+Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
+  // TODO: Verify signatures
+
+  auto result = addBufferTransaction(bufferBank_, signedTx.obj);
   if (!result) {
     return Error(9, result.error().message);
   }
 
-  pendingTransactions_.push_back(tx);
+  pendingTransactions_.push_back(signedTx);
   
   return {};
 }
@@ -224,47 +226,36 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
-Miner::Roe<std::shared_ptr<Ledger::ChainNode>> Miner::createBlock() {
+Miner::Roe<Ledger::ChainNode> Miner::createBlock() {
   // Get current slot info
   uint64_t currentSlot = getCurrentSlot();
-  auto now = std::chrono::system_clock::now();
-  auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-      now.time_since_epoch()).count();
+  auto timestamp = getConsensus().getTimestamp();
 
   // Get previous block info
-  auto latestBlockResult = getLedger().readBlock(getNextBlockId() - 1);
+  auto latestBlockResult = getLedger().readLastBlock();
   if (!latestBlockResult) {
-    return Error(11, "Failed to read latest block");
+    return Error(11, "Failed to read latest block: " + latestBlockResult.error().message);
   }
   auto latestBlock = latestBlockResult.value();
   uint64_t blockIndex = latestBlock.block.index + 1;
   std::string previousHash = latestBlock.hash;
 
-  // Select transactions and convert to SignedData
-  auto transactions = pendingTransactions_;
-
   // Create the block
-  auto block = std::make_shared<Ledger::ChainNode>();
-  block->block.index = blockIndex;
-  block->block.timestamp = timestamp;
-  block->block.previousHash = previousHash;
-  block->block.slot = currentSlot;
-  block->block.slotLeader = config_.minerId;
+  Ledger::ChainNode block;
+  block.block.index = blockIndex;
+  block.block.timestamp = timestamp;
+  block.block.previousHash = previousHash;
+  block.block.slot = currentSlot;
+  block.block.slotLeader = config_.minerId;
   
   // Populate signedTxes
-  block->block.signedTxes.clear();
-  for (const auto& tx : transactions) {
-    Ledger::SignedData<Ledger::Transaction> signedTx;
-    signedTx.obj = tx;
-    signedTx.signatures = {}; // Signatures will be set when transaction is signed
-    block->block.signedTxes.push_back(signedTx);
-  }
+  block.block.signedTxes = pendingTransactions_;
 
   // Calculate hash
-  block->hash = calculateHash(block->block);
+  block.hash = calculateHash(block.block);
 
   log().debug << "Created block " << blockIndex 
-              << " with " << transactions.size() << " transactions";
+              << " with " << pendingTransactions_.size() << " transactions";
 
   return block;
 }
