@@ -68,6 +68,42 @@ make -j$(nproc)
 ctest --output-on-failure
 ```
 
+### Quick Test Network (Easiest Way)
+
+For quick testing, use the automated test network script:
+
+```bash
+# Start 1 beacon + 3 miners (default)
+./start-test-network.sh
+
+# Start with 5 miners and debug logging
+./start-test-network.sh -n 5 -d
+
+# Clean previous data and start fresh
+./start-test-network.sh -c
+
+# Show all options
+./start-test-network.sh -h
+```
+
+The script will:
+- Initialize and start a beacon server on port 8517
+- Start multiple miner servers on ports 8518, 8519, 8520, etc.
+- Display quick command examples for testing
+- Handle graceful shutdown with Ctrl+C
+
+**Test the network:**
+```bash
+# In another terminal, check status
+./build/app/pp-client -b status
+
+# Add a transaction
+./build/app/pp-client -m add-tx alice bob 100
+
+# Wait for block production and check again
+./build/app/pp-client -b status
+```
+
 ### Running the Beacon Server
 
 The beacon server is the network validator and authoritative data source. It can be initialized or mounted.
@@ -139,7 +175,8 @@ mkdir -p miner1
 On first run, the miner will create a default `miner1/config.json`:
 ```json
 {
-  "minerId": "miner1",
+  "minerId": 1,
+  "privateKey": "your_private_key_here",
   "host": "localhost",
   "port": 8518,
   "beacons": ["127.0.0.1:8517"]
@@ -147,7 +184,8 @@ On first run, the miner will create a default `miner1/config.json`:
 ```
 
 **Edit the config to customize:**
-- `minerId` (required): Unique miner identifier
+- `minerId` (required): Unique numeric miner identifier
+- `privateKey` (required): Private key for signing blocks
 - `host` (optional): Listen address, default: "localhost"
 - `port` (optional): Listen port, default: 8518
 - `beacons` (required): List of beacon addresses to connect to
@@ -265,7 +303,8 @@ EOF
 mkdir -p miner1
 cat > miner1/config.json << EOF
 {
-  "minerId": "miner1",
+  "minerId": 1,
+  "privateKey": "miner1_private_key",
   "host": "localhost",
   "port": 8518,
   "beacons": ["localhost:8517", "localhost:8527"]
@@ -279,7 +318,8 @@ EOF
 mkdir -p miner2
 cat > miner2/config.json << EOF
 {
-  "minerId": "miner2",
+  "minerId": 2,
+  "privateKey": "miner2_private_key",
   "host": "localhost",
   "port": 8528,
   "beacons": ["localhost:8517", "localhost:8527"]
@@ -339,7 +379,8 @@ After starting a beacon and miner, you can test the system:
 **Miner config.json:**
 ```json
 {
-  "minerId": "miner1",           // Required, unique identifier
+  "minerId": 1,                   // Required, unique numeric identifier
+  "privateKey": "...",            // Required, private key for signing blocks
   "host": "localhost",           // Optional, default: "localhost"
   "port": 8518,                  // Optional, default: 8518
   "beacons": [                   // Required, list of beacon addresses to connect to
@@ -511,6 +552,9 @@ See [LICENSE](LICENSE) file for details.
 # Build
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release .. && make -j$(nproc)
+
+# Quick test network (1 beacon + 3 miners)
+./start-test-network.sh
 
 # Initialize beacon (first time)
 ./app/pp-beacon -d beacon --init
