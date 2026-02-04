@@ -48,15 +48,6 @@ bool Miner::shouldProduceBlock() const {
 
   uint64_t currentSlot = getCurrentSlot();
 
-  // Only produce at end of current slot (within last second of slot)
-  int64_t nowSec = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-  int64_t beaconTime = nowSec + getConsensus().getConfig().timeOffset;
-  int64_t slotEndTime = getConsensus().getSlotEndTime(currentSlot);
-  if (beaconTime < slotEndTime - 1) {
-    return false;  // not yet at end of slot
-  }
-
   // At most one block per slot
   if (lastProducedSlot_ == currentSlot) {
     return false;
@@ -64,6 +55,11 @@ bool Miner::shouldProduceBlock() const {
 
   if (getPendingTransactionCount() == 0) {
     return false;
+  }
+
+  // Only produce at end of current slot (within last second of slot)
+  if (!getConsensus().isBlockProductionTime(currentSlot)) {
+    return false;  // not yet at end of slot
   }
 
   return true;

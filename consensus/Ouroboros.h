@@ -49,6 +49,7 @@ public:
   // ----- accessors -----
   bool isSlotLeader(uint64_t slot, uint64_t stakeholderId) const;
   bool isStakeUpdateNeeded() const;
+  bool isBlockProductionTime(uint64_t slot) const;
 
   const Config& getConfig() const { return config_; }
   uint64_t getCurrentSlot() const;

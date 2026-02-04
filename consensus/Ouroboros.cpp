@@ -25,6 +25,13 @@ bool Ouroboros::isStakeUpdateNeeded() const {
   return currentEpoch != lastStakeUpdateEpoch_;
 }
 
+bool Ouroboros::isBlockProductionTime(uint64_t slot) const {
+  int64_t currentTime = getTimestamp();
+  int64_t slotEndTime = getSlotEndTime(slot);
+  // Block production time is within the last second of the slot
+  return currentTime >= slotEndTime - 1;
+}
+
 int64_t Ouroboros::getTimestamp() const {
   auto now = std::chrono::system_clock::now();
   int64_t localTime =
