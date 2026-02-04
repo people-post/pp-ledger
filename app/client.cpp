@@ -48,17 +48,6 @@ void printUsage() {
   std::cout << "  pp-client -m -h localhost:8518 add-tx 1 2 100\n";
 }
 
-void printBlockInfo(const pp::Ledger::ChainNode& node) {
-  const auto& block = node.block;
-  std::cout << "Block #" << block.index << ":\n";
-  std::cout << "  Slot: " << block.slot << "\n";
-  std::cout << "  Slot Leader: " << block.slotLeader << "\n";
-  std::cout << "  Timestamp: " << formatTimestampLocal(block.timestamp) << "\n";
-  std::cout << "  Hash: " << node.hash << "\n";
-  std::cout << "  Previous Hash: " << block.previousHash << "\n";
-  std::cout << "  Transactions: " << block.signedTxes.size() << "\n";
-}
-
 void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholders) {
   std::cout << "Stakeholders (" << stakeholders.size() << "):\n";
   if (stakeholders.empty()) {
@@ -73,26 +62,8 @@ void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholde
 }
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
-  std::cout << "Beacon Status:\n";
-  std::cout << "  Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
-  std::cout << "  Last Checkpoint ID: " << status.lastCheckpointId << "\n";
-  std::cout << "  Checkpoint ID: " << status.checkpointId << "\n";
-  std::cout << "  Next Block ID: " << status.nextBlockId << "\n";
-  std::cout << "  Current Slot: " << status.currentSlot << "\n";
-  std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
-  std::cout << "  Number of Stakeholders: " << status.nStakeholders << "\n";
-}
-
-void printMinerStatus(const pp::Client::MinerStatus &status) {
-  std::cout << "Miner Status:\n";
-  std::cout << "  Miner ID: " << status.minerId << "\n";
-  std::cout << "  Stake: " << status.stake << "\n";
-  std::cout << "  Next Block ID: " << status.nextBlockId << "\n";
-  std::cout << "  Current Slot: " << status.currentSlot << "\n";
-  std::cout << "  Current Epoch: " << status.currentEpoch << "\n";
-  std::cout << "  Pending Transactions: " << status.pendingTransactions << "\n";
-  std::cout << "  Is Slot Leader: " << (status.isSlotLeader ? "Yes" : "No") << "\n";
-  std::cout << "  Number of Stakeholders: " << status.nStakeholders << "\n";
+  std::cout << "Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
+  std::cout << status.ltsToJson().dump(2) << "\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -206,7 +177,7 @@ int main(int argc, char *argv[]) {
         } else {
           auto result = client.fetchBlock(blockId);
           if (result) {
-            printBlockInfo(result.value());
+            std::cout << result.value().toJson().dump(2) << "\n";
           } else {
             std::cerr << "Error: " << result.error().message << "\n";
             exitCode = 1;
@@ -287,7 +258,7 @@ int main(int argc, char *argv[]) {
     } else if (command == "status") {
       auto result = client.fetchMinerStatus();
       if (result) {
-        printMinerStatus(result.value());
+        std::cout << result.value().ltsToJson().dump(2) << "\n";
       } else {
         std::cerr << "Error: " << result.error().message << "\n";
         exitCode = 1;

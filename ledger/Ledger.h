@@ -3,11 +3,13 @@
 #include "DirDirStore.h"
 #include "Module.h"
 #include "ResultOrError.hpp"
+#include "Utilities.h"
 
 #include <vector>
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <nlohmann/json.hpp>
 
 namespace pp {
 
@@ -31,6 +33,8 @@ public:
     template <typename Archive> void serialize(Archive &ar) {
       ar & type & tokenId& fromWalletId & toWalletId & amount & fee & meta;
     }
+
+    nlohmann::json toJson() const;
   };
 
   template <typename T>
@@ -41,6 +45,18 @@ public:
     template <typename Archive> void serialize(Archive &ar) {
       ar & obj & signatures;
     }
+
+    nlohmann::json toJson() const {
+      nlohmann::json j;
+      j["object"] = obj.toJson();
+      // Convert binary signatures to JSON-safe hex strings
+      nlohmann::json sigArray = nlohmann::json::array();
+      for (const auto& sig : signatures) {
+        sigArray.push_back(utl::toJsonSafeString(sig));
+      }
+      j["signatures"] = sigArray;
+      return j;
+    }
   };
 
   /**
@@ -49,26 +65,6 @@ public:
   struct Block {
     static constexpr uint16_t CURRENT_VERSION = 1;
 
-    Block();
-
-    // Long-term support serialization for disk persistence
-    /**
-     * Serialize block to binary format for long-term storage
-     * Format is version-aware and compact for efficient disk storage
-     * Binary format:
-     * [version][index][timestamp][data_size+data][prevHash_size+prevHash][nonce][slot][leader_size+leader]
-     * @return Serialized binary string representation
-     */
-    std::string ltsToString() const;
-
-    /**
-     * Deserialize block from binary format
-     * @param str Serialized binary string representation
-     * @return true if successful, false on error
-     */
-    bool ltsFromString(const std::string &str);
-
-    // Public fields
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
     std::vector<SignedData<Transaction>> signedTxes;
@@ -80,6 +76,11 @@ public:
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader;
     }
+
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+    nlohmann::json toJson() const;
+
   };
 
   /**
@@ -102,6 +103,8 @@ public:
      * @return true if successful
      */
     bool ltsFromString(const std::string& str);
+
+    nlohmann::json toJson() const;
   };
 
   struct Error : RoeErrorBase {

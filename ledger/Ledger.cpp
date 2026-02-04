@@ -10,11 +10,6 @@
 
 namespace pp {
 
-// Block implementation
-Ledger::Block::Block()
-    : timestamp(std::chrono::system_clock::now().time_since_epoch().count()) {
-}
-
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -51,6 +46,52 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   }
 
   return true;
+}
+
+nlohmann::json Ledger::Transaction::toJson() const {
+  nlohmann::json j;
+  j["type"] = type;
+  j["tokenId"] = tokenId;
+  j["fromWalletId"] = fromWalletId;
+  j["toWalletId"] = toWalletId;
+  j["amount"] = amount;
+  j["fee"] = fee;
+  j["meta"] = utl::toJsonSafeString(meta);
+  return j;
+}
+
+nlohmann::json Ledger::Block::toJson() const {
+  nlohmann::json j;
+  j["index"] = index;
+  j["timestamp"] = timestamp;
+  j["previousHash"] = utl::toJsonSafeString(previousHash);
+  j["nonce"] = nonce;
+  j["slot"] = slot;
+  j["slotLeader"] = slotLeader;
+  
+  // Convert signed transactions to JSON array
+  nlohmann::json txArray = nlohmann::json::array();
+  for (const auto& signedTx : signedTxes) {
+    nlohmann::json txJson;
+    txJson["transaction"] = signedTx.obj.toJson();
+    // Convert binary signatures to JSON-safe hex strings
+    nlohmann::json sigArray = nlohmann::json::array();
+    for (const auto& sig : signedTx.signatures) {
+      sigArray.push_back(utl::toJsonSafeString(sig));
+    }
+    txJson["signatures"] = sigArray;
+    txArray.push_back(txJson);
+  }
+  j["signedTransactions"] = txArray;
+  
+  return j;
+}
+
+nlohmann::json Ledger::ChainNode::toJson() const {
+  nlohmann::json j;
+  j["hash"] = utl::toJsonSafeString(hash);
+  j["block"] = block.toJson();
+  return j;
 }
 
 Ledger::Ledger() {
