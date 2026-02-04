@@ -48,6 +48,7 @@ public:
 
   // ----- accessors -----
   bool isSlotLeader(uint64_t slot, uint64_t stakeholderId) const;
+  bool isStakeUpdateNeeded() const;
 
   const Config& getConfig() const { return config_; }
   uint64_t getCurrentSlot() const;
@@ -62,14 +63,12 @@ public:
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   int64_t getTimestamp() const;
 
+  void setStakeholders(const std::vector<Stakeholder>& stakeholders);
+
   // ----- methods -----
   void init(const Config& config);
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
-
-  void registerStakeholder(uint64_t id, uint64_t stake);
-  void updateStake(uint64_t id, uint64_t newStake);
-  bool removeStakeholder(uint64_t id);
 
 private:
   // Helper methods for slot leader selection
@@ -82,6 +81,7 @@ private:
   // Data members
   std::map<uint64_t, uint64_t> mStakeholders_;
   Config config_;
+  uint64_t lastStakeUpdateEpoch_{ static_cast<uint64_t>(-1) }; // -1 = never
 };
 
 } // namespace consensus

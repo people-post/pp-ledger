@@ -62,6 +62,20 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
   return {};
 }
 
+std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
+  std::vector<consensus::Stakeholder> stakeholders;
+  for (const auto& [id, account] : mAccounts_) {
+    auto balanceIt = account.mBalances.find(ID_GENESIS);  
+    if (balanceIt == account.mBalances.end()) {
+      continue;
+    }
+    if (balanceIt->second > 0) {
+      stakeholders.push_back({id, uint64_t(balanceIt->second)});
+    }
+  }
+  return stakeholders;
+}
+
 AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(10, "Deposit amount must be non-negative");

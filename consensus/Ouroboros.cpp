@@ -20,6 +20,11 @@ bool Ouroboros::isSlotLeader(uint64_t slot,
   return result.value() == stakeholderId;
 }
 
+bool Ouroboros::isStakeUpdateNeeded() const {
+  uint64_t currentEpoch = getCurrentEpoch();
+  return currentEpoch != lastStakeUpdateEpoch_;
+}
+
 int64_t Ouroboros::getTimestamp() const {
   auto now = std::chrono::system_clock::now();
   int64_t localTime =
@@ -112,41 +117,12 @@ void Ouroboros::init(const Config& config) {
   config_ = config;
 }
 
-void Ouroboros::registerStakeholder(uint64_t id, uint64_t stake) {
-  if (stake == 0) {
-    log().warning << "Cannot register stakeholder '" + std::to_string(id) + "' with zero stake";
-    return;
+void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
+  mStakeholders_.clear();
+  for (const auto& stakeholder : stakeholders) {
+    mStakeholders_[stakeholder.id] = stakeholder.stake;
   }
-
-  mStakeholders_[id] = stake;
-  log().info << "Registered stakeholder '" + std::to_string(id) +
-                    "' with stake: " + std::to_string(stake);
-}
-
-void Ouroboros::updateStake(uint64_t id, uint64_t newStake) {
-  auto it = mStakeholders_.find(id);
-  if (it == mStakeholders_.end()) {
-    log().warning << "Cannot update stake for unknown stakeholder: " + std::to_string(id);
-    return;
-  }
-
-  uint64_t oldStake = it->second;
-  it->second = newStake;
-  log().info << "Updated stake for '" + std::to_string(id) + "' from " +
-                    std::to_string(oldStake) + " to " +
-                    std::to_string(newStake);
-}
-
-bool Ouroboros::removeStakeholder(uint64_t id) {
-  auto it = mStakeholders_.find(id);
-  if (it == mStakeholders_.end()) {
-    log().warning << "Cannot remove unknown stakeholder: " + std::to_string(id);
-    return false;
-  }
-
-  mStakeholders_.erase(it);
-  log().info << "Removed stakeholder: " + std::to_string(id);
-  return true;
+  lastStakeUpdateEpoch_ = getCurrentEpoch();
 }
 
 uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {

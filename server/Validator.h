@@ -109,6 +109,7 @@ public:
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
+    void refreshStakeholders();
     
 protected:
     // Validation helpers
@@ -143,6 +144,7 @@ private:
     AccountBuffer bank_;
     BlockChainConfig chainConfig_;
 };
+
 inline std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
   os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
   return os;

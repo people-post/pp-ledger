@@ -2,6 +2,7 @@
 #define PP_LEDGER_ACCOUNT_BUFFER_H
 
 #include "../lib/ResultOrError.hpp"
+#include "../consensus/Ouroboros.h"
 
 #include <map>
 #include <string>
@@ -42,6 +43,8 @@ public:
   bool has(uint64_t id) const;
   Roe<const Account&> get(uint64_t id) const;
   uint64_t getTokenId() const;
+  int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
+  std::vector<consensus::Stakeholder> getStakeholders() const;
 
   Roe<void> add(const Account& account);
 
@@ -56,8 +59,6 @@ public:
   // Creates toId account automatically if fromId has sufficient balance
   Roe<void> addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee);
   
-  // Helper to get balance for specific token (returns 0 if not found)
-  int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
 
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);

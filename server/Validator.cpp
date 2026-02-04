@@ -341,6 +341,13 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
   return {};
 }
 
+void Validator::refreshStakeholders() {
+  if (consensus_.isStakeUpdateNeeded()) {
+    auto stakeholders = bank_.getStakeholders();
+    consensus_.setStakeholders(stakeholders);
+  }
+}
+
 Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId, uint64_t tokenId) {
   log().info << "Loading from ledger starting at block ID " << startingBlockId << " for token ID " << tokenId;
 

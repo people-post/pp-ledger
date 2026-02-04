@@ -1,6 +1,7 @@
 #include "Ouroboros.h"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <set>
 
 using namespace pp::consensus;
 using ::testing::Ge;
@@ -33,22 +34,18 @@ TEST_F(OuroborosTest, CreatesWithCorrectConfiguration) {
 }
 
 TEST_F(OuroborosTest, RegistersStakeholders) {
-    consensus->registerStakeholder(1, 1000);
-    consensus->registerStakeholder(2, 2000);
-    consensus->registerStakeholder(3, 500);
-    consensus->registerStakeholder(4, 1500);
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
     
     EXPECT_EQ(consensus->getStakeholderCount(), 4);
     EXPECT_EQ(consensus->getTotalStake(), 5000);
 }
 
-TEST_F(OuroborosTest, RejectsZeroStake) {
-    consensus->registerStakeholder(1, 1000);
-    size_t countBefore = consensus->getStakeholderCount();
+TEST_F(OuroborosTest, AllowsZeroStake) {
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {100, 0}});
     
-    consensus->registerStakeholder(100, 0);
-    
-    EXPECT_EQ(consensus->getStakeholderCount(), countBefore);
+    EXPECT_EQ(consensus->getStakeholderCount(), 3);
+    EXPECT_EQ(consensus->getTotalStake(), 3000);
+    EXPECT_EQ(consensus->getStake(100), 0);
 }
 
 TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
@@ -61,10 +58,7 @@ TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
 }
 
 TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
-    consensus->registerStakeholder(1, 1000);
-    consensus->registerStakeholder(2, 2000);
-    consensus->registerStakeholder(3, 500);
-    consensus->registerStakeholder(4, 1500);
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
     
     uint64_t currentSlot = consensus->getCurrentSlot();
     
@@ -93,8 +87,7 @@ TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
 }
 
 TEST_F(OuroborosTest, VerifiesSlotLeadership) {
-    consensus->registerStakeholder(1, 1000);
-    consensus->registerStakeholder(2, 2000);
+    consensus->setStakeholders({{1, 1000}, {2, 2000}});
     
     uint64_t currentSlot = consensus->getCurrentSlot();
     auto leaderResult = consensus->getSlotLeader(currentSlot);
@@ -109,50 +102,36 @@ TEST_F(OuroborosTest, VerifiesSlotLeadership) {
     EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
 }
 
-TEST_F(OuroborosTest, UpdatesStake) {
-    consensus->registerStakeholder(1, 1000);
-    consensus->registerStakeholder(2, 2000);
+TEST_F(OuroborosTest, SetStakeholdersOverwritesPrevious) {
+    consensus->setStakeholders({{1, 1000}, {2, 2000}});
+    EXPECT_EQ(consensus->getTotalStake(), 3000);
     
-    uint64_t oldTotal = consensus->getTotalStake();
-    consensus->updateStake(1, 1500);
-    
-    EXPECT_EQ(consensus->getTotalStake(), oldTotal + 500);
+    consensus->setStakeholders({{1, 1500}, {2, 2000}});
+    EXPECT_EQ(consensus->getTotalStake(), 3500);
+    EXPECT_EQ(consensus->getStake(1), 1500);
 }
 
-TEST_F(OuroborosTest, HandlesStakeUpdateForUnknownStakeholder) {
-    consensus->registerStakeholder(1, 1000);
-    uint64_t oldTotal = consensus->getTotalStake();
-    
-    consensus->updateStake(100, 2000);
-    
-    // Total should not change
-    EXPECT_EQ(consensus->getTotalStake(), oldTotal);
-}
-
-TEST_F(OuroborosTest, RemovesStakeholder) {
-    consensus->registerStakeholder(1, 1000);
-    consensus->registerStakeholder(2, 2000);
-    consensus->registerStakeholder(3, 500);
-    
-    bool removed = consensus->removeStakeholder(3);
-    
-    EXPECT_TRUE(removed);
+TEST_F(OuroborosTest, SetStakeholdersReplacesAll) {
+    consensus->setStakeholders({{1, 1000}, {2, 2000}});
     EXPECT_EQ(consensus->getStakeholderCount(), 2);
+    
+    consensus->setStakeholders({{10, 500}, {20, 500}, {30, 500}});
+    EXPECT_EQ(consensus->getStakeholderCount(), 3);
+    EXPECT_EQ(consensus->getTotalStake(), 1500);
+    EXPECT_EQ(consensus->getStake(1), 0);
 }
 
-TEST_F(OuroborosTest, FailsToRemoveNonExistentStakeholder) {
-    consensus->registerStakeholder(1, 1000);
+TEST_F(OuroborosTest, SetStakeholdersCanShrink) {
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+    EXPECT_EQ(consensus->getStakeholderCount(), 3);
     
-    bool removed = consensus->removeStakeholder(100);
-    
-    EXPECT_FALSE(removed);
-    EXPECT_EQ(consensus->getStakeholderCount(), 1);
+    consensus->setStakeholders({{1, 1000}, {2, 2000}});
+    EXPECT_EQ(consensus->getStakeholderCount(), 2);
+    EXPECT_EQ(consensus->getStake(3), 0);
 }
 
 TEST_F(OuroborosTest, ReturnsAllStakeholders) {
-    consensus->registerStakeholder(1, 1500);
-    consensus->registerStakeholder(2, 2000);
-    consensus->registerStakeholder(3, 1500);
+    consensus->setStakeholders({{1, 1500}, {2, 2000}, {3, 1500}});
     
     auto stakeholders = consensus->getStakeholders();
     
@@ -212,9 +191,7 @@ class OuroborosWithStakeholdersTest : public OuroborosTest {
 protected:
     void SetUp() override {
         OuroborosTest::SetUp();
-        consensus->registerStakeholder(1, 1000);
-        consensus->registerStakeholder(2, 2000);
-        consensus->registerStakeholder(3, 500);
+        consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
     }
 };
 
@@ -229,6 +206,6 @@ TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     ASSERT_TRUE(leader2.isOk());
     
     // Leaders might be different, but should be from our stakeholder set
-    EXPECT_THAT(leader1.value(), AnyOf(1, 2, 3));
-    EXPECT_THAT(leader2.value(), AnyOf(1, 2, 3));
+    EXPECT_THAT(leader1.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
+    EXPECT_THAT(leader2.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
 }

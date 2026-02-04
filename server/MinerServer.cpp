@@ -332,6 +332,8 @@ void MinerServer::run() {
   
   while (isRunning()) {
     try {
+      miner_.refreshStakeholders();
+
       if (miner_.isSlotLeader()) {
         handleSlotLeaderRole();
       } else {
