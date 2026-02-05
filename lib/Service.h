@@ -38,11 +38,11 @@ public:
 
   bool isStopSet() const { return isStopSet_; }
 
-  Roe<void> start();
-
-  void stop();
+  void setStop(bool value) { isStopSet_ = value; }
 
   Roe<void> run();
+  Roe<void> start();
+  void stop();
 
 protected:
   /**

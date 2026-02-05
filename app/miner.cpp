@@ -1,23 +1,17 @@
 #include "../server/MinerServer.h"
 #include "../lib/Logger.h"
 
-#include <atomic>
-#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <iostream>
-#include <mutex>
 #include <string>
 
 namespace {
-std::atomic<bool> g_running{true};
-std::mutex g_mutex;
-std::condition_variable g_cv;
+pp::MinerServer* g_minerServer = nullptr;
 
 void signalHandler(int signal) {
-  if (signal == SIGINT) {
-    g_running = false;
-    g_cv.notify_one();
+  if (signal == SIGINT && g_minerServer) {
+    g_minerServer->setStop(true);
   }
 }
 } // namespace
@@ -48,25 +42,24 @@ void printUsage() {
 int runMiner(const std::string& workDir) {
   auto logger = pp::logging::getLogger("pp");
   
-  logger.info << "Starting miner with work directory: " << workDir;
+  logger.info << "Running miner with work directory: " << workDir;
 
   pp::MinerServer miner;
   miner.redirectLogger("pp.M");
-  auto startResult = miner.start(workDir);
-  if (!startResult) {
-    logger.error << "Failed to start miner: " + startResult.error().message;
+  
+  // Set global pointer for signal handler
+  g_minerServer = &miner;
+  
+  auto runResult = miner.run(workDir);
+  
+  // Clear global pointer
+  g_minerServer = nullptr;
+  
+  if (!runResult) {
+    logger.error << "Failed to run miner: " + runResult.error().message;
     return 1;
   }
-  logger.info << "Miner started successfully";
-  logger.info << "Miner running";
-  logger.info << "Work directory: " << workDir;
-  logger.info << "Press Ctrl+C to stop the miner...";
 
-  // Wait for SIGINT
-  std::unique_lock<std::mutex> lock(g_mutex);
-  g_cv.wait(lock, [] { return !g_running.load(); });
-
-  miner.stop();
   logger.info << "Miner stopped";
   return 0;
 }

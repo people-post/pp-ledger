@@ -134,7 +134,7 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
 
 MinerServer::~MinerServer() {}
 
-Service::Roe<void> MinerServer::start(const std::string &workDir) {
+Service::Roe<void> MinerServer::run(const std::string &workDir) {
   // Store dataDir for onStart
   workDir_ = workDir;
 
@@ -151,11 +151,11 @@ Service::Roe<void> MinerServer::start(const std::string &workDir) {
     return Service::Error(E_MINER, "Work directory not recognized, please remove it manually and try again");
   }
 
-  log().info << "Starting MinerServer with work directory: " << workDir;
+  log().info << "Running MinerServer with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
-  // Call base class start which will invoke onStart() then runLoop()
-  return Service::start();
+  // Call base class run which will invoke onStart() then runLoop() in current thread
+  return Service::run();
 }
 
 Service::Roe<void> MinerServer::onStart() {

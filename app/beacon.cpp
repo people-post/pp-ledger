@@ -3,24 +3,18 @@
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
-#include <atomic>
-#include <condition_variable>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
-#include <mutex>
 #include <string>
 
 namespace {
-std::atomic<bool> g_running{true};
-std::mutex g_mutex;
-std::condition_variable g_cv;
+pp::BeaconServer* g_beaconServer = nullptr;
 
 void signalHandler(int signal) {
-  if (signal == SIGINT) {
-    g_running = false;
-    g_cv.notify_one();
+  if (signal == SIGINT && g_beaconServer) {
+    g_beaconServer->setStop(true);
   }
 }
 } // namespace
@@ -82,28 +76,25 @@ int initBeacon(const std::string& workDir) {
 int runBeacon(const std::string& workDir) {
   auto logger = pp::logging::getLogger("pp");
   
-  logger.info << "Starting beacon with work directory: " << workDir;
+  logger.info << "Running beacon with work directory: " << workDir;
 
   pp::BeaconServer beacon;
   beacon.redirectLogger("pp.B");
 
-  auto startResult = beacon.start(workDir);
-  if (!startResult) {
-    logger.error << "Failed to start beacon: " + startResult.error().message;
-    std::cerr << "Error: Failed to start beacon: " + startResult.error().message << "\n";
+  // Set global pointer for signal handler
+  g_beaconServer = &beacon;
+
+  auto runResult = beacon.run(workDir);
+  
+  // Clear global pointer
+  g_beaconServer = nullptr;
+  
+  if (!runResult) {
+    logger.error << "Failed to run beacon: " + runResult.error().message;
+    std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
     return 1;
   }
 
-  logger.info << "Beacon started successfully";
-  logger.info << "Beacon running";
-  logger.info << "Work directory: " << workDir;
-  logger.info << "Press Ctrl+C to stop the beacon...";
-
-  // Wait for SIGINT
-  std::unique_lock<std::mutex> lock(g_mutex);
-  g_cv.wait(lock, [] { return !g_running.load(); });
-
-  beacon.stop();
   logger.info << "Beacon stopped";
   return 0;
 }

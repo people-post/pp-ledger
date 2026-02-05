@@ -308,15 +308,15 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
   return {};
 }
 
-Service::Roe<void> BeaconServer::start(const std::string &workDir) {
+Service::Roe<void> BeaconServer::run(const std::string &workDir) {
   // Store dataDir for onStart
   workDir_ = workDir;
 
-  log().info << "Starting with work directory: " << workDir;
+  log().info << "Running with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
-  // Call base class start which will invoke onStart() then runLoop()
-  return Service::start();
+  // Call base class run which will invoke onStart() then runLoop() in current thread
+  return Service::run();
 }
 
 Service::Roe<void> BeaconServer::onStart() {
@@ -560,18 +560,6 @@ void BeaconServer::registerServer(const std::string &serverAddress) {
   log().debug << "Updated server record: " << serverAddress;
 }
 
-std::vector<std::string> BeaconServer::getActiveServers() const {
-  std::vector<std::string> servers;
-  for (const auto &pair : activeServers_) {
-    servers.push_back(pair.first);
-  }
-  return servers;
-}
-
-size_t BeaconServer::getActiveServerCount() const {
-  return activeServers_.size();
-}
-
 void BeaconServer::connectToOtherBeacons() {
   if (otherBeaconAddresses_.empty()) {
     log().info << "No other beacon addresses configured";
@@ -615,9 +603,8 @@ BeaconServer::Roe<std::string> BeaconServer::handleQueryRequest(const nlohmann::
   nlohmann::json resp;
   resp["servers"] = nlohmann::json::array();
 
-  std::vector<std::string> servers = getActiveServers();
-  for (const auto &server : servers) {
-    resp["servers"].push_back(server);
+  for (const auto &item : activeServers_) {
+    resp["servers"].push_back(item.first);
   }
   
   return resp.dump();

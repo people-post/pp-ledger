@@ -37,36 +37,8 @@ public:
   BeaconServer();
   ~BeaconServer() = default;
 
-  /**
-   * Initialize a new beacon from work directory
-   * Handles directory creation, init-config.json creation/loading, and initialization
-   * @param workDir Work directory path
-   * @return Result with void on success, Error on failure
-   */
   Roe<void> init(const std::string& workDir);
-
-  /**
-   * Start the beacon server
-   * @param dataDir Work directory containing config.json
-   * @return true if server started successfully
-   */
-  Service::Roe<void> start(const std::string &workDir);
-
-  /**
-   * Get list of active server addresses
-   */
-  std::vector<std::string> getActiveServers() const;
-
-  /**
-   * Get count of active servers
-   */
-  size_t getActiveServerCount() const;
-  
-  /**
-   * Get reference to underlying Beacon
-   */
-  Beacon& getBeacon() { return beacon_; }
-  const Beacon& getBeacon() const { return beacon_; }
+  Service::Roe<void> run(const std::string &workDir);
 
 protected:
   /**

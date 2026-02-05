@@ -32,19 +32,8 @@ public:
   MinerServer();
   ~MinerServer();
 
-  /**
-   * Start the miner server
-   * @param dataDir Work directory containing config.json
-   * @return true if server started successfully
-   */
-  Service::Roe<void> start(const std::string &workDir);
+  Service::Roe<void> run(const std::string &workDir);
   
-  /**
-   * Get reference to underlying Miner
-   */
-  Miner& getMiner() { return miner_; }
-  const Miner& getMiner() const { return miner_; }
-
 protected:
   /**
    * Service thread main loop - handles block production and validation
