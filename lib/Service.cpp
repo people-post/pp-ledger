@@ -3,15 +3,11 @@
 namespace pp {
 
 Service::~Service() {
-  if (!isStopSet_) {
-    stop();
-  }
+  stop();
 }
 
 Service::Roe<void> Service::start() {
-  if (!isStopSet_) {
-    return Error(-1, "Service is already running");
-  }
+  stop();
 
   // Call pre-start hook
   auto result = onStart();
@@ -27,29 +23,15 @@ Service::Roe<void> Service::start() {
 }
 
 void Service::stop() {
-  if (isStopSet_) {
-    log().warning << "Service is not running";
-    return;
-  }
-
-  log().info << "Stopping service";
-
   isStopSet_ = true;
-
   if (thread_.joinable()) {
     thread_.join();
+    onStop();
   }
-
-  // Call post-stop hook
-  onStop();
-
-  log().info << "Service stopped";
 }
 
 Service::Roe<void> Service::run() {
-  if (!isStopSet_) {
-    return Error(-1, "Service is already running");
-  }
+  stop();
 
   auto result = onStart();
   if (!result) {

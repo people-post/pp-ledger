@@ -47,7 +47,7 @@ protected:
 
 TEST_F(FetchServerTest, CreatesSuccessfully) {
     EXPECT_NE(server, nullptr);
-    EXPECT_TRUE(server->isStopSet());
+    EXPECT_FALSE(server->isStopSet());
 }
 
 TEST_F(FetchServerTest, StartsAndStops) {
