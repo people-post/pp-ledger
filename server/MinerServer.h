@@ -7,6 +7,7 @@
 #include "../network/Types.hpp"
 #include "../lib/Service.h"
 #include "../lib/ResultOrError.hpp"
+#include "../lib/ThreadSafeQueue.hpp"
 #include <string>
 #include <thread>
 #include <atomic>
@@ -56,6 +57,11 @@ private:
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
+  struct QueuedRequest {
+    int fd{ -1 };
+    std::string request;
+  };
+
   struct RunFileConfig {
     uint64_t minerId{ 0 };
     uint64_t tokenId{ AccountBuffer::ID_GENESIS };
@@ -86,6 +92,7 @@ private:
   void handleSlotLeaderRole();
   void handleValidatorRole();
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
+  void processQueuedRequest(QueuedRequest& qr);
 
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
@@ -108,6 +115,9 @@ private:
   network::FetchServer fetchServer_;
   Client client_;
   Config config_;
+
+  // Request processing
+  ThreadSafeQueue<QueuedRequest> requestQueue_;
 };
 
 } // namespace pp

@@ -213,11 +213,11 @@ Service::Roe<void> MinerServer::onStart() {
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
   fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
-    std::string response = handleRequest(request);
-    auto addResponseResult = fetchServer_.addResponse(fd, response);
-    if (!addResponseResult) {
-      log().error << "Failed to add response: " + addResponseResult.error().message;
-    }
+    QueuedRequest qr;
+    qr.request = request;
+    qr.fd = fd;
+    requestQueue_.push(std::move(qr));
+    log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
   };
   auto serverStarted = fetchServer_.start(fetchServerConfig);
 
@@ -322,10 +322,17 @@ void MinerServer::onStop() {
 }
 
 void MinerServer::runLoop() {
-  log().info << "Block production loop started";
+  log().info << "Block production and request handler loop started";
   
   while (!isStopSet()) {
     try {
+      // Process queued requests
+      QueuedRequest qr;
+      if (requestQueue_.poll(qr)) {
+        processQueuedRequest(qr);
+      }
+
+      // Handle block production/validation
       miner_.refreshStakeholders();
 
       if (miner_.isSlotLeader()) {
@@ -343,12 +350,24 @@ void MinerServer::runLoop() {
     }
   }
   
-  log().info << "Block production loop stopped";
+  log().info << "Block production and request handler loop stopped";
 }
 
 std::string MinerServer::getSlotLeaderAddress() const {
   // TODO: Implement slot leader address selection
   return "";
+}
+
+void MinerServer::processQueuedRequest(QueuedRequest& qr) {
+  log().debug << "Processing request from queue";
+  // Process the request
+  std::string response = handleRequest(qr.request);
+  
+  // Send response back
+  auto addResponseResult = fetchServer_.addResponse(qr.fd, response);
+  if (!addResponseResult) {
+    log().error << "Failed to queue response: " << addResponseResult.error().message;
+  }
 }
 
 std::string MinerServer::handleRequest(const std::string &request) {
