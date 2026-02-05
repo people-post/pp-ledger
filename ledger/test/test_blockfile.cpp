@@ -154,10 +154,7 @@ TEST_F(FileStoreTest, ReopensPersistentFile) {
   // Close and reopen
   fileStore.close();
   pp::FileStore fileStore2;
-  pp::FileStore::InitConfig config2;
-  config2.filepath = testFile;
-  config2.maxSize = 1024 * 1024;
-  auto reopenResult = fileStore2.mount(config2);
+  auto reopenResult = fileStore2.mount(testFile, 1024 * 1024);
   ASSERT_TRUE(reopenResult.isOk());
 
   // File size should be restored
