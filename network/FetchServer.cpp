@@ -7,10 +7,6 @@ namespace network {
 FetchServer::FetchServer() {}
 
 Service::Roe<void> FetchServer::start(const Config &config) {
-  if (!isStopSet()) {
-    return Service::Error(-1, "Server is already running");
-  }
-
   config_ = config;
 
   log().info << "Starting server on " << config_.endpoint.address << ":"
