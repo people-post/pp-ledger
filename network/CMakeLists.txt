@@ -5,6 +5,7 @@ project(network VERSION 1.0.0 LANGUAGES CXX)
 
 # Source files
 set(NETWORK_SOURCES
+    BulkWriter.cpp
     FetchClient.cpp
     FetchServer.cpp
     TcpClient.cpp
@@ -14,6 +15,7 @@ set(NETWORK_SOURCES
 
 # Header files
 set(NETWORK_HEADERS
+    BulkWriter.h
     FetchClient.h
     FetchServer.h
     TcpClient.h
