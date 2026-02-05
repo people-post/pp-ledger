@@ -97,8 +97,8 @@ private:
   };
 
   struct QueuedRequest {
+    int fd{ -1 };
     std::string request;
-    std::shared_ptr<network::TcpConnection> connection;
   };
 
   struct NetworkConfig {

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ResultOrError.hpp"
-#include "TcpConnection.h"
 #include "Types.hpp"
 
 #include <cstddef>
@@ -30,7 +29,7 @@ public:
   Roe<void> listen(const TcpEndpoint &endpoint, int backlog = 10);
 
   // Accept a client connection (non-blocking)
-  Roe<TcpConnection> accept();
+  Roe<int> accept();
 
   // Wait for events (timeout in milliseconds, -1 for infinite)
   Roe<void> waitForEvents(int timeoutMs = -1);

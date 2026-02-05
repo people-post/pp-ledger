@@ -387,10 +387,10 @@ Service::Roe<void> BeaconServer::onStart() {
   // Start FetchServer with handler that enqueues requests
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](const std::string &request, std::shared_ptr<network::TcpConnection> conn) {
+  fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
     QueuedRequest qr;
     qr.request = request;
-    qr.connection = conn;
+    qr.fd = fd;
     requestQueue_.push(std::move(qr));
     log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
   };
@@ -429,30 +429,14 @@ void BeaconServer::runLoop() {
 
 void BeaconServer::processQueuedRequest(QueuedRequest& qr) {
   log().debug << "Processing request from queue";
-  try {
-    // Process the request
-    std::string response = handleRequest(qr.request);
-    
-    // Send response back
-    auto sendResult = qr.connection->send(response);
-    if (!sendResult) {
-      log().error << "Failed to send response: " << sendResult.error().message;
-    } else {
-      log().debug << "Response sent (" << response.size() << " bytes)";
-    }
-    
-    // Close the connection
-    qr.connection->close();
-    
-  } catch (const std::exception& e) {
-    log().error << "Exception processing request: " << e.what();
-    // Try to close connection even on error
-    try {
-      qr.connection->close();
-    } catch (...) {
-      // Ignore close errors
-    }
-  }
+  // Process the request
+  std::string response = handleRequest(qr.request);
+  
+  // Send response back
+  auto addResponseResult = fetchServer_.addResponse(qr.fd, response);
+  if (!addResponseResult) {
+    log().error << "Failed to queue response: " << addResponseResult.error().message;
+  }    
 }
 
 std::string BeaconServer::handleRequest(const std::string &request) {

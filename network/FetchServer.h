@@ -1,11 +1,13 @@
 #pragma once
 
+#include "BulkWriter.h"
 #include "ResultOrError.hpp"
 #include "Service.h"
 #include "TcpServer.h"
 #include "TcpConnection.h"
 #include "Types.hpp"
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -16,7 +18,7 @@ namespace network {
  * FetchServer - Simple server for receiving data and sending responses
  *
  * Uses TCP sockets for peer-to-peer communication.
- * Simple pattern: accept connection, receive, send response, close.
+ * Handles multiple concurrent connections using non-blocking I/O.
  */
 class FetchServer : public Service {
 public:
@@ -26,7 +28,7 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  using RequestHandler = std::function<void(const std::string&, std::shared_ptr<TcpConnection>)>;
+  using RequestHandler = std::function<void(int fd, const std::string&, const TcpEndpoint& endpoint)>;
 
   struct Config {
     TcpEndpoint endpoint;
@@ -38,25 +40,14 @@ public:
    */
   FetchServer();
 
-  ~FetchServer() override = default;
+  ~FetchServer() override;
 
-  /**
-   * Start the server on specified host and port
-   * @param config Configuration for the server
-   * @return true if server started successfully
-   */
-  Service::Roe<void> start(const Config &config);
-
-  /**
-   * Get the port the server is listening on
-   */
+  std::string getHost() const { return server_.getHost(); }
   uint16_t getPort() const { return server_.getPort(); }
 
-  /**
-   * Get the host address the server is bound to
-   * Returns the external address when able to accept non-local connections
-   */
-  std::string getHost() const { return server_.getHost(); }
+  Roe<void> addResponse(int fd, const std::string &response);
+
+  Service::Roe<void> start(const Config &config);
 
 protected:
   /**
@@ -75,8 +66,35 @@ protected:
   void onStop() override;
 
 private:
+  // Tracks an active connection reading data
+  struct ActiveConnection {
+    int fd;
+    std::string buffer;
+    TcpEndpoint endpoint;
+  };
+
+  // Helper: set a file descriptor to non-blocking mode
+  bool setNonBlocking(int fd);
+
+  // Helper: process read events from epoll
+  void processReadEvents(const std::vector<int>& readyFds);
+
+  // Helper: read available data from a connection
+  void readFromConnection(ActiveConnection& conn);
+
   TcpServer server_;
   Config config_;
+  BulkWriter writer_;
+
+  // epoll file descriptor for monitoring connections
+#ifdef __APPLE__
+  int kqueueFd_{ -1 };
+#else
+  int epollFd_{ -1 };
+#endif
+
+  // Map of fd -> ActiveConnection for all connections being read
+  std::map<int, ActiveConnection> activeConnections_;
 };
 
 } // namespace network

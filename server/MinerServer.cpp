@@ -212,10 +212,12 @@ Service::Roe<void> MinerServer::onStart() {
   // Start FetchServer with handler
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](const std::string &request, std::shared_ptr<network::TcpConnection> conn) {
+  fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
     std::string response = handleRequest(request);
-    conn->send(response);
-    conn->close();
+    auto addResponseResult = fetchServer_.addResponse(fd, response);
+    if (!addResponseResult) {
+      log().error << "Failed to add response: " + addResponseResult.error().message;
+    }
   };
   auto serverStarted = fetchServer_.start(fetchServerConfig);
 

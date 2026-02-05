@@ -135,7 +135,7 @@ TcpServer::Roe<void> TcpServer::listen(const TcpEndpoint &endpoint, int backlog)
   return {};
 }
 
-TcpServer::Roe<TcpConnection> TcpServer::accept() {
+TcpServer::Roe<int> TcpServer::accept() {
   if (!listening_) {
     return Error("Server not listening");
   }
@@ -152,7 +152,7 @@ TcpServer::Roe<TcpConnection> TcpServer::accept() {
     return Error("Failed to accept connection");
   }
 
-  return Roe<TcpConnection>(TcpConnection(client_fd));
+  return client_fd;
 }
 
 TcpServer::Roe<void> TcpServer::waitForEvents(int timeoutMs) {
