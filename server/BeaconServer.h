@@ -72,7 +72,7 @@ protected:
   /**
    * Service thread main loop - processes queued requests
    */
-  void run() override;
+  void runLoop() override;
 
   /**
    * Called before service thread starts - initializes beacon and network

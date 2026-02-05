@@ -55,7 +55,7 @@ public:
   void clear();
 
 protected:
-  void run() override;
+  void runLoop() override;
 
 private:
   struct WriteJob {

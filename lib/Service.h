@@ -11,8 +11,8 @@ namespace pp {
  * Service - Base class for components that run in a dedicated thread.
  *
  * Provides thread lifecycle management with start/stop functionality.
- * Derived classes implement the run() method which executes in the service
- * thread.
+ * Derived classes implement the runLoop() method which executes in the service
+ * thread or in the current thread when using run().
  */
 class Service : public Module {
 public:
@@ -36,31 +36,21 @@ public:
   Service(const Service &) = delete;
   Service &operator=(const Service &) = delete;
 
-  /**
-   * Start the service thread
-   * @return Roe<void> indicating success or error
-   */
+  bool isStopSet() const { return isStopSet_; }
+
   Roe<void> start();
 
-  /**
-   * Stop the service thread
-   * Blocks until the thread has finished.
-   */
   void stop();
 
-  /**
-   * Check if the service is running
-   * @return true if the service thread is active
-   */
-  bool isRunning() const { return isRunning_; }
+  Roe<void> run();
 
 protected:
   /**
    * Main service loop - implement in derived classes.
-   * This method runs in the service thread and should check isRunning()
-   * periodically to allow graceful shutdown.
+   * Runs in the service thread or in the caller thread when using run().
+   * Should check !isStopSet() periodically to allow graceful shutdown.
    */
-  virtual void run() = 0;
+  virtual void runLoop() = 0;
 
   /**
    * Called before the thread starts (in the calling thread context).
@@ -76,8 +66,8 @@ protected:
   virtual void onStop() {}
 
 private:
-  /// Flag indicating if the service should continue running
-  std::atomic<bool> isRunning_{ false };
+  /// Flag indicating if stop has been requested
+  std::atomic<bool> isStopSet_{ false };
 
   /// The service thread
   std::thread thread_;

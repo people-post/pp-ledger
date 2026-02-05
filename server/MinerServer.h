@@ -49,7 +49,7 @@ protected:
   /**
    * Service thread main loop - handles block production and validation
    */
-  void run() override;
+  void runLoop() override;
 
   /**
    * Called before service thread starts - initializes miner and network

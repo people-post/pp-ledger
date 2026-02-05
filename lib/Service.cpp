@@ -3,13 +3,13 @@
 namespace pp {
 
 Service::~Service() {
-  if (isRunning_) {
+  if (!isStopSet_) {
     stop();
   }
 }
 
 Service::Roe<void> Service::start() {
-  if (isRunning_) {
+  if (!isStopSet_) {
     return Error(-1, "Service is already running");
   }
 
@@ -19,22 +19,22 @@ Service::Roe<void> Service::start() {
     return Error(-2, "Service onStart() failed: " + result.error().message);
   }
 
-  isRunning_ = true;
-  thread_ = std::thread(&Service::run, this);
+  isStopSet_ = false;
+  thread_ = std::thread(&Service::runLoop, this);
 
   log().info << "Service started";
   return {};
 }
 
 void Service::stop() {
-  if (!isRunning_) {
+  if (isStopSet_) {
     log().warning << "Service is not running";
     return;
   }
 
   log().info << "Stopping service";
 
-  isRunning_ = false;
+  isStopSet_ = true;
 
   if (thread_.joinable()) {
     thread_.join();
@@ -44,6 +44,25 @@ void Service::stop() {
   onStop();
 
   log().info << "Service stopped";
+}
+
+Service::Roe<void> Service::run() {
+  if (!isStopSet_) {
+    return Error(-1, "Service is already running");
+  }
+
+  auto result = onStart();
+  if (!result) {
+    return Error(-2, "Service onStart() failed: " + result.error().message);
+  }
+
+  isStopSet_ = false;
+  log().info << "Service running in current thread";
+  runLoop();
+  isStopSet_ = true;
+  onStop();
+  log().info << "Service stopped (current thread)";
+  return {};
 }
 
 } // namespace pp

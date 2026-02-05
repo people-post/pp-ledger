@@ -309,7 +309,7 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
 }
 
 Service::Roe<void> BeaconServer::start(const std::string &workDir) {
-  if (isRunning()) {
+  if (!isStopSet()) {
     return Service::Error(-1, "BeaconServer is already running");
   }
 
@@ -319,7 +319,7 @@ Service::Roe<void> BeaconServer::start(const std::string &workDir) {
   log().info << "Starting with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
-  // Call base class start which will invoke onStart() then run()
+  // Call base class start which will invoke onStart() then runLoop()
   return Service::start();
 }
 
@@ -413,10 +413,10 @@ void BeaconServer::onStop() {
   log().info << "BeaconServer resources cleaned up";
 }
 
-void BeaconServer::run() {
+void BeaconServer::runLoop() {
   log().info << "Request handler thread started";
 
-  while (isRunning()) {
+  while (!isStopSet()) {
     QueuedRequest qr;
     
     // Poll for a request from the queue

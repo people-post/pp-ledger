@@ -36,7 +36,7 @@ protected:
     }
 
     void TearDown() override {
-        if (server && server->isRunning()) {
+        if (server && !server->isStopSet()) {
             server->stop();
         }
         server.reset();
@@ -47,7 +47,7 @@ protected:
 
 TEST_F(FetchServerTest, CreatesSuccessfully) {
     EXPECT_NE(server, nullptr);
-    EXPECT_FALSE(server->isRunning());
+    EXPECT_TRUE(server->isStopSet());
 }
 
 TEST_F(FetchServerTest, StartsAndStops) {
@@ -61,11 +61,11 @@ TEST_F(FetchServerTest, StartsAndStops) {
     auto started = server->start(config);
     
     EXPECT_TRUE(started.isOk());
-    EXPECT_TRUE(server->isRunning());
+    EXPECT_FALSE(server->isStopSet());
     EXPECT_EQ(server->getPort(), 18880);
     
     server->stop();
-    EXPECT_FALSE(server->isRunning());
+    EXPECT_TRUE(server->isStopSet());
 }
 
 TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
@@ -104,7 +104,7 @@ protected:
     }
 
     void TearDown() override {
-        if (server && server->isRunning()) {
+        if (server && !server->isStopSet()) {
             server->stop();
         }
         server.reset();

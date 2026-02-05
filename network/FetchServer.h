@@ -62,7 +62,7 @@ protected:
   /**
    * Service thread main loop - accepts and handles connections
    */
-  void run() override;
+  void runLoop() override;
 
   /**
    * Called before service thread starts - sets up TCP listener

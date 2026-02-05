@@ -133,13 +133,13 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
 // ============ MinerServer methods ============
 
 MinerServer::~MinerServer() {
-  if (isRunning()) {
+  if (!isStopSet()) {
     Service::stop();
   }
 }
 
 Service::Roe<void> MinerServer::start(const std::string &workDir) {
-  if (isRunning()) {
+  if (!isStopSet()) {
     return Service::Error(E_MINER, "MinerServer is already running");
   }
 
@@ -162,7 +162,7 @@ Service::Roe<void> MinerServer::start(const std::string &workDir) {
   log().info << "Starting MinerServer with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
 
-  // Call base class start which will invoke onStart() then run()
+  // Call base class start which will invoke onStart() then runLoop()
   return Service::start();
 }
 
@@ -327,10 +327,10 @@ void MinerServer::onStop() {
   log().info << "MinerServer resources cleaned up";
 }
 
-void MinerServer::run() {
+void MinerServer::runLoop() {
   log().info << "Block production loop started";
   
-  while (isRunning()) {
+  while (!isStopSet()) {
     try {
       miner_.refreshStakeholders();
 

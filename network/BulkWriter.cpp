@@ -87,9 +87,9 @@ void BulkWriter::clear() {
   jobs_.clear();
 }
 
-void BulkWriter::run() {
+void BulkWriter::runLoop() {
   const int pollMs = 100;
-  while (isRunning()) {
+  while (!isStopSet()) {
     runOnce(pollMs);
     if (pendingCount() == 0) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));

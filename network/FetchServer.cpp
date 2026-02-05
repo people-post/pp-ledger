@@ -7,7 +7,7 @@ namespace network {
 FetchServer::FetchServer() {}
 
 Service::Roe<void> FetchServer::start(const Config &config) {
-  if (isRunning()) {
+  if (!isStopSet()) {
     return Service::Error(-1, "Server is already running");
   }
 
@@ -32,10 +32,10 @@ Service::Roe<void> FetchServer::onStart() {
 
 void FetchServer::onStop() { server_.stop(); }
 
-void FetchServer::run() {
+void FetchServer::runLoop() {
   log().debug << "Server loop started";
 
-  while (isRunning()) {
+  while (!isStopSet()) {
     // Wait for events with a short timeout to allow checking running_ flag
     auto waitResult = server_.waitForEvents(100); // 100ms timeout
     if (!waitResult) {
