@@ -3,8 +3,11 @@
 #include "ResultOrError.hpp"
 #include "Service.h"
 
+#include <chrono>
 #include <cstddef>
 #include <functional>
+#include <mutex>
+#include <unordered_set>
 #include <vector>
 
 namespace pp {
@@ -25,34 +28,28 @@ public:
 
   using ErrorCallback = std::function<void(int fd, const Error &)>;
 
+  struct TimeoutConfig {
+    // Timeout config for send operations;
+    // if a send takes longer than msBase + (size in MB * msPerMb), it is considered a failure.
+    int msBase{1000};
+    int msPerMb{1000};
+  };
+
+  struct Config {
+    TimeoutConfig timeout;
+    ErrorCallback errorCallback{ nullptr };
+  };
+
   BulkWriter() = default;
   ~BulkWriter() override;
+
+  // BulkWriter in that case; caller may close it.
+  void setConfig(const Config &config) { config_ = config; }
 
   // Add a socket fd and the single payload to write. Takes ownership of a copy
   // of the data. The fd is set to non-blocking. Caller must not close the fd
   // until the write is done (BulkWriter closes it when write completes).
-  Roe<void> add(int fd, const void *data, size_t size);
-
   Roe<void> add(int fd, const std::string &data);
-
-  // Optional: called when a fd fails (e.g. send error). fd is not closed by
-  // BulkWriter in that case; caller may close it.
-  void setErrorCallback(ErrorCallback cb) { errorCallback_ = std::move(cb); }
-
-  // Run the write loop until all fds have written their data and been closed,
-  // or until timeoutMs elapses (0 = no timeout). Returns number of fds still
-  // pending (0 = all done). Use when not running as a service.
-  size_t runToCompletion(int timeoutMs = 0);
-
-  // Perform one poll + write pass. Returns number of fds still pending.
-  // Useful when driving from an external event loop.
-  size_t runOnce(int timeoutMs = 0);
-
-  // Number of fds still pending (not yet fully written / closed).
-  size_t pendingCount() const { return jobs_.size(); }
-
-  // Remove all pending jobs without writing; does not close fds.
-  void clear();
 
 protected:
   void runLoop() override;
@@ -62,15 +59,41 @@ private:
     int fd{-1};
     std::vector<uint8_t> buffer;
     size_t offset{0};
+    std::chrono::steady_clock::time_point expireTime;
   };
 
-  size_t runInternal(int timeoutMs, bool once);
+  enum class WriteResult {
+    Complete,  // Write completed successfully
+    Retry,     // Needs retry (EAGAIN or partial write)
+    Error      // Write error occurred
+  };
 
+  Roe<void> add(int fd, const void *data, size_t size);
+
+  // Remove all pending jobs without writing; does not close fds.
+  void clear();
+
+  // Attempt to write data for a single job
+  WriteResult attemptWrite(WriteJob &job);
+
+  // Handle the result of a write attempt
+  void handleWriteResult(WriteJob &job, WriteResult result, 
+                         std::vector<WriteJob> &next);
+
+  // Process jobs using epoll (mutex must be held by caller)
+  size_t runEpoll(int timeoutMs);
+  void processJobs(const std::unordered_set<int> &ready);
+
+  // Calculate timeout for a job based on its size
+  int calculateJobTimeout(size_t bufferSize) const;
+
+  // Check if a job has timed out
+  bool isJobTimedOut(const WriteJob &job) const;
+
+  std::mutex mutex_;  // Protects jobs_ and epollFd_
   std::vector<WriteJob> jobs_;
-  ErrorCallback errorCallback_;
-#if defined(__linux__)
   int epollFd_{-1};
-#endif
+  Config config_;
 };
 
 } // namespace network
