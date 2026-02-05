@@ -342,5 +342,13 @@ Logger getRootLogger() {
   return Logger(g_spRoot);
 }
 
+Level getLevel() {
+  return g_spRoot->getLevel();
+}
+
+void setLevel(Level level) {
+  g_spRoot->setLevel(level);
+}
+
 } // namespace logging
 } // namespace pp

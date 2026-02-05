@@ -152,7 +152,7 @@ Service::Roe<void> MinerServer::run(const std::string &workDir) {
   }
 
   log().info << "Running MinerServer with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
+  log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
 
   // Call base class run which will invoke onStart() then runLoop() in current thread
   return Service::run();

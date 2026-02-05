@@ -99,7 +99,7 @@ public:
   Level getLevel() const { return level_; }
 
   void addHandler(std::shared_ptr<Handler> spHandler);
-  void addFileHandler(const std::string &filename, Level level = Level::DEBUG);
+  void addFileHandler(const std::string &filename, Level level);
 
   // Control log propagation to parent
   void setPropagate(bool propagate) { propagate_ = propagate; }
@@ -199,6 +199,10 @@ template <typename T> LogStream LogProxy::operator<<(const T &value) {
 // Global logger management
 Logger getLogger(const std::string &name);
 Logger getRootLogger();
+
+// Default level for all loggers
+Level getLevel();
+void setLevel(Level level);
 
 } // namespace logging
 } // namespace pp

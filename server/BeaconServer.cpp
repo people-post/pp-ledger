@@ -313,7 +313,7 @@ Service::Roe<void> BeaconServer::run(const std::string &workDir) {
   workDir_ = workDir;
 
   log().info << "Running with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + FILE_LOG, logging::Level::DEBUG);
+  log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
 
   // Call base class run which will invoke onStart() then runLoop() in current thread
   return Service::run();
