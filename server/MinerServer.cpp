@@ -324,10 +324,10 @@ void MinerServer::onStop() {
 void MinerServer::runLoop() {
   log().info << "Block production and request handler loop started";
   
+  QueuedRequest qr;
   while (!isStopSet()) {
     try {
       // Process queued requests
-      QueuedRequest qr;
       if (requestQueue_.poll(qr)) {
         processQueuedRequest(qr);
       }

@@ -80,9 +80,14 @@ private:
   void handleWriteResult(WriteJob &job, WriteResult result, 
                          std::vector<WriteJob> &next);
 
-  // Process jobs using epoll (mutex must be held by caller)
+  // Process jobs (mutex must be held by caller). Linux: epoll; macOS: poll.
+#if defined(__linux__)
   size_t runEpoll(int timeoutMs);
+#else
+  size_t runPoll(int timeoutMs);
+#endif
   void processJobs(const std::unordered_set<int> &ready);
+  void unregisterFd(int fd);
 
   // Calculate timeout for a job based on its size
   int calculateJobTimeout(size_t bufferSize) const;
@@ -90,9 +95,11 @@ private:
   // Check if a job has timed out
   bool isJobTimedOut(const WriteJob &job) const;
 
-  std::mutex mutex_;  // Protects jobs_ and epollFd_
+  std::mutex mutex_;  // Protects jobs_ and epollFd_ (Linux only)
   std::vector<WriteJob> jobs_;
+#if defined(__linux__)
   int epollFd_{-1};
+#endif
   Config config_;
 };
 

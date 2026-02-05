@@ -412,15 +412,20 @@ void BeaconServer::onStop() {
 void BeaconServer::runLoop() {
   log().info << "Request handler thread started";
 
+  QueuedRequest qr;
   while (!isStopSet()) {
-    QueuedRequest qr;
-    
-    // Poll for a request from the queue
-    if (requestQueue_.poll(qr)) {
-      processQueuedRequest(qr);
-    } else {
-      // No request available, sleep briefly
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    try {
+    beacon_.refreshStakeholders();
+      // Poll for a request from the queue
+      if (requestQueue_.poll(qr)) {
+        processQueuedRequest(qr);
+      } else {
+        // No request available, sleep briefly
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    } catch (const std::exception& e) {
+      log().error << "Exception in request handler loop: " << e.what();
+      std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   }
 

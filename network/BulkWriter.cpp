@@ -4,11 +4,16 @@
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unordered_set>
 #include <unistd.h>
+
+#if defined(__linux__)
+#include <sys/epoll.h>
+#else
+#include <poll.h>
+#endif
 
 namespace pp {
 namespace network {
@@ -30,10 +35,12 @@ int calculateTimeout(int timeoutMs, int defaultTimeout) {
 
 BulkWriter::~BulkWriter() {
   std::lock_guard<std::mutex> lock(mutex_);
+#if defined(__linux__)
   if (epollFd_ >= 0) {
     ::close(epollFd_);
     epollFd_ = -1;
   }
+#endif
 }
 
 BulkWriter::Roe<void> BulkWriter::add(int fd, const void *data, size_t size) {
@@ -58,6 +65,7 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void *data, size_t size) {
   
   jobs_.push_back(std::move(job));
 
+#if defined(__linux__)
   if (epollFd_ < 0) {
     epollFd_ = epoll_create1(0);
     if (epollFd_ < 0) {
@@ -72,6 +80,7 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void *data, size_t size) {
     jobs_.pop_back();
     return Error("epoll_ctl ADD failed: " + std::string(std::strerror(errno)));
   }
+#endif
   return {};
 }
 
@@ -81,11 +90,13 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const std::string &data) {
 
 void BulkWriter::clear() {
   std::lock_guard<std::mutex> lock(mutex_);
+#if defined(__linux__)
   if (epollFd_ >= 0) {
     for (const auto &job : jobs_) {
       epoll_ctl(epollFd_, EPOLL_CTL_DEL, job.fd, nullptr);
     }
   }
+#endif
   jobs_.clear();
 }
 
@@ -97,7 +108,11 @@ void BulkWriter::runLoop() {
       std::lock_guard<std::mutex> lock(mutex_);
       isEmpty = jobs_.empty();
       if (!isEmpty) {
+#if defined(__linux__)
         runEpoll(pollMs);
+#else
+        runPoll(pollMs);
+#endif
       }
     }
     if (isEmpty) {
@@ -106,6 +121,7 @@ void BulkWriter::runLoop() {
   }
 }
 
+#if defined(__linux__)
 size_t BulkWriter::runEpoll(int timeoutMs) {
   const int defaultTimeout = 1000;
 
@@ -135,6 +151,51 @@ size_t BulkWriter::runEpoll(int timeoutMs) {
 
   return jobs_.size();
 }
+#endif
+
+#if !defined(__linux__)
+size_t BulkWriter::runPoll(int timeoutMs) {
+  const int defaultTimeout = 1000;
+  if (jobs_.empty()) return 0;
+
+  int wait = calculateTimeout(timeoutMs, defaultTimeout);
+
+  std::vector<struct pollfd> pfds;
+  pfds.reserve(jobs_.size());
+  for (const auto &job : jobs_) {
+    struct pollfd pfd = {};
+    pfd.fd = job.fd;
+    pfd.events = POLLOUT;
+    pfds.push_back(pfd);
+  }
+
+  int r = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), wait);
+  if (r < 0) {
+    if (errno == EINTR) return jobs_.size();
+    return jobs_.size();
+  }
+  if (r == 0) return jobs_.size();
+
+  std::unordered_set<int> ready;
+  for (size_t i = 0; i < pfds.size(); ++i) {
+    if (pfds[i].revents & (POLLOUT | POLLERR | POLLHUP)) {
+      ready.insert(pfds[i].fd);
+    }
+  }
+  processJobs(ready);
+  return jobs_.size();
+}
+#endif
+
+void BulkWriter::unregisterFd(int fd) {
+#if defined(__linux__)
+  if (epollFd_ >= 0) {
+    epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, nullptr);
+  }
+#else
+  (void)fd;
+#endif
+}
 
 void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
   std::vector<WriteJob> next;
@@ -143,7 +204,7 @@ void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
   for (auto &job : jobs_) {
     // Check for timeout first
     if (isJobTimedOut(job)) {
-      epoll_ctl(epollFd_, EPOLL_CTL_DEL, job.fd, nullptr);
+      unregisterFd(job.fd);
       if (config_.errorCallback) {
         config_.errorCallback(job.fd, Error("Send timeout exceeded"));
       }
@@ -182,14 +243,14 @@ void BulkWriter::handleWriteResult(WriteJob &job, WriteResult result,
                                    std::vector<WriteJob> &next) {
   switch (result) {
     case WriteResult::Complete:
-      epoll_ctl(epollFd_, EPOLL_CTL_DEL, job.fd, nullptr);
+      unregisterFd(job.fd);
       ::close(job.fd);
       break;
     case WriteResult::Retry:
       next.push_back(std::move(job));
       break;
     case WriteResult::Error:
-      epoll_ctl(epollFd_, EPOLL_CTL_DEL, job.fd, nullptr);
+      unregisterFd(job.fd);
       if (config_.errorCallback) {
         config_.errorCallback(job.fd, Error("Send failed: " + std::string(std::strerror(errno))));
       }
