@@ -132,17 +132,9 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
 
 // ============ MinerServer methods ============
 
-MinerServer::~MinerServer() {
-  if (!isStopSet()) {
-    Service::stop();
-  }
-}
+MinerServer::~MinerServer() {}
 
 Service::Roe<void> MinerServer::start(const std::string &workDir) {
-  if (!isStopSet()) {
-    return Service::Error(E_MINER, "MinerServer is already running");
-  }
-
   // Store dataDir for onStart
   workDir_ = workDir;
 

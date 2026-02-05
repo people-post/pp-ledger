@@ -309,10 +309,6 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
 }
 
 Service::Roe<void> BeaconServer::start(const std::string &workDir) {
-  if (!isStopSet()) {
-    return Service::Error(-1, "BeaconServer is already running");
-  }
-
   // Store dataDir for onStart
   workDir_ = workDir;
 
