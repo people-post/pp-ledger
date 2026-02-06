@@ -47,6 +47,8 @@ public:
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
+  void refresh();
+
   Roe<void> addBlock(const Ledger::ChainNode& block);
 
 private:

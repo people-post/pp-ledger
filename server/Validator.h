@@ -96,7 +96,6 @@ public:
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
-    void refreshStakeholders();
     
 protected:
     // Validation helpers
@@ -115,6 +114,7 @@ protected:
 
     Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
+    void refreshStakeholders();
 
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode);

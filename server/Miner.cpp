@@ -138,6 +138,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   return {};
 }
 
+void Miner::refresh() {
+  // Update miner state
+  refreshStakeholders();
+}
+
 Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
   auto result = Validator::validateBlock(block);

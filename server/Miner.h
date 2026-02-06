@@ -66,6 +66,7 @@ public:
 
     // ----------------- methods -------------------------------------
     Roe<void> init(const InitConfig &config);
+    void refresh();
 
     Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
     Roe<void> addBlock(const Ledger::ChainNode& block);

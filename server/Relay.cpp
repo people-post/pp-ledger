@@ -76,6 +76,11 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
   return {};
 }
 
+void Relay::refresh() {
+  // Update relay state
+  refreshStakeholders();
+}
+
 Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode& block) {
   // Relay starts at block 0, use strict validation
   auto result = addBlockBase(block, true);

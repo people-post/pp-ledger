@@ -267,11 +267,14 @@ void RelayServer::runLoop() {
 
   while (!isStopSet()) {
     try {
+      // Update relay state
+      relay_.refresh();
+
+      // Process queued requests
       if (!pollAndProcessOneRequest()) {
+        // Sleep for a short time if queue is not too busy
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
-
-      relay_.refreshStakeholders();
     } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));

@@ -277,10 +277,10 @@ void MinerServer::runLoop() {
 
   while (!isStopSet()) {
     try {
-      pollAndProcessOneRequest();
+      // Update miner state
+      miner_.refresh();
 
-      // Handle block production/validation
-      miner_.refreshStakeholders();
+      pollAndProcessOneRequest();
 
       if (miner_.isSlotLeader()) {
         handleSlotLeaderRole();

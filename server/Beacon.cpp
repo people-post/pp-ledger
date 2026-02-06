@@ -152,6 +152,11 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   return {};
 }
 
+void Beacon::refresh() {
+  // Update stakeholders
+  refreshStakeholders();
+}
+
 Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
   // Call base class implementation
   auto result = Validator::validateBlock(block);
