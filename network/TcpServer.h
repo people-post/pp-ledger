@@ -40,14 +40,10 @@ public:
   // Check if server is listening
   bool isListening() const;
 
-  // Get the host address the server is bound to
-  // Returns the external address when able to accept non-local connections
-  std::string getHost() const;
-
-  // Get the port the server is listening on
-  uint16_t getPort() const { return endpoint_.port; }
+  TcpEndpoint getEndpoint() const;
 
 private:
+  std::string getHost() const;
   // Helper to get the actual bound address
   std::string getBoundAddress() const;
 

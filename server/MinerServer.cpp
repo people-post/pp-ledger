@@ -14,7 +14,6 @@ namespace pp {
 MinerServer::MinerServer() {
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
-  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
   client_.redirectLogger(log().getFullName() + ".Client");
 }
 
@@ -173,18 +172,7 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Beacons: " << config_.network.beacons.size();
   
-  // Start FetchServer with handler
-  network::FetchServer::Config fetchServerConfig;
-  fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
-    QueuedRequest qr;
-    qr.request = request;
-    qr.fd = fd;
-    requestQueue_.push(std::move(qr));
-    log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
-  };
-  auto serverStarted = fetchServer_.start(fetchServerConfig);
-
+  auto serverStarted = startFetchServer(config_.network.endpoint);
   if (!serverStarted) {
     return Service::Error(E_MINER, "Failed to start FetchServer: " + serverStarted.error().message);
   }
@@ -280,20 +268,16 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
 }
 
 void MinerServer::onStop() {
-  fetchServer_.stop();
+  Server::onStop();
   log().info << "MinerServer resources cleaned up";
 }
 
 void MinerServer::runLoop() {
   log().info << "Block production and request handler loop started";
-  
-  QueuedRequest qr;
+
   while (!isStopSet()) {
     try {
-      // Process queued requests
-      if (requestQueue_.poll(qr)) {
-        processQueuedRequest(qr);
-      }
+      pollAndProcessOneRequest();
 
       // Handle block production/validation
       miner_.refreshStakeholders();
@@ -321,48 +305,31 @@ std::string MinerServer::getSlotLeaderAddress() const {
   return "";
 }
 
-void MinerServer::processQueuedRequest(QueuedRequest& qr) {
-  log().debug << "Processing request from queue";
-  // Process the request
-  std::string response = handleRequest(qr.request);
-  
-  // Send response back
-  auto addResponseResult = fetchServer_.addResponse(qr.fd, response);
-  if (!addResponseResult) {
-    log().error << "Failed to queue response: " << addResponseResult.error().message;
+std::string MinerServer::handleParsedRequest(const Client::Request& request) {
+  Roe<std::string> result = Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
+  switch (request.type) {
+  case Client::T_REQ_BLOCK_GET:
+    result = handleBlockGetRequest(request);
+    break;
+  case Client::T_REQ_BLOCK_ADD:
+    result = handleBlockAddRequest(request);
+    break;
+  case Client::T_REQ_ACCOUNT_GET:
+    result = handleAccountGetRequest(request);
+    break;
+  case Client::T_REQ_TRANSACTION_ADD:
+    result = handleTransactionAddRequest(request);
+    break;
+  case Client::T_REQ_STATUS:
+    result = handleStatusRequest(request);
+    break;
+  default:
+    break;
   }
-}
-
-std::string MinerServer::handleRequest(const std::string &request) {
-  log().debug << "Received request (" << request.size() << " bytes)";
-  auto reqResult = utl::binaryUnpack<Client::Request>(request);
-  if (!reqResult) {
-    return Server::packResponse(1, reqResult.error().message);
-  }
-
-  const auto& req = reqResult.value();
-  auto result = handleRequest(req);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
   return Server::packResponse(result.value());
-}
-
-MinerServer::Roe<std::string> MinerServer::handleRequest(const Client::Request &request) {
-  switch (request.type) {
-  case Client::T_REQ_BLOCK_GET:
-    return handleBlockGetRequest(request);
-  case Client::T_REQ_BLOCK_ADD:
-    return handleBlockAddRequest(request);
-  case Client::T_REQ_ACCOUNT_GET:
-    return handleAccountGetRequest(request);
-  case Client::T_REQ_TRANSACTION_ADD:
-    return handleTransactionAddRequest(request);
-  case Client::T_REQ_STATUS:
-    return handleStatusRequest(request);
-  default:
-    return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
-  }
 }
 
 MinerServer::Roe<std::string> MinerServer::handleBlockGetRequest(const Client::Request &request) {
@@ -498,9 +465,7 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  network::TcpEndpoint endpoint;
-  endpoint.address = fetchServer_.getHost();
-  endpoint.port = fetchServer_.getPort();
+  network::TcpEndpoint endpoint = getFetchServerEndpoint();
   auto stateResult = client_.registerMinerServer(endpoint);
   if (!stateResult) {
     return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);

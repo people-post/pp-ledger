@@ -217,6 +217,13 @@ void TcpServer::stop() {
 
 bool TcpServer::isListening() const { return listening_; }
 
+TcpEndpoint TcpServer::getEndpoint() const { 
+  network::TcpEndpoint ep;
+  ep.address = getHost();
+  ep.port = endpoint_.port;
+  return ep;
+}
+
 std::string TcpServer::getHost() const {
   if (!listening_ || socketFd_ < 0) {
     return endpoint_.address.empty() ? "localhost" : endpoint_.address;

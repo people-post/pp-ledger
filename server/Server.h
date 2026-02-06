@@ -1,7 +1,10 @@
 #ifndef PP_LEDGER_SERVER_H
 #define PP_LEDGER_SERVER_H
 
+#include "../client/Client.h"
 #include "../lib/Service.h"
+#include "../lib/ThreadSafeQueue.hpp"
+#include "../network/FetchServer.h"
 #include <cstdint>
 #include <string>
 
@@ -12,41 +15,55 @@ namespace pp {
  *
  * Provides common run(workDir) behavior: work directory setup, optional
  * signature file for directory recognition, log file handler, then
- * Service::run() (onStart + runLoop).
+ * Service::run() (onStart + runLoop). Also provides shared request queue,
+ * processQueuedRequest, and handleRequest(string) with virtual handleParsedRequest
+ * and sendResponse for derived implementations.
  */
 class Server : public Service {
 public:
+  struct QueuedRequest {
+    int fd{ -1 };
+    std::string request;
+  };
+
   Server() = default;
   ~Server() override = default;
 
   virtual Service::Roe<void> run(const std::string& workDir);
 
 protected:
-  /** Current work directory set by run(workDir). */
-  const std::string& getWorkDir() const { return workDir_; }
-
-  /** If true, run() creates/checks .signature in work dir. Default true; BeaconServer uses false. */
   virtual bool useSignatureFile() const { return true; }
 
-  /** File name for signature file (e.g. ".signature"). Used when useSignatureFile() is true. */
+  const std::string& getWorkDir() const { return workDir_; }
   virtual const char* getFileSignature() const = 0;
-
-  /** Log file name (e.g. "relay.log", "miner.log", "beacon.log"). */
   virtual const char* getFileLog() const = 0;
-
-  /** Name used in run() log message, e.g. "RelayServer", "MinerServer", "BeaconServer". */
   virtual const char* getServerName() const = 0;
-
-  /** Error code for run() failures (e.g. signature file). Derived can override. */
   virtual int32_t getRunErrorCode() const { return -1; }
+  virtual network::TcpEndpoint getFetchServerEndpoint() const { return fetchServer_.getEndpoint(); }
 
-  /** Pack a successful response (errorCode 0) into binary. */
   static std::string packResponse(const std::string& payload);
-  /** Pack an error response into binary. */
   static std::string packResponse(uint16_t errorCode, const std::string& message);
 
+  bool pollAndProcessOneRequest();
+
+  virtual std::string handleParsedRequest(const Client::Request& request) = 0;
+
+  Service::Roe<void> startFetchServer(const network::TcpEndpoint& endpoint);
+  void stopFetchServer();
+
+  void onStop() override;
+
 private:
+  size_t getRequestQueueSize() const;
+  void processQueuedRequest(QueuedRequest& qr);
+  std::string handleRequest(const std::string& request);
+
+  void enqueueRequest(QueuedRequest qr);
+  void sendResponse(int fd, const std::string& response);
+
   std::string workDir_;
+  ThreadSafeQueue<QueuedRequest> requestQueue_;
+  network::FetchServer fetchServer_;
 };
 
 } // namespace pp

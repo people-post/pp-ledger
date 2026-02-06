@@ -42,27 +42,13 @@ public:
 
   ~FetchServer() override;
 
-  std::string getHost() const { return server_.getHost(); }
-  uint16_t getPort() const { return server_.getPort(); }
-
+  TcpEndpoint getEndpoint() const { return server_.getEndpoint(); }
   Roe<void> addResponse(int fd, const std::string &response);
-
   Service::Roe<void> start(const Config &config);
-
 protected:
-  /**
-   * Service thread main loop - accepts and handles connections
-   */
   void runLoop() override;
 
-  /**
-   * Called before service thread starts - sets up TCP listener
-   */
   Service::Roe<void> onStart() override;
-
-  /**
-   * Called after service thread stops - cleans up TCP server
-   */
   void onStop() override;
 
 private:

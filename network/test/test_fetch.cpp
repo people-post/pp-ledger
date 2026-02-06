@@ -61,7 +61,7 @@ TEST_F(FetchServerTest, StartsAndStops) {
     
     EXPECT_TRUE(started.isOk());
     EXPECT_FALSE(server->isStopSet());
-    EXPECT_EQ(server->getPort(), 18880);
+    EXPECT_EQ(server->getEndpoint().port, 18880);
     
     server->stop();
     EXPECT_TRUE(server->isStopSet());

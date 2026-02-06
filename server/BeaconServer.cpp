@@ -14,7 +14,6 @@ namespace pp {
 BeaconServer::BeaconServer() {
   redirectLogger("BeaconServer");
   beacon_.redirectLogger(log().getFullName() + ".Beacon");
-  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
   client_.redirectLogger(log().getFullName() + ".Client");
 }
 
@@ -375,17 +374,7 @@ Service::Roe<void> BeaconServer::onStart() {
   
   log().info << "Beacon core initialized";
 
-  // Start FetchServer with handler that enqueues requests
-  network::FetchServer::Config fetchServerConfig;
-  fetchServerConfig.endpoint = config_.network.endpoint;
-  fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
-    QueuedRequest qr;
-    qr.request = request;
-    qr.fd = fd;
-    requestQueue_.push(std::move(qr));
-    log().debug << "Request enqueued (queue size: " << requestQueue_.size() << ")";
-  };
-  auto serverStarted = fetchServer_.start(fetchServerConfig);
+  auto serverStarted = startFetchServer(config_.network.endpoint);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start FetchServer: " + serverStarted.error().message);
   }
@@ -414,7 +403,7 @@ void BeaconServer::initHandlers() {
 };
 
 void BeaconServer::onStop() {
-  fetchServer_.stop();
+  Server::onStop();
   log().info << "BeaconServer resources cleaned up";
 }
 
@@ -448,15 +437,10 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
 void BeaconServer::runLoop() {
   log().info << "Request handler thread started";
 
-  QueuedRequest qr;
   while (!isStopSet()) {
     try {
-    beacon_.refreshStakeholders();
-      // Poll for a request from the queue
-      if (requestQueue_.poll(qr)) {
-        processQueuedRequest(qr);
-      } else {
-        // No request available, sleep briefly
+      beacon_.refreshStakeholders();
+      if (!pollAndProcessOneRequest()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     } catch (const std::exception& e) {
@@ -468,51 +452,14 @@ void BeaconServer::runLoop() {
   log().info << "Request handler thread stopped";
 }
 
-void BeaconServer::processQueuedRequest(QueuedRequest& qr) {
-  log().debug << "Processing request from queue";
-  // Process the request
-  std::string response = handleRequest(qr.request);
-  
-  // Send response back
-  auto addResponseResult = fetchServer_.addResponse(qr.fd, response);
-  if (!addResponseResult) {
-    log().error << "Failed to queue response: " << addResponseResult.error().message;
-  }    
-}
-
-std::string BeaconServer::handleRequest(const std::string &request) {
-  log().debug << "Received request (" << request.size() << " bytes)";
-
-  auto reqResult = utl::binaryUnpack<Client::Request>(request);
-  if (!reqResult) {
-    return Server::packResponse(1, reqResult.error().message);
-  }
-
-  const auto& req = reqResult.value();
-  auto result = handleRequest(req);
+std::string BeaconServer::handleParsedRequest(const Client::Request& request) {
+  log().debug << "Handling request: " << request.type;
+  auto it = requestHandlers_.find(request.type);
+  Roe<std::string> result = (it != requestHandlers_.end()) ? it->second(request) : hUnsupported(request);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
   return Server::packResponse(result.value());
-}
-
-BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
-  log().debug << "Handling request: " << request.type;
-
-  switch (request.type) {
-  case Client::T_REQ_BLOCK_GET:
-    return hBlockGet(request);
-  case Client::T_REQ_BLOCK_ADD:
-    return hBlockAdd(request);
-  case Client::T_REQ_ACCOUNT_GET:
-    return hAccountGet(request);
-  case Client::T_REQ_STATUS:
-    return hStatus(request);
-  case Client::T_REQ_REGISTER:
-    return hRegister(request);
-  default:
-    return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
-  }
 }
 
 BeaconServer::Roe<std::string> BeaconServer::hBlockGet(const Client::Request &request) {

@@ -4,11 +4,9 @@
 #include "Beacon.h"
 #include "Server.h"
 #include "../client/Client.h"
-#include "../network/FetchServer.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/ThreadSafeQueue.hpp"
 #include <map>
 #include <mutex>
 #include <string>
@@ -104,11 +102,6 @@ private:
     Roe<void> ltsFromJson(const nlohmann::json& jd);
   };
 
-  struct QueuedRequest {
-    int fd{ -1 };
-    std::string request;
-  };
-
   struct NetworkConfig {
     network::TcpEndpoint endpoint;
     std::vector<std::string> whitelist;
@@ -123,11 +116,9 @@ private:
   void initHandlers();
 
   void registerServer(const std::string &serverAddress);
-  void processQueuedRequest(QueuedRequest& qr);
   Client::BeaconState buildStateResponse() const;
 
-  std::string handleRequest(const std::string &request);
-  Roe<std::string> handleRequest(const Client::Request &request);
+  std::string handleParsedRequest(const Client::Request &request) override;
 
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);
@@ -138,10 +129,8 @@ private:
 
   Config config_;
   Beacon beacon_;
-  network::FetchServer fetchServer_;
   Client client_;
 
-  ThreadSafeQueue<QueuedRequest> requestQueue_;
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
 

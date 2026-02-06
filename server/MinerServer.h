@@ -4,10 +4,8 @@
 #include "Miner.h"
 #include "Server.h"
 #include "../client/Client.h"
-#include "../network/FetchServer.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/ThreadSafeQueue.hpp"
 #include <string>
 #include <thread>
 #include <atomic>
@@ -64,11 +62,6 @@ private:
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
-  struct QueuedRequest {
-    int fd{ -1 };
-    std::string request;
-  };
-
   struct RunFileConfig {
     uint64_t minerId{ 0 };
     std::string key{ "key.txt" };  // Key file containing hex-encoded private key (default: key.txt)
@@ -97,10 +90,8 @@ private:
   void handleSlotLeaderRole();
   void handleValidatorRole();
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
-  void processQueuedRequest(QueuedRequest& qr);
 
-  std::string handleRequest(const std::string &request);
-  Roe<std::string> handleRequest(const Client::Request &request);
+  std::string handleParsedRequest(const Client::Request &request) override;
 
   Roe<std::string> handleBlockGetRequest(const Client::Request &request);
   Roe<std::string> handleBlockAddRequest(const Client::Request &request);
@@ -109,12 +100,8 @@ private:
   Roe<std::string> handleStatusRequest(const Client::Request &request);
 
   Miner miner_;
-  network::FetchServer fetchServer_;
   Client client_;
   Config config_;
-
-  // Request processing
-  ThreadSafeQueue<QueuedRequest> requestQueue_;
 };
 
 } // namespace pp
