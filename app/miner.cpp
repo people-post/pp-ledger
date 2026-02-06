@@ -1,8 +1,9 @@
 #include "../server/MinerServer.h"
 #include "../lib/Logger.h"
 
+#include <CLI/CLI.hpp>
+
 #include <csignal>
-#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -15,29 +16,6 @@ void signalHandler(int signal) {
   }
 }
 } // namespace
-
-void printUsage() {
-  std::cout << "Usage: pp-miner -d <work-dir> [--debug]\n";
-  std::cout << "  -d <work-dir>  - Work directory (required)\n";
-  std::cout << "  --debug        - Enable debug logging (default: warning level)\n";
-  std::cout << "\n";
-  std::cout << "Example:\n";
-  std::cout << "  pp-miner -d /some/path/to/work-dir [--debug]\n";
-  std::cout << "\n";
-  std::cout << "The miner will automatically create a default config.json file if it doesn't exist.\n";
-  std::cout << "You can edit the config.json file to customize the miner settings:\n";
-  std::cout << "  {\n";
-  std::cout << "    \"minerId\": \"miner1\",\n";
-  std::cout << "    \"stake\": 1000000,\n";
-  std::cout << "    \"host\": \"localhost\",\n";
-  std::cout << "    \"port\": 8518,\n";
-  std::cout << "    \"beacons\": [\"127.0.0.1:8517\"]\n";
-  std::cout << "  }\n";
-  std::cout << "\n";
-  std::cout << "Note: The 'host' and 'port' fields are optional.\n";
-  std::cout << "      Defaults: host=\"localhost\", port=8518\n";
-  std::cout << "      The 'beacons' array must contain at least one beacon address.\n";
-}
 
 int runMiner(const std::string& workDir) {
   auto logger = pp::logging::getLogger("pp");
@@ -65,39 +43,31 @@ int runMiner(const std::string& workDir) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 3) {
-    std::cerr << "Error: Work directory required.\n";
-    printUsage();
-    return 1;
-  }
-
+  CLI::App app{"pp-miner - Miner server for pp-ledger"};
+  
   std::string workDir;
+  app.add_option("-d,--work-dir", workDir, "Work directory (required)")
+      ->required();
+
   bool debugMode = false;
+  app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
-  // Parse arguments
-  for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "-d") == 0) {
-      if (i + 1 < argc) {
-        workDir = argv[++i];
-      } else {
-        std::cerr << "Error: -d option requires a directory path.\n";
-        printUsage();
-        return 1;
-      }
-    } else if (strcmp(argv[i], "--debug") == 0) {
-      debugMode = true;
-    } else {
-      std::cerr << "Error: Unknown argument: " << argv[i] << "\n";
-      printUsage();
-      return 1;
-    }
-  }
+  app.footer(
+    "Example:\n"
+    "  pp-miner -d /path/to/work-dir [--debug]\n"
+    "\n"
+    "The miner will automatically create a default config.json if it doesn't exist.\n"
+    "Config file format (config.json):\n"
+    "  {\n"
+    "    \"minerId\": \"miner1\",\n"
+    "    \"stake\": 1000000,\n"
+    "    \"host\": \"localhost\",           // Optional, default: localhost\n"
+    "    \"port\": 8518,                    // Optional, default: 8518\n"
+    "    \"beacons\": [\"127.0.0.1:8517\"]  // Required, at least one beacon\n"
+    "  }"
+  );
 
-  if (workDir.empty()) {
-    std::cerr << "Error: Work directory (-d) is required.\n";
-    printUsage();
-    return 1;
-  }
+  CLI11_PARSE(app, argc, argv);
 
   auto logger = pp::logging::getRootLogger();
   pp::logging::Level logLevel = debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;

@@ -32,6 +32,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# Fetch CLI11
+FetchContent_Declare(
+  cli11
+  GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+  GIT_TAG v2.4.2
+)
+FetchContent_MakeAvailable(cli11)
+
 # Enable testing and set BUILD_TESTING before adding subdirectories
 enable_testing()
 option(BUILD_TESTING "Build the testing tree" ON)
