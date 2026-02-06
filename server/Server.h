@@ -16,50 +16,52 @@ namespace pp {
  * Provides common run(workDir) behavior: work directory setup, optional
  * signature file for directory recognition, log file handler, then
  * Service::run() (onStart + runLoop). Also provides shared request queue,
- * processQueuedRequest, and handleRequest(string) with virtual handleParsedRequest
- * and sendResponse for derived implementations.
+ * processQueuedRequest, and handleRequest(string) with virtual
+ * handleParsedRequest and sendResponse for derived implementations.
  */
 class Server : public Service {
 public:
-  struct QueuedRequest {
-    int fd{ -1 };
-    std::string request;
-  };
-
   Server() = default;
   ~Server() override = default;
 
-  virtual Service::Roe<void> run(const std::string& workDir);
+  virtual Service::Roe<void> run(const std::string &workDir);
 
 protected:
   virtual bool useSignatureFile() const { return true; }
 
-  const std::string& getWorkDir() const { return workDir_; }
-  virtual const char* getFileSignature() const = 0;
-  virtual const char* getFileLog() const = 0;
-  virtual const char* getServerName() const = 0;
+  const std::string &getWorkDir() const { return workDir_; }
+  virtual const char *getFileSignature() const = 0;
+  virtual const char *getFileLog() const = 0;
+  virtual const char *getServerName() const = 0;
   virtual int32_t getRunErrorCode() const { return -1; }
-  virtual network::TcpEndpoint getFetchServerEndpoint() const { return fetchServer_.getEndpoint(); }
+  virtual network::TcpEndpoint getFetchServerEndpoint() const {
+    return fetchServer_.getEndpoint();
+  }
 
-  static std::string packResponse(const std::string& payload);
-  static std::string packResponse(uint16_t errorCode, const std::string& message);
+  static std::string packResponse(const std::string &payload);
+  static std::string packResponse(uint16_t errorCode,
+                                  const std::string &message);
 
   bool pollAndProcessOneRequest();
 
-  virtual std::string handleParsedRequest(const Client::Request& request) = 0;
+  virtual std::string handleParsedRequest(const Client::Request &request) = 0;
 
-  Service::Roe<void> startFetchServer(const network::TcpEndpoint& endpoint);
+  Service::Roe<void> startFetchServer(const network::TcpEndpoint &endpoint);
   void stopFetchServer();
 
   void onStop() override;
 
 private:
-  size_t getRequestQueueSize() const;
-  void processQueuedRequest(QueuedRequest& qr);
-  std::string handleRequest(const std::string& request);
+  struct QueuedRequest {
+    int fd{-1};
+    std::string request;
+  };
 
-  void enqueueRequest(QueuedRequest qr);
-  void sendResponse(int fd, const std::string& response);
+  size_t getRequestQueueSize() const;
+  void processQueuedRequest(QueuedRequest &qr);
+  std::string handleRequest(const std::string &request);
+
+  void sendResponse(int fd, const std::string &response);
 
   std::string workDir_;
   ThreadSafeQueue<QueuedRequest> requestQueue_;
