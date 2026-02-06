@@ -1,6 +1,7 @@
 #include "Client.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
+#include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
@@ -8,8 +9,10 @@
 #include <nlohmann/json.hpp>
 
 #include <ctime>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -25,22 +28,130 @@ static std::string formatTimestampLocal(int64_t unixSeconds) {
 
 using json = nlohmann::json;
 
-void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholders) {
-  std::cout << "Stakeholders (" << stakeholders.size() << "):\n";
-  if (stakeholders.empty()) {
-    std::cout << "  (none)\n";
-  } else {
-    std::cout << std::left << std::setw(30) << "  ID" << "Stake\n";
-    std::cout << "  " << std::string(40, '-') << "\n";
-    for (const auto &s : stakeholders) {
-      std::cout << "  " << std::setw(30) << s.id << s.stake << "\n";
-    }
-  }
-}
-
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
   std::cout << status.ltsToJson().dump(2) << "\n";
+}
+
+static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
+                    int64_t amount, const std::string& keyHex) {
+  std::string keyStr = keyHex;
+  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
+    keyStr = keyStr.substr(2);
+  std::string privateKey = pp::utl::hexDecode(keyStr);
+  if (privateKey.size() != 32) {
+    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+    return 1;
+  }
+  pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
+  signedTx.obj.fromWalletId = fromWalletId;
+  signedTx.obj.toWalletId = toWalletId;
+  signedTx.obj.amount = amount;
+  std::string message = pp::utl::binaryPack(signedTx.obj);
+  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  if (!sigResult) {
+    std::cerr << "Error: " << sigResult.error().message << "\n";
+    return 1;
+  }
+  signedTx.signatures = {*sigResult};
+  auto result = client.addTransaction(signedTx);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Transaction submitted successfully\n";
+  return 0;
+}
+
+using SignedTx = pp::Ledger::SignedData<pp::Ledger::Transaction>;
+
+static pp::Roe<std::string> readFileContent(const std::string& path) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f) return pp::Error(1, "Cannot open file: " + path);
+  std::ostringstream oss;
+  oss << f.rdbuf();
+  if (!f)
+    return pp::Error(2, "Failed to read file: " + path);
+  return oss.str();
+}
+
+static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
+                   const std::string& outputPath) {
+  SignedTx signedTx;
+  signedTx.obj.fromWalletId = fromWalletId;
+  signedTx.obj.toWalletId = toWalletId;
+  signedTx.obj.amount = amount;
+  signedTx.signatures = {};
+  std::string packed = pp::utl::binaryPack(signedTx);
+  auto result = pp::utl::writeToNewFile(outputPath, packed);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Transaction written to " << outputPath << "\n";
+  return 0;
+}
+
+static int runSignTx(const std::string& filePath, const std::string& keyHex) {
+  auto content = readFileContent(filePath);
+  if (!content) {
+    std::cerr << "Error: " << content.error().message << "\n";
+    return 1;
+  }
+  auto signedTxResult = pp::utl::binaryUnpack<SignedTx>(*content);
+  if (!signedTxResult) {
+    std::cerr << "Error: Invalid signed tx file: " << signedTxResult.error().message << "\n";
+    return 1;
+  }
+  SignedTx signedTx = *signedTxResult;
+  std::string keyStr = keyHex;
+  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
+    keyStr = keyStr.substr(2);
+  std::string privateKey = pp::utl::hexDecode(keyStr);
+  if (privateKey.size() != 32) {
+    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+    return 1;
+  }
+  std::string message = pp::utl::binaryPack(signedTx.obj);
+  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  if (!sigResult) {
+    std::cerr << "Error: " << sigResult.error().message << "\n";
+    return 1;
+  }
+  signedTx.signatures.push_back(*sigResult);
+  std::string packed = pp::utl::binaryPack(signedTx);
+  std::ofstream f(filePath, std::ios::binary | std::ios::trunc);
+  if (!f) {
+    std::cerr << "Error: Cannot write file: " << filePath << "\n";
+    return 1;
+  }
+  f << packed;
+  if (!f) {
+    std::cerr << "Error: Failed to write file: " << filePath << "\n";
+    return 1;
+  }
+  std::cout << "Added signature (" << signedTx.signatures.size() << " total).\n";
+  return 0;
+}
+
+static int runSubmitTx(pp::Client& client, const std::string& filePath) {
+  auto content = readFileContent(filePath);
+  if (!content) {
+    std::cerr << "Error: " << content.error().message << "\n";
+    return 1;
+  }
+  auto signedTxResult = pp::utl::binaryUnpack<SignedTx>(*content);
+  if (!signedTxResult) {
+    std::cerr << "Error: Invalid signed tx file: " << signedTxResult.error().message << "\n";
+    return 1;
+  }
+  auto result = client.addTransaction(*signedTxResult);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Transaction submitted successfully\n";
+  return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -83,9 +194,36 @@ int main(int argc, char *argv[]) {
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
   int64_t amount = 0;
+  std::string keyHex;
   add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
   add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
   add_tx_cmd->add_option("amount", amount, "Amount to transfer")->required();
+  add_tx_cmd->add_option("-k,--key", keyHex, "Private key (hex) to sign the transaction")
+      ->required();
+
+  // mk-tx: create unsigned SignedData and save to file
+  auto* mk_tx_cmd = app.add_subcommand("mk-tx", "Create unsigned transaction file");
+  uint64_t mk_from = 0, mk_to = 0;
+  int64_t mk_amount = 0;
+  std::string mk_output;
+  mk_tx_cmd->add_option("from", mk_from, "From wallet ID")->required();
+  mk_tx_cmd->add_option("to", mk_to, "To wallet ID")->required();
+  mk_tx_cmd->add_option("amount", mk_amount, "Amount to transfer")->required();
+  mk_tx_cmd->add_option("-o,--output", mk_output, "Output file (must not exist)")
+      ->required();
+
+  // sign-tx: add a signature to an existing tx file
+  auto* sign_tx_cmd = app.add_subcommand("sign-tx", "Add signature to a transaction file");
+  std::string sign_tx_file;
+  std::string sign_key_hex;
+  sign_tx_cmd->add_option("file", sign_tx_file, "Transaction file to sign")->required();
+  sign_tx_cmd->add_option("-k,--key", sign_key_hex, "Private key (hex) to sign")
+      ->required();
+
+  // submit-tx: submit signed tx file to miner
+  auto* submit_tx_cmd = app.add_subcommand("submit-tx", "Submit signed transaction file to miner");
+  std::string submit_tx_file;
+  submit_tx_cmd->add_option("file", submit_tx_file, "Signed transaction file")->required();
 
   CLI11_PARSE(app, argc, argv);
 
@@ -101,6 +239,16 @@ int main(int argc, char *argv[]) {
     std::cout << "Private key (hex):  " << pp::utl::hexEncode(pair->privateKey) << "\n";
     std::cout << "\nKeep the private key secret. Use the public key in config (e.g. beacon keys).\n";
     return 0;
+  }
+
+  // Handle mk-tx (no server connection needed)
+  if (mk_tx_cmd->parsed()) {
+    return runMkTx(mk_from, mk_to, mk_amount, mk_output);
+  }
+
+  // Handle sign-tx (no server connection needed)
+  if (sign_tx_cmd->parsed()) {
+    return runSignTx(sign_tx_file, sign_key_hex);
   }
 
   // For server commands, validate beacon/miner flag
@@ -187,19 +335,16 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: add-tx command requires -m/--miner flag.\n";
       exitCode = 1;
     } else {
-      pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
-      signedTx.obj.fromWalletId = fromWalletId;
-      signedTx.obj.toWalletId = toWalletId;
-      signedTx.obj.amount = amount;
-      signedTx.signatures = {};
-
-      auto result = client.addTransaction(signedTx);
-      if (!result) {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      } else {
-        std::cout << "Transaction submitted successfully\n";
-      }
+      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, keyHex);
+    }
+  }
+  // Handle submit-tx command (miner only)
+  else if (submit_tx_cmd->parsed()) {
+    if (!connectToMiner) {
+      std::cerr << "Error: submit-tx command requires -m/--miner flag.\n";
+      exitCode = 1;
+    } else {
+      exitCode = runSubmitTx(client, submit_tx_file);
     }
   }
 

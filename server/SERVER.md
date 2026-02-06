@@ -234,7 +234,6 @@ All requests/responses use JSON format.
 ```json
 {
   "minerId": "miner1",
-  "stake": 1000000,
   "host": "localhost",
   "port": 8518,
   "beacons": ["127.0.0.1:8517"]
