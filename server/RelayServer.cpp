@@ -13,7 +13,7 @@ namespace pp {
 
 RelayServer::RelayServer() {
   redirectLogger("RelayServer");
-  beacon_.redirectLogger(log().getFullName() + ".Beacon");
+  relay_.redirectLogger(log().getFullName() + ".Relay");
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
   client_.redirectLogger(log().getFullName() + ".Client");
 }
@@ -86,7 +86,20 @@ Service::Roe<void> RelayServer::run(const std::string &workDir) {
   // Store dataDir for onStart
   workDir_ = workDir;
 
-  log().info << "Running with work directory: " << workDir;
+  auto signaturePath = std::filesystem::path(workDir) / FILE_SIGNATURE;
+  if (!std::filesystem::exists(workDir)) {
+    std::filesystem::create_directories(workDir);
+    auto result = utl::writeToNewFile(signaturePath.string(), "");
+    if (!result) {
+      return Service::Error(E_RELAY, "Failed to create signature file: " + result.error().message);
+    }
+  }
+
+  if (!std::filesystem::exists(signaturePath)) {
+    return Service::Error(E_RELAY, "Work directory not recognized, please remove it manually and try again");
+  }
+
+  log().info << "Running RelayServer with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
 
   // Call base class run which will invoke onStart() then runLoop() in current thread
@@ -101,28 +114,28 @@ Service::Roe<void> RelayServer::onStart() {
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
-  
+
   if (!std::filesystem::exists(configPath)) {
     log().info << "No " << FILE_CONFIG << " found, creating with default values";
-    
-    // Use default values from RunFileConfig struct
+
     nlohmann::json defaultConfig = runFileConfig.ltsToJson();
-    
+
     std::ofstream configFile(configPath);
     if (!configFile) {
-      return Service::Error(-2, "Failed to create " + std::string(FILE_CONFIG));
+      return Service::Error(E_CONFIG, "Failed to create " + std::string(FILE_CONFIG));
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
-    
+
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
+    log().info << "Please edit " << FILE_CONFIG << " to configure your relay settings";
   } else {
     // Load existing configuration
     auto jsonResult = utl::loadJsonFile(configPathStr);
     if (!jsonResult) {
-      return Service::Error(-3, "Failed to load config file: " + jsonResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to load config file: " + jsonResult.error().message);
     }
-    
+
     nlohmann::json config = jsonResult.value();
     auto parseResult = runFileConfig.ltsFromJson(config);
     if (!parseResult) {
@@ -138,19 +151,8 @@ Service::Roe<void> RelayServer::onStart() {
   log().info << "Configuration loaded";
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Beacon: " << config_.network.beacon;
-  
-  // Initialize beacon core with mount config
-  Beacon::MountConfig mountConfig;
-  mountConfig.workDir = workDir_ + "/" + DIR_DATA;
-  
-  auto beaconMount = beacon_.mount(mountConfig);
-  if (!beaconMount) {
-    return Service::Error(-4, "Failed to mount Beacon: " + beaconMount.error().message);
-  }
-  
-  log().info << "Beacon core initialized";
 
-  // Start FetchServer with handler that enqueues requests
+  // Start FetchServer first (same order as MinerServer)
   network::FetchServer::Config fetchServerConfig;
   fetchServerConfig.endpoint = config_.network.endpoint;
   fetchServerConfig.handler = [this](int fd, const std::string &request, const network::TcpEndpoint& endpoint) {
@@ -162,10 +164,26 @@ Service::Roe<void> RelayServer::onStart() {
   };
   auto serverStarted = fetchServer_.start(fetchServerConfig);
   if (!serverStarted) {
-    return Service::Error(-5, "Failed to start FetchServer: " + serverStarted.error().message);
+    return Service::Error(E_NETWORK, "Failed to start FetchServer: " + serverStarted.error().message);
   }
 
+  // Initialize Relay with starting block id 0 (no beacon sync, no block production)
+  std::filesystem::path relayDataDir = std::filesystem::path(workDir_) / DIR_DATA;
+  Relay::InitConfig relayConfig;
+  relayConfig.workDir = relayDataDir.string();
+  relayConfig.timeOffset = 0;
+  relayConfig.startingBlockId = 0;
+
+  auto relayInit = relay_.init(relayConfig);
+  if (!relayInit) {
+    return Service::Error(E_RELAY, "Failed to initialize Relay: " + relayInit.error().message);
+  }
+
+  log().info << "Relay core initialized";
+  log().info << "  Next block ID: " << relay_.getNextBlockId();
+
   initHandlers();
+  log().info << "RelayServer initialization complete";
   return {};
 }
 
@@ -210,37 +228,38 @@ Client::BeaconState RelayServer::buildStateResponse() const {
 
   Client::BeaconState state;
   state.currentTimestamp = currentTimestamp;
-  state.lastCheckpointId = beacon_.getLastCheckpointId();
-  state.checkpointId = beacon_.getCurrentCheckpointId();
-  state.nextBlockId = beacon_.getNextBlockId();
-  state.currentSlot = beacon_.getCurrentSlot();
-  state.currentEpoch = beacon_.getCurrentEpoch();
-  state.nStakeholders = beacon_.getStakeholders().size();
+  state.lastCheckpointId = relay_.getLastCheckpointId();
+  state.checkpointId = relay_.getCurrentCheckpointId();
+  state.nextBlockId = relay_.getNextBlockId();
+  state.currentSlot = relay_.getCurrentSlot();
+  state.currentEpoch = relay_.getCurrentEpoch();
+  state.nStakeholders = relay_.getStakeholders().size();
   
   return state;
 }
 
 void RelayServer::runLoop() {
-  log().info << "Request handler thread started";
+  log().info << "Request handler loop started";
 
   QueuedRequest qr;
   while (!isStopSet()) {
     try {
-    beacon_.refreshStakeholders();
-      // Poll for a request from the queue
+      // Process queued requests
       if (requestQueue_.poll(qr)) {
         processQueuedRequest(qr);
-      } else {
-        // No request available, sleep briefly
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
+
+      // Refresh stakeholders (like Miner); no block production
+      relay_.refreshStakeholders();
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   }
 
-  log().info << "Request handler thread stopped";
+  log().info << "Request handler loop stopped";
 }
 
 void RelayServer::processQueuedRequest(QueuedRequest& qr) {
@@ -297,7 +316,7 @@ RelayServer::Roe<std::string> RelayServer::hBlockGet(const Client::Request &requ
   }
 
   uint64_t blockId = idResult.value();
-  auto result = beacon_.getBlock(blockId);
+  auto result = relay_.getBlock(blockId);
   if (!result) {
     return Error(E_REQUEST, "Failed to get block: " + result.error().message);
   }
@@ -310,8 +329,8 @@ RelayServer::Roe<std::string> RelayServer::hBlockAdd(const Client::Request &requ
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
-  block.hash = beacon_.calculateHash(block.block);
-  auto result = beacon_.addBlock(block);
+  block.hash = relay_.calculateHash(block.block);
+  auto result = relay_.addBlock(block);
   if (!result) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
@@ -327,7 +346,7 @@ RelayServer::Roe<std::string> RelayServer::hAccountGet(const Client::Request &re
   }
 
   uint64_t accountId = idResult.value();
-  auto result = beacon_.getAccount(accountId);
+  auto result = relay_.getAccount(accountId);
   if (!result) {
     return Error(E_REQUEST, "Failed to get account: " + result.error().message);
   }

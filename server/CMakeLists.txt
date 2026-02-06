@@ -12,6 +12,8 @@ add_library(pp_server STATIC
     Miner.h
     RelayServer.cpp
     RelayServer.h
+    Relay.cpp
+    Relay.h
     AccountBuffer.cpp
     AccountBuffer.h
 )

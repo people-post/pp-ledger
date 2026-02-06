@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_RELAY_SERVER_H
 #define PP_LEDGER_RELAY_SERVER_H
 
-#include "Beacon.h"
+#include "Relay.h"
 #include "../client/Client.h"
 #include "../lib/ResultOrError.hpp"
 #include "../lib/Service.h"
@@ -105,7 +105,7 @@ private:
 
   std::string workDir_;
   Config config_;
-  Beacon beacon_;
+  Relay relay_;
   network::FetchServer fetchServer_;
   Client client_;
 
