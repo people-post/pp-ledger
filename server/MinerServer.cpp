@@ -23,7 +23,7 @@ MinerServer::MinerServer() {
 nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
   nlohmann::json j;
   j["minerId"] = minerId;
-  j["privateKey"] = privateKey;
+  j["key"] = key;
   j["host"] = host;
   j["port"] = port;
   j["beacons"] = beacons;
@@ -46,16 +46,16 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
     }
     minerId = jd["minerId"].get<uint64_t>();
 
-    // Load and validate privateKey (required)
-    if (!jd.contains("privateKey")) {
-      return Error(E_CONFIG, "Field 'privateKey' is required");
+    // Load and validate key file (required)
+    if (!jd.contains("key")) {
+      return Error(E_CONFIG, "Field 'key' is required");
     }
-    if (!jd["privateKey"].is_string()) {
-      return Error(E_CONFIG, "Field 'privateKey' must be a string");
+    if (!jd["key"].is_string()) {
+      return Error(E_CONFIG, "Field 'key' must be a string");
     }
-    privateKey = jd["privateKey"].get<std::string>();
-    if (privateKey.empty()) {
-      return Error(E_CONFIG, "Field 'privateKey' cannot be empty");
+    key = jd["key"].get<std::string>();
+    if (key.empty()) {
+      return Error(E_CONFIG, "Field 'key' cannot be empty");
     }
 
     // Load and validate host
@@ -187,7 +187,7 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.minerId = runFileConfig.minerId;
-  config_.privateKey = runFileConfig.privateKey;
+  config_.privateKey = utl::readKey(runFileConfig.key);
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
   config_.network.beacons = runFileConfig.beacons;

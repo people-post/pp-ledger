@@ -183,6 +183,13 @@ inline bool isValidPublicKey(const std::string &str) {
   return isValidEd25519PublicKey(str);
 }
 
+/** 
+ * Read a key string or file containing hex-encoded private key
+ * @param key String or file containing hex-encoded private key
+ * @return Hex-encoded private key
+ */
+std::string readKey(const std::string& key);
+
 } // namespace utl
 } // namespace pp
 

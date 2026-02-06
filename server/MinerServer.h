@@ -64,7 +64,7 @@ private:
 
   struct RunFileConfig {
     uint64_t minerId{ 0 };
-    std::string privateKey;  // hex-encoded
+    std::string key{ "key.txt" };  // Key file containing hex-encoded private key (default: key.txt)
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_MINER_PORT };
     std::vector<std::string> beacons;

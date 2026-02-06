@@ -34,8 +34,8 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    int64_t amount, const std::string& keyHex) {
-  std::string keyStr = keyHex;
+                    int64_t amount, const std::string& key) {
+  std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
@@ -92,7 +92,7 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
   return 0;
 }
 
-static int runSignTx(const std::string& filePath, const std::string& keyHex) {
+static int runSignTx(const std::string& filePath, const std::string& key) {
   auto content = readFileContent(filePath);
   if (!content) {
     std::cerr << "Error: " << content.error().message << "\n";
@@ -104,7 +104,7 @@ static int runSignTx(const std::string& filePath, const std::string& keyHex) {
     return 1;
   }
   SignedTx signedTx = *signedTxResult;
-  std::string keyStr = keyHex;
+  std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
@@ -194,11 +194,11 @@ int main(int argc, char *argv[]) {
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
   int64_t amount = 0;
-  std::string keyHex;
+  std::string key;
   add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
   add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
   add_tx_cmd->add_option("amount", amount, "Amount to transfer")->required();
-  add_tx_cmd->add_option("-k,--key", keyHex, "Private key (hex) to sign the transaction")
+  add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
       ->required();
 
   // mk-tx: create unsigned SignedData and save to file
@@ -215,9 +215,9 @@ int main(int argc, char *argv[]) {
   // sign-tx: add a signature to an existing tx file
   auto* sign_tx_cmd = app.add_subcommand("sign-tx", "Add signature to a transaction file");
   std::string sign_tx_file;
-  std::string sign_key_hex;
+  std::string sign_key;
   sign_tx_cmd->add_option("file", sign_tx_file, "Transaction file to sign")->required();
-  sign_tx_cmd->add_option("-k,--key", sign_key_hex, "Private key (hex) to sign")
+  sign_tx_cmd->add_option("-k,--key", sign_key, "Private key (hex or file) to sign")
       ->required();
 
   // submit-tx: submit signed tx file to miner
@@ -248,7 +248,7 @@ int main(int argc, char *argv[]) {
 
   // Handle sign-tx (no server connection needed)
   if (sign_tx_cmd->parsed()) {
-    return runSignTx(sign_tx_file, sign_key_hex);
+    return runSignTx(sign_tx_file, sign_key);
   }
 
   // For server commands, validate beacon/miner flag
@@ -335,7 +335,7 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: add-tx command requires -m/--miner flag.\n";
       exitCode = 1;
     } else {
-      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, keyHex);
+      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, key);
     }
   }
   // Handle submit-tx command (miner only)
