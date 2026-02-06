@@ -106,5 +106,39 @@ TEST(Ed25519Test, EmptyMessageSignAndVerify) {
   EXPECT_TRUE(ed25519Verify(pair->publicKey, empty, *sig));
 }
 
+TEST(Ed25519Test, IsValidEd25519PublicKeyRaw32Bytes) {
+  auto pair = ed25519Generate();
+  ASSERT_TRUE(pair.isOk());
+  EXPECT_TRUE(isValidEd25519PublicKey(pair->publicKey));
+  EXPECT_TRUE(isValidPublicKey(pair->publicKey));
+}
+
+TEST(Ed25519Test, IsValidEd25519PublicKeyHex64) {
+  auto pair = ed25519Generate();
+  ASSERT_TRUE(pair.isOk());
+  std::string hexPub = hexEncode(pair->publicKey);
+  EXPECT_EQ(hexPub.size(), 64u);
+  EXPECT_TRUE(isValidEd25519PublicKey(hexPub));
+}
+
+TEST(Ed25519Test, IsValidEd25519PublicKeyHex0xPrefix) {
+  auto pair = ed25519Generate();
+  ASSERT_TRUE(pair.isOk());
+  EXPECT_TRUE(isValidEd25519PublicKey("0x" + hexEncode(pair->publicKey)));
+}
+
+TEST(Ed25519Test, IsValidEd25519PublicKeyRejectsWrongLength) {
+  EXPECT_FALSE(isValidEd25519PublicKey(""));
+  EXPECT_FALSE(isValidEd25519PublicKey("short"));
+  EXPECT_FALSE(isValidEd25519PublicKey(std::string(31, '\0')));
+  EXPECT_FALSE(isValidEd25519PublicKey(std::string(33, '\0')));
+  EXPECT_FALSE(isValidEd25519PublicKey(std::string(63, 'a')));
+  EXPECT_FALSE(isValidEd25519PublicKey(std::string(65, 'a')));
+}
+
+TEST(Ed25519Test, IsValidEd25519PublicKeyRejectsInvalidHex) {
+  EXPECT_FALSE(isValidEd25519PublicKey("0xgg" + std::string(60, 'a')));
+}
+
 }  // namespace utl
 }  // namespace pp

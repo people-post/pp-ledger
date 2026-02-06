@@ -50,6 +50,7 @@ public:
     // Base configuration
     std::string workDir;
     BlockChainConfig chain;
+    std::vector<std::string> genesisAccountPublicKeys;
   };
 
   struct MountConfig {
@@ -85,7 +86,7 @@ private:
   Roe<void> evaluateCheckpoints();
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
-  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config) const;
+  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const std::vector<std::string>& genesisAccountPublicKeys) const;
 
   Config config_;
   uint64_t currentCheckpointId_{ 0 };

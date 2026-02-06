@@ -34,6 +34,8 @@ void printUsage() {
   std::cout << "  -p <port>        - Server port (optional)\n";
   std::cout << "  -b               - Connect to BeaconServer (default port: 8517)\n";
   std::cout << "  -m               - Connect to MinerServer (default port: 8518)\n";
+  std::cout << "\nLocal Commands (no -b/-m required):\n";
+  std::cout << "  keygen                            - Generate a new Ed25519 key pair\n";
   std::cout << "\nBeaconServer Commands:\n";
   std::cout << "  block <blockId>                    - Get block by ID\n";
   std::cout << "  status                             - Get beacon status\n";
@@ -42,6 +44,7 @@ void printUsage() {
   std::cout << "  add-tx <from> <to> <amount>        - Add a transaction\n";
   std::cout << "  status                             - Get miner status\n";
   std::cout << "\nExamples:\n";
+  std::cout << "  pp-client keygen                                 # Generate Ed25519 key pair\n";
   std::cout << "  pp-client -b status                               # Connect to beacon (localhost:8517)\n";
   std::cout << "  pp-client -b -h localhost -p 8517 block 0\n";
   std::cout << "  pp-client -m status                               # Connect to miner (localhost:8518)\n";
@@ -130,6 +133,22 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  const std::string command = positionalArgs[0];
+
+  // Local commands (no server connection required)
+  if (command == "keygen") {
+    auto pair = pp::utl::ed25519Generate();
+    if (!pair.isOk()) {
+      std::cerr << "Error: " << pair.error().message << "\n";
+      return 1;
+    }
+    std::cout << "Ed25519 key pair generated.\n";
+    std::cout << "Public key (hex):   " << pp::utl::hexEncode(pair->publicKey) << "\n";
+    std::cout << "Private key (hex):  " << pp::utl::hexEncode(pair->privateKey) << "\n";
+    std::cout << "\nKeep the private key secret. Use the public key in config (e.g. beacon keys).\n";
+    return 0;
+  }
+
   // Determine which server to connect to
   if (!connectToBeacon && !connectToMiner) {
     std::cerr << "Error: Must specify -b (beacon) or -m (miner).\n";
@@ -148,8 +167,6 @@ int main(int argc, char *argv[]) {
     port = connectToBeacon ? pp::Client::DEFAULT_BEACON_PORT
                            : pp::Client::DEFAULT_MINER_PORT;
   }
-
-  std::string command = positionalArgs[0];
 
   pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG
                                               : pp::logging::Level::WARNING);

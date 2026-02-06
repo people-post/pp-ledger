@@ -26,6 +26,7 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["maxPendingTransactions"] = maxPendingTransactions;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
   j["minFeePerTransaction"] = minFeePerTransaction;
+  j["keys"] = keys;
   return j;
 }
 
@@ -98,6 +99,28 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
       minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
     }
 
+    // Load and validate keys (public keys, at least one required)
+    keys.clear();
+    if (jd.contains("keys")) {
+      if (!jd["keys"].is_array()) {
+        return Error(E_CONFIG, "Field 'keys' must be an array");
+      }
+      for (size_t i = 0; i < jd["keys"].size(); ++i) {
+        const auto& key = jd["keys"][i];
+        if (!key.is_string()) {
+          return Error(E_CONFIG, "All elements in 'keys' array must be strings (index " + std::to_string(i) + " is not)");
+        }
+        std::string keyStr = key.get<std::string>();
+        if (keyStr.empty()) {
+          return Error(E_CONFIG, "Key at index " + std::to_string(i) + " cannot be empty");
+        }
+        keys.push_back(keyStr);
+      }
+    }
+    if (keys.empty()) {
+      return Error(E_CONFIG, "Field 'keys' is required and must contain at least one public key");
+    }
+
     return {};
   } catch (const std::exception& e) {
     return Error(E_CONFIG, "Failed to parse init configuration: " + std::string(e.what()));
@@ -111,6 +134,7 @@ nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
   j["host"] = host;
   j["port"] = port;
   j["beacons"] = beacons;
+  j["keys"] = keys;
   j["checkpointSize"] = checkpointSize;
   j["checkpointAge"] = checkpointAge;
   return j;
@@ -167,6 +191,28 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
         }
         beacons.push_back(beaconAddr);
       }
+    }
+
+    // Load and validate keys (private keys, at least one required)
+    keys.clear();
+    if (jd.contains("keys")) {
+      if (!jd["keys"].is_array()) {
+        return Error(E_CONFIG, "Field 'keys' must be an array");
+      }
+      for (size_t i = 0; i < jd["keys"].size(); ++i) {
+        const auto& key = jd["keys"][i];
+        if (!key.is_string()) {
+          return Error(E_CONFIG, "All elements in 'keys' array must be strings (index " + std::to_string(i) + " is not)");
+        }
+        std::string keyStr = key.get<std::string>();
+        if (keyStr.empty()) {
+          return Error(E_CONFIG, "Key at index " + std::to_string(i) + " cannot be empty");
+        }
+        keys.push_back(keyStr);
+      }
+    }
+    if (keys.empty()) {
+      return Error(E_CONFIG, "Field 'keys' is required and must contain at least one private key");
     }
 
     // Load and validate checkpointSize
@@ -274,6 +320,7 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
   initConfig.chain.maxPendingTransactions = initFileConfig.maxPendingTransactions;
   initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
+  initConfig.genesisAccountPublicKeys = initFileConfig.keys;
   
   // Call the existing initFromWorkDir method
   auto result = initFromWorkDir(initConfig);

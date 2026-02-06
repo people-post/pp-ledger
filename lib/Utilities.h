@@ -170,6 +170,19 @@ pp::Roe<std::string> ed25519Sign(const std::string &privateKey, const std::strin
 bool ed25519Verify(const std::string &publicKey, const std::string &message,
                    const std::string &signature);
 
+/**
+ * Check if a string is a valid ED25519 public key.
+ * Accepts either 32-byte raw binary, or 64 hex characters (optionally with "0x" prefix).
+ * @param str String to validate (raw 32 bytes, or hex-encoded key)
+ * @return true if the string represents a valid ED25519 public key, false otherwise
+ */
+bool isValidEd25519PublicKey(const std::string &str);
+
+/** Alias for isValidEd25519PublicKey (e.g. for config validation). */
+inline bool isValidPublicKey(const std::string &str) {
+  return isValidEd25519PublicKey(str);
+}
+
 } // namespace utl
 } // namespace pp
 

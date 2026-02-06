@@ -348,5 +348,33 @@ bool ed25519Verify(const std::string &publicKey, const std::string &message,
   return ok;
 }
 
+bool isValidEd25519PublicKey(const std::string &str) {
+  std::string raw;
+  if (str.size() == ED25519_PUBLIC_KEY_SIZE) {
+    raw = str;
+  } else if (str.size() == 64) {
+    raw = hexDecode(str);
+    if (raw.size() != ED25519_PUBLIC_KEY_SIZE) {
+      return false;
+    }
+  } else if (str.size() == 66 && (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))) {
+    raw = hexDecode(str.substr(2));
+    if (raw.size() != ED25519_PUBLIC_KEY_SIZE) {
+      return false;
+    }
+  } else {
+    return false;
+  }
+  EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(
+      EVP_PKEY_ED25519, nullptr,
+      reinterpret_cast<const unsigned char *>(raw.data()),
+      raw.size());
+  if (!pkey) {
+    return false;
+  }
+  EVP_PKEY_free(pkey);
+  return true;
+}
+
 } // namespace utl
 } // namespace pp

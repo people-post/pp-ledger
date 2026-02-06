@@ -43,6 +43,13 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
   log().debug << "Init config: " << config;
 
+  // Verify keys are valid public keys
+  for (const auto& key : config.genesisAccountPublicKeys) {
+    if (!utl::isValidPublicKey(key)) {
+      return Error(16, "Invalid public key: " + key);
+    }
+  }
+
   // Verify work directory does NOT exist (fresh initialization)
   if (std::filesystem::exists(config.workDir)) {
     return Error("Work directory already exists: " + config.workDir + ". Use mount() to load existing beacon.");
@@ -75,7 +82,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   config_.chain.genesisTime = cc.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlock = createGenesisBlock(config_.chain);
+  auto genesisBlock = createGenesisBlock(config_.chain, config.genesisAccountPublicKeys);
   
   auto addBlockResult = getLedger().addBlock(genesisBlock);
   if (!addBlockResult) {
@@ -249,7 +256,7 @@ Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
   return {};
 }
 
-Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) const {
+Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, const std::vector<std::string>& genesisAccountPublicKeys) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create native token genesis wallet with zero balance
@@ -259,13 +266,13 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config) con
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
   systemCheckpoint.genesis.balance = 0; // Native token (ID ID_GENESIS) with zero balance
-  systemCheckpoint.genesis.publicKeys = {};
+  systemCheckpoint.genesis.publicKeys = genesisAccountPublicKeys;
   systemCheckpoint.genesis.meta = "Native token genesis wallet";
   systemCheckpoint.fee.balance = 0; // Fee wallet (ID ID_FEE) with zero balance
-  systemCheckpoint.fee.publicKeys = {};
+  systemCheckpoint.fee.publicKeys = genesisAccountPublicKeys;
   systemCheckpoint.fee.meta = "Wallet for transaction fees";
   systemCheckpoint.reserve.balance = 0; // Reserve wallet (ID ID_RESERVE) with zero balance
-  systemCheckpoint.reserve.publicKeys = {};
+  systemCheckpoint.reserve.publicKeys = genesisAccountPublicKeys;
   systemCheckpoint.reserve.meta = "Native token reserve wallet";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint
