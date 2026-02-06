@@ -15,22 +15,6 @@ namespace pp {
 
 class Ledger : public Module {
 public:
-  struct AccountInfo {
-    constexpr static const uint32_t VERSION = 1;
-
-    std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
-    std::vector<std::string> publicKeys;
-    std::string meta;
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar & mBalances & publicKeys & meta;
-    }
-
-    std::string ltsToString() const;
-    bool ltsFromString(const std::string& str);
-    nlohmann::json toJson() const;
-  };
-
   struct Transaction {
     constexpr static uint16_t T_DEFAULT = 0;
     constexpr static uint16_t T_CHECKPOINT = 1;
@@ -202,17 +186,5 @@ private:
   bool saveIndex();
   Roe<void> cleanupData();
 };
-
-inline std::ostream& operator<<(std::ostream& os, const Ledger::AccountInfo& info) {
-  os << "AccountInfo{balances: {";
-  bool first = true;
-  for (const auto& [tokenId, balance] : info.mBalances) {
-    if (!first) os << ", ";
-    os << tokenId << ": " << balance;
-    first = false;
-  }
-  os << "}, publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
-  return os;
-}
 
 } // namespace pp

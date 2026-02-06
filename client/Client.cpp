@@ -1,12 +1,52 @@
 #include "Client.h"
 #include "../lib/Logger.h"
 #include "../lib/BinaryPack.hpp"
+#include "../lib/Serialize.hpp"
 #include "../lib/Utilities.h"
 #include "../network/FetchClient.h"
 
 #include <nlohmann/json.hpp>
+#include <sstream>
 
 namespace pp {
+
+std::string Client::AccountInfo::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Client::AccountInfo::ltsFromString(const std::string& str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  if (ar.failed()) {
+    return false;
+  }
+  return true;
+}
+
+nlohmann::json Client::AccountInfo::toJson() const {
+  nlohmann::json j;
+  nlohmann::json balances;
+  for (const auto& [tokenId, balance] : mBalances) {
+    balances[std::to_string(tokenId)] = balance;
+  }
+  j["mBalances"] = balances;
+  nlohmann::json keysArray = nlohmann::json::array();
+  for (const auto& pk : publicKeys) {
+    keysArray.push_back(utl::toJsonSafeString(pk));
+  }
+  j["publicKeys"] = keysArray;
+  j["meta"] = utl::toJsonSafeString(meta);
+  return j;
+}
 
 Client::Client() {}
 
@@ -146,7 +186,7 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
-Client::Roe<Ledger::AccountInfo> Client::fetchAccountInfo(const uint64_t accountId) {
+Client::Roe<Client::AccountInfo> Client::fetchAccountInfo(const uint64_t accountId) {
   log().debug << "Requesting account info for account " << accountId;
 
   std::string payload = utl::binaryPack(accountId);
@@ -164,7 +204,7 @@ Client::Roe<Ledger::AccountInfo> Client::fetchAccountInfo(const uint64_t account
     return Error(E_SERVER_ERROR, resp.payload.empty() ? "Account info get failed" : resp.payload);
   }
 
-  Ledger::AccountInfo info;
+  AccountInfo info;
   if (!info.ltsFromString(resp.payload)) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize account info");
   }
