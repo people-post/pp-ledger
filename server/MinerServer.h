@@ -2,10 +2,10 @@
 #define PP_LEDGER_MINER_SERVER_H
 
 #include "Miner.h"
+#include "Server.h"
 #include "../client/Client.h"
 #include "../network/FetchServer.h"
 #include "../network/Types.hpp"
-#include "../lib/Service.h"
 #include "../lib/ResultOrError.hpp"
 #include "../lib/ThreadSafeQueue.hpp"
 #include <string>
@@ -16,7 +16,7 @@
 
 namespace pp {
 
-class MinerServer : public Service {
+class MinerServer : public Server {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -33,9 +33,16 @@ public:
   MinerServer();
   ~MinerServer();
 
-  Service::Roe<void> run(const std::string &workDir);
-  
+  Service::Roe<void> run(const std::string &workDir) override {
+    return Server::run(workDir);
+  }
+
 protected:
+  const char* getFileSignature() const override { return FILE_SIGNATURE; }
+  const char* getFileLog() const override { return FILE_LOG; }
+  const char* getServerName() const override { return "MinerServer"; }
+  int32_t getRunErrorCode() const override { return E_MINER; }
+
   /**
    * Service thread main loop - handles block production and validation
    */

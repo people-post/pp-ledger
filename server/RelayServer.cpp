@@ -82,30 +82,6 @@ RelayServer::Roe<void> RelayServer::RunFileConfig::ltsFromJson(const nlohmann::j
 
 // ============ RelayServer methods ============
 
-Service::Roe<void> RelayServer::run(const std::string &workDir) {
-  // Store dataDir for onStart
-  workDir_ = workDir;
-
-  auto signaturePath = std::filesystem::path(workDir) / FILE_SIGNATURE;
-  if (!std::filesystem::exists(workDir)) {
-    std::filesystem::create_directories(workDir);
-    auto result = utl::writeToNewFile(signaturePath.string(), "");
-    if (!result) {
-      return Service::Error(E_RELAY, "Failed to create signature file: " + result.error().message);
-    }
-  }
-
-  if (!std::filesystem::exists(signaturePath)) {
-    return Service::Error(E_RELAY, "Work directory not recognized, please remove it manually and try again");
-  }
-
-  log().info << "Running RelayServer with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
-
-  // Call base class run which will invoke onStart() then runLoop() in current thread
-  return Service::run();
-}
-
 Service::Roe<void> RelayServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
@@ -179,11 +155,70 @@ Service::Roe<void> RelayServer::onStart() {
     return Service::Error(E_RELAY, "Failed to initialize Relay: " + relayInit.error().message);
   }
 
+  if (!config_.network.beacon.empty()) {
+    auto syncResult = syncBlocksFromBeacon();
+    if (!syncResult) {
+      return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " + syncResult.error().message);
+    }
+  }
+
   log().info << "Relay core initialized";
   log().info << "  Next block ID: " << relay_.getNextBlockId();
 
   initHandlers();
   log().info << "RelayServer initialization complete";
+  return {};
+}
+
+RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
+  if (config_.network.beacon.empty()) {
+    return Error(E_CONFIG, "No beacon configured");
+  }
+
+  std::string beaconAddr = config_.network.beacon;
+  log().info << "Syncing blocks from beacon: " << beaconAddr;
+
+  if (!client_.setEndpoint(beaconAddr)) {
+    return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
+  }
+
+  auto stateResult = client_.fetchBeaconState();
+  if (!stateResult) {
+    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
+  }
+
+  uint64_t latestBlockId = stateResult.value().nextBlockId;
+  uint64_t nextBlockId = relay_.getNextBlockId();
+
+  if (nextBlockId >= latestBlockId) {
+    log().info << "Already in sync: next block " << nextBlockId
+               << ", beacon latest " << latestBlockId;
+    return {};
+  }
+
+  log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
+
+  for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
+    auto blockResult = client_.fetchBlock(blockId);
+    if (!blockResult) {
+      return Error(E_NETWORK,
+                   "Failed to fetch block " + std::to_string(blockId) + " from beacon: " +
+                       blockResult.error().message);
+    }
+
+    Ledger::ChainNode block = blockResult.value();
+    block.hash = relay_.calculateHash(block.block);
+
+    auto addResult = relay_.addBlock(block);
+    if (!addResult) {
+      return Error(E_RELAY,
+                   "Failed to add block " + std::to_string(blockId) + ": " + addResult.error().message);
+    }
+
+    log().debug << "Synced block " << blockId;
+  }
+
+  log().info << "Sync complete: " << (latestBlockId - nextBlockId) << " blocks added";
   return {};
 }
 

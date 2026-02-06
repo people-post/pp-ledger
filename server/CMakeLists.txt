@@ -1,5 +1,7 @@
 # Server library
 add_library(pp_server STATIC
+    Server.cpp
+    Server.h
     Validator.cpp
     Validator.h
     BeaconServer.cpp

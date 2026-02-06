@@ -41,7 +41,7 @@ public:
   Relay();
   ~Relay() override = default;
 
-  // ----------------- accessors (Validator provides getNextBlockId, getCurrentSlot, getCurrentEpoch, getStakeholders, getBlock, getAccount) -------------------------------------
+  // ----------------- accessors -------------------------------------
   uint64_t getLastCheckpointId() const;
   uint64_t getCurrentCheckpointId() const;
 

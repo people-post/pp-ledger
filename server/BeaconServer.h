@@ -2,11 +2,11 @@
 #define PP_LEDGER_BEACON_SERVER_H
 
 #include "Beacon.h"
+#include "Server.h"
 #include "../client/Client.h"
 #include "../network/FetchServer.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
-#include "../lib/Service.h"
 #include "../lib/ResultOrError.hpp"
 #include "../lib/ThreadSafeQueue.hpp"
 #include <map>
@@ -20,7 +20,7 @@
 
 namespace pp {
 
-class BeaconServer : public Service {
+class BeaconServer : public Server {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -38,9 +38,17 @@ public:
   ~BeaconServer() = default;
 
   Roe<Beacon::InitKeyConfig> init(const std::string& workDir);
-  Service::Roe<void> run(const std::string &workDir);
+  Service::Roe<void> run(const std::string &workDir) override {
+    return Server::run(workDir);
+  }
 
 protected:
+  bool useSignatureFile() const override { return false; }
+  const char* getFileSignature() const override { return FILE_SIGNATURE; }
+  const char* getFileLog() const override { return FILE_LOG; }
+  const char* getServerName() const override { return "BeaconServer"; }
+  int32_t getRunErrorCode() const override { return E_BEACON; }
+
   /**
    * Service thread main loop - processes queued requests
    */

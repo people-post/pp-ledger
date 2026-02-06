@@ -2,9 +2,9 @@
 #define PP_LEDGER_RELAY_SERVER_H
 
 #include "Relay.h"
+#include "Server.h"
 #include "../client/Client.h"
 #include "../lib/ResultOrError.hpp"
-#include "../lib/Service.h"
 #include "../lib/ThreadSafeQueue.hpp"
 #include "../network/FetchServer.h"
 #include "../network/TcpConnection.h"
@@ -20,7 +20,7 @@
 
 namespace pp {
 
-class RelayServer : public Service {
+class RelayServer : public Server {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -37,9 +37,16 @@ public:
   RelayServer();
   ~RelayServer() = default;
 
-  Service::Roe<void> run(const std::string &workDir);
+  Service::Roe<void> run(const std::string &workDir) override {
+    return Server::run(workDir);
+  }
 
 protected:
+  const char* getFileSignature() const override { return FILE_SIGNATURE; }
+  const char* getFileLog() const override { return FILE_LOG; }
+  const char* getServerName() const override { return "RelayServer"; }
+  int32_t getRunErrorCode() const override { return E_RELAY; }
+
   /**
    * Service thread main loop - processes queued requests
    */
@@ -85,6 +92,7 @@ private:
   };
 
   void initHandlers();
+  Roe<void> syncBlocksFromBeacon();
 
   void registerServer(const std::string &serverAddress);
   void processQueuedRequest(QueuedRequest &qr);

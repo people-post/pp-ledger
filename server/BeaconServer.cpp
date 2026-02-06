@@ -312,17 +312,6 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
   return {};
 }
 
-Service::Roe<void> BeaconServer::run(const std::string &workDir) {
-  // Store dataDir for onStart
-  workDir_ = workDir;
-
-  log().info << "Running with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
-
-  // Call base class run which will invoke onStart() then runLoop() in current thread
-  return Service::run();
-}
-
 Service::Roe<void> BeaconServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =

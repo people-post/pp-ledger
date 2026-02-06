@@ -123,30 +123,6 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
 
 MinerServer::~MinerServer() {}
 
-Service::Roe<void> MinerServer::run(const std::string &workDir) {
-  // Store dataDir for onStart
-  workDir_ = workDir;
-
-  auto signaturePath = std::filesystem::path(workDir) / FILE_SIGNATURE;
-  if (!std::filesystem::exists(workDir)) {
-    std::filesystem::create_directories(workDir);
-    auto result = utl::writeToNewFile(signaturePath.string(), "");
-    if (!result) {
-      return Service::Error(E_MINER, "Failed to create signature file: " + result.error().message);
-    }
-  }
-
-  if (!std::filesystem::exists(signaturePath)) {
-    return Service::Error(E_MINER, "Work directory not recognized, please remove it manually and try again");
-  }
-
-  log().info << "Running MinerServer with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + FILE_LOG, logging::getLevel());
-
-  // Call base class run which will invoke onStart() then runLoop() in current thread
-  return Service::run();
-}
-
 Service::Roe<void> MinerServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
