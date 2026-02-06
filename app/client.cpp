@@ -4,10 +4,10 @@
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
+#include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
 #include <ctime>
-#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -24,38 +24,6 @@ static std::string formatTimestampLocal(int64_t unixSeconds) {
 }
 
 using json = nlohmann::json;
-
-void printUsage() {
-  std::cout << "Usage: pp-client [OPTIONS] <command> [args...]\n";
-  std::cout << "\nOptions:\n";
-  std::cout << "  --debug          - Enable debug logging (default: false)\n";
-  std::cout << "  -h <host>        - Server host (optional, default: localhost)\n";
-  std::cout << "  -h <host:port>   - Server host and port in one argument\n";
-  std::cout << "  -p <port>        - Server port (optional)\n";
-  std::cout << "  -b               - Connect to BeaconServer (default port: 8517)\n";
-  std::cout << "  -m               - Connect to MinerServer (default port: 8518)\n";
-  std::cout << "\nLocal Commands (no -b/-m required):\n";
-  std::cout << "  keygen                            - Generate a new Ed25519 key pair\n";
-  std::cout << "\nBeaconServer Commands:\n";
-  std::cout << "  block <blockId>                    - Get block by ID\n";
-  std::cout << "  account <accountId>                - Get account info by ID\n";
-  std::cout << "  status                             - Get beacon status\n";
-  std::cout << "  slot-leader <slot>                 - Get slot leader for slot\n";
-  std::cout << "\nMinerServer Commands:\n";
-  std::cout << "  block <blockId>                    - Get block by ID\n";
-  std::cout << "  account <accountId>                - Get account info by ID\n";
-  std::cout << "  add-tx <from> <to> <amount>        - Add a transaction\n";
-  std::cout << "  status                             - Get miner status\n";
-  std::cout << "\nExamples:\n";
-  std::cout << "  pp-client keygen                                 # Generate Ed25519 key pair\n";
-  std::cout << "  pp-client -b status                               # Connect to beacon (localhost:8517)\n";
-  std::cout << "  pp-client -b -h localhost -p 8517 block 0\n";
-  std::cout << "  pp-client -b account 1                             # Get account 1 from beacon\n";
-  std::cout << "  pp-client -m status                               # Connect to miner (localhost:8518)\n";
-  std::cout << "  pp-client -m block 0                               # Get block 0 from miner\n";
-  std::cout << "  pp-client -m account 1                             # Get account 1 from miner\n";
-  std::cout << "  pp-client -m -h localhost:8518 add-tx 1 2 100\n";
-}
 
 void printStakeholders(const std::vector<pp::consensus::Stakeholder>& stakeholders) {
   std::cout << "Stakeholders (" << stakeholders.size() << "):\n";
@@ -76,73 +44,57 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 2) {
-    std::cerr << "Error: Command required.\n";
-    printUsage();
-    return 1;
-  }
+  CLI::App app{"pp-client - Command-line client for pp-ledger beacon and miner servers"};
+  app.require_subcommand(1);
 
-  // Parse arguments
-  std::string host = pp::Client::DEFAULT_HOST;
-  uint16_t port = 0;
-  bool connectToBeacon = false;
-  bool connectToMiner = false;
+  // Global options
   bool debug = false;
-  std::vector<std::string> positionalArgs;
+  app.add_flag("--debug", debug, "Enable debug logging");
 
-  // Parse options
-  for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "--debug") == 0) {
-      debug = true;
-    } else if (strcmp(argv[i], "-h") == 0) {
-      if (i + 1 >= argc) {
-        std::cerr << "Error: -h option requires a host value.\n";
-        printUsage();
-        return 1;
-      }
-      std::string hostArg = argv[++i];
+  std::string host = pp::Client::DEFAULT_HOST;
+  app.add_option("--host", host, "Server host (or host:port)")
+      ->capture_default_str();
 
-      // Check if hostArg contains ':' (host:port format)
-      std::string parsedHost;
-      uint16_t parsedPort = 0;
-      if (pp::utl::parseHostPort(hostArg, parsedHost, parsedPort)) {
-        host = parsedHost;
-        port = parsedPort;
-      } else {
-        host = hostArg;
-      }
-    } else if (strcmp(argv[i], "-p") == 0) {
-      if (i + 1 >= argc) {
-        std::cerr << "Error: -p option requires a port value.\n";
-        printUsage();
-        return 1;
-      }
-      uint16_t parsedPort = 0;
-      if (!pp::utl::parsePort(argv[++i], parsedPort)) {
-        std::cerr << "Error: Invalid port number: " << argv[i] << "\n";
-        printUsage();
-        return 1;
-      }
-      port = parsedPort;
-    } else if (strcmp(argv[i], "-b") == 0) {
-      connectToBeacon = true;
-    } else if (strcmp(argv[i], "-m") == 0) {
-      connectToMiner = true;
-    } else {
-      positionalArgs.push_back(argv[i]);
-    }
-  }
+  uint16_t port = 0;
+  app.add_option("-p,--port", port, "Server port (overrides default)")
+      ->check(CLI::Range(1, 65535));
 
-  if (positionalArgs.empty()) {
-    std::cerr << "Error: Command required.\n";
-    printUsage();
-    return 1;
-  }
+  bool connectToBeacon = false;
+  app.add_flag("-b,--beacon", connectToBeacon, "Connect to BeaconServer (default port: 8517)");
 
-  const std::string command = positionalArgs[0];
+  bool connectToMiner = false;
+  app.add_flag("-m,--miner", connectToMiner, "Connect to MinerServer (default port: 8518)");
 
-  // Local commands (no server connection required)
-  if (command == "keygen") {
+  // Local command: keygen
+  auto* keygen = app.add_subcommand("keygen", "Generate a new Ed25519 key pair");
+
+  // Beacon commands
+  auto* beacon_status = app.add_subcommand("status", "Get beacon/miner status");
+
+  auto* block_cmd = app.add_subcommand("block", "Get block by ID");
+  uint64_t blockId = 0;
+  block_cmd->add_option("blockId", blockId, "Block ID")->required();
+
+  auto* account_cmd = app.add_subcommand("account", "Get account info by ID");
+  uint64_t accountId = 0;
+  account_cmd->add_option("accountId", accountId, "Account ID")->required();
+
+  auto* slot_leader_cmd = app.add_subcommand("slot-leader", "Get slot leader for slot");
+  uint64_t slot = 0;
+  slot_leader_cmd->add_option("slot", slot, "Slot number")->required();
+
+  // Miner commands
+  auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
+  uint64_t fromWalletId = 0, toWalletId = 0;
+  int64_t amount = 0;
+  add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
+  add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
+  add_tx_cmd->add_option("amount", amount, "Amount to transfer")->required();
+
+  CLI11_PARSE(app, argc, argv);
+
+  // Handle keygen command (no server connection needed)
+  if (keygen->parsed()) {
     auto pair = pp::utl::ed25519Generate();
     if (!pair.isOk()) {
       std::cerr << "Error: " << pair.error().message << "\n";
@@ -155,201 +107,119 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  // Determine which server to connect to
+  // For server commands, validate beacon/miner flag
   if (!connectToBeacon && !connectToMiner) {
-    std::cerr << "Error: Must specify -b (beacon) or -m (miner).\n";
-    printUsage();
+    std::cerr << "Error: Must specify -b/--beacon or -m/--miner for server commands.\n";
+    std::cerr << "Run '" << argv[0] << " --help' for more information.\n";
     return 1;
   }
 
   if (connectToBeacon && connectToMiner) {
     std::cerr << "Error: Cannot connect to both beacon and miner.\n";
-    printUsage();
     return 1;
   }
 
+  // Parse host:port format if present
+  std::string parsedHost = host;
+  uint16_t parsedPort = port;
+  uint16_t extractedPort = 0;
+  if (pp::utl::parseHostPort(host, parsedHost, extractedPort)) {
+    if (port == 0) {
+      parsedPort = extractedPort;
+    }
+  }
+
   // Set default port if not specified
-  if (port == 0) {
-    port = connectToBeacon ? pp::Client::DEFAULT_BEACON_PORT
-                           : pp::Client::DEFAULT_MINER_PORT;
+  if (parsedPort == 0) {
+    parsedPort = connectToBeacon ? pp::Client::DEFAULT_BEACON_PORT
+                                 : pp::Client::DEFAULT_MINER_PORT;
   }
 
   pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG
                                               : pp::logging::Level::WARNING);
   pp::Client client;
 
-
   // Initialize connection
-  pp::network::TcpEndpoint endpoint{host, port};
+  pp::network::TcpEndpoint endpoint{parsedHost, parsedPort};
   client.setEndpoint(endpoint);
 
   int exitCode = 0;
 
-  // BeaconServer commands
-  if (connectToBeacon) {
-    if (command == "block") {
-      if (positionalArgs.size() < 2) {
-        std::cerr << "Error: block command requires <blockId>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t blockId = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], blockId)) {
-          std::cerr << "Error: Invalid blockId\n";
-          exitCode = 1;
-        } else {
-          auto result = client.fetchBlock(blockId);
-          if (result) {
-            std::cout << result.value().toJson().dump(2) << "\n";
-          } else {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          }
-        }
-      }
-    } else if (command == "status") {
-      auto result = client.fetchBeaconState();
-      if (result) {
-        printBeaconStatus(result.value());
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
-    } else if (command == "slot-leader") {
-      if (positionalArgs.size() < 2) {
-        std::cerr << "Error: slot-leader command requires <slot>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t slot = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], slot)) {
-          std::cerr << "Error: Invalid slot\n";
-          exitCode = 1;
-        } else {
-          auto result = client.fetchSlotLeader(slot);
-          if (result) {
-            std::cout << "Slot Leader for slot " << slot << ": "
-                      << result.value() << "\n";
-          } else {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          }
-        }
-      }
-    } else if (command == "account") {
-      if (positionalArgs.size() < 2) {
-        std::cerr << "Error: account command requires <accountId>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t accountId = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], accountId)) {
-          std::cerr << "Error: Invalid accountId\n";
-          exitCode = 1;
-        } else {
-          auto result = client.fetchAccountInfo(accountId);
-          if (result) {
-            std::cout << result.value().toJson().dump(2) << "\n";
-          } else {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          }
-        }
-      }
+  // Handle beacon status command
+  if (beacon_status->parsed() && connectToBeacon) {
+    auto result = client.fetchBeaconState();
+    if (result) {
+      printBeaconStatus(result.value());
     } else {
-      std::cerr << "Error: Unknown beacon command: " << command << "\n";
-      printUsage();
+      std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
     }
   }
-  // MinerServer commands
-  else {
-    if (command == "block") {
-      if (positionalArgs.size() < 2) {
-        std::cerr << "Error: block command requires <blockId>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t blockId = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], blockId)) {
-          std::cerr << "Error: Invalid blockId\n";
-          exitCode = 1;
-        } else {
-          auto result = client.fetchBlock(blockId);
-          if (result) {
-            std::cout << result.value().toJson().dump(2) << "\n";
-          } else {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          }
-        }
-      }
-    } else if (command == "account") {
-      if (positionalArgs.size() < 2) {
-        std::cerr << "Error: account command requires <accountId>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t accountId = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], accountId)) {
-          std::cerr << "Error: Invalid accountId\n";
-          exitCode = 1;
-        } else {
-          auto result = client.fetchAccountInfo(accountId);
-          if (result) {
-            std::cout << result.value().toJson().dump(2) << "\n";
-          } else {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          }
-        }
-      }
-    } else if (command == "add-tx") {
-      if (positionalArgs.size() < 4) {
-        std::cerr << "Error: add-tx command requires <from> <to> <amount>\n";
-        printUsage();
-        exitCode = 1;
-      } else {
-        uint64_t fromWalletId = 0;
-        uint64_t toWalletId = 0;
-        int64_t amount = 0;
-        if (!pp::utl::parseUInt64(positionalArgs[1], fromWalletId)) {
-          std::cerr << "Error: Invalid from wallet ID: " << positionalArgs[1] << "\n";
-          exitCode = 1;
-        } else if (!pp::utl::parseUInt64(positionalArgs[2], toWalletId)) {
-          std::cerr << "Error: Invalid to wallet ID: " << positionalArgs[2] << "\n";
-          exitCode = 1;
-        } else if (!pp::utl::parseInt64(positionalArgs[3], amount)) {
-          std::cerr << "Error: Invalid amount: " << positionalArgs[3] << "\n";
-          exitCode = 1;
-        } else {
-          pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
-          signedTx.obj.fromWalletId = fromWalletId;
-          signedTx.obj.toWalletId = toWalletId;
-          signedTx.obj.amount = amount;
-          signedTx.signatures = {};
-
-          auto result = client.addTransaction(signedTx);
-          if (!result) {
-            std::cerr << "Error: " << result.error().message << "\n";
-            exitCode = 1;
-          } else {
-            std::cout << "Transaction submitted successfully\n";
-          }
-        }
-      }
-    } else if (command == "status") {
-      auto result = client.fetchMinerStatus();
+  // Handle miner status command
+  else if (beacon_status->parsed() && connectToMiner) {
+    auto result = client.fetchMinerStatus();
+    if (result) {
+      std::cout << result.value().ltsToJson().dump(2) << "\n";
+    } else {
+      std::cerr << "Error: " << result.error().message << "\n";
+      exitCode = 1;
+    }
+  }
+  // Handle block command
+  else if (block_cmd->parsed()) {
+    auto result = client.fetchBlock(blockId);
+    if (result) {
+      std::cout << result.value().toJson().dump(2) << "\n";
+    } else {
+      std::cerr << "Error: " << result.error().message << "\n";
+      exitCode = 1;
+    }
+  }
+  // Handle account command
+  else if (account_cmd->parsed()) {
+    auto result = client.fetchAccountInfo(accountId);
+    if (result) {
+      std::cout << result.value().toJson().dump(2) << "\n";
+    } else {
+      std::cerr << "Error: " << result.error().message << "\n";
+      exitCode = 1;
+    }
+  }
+  // Handle slot-leader command (beacon only)
+  else if (slot_leader_cmd->parsed()) {
+    if (!connectToBeacon) {
+      std::cerr << "Error: slot-leader command requires -b/--beacon flag.\n";
+      exitCode = 1;
+    } else {
+      auto result = client.fetchSlotLeader(slot);
       if (result) {
-        std::cout << result.value().ltsToJson().dump(2) << "\n";
+        std::cout << "Slot Leader for slot " << slot << ": "
+                  << result.value() << "\n";
       } else {
         std::cerr << "Error: " << result.error().message << "\n";
         exitCode = 1;
       }
-    } else {
-      std::cerr << "Error: Unknown miner command: " << command << "\n";
-      printUsage();
+    }
+  }
+  // Handle add-tx command (miner only)
+  else if (add_tx_cmd->parsed()) {
+    if (!connectToMiner) {
+      std::cerr << "Error: add-tx command requires -m/--miner flag.\n";
       exitCode = 1;
+    } else {
+      pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
+      signedTx.obj.fromWalletId = fromWalletId;
+      signedTx.obj.toWalletId = toWalletId;
+      signedTx.obj.amount = amount;
+      signedTx.signatures = {};
+
+      auto result = client.addTransaction(signedTx);
+      if (!result) {
+        std::cerr << "Error: " << result.error().message << "\n";
+        exitCode = 1;
+      } else {
+        std::cout << "Transaction submitted successfully\n";
+      }
     }
   }
 
