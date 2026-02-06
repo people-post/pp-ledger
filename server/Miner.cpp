@@ -80,7 +80,6 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
   config_.workDir = config.workDir;
   config_.minerId = config.minerId;
-  config_.tokenId = config.tokenId;
   config_.privateKey = config.privateKey;
   config_.checkpointId = config.checkpointId;
 
@@ -128,7 +127,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   cc.timeOffset = config.timeOffset;
   getConsensus().init(cc);
 
-  auto loadResult = loadFromLedger(config.startingBlockId, config_.tokenId);
+  auto loadResult = loadFromLedger(config.startingBlockId);
   if (!loadResult) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }

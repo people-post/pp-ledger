@@ -289,11 +289,6 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
     return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
 
-  // Filter: Only process transactions matching the buffer's token ID
-  if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bufferBank.getTokenId()) {
-    return {}; // Skip transactions for other tokens
-  }
-  
   // All transactions happen in bufferBank; initial balances come from bank_
   if (tx.amount < 0) {
     return Error(19, "Transfer amount must be non-negative");
@@ -303,10 +298,10 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
   }
 
   // Ensure fromWalletId exists in bufferBank (seed from bank_ if needed)
-  if (!bufferBank.has(tx.fromWalletId)) {
+  if (!bufferBank.hasAccount(tx.fromWalletId)) {
     // Try to get from bank_ if not in bufferBank
-    if (bank_.has(tx.fromWalletId)) {
-      auto fromAccount = bank_.get(tx.fromWalletId);
+    if (bank_.hasAccount(tx.fromWalletId)) {
+      auto fromAccount = bank_.getAccount(tx.fromWalletId);
       if (!fromAccount) {
         return Error(20, "Failed to get source account from bank: " + fromAccount.error().message);
       }
@@ -320,10 +315,10 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
   }
 
   // Ensure toWalletId exists in bufferBank: seed from bank_ or create if not in bank_
-  if (!bufferBank.has(tx.toWalletId)) {
+  if (!bufferBank.hasAccount(tx.toWalletId)) {
     // Try to get from bank_ if not in bufferBank
-    if (bank_.has(tx.toWalletId)) {
-      auto toAccount = bank_.get(tx.toWalletId);
+    if (bank_.hasAccount(tx.toWalletId)) {
+      auto toAccount = bank_.getAccount(tx.toWalletId);
       if (!toAccount) {
         return Error(22, "Failed to get destination account from bank: " + toAccount.error().message);
       }
@@ -348,11 +343,11 @@ void Validator::refreshStakeholders() {
   }
 }
 
-Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId, uint64_t tokenId) {
-  log().info << "Loading from ledger starting at block ID " << startingBlockId << " for token ID " << tokenId;
+Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
+  log().info << "Loading from ledger starting at block ID " << startingBlockId;
 
-  log().info << "Resetting account buffer for token ID " << tokenId;
-  bank_.reset(tokenId);
+  log().info << "Resetting account buffer";
+  bank_.reset();
 
   // Process blocks from ledger one by one
   uint64_t blockId = startingBlockId;
@@ -468,7 +463,6 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;
   genesisAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.genesis.balance;
-  genesisAccount.isNegativeBalanceAllowed = true;
   genesisAccount.publicKeys = checkpoint.genesis.publicKeys;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
@@ -478,7 +472,6 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   AccountBuffer::Account feeAccount;
   feeAccount.id = AccountBuffer::ID_FEE;
   feeAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.fee.balance;
-  feeAccount.isNegativeBalanceAllowed = false;
   feeAccount.publicKeys = checkpoint.fee.publicKeys;
   auto roeAddFee = bank_.add(feeAccount);
   if (!roeAddFee) {
@@ -488,7 +481,6 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   AccountBuffer::Account reserveAccount;
   reserveAccount.id = AccountBuffer::ID_RESERVE;
   reserveAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.reserve.balance;
-  reserveAccount.isNegativeBalanceAllowed = false;
   reserveAccount.publicKeys = checkpoint.reserve.publicKeys;
   auto roeAddReserve = bank_.add(reserveAccount);
   if (!roeAddReserve) {
@@ -520,7 +512,6 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   AccountBuffer::Account account;
   account.id = tx.toWalletId;
   account.mBalances = accountInfo.mBalances;
-  account.isNegativeBalanceAllowed = false; // user accounts cannot have negative balance
   account.publicKeys = accountInfo.publicKeys;
   
   auto addResult = bank_.add(account);
@@ -538,10 +529,6 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
     return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
 
-  if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bank_.getTokenId()) {
-    return {}; // Skip transactions for other tokens
-  }
-
   // Use AccountBuffer's addTransaction which handles account creation and balance checks
   auto result = bank_.addTransaction(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
   if (!result) {
@@ -552,17 +539,13 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
 }
 
 Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transaction& tx) {
-  if (tx.tokenId != AccountBuffer::ID_GENESIS && tx.tokenId != bank_.getTokenId()) {
-    return {}; // Skip transactions for other tokens
-  }
-
   if (tx.amount < 0) {
     return Error(23, "Transaction must have amount >= 0");
   }
 
   // Existing wallets are created by user checkpoints, they have correct balances.
-  if (bank_.has(tx.fromWalletId)) {
-    if (bank_.has(tx.toWalletId)) {
+  if (bank_.hasAccount(tx.fromWalletId)) {
+    if (bank_.hasAccount(tx.toWalletId)) {
       auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
       if (!transferResult) {
         return Error(24, "Failed to transfer balance: " + transferResult.error().message);
@@ -576,7 +559,7 @@ Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transactio
     }
   } else {
     // From unknown wallet
-    if (bank_.has(tx.toWalletId)) {
+    if (bank_.hasAccount(tx.toWalletId)) {
       auto depositResult = bank_.depositBalance(tx.toWalletId, tx.tokenId, tx.amount);
       if (!depositResult) {
         return Error(26, "Failed to deposit balance: " + depositResult.error().message);

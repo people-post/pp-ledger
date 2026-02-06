@@ -121,7 +121,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
     return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
 
-  auto loadResult = loadFromLedger(0, AccountBuffer::ID_GENESIS);
+  auto loadResult = loadFromLedger(0);
   if (!loadResult) {
     return Error(3, "Failed to load data from ledger: " + loadResult.error().message);
   }

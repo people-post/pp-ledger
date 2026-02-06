@@ -64,7 +64,6 @@ private:
 
   struct RunFileConfig {
     uint64_t minerId{ 0 };
-    uint64_t tokenId{ AccountBuffer::ID_GENESIS };
     std::string privateKey;  // hex-encoded
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_MINER_PORT };
@@ -81,7 +80,6 @@ private:
 
   struct Config {
     uint64_t minerId{ 0 };
-    uint64_t tokenId{ AccountBuffer::ID_GENESIS };
     std::string privateKey;  // hex-encoded
     NetworkConfig network;
   };

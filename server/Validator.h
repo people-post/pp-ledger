@@ -129,7 +129,7 @@ protected:
     Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
 
-    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId, uint64_t tokenId);
+    Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode);
     Roe<void> processTransaction(const Ledger::Transaction& tx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);

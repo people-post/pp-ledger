@@ -5,15 +5,16 @@ namespace pp {
 AccountBuffer::AccountBuffer() {
 }
 
-bool AccountBuffer::has(uint64_t id) const {
+bool AccountBuffer::hasAccount(uint64_t id) const {
   return mAccounts_.find(id) != mAccounts_.end();
 }
 
-uint64_t AccountBuffer::getTokenId() const {
-  return tokenId_;
+bool AccountBuffer::isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const {
+  // Only the genesis token account can have negative balances
+  return account.id == tokenId;
 }
 
-AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::get(uint64_t id) const {
+AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::getAccount(uint64_t id) const {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
     return Error(1, "Account not found");
@@ -34,27 +35,18 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
 }
 
 AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
-  if (has(account.id)) {
+  if (hasAccount(account.id)) {
     return Error(2, "Account already exists");
   }
 
-  auto& a = mAccounts_[account.id];
-  a = account;
-  
-  // Only include balances for tokenId_ and ID_GENESIS
-  a.mBalances.clear();
-  for (const auto& [token, balance] : account.mBalances) {
-    if (token == tokenId_ || token == ID_GENESIS) {
-      a.mBalances[token] = balance;
-    }
-  }
+  mAccounts_[account.id] = account;
   
   return {};
 }
 
 AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
   for (const auto& [id, account] : other.mAccounts_) {
-    if (!has(id)) {
+    if (!hasAccount(id)) {
       return Error(8, "Account to update not found: " + std::to_string(id));
     }
     mAccounts_[id] = account;
@@ -115,7 +107,7 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
     currentBalance = balanceIt->second;
   }
   
-  if (!it->second.isNegativeBalanceAllowed && currentBalance < amount) {
+  if (!isNegativeBalanceAllowed(it->second, tokenId) && currentBalance < amount) {
     return Error(13, "Insufficient balance");
   }
   if (currentBalance < INT64_MIN + amount) {
@@ -153,7 +145,7 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   // Check if source account has sufficient balance (unless negative balance is allowed)
-  if (!fromIt->second.isNegativeBalanceAllowed && fromBalance < amount) {
+  if (!isNegativeBalanceAllowed(fromIt->second, tokenId) && fromBalance < amount) {
     return Error(6, "Insufficient balance");
   }
 
@@ -177,10 +169,10 @@ void AccountBuffer::clear() {
   mAccounts_.clear();
 }
 
-void AccountBuffer::reset(uint64_t tokenId) {
+void AccountBuffer::reset() {
   clear();
-  tokenId_ = tokenId;
 }
+
 AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee) {
   // Validate amount
   if (amount < 0) {
@@ -221,7 +213,7 @@ AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t
   }
   
   // Verify sufficient balance (unless negative balance is allowed)
-  if (!fromIt->second.isNegativeBalanceAllowed) {
+  if (!isNegativeBalanceAllowed(fromIt->second, tokenId)) {
     if (tokenId == ID_GENESIS) {
       // Both amount and fee come from the same balance
       if (fromTokenBalance < amount + fee) {
@@ -240,11 +232,10 @@ AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t
 
   // Create toId account if it doesn't exist
   bool toAccountCreated = false;
-  if (!has(toId)) {
+  if (!hasAccount(toId)) {
     Account newAccount;
     newAccount.id = toId;
     newAccount.mBalances[tokenId] = 0;
-    newAccount.isNegativeBalanceAllowed = (toId == tokenId_); // Only genesis account can have negative balances
     newAccount.publicKeys = {};
     auto addResult = add(newAccount);
     if (!addResult) {

@@ -48,7 +48,6 @@ public:
         uint64_t minerId{ 0 };
         uint64_t startingBlockId{ 0 };
         uint64_t checkpointId{ 0 };
-        uint64_t tokenId{ AccountBuffer::ID_GENESIS };
         std::string privateKey; // hex-encoded private key
     };
 

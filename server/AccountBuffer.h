@@ -31,7 +31,6 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct Account {
-    bool isNegativeBalanceAllowed{ false };
     uint64_t id{ 0 };
     std::vector<std::string> publicKeys;
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance (ID_GENESIS = native token)
@@ -40,9 +39,8 @@ public:
   AccountBuffer();
   ~AccountBuffer() = default;
 
-  bool has(uint64_t id) const;
-  Roe<const Account&> get(uint64_t id) const;
-  uint64_t getTokenId() const;
+  bool hasAccount(uint64_t id) const;
+  Roe<const Account&> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
 
@@ -64,11 +62,13 @@ public:
   void remove(uint64_t id);
 
   void clear();
-  void reset(uint64_t tokenId);
+  void reset();
 
 private:
+
+  bool isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const;
+
   std::map<uint64_t, Account> mAccounts_;
-  uint64_t tokenId_{ 0 };
 };
 
 } // namespace pp
