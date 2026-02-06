@@ -331,7 +331,10 @@ create_beacon_config() {
 {
   "host": "localhost",
   "port": $BEACON_PORT,
-  "beacons": []
+  "mode": "primary",
+  "primary": {
+    "trustedBeacons": []
+  }
 }
 EOF
 }
@@ -357,18 +360,25 @@ start_beacon() {
     echo -e "${GREEN}✓ Beacon server running (PID: $BEACON_PID)${NC}"
 }
 
-# Create miner configuration file
+# Create miner key file and configuration file
 create_miner_config() {
     local miner_id=$1
     local miner_dir=$2
     local miner_port=$3
     
     local private_key=$(printf 'test_private_key_miner%d_DO_NOT_USE_IN_PRODUCTION' $miner_id)
+    local key_file="$miner_dir/key.txt"
+    
+    # Miner server requires a key file; write the key into key.txt
+    printf '%s' "$private_key" > "$key_file"
+    
+    # Use absolute path for key so it works regardless of process cwd
+    local key_path="$key_file"
     
     cat > "$miner_dir/config.json" << EOF
 {
   "minerId": $miner_id,
-  "privateKey": "$private_key",
+  "key": "$key_path",
   "host": "localhost",
   "port": $miner_port,
   "beacons": ["localhost:$BEACON_PORT"]
@@ -389,16 +399,14 @@ start_miner() {
         rm -rf "$miner_dir"
     fi
     
-    # If miner directory doesn't exist, let the miner create it first with default config
-    # Then update the config with proper values
+    # If miner directory doesn't exist, let the miner create it first (creates .signature and default config)
     if [ ! -d "$miner_dir" ]; then
-        # Let miner create default directory structure (will fail but create files)
         echo -e "${BLUE}Running: $BUILD_DIR/app/pp-miner -d $miner_dir (init, output suppressed)${NC}"
         "$BUILD_DIR/app/pp-miner" -d "$miner_dir" >&/dev/null || true
-        
-        # Now update the config with proper values
-        create_miner_config $miner_id "$miner_dir" $miner_port
     fi
+    
+    # Always write key file and config (miner requires "key" pointing to a key file)
+    create_miner_config $miner_id "$miner_dir" $miner_port
     
     # Start miner with the updated config
     run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" $(get_debug_flag)
