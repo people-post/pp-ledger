@@ -45,7 +45,7 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 
 int main(int argc, char *argv[]) {
   CLI::App app{"pp-client - Command-line client for pp-ledger beacon and miner servers"};
-  app.require_subcommand(0, 1);
+  app.require_subcommand(1);
 
   // Global options
   bool debug = false;
