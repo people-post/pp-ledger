@@ -85,42 +85,12 @@ private:
     Roe<void> ltsFromJson(const nlohmann::json& jd);
   };
 
-  enum class Mode {
-    Primary, // Full functionality, can be configured to only talk to trusted beacons
-    Input, // Accept and validate blocks from miners and relay them to primary beacon
-    Output, // Fetch blocks and status from primary beacon and relay them to miners
-  };
-  
-  struct PrimaryBeaconConfig {
-    std::vector<std::string> trustedBeacons;
-    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
-    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
-  struct InputBeaconConfig {
-    std::string primaryBeacon;
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
-  struct OutputBeaconConfig {
-    std::string primaryBeacon;
-
-    nlohmann::json ltsToJson();
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
-  };
-
   struct RunFileConfig {
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
-    Mode mode{ Mode::Primary };
-    PrimaryBeaconConfig primary;
-    InputBeaconConfig input;
-    OutputBeaconConfig output;
+    std::vector<std::string> whitelist; // Whitelisted beacon addresses
+    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
+    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
 
     nlohmann::json ltsToJson();
     Roe<void> ltsFromJson(const nlohmann::json& jd);
@@ -133,7 +103,7 @@ private:
 
   struct NetworkConfig {
     network::TcpEndpoint endpoint;
-    std::vector<std::string> beacons;
+    std::vector<std::string> whitelist;
   };
 
   struct Config {
@@ -144,9 +114,7 @@ private:
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
   void initHandlers();
 
-  std::string getModeName(Mode mode) const;
   void registerServer(const std::string &serverAddress);
-  Roe<void> syncWithPrimaryBeacon();
   void processQueuedRequest(QueuedRequest& qr);
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
@@ -162,7 +130,6 @@ private:
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
-  Mode mode_{ Mode::Primary };
   std::string workDir_;
   Config config_;
   Beacon beacon_;
@@ -171,11 +138,9 @@ private:
 
   ThreadSafeQueue<QueuedRequest> requestQueue_;
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
-  std::map<uint32_t, std::map<Mode, Handler>> requestHandlers_;
+  std::map<uint32_t, Handler> requestHandlers_;
 
   std::map<std::string, int64_t> activeServers_;
-  std::string primaryBeaconAddress_;
-  std::vector<std::string> trustedBeaconAddresses_;
 };
 
 } // namespace pp

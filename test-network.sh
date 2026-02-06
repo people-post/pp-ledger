@@ -330,11 +330,7 @@ create_beacon_config() {
     cat > "$beacon_dir/config.json" << EOF
 {
   "host": "localhost",
-  "port": $BEACON_PORT,
-  "mode": "primary",
-  "primary": {
-    "trustedBeacons": []
-  }
+  "port": $BEACON_PORT
 }
 EOF
 }

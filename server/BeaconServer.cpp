@@ -106,142 +106,13 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
 
 // ============ RunFileConfig methods ============
 
-nlohmann::json BeaconServer::PrimaryBeaconConfig::ltsToJson() {
-  nlohmann::json j;
-  j["trustedBeacons"] = trustedBeacons;
-  j["checkpointSize"] = checkpointSize;
-  j["checkpointAge"] = checkpointAge;
-  return j;
-}
-
-BeaconServer::Roe<void> BeaconServer::PrimaryBeaconConfig::ltsFromJson(const nlohmann::json& jd) {
-  try {
-    // Validate JSON is an object
-    if (!jd.is_object()) {
-      return Error(E_CONFIG, "Configuration must be a JSON object");
-    }
-
-    // Load and validate trustedBeacons
-    if (jd.contains("trustedBeacons")) {
-      if (!jd["trustedBeacons"].is_array()) {
-        return Error(E_CONFIG, "Field 'trustedBeacons' must be an array");
-      }
-    }
-    for (const auto& beacon : jd["trustedBeacons"]) {
-      if (!beacon.is_string()) {
-        return Error(E_CONFIG, "All elements in 'trustedBeacons' array must be strings");
-      }
-      trustedBeacons.push_back(beacon.get<std::string>());
-    }
-
-    // Load and validate checkpointSize
-    if (jd.contains("checkpointSize")) {
-      if (!jd["checkpointSize"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
-      }
-      checkpointSize = jd["checkpointSize"].get<uint64_t>();
-      if (checkpointSize == 0) {
-        return Error(E_CONFIG, "Field 'checkpointSize' must be greater than 0");
-      }
-    } else {
-      checkpointSize = DEFAULT_CHECKPOINT_SIZE;
-    }
-
-    // Load and validate checkpointAge
-    if (jd.contains("checkpointAge")) {
-      if (!jd["checkpointAge"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
-      }
-      checkpointAge = jd["checkpointAge"].get<uint64_t>();
-      if (checkpointAge == 0) {
-        return Error(E_CONFIG, "Field 'checkpointAge' must be greater than 0");
-      }
-    } else {
-      checkpointAge = DEFAULT_CHECKPOINT_AGE;
-    }
-
-    return {};
-  } catch (const std::exception& e) {
-    return Error(E_CONFIG, "Failed to parse primary beacon configuration: " + std::string(e.what()));
-  }
-}
-
-nlohmann::json BeaconServer::InputBeaconConfig::ltsToJson() {
-  nlohmann::json j;
-  j["primaryBeacon"] = primaryBeacon;
-  return j;
-}
-
-BeaconServer::Roe<void> BeaconServer::InputBeaconConfig::ltsFromJson(const nlohmann::json& jd) {
-  try {
-    // Validate JSON is an object
-    if (!jd.is_object()) {
-      return Error(E_CONFIG, "Configuration must be a JSON object");
-    }
-
-    // Load and validate primaryBeacon
-    if (jd.contains("primaryBeacon")) {
-      if (!jd["primaryBeacon"].is_string()) {
-        return Error(E_CONFIG, "Field 'primaryBeacon' must be a string");
-      }
-      primaryBeacon = jd["primaryBeacon"].get<std::string>();
-    } else {
-      return Error(E_CONFIG, "Field 'primaryBeacon' is required");
-    }
-
-    return {};
-  } catch (const std::exception& e) {
-    return Error(E_CONFIG, "Failed to parse input beacon configuration: " + std::string(e.what()));
-  }
-}
-
-nlohmann::json BeaconServer::OutputBeaconConfig::ltsToJson() {
-  nlohmann::json j;
-  j["primaryBeacon"] = primaryBeacon;
-  return j;
-}
-
-BeaconServer::Roe<void> BeaconServer::OutputBeaconConfig::ltsFromJson(const nlohmann::json& jd) {
-  try {
-    // Validate JSON is an object
-    if (!jd.is_object()) {
-      return Error(E_CONFIG, "Configuration must be a JSON object");
-    }
-
-    // Load and validate primaryBeacon
-    if (jd.contains("primaryBeacon")) {
-      if (!jd["primaryBeacon"].is_string()) {
-        return Error(E_CONFIG, "Field 'primaryBeacon' must be a string");
-      }
-      primaryBeacon = jd["primaryBeacon"].get<std::string>();
-    } else {
-      return Error(E_CONFIG, "Field 'primaryBeacon' is required");
-    }
-
-    return {};
-  } catch (const std::exception& e) {
-    return Error(E_CONFIG, "Failed to parse output beacon configuration: " + std::string(e.what()));
-  }
-}
-
 nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
   nlohmann::json j;
   j["host"] = host;
   j["port"] = port;
-  switch (mode) {
-  case Mode::Primary:
-    j["mode"] = "primary";
-    break;
-  case Mode::Input:
-    j["mode"] = "input";
-    break;
-  case Mode::Output:
-    j["mode"] = "output";
-    break;
-  }
-  j["primary"] = primary.ltsToJson();
-  j["input"] = input.ltsToJson();
-  j["output"] = output.ltsToJson();
+  j["whitelist"] = whitelist;
+  j["checkpointSize"] = checkpointSize;
+  j["checkpointAge"] = checkpointAge;
   return j;
 }
 
@@ -279,74 +150,28 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
       port = Client::DEFAULT_BEACON_PORT;
     }
 
-    // Load and validate mode
-    if (jd.contains("mode")) {
-      if (!jd["mode"].is_string()) {
-        return Error(E_CONFIG, "Field 'mode' must be a string");
+    // Load and validate whitelist
+    if (jd.contains("whitelist")) {
+      if (!jd["whitelist"].is_array()) {
+        return Error(E_CONFIG, "Field 'whitelist' must be an array");
       }
-      std::string modeName = jd["mode"].get<std::string>();
-      if (modeName == "primary") {
-        mode = Mode::Primary;
-      } else if (modeName == "input") {
-        mode = Mode::Input;
-      } else if (modeName == "output") {
-        mode = Mode::Output;
-      } else {
-        return Error(E_CONFIG, "Invalid mode: " + modeName);
-      }
-    } else {
-      return Error(E_CONFIG, "Field 'mode' is required");
+      whitelist = jd["whitelist"].get<std::vector<std::string>>();
     }
 
-    // Load and validate primary beacon configuration
-    if (mode == Mode::Primary) {
-      if (jd.contains("primary")) {
-        if (!jd["primary"].is_object()) {
-          return Error(E_CONFIG, "Field 'primary' must be an object");
-        }
-        auto primaryConfig = PrimaryBeaconConfig();
-        auto result = primaryConfig.ltsFromJson(jd["primary"]);
-        if (!result) {
-          return Error(E_CONFIG, "Failed to parse primary beacon configuration: " + result.error().message);
-        }
-        primary = primaryConfig;
-        } else {
-        return Error(E_CONFIG, "Field 'primary' is required in primary mode");
+    // Load and validate checkpointSize
+    if (jd.contains("checkpointSize")) {
+      if (!jd["checkpointSize"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
       }
+      checkpointSize = jd["checkpointSize"].get<uint64_t>();
     }
 
-    // Load and validate input beacon configuration
-    if (mode == Mode::Input) {
-      if (jd.contains("input")) {
-        if (!jd["input"].is_object()) {
-          return Error(E_CONFIG, "Field 'input' must be an object");
-        }
-        auto inputConfig = InputBeaconConfig();
-        auto result = inputConfig.ltsFromJson(jd["input"]);
-        if (!result) {
-          return Error(E_CONFIG, "Failed to parse input beacon configuration: " + result.error().message);
-        }
-        input = inputConfig;
-      } else {
-        return Error(E_CONFIG, "Field 'input' is required in input mode");
+    // Load and validate checkpointAge
+    if (jd.contains("checkpointAge")) {
+      if (!jd["checkpointAge"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
       }
-    }
-
-    // Load and validate output beacon configuration
-    if (mode == Mode::Output) {
-      if (jd.contains("output")) {
-        if (!jd["output"].is_object()) {
-          return Error(E_CONFIG, "Field 'output' must be an object");
-        }
-        auto outputConfig = OutputBeaconConfig();
-        auto result = outputConfig.ltsFromJson(jd["output"]);
-        if (!result) {
-          return Error(E_CONFIG, "Failed to parse output beacon configuration: " + result.error().message);
-        }
-        output = outputConfig;
-      } else {
-        return Error(E_CONFIG, "Field 'output' is required in output mode");
-      }
+      checkpointAge = jd["checkpointAge"].get<uint64_t>();
     }
 
     return {};
@@ -356,18 +181,6 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
 }
 
 // ============ BeaconServer methods ============
-
-std::string BeaconServer::getModeName(Mode mode) const {
-  switch (mode) {
-  case Mode::Primary:
-    return "Primary";
-  case Mode::Input:
-    return "Input";
-  case Mode::Output:
-    return "Output";
-  }
-  return "Unknown";
-}
 
 BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& workDir) {
   log().info << "Initializing new beacon with work directory: " << workDir;
@@ -550,24 +363,13 @@ Service::Roe<void> BeaconServer::onStart() {
   // Apply configuration from RunFileConfig
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
-  switch (runFileConfig.mode) {
-  case Mode::Primary:
-    config_.checkpoint.minSizeBytes = runFileConfig.primary.checkpointSize;
-    config_.checkpoint.ageSeconds = runFileConfig.primary.checkpointAge;
-    trustedBeaconAddresses_ = runFileConfig.primary.trustedBeacons;
-    break;
-  case Mode::Input:
-    primaryBeaconAddress_ = runFileConfig.input.primaryBeacon;
-    break;
-  case Mode::Output:
-    primaryBeaconAddress_ = runFileConfig.output.primaryBeacon;
-    break;
-  }
-  
+  config_.network.whitelist = runFileConfig.whitelist;
+  config_.checkpoint.minSizeBytes = runFileConfig.checkpointSize;
+  config_.checkpoint.ageSeconds = runFileConfig.checkpointAge;
+
   log().info << "Configuration loaded";
   log().info << "  Endpoint: " << config_.network.endpoint;
-  log().info << "  Primary beacon: " << primaryBeaconAddress_;
-  log().info << "  Trusted beacons: " << utl::join(trustedBeaconAddresses_, ", ");
+  log().info << "  Whitelisted beacons: " << utl::join(config_.network.whitelist, ", ");
   log().info << "  Checkpoint size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
   log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   
@@ -599,14 +401,6 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(-5, "Failed to start FetchServer: " + serverStarted.error().message);
   }
 
-  // Connect to other beacon servers
-  if (mode_ != Mode::Primary) {
-    auto syncResult = syncWithPrimaryBeacon();
-    if (!syncResult) {
-      return Service::Error(-6, "Failed to sync with primary beacon: " + syncResult.error().message);
-    }
-  }
-
   initHandlers();
   return {};
 }
@@ -615,34 +409,19 @@ void BeaconServer::initHandlers() {
   requestHandlers_.clear();
 
   auto& hgs = requestHandlers_[Client::T_REQ_STATUS];
-  hgs[Mode::Primary] = [this](const Client::Request &request) { return hStatus(request); };
-  hgs[Mode::Output] = [this](const Client::Request &request) { return hStatus(request); };
-
-  hgs[Mode::Input] = [this](const Client::Request &request) { return hUnsupported(request); };
+  hgs = [this](const Client::Request &request) { return hStatus(request); };
 
   auto& hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
-  hgb[Mode::Primary] = [this](const Client::Request &request) { return hBlockGet(request); };
-  hgb[Mode::Output] = [this](const Client::Request &request) { return hBlockGet(request); };
-
-  hgb[Mode::Input] = [this](const Client::Request &request) { return hUnsupported(request); };
+  hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
   auto& hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
-  hga[Mode::Primary] = [this](const Client::Request &request) { return hAccountGet(request); };
-  hga[Mode::Output] = [this](const Client::Request &request) { return hAccountGet(request); };
-
-  hga[Mode::Input] = [this](const Client::Request &request) { return hUnsupported(request); };
+  hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
   auto& hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
-  hab[Mode::Primary] = [this](const Client::Request &request) { return hBlockAdd(request); };
-  hab[Mode::Input] = [this](const Client::Request &request) { return hBlockAdd(request); };
-
-  hab[Mode::Output] = [this](const Client::Request &request) { return hUnsupported(request); };
+  hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
   auto& hreg = requestHandlers_[Client::T_REQ_REGISTER];
-  hreg[Mode::Primary] = [this](const Client::Request &request) { return hRegister(request); };
-  hreg[Mode::Input] = [this](const Client::Request &request) { return hRegister(request); };
-
-  hreg[Mode::Output] = [this](const Client::Request &request) { return hUnsupported(request); };
+  hreg = [this](const Client::Request &request) { return hRegister(request); };
 };
 
 void BeaconServer::onStop() {
@@ -659,25 +438,6 @@ void BeaconServer::registerServer(const std::string &serverAddress) {
   // Update or add server
   activeServers_[serverAddress] = now;
   log().debug << "Updated server record: " << serverAddress;
-}
-
-BeaconServer::Roe<void> BeaconServer::syncWithPrimaryBeacon() {
-  if (primaryBeaconAddress_.empty()) {
-    return Error(E_CONFIG, "No primary beacon address configured");
-  }
-
-  log().info << "Syncing with primary beacon: " << primaryBeaconAddress_;
-
-  if (!client_.setEndpoint(primaryBeaconAddress_)) {
-    return Error(E_NETWORK, "Failed to resolve primary beacon address: " + primaryBeaconAddress_);
-  }
-
-  auto stateResult = client_.fetchBeaconState();
-  if (!stateResult) {
-    return Error(E_NETWORK, "Failed to get primary beacon state: " + stateResult.error().message);
-  }
-
-  return {};
 }
 
 Client::BeaconState BeaconServer::buildStateResponse() const {
@@ -821,7 +581,7 @@ BeaconServer::Roe<std::string> BeaconServer::hStatus(const Client::Request &requ
 }
 
 BeaconServer::Roe<std::string> BeaconServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type) + " in mode " + getModeName(mode_));
+  return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
 }
 
 std::string BeaconServer::binaryResponseOk(const std::string& payload) const {
