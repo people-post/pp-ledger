@@ -485,15 +485,15 @@ std::string BeaconServer::handleRequest(const std::string &request) {
 
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {
-    return binaryResponseError(1, reqResult.error().message);
+    return Server::packResponse(1, reqResult.error().message);
   }
 
   const auto& req = reqResult.value();
   auto result = handleRequest(req);
   if (!result) {
-    return binaryResponseError(1, result.error().message);
+    return Server::packResponse(1, result.error().message);
   }
-  return binaryResponseOk(result.value());
+  return Server::packResponse(result.value());
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request &request) {
@@ -571,22 +571,6 @@ BeaconServer::Roe<std::string> BeaconServer::hStatus(const Client::Request &requ
 
 BeaconServer::Roe<std::string> BeaconServer::hUnsupported(const Client::Request &request) {
   return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
-}
-
-std::string BeaconServer::binaryResponseOk(const std::string& payload) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = 0;
-  resp.payload = payload;
-  return utl::binaryPack(resp);
-}
-
-std::string BeaconServer::binaryResponseError(uint16_t errorCode, const std::string& message) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = errorCode;
-  resp.payload = message;
-  return utl::binaryPack(resp);
 }
 
 } // namespace pp

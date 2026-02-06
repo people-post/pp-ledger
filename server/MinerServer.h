@@ -99,9 +99,6 @@ private:
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
   void processQueuedRequest(QueuedRequest& qr);
 
-  std::string binaryResponseOk(const std::string& payload) const;
-  std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
-
   std::string handleRequest(const std::string &request);
   Roe<std::string> handleRequest(const Client::Request &request);
 

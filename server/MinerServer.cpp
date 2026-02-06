@@ -337,15 +337,15 @@ std::string MinerServer::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {
-    return binaryResponseError(1, reqResult.error().message);
+    return Server::packResponse(1, reqResult.error().message);
   }
 
   const auto& req = reqResult.value();
   auto result = handleRequest(req);
   if (!result) {
-    return binaryResponseError(1, result.error().message);
+    return Server::packResponse(1, result.error().message);
   }
-  return binaryResponseOk(result.value());
+  return Server::packResponse(result.value());
 }
 
 MinerServer::Roe<std::string> MinerServer::handleRequest(const Client::Request &request) {
@@ -511,22 +511,6 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   log().info << "Next block ID: " << state.nextBlockId;
 
   return state;
-}
-
-std::string MinerServer::binaryResponseOk(const std::string& payload) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = 0;
-  resp.payload = payload;
-  return utl::binaryPack(resp);
-}
-
-std::string MinerServer::binaryResponseError(uint16_t errorCode, const std::string& message) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = errorCode;
-  resp.payload = message;
-  return utl::binaryPack(resp);
 }
 
 MinerServer::Roe<void> MinerServer::broadcastBlock(const Ledger::ChainNode& block) {

@@ -96,9 +96,6 @@ private:
 
   void registerServer(const std::string &serverAddress);
   void processQueuedRequest(QueuedRequest &qr);
-  std::string binaryResponseOk(const std::string &payload) const;
-  std::string binaryResponseError(uint16_t errorCode,
-                                  const std::string &message) const;
   Client::BeaconState buildStateResponse() const;
 
   std::string handleRequest(const std::string &request);

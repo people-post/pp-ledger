@@ -314,15 +314,15 @@ std::string RelayServer::handleRequest(const std::string &request) {
 
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {
-    return binaryResponseError(1, reqResult.error().message);
+    return Server::packResponse(1, reqResult.error().message);
   }
 
   const auto& req = reqResult.value();
   auto result = handleRequest(req);
   if (!result) {
-    return binaryResponseError(1, result.error().message);
+    return Server::packResponse(1, result.error().message);
   }
-  return binaryResponseOk(result.value());
+  return Server::packResponse(result.value());
 }
 
 RelayServer::Roe<std::string> RelayServer::handleRequest(const Client::Request &request) {
@@ -400,22 +400,6 @@ RelayServer::Roe<std::string> RelayServer::hStatus(const Client::Request &reques
 
 RelayServer::Roe<std::string> RelayServer::hUnsupported(const Client::Request &request) {
   return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
-}
-
-std::string RelayServer::binaryResponseOk(const std::string& payload) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = 0;
-  resp.payload = payload;
-  return utl::binaryPack(resp);
-}
-
-std::string RelayServer::binaryResponseError(uint16_t errorCode, const std::string& message) const {
-  Client::Response resp;
-  resp.version = Client::Response::VERSION;
-  resp.errorCode = errorCode;
-  resp.payload = message;
-  return utl::binaryPack(resp);
 }
 
 } // namespace pp

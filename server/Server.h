@@ -2,6 +2,7 @@
 #define PP_LEDGER_SERVER_H
 
 #include "../lib/Service.h"
+#include <cstdint>
 #include <string>
 
 namespace pp {
@@ -38,6 +39,11 @@ protected:
 
   /** Error code for run() failures (e.g. signature file). Derived can override. */
   virtual int32_t getRunErrorCode() const { return -1; }
+
+  /** Pack a successful response (errorCode 0) into binary. */
+  static std::string packResponse(const std::string& payload);
+  /** Pack an error response into binary. */
+  static std::string packResponse(uint16_t errorCode, const std::string& message);
 
 private:
   std::string workDir_;
