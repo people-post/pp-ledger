@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
     "  {\n"
     "    \"host\": \"localhost\",           // Optional, default: localhost\n"
     "    \"port\": 8517,                    // Optional, default: 8517\n"
-    "    \"beacons\": [\"host:port\"],      // Optional, list of other beacons\n"
+    "    \"whitelist\": [\"host:port\"],    // Optional, whitelisted beacons\n"
     "    \"checkpointSize\": 1073741824,    // Optional, default: 1GB\n"
     "    \"checkpointAge\": 31536000        // Optional, default: 1 year\n"
     "  }"

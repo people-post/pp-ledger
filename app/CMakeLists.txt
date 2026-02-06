@@ -21,6 +21,17 @@ target_link_libraries(pp-beacon PRIVATE
     CLI11::CLI11
 )
 
+# Relay executable
+add_executable(pp-relay
+    relay.cpp
+)
+
+target_link_libraries(pp-relay PRIVATE
+    pp_lib
+    pp_server
+    CLI11::CLI11
+)
+
 # Miner executable
 add_executable(pp-miner
     miner.cpp
