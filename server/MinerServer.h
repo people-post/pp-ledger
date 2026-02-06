@@ -87,21 +87,26 @@ private:
   std::string getSlotLeaderAddress() const;
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
+  void initHandlers();
   void handleSlotLeaderRole();
   void handleValidatorRole();
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
 
   std::string handleParsedRequest(const Client::Request &request) override;
 
-  Roe<std::string> handleBlockGetRequest(const Client::Request &request);
-  Roe<std::string> handleBlockAddRequest(const Client::Request &request);
-  Roe<std::string> handleAccountGetRequest(const Client::Request &request);
-  Roe<std::string> handleTransactionAddRequest(const Client::Request &request);
-  Roe<std::string> handleStatusRequest(const Client::Request &request);
+  Roe<std::string> hBlockGet(const Client::Request &request);
+  Roe<std::string> hBlockAdd(const Client::Request &request);
+  Roe<std::string> hAccountGet(const Client::Request &request);
+  Roe<std::string> hTransactionAdd(const Client::Request &request);
+  Roe<std::string> hStatus(const Client::Request &request);
+  Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
   Client client_;
   Config config_;
+
+  using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
+  std::map<uint32_t, Handler> requestHandlers_;
 };
 
 } // namespace pp

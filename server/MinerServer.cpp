@@ -264,7 +264,29 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
   }
 
   log().info << "Sync complete: " << (latestBlockId - nextBlockId) << " blocks added";
+
+  initHandlers();
+
   return {};
+}
+
+void MinerServer::initHandlers() {
+  requestHandlers_.clear();
+
+  auto& hgs = requestHandlers_[Client::T_REQ_STATUS];
+  hgs = [this](const Client::Request &request) { return hStatus(request); };
+
+  auto& hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
+  hgb = [this](const Client::Request &request) { return hBlockGet(request); };
+
+  auto& hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
+  hga = [this](const Client::Request &request) { return hAccountGet(request); };
+
+  auto& hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
+  hab = [this](const Client::Request &request) { return hBlockAdd(request); };
+
+  auto& hta = requestHandlers_[Client::T_REQ_TRANSACTION_ADD];
+  hta = [this](const Client::Request &request) { return hTransactionAdd(request); };
 }
 
 void MinerServer::onStop() {
@@ -306,33 +328,16 @@ std::string MinerServer::getSlotLeaderAddress() const {
 }
 
 std::string MinerServer::handleParsedRequest(const Client::Request& request) {
-  Roe<std::string> result = Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
-  switch (request.type) {
-  case Client::T_REQ_BLOCK_GET:
-    result = handleBlockGetRequest(request);
-    break;
-  case Client::T_REQ_BLOCK_ADD:
-    result = handleBlockAddRequest(request);
-    break;
-  case Client::T_REQ_ACCOUNT_GET:
-    result = handleAccountGetRequest(request);
-    break;
-  case Client::T_REQ_TRANSACTION_ADD:
-    result = handleTransactionAddRequest(request);
-    break;
-  case Client::T_REQ_STATUS:
-    result = handleStatusRequest(request);
-    break;
-  default:
-    break;
-  }
+  log().debug << "Handling request: " << request.type;
+  auto it = requestHandlers_.find(request.type);
+  Roe<std::string> result = (it != requestHandlers_.end()) ? it->second(request) : hUnsupported(request);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
   return Server::packResponse(result.value());
 }
 
-MinerServer::Roe<std::string> MinerServer::handleBlockGetRequest(const Client::Request &request) {
+MinerServer::Roe<std::string> MinerServer::hBlockGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
@@ -345,7 +350,7 @@ MinerServer::Roe<std::string> MinerServer::handleBlockGetRequest(const Client::R
   return result.value().ltsToString();
 }
 
-MinerServer::Roe<std::string> MinerServer::handleBlockAddRequest(const Client::Request &request) {
+MinerServer::Roe<std::string> MinerServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
@@ -358,7 +363,7 @@ MinerServer::Roe<std::string> MinerServer::handleBlockAddRequest(const Client::R
   return {"Block added"};
 }
 
-MinerServer::Roe<std::string> MinerServer::handleAccountGetRequest(const Client::Request &request) {
+MinerServer::Roe<std::string> MinerServer::hAccountGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
@@ -372,7 +377,7 @@ MinerServer::Roe<std::string> MinerServer::handleAccountGetRequest(const Client:
   return result.value().ltsToString();
 }
 
-MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Client::Request &request) {
+MinerServer::Roe<std::string> MinerServer::hTransactionAdd(const Client::Request &request) {
   auto signedTxResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(request.payload);
   if (!signedTxResult) {
     return Error(E_REQUEST, "Failed to deserialize transaction: " + signedTxResult.error().message);
@@ -399,7 +404,7 @@ MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Cli
   return {"Transaction submitted to slot leader"};
 }
 
-MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const Client::Request &request) {
+MinerServer::Roe<std::string> MinerServer::hStatus(const Client::Request &request) {
   Client::MinerStatus status;
   
   status.minerId = config_.minerId;
@@ -412,6 +417,10 @@ MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const Client::Req
   status.isSlotLeader = miner_.isSlotLeader();
   
   return status.ltsToJson().dump();
+}
+
+MinerServer::Roe<std::string> MinerServer::hUnsupported(const Client::Request &request) {
+  return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
 }
 
 void MinerServer::handleSlotLeaderRole() {
