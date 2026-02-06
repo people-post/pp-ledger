@@ -46,11 +46,19 @@ public:
     uint64_t ageSeconds{ 365ULL * 24 * 3600 }; // 1 year default
   };
 
+  struct InitKeyConfig {
+    std::vector<std::string> genesis;
+    std::vector<std::string> fee;
+    std::vector<std::string> reserve;
+
+    nlohmann::json toJson() const;
+  };
+
   struct InitConfig {
     // Base configuration
     std::string workDir;
     BlockChainConfig chain;
-    std::vector<std::string> genesisAccountPublicKeys;
+    InitKeyConfig key;
   };
 
   struct MountConfig {
@@ -86,7 +94,7 @@ private:
   Roe<void> evaluateCheckpoints();
   uint64_t getBlockAge(uint64_t blockId) const;
   Roe<void> createCheckpoint(uint64_t blockId);
-  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const std::vector<std::string>& genesisAccountPublicKeys) const;
+  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
 
   Config config_;
   uint64_t currentCheckpointId_{ 0 };

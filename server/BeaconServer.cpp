@@ -26,7 +26,6 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["maxPendingTransactions"] = maxPendingTransactions;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
   j["minFeePerTransaction"] = minFeePerTransaction;
-  j["keys"] = keys;
   return j;
 }
 
@@ -98,29 +97,6 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
     } else {
       minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
     }
-
-    // Load and validate keys (public keys, at least one required)
-    keys.clear();
-    if (jd.contains("keys")) {
-      if (!jd["keys"].is_array()) {
-        return Error(E_CONFIG, "Field 'keys' must be an array");
-      }
-      for (size_t i = 0; i < jd["keys"].size(); ++i) {
-        const auto& key = jd["keys"][i];
-        if (!key.is_string()) {
-          return Error(E_CONFIG, "All elements in 'keys' array must be strings (index " + std::to_string(i) + " is not)");
-        }
-        std::string keyStr = key.get<std::string>();
-        if (keyStr.empty()) {
-          return Error(E_CONFIG, "Key at index " + std::to_string(i) + " cannot be empty");
-        }
-        keys.push_back(keyStr);
-      }
-    }
-    if (keys.empty()) {
-      return Error(E_CONFIG, "Field 'keys' is required and must contain at least one public key");
-    }
-
     return {};
   } catch (const std::exception& e) {
     return Error(E_CONFIG, "Failed to parse init configuration: " + std::string(e.what()));
@@ -134,7 +110,6 @@ nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
   j["host"] = host;
   j["port"] = port;
   j["beacons"] = beacons;
-  j["keys"] = keys;
   j["checkpointSize"] = checkpointSize;
   j["checkpointAge"] = checkpointAge;
   return j;
@@ -193,28 +168,6 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
       }
     }
 
-    // Load and validate keys (private keys, at least one required)
-    keys.clear();
-    if (jd.contains("keys")) {
-      if (!jd["keys"].is_array()) {
-        return Error(E_CONFIG, "Field 'keys' must be an array");
-      }
-      for (size_t i = 0; i < jd["keys"].size(); ++i) {
-        const auto& key = jd["keys"][i];
-        if (!key.is_string()) {
-          return Error(E_CONFIG, "All elements in 'keys' array must be strings (index " + std::to_string(i) + " is not)");
-        }
-        std::string keyStr = key.get<std::string>();
-        if (keyStr.empty()) {
-          return Error(E_CONFIG, "Key at index " + std::to_string(i) + " cannot be empty");
-        }
-        keys.push_back(keyStr);
-      }
-    }
-    if (keys.empty()) {
-      return Error(E_CONFIG, "Field 'keys' is required and must contain at least one private key");
-    }
-
     // Load and validate checkpointSize
     if (jd.contains("checkpointSize")) {
       if (!jd["checkpointSize"].is_number_unsigned()) {
@@ -250,7 +203,7 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
 // ============ BeaconServer methods ============
 
 
-BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
+BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& workDir) {
   log().info << "Initializing new beacon with work directory: " << workDir;
   
   std::filesystem::path workDirPath(workDir);
@@ -320,16 +273,41 @@ BeaconServer::Roe<void> BeaconServer::init(const std::string& workDir) {
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
   initConfig.chain.maxPendingTransactions = initFileConfig.maxPendingTransactions;
   initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
-  initConfig.genesisAccountPublicKeys = initFileConfig.keys;
+  Beacon::InitKeyConfig kPrivate;
+  for (int i = 0; i < 3; i++) {
+    auto result = utl::ed25519Generate();
+    if (!result) {
+      return Error("Failed to generate Ed25519 key: " + result.error().message);
+    }
+    auto key = result.value();
+    kPrivate.genesis.push_back(key.privateKey);
+    initConfig.key.genesis.push_back(key.publicKey);
+
+    result = utl::ed25519Generate();
+    if (!result) {
+      return Error("Failed to generate Ed25519 key: " + result.error().message);
+    }
+    key = result.value();
+    kPrivate.fee.push_back(key.privateKey);
+    initConfig.key.fee.push_back(key.publicKey);
+
+    result = utl::ed25519Generate();
+    if (!result) {
+      return Error("Failed to generate Ed25519 key: " + result.error().message);
+    }
+    key = result.value();
+    kPrivate.reserve.push_back(key.privateKey);
+    initConfig.key.reserve.push_back(key.publicKey);
+  }
   
   // Call the existing initFromWorkDir method
   auto result = initFromWorkDir(initConfig);
   if (!result) {
-    return result;
+    return Error("Failed to initialize beacon: " + result.error().message);
   }
   
   log().info << "Beacon initialized successfully";
-  return {};
+  return kPrivate;
 }
 
 BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& config) {

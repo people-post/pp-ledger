@@ -69,6 +69,7 @@ int initBeacon(const std::string& workDir) {
   }
   
   std::cout << "Beacon initialized successfully (to reinitialize, edit the init config file and run the same command)\n";
+  std::cout << "Please save the private keys, they are not recoverable: " << result.value().toJson().dump(2) << "\n";
   std::cout << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
   return 0;
 }

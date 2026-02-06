@@ -10,6 +10,20 @@ namespace pp {
 
 Beacon::Beacon() {}
 
+nlohmann::json Beacon::InitKeyConfig::toJson() const {
+  nlohmann::json j;
+  for (const auto& key : genesis) {
+    j["genesis"].push_back(utl::hexEncode(key));
+  }
+  for (const auto& key : fee) {
+    j["fee"].push_back(utl::hexEncode(key));
+  }
+  for (const auto& key : reserve) {
+    j["reserve"].push_back(utl::hexEncode(key));
+  }
+  return j;
+}
+
 bool Beacon::needsCheckpoint() const {
   uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
   
@@ -43,13 +57,6 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
   log().debug << "Init config: " << config;
 
-  // Verify keys are valid public keys
-  for (const auto& key : config.genesisAccountPublicKeys) {
-    if (!utl::isValidPublicKey(key)) {
-      return Error(16, "Invalid public key: " + key);
-    }
-  }
-
   // Verify work directory does NOT exist (fresh initialization)
   if (std::filesystem::exists(config.workDir)) {
     return Error("Work directory already exists: " + config.workDir + ". Use mount() to load existing beacon.");
@@ -82,7 +89,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   config_.chain.genesisTime = cc.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlock = createGenesisBlock(config_.chain, config.genesisAccountPublicKeys);
+  auto genesisBlock = createGenesisBlock(config_.chain, config.key);
   
   auto addBlockResult = getLedger().addBlock(genesisBlock);
   if (!addBlockResult) {
@@ -256,7 +263,7 @@ Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
   return {};
 }
 
-Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, const std::vector<std::string>& genesisAccountPublicKeys) const {
+Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create native token genesis wallet with zero balance
@@ -266,13 +273,13 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, con
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
   systemCheckpoint.genesis.balance = 0; // Native token (ID ID_GENESIS) with zero balance
-  systemCheckpoint.genesis.publicKeys = genesisAccountPublicKeys;
+  systemCheckpoint.genesis.publicKeys = key.genesis;
   systemCheckpoint.genesis.meta = "Native token genesis wallet";
   systemCheckpoint.fee.balance = 0; // Fee wallet (ID ID_FEE) with zero balance
-  systemCheckpoint.fee.publicKeys = genesisAccountPublicKeys;
+  systemCheckpoint.fee.publicKeys = key.fee;
   systemCheckpoint.fee.meta = "Wallet for transaction fees";
   systemCheckpoint.reserve.balance = 0; // Reserve wallet (ID ID_RESERVE) with zero balance
-  systemCheckpoint.reserve.publicKeys = genesisAccountPublicKeys;
+  systemCheckpoint.reserve.publicKeys = key.reserve;
   systemCheckpoint.reserve.meta = "Native token reserve wallet";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint
