@@ -3,7 +3,6 @@
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Serialize.hpp"
 #include "../lib/Utilities.h"
-#include "../network/FetchClient.h"
 
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -48,7 +47,9 @@ nlohmann::json Client::AccountInfo::toJson() const {
   return j;
 }
 
-Client::Client() {}
+Client::Client() {
+  fetchClient_.redirectLogger(log().getFullName() + ".FetchClient");
+}
 
 Client::~Client() {}
 
@@ -70,7 +71,7 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
 }
 
 Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
-  auto ep = network::TcpEndpoint::fromString(endpoint);
+  auto ep = network::TcpEndpoint::ltsFromString(endpoint);
   if (ep.port == 0) {
     return Error(E_NOT_CONNECTED, "Invalid endpoint: " + endpoint);
   }
@@ -82,59 +83,7 @@ void Client::setEndpoint(const network::TcpEndpoint &endpoint) {
   endpoint_ = endpoint;
 }
 
-Client::Roe<nlohmann::json> Client::sendRequest(const nlohmann::json &request) {
-  if (endpoint_.port == 0) {
-    return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
-  }
-
-  // Wrap JSON in Request struct with type = T_REQ_JSON
-  Request req;
-  req.version = Request::VERSION;
-  req.type = T_REQ_JSON;
-  req.payload = request.dump();
-
-  std::string requestData = utl::binaryPack(req);
-  log().debug << "Sending request: " << req;
-
-  // Send request using FetchClient
-  network::FetchClient fetchClient;
-  fetchClient.redirectLogger(log().getFullName() + ".FetchClient");
-  auto result = fetchClient.fetchSync(endpoint_, requestData);
-
-  if (!result.isOk()) {
-    return Error(E_REQUEST_FAILED,
-                 getErrorMessage(E_REQUEST_FAILED) + ": " +
-                     result.error().message);
-  }
-
-  // Unpack binary Response
-  auto respResult = utl::binaryUnpack<Response>(result.value());
-  if (!respResult) {
-    log().error << "Failed to unpack response: " << respResult.error().message;
-    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + respResult.error().message);
-  }
-
-  const Response& resp = respResult.value();
-  log().debug << "Received response: errorCode=" << resp.errorCode;
-
-  if (resp.errorCode != 0) {
-    return Error(E_SERVER_ERROR, getErrorMessage(E_SERVER_ERROR) + ": " + resp.payload);
-  }
-
-  log().debug << "Response payload: " << resp.payload.size() << " bytes";
-
-  nlohmann::json response;
-  try {
-    response = nlohmann::json::parse(resp.payload);
-  } catch (const nlohmann::json::exception &e) {
-    log().error << "Failed to parse response payload: " << e.what();
-    return Error(E_PARSE_ERROR, getErrorMessage(E_PARSE_ERROR) + ": " + e.what());
-  }
-
-  return response;
-}
-
-Client::Roe<std::string> Client::sendBinaryRequest(uint32_t type, const std::string &payload) {
+Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload) {
   if (endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
@@ -147,16 +96,22 @@ Client::Roe<std::string> Client::sendBinaryRequest(uint32_t type, const std::str
   std::string requestData = utl::binaryPack(req);
   log().debug << "Sending binary request: " << req;
 
-  network::FetchClient fetchClient;
-  fetchClient.redirectLogger(log().getFullName() + ".FetchClient");
-  auto result = fetchClient.fetchSync(endpoint_, requestData);
+  auto result = fetchClient_.fetchSync(endpoint_, requestData);
 
   if (!result.isOk()) {
     return Error(E_REQUEST_FAILED,
                  getErrorMessage(E_REQUEST_FAILED) + ": " +
                      result.error().message);
   }
-  return result.value();
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    return Error(E_INVALID_RESPONSE, respResult.error().message);
+  }
+  const Response &resp = respResult.value();
+  if (resp.isError()) {
+    return Error(E_SERVER_ERROR, resp.payload);
+  }
+  return resp.payload;
 }
 
 // BeaconServer API - Block operations (binary T_REQ_BLOCK_GET)
@@ -165,22 +120,13 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
   std::string payload = utl::binaryPack(blockId);
-  auto result = sendBinaryRequest(T_REQ_BLOCK_GET, payload);
+  auto result = sendRequest(T_REQ_BLOCK_GET, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  auto respResult = utl::binaryUnpack<Response>(result.value());
-  if (!respResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack block response");
-  }
-  const Response &resp = respResult.value();
-  if (resp.isError()) {
-    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Block get failed" : resp.payload);
-  }
-
   Ledger::ChainNode node;
-  if (!node.ltsFromString(resp.payload)) {
+  if (!node.ltsFromString(result.value())) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize block");
   }
   return node;
@@ -190,22 +136,13 @@ Client::Roe<Client::AccountInfo> Client::fetchAccountInfo(const uint64_t account
   log().debug << "Requesting account info for account " << accountId;
 
   std::string payload = utl::binaryPack(accountId);
-  auto result = sendBinaryRequest(T_REQ_ACCOUNT_GET, payload);
+  auto result = sendRequest(T_REQ_ACCOUNT_GET, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  auto respResult = utl::binaryUnpack<Response>(result.value());
-  if (!respResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack account info response");
-  }
-  const Response &resp = respResult.value();
-  if (resp.isError()) {
-    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Account info get failed" : resp.payload);
-  }
-
   AccountInfo info;
-  if (!info.ltsFromString(resp.payload)) {
+  if (!info.ltsFromString(result.value())) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize account info");
   }
   return info;
@@ -214,108 +151,55 @@ Client::Roe<Client::AccountInfo> Client::fetchAccountInfo(const uint64_t account
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpEndpoint &endpoint) {
   log().debug << "Registering miner server: " << endpoint;
 
-  nlohmann::json request = {{"type", "register"}, {"address", endpoint.toString()}};
-  auto result = sendRequest(request);
+  std::string payload = endpoint.ltsToString();
+  auto result = sendRequest(T_REQ_REGISTER, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const nlohmann::json &response = result.value();
-  BeaconState state;
-  auto parseResult = state.ltsFromJson(response);
-  if (!parseResult) {
-    return Error(parseResult.error().code, parseResult.error().message);
+  try {
+    nlohmann::json response = nlohmann::json::parse(result.value());
+    BeaconState state;
+    auto parseResult = state.ltsFromJson(response);
+    if (!parseResult) {
+      return Error(parseResult.error().code, parseResult.error().message);
+    }
+    return state;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
   }
-
-  return state;
 }
 
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block)";
 
-  nlohmann::json request = {{"type", "state"}, {"action", "current"}};
-
-  auto result = sendRequest(request);
+  auto result = sendRequest(T_REQ_STATUS, "");
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const nlohmann::json &response = result.value();
-
-  BeaconState state;
-  auto parseResult = state.ltsFromJson(response);
-  if (!parseResult) {
-    return Error(parseResult.error().code, parseResult.error().message);
+  try {
+    nlohmann::json response = nlohmann::json::parse(result.value());
+    BeaconState state;
+    auto parseResult = state.ltsFromJson(response);
+    if (!parseResult) {
+      return Error(parseResult.error().code, parseResult.error().message);
+    }
+    return state;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
   }
-
-  return state;
 }
 
 Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
   std::string payload = block.ltsToString();
-  auto result = sendBinaryRequest(T_REQ_BLOCK_ADD, payload);
+  auto result = sendRequest(T_REQ_BLOCK_ADD, payload);
   if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  auto respResult = utl::binaryUnpack<Response>(result.value());
-  if (!respResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack block response");
-  }
-  const Response &resp = respResult.value();
-  if (resp.isError()) {
-    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Block add failed" : resp.payload);
+    return result.error();
   }
   return true;
-}
-
-Client::Roe<std::vector<consensus::Stakeholder>>
-Client::fetchStakeholders() {
-  log().debug << "Requesting stakeholder list";
-
-  nlohmann::json request = {{"type", "stakeholder"}, {"action", "list"}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const nlohmann::json &response = result.value();
-
-  if (!response.contains("stakeholders")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'stakeholders' field");
-  }
-
-  std::vector<consensus::Stakeholder> stakeholders;
-  for (const auto &item : response["stakeholders"]) {
-    consensus::Stakeholder info;
-    info.id = item.value("id", 0);
-    info.stake = item.value("stake", 0);
-    stakeholders.push_back(info);
-  }
-
-  return stakeholders;
-}
-
-Client::Roe<uint64_t> Client::fetchSlotLeader(uint64_t slot) {
-  log().debug << "Requesting slot leader for slot " << slot;
-
-  nlohmann::json request = {{"type", "consensus"}, {"action", "slotLeader"}, {"slot", slot}};
-
-  auto result = sendRequest(request);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-
-  const nlohmann::json &response = result.value();
-
-  if (!response.contains("slotLeader")) {
-    return Error(E_INVALID_RESPONSE, "Response missing 'slotLeader' field");
-  }
-
-  return response["slotLeader"].get<uint64_t>();
 }
 
 // MinerServer API - Transaction operations
@@ -324,19 +208,11 @@ Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transa
   log().debug << "Adding transaction";
 
   std::string payload = utl::binaryPack(signedTx);
-  auto result = sendBinaryRequest(T_REQ_TRANSACTION_ADD, payload);
+  auto result = sendRequest(T_REQ_TRANSACTION_ADD, payload);
   if (!result) {
-    return Error(result.error().code, result.error().message);
+    return result.error();
   }
 
-  auto respResult = utl::binaryUnpack<Response>(result.value());
-  if (!respResult) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack transaction response");
-  }
-  const Response &resp = respResult.value();
-  if (resp.isError()) {
-    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Transaction add failed" : resp.payload);
-  }
   return {};
 }
 
@@ -345,22 +221,22 @@ Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transa
 Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   log().debug << "Requesting miner status";
 
-  nlohmann::json request = {{"type", "status"}};
-
-  auto result = sendRequest(request);
+  auto result = sendRequest(T_REQ_STATUS, "");
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  const nlohmann::json &response = result.value();
-
-  MinerStatus status;
-  auto parseResult = status.ltsFromJson(response);
-  if (!parseResult) {
-    return Error(parseResult.error().code, parseResult.error().message);
+  try {
+    nlohmann::json response = nlohmann::json::parse(result.value());
+    MinerStatus status;
+    auto parseResult = status.ltsFromJson(response);
+    if (!parseResult) {
+      return Error(parseResult.error().code, parseResult.error().message);
+    }
+    return status;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
   }
-
-  return status;
 }
 
 // MinerStatus serialization

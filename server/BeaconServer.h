@@ -118,7 +118,7 @@ private:
   void processQueuedRequest(QueuedRequest& qr);
   std::string binaryResponseOk(const std::string& payload) const;
   std::string binaryResponseError(uint16_t errorCode, const std::string& message) const;
-  nlohmann::json buildStateResponse() const;
+  Client::BeaconState buildStateResponse() const;
 
   std::string handleRequest(const std::string &request);
   Roe<std::string> handleRequest(const Client::Request &request);
@@ -126,16 +126,9 @@ private:
   Roe<std::string> handleBlockGetRequest(const Client::Request &request);
   Roe<std::string> handleBlockAddRequest(const Client::Request &request);
   Roe<std::string> handleAccountGetRequest(const Client::Request &request);
-  Roe<std::string> handleJsonRequest(const std::string &payload);
-  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
+  Roe<std::string> handleStatusRequest(const Client::Request &request);
+  Roe<std::string> handleRegisterRequest(const Client::Request &request);
 
-  Roe<std::string> handleRegisterRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleHeartbeatRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleQueryRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleCheckpointRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleStakeholderRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleConsensusRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleStateRequest(const nlohmann::json& reqJson);
 
   // Configuration
   std::string workDir_;

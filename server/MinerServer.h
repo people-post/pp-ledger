@@ -102,12 +102,7 @@ private:
   Roe<std::string> handleBlockAddRequest(const Client::Request &request);
   Roe<std::string> handleAccountGetRequest(const Client::Request &request);
   Roe<std::string> handleTransactionAddRequest(const Client::Request &request);
-  Roe<std::string> handleJsonRequest(const std::string &payload);
-  Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
-
-  Roe<std::string> handleCheckpointRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleConsensusRequest(const nlohmann::json& reqJson);
-  Roe<std::string> handleStatusRequest(const nlohmann::json& reqJson);
+  Roe<std::string> handleStatusRequest(const Client::Request &request);
 
   std::string workDir_;
   Miner miner_;

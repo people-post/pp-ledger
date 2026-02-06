@@ -382,8 +382,8 @@ MinerServer::Roe<std::string> MinerServer::handleRequest(const Client::Request &
     return handleAccountGetRequest(request);
   case Client::T_REQ_TRANSACTION_ADD:
     return handleTransactionAddRequest(request);
-  case Client::T_REQ_JSON:
-    return handleJsonRequest(request.payload);
+  case Client::T_REQ_STATUS:
+    return handleStatusRequest(request);
   default:
     return Error(E_REQUEST, "Unknown request type: " + std::to_string(request.type));
   }
@@ -429,31 +429,6 @@ MinerServer::Roe<std::string> MinerServer::handleAccountGetRequest(const Client:
   return result.value().ltsToString();
 }
 
-MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const std::string &payload) {
-  auto jsonResult = utl::parseJsonRequest(payload);
-  if (jsonResult.isError()) {
-    return Error(E_REQUEST, "Failed to parse request JSON: " + jsonResult.error().message);
-  }
-  return handleJsonRequest(jsonResult.value());
-}
-
-MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const nlohmann::json &reqJson) {
-  if (!reqJson.contains("type")) {
-    return Error(E_REQUEST, "Missing type field in request JSON");
-  }
-  std::string type = reqJson["type"].get<std::string>();
-
-  if (type == "checkpoint") {
-    return handleCheckpointRequest(reqJson);
-  } else if (type == "consensus") {
-    return handleConsensusRequest(reqJson);
-  } else if (type == "status") {
-    return handleStatusRequest(reqJson);
-  } else {
-    return Error(E_REQUEST, "Unknown request type: " + type);
-  }
-}
-
 MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Client::Request &request) {
   auto signedTxResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(request.payload);
   if (!signedTxResult) {
@@ -481,56 +456,7 @@ MinerServer::Roe<std::string> MinerServer::handleTransactionAddRequest(const Cli
   return {"Transaction submitted to slot leader"};
 }
 
-MinerServer::Roe<std::string> MinerServer::handleCheckpointRequest(const nlohmann::json& reqJson) {
-  if (!reqJson.contains("action")) {
-    return Error(E_REQUEST, "missing action field");
-  }
-  
-  std::string action = reqJson["action"].get<std::string>();
-  
-  nlohmann::json resp;
-  if (action == "isOutOfDate") {
-    if (!reqJson.contains("checkpointId")) {
-      return Error(E_REQUEST, "missing checkpointId field");
-    }
-    
-    uint64_t checkpointId = reqJson["checkpointId"].get<uint64_t>();
-    resp["isOutOfDate"] = miner_.isOutOfDate(checkpointId);
-  } else {
-    return Error(E_REQUEST, "unknown checkpoint action: " + action);
-  }
-  
-  return resp.dump();
-}
-
-MinerServer::Roe<std::string> MinerServer::handleConsensusRequest(const nlohmann::json& reqJson) {
-  if (!reqJson.contains("action")) {
-    return Error(E_REQUEST, "missing action field");
-  }
-  
-  std::string action = reqJson["action"].get<std::string>();
-  
-  nlohmann::json resp;
-  if (action == "currentSlot") {
-    resp["currentSlot"] = miner_.getCurrentSlot();
-  } else if (action == "currentEpoch") {
-    resp["currentEpoch"] = miner_.getCurrentEpoch();
-  } else if (action == "isSlotLeader") {
-    if (reqJson.contains("slot")) {
-      uint64_t slot = reqJson["slot"].get<uint64_t>();
-      resp["isSlotLeader"] = miner_.isSlotLeader(slot);
-    } else {
-      resp["isSlotLeader"] = miner_.isSlotLeader();
-      resp["currentSlot"] = miner_.getCurrentSlot();
-    }
-  } else {
-    return Error(E_REQUEST, "unknown consensus action: " + action);
-  }
-  
-  return resp.dump();
-}
-
-MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const nlohmann::json& reqJson) {
+MinerServer::Roe<std::string> MinerServer::handleStatusRequest(const Client::Request &request) {
   Client::MinerStatus status;
   
   status.minerId = config_.minerId;

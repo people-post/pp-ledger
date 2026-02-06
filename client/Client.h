@@ -4,6 +4,7 @@
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
 #include "../ledger/Ledger.h"
+#include "../network/FetchClient.h"
 #include "../network/Types.hpp"
 #include "../consensus/Types.hpp"
 
@@ -45,7 +46,8 @@ public:
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
 
   // Request types
-  static constexpr const uint32_t T_REQ_JSON = 1;
+  static constexpr const uint32_t T_REQ_STATUS = 1;
+  static constexpr const uint32_t T_REQ_REGISTER = 2;
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
@@ -132,12 +134,9 @@ public:
   Roe<void> setEndpoint(const std::string& endpoint);
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
-  Roe<uint64_t> fetchSlotLeader(uint64_t slot);
-
   Roe<BeaconState> fetchBeaconState();
   Roe<BeaconState> registerMinerServer(const network::TcpEndpoint &endpoint);
   Roe<MinerStatus> fetchMinerStatus();
-  Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<AccountInfo> fetchAccountInfo(const uint64_t accountId);
 
@@ -145,14 +144,11 @@ public:
   Roe<bool> addBlock(const Ledger::ChainNode& block);
 
 private:
-  // Helper to send JSON request and receive JSON response
-  Roe<nlohmann::json> sendRequest(const nlohmann::json &request);
-
-  // Helper to send binary request (type + payload) and receive raw response
-  Roe<std::string> sendBinaryRequest(uint32_t type, const std::string &payload);
+  Roe<std::string> sendRequest(uint32_t type, const std::string &payload);
 
   bool connected_{false};
   network::TcpEndpoint endpoint_;
+  network::FetchClient fetchClient_;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Client::Request& req) {

@@ -79,10 +79,6 @@ int main(int argc, char *argv[]) {
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
 
-  auto* slot_leader_cmd = app.add_subcommand("slot-leader", "Get slot leader for slot");
-  uint64_t slot = 0;
-  slot_leader_cmd->add_option("slot", slot, "Slot number")->required();
-
   // Miner commands
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
@@ -183,22 +179,6 @@ int main(int argc, char *argv[]) {
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
-    }
-  }
-  // Handle slot-leader command (beacon only)
-  else if (slot_leader_cmd->parsed()) {
-    if (!connectToBeacon) {
-      std::cerr << "Error: slot-leader command requires -b/--beacon flag.\n";
-      exitCode = 1;
-    } else {
-      auto result = client.fetchSlotLeader(slot);
-      if (result) {
-        std::cout << "Slot Leader for slot " << slot << ": "
-                  << result.value() << "\n";
-      } else {
-        std::cerr << "Error: " << result.error().message << "\n";
-        exitCode = 1;
-      }
     }
   }
   // Handle add-tx command (miner only)
