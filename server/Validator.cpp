@@ -143,13 +143,13 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   return result.value();
 }
 
-Validator::Roe<Ledger::AccountInfo> Validator::getAccount(uint64_t accountId) const {
+Validator::Roe<Client::AccountInfo> Validator::getAccount(uint64_t accountId) const {
   auto roeAccount = bank_.getAccount(accountId);
   if (!roeAccount) {
     return Error(8, "Account not found: " + std::to_string(accountId));
   }
   auto const& account = roeAccount.value();
-  Ledger::AccountInfo accountInfo;
+  Client::AccountInfo accountInfo;
   accountInfo.mBalances = account.mBalances;
   accountInfo.publicKeys = account.publicKeys;
   return accountInfo;
@@ -493,7 +493,7 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   // TODO: Validate user checkpoint transaction fields
   
   // Deserialize AccountInfo from transaction metadata
-  Ledger::AccountInfo accountInfo;
+  Client::AccountInfo accountInfo;
   if (!accountInfo.ltsFromString(tx.meta)) {
     return Error(27, "Failed to deserialize user checkpoint: " + tx.meta);
   }

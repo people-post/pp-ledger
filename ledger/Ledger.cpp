@@ -10,28 +10,6 @@
 
 namespace pp {
 
-std::string Ledger::AccountInfo::ltsToString() const {
-  std::ostringstream oss(std::ios::binary);
-  OutputArchive ar(oss);
-  ar & VERSION & *this;
-  return oss.str();
-}
-
-bool Ledger::AccountInfo::ltsFromString(const std::string& str) {
-  std::istringstream iss(str, std::ios::binary);
-  InputArchive ar(iss);
-  uint32_t version = 0;
-  ar & version;
-  if (version != VERSION) {
-    return false;
-  }
-  ar & *this;
-  if (ar.failed()) {
-    return false;
-  }
-  return true;
-}
-
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -68,22 +46,6 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   }
 
   return true;
-}
-
-nlohmann::json Ledger::AccountInfo::toJson() const {
-  nlohmann::json j;
-  nlohmann::json balances;
-  for (const auto& [tokenId, balance] : mBalances) {
-    balances[std::to_string(tokenId)] = balance;
-  }
-  j["mBalances"] = balances;
-  nlohmann::json keysArray = nlohmann::json::array();
-  for (const auto& pk : publicKeys) {
-    keysArray.push_back(utl::toJsonSafeString(pk));
-  }
-  j["publicKeys"] = keysArray;
-  j["meta"] = utl::toJsonSafeString(meta);
-  return j;
 }
 
 nlohmann::json Ledger::Transaction::toJson() const {

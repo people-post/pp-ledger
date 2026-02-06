@@ -3,6 +3,7 @@
 
 #include "AccountBuffer.h"
 #include "../ledger/Ledger.h"
+#include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
 #include "../lib/Module.h"
 #include "../lib/Utilities.h"
@@ -91,7 +92,7 @@ public:
     uint64_t getTotalStake() const;
     std::vector<consensus::Stakeholder> getStakeholders() const;
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
-    Roe<Ledger::AccountInfo> getAccount(uint64_t accountId) const;
+    Roe<Client::AccountInfo> getAccount(uint64_t accountId) const;
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;

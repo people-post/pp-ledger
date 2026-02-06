@@ -17,6 +17,22 @@ namespace pp {
 
 class Client : public Module {
 public:
+  struct AccountInfo {
+    constexpr static const uint32_t VERSION = 1;
+
+    std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
+    std::vector<std::string> publicKeys;
+    std::string meta;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & mBalances & publicKeys & meta;
+    }
+
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string& str);
+    nlohmann::json toJson() const;
+  };
+
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
@@ -123,7 +139,7 @@ public:
   Roe<MinerStatus> fetchMinerStatus();
   Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
-  Roe<Ledger::AccountInfo> fetchAccountInfo(const uint64_t accountId);
+  Roe<AccountInfo> fetchAccountInfo(const uint64_t accountId);
 
   Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<bool> addBlock(const Ledger::ChainNode& block);
@@ -141,6 +157,18 @@ private:
 
 inline std::ostream& operator<<(std::ostream& os, const Client::Request& req) {
   os << "Request{version=" << req.version << ", type=" << req.type << ", payload=" << req.payload.size() << " bytes}";
+  return os;
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Client::AccountInfo& info) {
+  os << "AccountInfo{balances: {";
+  bool first = true;
+  for (const auto& [tokenId, balance] : info.mBalances) {
+    if (!first) os << ", ";
+    os << tokenId << ": " << balance;
+    first = false;
+  }
+  os << "}, publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
   return os;
 }
 
