@@ -125,6 +125,7 @@ private:
 
   Roe<std::string> handleBlockGetRequest(const Client::Request &request);
   Roe<std::string> handleBlockAddRequest(const Client::Request &request);
+  Roe<std::string> handleAccountGetRequest(const Client::Request &request);
   Roe<std::string> handleJsonRequest(const std::string &payload);
   Roe<std::string> handleJsonRequest(const nlohmann::json &reqJson);
 

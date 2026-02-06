@@ -57,21 +57,6 @@ public:
       bool ltsFromString(const std::string& str);
     };
 
-    struct AccountInfo {
-      constexpr static const uint32_t VERSION = 1;
-
-      std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
-      std::vector<std::string> publicKeys;
-      std::string meta;
-
-      template <typename Archive> void serialize(Archive &ar) {
-        ar & mBalances & publicKeys & meta;
-      }
-
-      std::string ltsToString() const;
-      bool ltsFromString(const std::string& str);
-    };
-
     struct SystemCheckpoint {
       constexpr static const uint32_t VERSION = 1;
 
@@ -106,6 +91,7 @@ public:
     uint64_t getTotalStake() const;
     std::vector<consensus::Stakeholder> getStakeholders() const;
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
+    Roe<Ledger::AccountInfo> getAccount(uint64_t accountId) const;
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
@@ -147,18 +133,6 @@ private:
 
 inline std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
   os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Validator::AccountInfo& info) {
-  os << "AccountInfo{balances: {";
-  bool first = true;
-  for (const auto& [tokenId, balance] : info.mBalances) {
-    if (!first) os << ", ";
-    os << tokenId << ": " << balance;
-    first = false;
-  }
-  os << "}, publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
   return os;
 }
 

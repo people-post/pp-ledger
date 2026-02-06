@@ -38,16 +38,22 @@ void printUsage() {
   std::cout << "  keygen                            - Generate a new Ed25519 key pair\n";
   std::cout << "\nBeaconServer Commands:\n";
   std::cout << "  block <blockId>                    - Get block by ID\n";
+  std::cout << "  account <accountId>                - Get account info by ID\n";
   std::cout << "  status                             - Get beacon status\n";
   std::cout << "  slot-leader <slot>                 - Get slot leader for slot\n";
   std::cout << "\nMinerServer Commands:\n";
+  std::cout << "  block <blockId>                    - Get block by ID\n";
+  std::cout << "  account <accountId>                - Get account info by ID\n";
   std::cout << "  add-tx <from> <to> <amount>        - Add a transaction\n";
   std::cout << "  status                             - Get miner status\n";
   std::cout << "\nExamples:\n";
   std::cout << "  pp-client keygen                                 # Generate Ed25519 key pair\n";
   std::cout << "  pp-client -b status                               # Connect to beacon (localhost:8517)\n";
   std::cout << "  pp-client -b -h localhost -p 8517 block 0\n";
+  std::cout << "  pp-client -b account 1                             # Get account 1 from beacon\n";
   std::cout << "  pp-client -m status                               # Connect to miner (localhost:8518)\n";
+  std::cout << "  pp-client -m block 0                               # Get block 0 from miner\n";
+  std::cout << "  pp-client -m account 1                             # Get account 1 from miner\n";
   std::cout << "  pp-client -m -h localhost:8518 add-tx 1 2 100\n";
 }
 
@@ -230,6 +236,26 @@ int main(int argc, char *argv[]) {
           }
         }
       }
+    } else if (command == "account") {
+      if (positionalArgs.size() < 2) {
+        std::cerr << "Error: account command requires <accountId>\n";
+        printUsage();
+        exitCode = 1;
+      } else {
+        uint64_t accountId = 0;
+        if (!pp::utl::parseUInt64(positionalArgs[1], accountId)) {
+          std::cerr << "Error: Invalid accountId\n";
+          exitCode = 1;
+        } else {
+          auto result = client.fetchAccountInfo(accountId);
+          if (result) {
+            std::cout << result.value().toJson().dump(2) << "\n";
+          } else {
+            std::cerr << "Error: " << result.error().message << "\n";
+            exitCode = 1;
+          }
+        }
+      }
     } else {
       std::cerr << "Error: Unknown beacon command: " << command << "\n";
       printUsage();
@@ -238,7 +264,47 @@ int main(int argc, char *argv[]) {
   }
   // MinerServer commands
   else {
-    if (command == "add-tx") {
+    if (command == "block") {
+      if (positionalArgs.size() < 2) {
+        std::cerr << "Error: block command requires <blockId>\n";
+        printUsage();
+        exitCode = 1;
+      } else {
+        uint64_t blockId = 0;
+        if (!pp::utl::parseUInt64(positionalArgs[1], blockId)) {
+          std::cerr << "Error: Invalid blockId\n";
+          exitCode = 1;
+        } else {
+          auto result = client.fetchBlock(blockId);
+          if (result) {
+            std::cout << result.value().toJson().dump(2) << "\n";
+          } else {
+            std::cerr << "Error: " << result.error().message << "\n";
+            exitCode = 1;
+          }
+        }
+      }
+    } else if (command == "account") {
+      if (positionalArgs.size() < 2) {
+        std::cerr << "Error: account command requires <accountId>\n";
+        printUsage();
+        exitCode = 1;
+      } else {
+        uint64_t accountId = 0;
+        if (!pp::utl::parseUInt64(positionalArgs[1], accountId)) {
+          std::cerr << "Error: Invalid accountId\n";
+          exitCode = 1;
+        } else {
+          auto result = client.fetchAccountInfo(accountId);
+          if (result) {
+            std::cout << result.value().toJson().dump(2) << "\n";
+          } else {
+            std::cerr << "Error: " << result.error().message << "\n";
+            exitCode = 1;
+          }
+        }
+      }
+    } else if (command == "add-tx") {
       if (positionalArgs.size() < 4) {
         std::cerr << "Error: add-tx command requires <from> <to> <amount>\n";
         printUsage();

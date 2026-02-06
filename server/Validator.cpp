@@ -29,28 +29,6 @@ bool Validator::SystemCheckpoint::ltsFromString(const std::string& str) {
   return true;
 }
 
-std::string Validator::AccountInfo::ltsToString() const {
-  std::ostringstream oss(std::ios::binary);
-  OutputArchive ar(oss);
-  ar & VERSION & *this;
-  return oss.str();
-}
-
-bool Validator::AccountInfo::ltsFromString(const std::string& str) {
-  std::istringstream iss(str, std::ios::binary);
-  InputArchive ar(iss);
-  uint32_t version = 0;
-  ar & version;
-  if (version != VERSION) {
-    return false;
-  }
-  ar & *this;
-  if (ar.failed()) {
-    return false;
-  }
-  return true;
-}
-
 Validator::Validator() {
   redirectLogger("Validator");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
@@ -163,6 +141,18 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
     return Error(8, "Block not found: " + std::to_string(blockId));
   }
   return result.value();
+}
+
+Validator::Roe<Ledger::AccountInfo> Validator::getAccount(uint64_t accountId) const {
+  auto roeAccount = bank_.getAccount(accountId);
+  if (!roeAccount) {
+    return Error(8, "Account not found: " + std::to_string(accountId));
+  }
+  auto const& account = roeAccount.value();
+  Ledger::AccountInfo accountInfo;
+  accountInfo.mBalances = account.mBalances;
+  accountInfo.publicKeys = account.publicKeys;
+  return accountInfo;
 }
 
 std::string Validator::calculateHash(const Ledger::Block& block) const {
@@ -503,7 +493,7 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   // TODO: Validate user checkpoint transaction fields
   
   // Deserialize AccountInfo from transaction metadata
-  AccountInfo accountInfo;
+  Ledger::AccountInfo accountInfo;
   if (!accountInfo.ltsFromString(tx.meta)) {
     return Error(27, "Failed to deserialize user checkpoint: " + tx.meta);
   }

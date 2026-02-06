@@ -34,7 +34,9 @@ public:
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
 
-  static constexpr const uint32_t T_REQ_TRANSACTION_ADD = 2001;
+  static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
+
+  static constexpr const uint32_t T_REQ_TRANSACTION_ADD = 3001;
 
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
@@ -121,6 +123,7 @@ public:
   Roe<MinerStatus> fetchMinerStatus();
   Roe<std::vector<consensus::Stakeholder>> fetchStakeholders();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
+  Roe<Ledger::AccountInfo> fetchAccountInfo(const uint64_t accountId);
 
   Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<bool> addBlock(const Ledger::ChainNode& block);

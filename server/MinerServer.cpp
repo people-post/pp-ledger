@@ -378,6 +378,8 @@ MinerServer::Roe<std::string> MinerServer::handleRequest(const Client::Request &
     return handleBlockGetRequest(request);
   case Client::T_REQ_BLOCK_ADD:
     return handleBlockAddRequest(request);
+  case Client::T_REQ_ACCOUNT_GET:
+    return handleAccountGetRequest(request);
   case Client::T_REQ_TRANSACTION_ADD:
     return handleTransactionAddRequest(request);
   case Client::T_REQ_JSON:
@@ -411,6 +413,20 @@ MinerServer::Roe<std::string> MinerServer::handleBlockAddRequest(const Client::R
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
   return {"Block added"};
+}
+
+MinerServer::Roe<std::string> MinerServer::handleAccountGetRequest(const Client::Request &request) {
+  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!idResult) {
+    return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
+  }
+
+  uint64_t accountId = idResult.value();
+  auto result = miner_.getAccount(accountId);
+  if (!result) {
+    return Error(E_REQUEST, "Failed to get account: " + result.error().message);
+  }
+  return result.value().ltsToString();
 }
 
 MinerServer::Roe<std::string> MinerServer::handleJsonRequest(const std::string &payload) {

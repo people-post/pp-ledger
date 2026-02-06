@@ -146,6 +146,31 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
+Client::Roe<Ledger::AccountInfo> Client::fetchAccountInfo(const uint64_t accountId) {
+  log().debug << "Requesting account info for account " << accountId;
+
+  std::string payload = utl::binaryPack(accountId);
+  auto result = sendBinaryRequest(T_REQ_ACCOUNT_GET, payload);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  auto respResult = utl::binaryUnpack<Response>(result.value());
+  if (!respResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack account info response");
+  }
+  const Response &resp = respResult.value();
+  if (resp.isError()) {
+    return Error(E_SERVER_ERROR, resp.payload.empty() ? "Account info get failed" : resp.payload);
+  }
+
+  Ledger::AccountInfo info;
+  if (!info.ltsFromString(resp.payload)) {
+    return Error(E_INVALID_RESPONSE, "Failed to deserialize account info");
+  }
+  return info;
+}
+
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpEndpoint &endpoint) {
   log().debug << "Registering miner server: " << endpoint;
 

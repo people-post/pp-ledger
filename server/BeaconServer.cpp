@@ -493,6 +493,8 @@ BeaconServer::Roe<std::string> BeaconServer::handleRequest(const Client::Request
     return handleBlockGetRequest(request);
   case Client::T_REQ_BLOCK_ADD:
     return handleBlockAddRequest(request);
+  case Client::T_REQ_ACCOUNT_GET:
+    return handleAccountGetRequest(request);
   case Client::T_REQ_JSON:
     return handleJsonRequest(request.payload);
   default:
@@ -528,6 +530,20 @@ BeaconServer::Roe<std::string> BeaconServer::handleBlockAddRequest(const Client:
   nlohmann::json resp;
   resp["message"] = "Block added";
   return resp.dump();
+}
+
+BeaconServer::Roe<std::string> BeaconServer::handleAccountGetRequest(const Client::Request &request) {
+  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!idResult) {
+    return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
+  }
+
+  uint64_t accountId = idResult.value();
+  auto result = beacon_.getAccount(accountId);
+  if (!result) {
+    return Error(E_REQUEST, "Failed to get account: " + result.error().message);
+  }
+  return result.value().ltsToString();
 }
 
 BeaconServer::Roe<std::string> BeaconServer::handleJsonRequest(const std::string &payload) {
