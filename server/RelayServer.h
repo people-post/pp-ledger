@@ -111,7 +111,6 @@ private:
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
-  std::string workDir_;
   Config config_;
   Relay relay_;
   network::FetchServer fetchServer_;

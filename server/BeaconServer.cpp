@@ -315,7 +315,7 @@ BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& 
 Service::Roe<void> BeaconServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
-      std::filesystem::path(workDir_) / FILE_CONFIG;
+      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
@@ -364,7 +364,7 @@ Service::Roe<void> BeaconServer::onStart() {
   
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
-  mountConfig.workDir = workDir_ + "/" + DIR_DATA;
+  mountConfig.workDir = getWorkDir() + "/" + DIR_DATA;
   // Use checkpoint config from loaded config (or defaults)
   mountConfig.checkpoint = config_.checkpoint;
   

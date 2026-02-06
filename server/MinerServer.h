@@ -111,7 +111,6 @@ private:
   Roe<std::string> handleTransactionAddRequest(const Client::Request &request);
   Roe<std::string> handleStatusRequest(const Client::Request &request);
 
-  std::string workDir_;
   Miner miner_;
   network::FetchServer fetchServer_;
   Client client_;

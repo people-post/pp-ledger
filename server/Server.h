@@ -21,7 +21,8 @@ public:
   virtual Service::Roe<void> run(const std::string& workDir);
 
 protected:
-  std::string workDir_;
+  /** Current work directory set by run(workDir). */
+  const std::string& getWorkDir() const { return workDir_; }
 
   /** If true, run() creates/checks .signature in work dir. Default true; BeaconServer uses false. */
   virtual bool useSignatureFile() const { return true; }
@@ -37,6 +38,9 @@ protected:
 
   /** Error code for run() failures (e.g. signature file). Derived can override. */
   virtual int32_t getRunErrorCode() const { return -1; }
+
+private:
+  std::string workDir_;
 };
 
 } // namespace pp

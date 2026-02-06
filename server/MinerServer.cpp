@@ -126,7 +126,7 @@ MinerServer::~MinerServer() {}
 Service::Roe<void> MinerServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
-      std::filesystem::path(workDir_) / FILE_CONFIG;
+      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
@@ -198,7 +198,7 @@ Service::Roe<void> MinerServer::onStart() {
   const auto& state = beaconResult.value();
 
   // Initialize miner core
-  std::filesystem::path minerDataDir = std::filesystem::path(workDir_) / DIR_DATA;
+  std::filesystem::path minerDataDir = std::filesystem::path(getWorkDir()) / DIR_DATA;
   
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;

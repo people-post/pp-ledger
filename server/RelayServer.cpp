@@ -85,7 +85,7 @@ RelayServer::Roe<void> RelayServer::RunFileConfig::ltsFromJson(const nlohmann::j
 Service::Roe<void> RelayServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
-      std::filesystem::path(workDir_) / FILE_CONFIG;
+      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
   std::string configPathStr = configPath.string();
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
@@ -144,7 +144,7 @@ Service::Roe<void> RelayServer::onStart() {
   }
 
   // Initialize Relay with starting block id 0 (no beacon sync, no block production)
-  std::filesystem::path relayDataDir = std::filesystem::path(workDir_) / DIR_DATA;
+  std::filesystem::path relayDataDir = std::filesystem::path(getWorkDir()) / DIR_DATA;
   Relay::InitConfig relayConfig;
   relayConfig.workDir = relayDataDir.string();
   relayConfig.timeOffset = 0;
