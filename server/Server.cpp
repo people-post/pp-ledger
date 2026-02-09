@@ -12,7 +12,7 @@ Service::Roe<void> Server::run(const std::string &workDir) {
 
   if (useSignatureFile()) {
     std::filesystem::path signaturePath =
-        std::filesystem::path(workDir) / getFileSignature();
+        std::filesystem::path(workDir) / getSignatureFileName();
     if (!std::filesystem::exists(workDir)) {
       std::filesystem::create_directories(workDir);
       auto result = utl::writeToNewFile(signaturePath.string(), "");
@@ -31,7 +31,7 @@ Service::Roe<void> Server::run(const std::string &workDir) {
 
   log().info << "Running " << getServerName()
              << " with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + getFileLog(), logging::getLevel());
+  log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
 
   return Service::run();
 }

@@ -42,9 +42,9 @@ public:
 
 protected:
   bool useSignatureFile() const override { return false; }
-  const char* getFileSignature() const override { return FILE_SIGNATURE; }
-  const char* getFileLog() const override { return FILE_LOG; }
-  const char* getServerName() const override { return "BeaconServer"; }
+  std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
+  std::string getLogFileName() const override { return FILE_LOG; }
+  std::string getServerName() const override { return "BeaconServer"; }
   int32_t getRunErrorCode() const override { return E_BEACON; }
 
   /**
@@ -86,6 +86,8 @@ private:
     uint64_t maxPendingTransactions{ DEFAULT_MAX_PENDING_TRANSACTIONS };
     uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
     uint64_t minFeePerTransaction{ DEFAULT_MIN_FEE_PER_TRANSACTION };
+    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
+    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
 
     nlohmann::json ltsToJson();
     Roe<void> ltsFromJson(const nlohmann::json& jd);
@@ -95,8 +97,6 @@ private:
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
     std::vector<std::string> whitelist; // Whitelisted beacon addresses
-    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
-    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
 
     nlohmann::json ltsToJson();
     Roe<void> ltsFromJson(const nlohmann::json& jd);

@@ -40,9 +40,9 @@ public:
   }
 
 protected:
-  const char* getFileSignature() const override { return FILE_SIGNATURE; }
-  const char* getFileLog() const override { return FILE_LOG; }
-  const char* getServerName() const override { return "RelayServer"; }
+  std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
+  std::string getLogFileName() const override { return FILE_LOG; }
+  std::string getServerName() const override { return "RelayServer"; }
   int32_t getRunErrorCode() const override { return E_RELAY; }
 
   /**

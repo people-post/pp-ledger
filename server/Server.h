@@ -30,9 +30,9 @@ protected:
   virtual bool useSignatureFile() const { return true; }
 
   const std::string &getWorkDir() const { return workDir_; }
-  virtual const char *getFileSignature() const = 0;
-  virtual const char *getFileLog() const = 0;
-  virtual const char *getServerName() const = 0;
+  virtual std::string getSignatureFileName() const = 0;
+  virtual std::string getLogFileName() const = 0;
+  virtual std::string getServerName() const = 0;
   virtual int32_t getRunErrorCode() const { return -1; }
   virtual network::TcpEndpoint getFetchServerEndpoint() const {
     return fetchServer_.getEndpoint();

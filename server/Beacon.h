@@ -41,11 +41,6 @@ public:
   
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  struct CheckpointConfig {
-    uint64_t minSizeBytes{ 1024ULL * 1024 * 1024 }; // 1GB default
-    uint64_t ageSeconds{ 365ULL * 24 * 3600 }; // 1 year default
-  };
-
   struct InitKeyConfig {
     std::vector<std::string> genesis;
     std::vector<std::string> fee;
@@ -63,7 +58,6 @@ public:
 
   struct MountConfig {
     std::string workDir;
-    CheckpointConfig checkpoint;
   };
 
   Beacon();
@@ -88,7 +82,6 @@ private:
   struct Config {
     std::string workDir;
     BlockChainConfig chain;
-    CheckpointConfig checkpoint;
   };
 
   Roe<void> validateBlock(const Ledger::ChainNode& block) const;
@@ -103,26 +96,9 @@ private:
 };
 
 // Ostream operators for easy logging
-inline std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config) {
-  os << "CheckpointConfig{minSizeBytes=" << config.minSizeBytes 
-     << " (" << (config.minSizeBytes / (1024*1024)) << " MB), "
-     << "ageSeconds=" << config.ageSeconds
-     << " (" << (config.ageSeconds / (24*3600)) << " days)}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
-  os << "InitConfig{workDir=\"" << config.workDir << "\", "
-     << "chain=" << config.chain << "}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
-  os << "MountConfig{workDir=\"" << config.workDir << "\", "
-     << "checkpoint=" << config.checkpoint << "}";
-  return os;
-}
-
+std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config);
+std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config);
+std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config);
 } // namespace pp
 
 #endif // PP_LEDGER_BEACON_H

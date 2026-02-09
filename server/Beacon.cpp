@@ -8,6 +8,26 @@
 
 namespace pp {
 
+// Ostream operators for easy logging
+std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config) {
+  os << "CheckpointConfig{minSizeBytes=" << config.minSizeBytes 
+     << " (" << (config.minSizeBytes / (1024*1024)) << " MB), "
+     << "ageSeconds=" << config.ageSeconds
+     << " (" << (config.ageSeconds / (24*3600)) << " days)}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
+  os << "InitConfig{workDir=\"" << config.workDir << "\", "
+     << "chain=" << config.chain << "}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
+  os << "MountConfig{workDir=\"" << config.workDir << "\"}";
+  return os;
+}
+
 Beacon::Beacon() {}
 
 nlohmann::json Beacon::InitKeyConfig::toJson() const {
@@ -28,7 +48,7 @@ bool Beacon::needsCheckpoint() const {
   uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
   
   // Only evaluate if we have enough data
-  return currentSize >= config_.checkpoint.minSizeBytes;
+  return currentSize >= config_.chain.checkpoint.minSizeBytes;
 }
 
 uint64_t Beacon::getLastCheckpointId() const {
@@ -122,8 +142,6 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   }
 
   config_.workDir = config.workDir;
-  config_.checkpoint.minSizeBytes = config.checkpoint.minSizeBytes;
-  config_.checkpoint.ageSeconds = config.checkpoint.ageSeconds;
 
   // Mount the ledger using Validator's mountLedger function
   std::string ledgerPath = config.workDir + "/ledger";
@@ -144,8 +162,6 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 
   log().info << "Beacon mounted successfully";
   log().info << "  Loaded " << blockCount << " blocks from ledger";
-  log().info << "  Checkpoint min size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
-  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 
@@ -192,13 +208,13 @@ Beacon::Roe<void> Beacon::evaluateCheckpoints() {
               << " MB, next block: " << nextBlockId;
 
   // Check if we have enough data to consider checkpointing
-  if (currentSize < config_.checkpoint.minSizeBytes) {
+  if (currentSize < config_.chain.checkpoint.minSizeBytes) {
     log().debug << "Blockchain size below checkpoint threshold";
     return {};
   }
 
   // Find blocks older than checkpoint age
-  uint64_t checkpointAge = config_.checkpoint.ageSeconds;
+  uint64_t checkpointAge = config_.chain.checkpoint.ageSeconds;
   std::vector<uint64_t> checkpointCandidates;
 
   // Iterate through blocks to find old enough blocks

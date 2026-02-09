@@ -26,6 +26,8 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["maxPendingTransactions"] = maxPendingTransactions;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
   j["minFeePerTransaction"] = minFeePerTransaction;
+  j["checkpointSize"] = checkpointSize;
+  j["checkpointAge"] = checkpointAge;
   return j;
 }
 
@@ -97,6 +99,27 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
     } else {
       minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
     }
+
+    // Load and validate checkpointSize
+    if (jd.contains("checkpointSize")) {
+      if (!jd["checkpointSize"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
+      }
+      checkpointSize = jd["checkpointSize"].get<uint64_t>();
+    } else {
+      checkpointSize = DEFAULT_CHECKPOINT_SIZE;
+    }
+
+    // Load and validate checkpointAge
+    if (jd.contains("checkpointAge")) {
+      if (!jd["checkpointAge"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
+      }
+      checkpointAge = jd["checkpointAge"].get<uint64_t>();
+    } else {
+      checkpointAge = DEFAULT_CHECKPOINT_AGE;
+    }
+
     return {};
   } catch (const std::exception& e) {
     return Error(E_CONFIG, "Failed to parse init configuration: " + std::string(e.what()));
@@ -110,8 +133,6 @@ nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
   j["host"] = host;
   j["port"] = port;
   j["whitelist"] = whitelist;
-  j["checkpointSize"] = checkpointSize;
-  j["checkpointAge"] = checkpointAge;
   return j;
 }
 
@@ -155,22 +176,6 @@ BeaconServer::Roe<void> BeaconServer::RunFileConfig::ltsFromJson(const nlohmann:
         return Error(E_CONFIG, "Field 'whitelist' must be an array");
       }
       whitelist = jd["whitelist"].get<std::vector<std::string>>();
-    }
-
-    // Load and validate checkpointSize
-    if (jd.contains("checkpointSize")) {
-      if (!jd["checkpointSize"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
-      }
-      checkpointSize = jd["checkpointSize"].get<uint64_t>();
-    }
-
-    // Load and validate checkpointAge
-    if (jd.contains("checkpointAge")) {
-      if (!jd["checkpointAge"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
-      }
-      checkpointAge = jd["checkpointAge"].get<uint64_t>();
     }
 
     return {};
@@ -251,6 +256,9 @@ BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& w
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
   initConfig.chain.maxPendingTransactions = initFileConfig.maxPendingTransactions;
   initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
+  initConfig.chain.checkpoint.minSizeBytes = initFileConfig.checkpointSize;
+  initConfig.chain.checkpoint.ageSeconds = initFileConfig.checkpointAge;
+
   Beacon::InitKeyConfig kPrivate;
   for (int i = 0; i < 3; i++) {
     auto result = utl::ed25519Generate();
@@ -352,20 +360,14 @@ Service::Roe<void> BeaconServer::onStart() {
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
   config_.network.whitelist = runFileConfig.whitelist;
-  config_.checkpoint.minSizeBytes = runFileConfig.checkpointSize;
-  config_.checkpoint.ageSeconds = runFileConfig.checkpointAge;
 
   log().info << "Configuration loaded";
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Whitelisted beacons: " << utl::join(config_.network.whitelist, ", ");
-  log().info << "  Checkpoint size: " << (config_.checkpoint.minSizeBytes / (1024*1024)) << " MB";
-  log().info << "  Checkpoint age: " << (config_.checkpoint.ageSeconds / (24*3600)) << " days";
   
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
   mountConfig.workDir = getWorkDir() + "/" + DIR_DATA;
-  // Use checkpoint config from loaded config (or defaults)
-  mountConfig.checkpoint = config_.checkpoint;
   
   auto beaconMount = beacon_.mount(mountConfig);
   if (!beaconMount) {

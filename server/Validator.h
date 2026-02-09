@@ -28,6 +28,15 @@ namespace pp {
  */
 class Validator : public Module {
 public:
+    struct CheckpointConfig {
+      uint64_t minSizeBytes{ 0 };
+      uint64_t ageSeconds{ 0 };
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & minSizeBytes & ageSeconds;
+      }
+    };
+
     // BlockChainConfig - Configuration for the block chain
     // This is used to restore the block chain from a checkpoint transaction
     struct BlockChainConfig {
@@ -37,9 +46,10 @@ public:
       uint64_t maxPendingTransactions{ 0 };
       uint64_t maxTransactionsPerBlock{ 0 };
       uint64_t minFeePerTransaction{ 0 };
+      CheckpointConfig checkpoint;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock & minFeePerTransaction;
+        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock & minFeePerTransaction & checkpoint;
       }
     };
 
