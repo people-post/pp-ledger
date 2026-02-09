@@ -32,6 +32,7 @@ public:
 
   struct Account {
     uint64_t id{ 0 };
+    uint8_t minSignatures{ 0 };
     std::vector<std::string> publicKeys;
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance (ID_GENESIS = native token)
     uint64_t blockId{ 0 }; // blockId of the last registration/renewal of the account
@@ -40,6 +41,7 @@ public:
   AccountBuffer();
   ~AccountBuffer() = default;
 
+  bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
   Roe<const Account&> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;

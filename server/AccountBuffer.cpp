@@ -5,6 +5,10 @@ namespace pp {
 AccountBuffer::AccountBuffer() {
 }
 
+bool AccountBuffer::isEmpty() const {
+  return mAccounts_.empty();
+}
+
 bool AccountBuffer::hasAccount(uint64_t id) const {
   return mAccounts_.find(id) != mAccounts_.end();
 }

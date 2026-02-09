@@ -259,41 +259,34 @@ BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& w
   initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
   initConfig.chain.checkpoint.minAgeSeconds = initFileConfig.checkpointMinAgeSeconds;
 
-  Beacon::InitKeyConfig kPrivate;
+  // Generate keypairs; pass KeyPairs to beacon for genesis signing and checkpoint public keys
   for (int i = 0; i < 3; i++) {
     auto result = utl::ed25519Generate();
     if (!result) {
       return Error("Failed to generate Ed25519 key: " + result.error().message);
     }
-    auto key = result.value();
-    kPrivate.genesis.push_back(key.privateKey);
-    initConfig.key.genesis.push_back(key.publicKey);
+    initConfig.key.genesis.push_back(result.value());
 
     result = utl::ed25519Generate();
     if (!result) {
       return Error("Failed to generate Ed25519 key: " + result.error().message);
     }
-    key = result.value();
-    kPrivate.fee.push_back(key.privateKey);
-    initConfig.key.fee.push_back(key.publicKey);
+    initConfig.key.fee.push_back(result.value());
 
     result = utl::ed25519Generate();
     if (!result) {
       return Error("Failed to generate Ed25519 key: " + result.error().message);
     }
-    key = result.value();
-    kPrivate.reserve.push_back(key.privateKey);
-    initConfig.key.reserve.push_back(key.publicKey);
+    initConfig.key.reserve.push_back(result.value());
   }
   
-  // Call the existing initFromWorkDir method
   auto result = initFromWorkDir(initConfig);
   if (!result) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
   
   log().info << "Beacon initialized successfully";
-  return kPrivate;
+  return initConfig.key;
 }
 
 BeaconServer::Roe<void> BeaconServer::initFromWorkDir(const Beacon::InitConfig& config) {

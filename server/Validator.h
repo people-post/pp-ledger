@@ -58,10 +58,11 @@ public:
 
       int64_t balance{ 0 };
       std::vector<std::string> publicKeys;
+      uint8_t minSignatures{ 0 };
       std::string meta;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & balance & publicKeys & meta;
+        ar & balance & publicKeys & minSignatures & meta;
       }
 
       std::string ltsToString() const;
@@ -134,16 +135,21 @@ private:
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
 
+    Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
 
-    Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
-    Roe<void> processTransaction(const Ledger::Transaction& tx, bool isStrictMode);
+    Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
+    Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
+    Roe<void> validateSystemCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processUserCheckpoint(const Ledger::Transaction& tx);
+    Roe<void> validateUserCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processTransaction(const Ledger::Transaction& tx);
+    Roe<void> validateTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
+    Roe<void> validateLooseTransaction(const Ledger::Transaction& tx);
 
     consensus::Ouroboros consensus_;
     Ledger ledger_;

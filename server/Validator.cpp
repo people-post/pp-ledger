@@ -13,8 +13,8 @@ std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& co
 }
 
 std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
-  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" 
-     << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta.size() << " bytes\"}";
+  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: " 
+     << info.publicKeys.size() << ", meta: \"" << info.meta.size() << " bytes\"}";
   return os;
 }
 
@@ -256,15 +256,6 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (checkpointTx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
     return Error(8, "First genesis transaction must be checkpoint transaction");
   }
-  if (checkpointTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || checkpointTx.obj.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(8, "Genesis checkpoint transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
-  }
-  if (checkpointTx.obj.amount != 0) {
-    return Error(8, "Genesis checkpoint transaction must have amount 0");
-  }
-  if (checkpointTx.signatures.size() != 1 || checkpointTx.signatures[0] != "genesis") {
-    return Error(8, "Genesis checkpoint transaction must have signature \"genesis\"");
-  }
   
   // Second transaction: miner/reserve transaction (ID_GENESIS -> ID_RESERVE, INITIAL_TOKEN_SUPPLY)
   const auto& minerTx = block.block.signedTxes[1];
@@ -276,9 +267,6 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   }
   if (minerTx.obj.amount + minerTx.obj.fee != AccountBuffer::INITIAL_TOKEN_SUPPLY) {
     return Error(8, "Genesis miner transaction must have amount + fee: " + std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
-  }
-  if (minerTx.signatures.size() != 1 || minerTx.signatures[0] != "genesis") {
-    return Error(8, "Genesis miner transaction must have signature \"genesis\"");
   }
   
   std::string calculatedHash = calculateHash(block.block);
@@ -470,7 +458,7 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, boo
 
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    auto result = processTransaction(signedTx.obj, isStrictMode);
+    auto result = processTxRecord(signedTx, isStrictMode);
     if (!result) {
       return Error(18, "Failed to process transaction: " + result.error().message);
     }
@@ -479,7 +467,13 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, boo
   return {};
 }
 
-Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, bool isStrictMode) {
+Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
+  auto roe = validateTxSignatures(signedTx, isStrictMode);
+  if (!roe) {
+    return Error(18, "Failed to validate transaction: " + roe.error().message);
+  }
+
+  auto const& tx = signedTx.obj;
   switch (tx.type) {
     case Ledger::Transaction::T_CHECKPOINT:
       return processSystemCheckpoint(tx);
@@ -492,10 +486,80 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
   }
 }
 
+Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
+  if (signedTx.signatures.size() < 1) {
+    return Error(8, "Transaction must have at least one signature");
+  }
+
+  auto accountResult = bank_.getAccount(signedTx.obj.fromWalletId);
+  if (!accountResult) {
+    if (isStrictMode) {
+      if (bank_.isEmpty() && signedTx.obj.fromWalletId == AccountBuffer::ID_GENESIS) {
+        // Genesis account is created by the system checkpoint, this is not very good way of handling
+        // Should avoid using this generic handlers for specific case
+        return {};
+      }
+      return Error(8, "Failed to get account: " + accountResult.error().message);
+    } else {
+      // In loose mode, account may not be created before their transactions
+      return {};
+    }
+  }
+  auto const& account = accountResult.value();
+  if (signedTx.signatures.size() < account.minSignatures) {
+    return Error(8, "Account " + std::to_string(signedTx.obj.fromWalletId) + " must have at least " + std::to_string(account.minSignatures) + " signatures, but has " + std::to_string(signedTx.signatures.size()));
+  }
+  auto message = utl::binaryPack(signedTx.obj);
+  std::vector<bool> keyUsed(account.publicKeys.size(), false);
+  for (const auto& signature : signedTx.signatures) {
+    bool matched = false;
+    for (size_t i = 0; i < account.publicKeys.size(); ++i) {
+      if (keyUsed[i]) continue;
+      const auto& publicKey = account.publicKeys[i];
+      if (utl::ed25519Verify(publicKey, message, signature)) {
+        keyUsed[i] = true;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      log().error << "Invalid signature for account " + std::to_string(signedTx.obj.fromWalletId) + ": " + utl::toJsonSafeString(signature);
+      log().error << "Expected signatures: " << account.minSignatures;
+      for (size_t i = 0; i < account.publicKeys.size(); ++i) {
+        log().error << "Public key " << i << ": " << utl::toJsonSafeString(account.publicKeys[i]);
+        log().error << "Key used: " << keyUsed[i];
+      }
+      for (const auto& signature : signedTx.signatures) {
+        log().error << "Signature: " << utl::toJsonSafeString(signature);
+      }
+      return Error(8, "Invalid or duplicate signature for account " + std::to_string(signedTx.obj.fromWalletId));
+    }
+  }
+  return {};
+}
+
+Validator::Roe<void> Validator::validateSystemCheckpoint(const Ledger::Transaction& tx) {
+  log().info << "Validating system checkpoint transaction";
+
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId != AccountBuffer::ID_GENESIS) {
+    return Error(8, "System checkpoint transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
+  }
+  if (tx.amount != 0) {
+    return Error(8, "System checkpoint transaction must have amount 0");
+  }
+  if (tx.fee != 0) {
+    return Error(8, "System checkpoint transaction must have fee 0");
+  }
+  return {};
+}
+
 Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transaction& tx) {
   log().info << "Processing system checkpoint transaction";
 
-  // TODO: Validate system checkpoint transaction fields
+  auto result = validateSystemCheckpoint(tx);
+  if (!result) {
+    return Error(16, "Failed to validate system checkpoint transaction: " + result.error().message);
+  }
   
   // Deserialize BlockChainConfig from transaction metadata
   SystemCheckpoint checkpoint;
@@ -523,6 +587,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   genesisAccount.id = AccountBuffer::ID_GENESIS;
   genesisAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.genesis.balance;
   genesisAccount.publicKeys = checkpoint.genesis.publicKeys;
+  genesisAccount.minSignatures = 2;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
     return Error(26, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
@@ -530,6 +595,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 
   AccountBuffer::Account feeAccount;
   feeAccount.id = AccountBuffer::ID_FEE;
+  feeAccount.minSignatures = 2;
   feeAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.fee.balance;
   feeAccount.publicKeys = checkpoint.fee.publicKeys;
   auto roeAddFee = bank_.add(feeAccount);
@@ -541,6 +607,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   reserveAccount.id = AccountBuffer::ID_RESERVE;
   reserveAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.reserve.balance;
   reserveAccount.publicKeys = checkpoint.reserve.publicKeys;
+  reserveAccount.minSignatures = 2;
   auto roeAddReserve = bank_.add(reserveAccount);
   if (!roeAddReserve) {
     return Error(28, "Failed to add reserve account to buffer: " + roeAddReserve.error().message);
@@ -572,7 +639,7 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   account.id = tx.toWalletId;
   account.mBalances = accountInfo.mBalances;
   account.publicKeys = accountInfo.publicKeys;
-  
+  account.minSignatures = accountInfo.minSignatures;
   auto addResult = bank_.add(account);
   if (!addResult) {
     return Error(28, "Failed to add user account to buffer: " + addResult.error().message);

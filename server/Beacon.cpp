@@ -24,14 +24,14 @@ Beacon::Beacon() {}
 
 nlohmann::json Beacon::InitKeyConfig::toJson() const {
   nlohmann::json j;
-  for (const auto& key : genesis) {
-    j["genesis"].push_back(utl::hexEncode(key));
+  for (const auto& kp : genesis) {
+    j["genesis"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)}, {"privateKey", utl::hexEncode(kp.privateKey)}});
   }
-  for (const auto& key : fee) {
-    j["fee"].push_back(utl::hexEncode(key));
+  for (const auto& kp : fee) {
+    j["fee"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)}, {"privateKey", utl::hexEncode(kp.privateKey)}});
   }
-  for (const auto& key : reserve) {
-    j["reserve"].push_back(utl::hexEncode(key));
+  for (const auto& kp : reserve) {
+    j["reserve"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)}, {"privateKey", utl::hexEncode(kp.privateKey)}});
   }
   return j;
 }
@@ -72,11 +72,14 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   chainConfig.genesisTime = consensusConfig.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlock = createGenesisBlock(chainConfig, config.key);
-  
+  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key);
+  if (!genesisBlockResult) {
+    return Error(2, "Failed to create genesis block: " + genesisBlockResult.error().message);
+  }
+  auto genesisBlock = genesisBlockResult.value();
   auto addBlockResult = addBlock(genesisBlock);
   if (!addBlockResult) {
-    return Error(2, "Failed to add genesis block to ledger: " + addBlockResult.error().message);
+    return Error(2, "Failed to add genesis block: " + addBlockResult.error().message);
   }
   
   log().info << "Genesis block created with checkpoint transaction (version " 
@@ -147,23 +150,33 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
-Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const {
+Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create native token genesis wallet with zero balance
   // 3. Create first native token wallet that has stake to bootstrap consensus
   log().info << "Creating genesis block";
 
+  // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
   systemCheckpoint.genesis.balance = 0; // Native token (ID ID_GENESIS) with zero balance
-  systemCheckpoint.genesis.publicKeys = key.genesis;
+  for (const auto& kp : key.genesis) {
+    systemCheckpoint.genesis.publicKeys.push_back(kp.publicKey);
+  }
+  systemCheckpoint.genesis.minSignatures = key.genesis.size();
   systemCheckpoint.genesis.meta = "Native token genesis wallet";
   systemCheckpoint.fee.balance = 0; // Fee wallet (ID ID_FEE) with zero balance
-  systemCheckpoint.fee.publicKeys = key.fee;
+  for (const auto& kp : key.fee) {
+    systemCheckpoint.fee.publicKeys.push_back(kp.publicKey);
+  }
+  systemCheckpoint.fee.minSignatures = key.fee.size();
   systemCheckpoint.fee.meta = "Wallet for transaction fees";
   systemCheckpoint.reserve.balance = 0; // Reserve wallet (ID ID_RESERVE) with zero balance
-  systemCheckpoint.reserve.publicKeys = key.reserve;
+  for (const auto& kp : key.reserve) {
+    systemCheckpoint.reserve.publicKeys.push_back(kp.publicKey);
+  }
+  systemCheckpoint.reserve.minSignatures = key.reserve.size();
   systemCheckpoint.reserve.meta = "Native token reserve wallet";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint
@@ -187,23 +200,38 @@ Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, con
   checkpointTx.meta = systemCheckpoint.ltsToString();
 
   // Initial transaction to fund reserve wallet and kickstart staking
-  Ledger::Transaction minerTx;
-  minerTx.type = Ledger::Transaction::T_DEFAULT;
-  minerTx.tokenId = AccountBuffer::ID_GENESIS;             // Native token
-  minerTx.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
-  minerTx.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
-  minerTx.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
-  minerTx.fee = config.minFeePerTransaction; // minimal fee
-  minerTx.meta = "Initial reserve funding for staking";
+  Ledger::Transaction reserveTx;
+  reserveTx.type = Ledger::Transaction::T_DEFAULT;
+  reserveTx.tokenId = AccountBuffer::ID_GENESIS;             // Native token
+  reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
+  reserveTx.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
+  reserveTx.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
+  reserveTx.fee = config.minFeePerTransaction; // minimal fee
+  reserveTx.meta = "Initial reserve funding for staking";
 
-  // Add signed transaction (no signature for genesis)
+  // Sign with KeyPairs (key.genesis holds KeyPairs)
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj = checkpointTx;
-  signedTx.signatures = {"genesis"};
+  std::string message = utl::binaryPack(checkpointTx);
+  for (const auto& kp : key.genesis) {
+    auto result = utl::ed25519Sign(kp.privateKey, message);
+    if (!result) {
+      return Error(18, "Failed to sign checkpoint transaction: " + result.error().message);
+    }
+    signedTx.signatures.push_back(*result);
+  }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-  signedTx.obj = minerTx;
-  signedTx.signatures = {"genesis"};
+  signedTx.obj = reserveTx;
+  signedTx.signatures.clear();
+  message = utl::binaryPack(reserveTx);
+  for (const auto& kp : key.genesis) {
+    auto result = utl::ed25519Sign(kp.privateKey, message);
+    if (!result) {
+      return Error(18, "Failed to sign reserve transaction: " + result.error().message);
+    }
+    signedTx.signatures.push_back(*result);
+  }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   // Calculate hash for genesis block

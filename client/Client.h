@@ -23,10 +23,11 @@ public:
 
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
     std::vector<std::string> publicKeys;
+    uint8_t minSignatures{ 0 };
     std::string meta;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & mBalances & publicKeys & meta;
+      ar & mBalances & publicKeys & minSignatures & meta;
     }
 
     std::string ltsToString() const;

@@ -7,6 +7,7 @@
 #include "../network/Types.hpp"
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../lib/Utilities.h"
 
 #include <string>
 #include <cstdint>
@@ -42,9 +43,9 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct InitKeyConfig {
-    std::vector<std::string> genesis;
-    std::vector<std::string> fee;
-    std::vector<std::string> reserve;
+    std::vector<utl::Ed25519KeyPair> genesis;
+    std::vector<utl::Ed25519KeyPair> fee;
+    std::vector<utl::Ed25519KeyPair> reserve;
 
     nlohmann::json toJson() const;
   };
@@ -77,7 +78,7 @@ private:
     std::string workDir;
   };
 
-  Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
+  Roe<Ledger::ChainNode> createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
 
   Config config_;
 };
