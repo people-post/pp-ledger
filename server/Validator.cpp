@@ -61,6 +61,10 @@ bool Validator::isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) c
   return consensus_.isSlotLeader(slot, stakeholderId);
 }
 
+bool Validator::isSlotBlockProductionTime(uint64_t slot) const {
+  return consensus_.isSlotBlockProductionTime(slot);
+}
+
 bool Validator::isValidSlotLeader(const Ledger::ChainNode& block) const {
   return consensus_.isSlotLeader(block.block.slot, block.block.slotLeader);
 }
@@ -134,6 +138,10 @@ uint64_t Validator::getNextBlockId() const {
   return ledger_.getNextBlockId();
 }
 
+int64_t Validator::getConsensusTimestamp() const {
+  return consensus_.getTimestamp();
+}
+
 uint64_t Validator::getCurrentSlot() const {
   return consensus_.getCurrentSlot();
 }
@@ -144,6 +152,10 @@ uint64_t Validator::getCurrentEpoch() const {
 
 uint64_t Validator::getTotalStake() const {
   return consensus_.getTotalStake();
+}
+
+uint64_t Validator::getStakeholderStake(uint64_t stakeholderId) const {
+  return consensus_.getStake(stakeholderId);
 }
 
 Validator::Roe<uint64_t> Validator::getSlotLeader(uint64_t slot) const {
@@ -193,6 +205,14 @@ uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
   }
 
   return 0;
+}
+
+std::vector<Ledger::SignedData<Ledger::Transaction>> Validator::collectRenewals(uint64_t slot) const {
+  // TODO: Implement renewal collection.
+  // Get accounts from bank_ that their block id is too old (comparing to nextBlockId and measured by BlockChainConfig.checkpoint).
+  // For each account, create a renewal transaction (account.id -> ID_FEE, amount 0, fee minFeePerTransaction)
+  // and add it to the renewal list.
+  return {};
 }
 
 Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {

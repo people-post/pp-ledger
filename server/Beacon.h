@@ -74,6 +74,8 @@ public:
   Roe<void> addBlock(const Ledger::ChainNode& block);
 
 private:
+  constexpr static const char* DIR_LEDGER = "ledger";
+
   struct Config {
     std::string workDir;
   };

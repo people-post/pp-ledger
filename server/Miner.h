@@ -56,7 +56,6 @@ public:
 
     // ----------------- accessors -------------------------------------
     bool isSlotLeader() const;
-    bool shouldProduceBlock() const;
 
     uint64_t getStake() const;
     size_t getPendingTransactionCount() const;
@@ -68,8 +67,8 @@ public:
     Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
     Roe<void> addBlock(const Ledger::ChainNode& block);
 
-    Roe<Ledger::ChainNode> produceBlock();
-    void confirmProducedBlock(const Ledger::ChainNode& block);
+    Roe<bool> produceBlock(Ledger::ChainNode& block);
+    void markBlockProduction(const Ledger::ChainNode& block);
 
 private:
     constexpr static const char* DIR_LEDGER = "ledger";
@@ -82,15 +81,21 @@ private:
         uint64_t checkpointId{ 0 };
     };
 
-    Roe<Ledger::ChainNode> createBlock();
-    Roe<void> createCheckpoint(uint64_t blockId);
+    struct SlotCache {
+        uint64_t slot{ 0 };
+        bool isLeader{ false };
+        std::vector<Ledger::SignedData<Ledger::Transaction>> txRenewals;
+    };
+
+
+    Roe<Ledger::ChainNode> createBlock(uint64_t slot);
     
     Config config_;
     AccountBuffer bufferBank_;
-    std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTransactions_;
-    bool initialized_{ false };
+    std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
     uint64_t lastProducedBlockId_{ 0 };
     uint64_t lastProducedSlot_{ 0 };  // slot we last produced a block for (at most one per slot)
+    SlotCache slotCache_;  // Cache data for block production
 };
 
 } // namespace pp

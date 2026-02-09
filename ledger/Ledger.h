@@ -28,8 +28,6 @@ public:
     int64_t fee{ 0 };           // Transaction fee, always in native token, always goes to system fee account
     std::string meta;           // Transaction metadata
 
-    Transaction() = default;
-
     template <typename Archive> void serialize(Archive &ar) {
       ar & type & tokenId& fromWalletId & toWalletId & amount & fee & meta;
     }

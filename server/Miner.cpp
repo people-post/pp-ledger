@@ -11,55 +11,18 @@ namespace pp {
 Miner::Miner() {}
 
 bool Miner::isSlotLeader() const {
-  if (!initialized_) {
-    return false;
-  }
-
-  uint64_t currentSlot = getCurrentSlot();
-  return isStakeholderSlotLeader(config_.minerId, currentSlot);
-}
-
-bool Miner::shouldProduceBlock() const {
-  if (!initialized_) {
-    return false;
-  }
-
-  if (!isSlotLeader()) {
-    return false;
-  }
-
-  uint64_t currentSlot = getCurrentSlot();
-
-  // At most one block per slot
-  if (lastProducedSlot_ == currentSlot) {
-    return false;
-  }
-
-  if (getPendingTransactionCount() == 0) {
-    return false;
-  }
-
-  // Only produce at end of current slot (within last second of slot)
-  if (!getConsensus().isBlockProductionTime(currentSlot)) {
-    return false;  // not yet at end of slot
-  }
-
-  return true;
+  return isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
 }
 
 uint64_t Miner::getStake() const {
-  return getConsensus().getStake(config_.minerId);
+  return getStakeholderStake(config_.minerId);
 }
 
 size_t Miner::getPendingTransactionCount() const {
-  return pendingTransactions_.size();
+  return pendingTxes_.size();
 }
 
 Miner::Roe<void> Miner::init(const InitConfig &config) {
-  if (initialized_) {
-    return Error(1, "Miner already initialized");
-  }
-
   config_.workDir = config.workDir;
   config_.minerId = config.minerId;
   config_.privateKey = config.privateKey;
@@ -114,8 +77,6 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }
 
-  initialized_ = true;
-
   log().info << "Miner initialized successfully";
   return {};
 }
@@ -125,49 +86,55 @@ void Miner::refresh() {
   refreshStakeholders();
 }
 
-Miner::Roe<void> Miner::createCheckpoint(uint64_t blockId) {
-  // TODO: Implement checkpoint creation
-  return {};
-}
-
-Miner::Roe<Ledger::ChainNode> Miner::produceBlock() {
-  if (!initialized_) {
-    return Error(5, "Miner not initialized");
+Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
+  uint64_t slot = getCurrentSlot();
+  // At most one block per slot
+  if (lastProducedSlot_ == slot) {
+    return false;
   }
 
-  if (!isSlotLeader()) {
-    return Error(6, "Not slot leader for current slot");
+  if (slotCache_.slot != slot) {
+    // One time initialization of slot cache
+    slotCache_ = {};
+    slotCache_.slot = slot;
+    slotCache_.isLeader = isStakeholderSlotLeader(config_.minerId, slot);
+    if (slotCache_.isLeader) {
+      // Leader initial evaluations per slot
+      slotCache_.txRenewals = collectRenewals(slot);
+    }
   }
 
-  // Don't produce block if there are no transactions
-  if (getPendingTransactionCount() == 0) {
-    log().debug << "Skipping block production - no pending transactions";
-    return Error(20, "No pending transactions");
+  if (!slotCache_.isLeader) {
+    // Only slot leader can produce block
+    return false;
   }
 
-  uint64_t currentSlot = getCurrentSlot();
-  
-  log().info << "Producing block for slot " << currentSlot;
+  if (slotCache_.txRenewals.empty() && pendingTxes_.empty()) {
+    // No transactions to produce block with
+    return false;
+  }
+
+  // Only produce at end of current slot (within last second of slot)
+  if (!isSlotBlockProductionTime(slot)) {
+    return false;
+  }
+
+  log().info << "Producing block for slot " << slot;
 
   // Create the block
-  auto blockResult = createBlock();
-  if (!blockResult) {
-    return Error(7, "Failed to create block: " + blockResult.error().message);
+  auto createResult = createBlock(slot);
+  if (!createResult) {
+    return Error(7, "Failed to create block: " + createResult.error().message);
   }
-  pendingTransactions_.clear();
+  pendingTxes_.clear();
 
-  return blockResult.value();
+  block = createResult.value();
+  return true;
 }
 
-void Miner::confirmProducedBlock(const Ledger::ChainNode& block) {
+void Miner::markBlockProduction(const Ledger::ChainNode& block) {
   lastProducedBlockId_ = block.block.index;
   lastProducedSlot_ = block.block.slot;
-
-  log().info << "Block produced successfully";
-  log().info << "  Block ID: " << block.block.index;
-  log().info << "  Slot: " << block.block.slot;
-  log().info << "  Transactions: " << block.block.signedTxes.size();
-  log().info << "  Hash: " << block.hash;
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
@@ -178,7 +145,7 @@ Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transact
     return Error(9, result.error().message);
   }
 
-  pendingTransactions_.push_back(signedTx);
+  pendingTxes_.push_back(signedTx);
   
   return {};
 }
@@ -197,10 +164,8 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
-Miner::Roe<Ledger::ChainNode> Miner::createBlock() {
-  // Get current slot info
-  uint64_t currentSlot = getCurrentSlot();
-  auto timestamp = getConsensus().getTimestamp();
+Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot) {
+  auto timestamp = getConsensusTimestamp();
 
   // Get previous block info
   auto latestBlockResult = readLastBlock();
@@ -216,17 +181,17 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock() {
   block.block.index = blockIndex;
   block.block.timestamp = timestamp;
   block.block.previousHash = previousHash;
-  block.block.slot = currentSlot;
+  block.block.slot = slot;
   block.block.slotLeader = config_.minerId;
   
   // Populate signedTxes
-  block.block.signedTxes = pendingTransactions_;
+  block.block.signedTxes = pendingTxes_;
 
   // Calculate hash
   block.hash = calculateHash(block.block);
 
   log().debug << "Created block " << blockIndex 
-              << " with " << pendingTransactions_.size() << " transactions";
+              << " with " << pendingTxes_.size() << " transactions";
 
   return block;
 }

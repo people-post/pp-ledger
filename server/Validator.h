@@ -49,7 +49,8 @@ public:
       CheckpointConfig checkpoint;
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions & maxTransactionsPerBlock & minFeePerTransaction & checkpoint;
+        ar & genesisTime & slotDuration & slotsPerEpoch & maxPendingTransactions
+         & maxTransactionsPerBlock & minFeePerTransaction & checkpoint;
       }
     };
 
@@ -112,13 +113,14 @@ public:
 protected:
     // Validation helpers
     bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
+    bool isSlotBlockProductionTime(uint64_t slot) const;
     bool needsCheckpoint(const CheckpointConfig& checkpointConfig) const;
 
-    // Getters for derived classes
-    const consensus::Ouroboros& getConsensus() const { return consensus_; }
-
+    int64_t getConsensusTimestamp() const;
     uint64_t getBlockAgeSeconds(uint64_t blockId) const;
+    uint64_t getStakeholderStake(uint64_t stakeholderId) const;
 
+    std::vector<Ledger::SignedData<Ledger::Transaction>> collectRenewals(uint64_t slot) const;
     Roe<Ledger::ChainNode> readLastBlock() const;
 
     void initConsensus(const consensus::Ouroboros::Config& config);

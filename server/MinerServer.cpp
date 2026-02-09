@@ -424,27 +424,42 @@ MinerServer::Roe<std::string> MinerServer::hUnsupported(const Client::Request &r
 }
 
 void MinerServer::handleSlotLeaderRole() {
-  if (miner_.shouldProduceBlock()) {
-    log().info << "Attempting to produce block for slot " << miner_.getCurrentSlot();
-    
-    auto result = miner_.produceBlock();
-    if (result) {
-      auto block = result.value();
-      log().info << "Successfully produced block " << block.block.index 
-                << " with hash " << block.hash;
-      
-      auto broadcastResult = broadcastBlock(block);
-      if (broadcastResult) {
-        log().info << "Block broadcasted";
-        miner_.confirmProducedBlock(block);
-        miner_.addBlock(block);  // Add to own ledger
-      } else {
-        log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
-      }
-    } else {
-      log().warning << "Failed to produce block: " << result.error().message;
-    }
+  static Ledger::ChainNode block;
+  auto produceResult = miner_.produceBlock(block);
+  if (!produceResult) {
+    log().warning << "Failed to produce block: " + produceResult.error().message;
+    return;
   }
+  
+  if (!produceResult.value()) {
+    // No block production needed
+    return;
+  }
+
+  log().info << "Successfully produced block " << block.block.index 
+             << " with hash " << block.hash;
+    
+  // Broadcast for verification
+  auto broadcastResult = broadcastBlock(block);
+  if (!broadcastResult) {
+    log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
+    return;
+  }
+
+  log().info << "Block " << block.block.index << " broadcasted";
+  miner_.markBlockProduction(block);
+
+  auto addResult = miner_.addBlock(block);
+  if (!addResult) {
+    log().warning << "Failed to add block: " + addResult.error().message;
+    return;
+  }
+
+  log().info << "Block produced successfully";
+  log().info << "  Block ID: " << block.block.index;
+  log().info << "  Slot: " << block.block.slot;
+  log().info << "  Transactions: " << block.block.signedTxes.size();
+  log().info << "  Hash: " << block.hash;
 }
 
 void MinerServer::handleValidatorRole() {

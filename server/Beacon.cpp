@@ -59,7 +59,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
-  ledgerConfig.workDir = config.workDir + "/ledger";
+  ledgerConfig.workDir = config.workDir + "/" + DIR_LEDGER;
   ledgerConfig.startingBlockId = 0;
 
   auto ledgerResult = initLedger(ledgerConfig);
@@ -110,7 +110,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   config_.workDir = config.workDir;
 
   // Mount the ledger using Validator's mountLedger function
-  std::string ledgerPath = config.workDir + "/ledger";
+  std::string ledgerPath = config.workDir + "/" + DIR_LEDGER;
   log().info << "Mounting ledger at: " << ledgerPath;
 
   // Mount the ledger

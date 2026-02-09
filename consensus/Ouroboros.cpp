@@ -25,7 +25,7 @@ bool Ouroboros::isStakeUpdateNeeded() const {
   return currentEpoch != lastStakeUpdateEpoch_;
 }
 
-bool Ouroboros::isBlockProductionTime(uint64_t slot) const {
+bool Ouroboros::isSlotBlockProductionTime(uint64_t slot) const {
   int64_t currentTime = getTimestamp();
   int64_t slotEndTime = getSlotEndTime(slot);
   // Block production time is within the last second of the slot
