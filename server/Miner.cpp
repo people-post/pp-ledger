@@ -16,25 +16,7 @@ bool Miner::isSlotLeader() const {
   }
 
   uint64_t currentSlot = getCurrentSlot();
-  return isSlotLeader(currentSlot);
-}
-
-bool Miner::isSlotLeader(uint64_t slot) const {
-  return getConsensus().isSlotLeader(slot, config_.minerId);
-}
-
-bool Miner::isOutOfDate(uint64_t checkpointId) const {
-  uint64_t ourBlockId = getNextBlockId();
-  
-  // If checkpoint is significantly ahead of us (e.g., more than 1000 blocks),
-  // we're out of date and should reinit from checkpoint
-  if (checkpointId > ourBlockId + 1000) {
-    log().info << "Out of date - checkpoint at " << checkpointId 
-               << " vs our block " << ourBlockId;
-    return true;
-  }
-
-  return false;
+  return isStakeholderSlotLeader(config_.minerId, currentSlot);
 }
 
 bool Miner::shouldProduceBlock() const {
@@ -98,11 +80,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
   if (std::filesystem::exists(ledgerDir)) {
-    auto roe = getLedger().mount(ledgerDir);
+    auto roe = mountLedger(ledgerDir);
     if (!roe) {
       return Error(2, "Failed to mount ledger: " + roe.error().message);
     }
-    if (getLedger().getNextBlockId() < config.startingBlockId) {
+    if (getNextBlockId() < config.startingBlockId) {
       log().info << "Ledger data too old, removing existing work directory: " << ledgerDir;
       std::error_code ec;
       std::filesystem::remove_all(ledgerDir, ec);
@@ -116,16 +98,16 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = ledgerDir;
     ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = getLedger().init(ledgerConfig);
+    auto ledgerResult = initLedger(ledgerConfig);
     if (!ledgerResult) {
       return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
     }
   }
 
   // Initialize consensus
-  consensus::Ouroboros::Config cc;
-  cc.timeOffset = config.timeOffset;
-  getConsensus().init(cc);
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.timeOffset = config.timeOffset;
+  initConsensus(consensusConfig);
 
   auto loadResult = loadFromLedger(config.startingBlockId);
   if (!loadResult) {
@@ -143,12 +125,8 @@ void Miner::refresh() {
   refreshStakeholders();
 }
 
-Miner::Roe<void> Miner::validateBlock(const Ledger::ChainNode& block) const {
-  // Call base class implementation
-  auto result = Validator::validateBlock(block);
-  if (!result) {
-    return Error(13, result.error().message);
-  }
+Miner::Roe<void> Miner::createCheckpoint(uint64_t blockId) {
+  // TODO: Implement checkpoint creation
   return {};
 }
 
@@ -209,7 +187,7 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
   // Adding block is in strict mode if it is at or after the checkpoint id
   bool isStrictMode = block.block.index >= config_.checkpointId;
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block, isStrictMode);
+  auto result = Validator::doAddBlock(block, isStrictMode);
   if (!result) {
     return Error(10, result.error().message);
   }
@@ -225,7 +203,7 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock() {
   auto timestamp = getConsensus().getTimestamp();
 
   // Get previous block info
-  auto latestBlockResult = getLedger().readLastBlock();
+  auto latestBlockResult = readLastBlock();
   if (!latestBlockResult) {
     return Error(11, "Failed to read latest block: " + latestBlockResult.error().message);
   }

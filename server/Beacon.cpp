@@ -9,14 +9,6 @@
 namespace pp {
 
 // Ostream operators for easy logging
-std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config) {
-  os << "CheckpointConfig{minSizeBytes=" << config.minSizeBytes 
-     << " (" << (config.minSizeBytes / (1024*1024)) << " MB), "
-     << "ageSeconds=" << config.ageSeconds
-     << " (" << (config.ageSeconds / (24*3600)) << " days)}";
-  return os;
-}
-
 std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
      << "chain=" << config.chain << "}";
@@ -44,35 +36,6 @@ nlohmann::json Beacon::InitKeyConfig::toJson() const {
   return j;
 }
 
-bool Beacon::needsCheckpoint() const {
-  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
-  
-  // Only evaluate if we have enough data
-  return currentSize >= config_.chain.checkpoint.minSizeBytes;
-}
-
-uint64_t Beacon::getLastCheckpointId() const {
-  return lastCheckpointId_;
-}
-
-uint64_t Beacon::getCurrentCheckpointId() const {
-  return currentCheckpointId_;
-}
-
-Beacon::Roe<std::vector<uint64_t>> Beacon::getCheckpoints() const {
-  // This would retrieve checkpoints from ledger
-  // For now, return empty vector
-  return std::vector<uint64_t>{};
-}
-
-Beacon::Roe<uint64_t> Beacon::getSlotLeader(uint64_t slot) const {
-  auto result = getConsensus().getSlotLeader(slot);
-  if (!result) {
-    return Error(15, "Failed to get slot leader: " + result.error().message);
-  }
-  return result.value();
-}
-
 Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "Initializing Beacon";
   log().debug << "Init config: " << config;
@@ -87,31 +50,31 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  consensus::Ouroboros::Config cc;
-  cc.genesisTime = utl::getCurrentTime();
-  cc.timeOffset = 0;
-  cc.slotDuration = config.chain.slotDuration;
-  cc.slotsPerEpoch = config.chain.slotsPerEpoch;
-  getConsensus().init(cc);
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = utl::getCurrentTime();
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = config.chain.slotDuration;
+  consensusConfig.slotsPerEpoch = config.chain.slotsPerEpoch;
+  initConsensus(consensusConfig);
   
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config.workDir + "/ledger";
   ledgerConfig.startingBlockId = 0;
 
-  auto ledgerResult = getLedger().init(ledgerConfig);
+  auto ledgerResult = initLedger(ledgerConfig);
   if (!ledgerResult) {
     return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
   }
 
   config_.workDir = config.workDir;
   config_.chain = config.chain;
-  config_.chain.genesisTime = cc.genesisTime;
+  config_.chain.genesisTime = consensusConfig.genesisTime;
 
   // Create and add genesis block
   auto genesisBlock = createGenesisBlock(config_.chain, config.key);
   
-  auto addBlockResult = getLedger().addBlock(genesisBlock);
+  auto addBlockResult = addBlock(genesisBlock);
   if (!addBlockResult) {
     return Error(2, "Failed to add genesis block to ledger: " + addBlockResult.error().message);
   }
@@ -120,10 +83,10 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
              << SystemCheckpoint::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
-  log().info << "  Genesis time: " << cc.genesisTime;
-  log().info << "  Time offset: " << cc.timeOffset;
-  log().info << "  Slot duration: " << cc.slotDuration;
-  log().info << "  Slots per epoch: " << cc.slotsPerEpoch;
+  log().info << "  Genesis time: " << consensusConfig.genesisTime;
+  log().info << "  Time offset: " << consensusConfig.timeOffset;
+  log().info << "  Slot duration: " << consensusConfig.slotDuration;
+  log().info << "  Slots per epoch: " << consensusConfig.slotsPerEpoch;
   log().info << "  Max pending transactions: " << config_.chain.maxPendingTransactions;
   log().info << "  Max transactions per block: " << config_.chain.maxTransactionsPerBlock;
   log().info << "  Current slot: " << getCurrentSlot();
@@ -148,7 +111,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   log().info << "Mounting ledger at: " << ledgerPath;
 
   // Mount the ledger
-  auto ledgerMountResult = getLedger().mount(ledgerPath);
+  auto ledgerMountResult = mountLedger(ledgerPath);
   if (!ledgerMountResult) {
     return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
@@ -173,116 +136,16 @@ void Beacon::refresh() {
   refreshStakeholders();
 }
 
-Beacon::Roe<void> Beacon::validateBlock(const Ledger::ChainNode& block) const {
-  // Call base class implementation
-  auto result = Validator::validateBlock(block);
-  if (!result) {
-    return Error(7, result.error().message);
-  }
-  return {};
-}
-
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::addBlockBase(block, true);
+  auto result = Validator::doAddBlock(block, true);
   if (!result) {
     return Error(4, result.error().message);
   }
-
-  // Check if we need to evaluate checkpoints
-  if (needsCheckpoint()) {
-    auto checkpointResult = evaluateCheckpoints();
-    if (!checkpointResult) {
-      log().warning << "Checkpoint evaluation failed: " << checkpointResult.error().message;
-    }
-  }
-
-  return {};
-}
-
-Beacon::Roe<void> Beacon::evaluateCheckpoints() {
-  uint64_t currentSize = getLedger().countSizeFromBlockId(currentCheckpointId_);
-  uint64_t nextBlockId = getNextBlockId();
-
-  log().debug << "Evaluating checkpoints - size: " << (currentSize / (1024*1024)) 
-              << " MB, next block: " << nextBlockId;
-
-  // Check if we have enough data to consider checkpointing
-  if (currentSize < config_.chain.checkpoint.minSizeBytes) {
-    log().debug << "Blockchain size below checkpoint threshold";
-    return {};
-  }
-
-  // Find blocks older than checkpoint age
-  uint64_t checkpointAge = config_.chain.checkpoint.ageSeconds;
-  std::vector<uint64_t> checkpointCandidates;
-
-  // Iterate through blocks to find old enough blocks
-  for (uint64_t blockId = currentCheckpointId_ + 1; blockId < nextBlockId; ++blockId) {
-    uint64_t age = getBlockAge(blockId);
-    
-    if (age >= checkpointAge) {
-      checkpointCandidates.push_back(blockId);
-    } else {
-      break; // Blocks are sequential, so stop when we hit a recent one
-    }
-  }
-
-  if (checkpointCandidates.empty()) {
-    log().debug << "No blocks old enough for checkpointing";
-    return {};
-  }
-
-  // Create checkpoint at the latest eligible block
-  uint64_t newCheckpointId = checkpointCandidates.back();
-  auto result = createCheckpoint(newCheckpointId);
-  if (!result) {
-    return Error(13, "Failed to create checkpoint: " + result.error().message);
-  }
-
-  log().info << "Created checkpoint at block " << newCheckpointId;
-
   return {};
 }
 
 // Private helper methods
-
-uint64_t Beacon::getBlockAge(uint64_t blockId) const {
-  auto blockResult = getLedger().readBlock(blockId);
-  if (!blockResult) {
-    return 0;
-  }
-  auto block = blockResult.value();
-
-  auto now = std::chrono::system_clock::now();
-  auto currentTime = std::chrono::duration_cast<std::chrono::seconds>(
-      now.time_since_epoch()).count();
-
-  int64_t blockTime = block.block.timestamp;
-  
-  if (currentTime > blockTime) {
-    return static_cast<uint64_t>(currentTime - blockTime);
-  }
-
-  return 0;
-}
-
-Beacon::Roe<void> Beacon::createCheckpoint(uint64_t blockId) {
-  // Update checkpoint in ledger
-  std::vector<uint64_t> checkpoints;
-  checkpoints.push_back(blockId);
-  
-  auto result = getLedger().updateCheckpoints(checkpoints);
-  if (!result) {
-    return Error(14, "Failed to update ledger checkpoints: " + result.error().message);
-  }
-
-  // Update current checkpoint
-  currentCheckpointId_ = blockId;
-
-  log().info << "Checkpoint created at block " << blockId;
-  return {};
-}
 
 Ledger::ChainNode Beacon::createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:

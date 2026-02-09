@@ -7,6 +7,28 @@
 
 namespace pp {
 
+std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& config) {
+  os << "CheckpointConfig{minBlocks: " << config.minBlocks << ", minAgeSeconds: " << config.minAgeSeconds << "}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
+  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" 
+     << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta.size() << " bytes\"}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
+  os << "BlockChainConfig{genesisTime: " << config.genesisTime << ", "
+     << "slotDuration: " << config.slotDuration << ", "
+     << "slotsPerEpoch: " << config.slotsPerEpoch << ", "
+     << "maxPendingTransactions: " << config.maxPendingTransactions << ", "
+     << "maxTransactionsPerBlock: " << config.maxTransactionsPerBlock << ", "
+     << "minFeePerTransaction: " << config.minFeePerTransaction << ", "
+     << "checkpoint: " << config.checkpoint << "}";
+  return os;
+}
+
 std::string Validator::SystemCheckpoint::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -33,6 +55,10 @@ Validator::Validator() {
   redirectLogger("Validator");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
   consensus_.redirectLogger(log().getFullName() + ".Obo");
+}
+
+bool Validator::isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const {
+  return consensus_.isSlotLeader(slot, stakeholderId);
 }
 
 bool Validator::isValidSlotLeader(const Ledger::ChainNode& block) const {
@@ -86,33 +112,22 @@ bool Validator::isValidBlockSequence(const Ledger::ChainNode& block) const {
   return true;
 }
 
-bool Validator::isChainValid(const std::vector<Ledger::ChainNode>& chain) const {
-  size_t chainSize = chain.size();
-  
-  if (chainSize == 0) {
+bool Validator::needsCheckpoint(const CheckpointConfig& checkpointConfig) const {
+  if (getNextBlockId() < currentCheckpointId_ + checkpointConfig.minBlocks) {
     return false;
   }
-
-  // Validate all blocks in the chain
-  for (size_t i = 0; i < chainSize; i++) {
-    const auto &currentBlock = chain[i];
-    // Verify current block's hash
-    if (currentBlock.hash != calculateHash(currentBlock.block)) {
-      return false;
-    }
-
-    // Verify link to previous block (skip for first block if it has special
-    // previousHash "0")
-    // TODO: Skip validation by index saved in block, not by position in chain
-    if (i > 0) {
-      const auto &previousBlock = chain[i - 1];
-      if (currentBlock.block.previousHash != previousBlock.hash) {
-        return false;
-      }
-    }
+  if (getBlockAgeSeconds(currentCheckpointId_) < checkpointConfig.minAgeSeconds) {
+    return false;
   }
-
   return true;
+}
+
+uint64_t Validator::getLastCheckpointId() const {
+  return lastCheckpointId_;
+}
+
+uint64_t Validator::getCurrentCheckpointId() const {
+  return currentCheckpointId_;
 }
 
 uint64_t Validator::getNextBlockId() const {
@@ -129,6 +144,14 @@ uint64_t Validator::getCurrentEpoch() const {
 
 uint64_t Validator::getTotalStake() const {
   return consensus_.getTotalStake();
+}
+
+Validator::Roe<uint64_t> Validator::getSlotLeader(uint64_t slot) const {
+  auto result = consensus_.getSlotLeader(slot);
+  if (!result) {
+    return Error(15, "Failed to get slot leader: " + result.error().message);
+  }
+  return result.value();
 }
 
 std::vector<consensus::Stakeholder> Validator::getStakeholders() const {
@@ -155,10 +178,55 @@ Validator::Roe<Client::AccountInfo> Validator::getAccount(uint64_t accountId) co
   return accountInfo;
 }
 
+uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
+  auto blockResult = ledger_.readBlock(blockId);
+  if (!blockResult) {
+    return 0;
+  }
+  auto block = blockResult.value();
+
+  auto currentTime = consensus_.getTimestamp();
+  int64_t blockTime = block.block.timestamp;
+  
+  if (currentTime > blockTime) {
+    return static_cast<uint64_t>(currentTime - blockTime);
+  }
+
+  return 0;
+}
+
+Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
+  auto result = ledger_.readLastBlock();
+  if (!result) {
+    return Error(2, "Failed to read last block: " + result.error().message);
+  }
+  return result.value();
+}
+
 std::string Validator::calculateHash(const Ledger::Block& block) const {
   // Use ltsToString() to get the serialized block representation
   std::string serialized = block.ltsToString();
   return utl::sha256(serialized);
+}
+
+void Validator::initConsensus(const consensus::Ouroboros::Config& config) {
+  consensus_.init(config);
+}
+
+Validator::Roe<void> Validator::initLedger(const Ledger::InitConfig& config) {
+  auto result = ledger_.init(config);
+  if (!result) {
+    return Error(2, "Failed to initialize ledger: " + result.error().message);
+  }
+  return {};
+}
+
+Validator::Roe<void> Validator::mountLedger(const std::string& workDir) {
+  auto result = ledger_.mount(workDir);
+  if (!result) {
+    return Error(2, "Failed to mount ledger: " + result.error().message);
+  }
+  return {};
 }
 
 Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
@@ -375,7 +443,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   return blockId;
 }
 
-Validator::Roe<void> Validator::addBlockBase(const Ledger::ChainNode& block, bool isStrictMode) {
+Validator::Roe<void> Validator::doAddBlock(const Ledger::ChainNode& block, bool isStrictMode) {
   // Validate the block first
   auto validationResult = validateBlock(block);
   if (!validationResult) {

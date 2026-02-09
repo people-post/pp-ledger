@@ -56,9 +56,6 @@ public:
 
     // ----------------- accessors -------------------------------------
     bool isSlotLeader() const;
-    bool isSlotLeader(uint64_t slot) const;
-    bool isOutOfDate(uint64_t checkpointId) const;
-
     bool shouldProduceBlock() const;
 
     uint64_t getStake() const;
@@ -86,8 +83,8 @@ private:
         BlockChainConfig chain;
     };
 
-    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
     Roe<Ledger::ChainNode> createBlock();
+    Roe<void> createCheckpoint(uint64_t blockId);
     
     Config config_;
     AccountBuffer bufferBank_;

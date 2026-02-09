@@ -34,7 +34,7 @@ public:
     uint64_t id{ 0 };
     std::vector<std::string> publicKeys;
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance (ID_GENESIS = native token)
-    // TODO: Add indexes for retrieving accounts from ledger
+    uint64_t blockId{ 0 }; // blockId of the last registration/renewal of the account
   };
 
   AccountBuffer();

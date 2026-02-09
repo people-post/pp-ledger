@@ -64,12 +64,6 @@ public:
   ~Beacon() override = default;
 
   // ----------------- accessors -------------------------------------
-  bool needsCheckpoint() const;
-
-  Roe<uint64_t> getSlotLeader(uint64_t slot) const;
-  uint64_t getLastCheckpointId() const;
-  uint64_t getCurrentCheckpointId() const;
-  Roe<std::vector<uint64_t>> getCheckpoints() const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
@@ -84,19 +78,12 @@ private:
     BlockChainConfig chain;
   };
 
-  Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-  Roe<void> evaluateCheckpoints();
-  uint64_t getBlockAge(uint64_t blockId) const;
-  Roe<void> createCheckpoint(uint64_t blockId);
   Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
 
   Config config_;
-  uint64_t currentCheckpointId_{ 0 };
-  uint64_t lastCheckpointId_{ 0 };
 };
 
 // Ostream operators for easy logging
-std::ostream& operator<<(std::ostream& os, const Beacon::CheckpointConfig& config);
 std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config);
 std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config);
 } // namespace pp

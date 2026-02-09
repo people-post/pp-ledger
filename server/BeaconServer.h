@@ -77,8 +77,8 @@ private:
   constexpr static const uint64_t DEFAULT_MIN_FEE_PER_TRANSACTION = 1;
 
   // Checkpoint configuration values
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_SIZE = 1024ULL * 1024 * 1024; // 1GB
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_AGE = 365 * 24 * 3600; // 1 year
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = 365 * 24 * 3600; // 1 year (365 days)
 
   struct InitFileConfig {
     uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
@@ -86,8 +86,8 @@ private:
     uint64_t maxPendingTransactions{ DEFAULT_MAX_PENDING_TRANSACTIONS };
     uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
     uint64_t minFeePerTransaction{ DEFAULT_MIN_FEE_PER_TRANSACTION };
-    uint64_t checkpointSize{ DEFAULT_CHECKPOINT_SIZE };
-    uint64_t checkpointAge{ DEFAULT_CHECKPOINT_AGE };
+    uint64_t checkpointMinBlocks{ DEFAULT_CHECKPOINT_MIN_BLOCKS };
+    uint64_t checkpointMinAgeSeconds{ DEFAULT_CHECKPOINT_MIN_AGE_SECONDS };
 
     nlohmann::json ltsToJson();
     Roe<void> ltsFromJson(const nlohmann::json& jd);

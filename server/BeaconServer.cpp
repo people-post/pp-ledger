@@ -26,8 +26,8 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["maxPendingTransactions"] = maxPendingTransactions;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
   j["minFeePerTransaction"] = minFeePerTransaction;
-  j["checkpointSize"] = checkpointSize;
-  j["checkpointAge"] = checkpointAge;
+  j["checkpointMinBlocks"] = checkpointMinBlocks;
+  j["checkpointMinAgeSeconds"] = checkpointMinAgeSeconds;
   return j;
 }
 
@@ -100,24 +100,24 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::ltsFromJson(const nlohmann
       minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
     }
 
-    // Load and validate checkpointSize
-    if (jd.contains("checkpointSize")) {
-      if (!jd["checkpointSize"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointSize' must be a positive number");
+    // Load and validate checkpointMinBlocks
+    if (jd.contains("checkpointMinBlocks")) {
+      if (!jd["checkpointMinBlocks"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointMinBlocks' must be a positive number");
       }
-      checkpointSize = jd["checkpointSize"].get<uint64_t>();
+      checkpointMinBlocks = jd["checkpointMinBlocks"].get<uint64_t>();
     } else {
-      checkpointSize = DEFAULT_CHECKPOINT_SIZE;
+      checkpointMinBlocks = DEFAULT_CHECKPOINT_MIN_BLOCKS;
     }
 
-    // Load and validate checkpointAge
-    if (jd.contains("checkpointAge")) {
-      if (!jd["checkpointAge"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'checkpointAge' must be a positive number");
+    // Load and validate checkpointMinAgeSeconds
+    if (jd.contains("checkpointMinAgeSeconds")) {
+      if (!jd["checkpointMinAgeSeconds"].is_number_unsigned()) {
+        return Error(E_CONFIG, "Field 'checkpointMinAgeSeconds' must be a positive number");
       }
-      checkpointAge = jd["checkpointAge"].get<uint64_t>();
+      checkpointMinAgeSeconds = jd["checkpointMinAgeSeconds"].get<uint64_t>();
     } else {
-      checkpointAge = DEFAULT_CHECKPOINT_AGE;
+      checkpointMinAgeSeconds = DEFAULT_CHECKPOINT_MIN_AGE_SECONDS;
     }
 
     return {};
@@ -256,8 +256,8 @@ BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& w
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
   initConfig.chain.maxPendingTransactions = initFileConfig.maxPendingTransactions;
   initConfig.chain.maxTransactionsPerBlock = initFileConfig.maxTransactionsPerBlock;
-  initConfig.chain.checkpoint.minSizeBytes = initFileConfig.checkpointSize;
-  initConfig.chain.checkpoint.ageSeconds = initFileConfig.checkpointAge;
+  initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
+  initConfig.chain.checkpoint.minAgeSeconds = initFileConfig.checkpointMinAgeSeconds;
 
   Beacon::InitKeyConfig kPrivate;
   for (int i = 0; i < 3; i++) {

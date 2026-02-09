@@ -42,8 +42,6 @@ public:
   ~Relay() override = default;
 
   // ----------------- accessors -------------------------------------
-  uint64_t getLastCheckpointId() const;
-  uint64_t getCurrentCheckpointId() const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);

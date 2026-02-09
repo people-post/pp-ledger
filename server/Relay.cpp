@@ -11,14 +11,6 @@ namespace pp {
 
 Relay::Relay() {}
 
-uint64_t Relay::getLastCheckpointId() const {
-  return 0;
-}
-
-uint64_t Relay::getCurrentCheckpointId() const {
-  return 0;
-}
-
 Relay::Roe<void> Relay::init(const InitConfig& config) {
   log().info << "Initializing Relay";
   log().debug << "Init config: " << config;
@@ -35,11 +27,11 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
   if (std::filesystem::exists(ledgerDir)) {
-    auto roe = getLedger().mount(ledgerDir);
+    auto roe = mountLedger(ledgerDir);
     if (!roe) {
       return Error(2, "Failed to mount ledger: " + roe.error().message);
     }
-    if (getLedger().getNextBlockId() < config.startingBlockId) {
+    if (getNextBlockId() < config.startingBlockId) {
       log().info << "Ledger data too old, removing existing work directory: " << ledgerDir;
       std::error_code ec;
       std::filesystem::remove_all(ledgerDir, ec);
@@ -53,16 +45,16 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = ledgerDir;
     ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = getLedger().init(ledgerConfig);
+    auto ledgerResult = initLedger(ledgerConfig);
     if (!ledgerResult) {
       return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
     }
   }
 
   // Initialize consensus (timeOffset only; full config from genesis block when loading)
-  consensus::Ouroboros::Config cc;
-  cc.timeOffset = config.timeOffset;
-  getConsensus().init(cc);
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.timeOffset = config.timeOffset;
+  initConsensus(consensusConfig);
 
   auto loadResult = loadFromLedger(config.startingBlockId);
   if (!loadResult) {
@@ -83,7 +75,7 @@ void Relay::refresh() {
 
 Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode& block) {
   // Relay starts at block 0, use strict validation
-  auto result = addBlockBase(block, true);
+  auto result = doAddBlock(block, true);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

@@ -29,11 +29,11 @@ namespace pp {
 class Validator : public Module {
 public:
     struct CheckpointConfig {
-      uint64_t minSizeBytes{ 0 };
-      uint64_t ageSeconds{ 0 };
+      uint64_t minBlocks{ 0 }; // minimum number of blocks to trigger a checkpoint
+      uint64_t minAgeSeconds{ 0 }; // minimum age of the blocks to trigger a checkpoint
 
       template <typename Archive> void serialize(Archive &ar) {
-        ar & minSizeBytes & ageSeconds;
+        ar & minBlocks & minAgeSeconds;
       }
     };
 
@@ -94,12 +94,13 @@ public:
     virtual ~Validator() = default;
 
     // ----------------- accessors -------------------------------------
-    bool isChainValid(const std::vector<Ledger::ChainNode>& chain) const;
-
     uint64_t getNextBlockId() const;
+    uint64_t getLastCheckpointId() const;
+    uint64_t getCurrentCheckpointId() const;
     uint64_t getCurrentSlot() const;
     uint64_t getCurrentEpoch() const;
     uint64_t getTotalStake() const;
+    Roe<uint64_t> getSlotLeader(uint64_t slot) const;
     std::vector<consensus::Stakeholder> getStakeholders() const;
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
     Roe<Client::AccountInfo> getAccount(uint64_t accountId) const;
@@ -109,20 +110,26 @@ public:
     
 protected:
     // Validation helpers
+    bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
+    bool needsCheckpoint(const CheckpointConfig& checkpointConfig) const;
 
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
 
     // Getters for derived classes
-    consensus::Ouroboros& getConsensus() { return consensus_; }
     const consensus::Ouroboros& getConsensus() const { return consensus_; }
-    Ledger& getLedger() { return ledger_; }
-    const Ledger& getLedger() const { return ledger_; }
 
-    Roe<void> addBlockBase(const Ledger::ChainNode& block, bool isStrictMode);
+    uint64_t getBlockAgeSeconds(uint64_t blockId) const;
+
+    Roe<Ledger::ChainNode> readLastBlock() const;
+
+    void initConsensus(const consensus::Ouroboros::Config& config);
+    Roe<void> initLedger(const Ledger::InitConfig& config);
+    Roe<void> mountLedger(const std::string& workDir);
+    Roe<void> doAddBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
     void refreshStakeholders();
 
@@ -140,22 +147,13 @@ private:
     Ledger ledger_;
     AccountBuffer bank_;
     BlockChainConfig chainConfig_;
+    uint64_t currentCheckpointId_{ 0 };
+    uint64_t lastCheckpointId_{ 0 };
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
-  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
-  os << "BlockChainConfig{genesisTime=" << config.genesisTime << ", "
-     << "slotDuration=" << config.slotDuration << ", "
-     << "slotsPerEpoch=" << config.slotsPerEpoch << ", "
-     << "maxPendingTransactions=" << config.maxPendingTransactions << ", "
-     << "maxTransactionsPerBlock=" << config.maxTransactionsPerBlock << ", "
-     << "minFeePerTransaction=" << config.minFeePerTransaction << "}";
-  return os;
-}
+std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& config);
+std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info);
+std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config);
 
 } // namespace pp
 
