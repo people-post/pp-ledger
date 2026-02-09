@@ -13,6 +13,16 @@ bool AccountBuffer::hasAccount(uint64_t id) const {
   return mAccounts_.find(id) != mAccounts_.end();
 }
 
+std::vector<uint64_t> AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
+  std::vector<uint64_t> ids;
+  for (const auto& [id, account] : mAccounts_) {
+    if (account.blockId < blockId) {
+      ids.push_back(id);
+    }
+  }
+  return ids;
+}
+
 bool AccountBuffer::isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const {
   // Only the genesis token account can have negative balances
   return account.id == tokenId;

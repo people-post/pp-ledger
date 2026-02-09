@@ -438,6 +438,32 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readLastBlock() const {
   return readBlock(nextBlockId - 1);
 }
 
+Ledger::Roe<Ledger::ChainNode> Ledger::findBlockByTimestamp(int64_t timestamp) const {
+  const uint64_t start = meta_.startingBlockId;
+  const uint64_t nextBlockId = getNextBlockId();
+  if (start >= nextBlockId) {
+    return Error("No blocks in ledger");
+  }
+  uint64_t low = start;
+  uint64_t high = nextBlockId;
+  while (low < high) {
+    uint64_t mid = low + (high - low) / 2;
+    auto result = readBlock(mid);
+    if (!result) {
+      return Error("Failed to read block " + std::to_string(mid) + " during findBlockByTimestamp: " + result.error().message);
+    }
+    if (result.value().block.timestamp >= timestamp) {
+      high = mid;
+    } else {
+      low = mid + 1;
+    }
+  }
+  if (low >= nextBlockId) {
+    return Error("No block with timestamp >= " + std::to_string(timestamp));
+  }
+  return readBlock(low);
+}
+
 Ledger::Roe<void> Ledger::cleanupData() {
   std::error_code ec;
   

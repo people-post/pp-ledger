@@ -43,6 +43,8 @@ public:
 
   bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
+  /** Returns account IDs whose blockId is strictly before the given blockId (account.blockId < blockId). */
+  std::vector<uint64_t> getAccountIdsBeforeBlockId(uint64_t blockId) const;
   Roe<const Account&> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
   std::vector<consensus::Stakeholder> getStakeholders() const;

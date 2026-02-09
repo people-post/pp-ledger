@@ -17,8 +17,9 @@ class Ledger : public Module {
 public:
   struct Transaction {
     constexpr static uint16_t T_DEFAULT = 0;
-    constexpr static uint16_t T_CHECKPOINT = 1;
-    constexpr static uint16_t T_USER = 2;
+    constexpr static uint16_t T_CHECKPOINT = 1; // Used by GENESIS account to update the checkpoint config
+    constexpr static uint16_t T_USER = 2; // Used by user accounts to update their account info
+    constexpr static uint16_t T_RENEWAL = 3; // Used by miner accounts to renew user account with latest account info
 
     uint16_t type{ T_DEFAULT };
     uint64_t tokenId{ 0 };      // Token ID (0 = native token)
@@ -127,6 +128,8 @@ public:
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
   Roe<ChainNode> readBlock(uint64_t blockId) const;
   Roe<ChainNode> readLastBlock() const;
+  /** Smallest blockId such that block.timestamp >= timestamp (O(log n) block reads). */
+  Roe<ChainNode> findBlockByTimestamp(int64_t timestamp) const;
   uint64_t countSizeFromBlockId(uint64_t blockId) const;
 
 private:

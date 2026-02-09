@@ -208,11 +208,69 @@ uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
 }
 
 std::vector<Ledger::SignedData<Ledger::Transaction>> Validator::collectRenewals(uint64_t slot) const {
-  // TODO: Implement renewal collection.
-  // Get accounts from bank_ that their block id is too old (comparing to nextBlockId and measured by BlockChainConfig.checkpoint).
-  // For each account, create a renewal transaction (account.id -> ID_FEE, amount 0, fee minFeePerTransaction)
-  // and add it to the renewal list.
-  return {};
+  std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
+  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
+  if (nextBlockId < minBlocks) {
+    return renewals;
+  }
+  uint64_t maxBlockIdFromBlocks = nextBlockId - minBlocks + 1;
+
+  const uint64_t minAgeSeconds = chainConfig_.checkpoint.minAgeSeconds;
+
+  uint64_t maxBlockIdFromTime = nextBlockId;
+  if (minAgeSeconds > 0 && nextBlockId > 0) {
+    const int64_t cutoffTimestamp = getConsensusTimestamp() - static_cast<int64_t>(minAgeSeconds);
+    auto roeBlock = ledger_.findBlockByTimestamp(cutoffTimestamp);
+    if (roeBlock) {
+      maxBlockIdFromTime = roeBlock.value().block.index;
+    }
+  }
+  const uint64_t maxBlockIdForRenewal = std::min(maxBlockIdFromBlocks, maxBlockIdFromTime);
+  if (maxBlockIdForRenewal == 0 || maxBlockIdForRenewal >= nextBlockId) {
+    // maxBlockIdForRenewal is capped at current block id
+    return renewals;
+  }
+
+  const uint64_t minFee = chainConfig_.minFeePerTransaction;
+  for (uint64_t accountId : bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+    Ledger::Transaction tx;
+    tx.type = Ledger::Transaction::T_RENEWAL;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = accountId;
+    tx.toWalletId = AccountBuffer::ID_FEE;
+    tx.amount = 0;
+    tx.fee = static_cast<int64_t>(minFee);
+
+    auto accountResult = bank_.getAccount(accountId);
+    if (!accountResult) {
+      log().error << "Account not found: " << accountId << ", something is really wrong, this should not happen";
+      continue;
+    }
+    auto const& account = accountResult.value();
+    auto blockResult = ledger_.readBlock(account.blockId);
+    if (!blockResult) {
+      log().error << "Block not found: " << account.blockId << ", something is really wrong, this should not happen";
+      continue;
+    }
+    auto const& block = blockResult.value().block;
+    for (const auto& signedTx : block.signedTxes) {
+      // TODO: Handle all types of transactions that may update the account meta
+      if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
+        tx.meta = signedTx.obj.meta;
+      }
+    }
+
+    Ledger::SignedData<Ledger::Transaction> signedTx;
+    signedTx.obj = tx;
+    signedTx.signatures.clear();
+
+    // TODO: Use miner's private key to sign the renewal transaction
+
+    renewals.push_back(signedTx);
+  }
+
+  return renewals;
 }
 
 Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
