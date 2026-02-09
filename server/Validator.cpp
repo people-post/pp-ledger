@@ -207,7 +207,7 @@ uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
   return 0;
 }
 
-std::vector<Ledger::SignedData<Ledger::Transaction>> Validator::collectRenewals(uint64_t slot) const {
+Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
   const uint64_t nextBlockId = ledger_.getNextBlockId();
   const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
@@ -244,29 +244,64 @@ std::vector<Ledger::SignedData<Ledger::Transaction>> Validator::collectRenewals(
 
     auto accountResult = bank_.getAccount(accountId);
     if (!accountResult) {
-      log().error << "Account not found: " << accountId << ", something is really wrong, this should not happen";
-      continue;
+      return Error(8, "Account not found: " + std::to_string(accountId));
     }
     auto const& account = accountResult.value();
     auto blockResult = ledger_.readBlock(account.blockId);
     if (!blockResult) {
-      log().error << "Block not found: " << account.blockId << ", something is really wrong, this should not happen";
-      continue;
+      return Error(8, "Block not found: " + std::to_string(account.blockId));
     }
     auto const& block = blockResult.value().block;
-    for (const auto& signedTx : block.signedTxes) {
-      // TODO: Handle all types of transactions that may update the account meta
-      if (signedTx.obj.type == Ledger::Transaction::T_CHECKPOINT) {
-        tx.meta = signedTx.obj.meta;
+    bool foundMeta = false;
+    for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend(); ++it) {
+      const auto& signedTx = *it;
+      if (signedTx.obj.fromWalletId != accountId) {
+        continue;
       }
+
+      switch (signedTx.obj.type) {
+        case Ledger::Transaction::T_CHECKPOINT: {
+          auto metaResult = updateMetaFromCheckpoint(signedTx.obj.meta);
+          if (!metaResult) {
+            return Error(8, "Failed to update meta from checkpoint: " + metaResult.error().message);
+          }
+          tx.meta = metaResult.value();
+          foundMeta = true;
+          break;
+        }
+        case Ledger::Transaction::T_USER: {
+          auto metaResult = updateMetaFromUser(signedTx.obj.meta, account);
+          if (!metaResult) {
+            return Error(8, "Failed to update meta from user: " + metaResult.error().message);
+          }
+          tx.meta = metaResult.value();
+          foundMeta = true;
+          break;
+        }
+        case Ledger::Transaction::T_RENEWAL: {
+          auto metaResult = updateMetaFromRenewal(signedTx.obj.meta, account);
+          if (!metaResult) {
+            return Error(8, "Failed to update meta from renewal: " + metaResult.error().message);
+          }
+          tx.meta = metaResult.value();
+          foundMeta = true;
+          break;
+        }
+        default:
+          break;
+      }
+
+      if (foundMeta) { 
+        break; // use first matching tx (last in block order)
+      }
+    }
+
+    if (!foundMeta) {
+      return Error(8, "No prior checkpoint/user/renewal from this account in block");
     }
 
     Ledger::SignedData<Ledger::Transaction> signedTx;
     signedTx.obj = tx;
-    signedTx.signatures.clear();
-
-    // TODO: Use miner's private key to sign the renewal transaction
-
     renewals.push_back(signedTx);
   }
 
@@ -279,6 +314,65 @@ Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
     return Error(2, "Failed to read last block: " + result.error().message);
   }
   return result.value();
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromCheckpoint(const std::string& meta) const {
+  // TODO: Fee and reserver accounts are special cases that need to be handled differently.
+  SystemCheckpoint checkpoint;
+  if (!checkpoint.ltsFromString(meta)) {
+    return Error(8, "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
+  }
+
+  auto genesisAccountResult = bank_.getAccount(AccountBuffer::ID_GENESIS);
+  if (!genesisAccountResult) {
+    return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_GENESIS));
+  }
+  auto const& genesisAccount = genesisAccountResult.value();
+  checkpoint.genesis.balance = genesisAccount.mBalances.at(AccountBuffer::ID_GENESIS);
+  checkpoint.genesis.publicKeys = genesisAccount.publicKeys;
+  checkpoint.genesis.minSignatures = genesisAccount.minSignatures;
+
+  auto feeAccountResult = bank_.getAccount(AccountBuffer::ID_FEE);
+  if (!feeAccountResult) {
+    return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_FEE));
+  }
+  auto const& feeAccount = feeAccountResult.value();
+  checkpoint.fee.balance = feeAccount.mBalances.at(AccountBuffer::ID_GENESIS);
+  checkpoint.fee.publicKeys = feeAccount.publicKeys;
+  checkpoint.fee.minSignatures = feeAccount.minSignatures;
+
+  auto reserveAccountResult = bank_.getAccount(AccountBuffer::ID_RESERVE);
+  if (!reserveAccountResult) {
+    return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_RESERVE));
+  }
+  auto const& reserveAccount = reserveAccountResult.value();
+  checkpoint.reserve.balance = reserveAccount.mBalances.at(AccountBuffer::ID_GENESIS);
+  checkpoint.reserve.publicKeys = reserveAccount.publicKeys;
+  checkpoint.reserve.minSignatures = reserveAccount.minSignatures;
+
+  return checkpoint.ltsToString();
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const {
+  Client::AccountInfo accountInfo;
+  if (!accountInfo.ltsFromString(meta)) {
+    return Error(8, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
+  }
+  accountInfo.mBalances = account.mBalances;
+  accountInfo.publicKeys = account.publicKeys;
+  accountInfo.minSignatures = account.minSignatures;
+  return accountInfo.ltsToString();
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
+  Client::AccountInfo accountInfo;
+  if (!accountInfo.ltsFromString(meta)) {
+    return Error(8, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
+  }
+  accountInfo.mBalances = account.mBalances;
+  accountInfo.publicKeys = account.publicKeys;
+  accountInfo.minSignatures = account.minSignatures;
+  return accountInfo.ltsToString();
 }
 
 std::string Validator::calculateHash(const Ledger::Block& block) const {

@@ -120,7 +120,7 @@ protected:
     uint64_t getBlockAgeSeconds(uint64_t blockId) const;
     uint64_t getStakeholderStake(uint64_t stakeholderId) const;
 
-    std::vector<Ledger::SignedData<Ledger::Transaction>> collectRenewals(uint64_t slot) const;
+    Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> collectRenewals(uint64_t slot) const;
     Roe<Ledger::ChainNode> readLastBlock() const;
 
     void initConsensus(const consensus::Ouroboros::Config& config);
@@ -152,6 +152,11 @@ private:
     Roe<void> validateTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
     Roe<void> validateLooseTransaction(const Ledger::Transaction& tx);
+
+    /** Build serialized AccountInfo meta from the account currently in the buffer. */
+    Roe<std::string> updateMetaFromCheckpoint(const std::string& meta) const;
+    Roe<std::string> updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
 
     consensus::Ouroboros consensus_;
     Ledger ledger_;

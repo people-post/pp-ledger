@@ -100,7 +100,21 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
     slotCache_.isLeader = isStakeholderSlotLeader(config_.minerId, slot);
     if (slotCache_.isLeader) {
       // Leader initial evaluations per slot
-      slotCache_.txRenewals = collectRenewals(slot);
+      auto renewalsResult = collectRenewals(slot);
+      if (!renewalsResult) {
+        slotCache_ = {};
+        return Error(12, renewalsResult.error().message);
+      }
+      slotCache_.txRenewals = renewalsResult.value();
+      for (auto& signedTx : slotCache_.txRenewals) {
+        auto message = utl::binaryPack(signedTx.obj);
+        auto result = utl::ed25519Sign(config_.privateKey, message);
+        if (!result) {
+          slotCache_ = {};
+          return Error(12, result.error().message);
+        }
+        signedTx.signatures.push_back(*result);
+      }
     }
   }
 
