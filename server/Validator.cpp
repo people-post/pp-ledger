@@ -291,8 +291,12 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
 Validator::Roe<void> Validator::validateBlock(const Ledger::ChainNode& block) const {
   if (block.block.index == 0) {
     return validateGenesisBlock(block);
+  } else {
+    return validateNormalBlock(block);
   }
+}
 
+Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& block) const {
   // Non-genesis: validate slot leader and timing
   uint64_t slot = block.block.slot;
   uint64_t slotLeader = block.block.slotLeader;
@@ -418,15 +422,12 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
       break;
     }
 
-    Ledger::ChainNode block = blockResult.value();
-
-    auto validateResult = validateBlock(block);
-    if (!validateResult) {
-      return Error(17, "Block validation failed for block " + std::to_string(blockId) + ": " + validateResult.error().message);
+    auto const& block = blockResult.value();
+    if (blockId != block.block.index) {
+      return Error(18, "Block index mismatch: expected " + std::to_string(blockId) + " got " + std::to_string(block.block.index));
     }
 
-    // Process the block
-    auto processResult = processBlock(block, blockId, isStrictMode);
+    auto processResult = processBlock(block, isStrictMode);
     if (!processResult) {
       return Error(18, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
     }
@@ -444,13 +445,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
 }
 
 Validator::Roe<void> Validator::doAddBlock(const Ledger::ChainNode& block, bool isStrictMode) {
-  // Validate the block first
-  auto validationResult = validateBlock(block);
-  if (!validationResult) {
-    return Error(3, "Block validation failed: " + validationResult.error().message);
-  }
-
-  auto processResult = processBlock(block, block.block.index, isStrictMode);
+  auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
     return Error(4, "Failed to process block: " + processResult.error().message);
   }
@@ -466,7 +461,13 @@ Validator::Roe<void> Validator::doAddBlock(const Ledger::ChainNode& block, bool 
   return {};
 }
 
-Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode) {
+Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+  // Validate the block first
+  auto validationResult = validateBlock(block);
+  if (!validationResult) {
+    return Error(17, "Block validation failed for block " + std::to_string(block.block.index) + ": " + validationResult.error().message);
+  }
+
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
     auto result = processTransaction(signedTx.obj, isStrictMode);

@@ -80,7 +80,6 @@ private:
         uint64_t tokenId{ AccountBuffer::ID_GENESIS };
         std::string privateKey;  // hex-encoded
         uint64_t checkpointId{ 0 };
-        BlockChainConfig chain;
     };
 
     Roe<Ledger::ChainNode> createBlock();

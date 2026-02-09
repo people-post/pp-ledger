@@ -75,7 +75,6 @@ public:
 private:
   struct Config {
     std::string workDir;
-    BlockChainConfig chain;
   };
 
   Ledger::ChainNode createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;

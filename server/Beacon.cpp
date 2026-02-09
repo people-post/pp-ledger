@@ -68,11 +68,11 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
 
   config_.workDir = config.workDir;
-  config_.chain = config.chain;
-  config_.chain.genesisTime = consensusConfig.genesisTime;
+  auto chainConfig = config.chain;
+  chainConfig.genesisTime = consensusConfig.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlock = createGenesisBlock(config_.chain, config.key);
+  auto genesisBlock = createGenesisBlock(chainConfig, config.key);
   
   auto addBlockResult = addBlock(genesisBlock);
   if (!addBlockResult) {
@@ -87,8 +87,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   log().info << "  Time offset: " << consensusConfig.timeOffset;
   log().info << "  Slot duration: " << consensusConfig.slotDuration;
   log().info << "  Slots per epoch: " << consensusConfig.slotsPerEpoch;
-  log().info << "  Max pending transactions: " << config_.chain.maxPendingTransactions;
-  log().info << "  Max transactions per block: " << config_.chain.maxTransactionsPerBlock;
+  log().info << "  Max pending transactions: " << chainConfig.maxPendingTransactions;
+  log().info << "  Max transactions per block: " << chainConfig.maxTransactionsPerBlock;
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 

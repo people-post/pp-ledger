@@ -111,13 +111,7 @@ public:
 protected:
     // Validation helpers
     bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
-    bool isValidBlockSequence(const Ledger::ChainNode& block) const;
-    bool isValidSlotLeader(const Ledger::ChainNode& block) const;
-    bool isValidTimestamp(const Ledger::ChainNode& block) const;
     bool needsCheckpoint(const CheckpointConfig& checkpointConfig) const;
-
-    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
-    Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
 
     // Getters for derived classes
     const consensus::Ouroboros& getConsensus() const { return consensus_; }
@@ -134,15 +128,23 @@ protected:
     void refreshStakeholders();
 
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
-    Roe<void> processBlock(const Ledger::ChainNode& block, uint64_t blockId, bool isStrictMode);
+
+private:
+    bool isValidBlockSequence(const Ledger::ChainNode& block) const;
+    bool isValidSlotLeader(const Ledger::ChainNode& block) const;
+    bool isValidTimestamp(const Ledger::ChainNode& block) const;
+
+    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
+    Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
+    Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
+
+    Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> processTransaction(const Ledger::Transaction& tx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processUserCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
-private:
-    // Core components
     consensus::Ouroboros consensus_;
     Ledger ledger_;
     AccountBuffer bank_;
