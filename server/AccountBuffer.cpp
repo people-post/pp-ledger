@@ -219,15 +219,16 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   // If fee is non-zero, check and deduct fee from fromId in ID_GENESIS token
+  int64_t genesisBalance = 0;
   if (fee > 0) {
     // For ID_GENESIS token transfers, we need to ensure enough balance for amount + fee
     if (tokenId == ID_GENESIS) {
-      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && fromBalance < amount + fee) {
+      genesisBalance = fromBalance; // Already retrieved above
+      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < amount + fee) {
         return Error(24, "Insufficient balance for transfer and fee");
       }
     } else {
       // For custom token transfers, check ID_GENESIS balance separately for fee
-      int64_t genesisBalance = 0;
       auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
       if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
         genesisBalance = genesisBalanceIt->second;
@@ -249,12 +250,7 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
       // Fee already accounted for in the balance check above
       fromIt->second.wallet.mBalances[ID_GENESIS] = fromBalance - amount - fee;
     } else {
-      // Deduct fee from ID_GENESIS balance
-      int64_t genesisBalance = 0;
-      auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
-      if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
-        genesisBalance = genesisBalanceIt->second;
-      }
+      // Deduct fee from ID_GENESIS balance (already retrieved above)
       fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - fee;
     }
   }
