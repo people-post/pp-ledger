@@ -703,3 +703,23 @@ TEST_F(AccountBufferTest, TransferBalance_GenesisAccount_WithFee_AllowsNegativeB
     ASSERT_TRUE(to.isOk());
     EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
+
+TEST_F(AccountBufferTest, TransferBalance_AmountPlusFeeOverflow_Error) {
+    // Test overflow protection when amount + fee > INT64_MAX
+    auto a = makeAccount(1, INT64_MAX);
+    ASSERT_TRUE(buf.add(a).isOk());
+    
+    auto b = makeAccount(2, 0);
+    ASSERT_TRUE(buf.add(b).isOk());
+
+    // Try to transfer with amount + fee that would overflow
+    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, INT64_MAX - 5, 10);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, 26);
+    EXPECT_EQ(r.error().message, "Transfer amount and fee would cause overflow");
+    
+    // Balance should remain unchanged
+    auto from = buf.getAccount(1);
+    ASSERT_TRUE(from.isOk());
+    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MAX);
+}

@@ -224,6 +224,10 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
     // For ID_GENESIS token transfers, we need to ensure enough balance for amount + fee
     if (tokenId == ID_GENESIS) {
       genesisBalance = fromBalance; // Already retrieved above
+      // Check for overflow when adding amount + fee
+      if (amount > INT64_MAX - fee) {
+        return Error(26, "Transfer amount and fee would cause overflow");
+      }
       if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < amount + fee) {
         return Error(24, "Insufficient balance for transfer and fee");
       }
