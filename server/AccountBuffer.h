@@ -49,7 +49,7 @@ public:
   std::vector<consensus::Stakeholder> getStakeholders() const;
   
   /** Check if account has enough spending power for a transaction with the given token and fee */
-  bool hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
+  bool hasSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
   Roe<void> add(const Account& account);
 
@@ -60,11 +60,6 @@ public:
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee = 0);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
   
-  // Transaction processing: transfers amount of tokenId from fromId to toId, with fee in ID_GENESIS token
-  // Creates toId account automatically if fromId has sufficient balance
-  Roe<void> addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee);
-  
-
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);
 
@@ -74,6 +69,11 @@ public:
 private:
 
   bool isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const;
+  
+  /** Verify if an account has sufficient spending power for a transaction.
+   *  Checks both the transfer amount and fee balance requirements.
+   *  Returns error if insufficient balances or invalid inputs. */
+  Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
   std::map<uint64_t, Account> mAccounts_;
 };

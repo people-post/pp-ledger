@@ -554,9 +554,19 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
     }
   }
 
-  auto addTransactionResult = bufferBank.addTransaction(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
-  if (!addTransactionResult) {
-    return Error(25, "Transaction failed: " + addTransactionResult.error().message);
+  if (!bufferBank.hasAccount(tx.toWalletId)) {
+    return Error(24, "Destination account not found: " + std::to_string(tx.toWalletId));
+  }
+
+  auto transferResult = bufferBank.transferBalance(
+    tx.fromWalletId,
+    tx.toWalletId,
+    tx.tokenId,
+    tx.amount,
+    tx.fee
+  );
+  if (!transferResult) {
+    return Error(25, "Transaction failed: " + transferResult.error().message);
   }
   return {};
 }
@@ -795,7 +805,7 @@ Validator::Roe<void> Validator::validateNewUser(const Ledger::Transaction& tx) {
   }
 
   // Check if source account has enough spending power for the transaction
-  if (!bank_.hasEnoughSpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee)) {
+  if (!bank_.hasSpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee)) {
     return Error(8, "Source account must have sufficient balance");
   }
 
@@ -882,10 +892,19 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
     return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
 
-  // Use AccountBuffer's addTransaction which handles account creation and balance checks
-  auto result = bank_.addTransaction(tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
-  if (!result) {
-    return Error(19, "Transaction failed: " + result.error().message);
+  if (!bank_.hasAccount(tx.toWalletId)) {
+    return Error(19, "Destination account not found: " + std::to_string(tx.toWalletId));
+  }
+
+  auto transferResult = bank_.transferBalance(
+    tx.fromWalletId,
+    tx.toWalletId,
+    tx.tokenId,
+    tx.amount,
+    tx.fee
+  );
+  if (!transferResult) {
+    return Error(20, "Transaction failed: " + transferResult.error().message);
   }
 
   return {};

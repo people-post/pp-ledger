@@ -82,16 +82,19 @@ std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   return stakeholders;
 }
 
-bool AccountBuffer::hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
+AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
   // Validate inputs
-  if (amount < 0 || fee < 0) {
-    return false;
+  if (amount < 0) {
+    return Error(15, "Transfer amount must be non-negative");
+  }
+  if (fee < 0) {
+    return Error(16, "Fee must be non-negative");
   }
   
   // Check if account exists
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return false;
+    return Error(17, "Account not found");
   }
   
   // Get token balance
@@ -121,17 +124,32 @@ bool AccountBuffer::hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId,
     // Both amount and fee come from the same balance
     // For genesis account, allow negative balance
     if (allowNegativeTokenBalance) {
-      return true;
+      return {};
     }
-    return tokenBalance >= amount + fee;
+    // Check for overflow when adding amount + fee
+    if (amount > INT64_MAX - fee) {
+      return Error(26, "Transfer amount and fee would cause overflow");
+    }
+    if (tokenBalance < amount + fee) {
+      return Error(18, "Insufficient balance for transfer and fee");
+    }
   } else {
     // Amount and fee come from different balances
     // For custom token genesis account: can have negative token balance, but must have enough fee in ID_GENESIS
-    if (allowNegativeTokenBalance) {
-      return feeBalance >= fee;
+    if (!allowNegativeTokenBalance && tokenBalance < amount) {
+      return Error(19, "Insufficient balance for transfer");
     }
-    return tokenBalance >= amount && feeBalance >= fee;
+    if (feeBalance < fee) {
+      return Error(20, "Insufficient balance for fee");
+    }
   }
+  
+  return {};
+}
+
+bool AccountBuffer::hasSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
+  auto result = verifySpendingPower(accountId, tokenId, amount, fee);
+  return result.isOk();
 }
 
 AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
@@ -184,12 +202,10 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
 }
 
 AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee) {
-  if (amount < 0) {
-    return Error(3, "Transfer amount must be non-negative");
-  }
-
-  if (fee < 0) {
-    return Error(8, "Fee must be non-negative");
+  // Verify spending power of source account
+  auto spendingResult = verifySpendingPower(fromId, tokenId, amount, fee);
+  if (!spendingResult) {
+    return spendingResult;
   }
 
   auto fromIt = mAccounts_.find(fromId);
@@ -214,39 +230,18 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
     toBalance = toBalanceIt->second;
   }
 
-  // Check if source account has sufficient balance (unless negative balance is allowed)
-  if (!isNegativeBalanceAllowed(fromIt->second, tokenId) && fromBalance < amount) {
-    return Error(6, "Insufficient balance");
-  }
-
   // Check for overflow in destination account
   if (toBalance > INT64_MAX - amount) {
     return Error(7, "Transfer would cause balance overflow");
   }
 
-  // If fee is non-zero, check and deduct fee from fromId in ID_GENESIS token
+  // Get fee balance if needed
   int64_t genesisBalance = 0;
-  if (fee > 0) {
-    // For ID_GENESIS token transfers, we need to ensure enough balance for amount + fee
-    if (tokenId == ID_GENESIS) {
-      genesisBalance = fromBalance; // Already retrieved above
-      // Check for overflow when adding amount + fee
-      if (amount > INT64_MAX - fee) {
-        return Error(26, "Transfer amount and fee would cause overflow");
-      }
-      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < amount + fee) {
-        return Error(24, "Insufficient balance for transfer and fee");
-      }
-    } else {
-      // For custom token transfers, check ID_GENESIS balance separately for fee
-      auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
-      if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
-        genesisBalance = genesisBalanceIt->second;
-      }
-      
-      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < fee) {
-        return Error(25, "Insufficient balance for fee");
-      }
+  if (fee > 0 && tokenId != ID_GENESIS) {
+    // For custom token transfers, retrieve ID_GENESIS balance for fee deduction
+    auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
+    if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
+      genesisBalance = genesisBalanceIt->second;
     }
   }
 
@@ -280,96 +275,4 @@ void AccountBuffer::reset() {
   clear();
 }
 
-AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee) {
-  // Validate amount
-  if (amount < 0) {
-    return Error(15, "Transfer amount must be non-negative");
-  }
-  if (amount == 0) {
-    return {}; // No-op for zero amount
-  }
-  
-  // Validate fee
-  if (fee < 0) {
-    return Error(16, "Fee must be non-negative");
-  }
-
-  // Check that source account exists
-  auto fromIt = mAccounts_.find(fromId);
-  if (fromIt == mAccounts_.end()) {
-    return Error(17, "Source account not found");
-  }
-
-  // Check if fromId has sufficient balance for the transfer amount
-  int64_t fromTokenBalance = 0;
-  auto fromTokenBalanceIt = fromIt->second.wallet.mBalances.find(tokenId);
-  if (fromTokenBalanceIt != fromIt->second.wallet.mBalances.end()) {
-    fromTokenBalance = fromTokenBalanceIt->second;
-  }
-  
-  // Check if fromId has sufficient balance for the fee (in ID_GENESIS token)
-  int64_t fromFeeBalance = 0;
-  if (tokenId == ID_GENESIS) {
-    // If tokenId is ID_GENESIS, the fee comes from the same balance as the transfer
-    fromFeeBalance = fromTokenBalance;
-  } else {
-    auto fromFeeBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
-    if (fromFeeBalanceIt != fromIt->second.wallet.mBalances.end()) {
-      fromFeeBalance = fromFeeBalanceIt->second;
-    }
-  }
-  
-  // Verify sufficient balance (unless negative balance is allowed)
-  if (!isNegativeBalanceAllowed(fromIt->second, tokenId)) {
-    if (tokenId == ID_GENESIS) {
-      // Both amount and fee come from the same balance
-      if (fromTokenBalance < amount + fee) {
-        return Error(18, "Insufficient balance for transfer and fee");
-      }
-    } else {
-      // Amount and fee come from different balances
-      if (fromTokenBalance < amount) {
-        return Error(19, "Insufficient balance for transfer");
-      }
-      if (fromFeeBalance < fee) {
-        return Error(20, "Insufficient balance for fee");
-      }
-    }
-  }
-
-  // Create toId account if it doesn't exist
-  bool toAccountCreated = false;
-  if (!hasAccount(toId)) {
-    Account newAccount;
-    newAccount.id = toId;
-    newAccount.wallet.mBalances[tokenId] = 0;
-    newAccount.wallet.publicKeys = {};
-    auto addResult = add(newAccount);
-    if (!addResult) {
-      return Error(21, "Failed to create destination account: " + addResult.error().message);
-    }
-    toAccountCreated = true;
-  }
-
-  // Perform the transfer
-  auto transferResult = transferBalance(fromId, toId, tokenId, amount);
-  if (!transferResult) {
-    if (toAccountCreated) {
-      remove(toId); // Cleanup the newly created account
-    }
-    return Error(22, "Transfer failed: " + transferResult.error().message);
-  }
-
-  // Deduct the fee (if non-zero)
-  if (fee > 0) {
-    auto feeResult = withdrawBalance(fromId, ID_GENESIS, fee);
-    if (!feeResult) {
-      // This shouldn't happen since we already checked for sufficient balance,
-      // but handle it gracefully anyway
-      return Error(23, "Failed to deduct fee: " + feeResult.error().message);
-    }
-  }
-
-  return {};
-}
 } // namespace pp
