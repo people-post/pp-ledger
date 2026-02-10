@@ -160,23 +160,22 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
   SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
-  systemCheckpoint.genesis.balance = 0; // Native token (ID ID_GENESIS) with zero balance
+
   for (const auto& kp : key.genesis) {
-    systemCheckpoint.genesis.publicKeys.push_back(kp.publicKey);
+    systemCheckpoint.genesis.wallet.publicKeys.push_back(kp.publicKey);
   }
-  systemCheckpoint.genesis.minSignatures = key.genesis.size();
+  systemCheckpoint.genesis.wallet.minSignatures = key.genesis.size();
   systemCheckpoint.genesis.meta = "Native token genesis wallet";
-  systemCheckpoint.fee.balance = 0; // Fee wallet (ID ID_FEE) with zero balance
+
   for (const auto& kp : key.fee) {
-    systemCheckpoint.fee.publicKeys.push_back(kp.publicKey);
+    systemCheckpoint.fee.wallet.publicKeys.push_back(kp.publicKey);
   }
-  systemCheckpoint.fee.minSignatures = key.fee.size();
+  systemCheckpoint.fee.wallet.minSignatures = key.fee.size();
   systemCheckpoint.fee.meta = "Wallet for transaction fees";
-  systemCheckpoint.reserve.balance = 0; // Reserve wallet (ID ID_RESERVE) with zero balance
   for (const auto& kp : key.reserve) {
-    systemCheckpoint.reserve.publicKeys.push_back(kp.publicKey);
+    systemCheckpoint.reserve.wallet.publicKeys.push_back(kp.publicKey);
   }
-  systemCheckpoint.reserve.minSignatures = key.reserve.size();
+  systemCheckpoint.reserve.wallet.minSignatures = key.reserve.size();
   systemCheckpoint.reserve.meta = "Native token reserve wallet";
 
   // Create genesis block with checkpoint transaction containing SystemCheckpoint

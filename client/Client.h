@@ -18,16 +18,26 @@ namespace pp {
 
 class Client : public Module {
 public:
-  struct AccountInfo {
-    constexpr static const uint32_t VERSION = 1;
-
+  struct Wallet {
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
     std::vector<std::string> publicKeys;
     uint8_t minSignatures{ 0 };
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & mBalances & publicKeys & minSignatures;
+    }
+
+    nlohmann::json toJson() const;
+  };
+
+  struct UserAccount {
+    constexpr static const uint32_t VERSION = 1;
+
+    Wallet wallet;
     std::string meta;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & mBalances & publicKeys & minSignatures & meta;
+      ar & wallet & meta;
     }
 
     std::string ltsToString() const;
@@ -139,7 +149,7 @@ public:
   Roe<BeaconState> registerMinerServer(const network::TcpEndpoint &endpoint);
   Roe<MinerStatus> fetchMinerStatus();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
-  Roe<AccountInfo> fetchAccountInfo(const uint64_t accountId);
+  Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
 
   Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<bool> addBlock(const Ledger::ChainNode& block);
@@ -152,22 +162,9 @@ private:
   network::FetchClient fetchClient_;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const Client::Request& req) {
-  os << "Request{version=" << req.version << ", type=" << req.type << ", payload=" << req.payload.size() << " bytes}";
-  return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Client::AccountInfo& info) {
-  os << "AccountInfo{balances: {";
-  bool first = true;
-  for (const auto& [tokenId, balance] : info.mBalances) {
-    if (!first) os << ", ";
-    os << tokenId << ": " << balance;
-    first = false;
-  }
-  os << "}, publicKeys: [" << utl::join(info.publicKeys, ", ") << "], meta: \"" << info.meta << "\"}";
-  return os;
-}
+std::ostream& operator<<(std::ostream& os, const Client::Request& req);
+std::ostream& operator<<(std::ostream& os, const Client::Wallet& wallet);
+std::ostream& operator<<(std::ostream& os, const Client::UserAccount& account);
 
 } // namespace pp
 

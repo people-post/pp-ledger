@@ -9,14 +9,60 @@
 
 namespace pp {
 
-std::string Client::AccountInfo::ltsToString() const {
+
+std::ostream& operator<<(std::ostream& os, const Client::Request& req) {
+  os << "Request{version=" << req.version << ", type=" << req.type << ", payload=" << req.payload.size() << " bytes}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Client::Wallet& wallet) {
+  os << "Wallet{balances: {";
+  bool first = true;
+  for (const auto& [tokenId, balance] : wallet.mBalances) {
+    if (!first) os << ", ";
+    os << tokenId << ": " << balance;
+    first = false;
+  }
+  os << "}, publicKeys: [";
+  bool firstKey = true;
+  for (const auto& pk : wallet.publicKeys) {
+    if (!firstKey) os << ", ";
+    os << utl::toJsonSafeString(pk);
+    firstKey = false;
+  }
+  os << "], minSignatures: " << (int)wallet.minSignatures << "}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Client::UserAccount& account) {
+  os << "UserAccount{wallet: " << account.wallet << ", meta: \"" << account.meta << "\"}";
+  return os;
+}
+
+nlohmann::json Client::Wallet::toJson() const {
+  nlohmann::json j;
+  nlohmann::json balances;
+  for (const auto& [tokenId, balance] : mBalances) {
+    balances[std::to_string(tokenId)] = balance;
+  }
+  j["mBalances"] = balances;
+  nlohmann::json keysArray = nlohmann::json::array();
+  for (const auto& pk : publicKeys) {
+    keysArray.push_back(utl::toJsonSafeString(pk));
+  }
+  j["publicKeys"] = keysArray;
+  j["minSignatures"] = minSignatures;
+  return j;
+}
+
+std::string Client::UserAccount::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & VERSION & *this;
   return oss.str();
 }
 
-bool Client::AccountInfo::ltsFromString(const std::string& str) {
+bool Client::UserAccount::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -31,18 +77,9 @@ bool Client::AccountInfo::ltsFromString(const std::string& str) {
   return true;
 }
 
-nlohmann::json Client::AccountInfo::toJson() const {
+nlohmann::json Client::UserAccount::toJson() const {
   nlohmann::json j;
-  nlohmann::json balances;
-  for (const auto& [tokenId, balance] : mBalances) {
-    balances[std::to_string(tokenId)] = balance;
-  }
-  j["mBalances"] = balances;
-  nlohmann::json keysArray = nlohmann::json::array();
-  for (const auto& pk : publicKeys) {
-    keysArray.push_back(utl::toJsonSafeString(pk));
-  }
-  j["publicKeys"] = keysArray;
+  j["wallet"] = wallet.toJson();
   j["meta"] = utl::toJsonSafeString(meta);
   return j;
 }
@@ -132,8 +169,8 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return node;
 }
 
-Client::Roe<Client::AccountInfo> Client::fetchAccountInfo(const uint64_t accountId) {
-  log().debug << "Requesting account info for account " << accountId;
+Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t accountId) {
+  log().debug << "Requesting user account: " << accountId;
 
   std::string payload = utl::binaryPack(accountId);
   auto result = sendRequest(T_REQ_ACCOUNT_GET, payload);
@@ -141,11 +178,11 @@ Client::Roe<Client::AccountInfo> Client::fetchAccountInfo(const uint64_t account
     return Error(result.error().code, result.error().message);
   }
 
-  AccountInfo info;
-  if (!info.ltsFromString(result.value())) {
-    return Error(E_INVALID_RESPONSE, "Failed to deserialize account info");
+  UserAccount account;
+  if (!account.ltsFromString(result.value())) {
+    return Error(E_INVALID_RESPONSE, "Failed to deserialize user account");
   }
-  return info;
+  return account;
 }
 
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpEndpoint &endpoint) {

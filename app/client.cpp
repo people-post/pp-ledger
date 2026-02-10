@@ -321,7 +321,7 @@ int main(int argc, char *argv[]) {
   }
   // Handle account command
   else if (account_cmd->parsed()) {
-    auto result = client.fetchAccountInfo(accountId);
+    auto result = client.fetchUserAccount(accountId);
     if (result) {
       std::cout << result.value().toJson().dump(2) << "\n";
     } else {

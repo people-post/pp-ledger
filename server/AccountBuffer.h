@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_ACCOUNT_BUFFER_H
 #define PP_LEDGER_ACCOUNT_BUFFER_H
 
+#include "../client/Client.h"
 #include "../lib/ResultOrError.hpp"
 #include "../consensus/Ouroboros.h"
 
@@ -32,9 +33,7 @@ public:
 
   struct Account {
     uint64_t id{ 0 };
-    uint8_t minSignatures{ 0 };
-    std::vector<std::string> publicKeys;
-    std::map<uint64_t, int64_t> mBalances; // tokenId -> balance (ID_GENESIS = native token)
+    Client::Wallet wallet;
     uint64_t blockId{ 0 }; // blockId of the last registration/renewal of the account
   };
 

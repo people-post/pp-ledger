@@ -54,29 +54,13 @@ public:
       }
     };
 
-    struct SingleTokenAccountInfo {
-      constexpr static const uint32_t VERSION = 1;
-
-      int64_t balance{ 0 };
-      std::vector<std::string> publicKeys;
-      uint8_t minSignatures{ 0 };
-      std::string meta;
-
-      template <typename Archive> void serialize(Archive &ar) {
-        ar & balance & publicKeys & minSignatures & meta;
-      }
-
-      std::string ltsToString() const;
-      bool ltsFromString(const std::string& str);
-    };
-
     struct SystemCheckpoint {
       constexpr static const uint32_t VERSION = 1;
 
       BlockChainConfig config;
-      SingleTokenAccountInfo genesis;
-      SingleTokenAccountInfo fee;
-      SingleTokenAccountInfo reserve;
+      Client::UserAccount genesis;
+      Client::UserAccount fee;
+      Client::UserAccount reserve;
 
       template <typename Archive> void serialize(Archive &ar) {
         ar & config & genesis & fee & reserve;
@@ -105,7 +89,7 @@ public:
     Roe<uint64_t> getSlotLeader(uint64_t slot) const;
     std::vector<consensus::Stakeholder> getStakeholders() const;
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
-    Roe<Client::AccountInfo> getAccount(uint64_t accountId) const;
+    Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
@@ -153,7 +137,7 @@ private:
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
     Roe<void> validateLooseTransaction(const Ledger::Transaction& tx);
 
-    /** Build serialized AccountInfo meta from the account currently in the buffer. */
+    /** Build serialized UserAccount meta from the account currently in the buffer. */
     Roe<std::string> updateMetaFromCheckpoint(const std::string& meta) const;
     Roe<std::string> updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const;
     Roe<std::string> updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
@@ -167,7 +151,6 @@ private:
 };
 
 std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& config);
-std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info);
 std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config);
 
 } // namespace pp

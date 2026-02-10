@@ -41,8 +41,8 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
   if (it == mAccounts_.end()) {
     return 0;
   }
-  auto balanceIt = it->second.mBalances.find(tokenId);
-  if (balanceIt == it->second.mBalances.end()) {
+  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
+  if (balanceIt == it->second.wallet.mBalances.end()) {
     return 0;
   }
   return balanceIt->second;
@@ -71,8 +71,8 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   std::vector<consensus::Stakeholder> stakeholders;
   for (const auto& [id, account] : mAccounts_) {
-    auto balanceIt = account.mBalances.find(ID_GENESIS);  
-    if (balanceIt == account.mBalances.end()) {
+    auto balanceIt = account.wallet.mBalances.find(ID_GENESIS);  
+    if (balanceIt == account.wallet.mBalances.end()) {
       continue;
     }
     if (balanceIt->second > 0) {
@@ -93,15 +93,15 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint6
   }
   
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.mBalances.find(tokenId);
-  if (balanceIt != it->second.mBalances.end()) {
+  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
+  if (balanceIt != it->second.wallet.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
   
   if (currentBalance > INT64_MAX - amount) {
     return Error(11, "Deposit would cause balance overflow");
   }
-  it->second.mBalances[tokenId] = currentBalance + amount;
+  it->second.wallet.mBalances[tokenId] = currentBalance + amount;
   return {};
 }
 
@@ -116,8 +116,8 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   }
   
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.mBalances.find(tokenId);
-  if (balanceIt != it->second.mBalances.end()) {
+  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
+  if (balanceIt != it->second.wallet.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
   
@@ -127,7 +127,7 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   if (currentBalance < INT64_MIN + amount) {
     return Error(14, "Withdraw would cause balance underflow");
   }
-  it->second.mBalances[tokenId] = currentBalance - amount;
+  it->second.wallet.mBalances[tokenId] = currentBalance - amount;
   return {};
 }
 
@@ -147,14 +147,14 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   int64_t fromBalance = 0;
-  auto fromBalanceIt = fromIt->second.mBalances.find(tokenId);
-  if (fromBalanceIt != fromIt->second.mBalances.end()) {
+  auto fromBalanceIt = fromIt->second.wallet.mBalances.find(tokenId);
+  if (fromBalanceIt != fromIt->second.wallet.mBalances.end()) {
     fromBalance = fromBalanceIt->second;
   }
   
   int64_t toBalance = 0;
-  auto toBalanceIt = toIt->second.mBalances.find(tokenId);
-  if (toBalanceIt != toIt->second.mBalances.end()) {
+  auto toBalanceIt = toIt->second.wallet.mBalances.find(tokenId);
+  if (toBalanceIt != toIt->second.wallet.mBalances.end()) {
     toBalance = toBalanceIt->second;
   }
 
@@ -169,8 +169,8 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   }
 
   // Perform the transfer
-  fromIt->second.mBalances[tokenId] = fromBalance - amount;
-  toIt->second.mBalances[tokenId] = toBalance + amount;
+  fromIt->second.wallet.mBalances[tokenId] = fromBalance - amount;
+  toIt->second.wallet.mBalances[tokenId] = toBalance + amount;
 
   return {};
 }
@@ -209,8 +209,8 @@ AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t
 
   // Check if fromId has sufficient balance for the transfer amount
   int64_t fromTokenBalance = 0;
-  auto fromTokenBalanceIt = fromIt->second.mBalances.find(tokenId);
-  if (fromTokenBalanceIt != fromIt->second.mBalances.end()) {
+  auto fromTokenBalanceIt = fromIt->second.wallet.mBalances.find(tokenId);
+  if (fromTokenBalanceIt != fromIt->second.wallet.mBalances.end()) {
     fromTokenBalance = fromTokenBalanceIt->second;
   }
   
@@ -220,8 +220,8 @@ AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t
     // If tokenId is ID_GENESIS, the fee comes from the same balance as the transfer
     fromFeeBalance = fromTokenBalance;
   } else {
-    auto fromFeeBalanceIt = fromIt->second.mBalances.find(ID_GENESIS);
-    if (fromFeeBalanceIt != fromIt->second.mBalances.end()) {
+    auto fromFeeBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
+    if (fromFeeBalanceIt != fromIt->second.wallet.mBalances.end()) {
       fromFeeBalance = fromFeeBalanceIt->second;
     }
   }
@@ -249,8 +249,8 @@ AccountBuffer::Roe<void> AccountBuffer::addTransaction(uint64_t fromId, uint64_t
   if (!hasAccount(toId)) {
     Account newAccount;
     newAccount.id = toId;
-    newAccount.mBalances[tokenId] = 0;
-    newAccount.publicKeys = {};
+    newAccount.wallet.mBalances[tokenId] = 0;
+    newAccount.wallet.publicKeys = {};
     auto addResult = add(newAccount);
     if (!addResult) {
       return Error(21, "Failed to create destination account: " + addResult.error().message);

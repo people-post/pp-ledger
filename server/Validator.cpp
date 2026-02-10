@@ -12,12 +12,6 @@ std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& co
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const Validator::SingleTokenAccountInfo& info) {
-  os << "SingleTokenAccountInfo{balance: " << info.balance << ", publicKeys: " 
-     << info.publicKeys.size() << ", meta: \"" << info.meta.size() << " bytes\"}";
-  return os;
-}
-
 std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
   os << "BlockChainConfig{genesisTime: " << config.genesisTime << ", "
      << "slotDuration: " << config.slotDuration << ", "
@@ -178,16 +172,15 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   return result.value();
 }
 
-Validator::Roe<Client::AccountInfo> Validator::getAccount(uint64_t accountId) const {
+Validator::Roe<Client::UserAccount> Validator::getAccount(uint64_t accountId) const {
   auto roeAccount = bank_.getAccount(accountId);
   if (!roeAccount) {
     return Error(8, "Account not found: " + std::to_string(accountId));
   }
   auto const& account = roeAccount.value();
-  Client::AccountInfo accountInfo;
-  accountInfo.mBalances = account.mBalances;
-  accountInfo.publicKeys = account.publicKeys;
-  return accountInfo;
+  Client::UserAccount userAccount;
+  userAccount.wallet = account.wallet;
+  return userAccount;
 }
 
 uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
@@ -328,51 +321,41 @@ Validator::Roe<std::string> Validator::updateMetaFromCheckpoint(const std::strin
     return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_GENESIS));
   }
   auto const& genesisAccount = genesisAccountResult.value();
-  checkpoint.genesis.balance = genesisAccount.mBalances.at(AccountBuffer::ID_GENESIS);
-  checkpoint.genesis.publicKeys = genesisAccount.publicKeys;
-  checkpoint.genesis.minSignatures = genesisAccount.minSignatures;
+  checkpoint.genesis.wallet = genesisAccount.wallet;
 
   auto feeAccountResult = bank_.getAccount(AccountBuffer::ID_FEE);
   if (!feeAccountResult) {
     return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_FEE));
   }
   auto const& feeAccount = feeAccountResult.value();
-  checkpoint.fee.balance = feeAccount.mBalances.at(AccountBuffer::ID_GENESIS);
-  checkpoint.fee.publicKeys = feeAccount.publicKeys;
-  checkpoint.fee.minSignatures = feeAccount.minSignatures;
+  checkpoint.fee.wallet = feeAccount.wallet;
 
   auto reserveAccountResult = bank_.getAccount(AccountBuffer::ID_RESERVE);
   if (!reserveAccountResult) {
     return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_RESERVE));
   }
   auto const& reserveAccount = reserveAccountResult.value();
-  checkpoint.reserve.balance = reserveAccount.mBalances.at(AccountBuffer::ID_GENESIS);
-  checkpoint.reserve.publicKeys = reserveAccount.publicKeys;
-  checkpoint.reserve.minSignatures = reserveAccount.minSignatures;
+  checkpoint.reserve.wallet = reserveAccount.wallet;
 
   return checkpoint.ltsToString();
 }
 
 Validator::Roe<std::string> Validator::updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::AccountInfo accountInfo;
-  if (!accountInfo.ltsFromString(meta)) {
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(meta)) {
     return Error(8, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
   }
-  accountInfo.mBalances = account.mBalances;
-  accountInfo.publicKeys = account.publicKeys;
-  accountInfo.minSignatures = account.minSignatures;
-  return accountInfo.ltsToString();
+  userAccount.wallet = account.wallet;
+  return userAccount.ltsToString();
 }
 
 Validator::Roe<std::string> Validator::updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::AccountInfo accountInfo;
-  if (!accountInfo.ltsFromString(meta)) {
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(meta)) {
     return Error(8, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
   }
-  accountInfo.mBalances = account.mBalances;
-  accountInfo.publicKeys = account.publicKeys;
-  accountInfo.minSignatures = account.minSignatures;
-  return accountInfo.ltsToString();
+  userAccount.wallet = account.wallet;
+  return userAccount.ltsToString();
 }
 
 std::string Validator::calculateHash(const Ledger::Block& block) const {
@@ -678,16 +661,16 @@ Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Le
     }
   }
   auto const& account = accountResult.value();
-  if (signedTx.signatures.size() < account.minSignatures) {
-    return Error(8, "Account " + std::to_string(signedTx.obj.fromWalletId) + " must have at least " + std::to_string(account.minSignatures) + " signatures, but has " + std::to_string(signedTx.signatures.size()));
+  if (signedTx.signatures.size() < account.wallet.minSignatures) {
+    return Error(8, "Account " + std::to_string(signedTx.obj.fromWalletId) + " must have at least " + std::to_string(account.wallet.minSignatures) + " signatures, but has " + std::to_string(signedTx.signatures.size()));
   }
   auto message = utl::binaryPack(signedTx.obj);
-  std::vector<bool> keyUsed(account.publicKeys.size(), false);
+  std::vector<bool> keyUsed(account.wallet.publicKeys.size(), false);
   for (const auto& signature : signedTx.signatures) {
     bool matched = false;
-    for (size_t i = 0; i < account.publicKeys.size(); ++i) {
+    for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
       if (keyUsed[i]) continue;
-      const auto& publicKey = account.publicKeys[i];
+      const auto& publicKey = account.wallet.publicKeys[i];
       if (utl::ed25519Verify(publicKey, message, signature)) {
         keyUsed[i] = true;
         matched = true;
@@ -696,9 +679,9 @@ Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Le
     }
     if (!matched) {
       log().error << "Invalid signature for account " + std::to_string(signedTx.obj.fromWalletId) + ": " + utl::toJsonSafeString(signature);
-      log().error << "Expected signatures: " << account.minSignatures;
-      for (size_t i = 0; i < account.publicKeys.size(); ++i) {
-        log().error << "Public key " << i << ": " << utl::toJsonSafeString(account.publicKeys[i]);
+      log().error << "Expected signatures: " << account.wallet.minSignatures;
+      for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
+        log().error << "Public key " << i << ": " << utl::toJsonSafeString(account.wallet.publicKeys[i]);
         log().error << "Key used: " << keyUsed[i];
       }
       for (const auto& signature : signedTx.signatures) {
@@ -757,9 +740,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;
-  genesisAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.genesis.balance;
-  genesisAccount.publicKeys = checkpoint.genesis.publicKeys;
-  genesisAccount.minSignatures = 2;
+  genesisAccount.wallet = checkpoint.genesis.wallet;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
     return Error(26, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
@@ -767,9 +748,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 
   AccountBuffer::Account feeAccount;
   feeAccount.id = AccountBuffer::ID_FEE;
-  feeAccount.minSignatures = 2;
-  feeAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.fee.balance;
-  feeAccount.publicKeys = checkpoint.fee.publicKeys;
+  feeAccount.wallet = checkpoint.fee.wallet;
   auto roeAddFee = bank_.add(feeAccount);
   if (!roeAddFee) {
     return Error(27, "Failed to add fee account to buffer: " + roeAddFee.error().message);
@@ -777,9 +756,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 
   AccountBuffer::Account reserveAccount;
   reserveAccount.id = AccountBuffer::ID_RESERVE;
-  reserveAccount.mBalances[AccountBuffer::ID_GENESIS] = checkpoint.reserve.balance;
-  reserveAccount.publicKeys = checkpoint.reserve.publicKeys;
-  reserveAccount.minSignatures = 2;
+  reserveAccount.wallet = checkpoint.reserve.wallet;
   auto roeAddReserve = bank_.add(reserveAccount);
   if (!roeAddReserve) {
     return Error(28, "Failed to add reserve account to buffer: " + roeAddReserve.error().message);
@@ -800,24 +777,22 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
 
   // TODO: Validate user checkpoint transaction fields
   
-  // Deserialize AccountInfo from transaction metadata
-  Client::AccountInfo accountInfo;
-  if (!accountInfo.ltsFromString(tx.meta)) {
+  // Deserialize UserAccount from transaction metadata
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(tx.meta)) {
     return Error(27, "Failed to deserialize user checkpoint: " + tx.meta);
   }
   
   // Populate bank with user balance using toWalletId from transaction
   AccountBuffer::Account account;
   account.id = tx.toWalletId;
-  account.mBalances = accountInfo.mBalances;
-  account.publicKeys = accountInfo.publicKeys;
-  account.minSignatures = accountInfo.minSignatures;
+  account.wallet = userAccount.wallet;
   auto addResult = bank_.add(account);
   if (!addResult) {
     return Error(28, "Failed to add user account to buffer: " + addResult.error().message);
   }
   
-  log().info << "Restored user " << tx.toWalletId << " checkpoint: " << accountInfo;
+  log().info << "Restored user " << tx.toWalletId << " checkpoint: " << userAccount;
   
   return {};
 }
