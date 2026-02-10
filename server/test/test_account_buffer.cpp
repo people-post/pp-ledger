@@ -500,7 +500,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroFee_ReturnsTrue) {
     EXPECT_TRUE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0));
 }
 
-TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AlwaysReturnsTrue) {
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AllowsNegativeBalance_ReturnsTrue) {
     // Genesis account (ID_GENESIS) can have negative balance
     auto a = makeAccount(AccountBuffer::ID_GENESIS, -1000);
     ASSERT_TRUE(buf.add(a).isOk());
