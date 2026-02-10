@@ -31,6 +31,10 @@ public:
   };
   template <typename T> using Roe = ResultOrError<T, Error>;
 
+  constexpr static int32_t E_ACCOUNT = 1;
+  constexpr static int32_t E_BALANCE = 2;
+  constexpr static int32_t E_INPUT = 3;
+
   struct Account {
     uint64_t id{ 0 };
     Client::Wallet wallet;
@@ -48,8 +52,10 @@ public:
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
   
-  /** Check if account has enough spending power for a transaction with the given token and fee */
-  bool hasSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
+  /** Verify if an account has sufficient spending power for a transaction.
+   *  Checks both the transfer amount and fee balance requirements.
+   *  Returns error if insufficient balances or invalid inputs. */
+  Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
   Roe<void> add(const Account& account);
 
@@ -69,11 +75,6 @@ public:
 private:
 
   bool isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const;
-  
-  /** Verify if an account has sufficient spending power for a transaction.
-   *  Checks both the transfer amount and fee balance requirements.
-   *  Returns error if insufficient balances or invalid inputs. */
-  Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
   std::map<uint64_t, Account> mAccounts_;
 };

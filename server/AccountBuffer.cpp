@@ -5,12 +5,17 @@ namespace pp {
 AccountBuffer::AccountBuffer() {
 }
 
+bool AccountBuffer::hasAccount(uint64_t id) const {
+  return mAccounts_.find(id) != mAccounts_.end();
+}
+
 bool AccountBuffer::isEmpty() const {
   return mAccounts_.empty();
 }
 
-bool AccountBuffer::hasAccount(uint64_t id) const {
-  return mAccounts_.find(id) != mAccounts_.end();
+bool AccountBuffer::isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const {
+  // Only the genesis token account can have negative balances
+  return account.id == tokenId;
 }
 
 std::vector<uint64_t> AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
@@ -23,15 +28,10 @@ std::vector<uint64_t> AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId
   return ids;
 }
 
-bool AccountBuffer::isNegativeBalanceAllowed(const Account& account, uint64_t tokenId) const {
-  // Only the genesis token account can have negative balances
-  return account.id == tokenId;
-}
-
 AccountBuffer::Roe<const AccountBuffer::Account&> AccountBuffer::getAccount(uint64_t id) const {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
-    return Error(1, "Account not found");
+    return Error(E_ACCOUNT, "Account not found");
   }
   return it->second;
 }
@@ -48,26 +48,6 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
   return balanceIt->second;
 }
 
-AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
-  if (hasAccount(account.id)) {
-    return Error(2, "Account already exists");
-  }
-
-  mAccounts_[account.id] = account;
-  
-  return {};
-}
-
-AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
-  for (const auto& [id, account] : other.mAccounts_) {
-    if (!hasAccount(id)) {
-      return Error(8, "Account to update not found: " + std::to_string(id));
-    }
-    mAccounts_[id] = account;
-  }
-  return {};
-}
-
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   std::vector<consensus::Stakeholder> stakeholders;
   for (const auto& [id, account] : mAccounts_) {
@@ -82,19 +62,39 @@ std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   return stakeholders;
 }
 
+AccountBuffer::Roe<void> AccountBuffer::add(const Account& account) {
+  if (hasAccount(account.id)) {
+    return Error(E_ACCOUNT, "Account already exists");
+  }
+
+  mAccounts_[account.id] = account;
+  
+  return {};
+}
+
+AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer& other) {
+  for (const auto& [id, account] : other.mAccounts_) {
+    if (!hasAccount(id)) {
+      return Error(E_ACCOUNT, "Account to update not found: " + std::to_string(id));
+    }
+    mAccounts_[id] = account;
+  }
+  return {};
+}
+
 AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
   // Validate inputs
   if (amount < 0) {
-    return Error(15, "Transfer amount must be non-negative");
+    return Error(E_INPUT, "Transfer amount must be non-negative");
   }
   if (fee < 0) {
-    return Error(16, "Fee must be non-negative");
+    return Error(E_INPUT, "Fee must be non-negative");
   }
   
   // Check if account exists
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(17, "Account not found");
+    return Error(E_ACCOUNT, "Account not found");
   }
   
   // Get token balance
@@ -128,38 +128,33 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, 
     }
     // Check for overflow when adding amount + fee
     if (amount > INT64_MAX - fee) {
-      return Error(26, "Transfer amount and fee would cause overflow");
+      return Error(E_INPUT, "Transfer amount and fee would cause overflow");
     }
     if (tokenBalance < amount + fee) {
-      return Error(18, "Insufficient balance for transfer and fee");
+      return Error(E_BALANCE, "Insufficient balance for transfer and fee");
     }
   } else {
     // Amount and fee come from different balances
     // For custom token genesis account: can have negative token balance, but must have enough fee in ID_GENESIS
     if (!allowNegativeTokenBalance && tokenBalance < amount) {
-      return Error(19, "Insufficient balance for transfer");
+      return Error(E_BALANCE, "Insufficient balance for transfer");
     }
     if (feeBalance < fee) {
-      return Error(20, "Insufficient balance for fee");
+      return Error(E_BALANCE, "Insufficient balance for fee");
     }
   }
   
   return {};
 }
 
-bool AccountBuffer::hasSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
-  auto result = verifySpendingPower(accountId, tokenId, amount, fee);
-  return result.isOk();
-}
-
 AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
-    return Error(10, "Deposit amount must be non-negative");
+    return Error(E_INPUT, "Deposit amount must be non-negative");
   }
 
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(9, "Account not found");
+    return Error(E_ACCOUNT, "Account not found");
   }
   
   int64_t currentBalance = 0;
@@ -169,7 +164,7 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint6
   }
   
   if (currentBalance > INT64_MAX - amount) {
-    return Error(11, "Deposit would cause balance overflow");
+    return Error(E_BALANCE, "Deposit would cause balance overflow");
   }
   it->second.wallet.mBalances[tokenId] = currentBalance + amount;
   return {};
@@ -177,12 +172,12 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint6
 
 AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
-    return Error(11, "Withdraw amount must be non-negative");
+    return Error(E_INPUT, "Withdraw amount must be non-negative");
   }
 
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(12, "Account not found");
+    return Error(E_ACCOUNT, "Account not found");
   }
   
   int64_t currentBalance = 0;
@@ -192,10 +187,10 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   }
   
   if (!isNegativeBalanceAllowed(it->second, tokenId) && currentBalance < amount) {
-    return Error(13, "Insufficient balance");
+    return Error(E_BALANCE, "Insufficient balance");
   }
   if (currentBalance < INT64_MIN + amount) {
-    return Error(14, "Withdraw would cause balance underflow");
+    return Error(E_BALANCE, "Withdraw would cause balance underflow");
   }
   it->second.wallet.mBalances[tokenId] = currentBalance - amount;
   return {};
@@ -210,12 +205,12 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
 
   auto fromIt = mAccounts_.find(fromId);
   if (fromIt == mAccounts_.end()) {
-    return Error(4, "Source account not found");
+    return Error(E_ACCOUNT, "Source account not found");
   }
 
   auto toIt = mAccounts_.find(toId);
   if (toIt == mAccounts_.end()) {
-    return Error(5, "Destination account not found");
+    return Error(E_ACCOUNT, "Destination account not found");
   }
 
   int64_t fromBalance = 0;
@@ -232,7 +227,7 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
 
   // Check for overflow in destination account
   if (toBalance > INT64_MAX - amount) {
-    return Error(7, "Transfer would cause balance overflow");
+    return Error(E_INPUT, "Transfer would cause balance overflow");
   }
 
   // Get fee balance if needed

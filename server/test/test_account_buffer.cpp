@@ -50,14 +50,14 @@ TEST_F(AccountBufferTest, DepositBalance_NegativeAmount_Error) {
 
     auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, -10); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 10);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Deposit amount must be non-negative");
 }
 
 TEST_F(AccountBufferTest, DepositBalance_AccountNotFound_Error) {
     auto r = buf.depositBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 9);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
     EXPECT_EQ(r.error().message, "Account not found");
 }
 
@@ -67,7 +67,7 @@ TEST_F(AccountBufferTest, DepositBalance_Overflow_Error) {
 
     auto r = buf.depositBalance(1, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 11);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Deposit would cause balance overflow");
 
     auto got = buf.getAccount(1);
@@ -119,14 +119,14 @@ TEST_F(AccountBufferTest, WithdrawBalance_NegativeAmount_Error) {
 
     auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, -5); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 11);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Withdraw amount must be non-negative");
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_AccountNotFound_Error) {
     auto r = buf.withdrawBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 12);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
     EXPECT_EQ(r.error().message, "Account not found");
 }
 
@@ -136,7 +136,7 @@ TEST_F(AccountBufferTest, WithdrawBalance_InsufficientBalance_Error) {
 
     auto r = buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 13);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Insufficient balance");
 
     auto got = buf.getAccount(1);
@@ -150,7 +150,7 @@ TEST_F(AccountBufferTest, WithdrawBalance_Underflow_Error) {
 
     auto r = buf.withdrawBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 1); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 14);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
 
     auto got = buf.getAccount(AccountBuffer::ID_GENESIS);
@@ -165,7 +165,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_GenesisToken_
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Account has 1000, needs 100 + 10 = 110
-    EXPECT_TRUE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ExactBalance_GenesisToken_ReturnsTrue) {
@@ -173,7 +173,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_ExactBalance_GenesisToken_Retur
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Account has exactly 110, needs 100 + 10 = 110
-    EXPECT_TRUE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientBalance_GenesisToken_ReturnsFalse) {
@@ -181,7 +181,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientBalance_GenesisToke
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Account has 100, needs 100 + 10 = 110
-    EXPECT_FALSE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_CustomToken_ReturnsTrue) {
@@ -196,7 +196,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_CustomToken_R
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Has 500 of custom token and 100 genesis, needs 200 + 10 fee
-    EXPECT_TRUE(buf.hasSpendingPower(1, CUSTOM_TOKEN, 200, 10));
+    EXPECT_TRUE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 200, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientTokenBalance_CustomToken_ReturnsFalse) {
@@ -211,7 +211,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientTokenBalance_Custom
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Has 50 of custom token but needs 100
-    EXPECT_FALSE(buf.hasSpendingPower(1, CUSTOM_TOKEN, 100, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientFeeBalance_CustomToken_ReturnsFalse) {
@@ -226,26 +226,26 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientFeeBalance_CustomTo
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Has enough custom token but not enough genesis for fee
-    EXPECT_FALSE(buf.hasSpendingPower(1, CUSTOM_TOKEN, 100, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_AccountNotFound_ReturnsFalse) {
     // Account 999 doesn't exist
-    EXPECT_FALSE(buf.hasSpendingPower(999, AccountBuffer::ID_GENESIS, 100, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(999, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeAmount_ReturnsFalse) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, -100, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, -100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeFee_ReturnsFalse) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 100, -10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, -10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroAmount_ReturnsTrue) {
@@ -253,14 +253,14 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroAmount_ReturnsTrue) {
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Even with low balance, zero amount should work
-    EXPECT_TRUE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 0, 10));
+    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 0, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroFee_ReturnsTrue) {
     auto a = makeAccount(1, 100);
     ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_TRUE(buf.hasSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0));
+    EXPECT_TRUE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AllowsNegativeBalance_ReturnsTrue) {
@@ -269,7 +269,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AllowsNegativeBa
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Even with negative balance, genesis account should return true
-    EXPECT_TRUE(buf.hasSpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 100, 10));
+    EXPECT_TRUE(buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 100, 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
@@ -282,7 +282,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Doesn't have any custom token balance
-    EXPECT_FALSE(buf.hasSpendingPower(1, CUSTOM_TOKEN, 50, 10));
+    EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 50, 10).isOk());
 }
 
 // --- transferBalance with fee parameter ---
@@ -376,7 +376,7 @@ TEST_F(AccountBufferTest, TransferBalance_WithNegativeFee_Error) {
     // Negative fee should fail
     auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, -10);
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 16);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Fee must be non-negative");
 }
 
@@ -390,7 +390,7 @@ TEST_F(AccountBufferTest, TransferBalance_InsufficientBalance_GenesisToken_WithF
 
     auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 95, 10);
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 18);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Insufficient balance for transfer and fee");
     
     // Balance should remain unchanged
@@ -418,7 +418,7 @@ TEST_F(AccountBufferTest, TransferBalance_InsufficientBalance_CustomToken_WithFe
 
     auto r = buf.transferBalance(1, 2, CUSTOM_TOKEN, 100, 10);
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 20);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Insufficient balance for fee");
 }
 
@@ -478,7 +478,7 @@ TEST_F(AccountBufferTest, TransferBalance_AmountPlusFeeOverflow_Error) {
     // Try to transfer with amount + fee that would overflow
     auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, INT64_MAX - 5, 10);
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 26);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Transfer amount and fee would cause overflow");
     
     // Balance should remain unchanged
@@ -502,7 +502,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBala
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Should return true: can have negative custom token balance, has enough fee
-    EXPECT_TRUE(buf.hasSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_InsufficientFee_ReturnsFalse) {
@@ -518,7 +518,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBala
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Should return false: has negative custom token balance but not enough fee
-    EXPECT_FALSE(buf.hasSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+    EXPECT_FALSE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_ZeroBalance_SufficientFee_ReturnsTrue) {
@@ -534,7 +534,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_ZeroBalance_
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Should return true: genesis account can have negative balance, has enough fee
-    EXPECT_TRUE(buf.hasSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NoFee_ReturnsTrue) {
@@ -550,7 +550,7 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NoFee_Return
     ASSERT_TRUE(buf.add(a).isOk());
 
     // Should return true: no fee required
-    EXPECT_TRUE(buf.hasSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 0));
+    EXPECT_TRUE(buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 0).isOk());
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_UnderflowProtection) {
@@ -567,7 +567,7 @@ TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_UnderflowProtection
     // Try to withdraw 1, which would cause underflow below INT64_MIN
     auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 1);
     ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, 14);
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
     EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
 
     // Balance should remain unchanged
