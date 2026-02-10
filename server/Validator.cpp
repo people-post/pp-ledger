@@ -795,8 +795,7 @@ Validator::Roe<void> Validator::validateNewUser(const Ledger::Transaction& tx) {
   }
 
   // Check if source account has enough spending power for the transaction
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS && 
-      !bank_.hasEnoughSpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee)) {
+  if (!bank_.hasEnoughSpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee)) {
     return Error(8, "Source account must have sufficient balance");
   }
 
