@@ -94,11 +94,6 @@ bool AccountBuffer::hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId,
     return false;
   }
   
-  // Check if negative balance is allowed (only for genesis token account)
-  if (isNegativeBalanceAllowed(it->second, tokenId)) {
-    return true;
-  }
-  
   // Get token balance
   int64_t tokenBalance = 0;
   auto tokenBalanceIt = it->second.wallet.mBalances.find(tokenId);
@@ -118,12 +113,23 @@ bool AccountBuffer::hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId,
     }
   }
   
+  // Check if negative balance is allowed for this token (only for genesis token account)
+  bool allowNegativeTokenBalance = isNegativeBalanceAllowed(it->second, tokenId);
+  
   // Check sufficient balance
   if (tokenId == ID_GENESIS) {
     // Both amount and fee come from the same balance
+    // For genesis account, allow negative balance
+    if (allowNegativeTokenBalance) {
+      return true;
+    }
     return tokenBalance >= amount + fee;
   } else {
     // Amount and fee come from different balances
+    // For custom token genesis account: can have negative token balance, but must have enough fee in ID_GENESIS
+    if (allowNegativeTokenBalance) {
+      return feeBalance >= fee;
+    }
     return tokenBalance >= amount && feeBalance >= fee;
   }
 }
