@@ -54,22 +54,6 @@ public:
       }
     };
 
-    struct SystemCheckpoint {
-      constexpr static const uint32_t VERSION = 1;
-
-      BlockChainConfig config;
-      Client::UserAccount genesis;
-      Client::UserAccount fee;
-      Client::UserAccount reserve;
-
-      template <typename Archive> void serialize(Archive &ar) {
-        ar & config & genesis & fee & reserve;
-      }
-
-      std::string ltsToString() const;
-      bool ltsFromString(const std::string& str);
-    };
-
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
     };
@@ -95,6 +79,20 @@ public:
     std::string calculateHash(const Ledger::Block& block) const;
     
 protected:
+    struct SystemCheckpoint {
+      constexpr static const uint32_t VERSION = 1;
+
+      BlockChainConfig config;
+      Client::UserAccount genesis;
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & config & genesis;
+      }
+
+      std::string ltsToString() const;
+      bool ltsFromString(const std::string& str);
+    };
+
     // Validation helpers
     bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
     bool isSlotBlockProductionTime(uint64_t slot) const;

@@ -310,7 +310,6 @@ Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
 }
 
 Validator::Roe<std::string> Validator::updateMetaFromCheckpoint(const std::string& meta) const {
-  // TODO: Fee and reserver accounts are special cases that need to be handled differently.
   SystemCheckpoint checkpoint;
   if (!checkpoint.ltsFromString(meta)) {
     return Error(8, "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
@@ -322,21 +321,6 @@ Validator::Roe<std::string> Validator::updateMetaFromCheckpoint(const std::strin
   }
   auto const& genesisAccount = genesisAccountResult.value();
   checkpoint.genesis.wallet = genesisAccount.wallet;
-
-  auto feeAccountResult = bank_.getAccount(AccountBuffer::ID_FEE);
-  if (!feeAccountResult) {
-    return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_FEE));
-  }
-  auto const& feeAccount = feeAccountResult.value();
-  checkpoint.fee.wallet = feeAccount.wallet;
-
-  auto reserveAccountResult = bank_.getAccount(AccountBuffer::ID_RESERVE);
-  if (!reserveAccountResult) {
-    return Error(8, "Account not found: " + std::to_string(AccountBuffer::ID_RESERVE));
-  }
-  auto const& reserveAccount = reserveAccountResult.value();
-  checkpoint.reserve.wallet = reserveAccount.wallet;
-
   return checkpoint.ltsToString();
 }
 
@@ -401,9 +385,9 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   if (block.block.slotLeader != 0) {
     return Error(8, "Genesis block must have slotLeader 0");
   }
-  // Exactly two transactions: checkpoint and miner/reserve transactions
-  if (block.block.signedTxes.size() != 2) {
-    return Error(8, "Genesis block must have exactly two transactions");
+  // Exactly three transactions: checkpoint, fee, and miner/reserve transactions
+  if (block.block.signedTxes.size() != 3) {
+    return Error(8, "Genesis block must have exactly three transactions");
   }
   
   // First transaction: checkpoint transaction (ID_GENESIS -> ID_GENESIS, amount 0)
@@ -412,10 +396,28 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
     return Error(8, "First genesis transaction must be checkpoint transaction");
   }
   
-  // Second transaction: miner/reserve transaction (ID_GENESIS -> ID_RESERVE, INITIAL_TOKEN_SUPPLY)
-  const auto& minerTx = block.block.signedTxes[1];
-  if (minerTx.obj.type != Ledger::Transaction::T_DEFAULT) {
-    return Error(8, "Second genesis transaction must be default transaction");
+  // Second transaction: fee transaction (ID_GENESIS -> ID_FEE, 0)
+  const auto& feeTx = block.block.signedTxes[1];
+  if (feeTx.obj.type != Ledger::Transaction::T_USER) {
+    return Error(8, "Second genesis transaction must be user transaction");
+  }
+  if (feeTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || feeTx.obj.toWalletId != AccountBuffer::ID_FEE) {
+    return Error(8, "Genesis fee transaction must transfer from genesis to fee wallet");
+  }
+  if (feeTx.obj.amount != 0) {
+    return Error(8, "Genesis fee transaction must have amount 0");
+  }
+  if (feeTx.obj.fee != 0) {
+    return Error(8, "Genesis fee transaction must have fee 0");
+  }
+  if (feeTx.obj.meta.empty()) {
+    return Error(8, "Genesis fee transaction must have meta");
+  }
+
+  // Third transaction: miner/reserve transaction (ID_GENESIS -> ID_RESERVE, INITIAL_TOKEN_SUPPLY)
+  const auto& minerTx = block.block.signedTxes[2];
+  if (minerTx.obj.type != Ledger::Transaction::T_USER) {
+    return Error(8, "Third genesis transaction must be user transaction");
   }
   if (minerTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || minerTx.obj.toWalletId != AccountBuffer::ID_RESERVE) {
     return Error(8, "Genesis miner transaction must transfer from genesis to reserve wallet");
@@ -746,28 +748,10 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
     return Error(26, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
   }
 
-  AccountBuffer::Account feeAccount;
-  feeAccount.id = AccountBuffer::ID_FEE;
-  feeAccount.wallet = checkpoint.fee.wallet;
-  auto roeAddFee = bank_.add(feeAccount);
-  if (!roeAddFee) {
-    return Error(27, "Failed to add fee account to buffer: " + roeAddFee.error().message);
-  }
-
-  AccountBuffer::Account reserveAccount;
-  reserveAccount.id = AccountBuffer::ID_RESERVE;
-  reserveAccount.wallet = checkpoint.reserve.wallet;
-  auto roeAddReserve = bank_.add(reserveAccount);
-  if (!roeAddReserve) {
-    return Error(28, "Failed to add reserve account to buffer: " + roeAddReserve.error().message);
-  }
-
   log().info << "Restored SystemCheckpoint";
   log().info << "  Version: " << checkpoint.VERSION;
   log().info << "  Config: " << chainConfig_;
   log().info << "  Genesis: " << checkpoint.genesis;
-  log().info << "  Fee: " << checkpoint.fee;
-  log().info << "  Reserve: " << checkpoint.reserve;
 
   return {};
 }

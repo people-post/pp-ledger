@@ -157,28 +157,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   // 3. Create first native token wallet that has stake to bootstrap consensus
   log().info << "Creating genesis block";
 
-  // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
-  SystemCheckpoint systemCheckpoint;
-  systemCheckpoint.config = config;
-
-  for (const auto& kp : key.genesis) {
-    systemCheckpoint.genesis.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  systemCheckpoint.genesis.wallet.minSignatures = key.genesis.size();
-  systemCheckpoint.genesis.meta = "Native token genesis wallet";
-
-  for (const auto& kp : key.fee) {
-    systemCheckpoint.fee.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  systemCheckpoint.fee.wallet.minSignatures = key.fee.size();
-  systemCheckpoint.fee.meta = "Wallet for transaction fees";
-  for (const auto& kp : key.reserve) {
-    systemCheckpoint.reserve.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  systemCheckpoint.reserve.wallet.minSignatures = key.reserve.size();
-  systemCheckpoint.reserve.meta = "Native token reserve wallet";
-
-  // Create genesis block with checkpoint transaction containing SystemCheckpoint
+  // Create genesis block
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
   genesisBlock.block.timestamp = config.genesisTime;
@@ -187,31 +166,29 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
-  // Create checkpoint transaction with SystemCheckpoint
-  Ledger::Transaction checkpointTx;
-  checkpointTx.type = Ledger::Transaction::T_CHECKPOINT;
-  checkpointTx.tokenId = AccountBuffer::ID_GENESIS; // Native token
-  checkpointTx.fromWalletId = AccountBuffer::ID_GENESIS;     // genesis wallet ID
-  checkpointTx.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
-  checkpointTx.amount = 0;
-  checkpointTx.fee = 0;
-  // Serialize SystemCheckpoint to transaction metadata
-  checkpointTx.meta = systemCheckpoint.ltsToString();
+  // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
+  SystemCheckpoint systemCheckpoint;
+  systemCheckpoint.config = config;
 
-  // Initial transaction to fund reserve wallet and kickstart staking
-  Ledger::Transaction reserveTx;
-  reserveTx.type = Ledger::Transaction::T_DEFAULT;
-  reserveTx.tokenId = AccountBuffer::ID_GENESIS;             // Native token
-  reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
-  reserveTx.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
-  reserveTx.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
-  reserveTx.fee = config.minFeePerTransaction; // minimal fee
-  reserveTx.meta = "Initial reserve funding for staking";
+  systemCheckpoint.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
+  for (const auto& kp : key.genesis) {
+    systemCheckpoint.genesis.wallet.publicKeys.push_back(kp.publicKey);
+  }
+  systemCheckpoint.genesis.wallet.minSignatures = key.genesis.size();
+  systemCheckpoint.genesis.meta = "Native token genesis wallet";
 
-  // Sign with KeyPairs (key.genesis holds KeyPairs)
+  // First transaction: SystemCheckpoint
   Ledger::SignedData<Ledger::Transaction> signedTx;
-  signedTx.obj = checkpointTx;
-  std::string message = utl::binaryPack(checkpointTx);
+  signedTx.obj.type = Ledger::Transaction::T_CHECKPOINT;
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS; // Native token
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;     // genesis wallet ID
+  signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
+  signedTx.obj.amount = 0;                                   // no funding needed
+  signedTx.obj.fee = 0;                                      // no fee wallet yet
+  // Serialize SystemCheckpoint to transaction metadata
+  signedTx.obj.meta = systemCheckpoint.ltsToString();
+
+  std::string message = utl::binaryPack(signedTx.obj);
   for (const auto& kp : key.genesis) {
     auto result = utl::ed25519Sign(kp.privateKey, message);
     if (!result) {
@@ -221,9 +198,54 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-  signedTx.obj = reserveTx;
-  signedTx.signatures.clear();
-  message = utl::binaryPack(reserveTx);
+
+  // Second transaction: Create fee wallet and fund it with initial fee
+  Client::UserAccount feeAccount;
+  feeAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
+  for (const auto& kp : key.fee) {
+    feeAccount.wallet.publicKeys.push_back(kp.publicKey);
+  }
+  feeAccount.wallet.minSignatures = key.fee.size();
+  feeAccount.meta = "Wallet for transaction fees";
+  signedTx = {};
+  signedTx.obj.type = Ledger::Transaction::T_USER;
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;       // Native token
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;  // genesis wallet ID
+  signedTx.obj.toWalletId = AccountBuffer::ID_FEE;        // fee wallet ID
+  signedTx.obj.amount = 0;                                // no initial funding
+  signedTx.obj.fee = 0;                                   // minimal fee
+  signedTx.obj.meta = feeAccount.ltsToString();
+
+  message = utl::binaryPack(signedTx.obj);
+  for (const auto& kp : key.genesis) {
+    auto result = utl::ed25519Sign(kp.privateKey, message);
+    if (!result) {
+      return Error(18, "Failed to sign fee transaction: " + result.error().message);
+    }
+    signedTx.signatures.push_back(*result);
+  }
+  genesisBlock.block.signedTxes.push_back(signedTx);
+
+
+  Client::UserAccount reserveAccount;
+  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;
+  for (const auto& kp : key.reserve) {
+    reserveAccount.wallet.publicKeys.push_back(kp.publicKey);
+  }
+  reserveAccount.wallet.minSignatures = key.reserve.size();
+  reserveAccount.meta = "Native token reserve wallet";
+
+  // Third transaction: Initial reserve funding for staking
+  signedTx = {};
+  signedTx.obj.type = Ledger::Transaction::T_USER;
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;             // Native token
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
+  signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
+  signedTx.obj.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
+  signedTx.obj.fee = config.minFeePerTransaction; // minimal fee
+  signedTx.obj.meta = reserveAccount.ltsToString();
+
+  message = utl::binaryPack(signedTx.obj);
   for (const auto& kp : key.genesis) {
     auto result = utl::ed25519Sign(kp.privateKey, message);
     if (!result) {
