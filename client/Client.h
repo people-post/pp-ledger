@@ -23,6 +23,12 @@ public:
     std::vector<std::string> publicKeys;
     uint8_t minSignatures{ 0 };
 
+    bool operator==(const Wallet& other) const {
+      return mBalances == other.mBalances &&
+             publicKeys == other.publicKeys &&
+             minSignatures == other.minSignatures;
+    }
+
     template <typename Archive> void serialize(Archive &ar) {
       ar & mBalances & publicKeys & minSignatures;
     }
@@ -35,6 +41,10 @@ public:
 
     Wallet wallet;
     std::string meta;
+
+    bool operator==(const UserAccount& other) const {
+      return wallet == other.wallet && meta == other.meta;
+    }
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & wallet & meta;

@@ -134,13 +134,14 @@ private:
 
     Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
-    Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx);
+    Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateSystemCheckpoint(const Ledger::Transaction& tx);
-    Roe<void> processNewUser(const Ledger::Transaction& tx, uint64_t blockId);
+    Roe<void> processNewUser(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateNewUser(const Ledger::Transaction& tx);
-    Roe<void> processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId);
+    Roe<void> processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateUserCheckpoint(const Ledger::Transaction& tx);
-    Roe<void> processTransaction(const Ledger::Transaction& tx);
+    Roe<void> processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<void> strictProcessTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
     /** Build serialized UserAccount meta from the account currently in the buffer. */

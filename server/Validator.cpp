@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <algorithm>
+#include <limits>
 
 namespace pp {
 
@@ -661,13 +662,13 @@ Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger:
   auto const& tx = signedTx.obj;
   switch (tx.type) {
     case Ledger::Transaction::T_CHECKPOINT:
-      return processSystemCheckpoint(tx);
+      return processSystemCheckpoint(tx, blockId, isStrictMode);
     case Ledger::Transaction::T_NEW_USER:
-      return processNewUser(tx, blockId);
+      return processNewUser(tx, blockId, isStrictMode);
     case Ledger::Transaction::T_USER:
-      return processUserCheckpoint(tx, blockId);
+      return processUserCheckpoint(tx, blockId, isStrictMode);
     case Ledger::Transaction::T_DEFAULT:
-      return isStrictMode ? processTransaction(tx) : looseProcessTransaction(tx);
+      return processTransaction(tx, blockId, isStrictMode);
     default:
       return Error(18, "Unknown transaction type: " + std::to_string(tx.type));
   }
@@ -729,29 +730,29 @@ Validator::Roe<void> Validator::validateSystemCheckpoint(const Ledger::Transacti
   log().info << "Validating system checkpoint transaction";
 
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(8, "System checkpoint transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
+    return Error(E_VALIDATION, "System checkpoint transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
   }
   if (tx.amount != 0) {
-    return Error(8, "System checkpoint transaction must have amount 0");
+    return Error(E_VALIDATION, "System checkpoint transaction must have amount 0");
   }
   if (tx.fee != 0) {
-    return Error(8, "System checkpoint transaction must have fee 0");
+    return Error(E_VALIDATION, "System checkpoint transaction must have fee 0");
   }
   return {};
 }
 
-Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transaction& tx) {
+Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   log().info << "Processing system checkpoint transaction";
 
   auto result = validateSystemCheckpoint(tx);
   if (!result) {
-    return Error(16, "Failed to validate system checkpoint transaction: " + result.error().message);
+    return Error(E_VALIDATION, "Failed to validate system checkpoint transaction: " + result.error().message);
   }
   
   // Deserialize BlockChainConfig from transaction metadata
   SystemCheckpoint checkpoint;
   if (!checkpoint.ltsFromString(tx.meta)) {
-    return Error(16, "Failed to deserialize checkpoint config: " + tx.meta);
+    return Error(E_INTERNAL, "Failed to deserialize checkpoint config: " + tx.meta);
   }
 
   // Reset chain configuration
@@ -763,7 +764,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   if (config.genesisTime == 0) {
     config.genesisTime = chainConfig_.genesisTime;
   } else if (chainConfig_.genesisTime != config.genesisTime) {
-    return Error(17, "Genesis time mismatch");
+    return Error(E_VALIDATION, "Genesis time mismatch");
   }
 
   config.slotDuration = chainConfig_.slotDuration;
@@ -775,7 +776,7 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   genesisAccount.wallet = checkpoint.genesis.wallet;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
-    return Error(26, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
+    return Error(E_INTERNAL, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
   }
 
   log().info << "Restored SystemCheckpoint";
@@ -789,31 +790,23 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
 Validator::Roe<void> Validator::validateNewUser(const Ledger::Transaction& tx) {
   log().info << "Validating new user transaction";
 
-  if (!bank_.hasAccount(tx.fromWalletId)) {
-    return Error(8, "Source account not found: " + std::to_string(tx.fromWalletId));
-  }
-
-  if (tx.amount < 0) {
-    return Error(8, "New user transaction must have amount >= 0");
-  }
   if (tx.fee < chainConfig_.minFeePerTransaction) {
-    return Error(8, "New user transaction fee below minimum: " + std::to_string(tx.fee));
+    return Error(E_VALIDATION, "New user transaction fee below minimum: " + std::to_string(tx.fee));
   }
 
   if (bank_.hasAccount(tx.toWalletId)) {
-    return Error(8, "Account already exists: " + std::to_string(tx.toWalletId));
+    return Error(E_VALIDATION, "Account already exists: " + std::to_string(tx.toWalletId));
   }
 
-  // Check if source account has enough spending power for the transaction
   auto spendingResult = bank_.verifySpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
   if (!spendingResult) {
-    return Error(8, "Source account must have sufficient balance: " + spendingResult.error().message);
+    return Error(E_VALIDATION, "Source account must have sufficient balance: " + spendingResult.error().message);
   }
 
   return {};
 }
 
-Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, uint64_t blockId) {
+Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   log().info << "Processing new user transaction";
 
   auto result = validateNewUser(tx);
@@ -827,25 +820,37 @@ Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, ui
     return Error(E_INTERNAL, "Failed to deserialize user account: " + tx.meta);
   }
 
+  if (userAccount.wallet.publicKeys.empty()) {
+    return Error(E_VALIDATION, "User account must have at least one public key");
+  }
+  if (userAccount.wallet.minSignatures < 1) {
+    return Error(E_VALIDATION, "User account must require at least one signature");
+  }
+  if (userAccount.wallet.mBalances.size() != 1) {
+    return Error(E_VALIDATION, "User account must have exactly one balance");
+  }
+  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+  if (it == userAccount.wallet.mBalances.end()) {
+    return Error(E_VALIDATION, "User account must have balance in ID_GENESIS token");
+  }
+  if (it->second != tx.amount) {
+    return Error(E_VALIDATION, "User account must have balance in ID_GENESIS token: " + std::to_string(it->second));
+  }
+
   // Add user account to buffer
   AccountBuffer::Account account;
   account.id = tx.toWalletId;
   account.blockId = blockId;
   account.wallet = userAccount.wallet;
-  if (userAccount.wallet.mBalances.size() != 1) {
-    return Error(E_VALIDATION, "User account must have exactly one balance");
-  }
-  if (userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS) == userAccount.wallet.mBalances.end()) {
-    return Error(E_VALIDATION, "User account must have balance in ID_GENESIS token");
-  }
-  if (userAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] != tx.amount) {
-    return Error(E_VALIDATION, "User account must have balance in ID_GENESIS token: " + std::to_string(userAccount.wallet.mBalances[AccountBuffer::ID_GENESIS]));
-  }
-  // TODO: Add fees, check returns
-  bank_.transferBalance(tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
-  auto addResult = bank_.add(account);
+  account.wallet.mBalances.clear(); // Clear balances in buffer, we will populate from bank_ to ensure consistency
+  auto addResult = bank_.add(account); // Add empty account to buffer first to allow self-transfer in case fromWalletId == toWalletId
   if (!addResult) {
     return Error(E_INTERNAL, "Failed to add user account to buffer: " + addResult.error().message);
+  }
+
+  auto transferResult = bank_.transferBalance(tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
+  if (!transferResult) {
+    return Error(E_INTERNAL, "Failed to transfer balance: " + transferResult.error().message);
   }
 
   log().info << "Added new user " << tx.toWalletId << " account: " << userAccount;
@@ -855,11 +860,14 @@ Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, ui
 Validator::Roe<void> Validator::validateUserCheckpoint(const Ledger::Transaction& tx) {
   log().info << "Validating user checkpoint transaction";
 
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(E_VALIDATION, "User checkpoint transaction fee below minimum: " + std::to_string(tx.fee));
+  }
   // TODO: Validate user checkpoint transaction fields
   return {};
 }
 
-Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId) {
+Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user checkpoint transaction";
 
   auto result = validateUserCheckpoint(tx);
@@ -872,7 +880,83 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   if (!userAccount.ltsFromString(tx.meta)) {
     return Error(E_INTERNAL, "Failed to deserialize user checkpoint: " + tx.meta);
   }
-  
+
+  if (userAccount.wallet.publicKeys.empty()) {
+    return Error(E_VALIDATION, "User checkpoint must have at least one public key");
+  }
+
+  if (userAccount.wallet.minSignatures < 1) {
+    return Error(E_VALIDATION, "User checkpoint must require at least one signature");
+  }
+
+  auto bufferAccountResult = bank_.getAccount(tx.toWalletId);
+  if (!bufferAccountResult) {
+    if (isStrictMode) {
+      return Error(E_VALIDATION, "Checkpoint account not found in buffer: " + std::to_string(tx.toWalletId));
+    }
+  } else {
+    auto const& bufferAccount = bufferAccountResult.value();
+
+    auto safeAdd = [](int64_t a, int64_t b, int64_t& out) -> bool {
+      if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+          (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
+        return false;
+      }
+      out = a + b;
+      return true;
+    };
+
+    auto getBalanceOrZero = [](const std::map<uint64_t, int64_t>& balances, uint64_t tokenId) -> int64_t {
+      auto it = balances.find(tokenId);
+      if (it == balances.end()) {
+        return 0;
+      }
+      return it->second;
+    };
+
+    const auto& bufferBalances = bufferAccount.wallet.mBalances;
+    const auto& userBalances = userAccount.wallet.mBalances;
+
+    for (const auto& [tokenId, bufferBalance] : bufferBalances) {
+      if (tokenId == AccountBuffer::ID_GENESIS) {
+        continue;
+      }
+      int64_t userBalance = getBalanceOrZero(userBalances, tokenId);
+      if (bufferBalance != userBalance) {
+        return Error(E_VALIDATION, "Checkpoint balances do not match buffer state");
+      }
+    }
+    for (const auto& [tokenId, userBalance] : userBalances) {
+      if (tokenId == AccountBuffer::ID_GENESIS) {
+        continue;
+      }
+      int64_t bufferBalance = getBalanceOrZero(bufferBalances, tokenId);
+      if (bufferBalance != userBalance) {
+        return Error(E_VALIDATION, "Checkpoint balances do not match buffer state");
+      }
+    }
+
+    int64_t delta = 0;
+    if (!safeAdd(tx.amount, tx.fee, delta)) {
+      return Error(E_VALIDATION, "Checkpoint amount and fee overflow");
+    }
+
+    int64_t expectedBufferGenesis = 0;
+    int64_t userGenesis = getBalanceOrZero(userBalances, AccountBuffer::ID_GENESIS);
+    if (!safeAdd(userGenesis, delta, expectedBufferGenesis)) {
+      return Error(E_VALIDATION, "Checkpoint genesis balance overflow");
+    }
+
+    int64_t bufferGenesis = getBalanceOrZero(bufferBalances, AccountBuffer::ID_GENESIS);
+    if (bufferGenesis != expectedBufferGenesis) {
+      return Error(E_VALIDATION, "Checkpoint genesis balance does not match buffer state");
+    }
+  }
+
+  if (bufferAccountResult) {
+    bank_.remove(tx.toWalletId);
+  }
+
   // Populate bank with user balance using toWalletId from transaction
   AccountBuffer::Account account;
   account.id = tx.toWalletId;
@@ -888,7 +972,17 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   return {};
 }
 
-Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx) {
+Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  log().info << "Processing user transaction";
+
+  if (isStrictMode) {
+    return strictProcessTransaction(tx);
+  } else {
+    return looseProcessTransaction(tx);
+  }
+}
+
+Validator::Roe<void> Validator::strictProcessTransaction(const Ledger::Transaction& tx) {
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_VALIDATION, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
