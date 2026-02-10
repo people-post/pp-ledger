@@ -82,6 +82,52 @@ std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   return stakeholders;
 }
 
+bool AccountBuffer::hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const {
+  // Validate inputs
+  if (amount < 0 || fee < 0) {
+    return false;
+  }
+  
+  // Check if account exists
+  auto it = mAccounts_.find(accountId);
+  if (it == mAccounts_.end()) {
+    return false;
+  }
+  
+  // Check if negative balance is allowed (only for genesis token account)
+  if (isNegativeBalanceAllowed(it->second, tokenId)) {
+    return true;
+  }
+  
+  // Get token balance
+  int64_t tokenBalance = 0;
+  auto tokenBalanceIt = it->second.wallet.mBalances.find(tokenId);
+  if (tokenBalanceIt != it->second.wallet.mBalances.end()) {
+    tokenBalance = tokenBalanceIt->second;
+  }
+  
+  // Get fee balance (in ID_GENESIS token)
+  int64_t feeBalance = 0;
+  if (tokenId == ID_GENESIS) {
+    // If tokenId is ID_GENESIS, the fee comes from the same balance as the transfer
+    feeBalance = tokenBalance;
+  } else {
+    auto feeBalanceIt = it->second.wallet.mBalances.find(ID_GENESIS);
+    if (feeBalanceIt != it->second.wallet.mBalances.end()) {
+      feeBalance = feeBalanceIt->second;
+    }
+  }
+  
+  // Check sufficient balance
+  if (tokenId == ID_GENESIS) {
+    // Both amount and fee come from the same balance
+    return tokenBalance >= amount + fee;
+  } else {
+    // Amount and fee come from different balances
+    return tokenBalance >= amount && feeBalance >= fee;
+  }
+}
+
 AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount) {
   if (amount < 0) {
     return Error(10, "Deposit amount must be non-negative");

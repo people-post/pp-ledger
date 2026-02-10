@@ -794,16 +794,10 @@ Validator::Roe<void> Validator::validateNewUser(const Ledger::Transaction& tx) {
     return Error(8, "Account already exists: " + std::to_string(tx.toWalletId));
   }
 
-  auto const& fromAccount = bank_.getAccount(tx.fromWalletId);
-  if (!fromAccount) {
-    return Error(8, "Failed to get source account: " + fromAccount.error().message);
-  }
-  auto it = fromAccount.value().wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-  if (it == fromAccount.value().wallet.mBalances.end()) {
-    return Error(8, "Source account must have balance in ID_GENESIS token");
-  }
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS && it->second < tx.amount + tx.fee) {
-    return Error(8, "Source account must have sufficient balance: " + std::to_string(it->second));
+  // Check if source account has enough spending power for the transaction
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS && 
+      !bank_.hasEnoughSpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee)) {
+    return Error(8, "Source account must have sufficient balance");
   }
 
   return {};

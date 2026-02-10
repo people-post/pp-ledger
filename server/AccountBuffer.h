@@ -47,6 +47,9 @@ public:
   Roe<const Account&> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
+  
+  /** Check if account has enough spending power for a transaction with the given token and fee */
+  bool hasEnoughSpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
   Roe<void> add(const Account& account);
 

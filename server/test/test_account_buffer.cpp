@@ -394,3 +394,130 @@ TEST_F(AccountBufferTest, AddTransaction_DestinationIsGenesis_NegativeBalanceAll
     ASSERT_TRUE(genesis.isOk());
     EXPECT_EQ(genesis.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
+
+// --- hasEnoughSpendingPower ---
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_GenesisToken_ReturnsTrue) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Account has 1000, needs 100 + 10 = 110
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_ExactBalance_GenesisToken_ReturnsTrue) {
+    auto a = makeAccount(1, 110);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Account has exactly 110, needs 100 + 10 = 110
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientBalance_GenesisToken_ReturnsFalse) {
+    auto a = makeAccount(1, 100);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Account has 100, needs 100 + 10 = 110
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_SufficientBalance_CustomToken_ReturnsTrue) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Has 500 of custom token and 100 genesis, needs 200 + 10 fee
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(1, CUSTOM_TOKEN, 200, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientTokenBalance_CustomToken_ReturnsFalse) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 50;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Has 50 of custom token but needs 100
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, CUSTOM_TOKEN, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_InsufficientFeeBalance_CustomToken_ReturnsFalse) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 500;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 5;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Has enough custom token but not enough genesis for fee
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, CUSTOM_TOKEN, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_AccountNotFound_ReturnsFalse) {
+    // Account 999 doesn't exist
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(999, AccountBuffer::ID_GENESIS, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeAmount_ReturnsFalse) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, -100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeFee_ReturnsFalse) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, -10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroAmount_ReturnsTrue) {
+    auto a = makeAccount(1, 100);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Even with low balance, zero amount should work
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 0, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroFee_ReturnsTrue) {
+    auto a = makeAccount(1, 100);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(1, AccountBuffer::ID_GENESIS, 100, 0));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisAccount_AlwaysReturnsTrue) {
+    // Genesis account (ID_GENESIS) can have negative balance
+    auto a = makeAccount(AccountBuffer::ID_GENESIS, -1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Even with negative balance, genesis account should return true
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 100, 10));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Account only has genesis balance, no custom token balance
+    auto a = makeAccount(1, 100);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Doesn't have any custom token balance
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(1, CUSTOM_TOKEN, 50, 10));
+}
