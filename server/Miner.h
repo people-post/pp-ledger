@@ -34,7 +34,7 @@ namespace pp {
  * - Maintains transaction pool for pending transactions
  * - Uses Ouroboros consensus for slot leader selection
  */
-class Miner : public Validator {
+class Miner : public Module {
 public:
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
@@ -59,6 +59,13 @@ public:
 
     uint64_t getStake() const;
     size_t getPendingTransactionCount() const;
+    uint64_t getNextBlockId() const;
+    uint64_t getCurrentSlot() const;
+    uint64_t getCurrentEpoch() const;
+    std::vector<consensus::Stakeholder> getStakeholders() const;
+    Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
+    Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+    std::string calculateHash(const Ledger::Block& block) const;
 
     // ----------------- methods -------------------------------------
     Roe<void> init(const InitConfig &config);
@@ -90,6 +97,7 @@ private:
 
     Roe<Ledger::ChainNode> createBlock(uint64_t slot);
     
+    Validator validator_;
     Config config_;
     AccountBuffer bufferBank_;
     std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;

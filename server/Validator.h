@@ -18,7 +18,7 @@
 namespace pp {
 
 /**
- * Validator - Base class for block validators (Miner and Beacon)
+ * Validator - Core block validation and chain management
  * 
  * Provides common functionality for:
  * - Block validation
@@ -54,6 +54,20 @@ public:
       }
     };
 
+    struct SystemCheckpoint {
+      constexpr static const uint32_t VERSION = 1;
+
+      BlockChainConfig config;
+      Client::UserAccount genesis;
+
+      template <typename Archive> void serialize(Archive &ar) {
+        ar & config & genesis;
+      }
+
+      std::string ltsToString() const;
+      bool ltsFromString(const std::string& str);
+    };
+
     struct Error : RoeErrorBase {
         using RoeErrorBase::RoeErrorBase;
     };
@@ -85,42 +99,27 @@ public:
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
-    
-protected:
-    struct SystemCheckpoint {
-      constexpr static const uint32_t VERSION = 1;
 
-      BlockChainConfig config;
-      Client::UserAccount genesis;
-
-      template <typename Archive> void serialize(Archive &ar) {
-        ar & config & genesis;
-      }
-
-      std::string ltsToString() const;
-      bool ltsFromString(const std::string& str);
-    };
-
-    // Validation helpers
+    // ----------------- core operations -------------------------------------
     bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
     bool isSlotBlockProductionTime(uint64_t slot) const;
-    bool needsCheckpoint(const CheckpointConfig& checkpointConfig) const;
-
     int64_t getConsensusTimestamp() const;
-    uint64_t getBlockAgeSeconds(uint64_t blockId) const;
     uint64_t getStakeholderStake(uint64_t stakeholderId) const;
-
     Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> collectRenewals(uint64_t slot) const;
     Roe<Ledger::ChainNode> readLastBlock() const;
 
     void initConsensus(const consensus::Ouroboros::Config& config);
     Roe<void> initLedger(const Ledger::InitConfig& config);
     Roe<void> mountLedger(const std::string& workDir);
-    Roe<void> doAddBlock(const Ledger::ChainNode& block, bool isStrictMode);
+    Roe<void> addBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
     void refreshStakeholders();
-
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
+    
+protected:
+    // Validation helpers
+    bool needsCheckpoint(const CheckpointConfig& checkpointConfig) const;
+    uint64_t getBlockAgeSeconds(uint64_t blockId) const;
 
 private:
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
@@ -135,11 +134,8 @@ private:
     Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> validateSystemCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processNewUser(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> validateNewUser(const Ledger::Transaction& tx);
     Roe<void> processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> validateUserCheckpoint(const Ledger::Transaction& tx);
     Roe<void> processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> strictProcessTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);

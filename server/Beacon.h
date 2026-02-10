@@ -34,8 +34,12 @@ namespace pp {
  * - Checkpoints are created when data exceeds 1GB and is older than 1 year
  * - Miners produce blocks, Beacons verify and archive them
  */
-class Beacon : public Validator {
+class Beacon : public Module {
 public:
+  using BlockChainConfig = Validator::BlockChainConfig;
+  using CheckpointConfig = Validator::CheckpointConfig;
+  using SystemCheckpoint = Validator::SystemCheckpoint;
+
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
@@ -65,6 +69,15 @@ public:
   ~Beacon() override = default;
 
   // ----------------- accessors -------------------------------------
+  uint64_t getLastCheckpointId() const;
+  uint64_t getCurrentCheckpointId() const;
+  uint64_t getNextBlockId() const;
+  uint64_t getCurrentSlot() const;
+  uint64_t getCurrentEpoch() const;
+  std::vector<consensus::Stakeholder> getStakeholders() const;
+  Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
+  Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+  std::string calculateHash(const Ledger::Block& block) const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
@@ -82,6 +95,7 @@ private:
 
   Roe<Ledger::ChainNode> createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
 
+  Validator validator_;
   Config config_;
 };
 

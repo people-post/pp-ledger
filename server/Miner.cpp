@@ -8,18 +8,57 @@
 
 namespace pp {
 
-Miner::Miner() {}
+Miner::Miner() {
+  redirectLogger("Miner");
+  validator_.redirectLogger(log().getFullName() + ".Validator");
+}
 
 bool Miner::isSlotLeader() const {
-  return isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
+  return validator_.isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
 }
 
 uint64_t Miner::getStake() const {
-  return getStakeholderStake(config_.minerId);
+  return validator_.getStakeholderStake(config_.minerId);
 }
 
 size_t Miner::getPendingTransactionCount() const {
   return pendingTxes_.size();
+}
+
+uint64_t Miner::getNextBlockId() const {
+  return validator_.getNextBlockId();
+}
+
+uint64_t Miner::getCurrentSlot() const {
+  return validator_.getCurrentSlot();
+}
+
+uint64_t Miner::getCurrentEpoch() const {
+  return validator_.getCurrentEpoch();
+}
+
+std::vector<consensus::Stakeholder> Miner::getStakeholders() const {
+  return validator_.getStakeholders();
+}
+
+Miner::Roe<Ledger::ChainNode> Miner::getBlock(uint64_t blockId) const {
+  auto result = validator_.getBlock(blockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+Miner::Roe<Client::UserAccount> Miner::getAccount(uint64_t accountId) const {
+  auto result = validator_.getAccount(accountId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+std::string Miner::calculateHash(const Ledger::Block& block) const {
+  return validator_.calculateHash(block);
 }
 
 Miner::Roe<void> Miner::init(const InitConfig &config) {
@@ -43,7 +82,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
   if (std::filesystem::exists(ledgerDir)) {
-    auto roe = mountLedger(ledgerDir);
+    auto roe = validator_.mountLedger(ledgerDir);
     if (!roe) {
       return Error(2, "Failed to mount ledger: " + roe.error().message);
     }
@@ -61,7 +100,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = ledgerDir;
     ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = initLedger(ledgerConfig);
+    auto ledgerResult = validator_.initLedger(ledgerConfig);
     if (!ledgerResult) {
       return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
     }
@@ -70,9 +109,9 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   // Initialize consensus
   consensus::Ouroboros::Config consensusConfig;
   consensusConfig.timeOffset = config.timeOffset;
-  initConsensus(consensusConfig);
+  validator_.initConsensus(consensusConfig);
 
-  auto loadResult = loadFromLedger(config.startingBlockId);
+  auto loadResult = validator_.loadFromLedger(config.startingBlockId);
   if (!loadResult) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }
@@ -83,7 +122,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
 void Miner::refresh() {
   // Update miner state
-  refreshStakeholders();
+  validator_.refreshStakeholders();
 }
 
 Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
@@ -97,10 +136,10 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
     // One time initialization of slot cache
     slotCache_ = {};
     slotCache_.slot = slot;
-    slotCache_.isLeader = isStakeholderSlotLeader(config_.minerId, slot);
+    slotCache_.isLeader = validator_.isStakeholderSlotLeader(config_.minerId, slot);
     if (slotCache_.isLeader) {
       // Leader initial evaluations per slot
-      auto renewalsResult = collectRenewals(slot);
+      auto renewalsResult = validator_.collectRenewals(slot);
       if (!renewalsResult) {
         slotCache_ = {};
         return Error(12, renewalsResult.error().message);
@@ -129,7 +168,7 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
   }
 
   // Only produce at end of current slot (within last second of slot)
-  if (!isSlotBlockProductionTime(slot)) {
+  if (!validator_.isSlotBlockProductionTime(slot)) {
     return false;
   }
 
@@ -154,7 +193,7 @@ void Miner::markBlockProduction(const Ledger::ChainNode& block) {
 Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
   // TODO: Verify signatures
 
-  auto result = addBufferTransaction(bufferBank_, signedTx.obj);
+  auto result = validator_.addBufferTransaction(bufferBank_, signedTx.obj);
   if (!result) {
     return Error(9, result.error().message);
   }
@@ -168,7 +207,7 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
   // Adding block is in strict mode if it is at or after the checkpoint id
   bool isStrictMode = block.block.index >= config_.checkpointId;
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::doAddBlock(block, isStrictMode);
+  auto result = validator_.addBlock(block, isStrictMode);
   if (!result) {
     return Error(10, result.error().message);
   }
@@ -179,10 +218,10 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode& block) {
 // Private helper methods
 
 Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot) {
-  auto timestamp = getConsensusTimestamp();
+  auto timestamp = validator_.getConsensusTimestamp();
 
   // Get previous block info
-  auto latestBlockResult = readLastBlock();
+  auto latestBlockResult = validator_.readLastBlock();
   if (!latestBlockResult) {
     return Error(11, "Failed to read latest block: " + latestBlockResult.error().message);
   }

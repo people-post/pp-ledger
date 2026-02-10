@@ -20,7 +20,54 @@ std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
   return os;
 }
 
-Beacon::Beacon() {}
+Beacon::Beacon() {
+  redirectLogger("Beacon");
+  validator_.redirectLogger(log().getFullName() + ".Validator");
+}
+
+uint64_t Beacon::getLastCheckpointId() const {
+  return validator_.getLastCheckpointId();
+}
+
+uint64_t Beacon::getCurrentCheckpointId() const {
+  return validator_.getCurrentCheckpointId();
+}
+
+uint64_t Beacon::getNextBlockId() const {
+  return validator_.getNextBlockId();
+}
+
+uint64_t Beacon::getCurrentSlot() const {
+  return validator_.getCurrentSlot();
+}
+
+uint64_t Beacon::getCurrentEpoch() const {
+  return validator_.getCurrentEpoch();
+}
+
+std::vector<consensus::Stakeholder> Beacon::getStakeholders() const {
+  return validator_.getStakeholders();
+}
+
+Beacon::Roe<Ledger::ChainNode> Beacon::getBlock(uint64_t blockId) const {
+  auto result = validator_.getBlock(blockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+Beacon::Roe<Client::UserAccount> Beacon::getAccount(uint64_t accountId) const {
+  auto result = validator_.getAccount(accountId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+std::string Beacon::calculateHash(const Ledger::Block& block) const {
+  return validator_.calculateHash(block);
+}
 
 nlohmann::json Beacon::InitKeyConfig::toJson() const {
   nlohmann::json j;
@@ -55,14 +102,14 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = config.chain.slotDuration;
   consensusConfig.slotsPerEpoch = config.chain.slotsPerEpoch;
-  initConsensus(consensusConfig);
+  validator_.initConsensus(consensusConfig);
   
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
   ledgerConfig.workDir = config.workDir + "/" + DIR_LEDGER;
   ledgerConfig.startingBlockId = 0;
 
-  auto ledgerResult = initLedger(ledgerConfig);
+  auto ledgerResult = validator_.initLedger(ledgerConfig);
   if (!ledgerResult) {
     return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
   }
@@ -114,12 +161,12 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
   log().info << "Mounting ledger at: " << ledgerPath;
 
   // Mount the ledger
-  auto ledgerMountResult = mountLedger(ledgerPath);
+  auto ledgerMountResult = validator_.mountLedger(ledgerPath);
   if (!ledgerMountResult) {
     return Error(3, "Failed to mount ledger: " + ledgerMountResult.error().message);
   }
 
-  auto loadResult = loadFromLedger(0);
+  auto loadResult = validator_.loadFromLedger(0);
   if (!loadResult) {
     return Error(3, "Failed to load data from ledger: " + loadResult.error().message);
   }
@@ -136,12 +183,12 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 
 void Beacon::refresh() {
   // Update stakeholders
-  refreshStakeholders();
+  validator_.refreshStakeholders();
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = Validator::doAddBlock(block, true);
+  auto result = validator_.addBlock(block, true);
   if (!result) {
     return Error(4, result.error().message);
   }

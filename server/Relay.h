@@ -24,7 +24,7 @@ namespace pp {
  * - Serve as authoritative data source for the network
  * - Coordinate with RelayServer for network communication
  */
-class Relay : public Validator {
+class Relay : public Module {
 public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -42,6 +42,15 @@ public:
   ~Relay() override = default;
 
   // ----------------- accessors -------------------------------------
+  uint64_t getLastCheckpointId() const;
+  uint64_t getCurrentCheckpointId() const;
+  uint64_t getNextBlockId() const;
+  uint64_t getCurrentSlot() const;
+  uint64_t getCurrentEpoch() const;
+  std::vector<consensus::Stakeholder> getStakeholders() const;
+  Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
+  Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+  std::string calculateHash(const Ledger::Block& block) const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig& config);
@@ -57,16 +66,12 @@ private:
     int64_t timeOffset{ 0 };
   };
 
+  Validator validator_;
   Config config_;
 };
 
 // Ostream operators for easy logging
-inline std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
-  os << "InitConfig{workDir=\"" << config.workDir << "\", "
-     << "timeOffset=" << config.timeOffset << ", "
-     << "startingBlockId=" << config.startingBlockId << "}";
-  return os;
-}
+std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config);
 
 } // namespace pp
 

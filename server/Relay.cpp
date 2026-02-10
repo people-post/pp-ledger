@@ -9,7 +9,61 @@
 
 namespace pp {
 
-Relay::Relay() {}
+std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
+  os << "InitConfig{workDir=\"" << config.workDir << "\", "
+     << "timeOffset=" << config.timeOffset << ", "
+     << "startingBlockId=" << config.startingBlockId << "}";
+  return os;
+}
+
+Relay::Relay() {
+  redirectLogger("Relay");
+  validator_.redirectLogger(log().getFullName() + ".Validator");
+}
+
+uint64_t Relay::getLastCheckpointId() const {
+  return validator_.getLastCheckpointId();
+}
+
+uint64_t Relay::getCurrentCheckpointId() const {
+  return validator_.getCurrentCheckpointId();
+}
+
+uint64_t Relay::getNextBlockId() const {
+  return validator_.getNextBlockId();
+}
+
+uint64_t Relay::getCurrentSlot() const {
+  return validator_.getCurrentSlot();
+}
+
+uint64_t Relay::getCurrentEpoch() const {
+  return validator_.getCurrentEpoch();
+}
+
+std::vector<consensus::Stakeholder> Relay::getStakeholders() const {
+  return validator_.getStakeholders();
+}
+
+Relay::Roe<Ledger::ChainNode> Relay::getBlock(uint64_t blockId) const {
+  auto result = validator_.getBlock(blockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+Relay::Roe<Client::UserAccount> Relay::getAccount(uint64_t accountId) const {
+  auto result = validator_.getAccount(accountId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
+std::string Relay::calculateHash(const Ledger::Block& block) const {
+  return validator_.calculateHash(block);
+}
 
 Relay::Roe<void> Relay::init(const InitConfig& config) {
   log().info << "Initializing Relay";
@@ -27,7 +81,7 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
   if (std::filesystem::exists(ledgerDir)) {
-    auto roe = mountLedger(ledgerDir);
+    auto roe = validator_.mountLedger(ledgerDir);
     if (!roe) {
       return Error(2, "Failed to mount ledger: " + roe.error().message);
     }
@@ -45,7 +99,7 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = ledgerDir;
     ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = initLedger(ledgerConfig);
+    auto ledgerResult = validator_.initLedger(ledgerConfig);
     if (!ledgerResult) {
       return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
     }
@@ -54,9 +108,9 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
   // Initialize consensus (timeOffset only; full config from genesis block when loading)
   consensus::Ouroboros::Config consensusConfig;
   consensusConfig.timeOffset = config.timeOffset;
-  initConsensus(consensusConfig);
+  validator_.initConsensus(consensusConfig);
 
-  auto loadResult = loadFromLedger(config.startingBlockId);
+  auto loadResult = validator_.loadFromLedger(config.startingBlockId);
   if (!loadResult) {
     return Error(2, "Failed to load from ledger: " + loadResult.error().message);
   }
@@ -70,12 +124,12 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
 
 void Relay::refresh() {
   // Update relay state
-  refreshStakeholders();
+  validator_.refreshStakeholders();
 }
 
 Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode& block) {
   // Relay starts at block 0, use strict validation
-  auto result = doAddBlock(block, true);
+  auto result = validator_.addBlock(block, true);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
