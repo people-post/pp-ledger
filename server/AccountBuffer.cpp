@@ -124,11 +124,10 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, 
     // Both amount and fee come from the same balance
     // For genesis account, allow negative balance
     if (allowNegativeTokenBalance) {
+      if (amount + fee + INT64_MIN > tokenBalance) {
+        return Error(E_BALANCE, "Transfer amount and fee would cause balance underflow");
+      }
       return {};
-    }
-    // Check for overflow when adding amount + fee
-    if (amount > INT64_MAX - fee) {
-      return Error(E_INPUT, "Transfer amount and fee would cause overflow");
     }
     if (tokenBalance < amount + fee) {
       return Error(E_BALANCE, "Insufficient balance for transfer and fee");
@@ -136,7 +135,12 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, 
   } else {
     // Amount and fee come from different balances
     // For custom token genesis account: can have negative token balance, but must have enough fee in ID_GENESIS
-    if (!allowNegativeTokenBalance && tokenBalance < amount) {
+    if (allowNegativeTokenBalance) {
+      // For custom token genesis account, check for underflow
+      if (amount + INT64_MIN > tokenBalance) {
+        return Error(E_BALANCE, "Transfer amount would cause balance underflow");
+      }
+    } else if (tokenBalance < amount) {
       return Error(E_BALANCE, "Insufficient balance for transfer");
     }
     if (feeBalance < fee) {

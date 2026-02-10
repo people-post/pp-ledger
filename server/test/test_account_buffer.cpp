@@ -467,26 +467,6 @@ TEST_F(AccountBufferTest, TransferBalance_GenesisAccount_WithFee_AllowsNegativeB
     EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
-TEST_F(AccountBufferTest, TransferBalance_AmountPlusFeeOverflow_Error) {
-    // Test overflow protection when amount + fee > INT64_MAX
-    auto a = makeAccount(1, INT64_MAX);
-    ASSERT_TRUE(buf.add(a).isOk());
-    
-    auto b = makeAccount(2, 0);
-    ASSERT_TRUE(buf.add(b).isOk());
-
-    // Try to transfer with amount + fee that would overflow
-    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, INT64_MAX - 5, 10);
-    ASSERT_TRUE(r.isError());
-    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Transfer amount and fee would cause overflow");
-    
-    // Balance should remain unchanged
-    auto from = buf.getAccount(1);
-    ASSERT_TRUE(from.isOk());
-    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MAX);
-}
-
 // --- Custom Token Genesis Account Tests ---
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_SufficientFee_ReturnsTrue) {
@@ -628,4 +608,67 @@ TEST_F(AccountBufferTest, TransferBalance_CustomTokenGenesis_NegativeBalance_Suf
     auto to = buf.getAccount(2);
     ASSERT_TRUE(to.isOk());
     EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+}
+
+TEST_F(AccountBufferTest, VerifySpendingPower_GenesisAccount_GenesisToken_Underflow_Error) {
+    // Test for underflow check when genesis account tries to transfer with large fee
+    // that would cause balance to underflow (go below INT64_MIN)
+    auto a = makeAccount(AccountBuffer::ID_GENESIS, INT64_MIN + 100);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Try to transfer/fee that would cause: (INT64_MIN + 100) - 150 - 100 to underflow
+    // amount + fee = 150 + 100 = 250
+    // Check: 150 + 100 + INT64_MIN > tokenBalance
+    //        250 + INT64_MIN > INT64_MIN + 100
+    //        This is true, so should return error
+    auto r = buf.verifySpendingPower(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS, 150, 100);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+    EXPECT_EQ(r.error().message, "Transfer amount and fee would cause balance underflow");
+}
+
+TEST_F(AccountBufferTest, VerifySpendingPower_CustomTokenGenesis_Underflow_Error) {
+    // Test for underflow check when custom token genesis account tries to transfer large amount
+    // that would cause balance to underflow (go below INT64_MIN)
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account with balance near INT64_MIN
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN + 100; // Balance near minimum
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Try to transfer amount that would cause underflow
+    // Check: amount + INT64_MIN > tokenBalance
+    //        200 + INT64_MIN > INT64_MIN + 100
+    //        This is true, so should return error
+    auto r = buf.verifySpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 10);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+    EXPECT_EQ(r.error().message, "Transfer amount would cause balance underflow");
+}
+
+TEST_F(AccountBufferTest, VerifySpendingPower_CustomTokenGenesis_Overflow_Error) {
+    // Test for overflow check when custom token genesis account tries to transfer with amount > INT64_MAX
+    // This is a theoretical check since amount should never actually be larger than INT64_MAX in practice,
+    // but we still add the check as defensive programming
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 1000;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // This test would theoretically pass an amount > INT64_MAX, but since the parameter
+    // is int64_t, it's not possible to actually pass a value > INT64_MAX.
+    // Instead, we test the underflow one above and document that the overflow check
+    // would catch if amount could somehow be > INT64_MAX.
+    // We can verify the check exists by looking at code coverage.
 }

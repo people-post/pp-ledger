@@ -60,6 +60,14 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
+    constexpr static int32_t E_INPUT = 1; // Invalid input data
+    constexpr static int32_t E_STATE = 2; // Invalid state for the requested operation
+    constexpr static int32_t E_LEDGER = 3; // Ledger operation failed
+    constexpr static int32_t E_CONSENSUS = 4; // Consensus validation failed
+    constexpr static int32_t E_VALIDATION = 5; // Block or transaction validation failed
+    constexpr static int32_t E_INTERNAL = 6; // Internal error (e.g. serialization failure)
+    constexpr static int32_t E_UNAUTHORIZED = 7; // Unauthorized action
+
     Validator();
     virtual ~Validator() = default;
 
