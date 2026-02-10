@@ -57,7 +57,7 @@ public:
 
   // Token-specific balance operations (tokenId: ID_GENESIS = native token, custom tokens use their genesis wallet IDs)
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
-  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount);
+  Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee = 0);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
   
   // Transaction processing: transfers amount of tokenId from fromId to toId, with fee in ID_GENESIS token

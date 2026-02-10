@@ -177,9 +177,13 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId, uint
   return {};
 }
 
-AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount) {
+AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee) {
   if (amount < 0) {
     return Error(3, "Transfer amount must be non-negative");
+  }
+
+  if (fee < 0) {
+    return Error(8, "Fee must be non-negative");
   }
 
   auto fromIt = mAccounts_.find(fromId);
@@ -214,9 +218,46 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
     return Error(7, "Transfer would cause balance overflow");
   }
 
+  // If fee is non-zero, check and deduct fee from fromId in ID_GENESIS token
+  int64_t genesisBalance = 0;
+  if (fee > 0) {
+    // For ID_GENESIS token transfers, we need to ensure enough balance for amount + fee
+    if (tokenId == ID_GENESIS) {
+      genesisBalance = fromBalance; // Already retrieved above
+      // Check for overflow when adding amount + fee
+      if (amount > INT64_MAX - fee) {
+        return Error(26, "Transfer amount and fee would cause overflow");
+      }
+      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < amount + fee) {
+        return Error(24, "Insufficient balance for transfer and fee");
+      }
+    } else {
+      // For custom token transfers, check ID_GENESIS balance separately for fee
+      auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
+      if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
+        genesisBalance = genesisBalanceIt->second;
+      }
+      
+      if (!isNegativeBalanceAllowed(fromIt->second, ID_GENESIS) && genesisBalance < fee) {
+        return Error(25, "Insufficient balance for fee");
+      }
+    }
+  }
+
   // Perform the transfer
   fromIt->second.wallet.mBalances[tokenId] = fromBalance - amount;
   toIt->second.wallet.mBalances[tokenId] = toBalance + amount;
+
+  // Deduct the fee if non-zero
+  if (fee > 0) {
+    if (tokenId == ID_GENESIS) {
+      // Fee already accounted for in the balance check above
+      fromIt->second.wallet.mBalances[ID_GENESIS] = fromBalance - amount - fee;
+    } else {
+      // Deduct fee from ID_GENESIS balance (already retrieved above)
+      fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - fee;
+    }
+  }
 
   return {};
 }
