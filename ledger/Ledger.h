@@ -17,9 +17,10 @@ class Ledger : public Module {
 public:
   struct Transaction {
     constexpr static uint16_t T_DEFAULT = 0;
-    constexpr static uint16_t T_CHECKPOINT = 1; // Used by GENESIS account to update the checkpoint config
-    constexpr static uint16_t T_USER = 2; // Used by user accounts to update their account info
-    constexpr static uint16_t T_RENEWAL = 3; // Used by miner accounts to renew user account with latest account info
+    constexpr static uint16_t T_CHECKPOINT = 1; // Used by GENESIS account to update the system config
+    constexpr static uint16_t T_NEW_USER = 2; // Used by any account to fund a new wallet
+    constexpr static uint16_t T_USER = 3; // Used by user accounts to update their account info
+    constexpr static uint16_t T_RENEWAL = 4; // Used by miner accounts to renew user account with latest account info
 
     uint16_t type{ T_DEFAULT };
     uint64_t tokenId{ 0 };      // Token ID (0 = native token)

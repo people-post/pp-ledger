@@ -208,7 +208,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   feeAccount.wallet.minSignatures = key.fee.size();
   feeAccount.meta = "Wallet for transaction fees";
   signedTx = {};
-  signedTx.obj.type = Ledger::Transaction::T_USER;
+  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;       // Native token
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;  // genesis wallet ID
   signedTx.obj.toWalletId = AccountBuffer::ID_FEE;        // fee wallet ID
@@ -237,7 +237,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
 
   // Third transaction: Initial reserve funding for staking
   signedTx = {};
-  signedTx.obj.type = Ledger::Transaction::T_USER;
+  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;             // Native token
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
   signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID

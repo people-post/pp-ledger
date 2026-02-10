@@ -262,6 +262,15 @@ Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::
           foundMeta = true;
           break;
         }
+        case Ledger::Transaction::T_NEW_USER: {
+          auto metaResult = updateMetaFromNewUser(signedTx.obj.meta, account);
+          if (!metaResult) {
+            return Error(8, "Failed to update meta from new user: " + metaResult.error().message);
+          }
+          tx.meta = metaResult.value();
+          foundMeta = true;
+          break;
+        }
         case Ledger::Transaction::T_USER: {
           auto metaResult = updateMetaFromUser(signedTx.obj.meta, account);
           if (!metaResult) {
@@ -322,6 +331,15 @@ Validator::Roe<std::string> Validator::updateMetaFromCheckpoint(const std::strin
   auto const& genesisAccount = genesisAccountResult.value();
   checkpoint.genesis.wallet = genesisAccount.wallet;
   return checkpoint.ltsToString();
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromNewUser(const std::string& meta, const AccountBuffer::Account& account) const {
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(meta)) {
+    return Error(8, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
+  }
+  userAccount.wallet = account.wallet;
+  return userAccount.ltsToString();
 }
 
 Validator::Roe<std::string> Validator::updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const {
@@ -398,29 +416,29 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   
   // Second transaction: fee transaction (ID_GENESIS -> ID_FEE, 0)
   const auto& feeTx = block.block.signedTxes[1];
-  if (feeTx.obj.type != Ledger::Transaction::T_USER) {
-    return Error(8, "Second genesis transaction must be user transaction");
+  if (feeTx.obj.type != Ledger::Transaction::T_NEW_USER) {
+    return Error(8, "Second genesis transaction must be new user transaction");
   }
   if (feeTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || feeTx.obj.toWalletId != AccountBuffer::ID_FEE) {
-    return Error(8, "Genesis fee transaction must transfer from genesis to fee wallet");
+    return Error(8, "Genesis fee account creation transaction must transfer from genesis to fee wallet");
   }
   if (feeTx.obj.amount != 0) {
-    return Error(8, "Genesis fee transaction must have amount 0");
+    return Error(8, "Genesis fee account creation transaction must have amount 0");
   }
   if (feeTx.obj.fee != 0) {
-    return Error(8, "Genesis fee transaction must have fee 0");
+    return Error(8, "Genesis fee account creation transaction must have fee 0");
   }
   if (feeTx.obj.meta.empty()) {
-    return Error(8, "Genesis fee transaction must have meta");
+    return Error(8, "Genesis fee account creation transaction must have meta");
   }
 
   // Third transaction: miner/reserve transaction (ID_GENESIS -> ID_RESERVE, INITIAL_TOKEN_SUPPLY)
   const auto& minerTx = block.block.signedTxes[2];
-  if (minerTx.obj.type != Ledger::Transaction::T_USER) {
-    return Error(8, "Third genesis transaction must be user transaction");
+  if (minerTx.obj.type != Ledger::Transaction::T_NEW_USER) {
+    return Error(8, "Third genesis transaction must be new user transaction");
   }
   if (minerTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || minerTx.obj.toWalletId != AccountBuffer::ID_RESERVE) {
-    return Error(8, "Genesis miner transaction must transfer from genesis to reserve wallet");
+    return Error(8, "Genesis miner transaction must transfer from genesis to new user wallet");
   }
   if (minerTx.obj.amount + minerTx.obj.fee != AccountBuffer::INITIAL_TOKEN_SUPPLY) {
     return Error(8, "Genesis miner transaction must have amount + fee: " + std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
@@ -615,7 +633,7 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, boo
 
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    auto result = processTxRecord(signedTx, isStrictMode);
+    auto result = processTxRecord(signedTx, block.block.index, isStrictMode);
     if (!result) {
       return Error(18, "Failed to process transaction: " + result.error().message);
     }
@@ -624,7 +642,7 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, boo
   return {};
 }
 
-Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
+Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
   auto roe = validateTxSignatures(signedTx, isStrictMode);
   if (!roe) {
     return Error(18, "Failed to validate transaction: " + roe.error().message);
@@ -634,8 +652,10 @@ Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger:
   switch (tx.type) {
     case Ledger::Transaction::T_CHECKPOINT:
       return processSystemCheckpoint(tx);
+    case Ledger::Transaction::T_NEW_USER:
+      return processNewUser(tx, blockId);
     case Ledger::Transaction::T_USER:
-      return processUserCheckpoint(tx);
+      return processUserCheckpoint(tx, blockId);
     case Ledger::Transaction::T_DEFAULT:
       return isStrictMode ? processTransaction(tx) : looseProcessTransaction(tx);
     default:
@@ -756,10 +776,92 @@ Validator::Roe<void> Validator::processSystemCheckpoint(const Ledger::Transactio
   return {};
 }
 
-Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx) {
-  log().info << "Processing user checkpoint transaction";
+Validator::Roe<void> Validator::validateNewUser(const Ledger::Transaction& tx) {
+  log().info << "Validating new user transaction";
+
+  if (!bank_.hasAccount(tx.fromWalletId)) {
+    return Error(8, "Source account not found: " + std::to_string(tx.fromWalletId));
+  }
+
+  if (tx.amount < 0) {
+    return Error(8, "New user transaction must have amount >= 0");
+  }
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(8, "New user transaction fee below minimum: " + std::to_string(tx.fee));
+  }
+
+  if (bank_.hasAccount(tx.toWalletId)) {
+    return Error(8, "Account already exists: " + std::to_string(tx.toWalletId));
+  }
+
+  auto const& fromAccount = bank_.getAccount(tx.fromWalletId);
+  if (!fromAccount) {
+    return Error(8, "Failed to get source account: " + fromAccount.error().message);
+  }
+  auto it = fromAccount.value().wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+  if (it == fromAccount.value().wallet.mBalances.end()) {
+    return Error(8, "Source account must have balance in ID_GENESIS token");
+  }
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS && it->second < tx.amount + tx.fee) {
+    return Error(8, "Source account must have sufficient balance: " + std::to_string(it->second));
+  }
+
+  return {};
+}
+
+Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, uint64_t blockId) {
+  log().info << "Processing new user transaction";
+
+  auto result = validateNewUser(tx);
+  if (!result) {
+    return Error(16, "Failed to validate new user transaction: " + result.error().message);
+  }
+
+  // Deserialize UserAccount from transaction metadata
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(tx.meta)) {
+    return Error(27, "Failed to deserialize user account: " + tx.meta);
+  }
+
+  // Add user account to buffer
+  AccountBuffer::Account account;
+  account.id = tx.toWalletId;
+  account.blockId = blockId;
+  account.wallet = userAccount.wallet;
+  if (userAccount.wallet.mBalances.size() != 1) {
+    return Error(28, "User account must have exactly one balance");
+  }
+  if (userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS) == userAccount.wallet.mBalances.end()) {
+    return Error(28, "User account must have balance in ID_GENESIS token");
+  }
+  if (userAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] != tx.amount) {
+    return Error(28, "User account must have balance in ID_GENESIS token: " + std::to_string(userAccount.wallet.mBalances[AccountBuffer::ID_GENESIS]));
+  }
+  // TODO: Add fees, check returns
+  bank_.transferBalance(tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
+  auto addResult = bank_.add(account);
+  if (!addResult) {
+    return Error(28, "Failed to add user account to buffer: " + addResult.error().message);
+  }
+
+  log().info << "Added new user " << tx.toWalletId << " account: " << userAccount;
+  return {};
+}
+
+Validator::Roe<void> Validator::validateUserCheckpoint(const Ledger::Transaction& tx) {
+  log().info << "Validating user checkpoint transaction";
 
   // TODO: Validate user checkpoint transaction fields
+  return {};
+}
+
+Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId) {
+  log().info << "Processing user checkpoint transaction";
+
+  auto result = validateUserCheckpoint(tx);
+  if (!result) {
+    return Error(16, "Failed to validate user checkpoint transaction: " + result.error().message);
+  }
   
   // Deserialize UserAccount from transaction metadata
   Client::UserAccount userAccount;
@@ -770,6 +872,7 @@ Validator::Roe<void> Validator::processUserCheckpoint(const Ledger::Transaction&
   // Populate bank with user balance using toWalletId from transaction
   AccountBuffer::Account account;
   account.id = tx.toWalletId;
+  account.blockId = blockId;
   account.wallet = userAccount.wallet;
   auto addResult = bank_.add(account);
   if (!addResult) {
