@@ -723,3 +723,141 @@ TEST_F(AccountBufferTest, TransferBalance_AmountPlusFeeOverflow_Error) {
     ASSERT_TRUE(from.isOk());
     EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), INT64_MAX);
 }
+
+// --- Custom Token Genesis Account Tests ---
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_SufficientFee_ReturnsTrue) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account (accountId == tokenId)
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Should return true: can have negative custom token balance, has enough fee
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NegativeBalance_InsufficientFee_ReturnsFalse) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account (accountId == tokenId)
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 10; // Insufficient fee balance
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Should return false: has negative custom token balance but not enough fee
+    EXPECT_FALSE(buf.hasEnoughSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_ZeroBalance_SufficientFee_ReturnsTrue) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account (accountId == tokenId)
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 0; // Zero custom token balance
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100; // Sufficient fee balance
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Should return true: genesis account can have negative balance, has enough fee
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 50));
+}
+
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_CustomTokenGenesis_NoFee_ReturnsTrue) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account (accountId == tokenId)
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = -500; // Negative custom token balance
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0; // No fee balance needed
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Should return true: no fee required
+    EXPECT_TRUE(buf.hasEnoughSpendingPower(CUSTOM_TOKEN, CUSTOM_TOKEN, 200, 0));
+}
+
+TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_UnderflowProtection) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account at INT64_MIN
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = INT64_MIN;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Try to withdraw 1, which would cause underflow below INT64_MIN
+    auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 1);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, 14);
+    EXPECT_EQ(r.error().message, "Withdraw would cause balance underflow");
+
+    // Balance should remain unchanged
+    auto acc = buf.getAccount(CUSTOM_TOKEN);
+    ASSERT_TRUE(acc.isOk());
+    EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), INT64_MIN);
+}
+
+TEST_F(AccountBufferTest, WithdrawBalance_CustomTokenGenesis_AllowsNegativeBalance) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account with positive balance
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = 100;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Withdraw more than balance (should succeed for genesis account)
+    auto r = buf.withdrawBalance(CUSTOM_TOKEN, CUSTOM_TOKEN, 500);
+    ASSERT_TRUE(r.isOk());
+
+    // Balance should be negative
+    auto acc = buf.getAccount(CUSTOM_TOKEN);
+    ASSERT_TRUE(acc.isOk());
+    EXPECT_EQ(acc.value().wallet.mBalances.at(CUSTOM_TOKEN), -400);
+}
+
+TEST_F(AccountBufferTest, AddTransaction_CustomTokenGenesis_NegativeBalance_SufficientFee_Success) {
+    const uint64_t CUSTOM_TOKEN = 1000;
+    
+    buf.reset();
+    
+    // Create custom token genesis account with negative token balance
+    AccountBuffer::Account a;
+    a.id = CUSTOM_TOKEN;
+    a.wallet.mBalances[CUSTOM_TOKEN] = -500;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Should succeed: genesis can have negative balance, has enough fee
+    auto r = buf.addTransaction(CUSTOM_TOKEN, 2, CUSTOM_TOKEN, 200, 50);
+    ASSERT_TRUE(r.isOk());
+
+    // Check source account: custom token -500 - 200 = -700, genesis 100 - 50 = 50
+    auto from = buf.getAccount(CUSTOM_TOKEN);
+    ASSERT_TRUE(from.isOk());
+    EXPECT_EQ(from.value().wallet.mBalances.at(CUSTOM_TOKEN), -700);
+    EXPECT_EQ(from.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 50);
+
+    // Check destination account: custom token 0 + 200 = 200
+    auto to = buf.getAccount(2);
+    ASSERT_TRUE(to.isOk());
+    EXPECT_EQ(to.value().wallet.mBalances.at(CUSTOM_TOKEN), 200);
+}
