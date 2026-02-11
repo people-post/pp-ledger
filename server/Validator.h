@@ -175,6 +175,7 @@ private:
     Roe<void> processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> strictProcessTransaction(const Ledger::Transaction& tx);
+    Roe<void> strictProcessTransaction(AccountBuffer& accountBank, const Ledger::Transaction& tx) const;
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
     /** Create a renewal or end-user transaction for a given account. */

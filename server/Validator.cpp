@@ -638,18 +638,12 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, 
 }
 
 Validator::Roe<void> Validator::processBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) const {
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
-    return Error(E_TX_FEE, "Transaction fee below minimum: " + std::to_string(tx.fee));
-  }
-
   // All transactions happen in bufferBank; initial balances come from bank_
-  if (tx.amount < 0) {
-    return Error(E_TX_AMOUNT, "Transfer amount must be non-negative");
-  }
-  if (tx.amount == 0) {
-    return {};
-  }
-
+  // Note: bufferBank may add accounts even though transaction validation failed. This can be a memory concern
+  //       if the limit for pending transactions is very high and many transactions are invalid. In that case, 
+  //       we may want to separate the "buffer" from the "validation" step, where the validation step only checks
+  //       accounts in bank_ without adding to bufferBank, and then if validation passes, we add to bufferBank
+  //       and apply the transaction.
   // Ensure fromWalletId exists in bufferBank (seed from bank_ if needed)
   if (!bufferBank.hasAccount(tx.fromWalletId)) {
     // Try to get from bank_ if not in bufferBank
@@ -686,17 +680,7 @@ Validator::Roe<void> Validator::processBufferTransaction(AccountBuffer& bufferBa
     return Error(E_ACCOUNT_NOT_FOUND, "Destination account not found: " + std::to_string(tx.toWalletId));
   }
 
-  auto transferResult = bufferBank.transferBalance(
-    tx.fromWalletId,
-    tx.toWalletId,
-    tx.tokenId,
-    tx.amount,
-    tx.fee
-  );
-  if (!transferResult) {
-    return Error(E_TX_TRANSFER, "Transaction failed: " + transferResult.error().message);
-  }
-  return {};
+  return strictProcessTransaction(bufferBank, tx);
 }
 
 void Validator::refreshStakeholders() {
@@ -1083,11 +1067,15 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
 }
 
 Validator::Roe<void> Validator::strictProcessTransaction(const Ledger::Transaction& tx) {
+  return strictProcessTransaction(bank_, tx);
+}
+
+Validator::Roe<void> Validator::strictProcessTransaction(AccountBuffer& accountBank, const Ledger::Transaction& tx) const {
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_TX_FEE, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
 
-  auto transferResult = bank_.transferBalance(
+  auto transferResult = accountBank.transferBalance(
     tx.fromWalletId,
     tx.toWalletId,
     tx.tokenId,
