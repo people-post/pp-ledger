@@ -86,6 +86,9 @@ public:
     virtual ~Validator() = default;
 
     // ----------------- accessors -------------------------------------
+    bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
+    bool isSlotBlockProductionTime(uint64_t slot) const;
+
     uint64_t getNextBlockId() const;
     uint64_t getLastCheckpointId() const;
     uint64_t getCurrentCheckpointId() const;
@@ -96,25 +99,21 @@ public:
     std::vector<consensus::Stakeholder> getStakeholders() const;
     Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
     Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+    int64_t getConsensusTimestamp() const;
+    uint64_t getStakeholderStake(uint64_t stakeholderId) const;
 
     // ----------------- methods -------------------------------------
     std::string calculateHash(const Ledger::Block& block) const;
-
-    // ----------------- core operations -------------------------------------
-    bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
-    bool isSlotBlockProductionTime(uint64_t slot) const;
-    int64_t getConsensusTimestamp() const;
-    uint64_t getStakeholderStake(uint64_t stakeholderId) const;
     Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> collectRenewals(uint64_t slot) const;
     Roe<Ledger::ChainNode> readLastBlock() const;
+    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const;
 
     void initConsensus(const consensus::Ouroboros::Config& config);
     Roe<void> initLedger(const Ledger::InitConfig& config);
     Roe<void> mountLedger(const std::string& workDir);
-    Roe<void> addBlock(const Ledger::ChainNode& block, bool isStrictMode);
-    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const;
-    void refreshStakeholders();
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
+    Roe<void> addBlock(const Ledger::ChainNode& block, bool isStrictMode);
+    void refreshStakeholders();
     
 protected:
     // Validation helpers
