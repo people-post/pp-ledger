@@ -15,14 +15,14 @@ target_link_libraries(test_account_buffer PRIVATE
 
 gtest_discover_tests(test_account_buffer)
 
-# Test for Validator
-add_executable(test_validator
-    test_validator.cpp
+# Test for Chain
+add_executable(test_chain
+    test_chain.cpp
 )
 
-target_link_libraries(test_validator PRIVATE
+target_link_libraries(test_chain PRIVATE
     pp_server
     GTest::gtest_main
 )
 
-gtest_discover_tests(test_validator)
+gtest_discover_tests(test_chain)

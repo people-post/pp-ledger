@@ -1,4 +1,4 @@
-#include "../Validator.h"
+#include "../Chain.h"
 #include "../AccountBuffer.h"
 #include "../../lib/Utilities.h"
 #include "../../lib/BinaryPack.hpp"
@@ -11,8 +11,8 @@ using namespace pp;
 
 namespace {
 
-Validator::BlockChainConfig makeChainConfig(int64_t genesisTime) {
-  Validator::BlockChainConfig cfg;
+Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
+  Chain::BlockChainConfig cfg;
   cfg.genesisTime = genesisTime;
   cfg.slotDuration = 5;
   cfg.slotsPerEpoch = 10;
@@ -52,12 +52,12 @@ std::string signTx(const utl::Ed25519KeyPair &keyPair, const Ledger::Transaction
   return result.value();
 }
 
-Ledger::ChainNode makeGenesisBlock(Validator &validator,
-                                  const Validator::BlockChainConfig &chainConfig,
+Ledger::ChainNode makeGenesisBlock(Chain &validator,
+                                  const Chain::BlockChainConfig &chainConfig,
                                   const utl::Ed25519KeyPair &genesisKey,
                                   const utl::Ed25519KeyPair &feeKey,
                                   const utl::Ed25519KeyPair &reserveKey) {
-  Validator::GenesisAccountMeta gm;
+  Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
   gm.genesis.wallet.publicKeys = {genesisKey.publicKey};
@@ -114,13 +114,13 @@ Ledger::ChainNode makeGenesisBlock(Validator &validator,
 
 } // namespace
 
-TEST(ValidatorTest, GenesisAccountMeta_RoundTrip) {
-  Validator::GenesisAccountMeta gm;
+TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
+  Chain::GenesisAccountMeta gm;
   gm.config = makeChainConfig(12345);
   gm.genesis = makeUserAccount("pk", 0);
 
   std::string serialized = gm.ltsToString();
-  Validator::GenesisAccountMeta parsed;
+  Chain::GenesisAccountMeta parsed;
   EXPECT_TRUE(parsed.ltsFromString(serialized));
   EXPECT_EQ(parsed.config.genesisTime, gm.config.genesisTime);
   EXPECT_EQ(parsed.config.slotDuration, gm.config.slotDuration);
@@ -135,8 +135,8 @@ TEST(ValidatorTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.genesis.wallet.mBalances, gm.genesis.wallet.mBalances);
 }
 
-TEST(ValidatorTest, CalculateHash_DeterministicAndSensitive) {
-  Validator validator;
+TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
+  Chain validator;
 
   Ledger::Block block;
   block.index = 1;
@@ -155,13 +155,13 @@ TEST(ValidatorTest, CalculateHash_DeterministicAndSensitive) {
   EXPECT_NE(hash1, hash3);
 }
 
-TEST(ValidatorTest, AddBlock_FailsOnGenesisHashMismatch) {
-  Validator validator;
+TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
+  Chain validator;
 
   auto genesisKey = makeKeyPair();
   auto feeKey = makeKeyPair();
   auto reserveKey = makeKeyPair();
-  Validator::BlockChainConfig chainConfig = makeChainConfig(1000);
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
   Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey);
   genesis.hash = "bad-hash";
@@ -171,13 +171,13 @@ TEST(ValidatorTest, AddBlock_FailsOnGenesisHashMismatch) {
   EXPECT_NE(result.error().message.find("Genesis block hash validation failed"), std::string::npos);
 }
 
-TEST(ValidatorTest, AddBlock_AddsValidGenesisBlock) {
-  Validator validator;
+TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
+  Chain validator;
 
   auto genesisKey = makeKeyPair();
   auto feeKey = makeKeyPair();
   auto reserveKey = makeKeyPair();
-  Validator::BlockChainConfig chainConfig = makeChainConfig(1000);
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
   consensus::Ouroboros::Config consensusConfig;
   consensusConfig.genesisTime = 0;
@@ -186,7 +186,7 @@ TEST(ValidatorTest, AddBlock_AddsValidGenesisBlock) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-validator-test";
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);

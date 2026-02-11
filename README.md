@@ -452,7 +452,7 @@ pp-ledger/
 │   ├── FileDirStore  # File + directory storage
 │   └── DirDirStore   # Two-level directory storage
 ├── server/           # Server implementations
-│   ├── Validator     # Base validator class
+│   ├── Chain         # Base chain class
 │   ├── Beacon        # Beacon (network validator)
 │   ├── BeaconServer  # Beacon network wrapper
 │   ├── Miner         # Miner (block producer)

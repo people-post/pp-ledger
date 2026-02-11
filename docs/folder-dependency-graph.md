@@ -70,7 +70,7 @@ flowchart TD
 | **network** | lib | TcpServer/Client/Connection, FetchServer/Client, BulkWriter |
 | **ledger** | lib | Ledger, DirStore, FileStore, DirDirStore, FileDirStore |
 | **client** | lib, ledger, network | Client; also includes consensus/Types.hpp (no pp_consensus link in CMake) |
-| **server** | lib, ledger, client, consensus, network | Beacon, Miner, Relay, Validator, Servers |
+| **server** | lib, ledger, client, consensus, network | Beacon, Miner, Relay, Chain, Servers |
 | **app** | lib, server | Executables: pp-beacon, pp-relay, pp-miner link pp_server; pp-client links pp_client, pp_ledger |
 
 ## Root CMake order

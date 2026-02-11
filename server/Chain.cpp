@@ -1,4 +1,4 @@
-#include "Validator.h"
+#include "Chain.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 #include <chrono>
@@ -9,12 +9,12 @@
 
 namespace pp {
 
-std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& config) {
+std::ostream& operator<<(std::ostream& os, const Chain::CheckpointConfig& config) {
   os << "CheckpointConfig{minBlocks: " << config.minBlocks << ", minAgeSeconds: " << config.minAgeSeconds << "}";
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config) {
+std::ostream& operator<<(std::ostream& os, const Chain::BlockChainConfig& config) {
   os << "BlockChainConfig{genesisTime: " << config.genesisTime << ", "
      << "slotDuration: " << config.slotDuration << ", "
      << "slotsPerEpoch: " << config.slotsPerEpoch << ", "
@@ -25,14 +25,14 @@ std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& co
   return os;
 }
 
-std::string Validator::GenesisAccountMeta::ltsToString() const {
+std::string Chain::GenesisAccountMeta::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & VERSION & *this;
   return oss.str();
 }
 
-bool Validator::GenesisAccountMeta::ltsFromString(const std::string& str) {
+bool Chain::GenesisAccountMeta::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -47,25 +47,25 @@ bool Validator::GenesisAccountMeta::ltsFromString(const std::string& str) {
   return true;
 }
 
-Validator::Validator() {
-  redirectLogger("Validator");
+Chain::Chain() {
+  redirectLogger("Chain");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
   consensus_.redirectLogger(log().getFullName() + ".Obo");
 }
 
-bool Validator::isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const {
+bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const {
   return consensus_.isSlotLeader(slot, stakeholderId);
 }
 
-bool Validator::isSlotBlockProductionTime(uint64_t slot) const {
+bool Chain::isSlotBlockProductionTime(uint64_t slot) const {
   return consensus_.isSlotBlockProductionTime(slot);
 }
 
-bool Validator::isValidSlotLeader(const Ledger::ChainNode& block) const {
+bool Chain::isValidSlotLeader(const Ledger::ChainNode& block) const {
   return consensus_.isSlotLeader(block.block.slot, block.block.slotLeader);
 }
 
-bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
+bool Chain::isValidTimestamp(const Ledger::ChainNode& block) const {
   int64_t slotStartTime = consensus_.getSlotStartTime(block.block.slot);
   int64_t slotEndTime = consensus_.getSlotEndTime(block.block.slot);
   
@@ -79,7 +79,7 @@ bool Validator::isValidTimestamp(const Ledger::ChainNode& block) const {
   return true;
 }
 
-bool Validator::isValidBlockSequence(const Ledger::ChainNode& block) const {
+bool Chain::isValidBlockSequence(const Ledger::ChainNode& block) const {
   if (block.block.index != ledger_.getNextBlockId()) {
     log().warning << "Invalid block index: expected " << ledger_.getNextBlockId()
                   << " got " << block.block.index;
@@ -112,7 +112,7 @@ bool Validator::isValidBlockSequence(const Ledger::ChainNode& block) const {
   return true;
 }
 
-bool Validator::needsCheckpoint(const CheckpointConfig& checkpointConfig) const {
+bool Chain::needsCheckpoint(const CheckpointConfig& checkpointConfig) const {
   if (getNextBlockId() < currentCheckpointId_ + checkpointConfig.minBlocks) {
     return false;
   }
@@ -122,39 +122,39 @@ bool Validator::needsCheckpoint(const CheckpointConfig& checkpointConfig) const 
   return true;
 }
 
-uint64_t Validator::getLastCheckpointId() const {
+uint64_t Chain::getLastCheckpointId() const {
   return lastCheckpointId_;
 }
 
-uint64_t Validator::getCurrentCheckpointId() const {
+uint64_t Chain::getCurrentCheckpointId() const {
   return currentCheckpointId_;
 }
 
-uint64_t Validator::getNextBlockId() const {
+uint64_t Chain::getNextBlockId() const {
   return ledger_.getNextBlockId();
 }
 
-int64_t Validator::getConsensusTimestamp() const {
+int64_t Chain::getConsensusTimestamp() const {
   return consensus_.getTimestamp();
 }
 
-uint64_t Validator::getCurrentSlot() const {
+uint64_t Chain::getCurrentSlot() const {
   return consensus_.getCurrentSlot();
 }
 
-uint64_t Validator::getCurrentEpoch() const {
+uint64_t Chain::getCurrentEpoch() const {
   return consensus_.getCurrentEpoch();
 }
 
-uint64_t Validator::getTotalStake() const {
+uint64_t Chain::getTotalStake() const {
   return consensus_.getTotalStake();
 }
 
-uint64_t Validator::getStakeholderStake(uint64_t stakeholderId) const {
+uint64_t Chain::getStakeholderStake(uint64_t stakeholderId) const {
   return consensus_.getStake(stakeholderId);
 }
 
-Validator::Roe<uint64_t> Validator::getSlotLeader(uint64_t slot) const {
+Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
   auto result = consensus_.getSlotLeader(slot);
   if (!result) {
     return Error(E_CONSENSUS_QUERY, "Failed to get slot leader: " + result.error().message);
@@ -162,11 +162,11 @@ Validator::Roe<uint64_t> Validator::getSlotLeader(uint64_t slot) const {
   return result.value();
 }
 
-std::vector<consensus::Stakeholder> Validator::getStakeholders() const {
+std::vector<consensus::Stakeholder> Chain::getStakeholders() const {
   return consensus_.getStakeholders();
 }
 
-Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
+Chain::Roe<Ledger::ChainNode> Chain::getBlock(uint64_t blockId) const {
   auto result = ledger_.readBlock(blockId);
   if (!result) {
     return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(blockId));
@@ -174,7 +174,7 @@ Validator::Roe<Ledger::ChainNode> Validator::getBlock(uint64_t blockId) const {
   return result.value();
 }
 
-Validator::Roe<Client::UserAccount> Validator::getAccount(uint64_t accountId) const {
+Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
   auto roeAccount = bank_.getAccount(accountId);
   if (!roeAccount) {
     return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
@@ -185,7 +185,7 @@ Validator::Roe<Client::UserAccount> Validator::getAccount(uint64_t accountId) co
   return userAccount;
 }
 
-uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
+uint64_t Chain::getBlockAgeSeconds(uint64_t blockId) const {
   auto blockResult = ledger_.readBlock(blockId);
   if (!blockResult) {
     return 0;
@@ -202,10 +202,10 @@ uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
   return 0;
 }
 
-Validator::Roe<std::string> Validator::findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const {
+Chain::Roe<std::string> Chain::findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const {
   const uint64_t accountId = account.id;
 
-  auto unwrapMeta = [](const Validator::Roe<std::string>& metaResult, bool errorAsMessage) -> Validator::Roe<std::string> {
+  auto unwrapMeta = [](const Chain::Roe<std::string>& metaResult, bool errorAsMessage) -> Chain::Roe<std::string> {
     if (!metaResult) {
       if (errorAsMessage) {
         return metaResult.error().message;
@@ -262,7 +262,7 @@ Validator::Roe<std::string> Validator::findAccountMetadataInBlock(const Ledger::
   return Error(E_INTERNAL, "No prior checkpoint/user/renewal from this account in block");
 }
 
-Validator::Roe<Ledger::SignedData<Ledger::Transaction>> Validator::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
+Chain::Roe<Ledger::SignedData<Ledger::Transaction>> Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
   auto accountResult = bank_.getAccount(accountId);
   if (!accountResult) {
     return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
@@ -311,7 +311,7 @@ Validator::Roe<Ledger::SignedData<Ledger::Transaction>> Validator::createRenewal
   return signedTx;
 }
 
-Validator::Roe<void> Validator::validateAccountRenewals(const Ledger::ChainNode& block) const {
+Chain::Roe<void> Chain::validateAccountRenewals(const Ledger::ChainNode& block) const {
   // Calculate the deadline for account renewals at this block
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(block.block.index);
   if (!maxBlockIdResult) {
@@ -370,7 +370,7 @@ Validator::Roe<void> Validator::validateAccountRenewals(const Ledger::ChainNode&
   return {};
 }
 
-Validator::Roe<uint64_t> Validator::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
+Chain::Roe<uint64_t> Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
   const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
   if (atBlockId < minBlocks) {
     return 0;
@@ -396,7 +396,7 @@ Validator::Roe<uint64_t> Validator::calculateMaxBlockIdForRenewal(uint64_t atBlo
   return maxBlockIdForRenewal;
 }
 
-Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::collectRenewals(uint64_t slot) const {
+Chain::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Chain::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
   const uint64_t nextBlockId = ledger_.getNextBlockId();
   
@@ -421,7 +421,7 @@ Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::
   return renewals;
 }
 
-Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
+Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
   auto result = ledger_.readLastBlock();
   if (!result) {
     return Error(E_LEDGER_READ, "Failed to read last block: " + result.error().message);
@@ -429,24 +429,24 @@ Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
   return result.value();
 }
 
-std::string Validator::calculateHash(const Ledger::Block& block) const {
+std::string Chain::calculateHash(const Ledger::Block& block) const {
   // Use ltsToString() to get the serialized block representation
   std::string serialized = block.ltsToString();
   return utl::sha256(serialized);
 }
 
-void Validator::refreshStakeholders() {
+void Chain::refreshStakeholders() {
   if (consensus_.isStakeUpdateNeeded()) {
     auto stakeholders = bank_.getStakeholders();
     consensus_.setStakeholders(stakeholders);
   }
 }
 
-void Validator::initConsensus(const consensus::Ouroboros::Config& config) {
+void Chain::initConsensus(const consensus::Ouroboros::Config& config) {
   consensus_.init(config);
 }
 
-Validator::Roe<void> Validator::initLedger(const Ledger::InitConfig& config) {
+Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig& config) {
   auto result = ledger_.init(config);
   if (!result) {
     return Error(E_STATE_INIT, "Failed to initialize ledger: " + result.error().message);
@@ -454,7 +454,7 @@ Validator::Roe<void> Validator::initLedger(const Ledger::InitConfig& config) {
   return {};
 }
 
-Validator::Roe<void> Validator::mountLedger(const std::string& workDir) {
+Chain::Roe<void> Chain::mountLedger(const std::string& workDir) {
   auto result = ledger_.mount(workDir);
   if (!result) {
     return Error(E_STATE_MOUNT, "Failed to mount ledger: " + result.error().message);
@@ -462,7 +462,7 @@ Validator::Roe<void> Validator::mountLedger(const std::string& workDir) {
   return {};
 }
 
-Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
+Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Loading from ledger starting at block ID " << startingBlockId;
 
   log().info << "Resetting account buffer";
@@ -501,7 +501,7 @@ Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
   return blockId;
 }
 
-Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
+Chain::Roe<void> Chain::validateGenesisBlock(const Ledger::ChainNode& block) const {
   // Match Beacon::createGenesisBlock exactly: index 0, previousHash "0", nonce 0, slot 0, slotLeader 0
   if (block.block.index != 0) {
     return Error(E_BLOCK_GENESIS, "Genesis block must have index 0");
@@ -566,7 +566,7 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   return {};
 }
 
-Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& block) const {
+Chain::Roe<void> Chain::validateNormalBlock(const Ledger::ChainNode& block) const {
   // Non-genesis: validate slot leader and timing
   uint64_t slot = block.block.slot;
   uint64_t slotLeader = block.block.slotLeader;
@@ -622,15 +622,15 @@ Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& blo
   return {};
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromSystemInit(const std::string& meta) const {
+Chain::Roe<std::string> Chain::updateMetaFromSystemInit(const std::string& meta) const {
   return updateSystemMeta(meta);
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromSystemUpdate(const std::string& meta) const {
+Chain::Roe<std::string> Chain::updateMetaFromSystemUpdate(const std::string& meta) const {
   return updateSystemMeta(meta);
 }
 
-Validator::Roe<std::string> Validator::updateSystemMeta(const std::string& meta) const {
+Chain::Roe<std::string> Chain::updateSystemMeta(const std::string& meta) const {
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(meta)) {
     return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
@@ -645,19 +645,19 @@ Validator::Roe<std::string> Validator::updateSystemMeta(const std::string& meta)
   return gm.ltsToString();
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const {
+Chain::Roe<std::string> Chain::updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const {
   return updateUserMeta(meta, account);
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const {
+Chain::Roe<std::string> Chain::updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const {
   return updateUserMeta(meta, account);
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
+Chain::Roe<std::string> Chain::updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
   return updateUserMeta(meta, account);
 }
 
-Validator::Roe<std::string> Validator::updateUserMeta(const std::string& meta, const AccountBuffer::Account& account) const {
+Chain::Roe<std::string> Chain::updateUserMeta(const std::string& meta, const AccountBuffer::Account& account) const {
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(meta)) {
     return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
@@ -666,7 +666,7 @@ Validator::Roe<std::string> Validator::updateUserMeta(const std::string& meta, c
   return userAccount.ltsToString();
 }
 
-Validator::Roe<void> Validator::addBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode& block, bool isStrictMode) {
   auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
     return Error(E_BLOCK_VALIDATION, "Failed to process block: " + processResult.error().message);
@@ -683,7 +683,7 @@ Validator::Roe<void> Validator::addBlock(const Ledger::ChainNode& block, bool is
   return {};
 }
 
-Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode& block, bool isStrictMode) {
   if (block.block.index == 0) {
     return processGenesisBlock(block);
   } else {
@@ -691,7 +691,7 @@ Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, boo
   }
 }
 
-Validator::Roe<void> Validator::processGenesisBlock(const Ledger::ChainNode& block) {
+Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode& block) {
   // Validate the block first
   auto roe = validateGenesisBlock(block);
   if (!roe) {
@@ -709,7 +709,7 @@ Validator::Roe<void> Validator::processGenesisBlock(const Ledger::ChainNode& blo
   return {};
 }
 
-Validator::Roe<void> Validator::processNormalBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode& block, bool isStrictMode) {
   // Validate the block first
   auto roe = validateNormalBlock(block);
   if (!roe) {
@@ -727,7 +727,7 @@ Validator::Roe<void> Validator::processNormalBlock(const Ledger::ChainNode& bloc
   return {};
 }
 
-Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const {
+Chain::Roe<void> Chain::addBufferTransaction(AccountBuffer& bank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const {
   // TODO: Validate signatures
   switch (signedTx.obj.type) {
     case Ledger::Transaction::T_DEFAULT:
@@ -737,7 +737,7 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bank, const 
   }
 }
 
-Validator::Roe<void> Validator::processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx) {
+Chain::Roe<void> Chain::processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx) {
   auto roe = validateTxSignatures(signedTx, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
@@ -754,7 +754,7 @@ Validator::Roe<void> Validator::processGenesisTxRecord(const Ledger::SignedData<
   }
 }
 
-Validator::Roe<void> Validator::processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
   auto roe = validateTxSignatures(signedTx, isStrictMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
@@ -779,7 +779,7 @@ Validator::Roe<void> Validator::processNormalTxRecord(const Ledger::SignedData<L
   }
 }
 
-Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
+Chain::Roe<void> Chain::validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
   if (signedTx.signatures.size() < 1) {
     return Error(E_TX_SIGNATURE, "Transaction must have at least one signature");
   }
@@ -831,7 +831,7 @@ Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Le
   return {};
 }
 
-Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx) {
+Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction& tx) {
   log().info << "Processing system initialization transaction";
 
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId != AccountBuffer::ID_GENESIS) {
@@ -882,12 +882,12 @@ Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx)
   return {};
 }
 
-Validator::Roe<void> Validator::processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   // TODO: Implement system update processing, including validating the transaction and updating the chain configuration if needed
   return Error(E_TX_VALIDATION, "processSystemUpdate not implemented");
 }
 
-Validator::Roe<void> Validator::processUserInit(const Ledger::Transaction& tx, uint64_t blockId) {
+Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction& tx, uint64_t blockId) {
   log().info << "Processing user initialization transaction";
 
   if (tx.fee < chainConfig_.minFeePerTransaction) {
@@ -951,7 +951,7 @@ Validator::Roe<void> Validator::processUserInit(const Ledger::Transaction& tx, u
   return {};
 }
 
-Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user update transaction";
 
   if (tx.fee < chainConfig_.minFeePerTransaction) {
@@ -1055,17 +1055,17 @@ Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx,
   return {};
 }
 
-Validator::Roe<void> Validator::processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   // TODO: Implement user renewal processing, including validating the transaction and updating the account's blockId to extend its validity
   return Error(E_TX_VALIDATION, "processUserRenewal not implemented");
 }
 
-Validator::Roe<void> Validator::processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   // TODO: Implement user end processing, including validating the transaction and removing the account from buffer and bank if needed
   return Error(E_TX_VALIDATION, "processUserEnd not implemented");
 }
 
-Validator::Roe<void> Validator::processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const {
+Chain::Roe<void> Chain::processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const {
   // All transactions happen in bank; initial balances come from bank_
   // Note: bank may add accounts even though transaction validation failed. This can be a memory concern
   //       if the limit for pending transactions is very high and many transactions are invalid. In that case, 
@@ -1111,7 +1111,7 @@ Validator::Roe<void> Validator::processBufferTransaction(AccountBuffer& bank, co
   return strictProcessTransaction(bank, tx);
 }
 
-Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user transaction";
 
   if (isStrictMode) {
@@ -1121,7 +1121,7 @@ Validator::Roe<void> Validator::processTransaction(const Ledger::Transaction& tx
   }
 }
 
-Validator::Roe<void> Validator::strictProcessTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const {
+Chain::Roe<void> Chain::strictProcessTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const {
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_TX_FEE, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
@@ -1140,7 +1140,7 @@ Validator::Roe<void> Validator::strictProcessTransaction(AccountBuffer& bank, co
   return {};
 }
 
-Validator::Roe<void> Validator::looseProcessTransaction(const Ledger::Transaction& tx) {
+Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction& tx) {
   // Existing wallets are created by user checkpoints, they have correct balances.
   if (bank_.hasAccount(tx.fromWalletId)) {
     if (bank_.hasAccount(tx.toWalletId)) {

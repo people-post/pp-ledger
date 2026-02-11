@@ -109,7 +109,7 @@ private:
 
   struct Config {
     NetworkConfig network;
-    Validator::CheckpointConfig checkpoint;
+    Chain::CheckpointConfig checkpoint;
   };
 
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);

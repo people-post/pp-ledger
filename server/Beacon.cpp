@@ -22,7 +22,7 @@ std::ostream& operator<<(std::ostream& os, const Beacon::MountConfig& config) {
 
 Beacon::Beacon() {
   redirectLogger("Beacon");
-  validator_.redirectLogger(log().getFullName() + ".Validator");
+  validator_.redirectLogger(log().getFullName() + ".Chain");
 }
 
 uint64_t Beacon::getLastCheckpointId() const {
@@ -130,7 +130,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
   
   log().info << "Genesis block created with checkpoint transaction (version " 
-             << Validator::GenesisAccountMeta::VERSION << ")";
+             << Chain::GenesisAccountMeta::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << consensusConfig.genesisTime;
@@ -156,7 +156,7 @@ Beacon::Roe<void> Beacon::mount(const MountConfig& config) {
 
   config_.workDir = config.workDir;
 
-  // Mount the ledger using Validator's mountLedger function
+  // Mount the ledger using Chain's mountLedger function
   std::string ledgerPath = config.workDir + "/" + DIR_LEDGER;
   log().info << "Mounting ledger at: " << ledgerPath;
 
@@ -197,7 +197,7 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
-Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Validator::BlockChainConfig& config, const InitKeyConfig& key) const {
+Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create native token genesis wallet with zero balance
@@ -214,7 +214,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Validator::Block
   genesisBlock.block.slotLeader = 0;
 
   // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
-  Validator::GenesisAccountMeta gm;
+  Chain::GenesisAccountMeta gm;
   gm.config = config;
 
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;

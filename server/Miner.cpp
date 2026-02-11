@@ -10,7 +10,7 @@ namespace pp {
 
 Miner::Miner() {
   redirectLogger("Miner");
-  validator_.redirectLogger(log().getFullName() + ".Validator");
+  validator_.redirectLogger(log().getFullName() + ".Chain");
 }
 
 bool Miner::isSlotLeader() const {

@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_RELAY_H
 #define PP_LEDGER_RELAY_H
 
-#include "Validator.h"
+#include "Chain.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
@@ -66,7 +66,7 @@ private:
     int64_t timeOffset{ 0 };
   };
 
-  Validator validator_;
+  Chain validator_;
   Config config_;
 };
 

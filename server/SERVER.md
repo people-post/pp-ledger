@@ -17,9 +17,9 @@ This document describes the server architecture for the pp-ledger blockchain sys
 
 The pp-ledger server architecture consists of three main components:
 
-1. **Validator** - Base class providing common block validation and chain management
-2. **Beacon** - Network validator and data archiver (extends Validator)
-3. **Miner** - Block producer (extends Validator)
+1. **Chain** - Base class providing common block validation and chain management
+2. **Beacon** - Network validator and data archiver (extends Chain)
+3. **Miner** - Block producer (extends Chain)
 
 Each component has a corresponding server wrapper (*Server classes) that handles network communication via TCP.
 
@@ -35,7 +35,7 @@ Each component has a corresponding server wrapper (*Server classes) that handles
          ▼
 ┌──────────────────┐
 │  Core Logic      │  - Consensus (Beacon/Miner)
-│  (Validator)     │  - Ledger management
+│  (Chain)         │  - Ledger management
 │                  │  - Block/Transaction processing
 └──────────────────┘
 ```
@@ -49,9 +49,9 @@ Each component has a corresponding server wrapper (*Server classes) that handles
 
 ## Components
 
-### Validator (Base Class)
+### Chain (Base Class)
 
-The Validator class provides common functionality for both Beacon and Miner:
+The Chain class provides common functionality for both Beacon and Miner:
 
 **Responsibilities:**
 - Block validation
@@ -421,7 +421,7 @@ Slot N:     Miner 1 (Leader)     Miner 2              Miner 3
 
 ## Configuration
 
-### Validator Base Configuration
+### Chain Base Configuration
 
 Common configuration for both Beacon and Miner:
 

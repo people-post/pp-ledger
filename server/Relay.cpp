@@ -18,7 +18,7 @@ std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
 
 Relay::Relay() {
   redirectLogger("Relay");
-  validator_.redirectLogger(log().getFullName() + ".Validator");
+  validator_.redirectLogger(log().getFullName() + ".Chain");
 }
 
 uint64_t Relay::getLastCheckpointId() const {

@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
-#include "Validator.h"
+#include "Chain.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
@@ -53,7 +53,7 @@ public:
   struct InitConfig {
     // Base configuration
     std::string workDir;
-    Validator::BlockChainConfig chain;
+    Chain::BlockChainConfig chain;
     InitKeyConfig key;
   };
 
@@ -89,9 +89,9 @@ private:
     std::string workDir;
   };
 
-  Roe<Ledger::ChainNode> createGenesisBlock(const Validator::BlockChainConfig& config, const InitKeyConfig& key) const;
+  Roe<Ledger::ChainNode> createGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key) const;
 
-  Validator validator_;
+  Chain validator_;
   Config config_;
 };
 

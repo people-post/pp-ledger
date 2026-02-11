@@ -1,5 +1,5 @@
-#ifndef PP_LEDGER_VALIDATOR_H
-#define PP_LEDGER_VALIDATOR_H
+#ifndef PP_LEDGER_CHAIN_H
+#define PP_LEDGER_CHAIN_H
 
 #include "AccountBuffer.h"
 #include "../ledger/Ledger.h"
@@ -18,7 +18,7 @@
 namespace pp {
 
 /**
- * Validator - Core block validation and chain management
+ * Chain - Core block validation and chain management
  * 
  * Provides common functionality for:
  * - Block validation
@@ -26,7 +26,7 @@ namespace pp {
  * - Consensus integration
  * - Ledger operations
  */
-class Validator : public Module {
+class Chain : public Module {
 public:
     struct CheckpointConfig {
       uint64_t minBlocks{ 0 }; // minimum number of blocks to trigger a checkpoint
@@ -117,8 +117,8 @@ public:
     constexpr static int32_t E_INTERNAL_BUFFER = 91;        // Internal buffer operation failed
     constexpr static int32_t E_INTERNAL = 99;               // Other internal error
 
-    Validator();
-    virtual ~Validator() = default;
+    Chain();
+    virtual ~Chain() = default;
 
     // ----------------- accessors -------------------------------------
     bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
@@ -210,9 +210,9 @@ private:
     uint64_t lastCheckpointId_{ 0 };
 };
 
-std::ostream& operator<<(std::ostream& os, const Validator::CheckpointConfig& config);
-std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& config);
+std::ostream& operator<<(std::ostream& os, const Chain::CheckpointConfig& config);
+std::ostream& operator<<(std::ostream& os, const Chain::BlockChainConfig& config);
 
 } // namespace pp
 
-#endif // PP_LEDGER_VALIDATOR_H
+#endif // PP_LEDGER_CHAIN_H

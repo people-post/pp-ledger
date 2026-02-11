@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
-#include "Validator.h"
+#include "Chain.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
 #include "../network/Types.hpp"
@@ -98,7 +98,7 @@ private:
     Roe<void> initSlotCache(uint64_t slot);
     Roe<Ledger::ChainNode> createBlock(uint64_t slot);
     
-    Validator validator_;
+    Chain validator_;
     Config config_;
     AccountBuffer bufferBank_;
     std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;

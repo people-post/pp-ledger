@@ -1,5 +1,5 @@
 #include "../AccountBuffer.h"
-#include "../Validator.h"
+#include "../Chain.h"
 #include <gtest/gtest.h>
 #include <cstdint>
 
