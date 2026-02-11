@@ -141,7 +141,7 @@ public:
     std::string calculateHash(const Ledger::Block& block) const;
     Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> collectRenewals(uint64_t slot) const;
     Roe<Ledger::ChainNode> readLastBlock() const;
-    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const;
+    Roe<void> addBufferTransaction(AccountBuffer& bank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const;
 
     void initConsensus(const consensus::Ouroboros::Config& config);
     Roe<void> initLedger(const Ledger::InitConfig& config);
@@ -166,16 +166,20 @@ private:
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
 
-    Roe<void> processBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& signedTx) const;
-
     Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
-    Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> processNewUser(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> processUserCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+
+    Roe<void> processSystemInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<void> processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<void> processUserInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<void> processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+
+    Roe<void> processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<void> processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+
+    Roe<void> processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& signedTx) const;
     Roe<void> processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> strictProcessTransaction(const Ledger::Transaction& tx);
-    Roe<void> strictProcessTransaction(AccountBuffer& accountBank, const Ledger::Transaction& tx) const;
+    Roe<void> strictProcessTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const;
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
     /** Create a renewal or end-user transaction for a given account. */
@@ -188,11 +192,12 @@ private:
     Roe<std::string> findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const;
 
     /** Build serialized UserAccount meta from the account currently in the buffer. */
-    Roe<std::string> updateMetaFromCheckpoint(const std::string& meta) const;
-    Roe<std::string> updateMetaFromNewUser(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromEndUser(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromSystemInit(const std::string& meta) const;
+    Roe<std::string> updateMetaFromSystemUpdate(const std::string& meta) const;
+    Roe<std::string> updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromUserEnd(const std::string& meta, const AccountBuffer::Account& account) const;
 
     consensus::Ouroboros consensus_;
     Ledger ledger_;
