@@ -629,7 +629,15 @@ Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& blo
 
 Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const {
   // TODO: Validate signatures
-  auto const& tx = signedTx.obj;
+  switch (signedTx.obj.type) {
+    case Ledger::Transaction::T_DEFAULT:
+      return processBufferTransaction(bufferBank, signedTx.obj);
+    default:
+      return Error(E_TX_TYPE, "Unknown transaction type: " + std::to_string(signedTx.obj.type));
+  }
+}
+
+Validator::Roe<void> Validator::processBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) const {
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_TX_FEE, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }
@@ -910,6 +918,11 @@ Validator::Roe<void> Validator::processNewUser(const Ledger::Transaction& tx, ui
   auto spendingResult = bank_.verifySpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
   if (!spendingResult) {
     return Error(E_ACCOUNT_BALANCE, "Source account must have sufficient balance: " + spendingResult.error().message);
+  }
+
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS && tx.toWalletId < AccountBuffer::ID_FIRST_USER) {
+    // Only genesis account can create new account using reserved user ids.
+    return Error(E_TX_VALIDATION, "New user account id must be larger than: " + std::to_string(AccountBuffer::ID_FIRST_USER));
   }
 
   // Deserialize UserAccount from transaction metadata

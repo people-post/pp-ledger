@@ -166,6 +166,8 @@ private:
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
 
+    Roe<void> processBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& signedTx) const;
+
     Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
     Roe<void> processSystemCheckpoint(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);

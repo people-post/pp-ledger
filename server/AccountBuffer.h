@@ -21,6 +21,7 @@ public:
   constexpr static uint64_t ID_GENESIS = 0;
   constexpr static uint64_t ID_FEE = 1;
   constexpr static uint64_t ID_RESERVE = 2;
+  constexpr static uint64_t ID_RECYCLE = 3;
 
   constexpr static uint64_t ID_FIRST_USER = 1 << 20;
 
