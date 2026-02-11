@@ -140,11 +140,18 @@ private:
     Roe<void> strictProcessTransaction(const Ledger::Transaction& tx);
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
 
+    /** Create a renewal or end-user transaction for a given account. */
+    Roe<Ledger::SignedData<Ledger::Transaction>> createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
+
+    /** Find and update account metadata from a block's transactions. */
+    Roe<std::string> findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const;
+
     /** Build serialized UserAccount meta from the account currently in the buffer. */
     Roe<std::string> updateMetaFromCheckpoint(const std::string& meta) const;
     Roe<std::string> updateMetaFromNewUser(const std::string& meta, const AccountBuffer::Account& account) const;
     Roe<std::string> updateMetaFromUser(const std::string& meta, const AccountBuffer::Account& account) const;
     Roe<std::string> updateMetaFromRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromEndUser(const std::string& meta, const AccountBuffer::Account& account) const;
 
     consensus::Ouroboros consensus_;
     Ledger ledger_;
