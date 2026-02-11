@@ -211,7 +211,7 @@ Validator::Roe<std::string> Validator::findAccountMetadataInBlock(const Ledger::
     }
 
     switch (signedTx.obj.type) {
-      case Ledger::Transaction::T_CHECKPOINT: {
+      case Ledger::Transaction::T_GENESIS: {
         auto metaResult = updateMetaFromCheckpoint(signedTx.obj.meta);
         if (!metaResult) {
           return Error(E_INTERNAL, "Failed to update meta from checkpoint: " + metaResult.error().message);
@@ -522,8 +522,8 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   
   // First transaction: checkpoint transaction (ID_GENESIS -> ID_GENESIS, amount 0)
   const auto& checkpointTx = block.block.signedTxes[0];
-  if (checkpointTx.obj.type != Ledger::Transaction::T_CHECKPOINT) {
-    return Error(E_BLOCK_GENESIS, "First genesis transaction must be checkpoint transaction");
+  if (checkpointTx.obj.type != Ledger::Transaction::T_GENESIS) {
+    return Error(E_BLOCK_GENESIS, "First genesis transaction must be genesis transaction");
   }
   
   // Second transaction: fee transaction (ID_GENESIS -> ID_FEE, 0)
@@ -772,7 +772,7 @@ Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger:
 
   auto const& tx = signedTx.obj;
   switch (tx.type) {
-    case Ledger::Transaction::T_CHECKPOINT:
+    case Ledger::Transaction::T_GENESIS:
       return processSystemCheckpoint(tx, blockId, isStrictMode);
     case Ledger::Transaction::T_NEW_USER:
       return processNewUser(tx, blockId, isStrictMode);

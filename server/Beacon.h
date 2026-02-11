@@ -36,10 +36,6 @@ namespace pp {
  */
 class Beacon : public Module {
 public:
-  using BlockChainConfig = Validator::BlockChainConfig;
-  using CheckpointConfig = Validator::CheckpointConfig;
-  using SystemCheckpoint = Validator::SystemCheckpoint;
-
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
@@ -57,7 +53,7 @@ public:
   struct InitConfig {
     // Base configuration
     std::string workDir;
-    BlockChainConfig chain;
+    Validator::BlockChainConfig chain;
     InitKeyConfig key;
   };
 
@@ -93,7 +89,7 @@ private:
     std::string workDir;
   };
 
-  Roe<Ledger::ChainNode> createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const;
+  Roe<Ledger::ChainNode> createGenesisBlock(const Validator::BlockChainConfig& config, const InitKeyConfig& key) const;
 
   Validator validator_;
   Config config_;

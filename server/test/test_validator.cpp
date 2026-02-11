@@ -73,7 +73,7 @@ Ledger::ChainNode makeGenesisBlock(Validator &validator,
   genesis.block.slotLeader = 0;
 
   Ledger::SignedData<Ledger::Transaction> checkpointTx;
-  checkpointTx.obj.type = Ledger::Transaction::T_CHECKPOINT;
+  checkpointTx.obj.type = Ledger::Transaction::T_GENESIS;
   checkpointTx.obj.tokenId = AccountBuffer::ID_GENESIS;
   checkpointTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   checkpointTx.obj.toWalletId = AccountBuffer::ID_GENESIS;

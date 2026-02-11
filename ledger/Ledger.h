@@ -17,11 +17,12 @@ class Ledger : public Module {
 public:
   struct Transaction {
     constexpr static uint16_t T_DEFAULT = 0;
-    constexpr static uint16_t T_CHECKPOINT = 1; // By GENESIS account to update the system config
-    constexpr static uint16_t T_NEW_USER = 2;   // By any account to fund a new wallet
-    constexpr static uint16_t T_USER = 3;       // By user accounts to update their account info
-    constexpr static uint16_t T_RENEWAL = 4;    // By miner to renew user account with latest account info
-    constexpr static uint16_t T_END_USER = 5;   // By miner to terminate user account due to insufficient fee.
+    constexpr static uint16_t T_GENESIS = 1;    // By genesis account to initialize the system
+    constexpr static uint16_t T_NEW_USER = 2;   // By any account to fund initialize a new user
+    constexpr static uint16_t T_CONFIG = 3;     // By genesis account to update the system config
+    constexpr static uint16_t T_USER = 4;       // By user accounts to update their account info
+    constexpr static uint16_t T_RENEWAL = 5;    // By miner to renew user account with latest account info
+    constexpr static uint16_t T_END_USER = 6;   // By miner to terminate user account due to insufficient fee.
 
     uint16_t type{ T_DEFAULT };
     uint64_t tokenId{ 0 };      // Token ID (0 = native token)

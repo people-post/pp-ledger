@@ -130,7 +130,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
   
   log().info << "Genesis block created with checkpoint transaction (version " 
-             << SystemCheckpoint::VERSION << ")";
+             << Validator::SystemCheckpoint::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << consensusConfig.genesisTime;
@@ -197,7 +197,7 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
-Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig& config, const InitKeyConfig& key) const {
+Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Validator::BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create native token genesis wallet with zero balance
@@ -214,7 +214,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
   genesisBlock.block.slotLeader = 0;
 
   // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
-  SystemCheckpoint systemCheckpoint;
+  Validator::SystemCheckpoint systemCheckpoint;
   systemCheckpoint.config = config;
 
   systemCheckpoint.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -226,7 +226,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const BlockChainConfig
 
   // First transaction: SystemCheckpoint
   Ledger::SignedData<Ledger::Transaction> signedTx;
-  signedTx.obj.type = Ledger::Transaction::T_CHECKPOINT;
+  signedTx.obj.type = Ledger::Transaction::T_GENESIS;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS; // Native token
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;     // genesis wallet ID
   signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
