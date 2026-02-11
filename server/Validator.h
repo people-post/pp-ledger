@@ -112,7 +112,7 @@ public:
     Roe<void> initLedger(const Ledger::InitConfig& config);
     Roe<void> mountLedger(const std::string& workDir);
     Roe<void> addBlock(const Ledger::ChainNode& block, bool isStrictMode);
-    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx);
+    Roe<void> addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const;
     void refreshStakeholders();
     Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
     

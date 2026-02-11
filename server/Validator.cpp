@@ -228,6 +228,23 @@ Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::
 
   const uint64_t minFee = chainConfig_.minFeePerTransaction;
   for (uint64_t accountId : bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+    auto accountResult = bank_.getAccount(accountId);
+    if (!accountResult) {
+      return Error(8, "Account not found: " + std::to_string(accountId));
+    }
+
+    auto const& account = accountResult.value();
+    if (accountId != AccountBuffer::ID_GENESIS) {
+      auto it = account.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+      if (it == account.wallet.mBalances.end()) {
+        // TODO: Insufficent balance for renewal, use temination of account.
+      }
+
+      if (it->second < minFee) {
+        // TODO: Insufficient balance for renewal
+      }
+    }
+  
     Ledger::Transaction tx;
     tx.type = Ledger::Transaction::T_RENEWAL;
     tx.tokenId = AccountBuffer::ID_GENESIS;
@@ -236,11 +253,6 @@ Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::
     tx.amount = 0;
     tx.fee = static_cast<int64_t>(minFee);
 
-    auto accountResult = bank_.getAccount(accountId);
-    if (!accountResult) {
-      return Error(8, "Account not found: " + std::to_string(accountId));
-    }
-    auto const& account = accountResult.value();
     auto blockResult = ledger_.readBlock(account.blockId);
     if (!blockResult) {
       return Error(8, "Block not found: " + std::to_string(account.blockId));
@@ -510,7 +522,9 @@ Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& blo
   return {};
 }
 
-Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::Transaction& tx) {
+Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bufferBank, const Ledger::SignedData<Ledger::Transaction>& signedTx) const {
+  // TODO: Validate signatures
+  auto const& tx = signedTx.obj;
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(18, "Transaction fee below minimum: " + std::to_string(tx.fee));
   }

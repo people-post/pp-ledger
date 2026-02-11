@@ -95,6 +95,7 @@ private:
     };
 
 
+    Roe<void> initSlotCache(uint64_t slot);
     Roe<Ledger::ChainNode> createBlock(uint64_t slot);
     
     Validator validator_;

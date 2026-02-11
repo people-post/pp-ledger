@@ -125,6 +125,35 @@ void Miner::refresh() {
   validator_.refreshStakeholders();
 }
 
+Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
+  slotCache_ = {};
+  slotCache_.slot = slot;
+  slotCache_.isLeader = validator_.isStakeholderSlotLeader(config_.minerId, slot);
+  if (slotCache_.isLeader) {
+    // Leader initial evaluations per slot
+    auto renewalsResult = validator_.collectRenewals(slot);
+    if (!renewalsResult) {
+      slotCache_ = {};
+      return Error(12, renewalsResult.error().message);
+    }
+    slotCache_.txRenewals = renewalsResult.value();
+    for (auto& signedTx : slotCache_.txRenewals) {
+      auto message = utl::binaryPack(signedTx.obj);
+      auto result = utl::ed25519Sign(config_.privateKey, message);
+      if (!result) {
+        slotCache_ = {};
+        return Error(12, result.error().message);
+      }
+      auto addResult = validator_.addBufferTransaction(bufferBank_, signedTx);
+      if (!addResult) {
+        return Error(12, "Failed to add renewal transaction: " + addResult.error().message);
+      }
+      signedTx.signatures.push_back(*result);
+    }
+  }
+  return {};
+}
+
 Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
   uint64_t slot = getCurrentSlot();
   // At most one block per slot
@@ -134,26 +163,9 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode& block) {
 
   if (slotCache_.slot != slot) {
     // One time initialization of slot cache
-    slotCache_ = {};
-    slotCache_.slot = slot;
-    slotCache_.isLeader = validator_.isStakeholderSlotLeader(config_.minerId, slot);
-    if (slotCache_.isLeader) {
-      // Leader initial evaluations per slot
-      auto renewalsResult = validator_.collectRenewals(slot);
-      if (!renewalsResult) {
-        slotCache_ = {};
-        return Error(12, renewalsResult.error().message);
-      }
-      slotCache_.txRenewals = renewalsResult.value();
-      for (auto& signedTx : slotCache_.txRenewals) {
-        auto message = utl::binaryPack(signedTx.obj);
-        auto result = utl::ed25519Sign(config_.privateKey, message);
-        if (!result) {
-          slotCache_ = {};
-          return Error(12, result.error().message);
-        }
-        signedTx.signatures.push_back(*result);
-      }
+    auto initResult = initSlotCache(slot);
+    if (!initResult) {
+      return Error(12, initResult.error().message);
     }
   }
 
@@ -191,9 +203,7 @@ void Miner::markBlockProduction(const Ledger::ChainNode& block) {
 }
 
 Miner::Roe<void> Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
-  // TODO: Verify signatures
-
-  auto result = validator_.addBufferTransaction(bufferBank_, signedTx.obj);
+  auto result = validator_.addBufferTransaction(bufferBank_, signedTx);
   if (!result) {
     return Error(9, result.error().message);
   }
