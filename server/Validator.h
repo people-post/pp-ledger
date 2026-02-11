@@ -74,13 +74,48 @@ public:
     
     template <typename T> using Roe = ResultOrError<T, Error>;
 
-    constexpr static int32_t E_INPUT = 1; // Invalid input data
-    constexpr static int32_t E_STATE = 2; // Invalid state for the requested operation
-    constexpr static int32_t E_LEDGER = 3; // Ledger operation failed
-    constexpr static int32_t E_CONSENSUS = 4; // Consensus validation failed
-    constexpr static int32_t E_VALIDATION = 5; // Block or transaction validation failed
-    constexpr static int32_t E_INTERNAL = 6; // Internal error (e.g. serialization failure)
-    constexpr static int32_t E_UNAUTHORIZED = 7; // Unauthorized action
+    // Error code groups
+    // State and initialization errors (1-9)
+    constexpr static int32_t E_STATE_INIT = 1;              // Ledger initialization failed
+    constexpr static int32_t E_STATE_MOUNT = 2;             // Ledger mount failed
+    
+    // Block validation errors (10-29)
+    constexpr static int32_t E_BLOCK_NOT_FOUND = 10;        // Block not found
+    constexpr static int32_t E_BLOCK_SEQUENCE = 11;         // Invalid block sequence
+    constexpr static int32_t E_BLOCK_HASH = 12;             // Block hash validation failed
+    constexpr static int32_t E_BLOCK_INDEX = 13;            // Block index mismatch
+    constexpr static int32_t E_BLOCK_CHAIN = 14;            // Block previous hash mismatch
+    constexpr static int32_t E_BLOCK_VALIDATION = 15;       // General block validation failed
+    constexpr static int32_t E_BLOCK_GENESIS = 16;          // Genesis block validation failed
+    
+    // Consensus errors (30-39)
+    constexpr static int32_t E_CONSENSUS_SLOT_LEADER = 30;  // Invalid slot leader
+    constexpr static int32_t E_CONSENSUS_TIMING = 31;       // Block timestamp outside valid range
+    constexpr static int32_t E_CONSENSUS_QUERY = 32;        // Failed to query consensus data
+    
+    // Account errors (40-59)
+    constexpr static int32_t E_ACCOUNT_NOT_FOUND = 40;      // Account not found
+    constexpr static int32_t E_ACCOUNT_EXISTS = 41;         // Account already exists
+    constexpr static int32_t E_ACCOUNT_BALANCE = 42;        // Insufficient balance
+    constexpr static int32_t E_ACCOUNT_BUFFER = 43;         // Failed to add account to buffer
+    constexpr static int32_t E_ACCOUNT_RENEWAL = 44;        // Account renewal validation failed
+    
+    // Transaction validation errors (60-79)
+    constexpr static int32_t E_TX_VALIDATION = 60;          // Transaction validation failed
+    constexpr static int32_t E_TX_SIGNATURE = 61;           // Invalid transaction signature
+    constexpr static int32_t E_TX_FEE = 62;                 // Transaction fee below minimum
+    constexpr static int32_t E_TX_AMOUNT = 63;              // Invalid transaction amount
+    constexpr static int32_t E_TX_TYPE = 64;                // Unknown transaction type
+    constexpr static int32_t E_TX_TRANSFER = 65;            // Transaction transfer failed
+    
+    // Ledger operation errors (80-89)
+    constexpr static int32_t E_LEDGER_WRITE = 80;           // Failed to persist to ledger
+    constexpr static int32_t E_LEDGER_READ = 81;            // Failed to read from ledger
+    
+    // Internal errors (90-99)
+    constexpr static int32_t E_INTERNAL_DESERIALIZE = 90;   // Deserialization failed
+    constexpr static int32_t E_INTERNAL_BUFFER = 91;        // Internal buffer operation failed
+    constexpr static int32_t E_INTERNAL = 99;               // Other internal error
 
     Validator();
     virtual ~Validator() = default;
