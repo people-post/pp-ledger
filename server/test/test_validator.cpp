@@ -57,12 +57,12 @@ Ledger::ChainNode makeGenesisBlock(Validator &validator,
                                   const utl::Ed25519KeyPair &genesisKey,
                                   const utl::Ed25519KeyPair &feeKey,
                                   const utl::Ed25519KeyPair &reserveKey) {
-  Validator::SystemCheckpoint checkpoint;
-  checkpoint.config = chainConfig;
-  checkpoint.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
-  checkpoint.genesis.wallet.publicKeys = {genesisKey.publicKey};
-  checkpoint.genesis.wallet.minSignatures = 1;
-  checkpoint.genesis.meta = "genesis";
+  Validator::GenesisAccountMeta gm;
+  gm.config = chainConfig;
+  gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
+  gm.genesis.wallet.publicKeys = {genesisKey.publicKey};
+  gm.genesis.wallet.minSignatures = 1;
+  gm.genesis.meta = "genesis";
 
   Ledger::ChainNode genesis;
   genesis.block.index = 0;
@@ -79,7 +79,7 @@ Ledger::ChainNode makeGenesisBlock(Validator &validator,
   checkpointTx.obj.toWalletId = AccountBuffer::ID_GENESIS;
   checkpointTx.obj.amount = 0;
   checkpointTx.obj.fee = 0;
-  checkpointTx.obj.meta = checkpoint.ltsToString();
+  checkpointTx.obj.meta = gm.ltsToString();
   checkpointTx.signatures.push_back(signTx(genesisKey, checkpointTx.obj));
   genesis.block.signedTxes.push_back(checkpointTx);
 
@@ -114,25 +114,25 @@ Ledger::ChainNode makeGenesisBlock(Validator &validator,
 
 } // namespace
 
-TEST(ValidatorTest, SystemCheckpoint_RoundTrip) {
-  Validator::SystemCheckpoint checkpoint;
-  checkpoint.config = makeChainConfig(12345);
-  checkpoint.genesis = makeUserAccount("pk", 0);
+TEST(ValidatorTest, GenesisAccountMeta_RoundTrip) {
+  Validator::GenesisAccountMeta gm;
+  gm.config = makeChainConfig(12345);
+  gm.genesis = makeUserAccount("pk", 0);
 
-  std::string serialized = checkpoint.ltsToString();
-  Validator::SystemCheckpoint parsed;
+  std::string serialized = gm.ltsToString();
+  Validator::GenesisAccountMeta parsed;
   EXPECT_TRUE(parsed.ltsFromString(serialized));
-  EXPECT_EQ(parsed.config.genesisTime, checkpoint.config.genesisTime);
-  EXPECT_EQ(parsed.config.slotDuration, checkpoint.config.slotDuration);
-  EXPECT_EQ(parsed.config.slotsPerEpoch, checkpoint.config.slotsPerEpoch);
-  EXPECT_EQ(parsed.config.maxPendingTransactions, checkpoint.config.maxPendingTransactions);
-  EXPECT_EQ(parsed.config.maxTransactionsPerBlock, checkpoint.config.maxTransactionsPerBlock);
-  EXPECT_EQ(parsed.config.minFeePerTransaction, checkpoint.config.minFeePerTransaction);
-  EXPECT_EQ(parsed.config.checkpoint.minBlocks, checkpoint.config.checkpoint.minBlocks);
-  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds, checkpoint.config.checkpoint.minAgeSeconds);
-  EXPECT_EQ(parsed.genesis.wallet.publicKeys, checkpoint.genesis.wallet.publicKeys);
-  EXPECT_EQ(parsed.genesis.wallet.minSignatures, checkpoint.genesis.wallet.minSignatures);
-  EXPECT_EQ(parsed.genesis.wallet.mBalances, checkpoint.genesis.wallet.mBalances);
+  EXPECT_EQ(parsed.config.genesisTime, gm.config.genesisTime);
+  EXPECT_EQ(parsed.config.slotDuration, gm.config.slotDuration);
+  EXPECT_EQ(parsed.config.slotsPerEpoch, gm.config.slotsPerEpoch);
+  EXPECT_EQ(parsed.config.maxPendingTransactions, gm.config.maxPendingTransactions);
+  EXPECT_EQ(parsed.config.maxTransactionsPerBlock, gm.config.maxTransactionsPerBlock);
+  EXPECT_EQ(parsed.config.minFeePerTransaction, gm.config.minFeePerTransaction);
+  EXPECT_EQ(parsed.config.checkpoint.minBlocks, gm.config.checkpoint.minBlocks);
+  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds, gm.config.checkpoint.minAgeSeconds);
+  EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);
+  EXPECT_EQ(parsed.genesis.wallet.minSignatures, gm.genesis.wallet.minSignatures);
+  EXPECT_EQ(parsed.genesis.wallet.mBalances, gm.genesis.wallet.mBalances);
 }
 
 TEST(ValidatorTest, CalculateHash_DeterministicAndSensitive) {

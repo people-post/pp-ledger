@@ -54,7 +54,7 @@ public:
       }
     };
 
-    struct SystemCheckpoint {
+    struct GenesisAccountMeta {
       constexpr static const uint32_t VERSION = 1;
 
       BlockChainConfig config;
@@ -159,45 +159,48 @@ private:
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
+
+    /** Calculate the maximum blockId for account renewals at a given block. */
+    Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
+
+    /** Create a renewal or end-user transaction for a given account. */
+    Roe<Ledger::SignedData<Ledger::Transaction>> createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
+
+    /** Find and update account metadata from a block's transactions. */
+    Roe<std::string> findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const;
+
     Roe<void> validateAccountRenewals(const Ledger::ChainNode& block) const;
 
     Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
-    Roe<void> validateBlock(const Ledger::ChainNode& block) const;
+    Roe<void> processGenesisBlock(const Ledger::ChainNode& block);
+    Roe<void> processNormalBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> validateGenesisBlock(const Ledger::ChainNode& block) const;
     Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
 
-    Roe<void> processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
+    Roe<void> processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx);
+    Roe<void> processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
     Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
 
-    Roe<void> processSystemInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+    Roe<std::string> updateMetaFromSystemInit(const std::string& meta) const;
+    Roe<std::string> updateMetaFromSystemUpdate(const std::string& meta) const;
+    Roe<std::string> updateSystemMeta(const std::string& meta) const;
+    Roe<void> processSystemInit(const Ledger::Transaction& tx);
     Roe<void> processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> processUserInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
-    Roe<void> processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
 
+    Roe<std::string> updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<std::string> updateUserMeta(const std::string& meta, const AccountBuffer::Account& account) const;
+    Roe<void> processUserInit(const Ledger::Transaction& tx, uint64_t blockId);
+    Roe<void> processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+
     Roe<void> processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
 
     Roe<void> processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& signedTx) const;
     Roe<void> processTransaction(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> strictProcessTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const;
     Roe<void> looseProcessTransaction(const Ledger::Transaction& tx);
-
-    /** Create a renewal or end-user transaction for a given account. */
-    Roe<Ledger::SignedData<Ledger::Transaction>> createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
-
-    /** Calculate the maximum blockId for account renewals at a given block. */
-    Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
-
-    /** Find and update account metadata from a block's transactions. */
-    Roe<std::string> findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const;
-
-    /** Build serialized UserAccount meta from the account currently in the buffer. */
-    Roe<std::string> updateMetaFromSystemInit(const std::string& meta) const;
-    Roe<std::string> updateMetaFromSystemUpdate(const std::string& meta) const;
-    Roe<std::string> updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const;
-    Roe<std::string> updateMetaFromUserEnd(const std::string& meta, const AccountBuffer::Account& account) const;
 
     consensus::Ouroboros consensus_;
     Ledger ledger_;

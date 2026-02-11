@@ -25,14 +25,14 @@ std::ostream& operator<<(std::ostream& os, const Validator::BlockChainConfig& co
   return os;
 }
 
-std::string Validator::SystemCheckpoint::ltsToString() const {
+std::string Validator::GenesisAccountMeta::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & VERSION & *this;
   return oss.str();
 }
 
-bool Validator::SystemCheckpoint::ltsFromString(const std::string& str) {
+bool Validator::GenesisAccountMeta::ltsFromString(const std::string& str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;
@@ -203,56 +203,57 @@ uint64_t Validator::getBlockAgeSeconds(uint64_t blockId) const {
 }
 
 Validator::Roe<std::string> Validator::findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const {
-  uint64_t accountId = account.id;
+  const uint64_t accountId = account.id;
+
+  auto unwrapMeta = [](const Validator::Roe<std::string>& metaResult, bool errorAsMessage) -> Validator::Roe<std::string> {
+    if (!metaResult) {
+      if (errorAsMessage) {
+        return metaResult.error().message;
+      }
+      return metaResult.error();
+    }
+    return metaResult.value();
+  };
+
+  auto matchesAccount = [&](const Ledger::Transaction& tx) -> bool {
+    switch (tx.type) {
+      case Ledger::Transaction::T_GENESIS:
+        // GENESIS record only happens at first block.
+        return accountId == AccountBuffer::ID_GENESIS && block.index == 0;
+      case Ledger::Transaction::T_CONFIG:
+        // CONFIG record only happens with genesis account.
+        return accountId == AccountBuffer::ID_GENESIS;
+      case Ledger::Transaction::T_NEW_USER:
+        // NEW_USER record only happens for non-genesis accounts.
+        return accountId != AccountBuffer::ID_GENESIS && tx.toWalletId == accountId;
+      case Ledger::Transaction::T_USER:
+        // User update must be from the account itself, and cannot be for genesis account (which is only updated by system transactions)
+        return accountId != AccountBuffer::ID_GENESIS && tx.fromWalletId == accountId && tx.toWalletId == accountId;
+      case Ledger::Transaction::T_RENEWAL:
+        return tx.fromWalletId == accountId;
+      default:
+        return false;
+    }
+  };
+
   for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend(); ++it) {
-    const auto& signedTx = *it;
-    if (signedTx.obj.fromWalletId != accountId) {
+    const auto& tx = it->obj;
+    if (!matchesAccount(tx)) {
       continue;
     }
 
-    switch (signedTx.obj.type) {
-      case Ledger::Transaction::T_GENESIS: {
-        auto metaResult = updateMetaFromSystemInit(signedTx.obj.meta);
-        if (!metaResult) {
-          return metaResult.error().message;
-        }
-        return metaResult.value();
-      }
-      case Ledger::Transaction::T_NEW_USER: {
-        auto metaResult = updateMetaFromUserInit(signedTx.obj.meta, account);
-        if (!metaResult) {
-          return metaResult.error();
-        }
-        return metaResult.value();
-      }
-      case Ledger::Transaction::T_CONFIG: {
-        auto metaResult = updateMetaFromSystemUpdate(signedTx.obj.meta);
-        if (!metaResult) {
-          return metaResult.error().message;
-        }
-        return metaResult.value();
-      }
-      case Ledger::Transaction::T_USER: {
-        auto metaResult = updateMetaFromUserUpdate(signedTx.obj.meta, account);
-        if (!metaResult) {
-          return metaResult.error();
-        }
-        return metaResult.value();
-      }
-      case Ledger::Transaction::T_RENEWAL: {
-        auto metaResult = updateMetaFromUserRenewal(signedTx.obj.meta, account);
-        if (!metaResult) {
-          return metaResult.error();
-        }
-        return metaResult.value();
-      }
-      case Ledger::Transaction::T_END_USER: {
-        auto metaResult = updateMetaFromUserEnd(signedTx.obj.meta, account);
-        if (!metaResult) {
-          return metaResult.error();
-        }
-        return metaResult.value();
-      }
+    switch (tx.type) {
+      case Ledger::Transaction::T_GENESIS:
+        return unwrapMeta(updateMetaFromSystemInit(tx.meta), true);
+      case Ledger::Transaction::T_NEW_USER:
+        return unwrapMeta(updateMetaFromUserInit(tx.meta, account), false);
+      case Ledger::Transaction::T_CONFIG:
+        return unwrapMeta(updateMetaFromSystemUpdate(tx.meta), true);
+      case Ledger::Transaction::T_USER:
+        return unwrapMeta(updateMetaFromUserUpdate(tx.meta, account), false);
+      case Ledger::Transaction::T_RENEWAL:
+        return unwrapMeta(updateMetaFromUserRenewal(tx.meta, account), false);
+      // T_USER_END is not expected to update account metadata, and should not be used as source for account meta, so we skip it here.
       default:
         break;
     }
@@ -428,66 +429,17 @@ Validator::Roe<Ledger::ChainNode> Validator::readLastBlock() const {
   return result.value();
 }
 
-Validator::Roe<std::string> Validator::updateMetaFromSystemInit(const std::string& meta) const {
-  SystemCheckpoint checkpoint;
-  if (!checkpoint.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
-  }
-
-  auto genesisAccountResult = bank_.getAccount(AccountBuffer::ID_GENESIS);
-  if (!genesisAccountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(AccountBuffer::ID_GENESIS));
-  }
-  auto const& genesisAccount = genesisAccountResult.value();
-  checkpoint.genesis.wallet = genesisAccount.wallet;
-  return checkpoint.ltsToString();
-}
-
-Validator::Roe<std::string> Validator::updateMetaFromSystemUpdate(const std::string& meta) const {
-  // TODO:
-  return Error(E_INTERNAL, "updateMetaFromSystemUpdate not implemented");
-}
-
-Validator::Roe<std::string> Validator::updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
-  }
-  userAccount.wallet = account.wallet;
-  return userAccount.ltsToString();
-}
-
-Validator::Roe<std::string> Validator::updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
-  }
-  userAccount.wallet = account.wallet;
-  return userAccount.ltsToString();
-}
-
-Validator::Roe<std::string> Validator::updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
-  }
-  userAccount.wallet = account.wallet;
-  return userAccount.ltsToString();
-}
-
-Validator::Roe<std::string> Validator::updateMetaFromUserEnd(const std::string& meta, const AccountBuffer::Account& account) const {
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
-  }
-  userAccount.wallet = account.wallet;
-  return userAccount.ltsToString();
-}
-
 std::string Validator::calculateHash(const Ledger::Block& block) const {
   // Use ltsToString() to get the serialized block representation
   std::string serialized = block.ltsToString();
   return utl::sha256(serialized);
+}
+
+void Validator::refreshStakeholders() {
+  if (consensus_.isStakeUpdateNeeded()) {
+    auto stakeholders = bank_.getStakeholders();
+    consensus_.setStakeholders(stakeholders);
+  }
 }
 
 void Validator::initConsensus(const consensus::Ouroboros::Config& config) {
@@ -508,6 +460,45 @@ Validator::Roe<void> Validator::mountLedger(const std::string& workDir) {
     return Error(E_STATE_MOUNT, "Failed to mount ledger: " + result.error().message);
   }
   return {};
+}
+
+Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
+  log().info << "Loading from ledger starting at block ID " << startingBlockId;
+
+  log().info << "Resetting account buffer";
+  bank_.reset();
+
+  // Process blocks from ledger one by one
+  uint64_t blockId = startingBlockId;
+  uint64_t logInterval = 1000; // Log every 1000 blocks
+  bool isStrictMode = startingBlockId == 0; // True if we are loading from the beginning (strict validation)
+  while (true) {
+    auto blockResult = ledger_.readBlock(blockId);
+    if (!blockResult) {
+      // No more blocks to read
+      break;
+    }
+
+    auto const& block = blockResult.value();
+    if (blockId != block.block.index) {
+      return Error(E_BLOCK_INDEX, "Block index mismatch: expected " + std::to_string(blockId) + " got " + std::to_string(block.block.index));
+    }
+
+    auto processResult = processBlock(block, isStrictMode);
+    if (!processResult) {
+      return Error(E_BLOCK_VALIDATION, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
+    }
+    
+    blockId++;
+    
+    // Periodic progress logging
+    if (blockId % logInterval == 0) {
+      log().info << "Processed " << blockId << " blocks...";
+    }
+  }
+
+  log().info << "Loaded " << blockId << " blocks from ledger";
+  return blockId;
 }
 
 Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& block) const {
@@ -575,14 +566,6 @@ Validator::Roe<void> Validator::validateGenesisBlock(const Ledger::ChainNode& bl
   return {};
 }
 
-Validator::Roe<void> Validator::validateBlock(const Ledger::ChainNode& block) const {
-  if (block.block.index == 0) {
-    return validateGenesisBlock(block);
-  } else {
-    return validateNormalBlock(block);
-  }
-}
-
 Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& block) const {
   // Non-genesis: validate slot leader and timing
   uint64_t slot = block.block.slot;
@@ -639,50 +622,48 @@ Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& blo
   return {};
 }
 
-void Validator::refreshStakeholders() {
-  if (consensus_.isStakeUpdateNeeded()) {
-    auto stakeholders = bank_.getStakeholders();
-    consensus_.setStakeholders(stakeholders);
-  }
+Validator::Roe<std::string> Validator::updateMetaFromSystemInit(const std::string& meta) const {
+  return updateSystemMeta(meta);
 }
 
-Validator::Roe<uint64_t> Validator::loadFromLedger(uint64_t startingBlockId) {
-  log().info << "Loading from ledger starting at block ID " << startingBlockId;
+Validator::Roe<std::string> Validator::updateMetaFromSystemUpdate(const std::string& meta) const {
+  return updateSystemMeta(meta);
+}
 
-  log().info << "Resetting account buffer";
-  bank_.reset();
-
-  // Process blocks from ledger one by one
-  uint64_t blockId = startingBlockId;
-  uint64_t logInterval = 1000; // Log every 1000 blocks
-  bool isStrictMode = startingBlockId == 0; // True if we are loading from the beginning (strict validation)
-  while (true) {
-    auto blockResult = ledger_.readBlock(blockId);
-    if (!blockResult) {
-      // No more blocks to read
-      break;
-    }
-
-    auto const& block = blockResult.value();
-    if (blockId != block.block.index) {
-      return Error(E_BLOCK_INDEX, "Block index mismatch: expected " + std::to_string(blockId) + " got " + std::to_string(block.block.index));
-    }
-
-    auto processResult = processBlock(block, isStrictMode);
-    if (!processResult) {
-      return Error(E_BLOCK_VALIDATION, "Failed to process block " + std::to_string(blockId) + ": " + processResult.error().message);
-    }
-    
-    blockId++;
-    
-    // Periodic progress logging
-    if (blockId % logInterval == 0) {
-      log().info << "Processed " << blockId << " blocks...";
-    }
+Validator::Roe<std::string> Validator::updateSystemMeta(const std::string& meta) const {
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(meta)) {
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint: " + std::to_string(meta.size()) + " bytes");
   }
 
-  log().info << "Loaded " << blockId << " blocks from ledger";
-  return blockId;
+  auto genesisAccountResult = bank_.getAccount(AccountBuffer::ID_GENESIS);
+  if (!genesisAccountResult) {
+    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(AccountBuffer::ID_GENESIS));
+  }
+  auto const& genesisAccount = genesisAccountResult.value();
+  gm.genesis.wallet = genesisAccount.wallet;
+  return gm.ltsToString();
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromUserInit(const std::string& meta, const AccountBuffer::Account& account) const {
+  return updateUserMeta(meta, account);
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromUserUpdate(const std::string& meta, const AccountBuffer::Account& account) const {
+  return updateUserMeta(meta, account);
+}
+
+Validator::Roe<std::string> Validator::updateMetaFromUserRenewal(const std::string& meta, const AccountBuffer::Account& account) const {
+  return updateUserMeta(meta, account);
+}
+
+Validator::Roe<std::string> Validator::updateUserMeta(const std::string& meta, const AccountBuffer::Account& account) const {
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(meta)) {
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize account info: " + std::to_string(meta.size()) + " bytes");
+  }
+  userAccount.wallet = account.wallet;
+  return userAccount.ltsToString();
 }
 
 Validator::Roe<void> Validator::addBlock(const Ledger::ChainNode& block, bool isStrictMode) {
@@ -703,15 +684,41 @@ Validator::Roe<void> Validator::addBlock(const Ledger::ChainNode& block, bool is
 }
 
 Validator::Roe<void> Validator::processBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+  if (block.block.index == 0) {
+    return processGenesisBlock(block);
+  } else {
+    return processNormalBlock(block, isStrictMode);
+  }
+}
+
+Validator::Roe<void> Validator::processGenesisBlock(const Ledger::ChainNode& block) {
   // Validate the block first
-  auto validationResult = validateBlock(block);
-  if (!validationResult) {
-    return Error(E_BLOCK_VALIDATION, "Block validation failed for block " + std::to_string(block.block.index) + ": " + validationResult.error().message);
+  auto roe = validateGenesisBlock(block);
+  if (!roe) {
+    return Error(E_BLOCK_VALIDATION, "Block validation failed for block " + std::to_string(block.block.index) + ": " + roe.error().message);
   }
 
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    auto result = processTxRecord(signedTx, block.block.index, isStrictMode);
+    auto result = processGenesisTxRecord(signedTx);
+    if (!result) {
+      return Error(E_TX_VALIDATION, "Failed to process transaction: " + result.error().message);
+    }
+  }
+
+  return {};
+}
+
+Validator::Roe<void> Validator::processNormalBlock(const Ledger::ChainNode& block, bool isStrictMode) {
+  // Validate the block first
+  auto roe = validateNormalBlock(block);
+  if (!roe) {
+    return Error(E_BLOCK_VALIDATION, "Block validation failed for block " + std::to_string(block.block.index) + ": " + roe.error().message);
+  }
+
+  // Process checkpoint transactions to restore BlockChainConfig
+  for (const auto& signedTx : block.block.signedTxes) {
+    auto result = processNormalTxRecord(signedTx, block.block.index, isStrictMode);
     if (!result) {
       return Error(E_TX_VALIDATION, "Failed to process transaction: " + result.error().message);
     }
@@ -730,8 +737,8 @@ Validator::Roe<void> Validator::addBufferTransaction(AccountBuffer& bank, const 
   }
 }
 
-Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
-  auto roe = validateTxSignatures(signedTx, isStrictMode);
+Validator::Roe<void> Validator::processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx) {
+  auto roe = validateTxSignatures(signedTx, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
   }
@@ -739,9 +746,24 @@ Validator::Roe<void> Validator::processTxRecord(const Ledger::SignedData<Ledger:
   auto const& tx = signedTx.obj;
   switch (tx.type) {
     case Ledger::Transaction::T_GENESIS:
-      return processSystemInit(tx, blockId, isStrictMode);
+      return processSystemInit(tx);
     case Ledger::Transaction::T_NEW_USER:
-      return processUserInit(tx, blockId, isStrictMode);
+      return processUserInit(tx, 0);
+    default:
+      return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " + std::to_string(tx.type));
+  }
+}
+
+Validator::Roe<void> Validator::processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
+  auto roe = validateTxSignatures(signedTx, isStrictMode);
+  if (!roe) {
+    return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
+  }
+
+  auto const& tx = signedTx.obj;
+  switch (tx.type) {
+    case Ledger::Transaction::T_NEW_USER:
+      return processUserInit(tx, blockId);
     case Ledger::Transaction::T_CONFIG:
       return processSystemUpdate(tx, blockId, isStrictMode);
     case Ledger::Transaction::T_USER:
@@ -809,12 +831,9 @@ Validator::Roe<void> Validator::validateTxSignatures(const Ledger::SignedData<Le
   return {};
 }
 
-Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx) {
   log().info << "Processing system initialization transaction";
 
-  if (blockId != 0) {
-    return Error(E_TX_VALIDATION, "System init transaction must happen at block 0.");
-  }
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION, "System init transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
   }
@@ -826,13 +845,13 @@ Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx,
   }
 
   // Deserialize BlockChainConfig from transaction metadata
-  SystemCheckpoint checkpoint;
-  if (!checkpoint.ltsFromString(tx.meta)) {
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(tx.meta)) {
     return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint config: " + tx.meta);
   }
 
   // Reset chain configuration
-  chainConfig_ = checkpoint.config;
+  chainConfig_ = gm.config;
   
   // Reset consensus parameters
   auto config = consensus_.getConfig();
@@ -849,25 +868,26 @@ Validator::Roe<void> Validator::processSystemInit(const Ledger::Transaction& tx,
 
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;
-  genesisAccount.wallet = checkpoint.genesis.wallet;
+  genesisAccount.wallet = gm.genesis.wallet;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
     return Error(E_INTERNAL_BUFFER, "Failed to add genesis account to buffer: " + roeAddGenesis.error().message);
   }
 
   log().info << "System initialized";
-  log().info << "  Version: " << checkpoint.VERSION;
+  log().info << "  Version: " << gm.VERSION;
   log().info << "  Config: " << chainConfig_;
-  log().info << "  Genesis: " << checkpoint.genesis;
+  log().info << "  Genesis: " << gm.genesis;
 
   return {};
 }
 
 Validator::Roe<void> Validator::processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  // TODO: Implement system update processing, including validating the transaction and updating the chain configuration if needed
   return Error(E_TX_VALIDATION, "processSystemUpdate not implemented");
 }
 
-Validator::Roe<void> Validator::processUserInit(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+Validator::Roe<void> Validator::processUserInit(const Ledger::Transaction& tx, uint64_t blockId) {
   log().info << "Processing user initialization transaction";
 
   if (tx.fee < chainConfig_.minFeePerTransaction) {
@@ -932,30 +952,30 @@ Validator::Roe<void> Validator::processUserInit(const Ledger::Transaction& tx, u
 }
 
 Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
-  log().info << "Processing user checkpoint transaction";
+  log().info << "Processing user update transaction";
 
   if (tx.fee < chainConfig_.minFeePerTransaction) {
-    return Error(E_TX_FEE, "User checkpoint transaction fee below minimum: " + std::to_string(tx.fee));
+    return Error(E_TX_FEE, "User update transaction fee below minimum: " + std::to_string(tx.fee));
   }
   
   // Deserialize UserAccount from transaction metadata
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user checkpoint: " + tx.meta);
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user meta: " + std::to_string(tx.meta.size()) + " bytes");
   }
 
   if (userAccount.wallet.publicKeys.empty()) {
-    return Error(E_TX_VALIDATION, "User checkpoint must have at least one public key");
+    return Error(E_TX_VALIDATION, "User account must have at least one public key");
   }
 
   if (userAccount.wallet.minSignatures < 1) {
-    return Error(E_TX_VALIDATION, "User checkpoint must require at least one signature");
+    return Error(E_TX_VALIDATION, "User account must require at least one signature");
   }
 
   auto bufferAccountResult = bank_.getAccount(tx.toWalletId);
   if (!bufferAccountResult) {
     if (isStrictMode) {
-      return Error(E_ACCOUNT_NOT_FOUND, "Checkpoint account not found in buffer: " + std::to_string(tx.toWalletId));
+      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " + std::to_string(tx.toWalletId));
     }
   } else {
     auto const& bufferAccount = bufferAccountResult.value();
@@ -986,7 +1006,7 @@ Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx,
       }
       int64_t userBalance = getBalanceOrZero(userBalances, tokenId);
       if (bufferBalance != userBalance) {
-        return Error(E_TX_VALIDATION, "Checkpoint balances do not match buffer state");
+        return Error(E_TX_VALIDATION, "User account balances do not match buffer state");
       }
     }
     for (const auto& [tokenId, userBalance] : userBalances) {
@@ -995,24 +1015,24 @@ Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx,
       }
       int64_t bufferBalance = getBalanceOrZero(bufferBalances, tokenId);
       if (bufferBalance != userBalance) {
-        return Error(E_TX_VALIDATION, "Checkpoint balances do not match buffer state");
+        return Error(E_TX_VALIDATION, "User account balances do not match buffer state");
       }
     }
 
     int64_t delta = 0;
     if (!safeAdd(tx.amount, tx.fee, delta)) {
-      return Error(E_TX_VALIDATION, "Checkpoint amount and fee overflow");
+      return Error(E_TX_VALIDATION, "User account amount and fee overflow");
     }
 
     int64_t expectedBufferGenesis = 0;
     int64_t userGenesis = getBalanceOrZero(userBalances, AccountBuffer::ID_GENESIS);
     if (!safeAdd(userGenesis, delta, expectedBufferGenesis)) {
-      return Error(E_TX_VALIDATION, "Checkpoint genesis balance overflow");
+      return Error(E_TX_VALIDATION, "User account genesis token balance overflow");
     }
 
     int64_t bufferGenesis = getBalanceOrZero(bufferBalances, AccountBuffer::ID_GENESIS);
     if (bufferGenesis != expectedBufferGenesis) {
-      return Error(E_TX_VALIDATION, "Checkpoint genesis balance does not match buffer state");
+      return Error(E_TX_VALIDATION, "User account genesis token balance does not match buffer state");
     }
   }
 
@@ -1030,16 +1050,18 @@ Validator::Roe<void> Validator::processUserUpdate(const Ledger::Transaction& tx,
     return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " + addResult.error().message);
   }
   
-  log().info << "Restored user " << tx.toWalletId << " checkpoint: " << userAccount;
+  log().info << "User account " << tx.toWalletId << " updated: " << userAccount;
   
   return {};
 }
 
 Validator::Roe<void> Validator::processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  // TODO: Implement user renewal processing, including validating the transaction and updating the account's blockId to extend its validity
   return Error(E_TX_VALIDATION, "processUserRenewal not implemented");
 }
 
 Validator::Roe<void> Validator::processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  // TODO: Implement user end processing, including validating the transaction and removing the account from buffer and bank if needed
   return Error(E_TX_VALIDATION, "processUserEnd not implemented");
 }
 

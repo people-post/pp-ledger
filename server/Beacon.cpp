@@ -130,7 +130,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig& config) {
   }
   
   log().info << "Genesis block created with checkpoint transaction (version " 
-             << Validator::SystemCheckpoint::VERSION << ")";
+             << Validator::GenesisAccountMeta::VERSION << ")";
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << consensusConfig.genesisTime;
@@ -214,17 +214,17 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Validator::Block
   genesisBlock.block.slotLeader = 0;
 
   // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
-  Validator::SystemCheckpoint systemCheckpoint;
-  systemCheckpoint.config = config;
+  Validator::GenesisAccountMeta gm;
+  gm.config = config;
 
-  systemCheckpoint.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
+  gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
   for (const auto& kp : key.genesis) {
-    systemCheckpoint.genesis.wallet.publicKeys.push_back(kp.publicKey);
+    gm.genesis.wallet.publicKeys.push_back(kp.publicKey);
   }
-  systemCheckpoint.genesis.wallet.minSignatures = key.genesis.size();
-  systemCheckpoint.genesis.meta = "Native token genesis wallet";
+  gm.genesis.wallet.minSignatures = key.genesis.size();
+  gm.genesis.meta = "Native token genesis wallet";
 
-  // First transaction: SystemCheckpoint
+  // First transaction: GenesisAccountMeta
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj.type = Ledger::Transaction::T_GENESIS;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS; // Native token
@@ -232,8 +232,8 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Validator::Block
   signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
   signedTx.obj.amount = 0;                                   // no funding needed
   signedTx.obj.fee = 0;                                      // no fee wallet yet
-  // Serialize SystemCheckpoint to transaction metadata
-  signedTx.obj.meta = systemCheckpoint.ltsToString();
+  // Serialize GenesisAccountMeta to transaction metadata
+  signedTx.obj.meta = gm.ltsToString();
 
   std::string message = utl::binaryPack(signedTx.obj);
   for (const auto& kp : key.genesis) {
