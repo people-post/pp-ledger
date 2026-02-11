@@ -124,6 +124,7 @@ private:
     bool isValidBlockSequence(const Ledger::ChainNode& block) const;
     bool isValidSlotLeader(const Ledger::ChainNode& block) const;
     bool isValidTimestamp(const Ledger::ChainNode& block) const;
+    Roe<void> validateAccountRenewals(const Ledger::ChainNode& block) const;
 
     Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> validateBlock(const Ledger::ChainNode& block) const;
@@ -141,6 +142,9 @@ private:
 
     /** Create a renewal or end-user transaction for a given account. */
     Roe<Ledger::SignedData<Ledger::Transaction>> createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
+
+    /** Calculate the maximum blockId for account renewals at a given block. */
+    Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
 
     /** Find and update account metadata from a block's transactions. */
     Roe<std::string> findAccountMetadataInBlock(const Ledger::Block& block, const AccountBuffer::Account& account) const;

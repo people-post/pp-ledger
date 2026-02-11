@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <limits>
+#include <set>
 
 namespace pp {
 
@@ -302,19 +303,76 @@ Validator::Roe<Ledger::SignedData<Ledger::Transaction>> Validator::createRenewal
   return signedTx;
 }
 
-Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::collectRenewals(uint64_t slot) const {
-  std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
-  const uint64_t nextBlockId = ledger_.getNextBlockId();
-  const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
-  if (nextBlockId < minBlocks) {
-    return renewals;
+Validator::Roe<void> Validator::validateAccountRenewals(const Ledger::ChainNode& block) const {
+  // Calculate the deadline for account renewals at this block
+  auto maxBlockIdResult = calculateMaxBlockIdForRenewal(block.block.index);
+  if (!maxBlockIdResult) {
+    return maxBlockIdResult.error();
   }
-  uint64_t maxBlockIdFromBlocks = nextBlockId - minBlocks + 1;
+  const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
+  
+  // Get accounts that must be renewed (blockId < maxBlockIdForRenewal)
+  std::set<uint64_t> accountsNeedingRenewal;
+  if (maxBlockIdForRenewal > 0) {
+    for (uint64_t accountId : bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+      accountsNeedingRenewal.insert(accountId);
+    }
+  }
+
+  // Track which accounts are actually renewed in the block
+  std::set<uint64_t> accountsRenewedInBlock;
+  
+  // Examine all transactions in the block
+  for (const auto& signedTx : block.block.signedTxes) {
+    const auto& tx = signedTx.obj;
+    
+    // Check for renewal and end-user transactions
+    if (tx.type == Ledger::Transaction::T_RENEWAL || tx.type == Ledger::Transaction::T_END_USER) {
+      uint64_t accountId = tx.fromWalletId;
+      
+      // Get the account's current blockId
+      auto accountResult = bank_.getAccount(accountId);
+      if (!accountResult) {
+        return Error(14, "Account not found in renewal transaction: " + std::to_string(accountId));
+      }
+      const auto& account = accountResult.value();
+      
+      // Verify renewal is not too early (at most 1 block ahead of deadline)
+      // An account with blockId >= maxBlockIdForRenewal is being renewed too early
+      // We allow renewals for accounts with blockId < maxBlockIdForRenewal (must renew)
+      // and blockId == maxBlockIdForRenewal (1 block ahead, acceptable)
+      if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal) {
+        return Error(14, "Account renewal too early: account " + std::to_string(accountId) + 
+                         " has blockId " + std::to_string(account.blockId) + 
+                         " but deadline is at blockId " + std::to_string(maxBlockIdForRenewal));
+      }
+      
+      accountsRenewedInBlock.insert(accountId);
+    }
+  }
+  
+  // Verify all accounts that need renewal are included
+  for (uint64_t accountId : accountsNeedingRenewal) {
+    if (accountsRenewedInBlock.find(accountId) == accountsRenewedInBlock.end()) {
+      return Error(14, "Missing required account renewal: account " + std::to_string(accountId) + 
+                       " meets renewal deadline but is not included in block");
+    }
+  }
+  
+  return {};
+}
+
+Validator::Roe<uint64_t> Validator::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
+  const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
+  if (atBlockId < minBlocks) {
+    return 0;
+  }
+  uint64_t maxBlockIdFromBlocks = atBlockId - minBlocks + 1;
 
   const uint64_t minAgeSeconds = chainConfig_.checkpoint.minAgeSeconds;
 
-  uint64_t maxBlockIdFromTime = nextBlockId;
-  if (minAgeSeconds > 0 && nextBlockId > 0) {
+  uint64_t maxBlockIdFromTime = atBlockId;
+  if (minAgeSeconds > 0 && atBlockId > 0) {
     const int64_t cutoffTimestamp = getConsensusTimestamp() - static_cast<int64_t>(minAgeSeconds);
     auto roeBlock = ledger_.findBlockByTimestamp(cutoffTimestamp);
     if (roeBlock) {
@@ -322,8 +380,24 @@ Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::
     }
   }
   const uint64_t maxBlockIdForRenewal = std::min(maxBlockIdFromBlocks, maxBlockIdFromTime);
-  if (maxBlockIdForRenewal == 0 || maxBlockIdForRenewal >= nextBlockId) {
+  if (maxBlockIdForRenewal == 0 || maxBlockIdForRenewal >= atBlockId) {
     // maxBlockIdForRenewal is capped at current block id
+    return 0;
+  }
+
+  return maxBlockIdForRenewal;
+}
+
+Validator::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>> Validator::collectRenewals(uint64_t slot) const {
+  std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
+  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  
+  auto maxBlockIdResult = calculateMaxBlockIdForRenewal(nextBlockId);
+  if (!maxBlockIdResult) {
+    return maxBlockIdResult.error();
+  }
+  const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
+  if (maxBlockIdForRenewal == 0) {
     return renewals;
   }
 
@@ -542,6 +616,12 @@ Validator::Roe<void> Validator::validateNormalBlock(const Ledger::ChainNode& blo
   // Validate timestamp
   if (!isValidTimestamp(block)) {
     return Error(13, "Invalid timestamp");
+  }
+
+  // Validate account renewals in the block
+  auto renewalValidation = validateAccountRenewals(block);
+  if (!renewalValidation) {
+    return renewalValidation.error();
   }
 
   return {};
