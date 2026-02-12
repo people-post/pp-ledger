@@ -315,11 +315,9 @@ bool isValidEd25519PublicKey(const std::string &str) {
     return false;
   }
   
-  // Libsodium doesn't have a simple validation function for public keys
-  // A 32-byte value is a valid Ed25519 public key if it's a point on the curve
-  // For now, we'll accept any 32-byte value as potentially valid
-  // (The crypto operations will fail if the key is actually invalid)
-  return true;
+  // Validate that the public key is a valid point on the Ed25519 curve
+  return crypto_core_ed25519_is_valid_point(
+      reinterpret_cast<const unsigned char*>(raw.data())) == 1;
 }
 
 static std::string trimWhitespace(const std::string &s) {
