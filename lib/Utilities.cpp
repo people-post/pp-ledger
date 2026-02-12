@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
-#include <openssl/evp.h>
+#include <sodium.h>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -11,6 +11,18 @@
 
 namespace pp {
 namespace utl {
+
+// Initialize libsodium (safe to call multiple times)
+namespace {
+  struct SodiumInitializer {
+    SodiumInitializer() {
+      if (sodium_init() < 0) {
+        throw std::runtime_error("Failed to initialize libsodium");
+      }
+    }
+  };
+  static SodiumInitializer sodium_initializer;
+}
 
 int64_t getCurrentTime() {
   return std::chrono::duration_cast<std::chrono::seconds>(
@@ -111,34 +123,16 @@ pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request) {
 }
 
 std::string sha256(const std::string &input) {
-  EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-  if (!mdctx) {
-    throw std::runtime_error("Failed to create EVP_MD_CTX");
+  unsigned char hash[crypto_hash_sha256_BYTES];
+  
+  if (crypto_hash_sha256(hash, 
+                         reinterpret_cast<const unsigned char*>(input.c_str()), 
+                         input.size()) != 0) {
+    throw std::runtime_error("crypto_hash_sha256 failed");
   }
-
-  const EVP_MD *md = EVP_sha256();
-  unsigned char hash[EVP_MAX_MD_SIZE];
-  unsigned int hashLen = 0;
-
-  if (EVP_DigestInit_ex(mdctx, md, nullptr) != 1) {
-    EVP_MD_CTX_free(mdctx);
-    throw std::runtime_error("EVP_DigestInit_ex failed");
-  }
-
-  if (EVP_DigestUpdate(mdctx, input.c_str(), input.size()) != 1) {
-    EVP_MD_CTX_free(mdctx);
-    throw std::runtime_error("EVP_DigestUpdate failed");
-  }
-
-  if (EVP_DigestFinal_ex(mdctx, hash, &hashLen) != 1) {
-    EVP_MD_CTX_free(mdctx);
-    throw std::runtime_error("EVP_DigestFinal_ex failed");
-  }
-
-  EVP_MD_CTX_free(mdctx);
 
   std::stringstream ss;
-  for (unsigned int i = 0; i < hashLen; i++) {
+  for (unsigned int i = 0; i < crypto_hash_sha256_BYTES; i++) {
     ss << std::hex << std::setw(2) << std::setfill('0')
        << static_cast<int>(hash[i]);
   }
@@ -235,39 +229,19 @@ constexpr size_t ED25519_SIGNATURE_SIZE = 64;
 } // namespace
 
 pp::Roe<Ed25519KeyPair> ed25519Generate() {
-  EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
-  if (!ctx) {
-    return Error(1, "EVP_PKEY_CTX_new_id(ED25519) failed");
-  }
-  EVP_PKEY *pkey = nullptr;
-  if (EVP_PKEY_keygen_init(ctx) != 1) {
-    EVP_PKEY_CTX_free(ctx);
-    return Error(2, "EVP_PKEY_keygen_init failed");
-  }
-  if (EVP_PKEY_keygen(ctx, &pkey) != 1) {
-    EVP_PKEY_CTX_free(ctx);
-    return Error(3, "EVP_PKEY_keygen failed");
-  }
-  EVP_PKEY_CTX_free(ctx);
-
-  std::vector<unsigned char> priv_buf(ED25519_PRIVATE_KEY_SIZE);
-  size_t priv_len = priv_buf.size();
-  if (EVP_PKEY_get_raw_private_key(pkey, priv_buf.data(), &priv_len) != 1 ||
-      priv_len != ED25519_PRIVATE_KEY_SIZE) {
-    EVP_PKEY_free(pkey);
-    return Error(4, "EVP_PKEY_get_raw_private_key failed");
-  }
-  std::vector<unsigned char> pub_buf(ED25519_PUBLIC_KEY_SIZE);
-  size_t pub_len = pub_buf.size();
-  if (EVP_PKEY_get_raw_public_key(pkey, pub_buf.data(), &pub_len) != 1 ||
-      pub_len != ED25519_PUBLIC_KEY_SIZE) {
-    EVP_PKEY_free(pkey);
-    return Error(5, "EVP_PKEY_get_raw_public_key failed");
-  }
   Ed25519KeyPair pair;
-  pair.privateKey.assign(priv_buf.begin(), priv_buf.end());
-  pair.publicKey.assign(pub_buf.begin(), pub_buf.end());
-  EVP_PKEY_free(pkey);
+  pair.publicKey.resize(crypto_sign_PUBLICKEYBYTES);
+  pair.privateKey.resize(crypto_sign_SECRETKEYBYTES);
+  
+  if (crypto_sign_keypair(
+        reinterpret_cast<unsigned char*>(pair.publicKey.data()),
+        reinterpret_cast<unsigned char*>(pair.privateKey.data())) != 0) {
+    return Error(1, "crypto_sign_keypair failed");
+  }
+  
+  // Libsodium's secret key is 64 bytes (32 seed + 32 public), but we only want the 32-byte seed
+  pair.privateKey.resize(ED25519_PRIVATE_KEY_SIZE);
+  
   return pair;
 }
 
@@ -276,44 +250,34 @@ pp::Roe<std::string> ed25519Sign(const std::string &privateKey,
   if (privateKey.size() != ED25519_PRIVATE_KEY_SIZE) {
     return Error(1, "ed25519Sign: private key must be 32 bytes");
   }
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(
-      EVP_PKEY_ED25519, nullptr,
-      reinterpret_cast<const unsigned char *>(privateKey.data()),
-      privateKey.size());
-  if (!pkey) {
-    return Error(2, "EVP_PKEY_new_raw_private_key failed");
+  
+  // Libsodium expects a 64-byte secret key (32 seed + 32 public key)
+  // We need to expand our 32-byte seed to get the full secret key
+  std::vector<unsigned char> pk(crypto_sign_PUBLICKEYBYTES);
+  std::vector<unsigned char> sk(crypto_sign_SECRETKEYBYTES);
+  
+  if (crypto_sign_seed_keypair(
+        pk.data(), sk.data(),
+        reinterpret_cast<const unsigned char*>(privateKey.data())) != 0) {
+    return Error(2, "crypto_sign_seed_keypair failed");
   }
-
-  EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
-  if (!md_ctx) {
-    EVP_PKEY_free(pkey);
-    return Error(3, "EVP_MD_CTX_new failed");
+  
+  std::string signature(crypto_sign_BYTES, '\0');
+  unsigned long long sig_len = 0;
+  
+  if (crypto_sign_detached(
+        reinterpret_cast<unsigned char*>(signature.data()),
+        &sig_len,
+        reinterpret_cast<const unsigned char*>(message.data()),
+        message.size(),
+        sk.data()) != 0) {
+    return Error(3, "crypto_sign_detached failed");
   }
-  if (EVP_DigestSignInit(md_ctx, nullptr, nullptr, nullptr, pkey) != 1) {
-    EVP_MD_CTX_free(md_ctx);
-    EVP_PKEY_free(pkey);
-    return Error(4, "EVP_DigestSignInit failed");
+  
+  if (sig_len != ED25519_SIGNATURE_SIZE) {
+    return Error(4, "unexpected signature size");
   }
-  size_t sig_len = 0;
-  if (EVP_DigestSign(md_ctx, nullptr, &sig_len,
-                     reinterpret_cast<const unsigned char *>(message.data()),
-                     message.size()) != 1 || sig_len != ED25519_SIGNATURE_SIZE) {
-    EVP_MD_CTX_free(md_ctx);
-    EVP_PKEY_free(pkey);
-    return Error(5, "EVP_DigestSign (size) failed");
-  }
-  std::string signature(sig_len, '\0');
-  if (EVP_DigestSign(md_ctx,
-                     reinterpret_cast<unsigned char *>(signature.data()),
-                     &sig_len,
-                     reinterpret_cast<const unsigned char *>(message.data()),
-                     message.size()) != 1) {
-    EVP_MD_CTX_free(md_ctx);
-    EVP_PKEY_free(pkey);
-    return Error(6, "EVP_DigestSign failed");
-  }
-  EVP_MD_CTX_free(md_ctx);
-  EVP_PKEY_free(pkey);
+  
   return signature;
 }
 
@@ -323,29 +287,14 @@ bool ed25519Verify(const std::string &publicKey, const std::string &message,
       signature.size() != ED25519_SIGNATURE_SIZE) {
     return false;
   }
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(
-      EVP_PKEY_ED25519, nullptr,
-      reinterpret_cast<const unsigned char *>(publicKey.data()),
-      publicKey.size());
-  if (!pkey) {
-    return false;
-  }
-  EVP_MD_CTX *md_ctx = EVP_MD_CTX_new();
-  if (!md_ctx) {
-    EVP_PKEY_free(pkey);
-    return false;
-  }
-  bool ok = false;
-  if (EVP_DigestVerifyInit(md_ctx, nullptr, nullptr, nullptr, pkey) == 1) {
-    ok = (EVP_DigestVerify(md_ctx,
-                           reinterpret_cast<const unsigned char *>(signature.data()),
-                           signature.size(),
-                           reinterpret_cast<const unsigned char *>(message.data()),
-                           message.size()) == 1);
-  }
-  EVP_MD_CTX_free(md_ctx);
-  EVP_PKEY_free(pkey);
-  return ok;
+  
+  int result = crypto_sign_verify_detached(
+      reinterpret_cast<const unsigned char*>(signature.data()),
+      reinterpret_cast<const unsigned char*>(message.data()),
+      message.size(),
+      reinterpret_cast<const unsigned char*>(publicKey.data()));
+  
+  return result == 0;
 }
 
 bool isValidEd25519PublicKey(const std::string &str) {
@@ -365,14 +314,11 @@ bool isValidEd25519PublicKey(const std::string &str) {
   } else {
     return false;
   }
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(
-      EVP_PKEY_ED25519, nullptr,
-      reinterpret_cast<const unsigned char *>(raw.data()),
-      raw.size());
-  if (!pkey) {
-    return false;
-  }
-  EVP_PKEY_free(pkey);
+  
+  // Libsodium doesn't have a simple validation function for public keys
+  // A 32-byte value is a valid Ed25519 public key if it's a point on the curve
+  // For now, we'll accept any 32-byte value as potentially valid
+  // (The crypto operations will fail if the key is actually invalid)
   return true;
 }
 

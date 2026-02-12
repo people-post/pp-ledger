@@ -50,7 +50,7 @@ sudo apt-get update
 sudo apt-get install -y \
   build-essential \
   cmake \
-  libssl-dev \
+  libsodium-dev \
   nlohmann-json3-dev
 ```
 
@@ -517,7 +517,7 @@ See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for details.
 
 - **C++20 compiler** (GCC 10+, Clang 12+)
 - **CMake 3.15+**
-- **OpenSSL** (for cryptographic hashing)
+- **Libsodium** (for cryptographic operations)
 - **nlohmann/json** (for JSON serialization)
 
 ## Contributing
@@ -539,7 +539,7 @@ See [LICENSE](LICENSE) file for details.
 - **Language:** C++20
 - **Build System:** CMake 3.15+
 - **Testing:** Google Test
-- **Dependencies:** OpenSSL, nlohmann/json
+- **Dependencies:** Libsodium, nlohmann/json
 - **CI/CD:** GitHub Actions
 - **Consensus:** Ouroboros Proof-of-Stake
 - **Network:** TCP-based request-response protocol

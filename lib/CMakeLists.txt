@@ -19,16 +19,22 @@ target_include_directories(pp_lib PUBLIC
     ${nlohmann_json_SOURCE_DIR}/include
 )
 
-# Find OpenSSL (required for sha256 in Utilities.cpp)
-find_package(OpenSSL REQUIRED)
+# Find Libsodium (required for cryptographic operations in Utilities.cpp)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SODIUM REQUIRED libsodium)
 
 # Link dependencies with PUBLIC to automatically propagate to dependents
 # This ensures any target linking to pp_lib automatically gets:
 # - pp_lib headers (via include directories)
-# - OpenSSL library and headers (via OpenSSL::Crypto target)
+# - Libsodium library and headers
 # - nlohmann/json headers (via include directories)
 target_link_libraries(pp_lib PUBLIC
-    OpenSSL::Crypto
+    ${SODIUM_LIBRARIES}
+)
+
+# Add Libsodium include directories
+target_include_directories(pp_lib PUBLIC
+    ${SODIUM_INCLUDE_DIRS}
 )
 
 # Add tests subdirectory if testing is enabled
