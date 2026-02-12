@@ -12,9 +12,40 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
+
+static constexpr uint64_t ID_GENESIS = 0;  // Native token (matches AccountBuffer)
+
+static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyHex,
+                                                     int64_t amount,
+                                                     const std::string& metaDesc,
+                                                     uint8_t minSignatures) {
+  pp::Client::UserAccount account;
+  std::string pk = pubkeyHex;
+  if (pk.size() >= 2 && (pk[0] == '0' && (pk[1] == 'x' || pk[1] == 'X')))
+    pk = pk.substr(2);
+  std::string decoded = pp::utl::hexDecode(pk);
+  if (decoded.size() != 32) {
+    return account;  // Caller should validate
+  }
+  account.wallet.publicKeys.push_back(decoded);
+  account.wallet.minSignatures = minSignatures;
+  account.wallet.mBalances[ID_GENESIS] = amount;
+  account.meta = metaDesc;
+  return account;
+}
+
+static constexpr uint64_t ID_FIRST_USER = 1ULL << 20;  // Min new account ID (matches AccountBuffer)
+
+static uint64_t randomAccountId() {
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  std::uniform_int_distribution<uint64_t> dist(ID_FIRST_USER, UINT64_MAX);
+  return dist(gen);
+}
 
 static std::string formatTimestampLocal(int64_t unixSeconds) {
   time_t t = static_cast<time_t>(unixSeconds);
@@ -34,7 +65,7 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    int64_t amount, const std::string& key) {
+                    int64_t amount, int64_t fee, const std::string& key) {
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
@@ -47,6 +78,7 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   signedTx.obj.fromWalletId = fromWalletId;
   signedTx.obj.toWalletId = toWalletId;
   signedTx.obj.amount = amount;
+  signedTx.obj.fee = fee;
   std::string message = pp::utl::binaryPack(signedTx.obj);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
@@ -89,6 +121,127 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
     return 1;
   }
   std::cout << "Transaction written to " << outputPath << "\n";
+  return 0;
+}
+
+static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
+                       int64_t fee, const std::string& newPubkeyHex,
+                       const std::string& metaDesc, uint8_t minSignatures,
+                       const std::string& outputPath, bool toWasGenerated) {
+  std::string pubkeyToUse;
+  std::string privateKeyToPrint;  // Non-empty when key was auto-generated
+  if (!newPubkeyHex.empty()) {
+    auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
+    if (userAccount.wallet.publicKeys.empty()) {
+      std::cerr << "Error: --new-pubkey must be 32 bytes (64 hex chars).\n";
+      return 1;
+    }
+    pubkeyToUse = userAccount.wallet.publicKeys[0];
+  } else {
+    auto pair = pp::utl::ed25519Generate();
+    if (!pair.isOk()) {
+      std::cerr << "Error: " << pair.error().message << "\n";
+      return 1;
+    }
+    pubkeyToUse = pair->publicKey;
+    privateKeyToPrint = pp::utl::hexEncode(pair->privateKey);
+  }
+  pp::Client::UserAccount userAccount;
+  userAccount.wallet.publicKeys.push_back(pubkeyToUse);
+  userAccount.wallet.minSignatures = minSignatures;
+  userAccount.wallet.mBalances[ID_GENESIS] = amount;
+  userAccount.meta = metaDesc;
+  SignedTx signedTx;
+  signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
+  signedTx.obj.tokenId = ID_GENESIS;
+  signedTx.obj.fromWalletId = fromWalletId;
+  signedTx.obj.toWalletId = toWalletId;
+  signedTx.obj.amount = amount;
+  signedTx.obj.fee = fee;
+  signedTx.obj.meta = userAccount.ltsToString();
+  signedTx.signatures = {};
+  std::string packed = pp::utl::binaryPack(signedTx);
+  auto result = pp::utl::writeToNewFile(outputPath, packed);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "T_NEW_USER transaction written to " << outputPath << "\n";
+  std::cout << "  New account ID:    " << toWalletId;
+  if (toWasGenerated) std::cout << " (randomly generated - save this ID)";
+  std::cout << "\n";
+  if (!privateKeyToPrint.empty()) {
+    std::cout << "\nGenerated new key pair. Save the private key securely:\n";
+    std::cout << "  Private key (hex): " << privateKeyToPrint << "\n";
+    std::cout << "  Public key (hex):  " << pp::utl::hexEncode(pubkeyToUse) << "\n";
+  }
+  return 0;
+}
+
+static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
+                         int64_t amount, int64_t fee, const std::string& newPubkeyHex,
+                         const std::string& metaDesc, uint8_t minSignatures,
+                         const std::string& key, bool toWasGenerated) {
+  std::string pubkeyToUse;
+  std::string privateKeyToPrint;  // Non-empty when key was auto-generated
+  if (!newPubkeyHex.empty()) {
+    auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
+    if (userAccount.wallet.publicKeys.empty()) {
+      std::cerr << "Error: --new-pubkey must be 32 bytes (64 hex chars).\n";
+      return 1;
+    }
+    pubkeyToUse = userAccount.wallet.publicKeys[0];
+  } else {
+    auto pair = pp::utl::ed25519Generate();
+    if (!pair.isOk()) {
+      std::cerr << "Error: " << pair.error().message << "\n";
+      return 1;
+    }
+    pubkeyToUse = pair->publicKey;
+    privateKeyToPrint = pp::utl::hexEncode(pair->privateKey);
+  }
+  pp::Client::UserAccount userAccount;
+  userAccount.wallet.publicKeys.push_back(pubkeyToUse);
+  userAccount.wallet.minSignatures = minSignatures;
+  userAccount.wallet.mBalances[ID_GENESIS] = amount;
+  userAccount.meta = metaDesc;
+  std::string keyStr = pp::utl::readKey(key);
+  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
+    keyStr = keyStr.substr(2);
+  std::string privateKey = pp::utl::hexDecode(keyStr);
+  if (privateKey.size() != 32) {
+    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+    return 1;
+  }
+  SignedTx signedTx;
+  signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
+  signedTx.obj.tokenId = ID_GENESIS;
+  signedTx.obj.fromWalletId = fromWalletId;
+  signedTx.obj.toWalletId = toWalletId;
+  signedTx.obj.amount = amount;
+  signedTx.obj.fee = fee;
+  signedTx.obj.meta = userAccount.ltsToString();
+  std::string message = pp::utl::binaryPack(signedTx.obj);
+  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  if (!sigResult) {
+    std::cerr << "Error: " << sigResult.error().message << "\n";
+    return 1;
+  }
+  signedTx.signatures = {*sigResult};
+  auto result = client.addTransaction(signedTx);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Account creation transaction submitted successfully\n";
+  std::cout << "  New account ID:    " << toWalletId;
+  if (toWasGenerated) std::cout << " (randomly generated - save this ID)";
+  std::cout << "\n";
+  if (!privateKeyToPrint.empty()) {
+    std::cout << "\nGenerated new key pair. Save the private key securely:\n";
+    std::cout << "  Private key (hex): " << privateKeyToPrint << "\n";
+    std::cout << "  Public key (hex):  " << pp::utl::hexEncode(pubkeyToUse) << "\n";
+  }
   return 0;
 }
 
@@ -194,10 +347,13 @@ int main(int argc, char *argv[]) {
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
   int64_t amount = 0;
+  int64_t fee = 0;
   std::string key;
   add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
   add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
   add_tx_cmd->add_option("amount", amount, "Amount to transfer")->required();
+  add_tx_cmd->add_option("-f,--fee", fee, "Transaction fee (default: 0)")
+      ->default_val(0);
   add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
       ->required();
 
@@ -210,6 +366,60 @@ int main(int argc, char *argv[]) {
   mk_tx_cmd->add_option("to", mk_to, "To wallet ID")->required();
   mk_tx_cmd->add_option("amount", mk_amount, "Amount to transfer")->required();
   mk_tx_cmd->add_option("-o,--output", mk_output, "Output file (must not exist)")
+      ->required();
+
+  // mk-account: create unsigned T_NEW_USER transaction file
+  auto* mk_account_cmd = app.add_subcommand("mk-account",
+                                            "Create unsigned T_NEW_USER transaction file");
+  uint64_t mk_acc_from = 0, mk_acc_to = 0;
+  int64_t mk_acc_amount = 0;
+  int64_t mk_acc_fee = 0;
+  std::string mk_acc_pubkey;
+  std::string mk_acc_meta;
+  uint8_t mk_acc_min_sig = 1;
+  std::string mk_acc_output;
+  mk_account_cmd->add_option("from", mk_acc_from, "From wallet ID (funding account)")->required();
+  mk_account_cmd->add_option("amount", mk_acc_amount, "Initial balance")->required();
+  mk_account_cmd->add_option("-t,--to", mk_acc_to,
+                             "New account ID; if omitted, a random ID is generated")
+      ->default_val(0);
+  mk_account_cmd->add_option("-f,--fee", mk_acc_fee, "Transaction fee (default: 0)")->default_val(0);
+  mk_account_cmd->add_option("--new-pubkey", mk_acc_pubkey,
+                             "New account public key (hex); if omitted, key pair is auto-generated");
+  mk_account_cmd->add_option("-m,--meta", mk_acc_meta, "Account description")->default_val("");
+  mk_account_cmd->add_option("--min-signatures", mk_acc_min_sig,
+                             "Required signatures (default: 1)")
+      ->default_val(1);
+  mk_account_cmd->add_option("-o,--output", mk_acc_output, "Output file (must not exist)")
+      ->required();
+
+  // add-account: create, sign, and submit T_NEW_USER transaction
+  auto* add_account_cmd =
+      app.add_subcommand("add-account", "Create and submit T_NEW_USER account creation");
+  uint64_t add_acc_from = 0, add_acc_to = 0;
+  int64_t add_acc_amount = 0;
+  int64_t add_acc_fee = 0;
+  std::string add_acc_pubkey;
+  std::string add_acc_meta;
+  uint8_t add_acc_min_sig = 1;
+  std::string add_account_key;
+  add_account_cmd->add_option("from", add_acc_from, "From wallet ID (funding account)")
+      ->required();
+  add_account_cmd->add_option("amount", add_acc_amount, "Initial balance")->required();
+  add_account_cmd->add_option("-t,--to", add_acc_to,
+                               "New account ID; if omitted, a random ID is generated")
+      ->default_val(0);
+  add_account_cmd->add_option("-f,--fee", add_acc_fee, "Transaction fee (default: 0)")
+      ->default_val(0);
+  add_account_cmd->add_option("--new-pubkey", add_acc_pubkey,
+                               "New account public key (hex); if omitted, key pair is auto-generated");
+  add_account_cmd->add_option("-m,--meta", add_acc_meta, "Account description")->default_val("");
+  add_account_cmd->add_option("--min-signatures", add_acc_min_sig,
+                              "Required signatures (default: 1)")
+      ->default_val(1);
+  add_account_cmd
+      ->add_option("-k,--key", add_account_key,
+                   "Private key (hex or file) of funding account to sign")
       ->required();
 
   // sign-tx: add a signature to an existing tx file
@@ -244,6 +454,14 @@ int main(int argc, char *argv[]) {
   // Handle mk-tx (no server connection needed)
   if (mk_tx_cmd->parsed()) {
     return runMkTx(mk_from, mk_to, mk_amount, mk_output);
+  }
+
+  // Handle mk-account (no server connection needed)
+  if (mk_account_cmd->parsed()) {
+    uint64_t mk_acc_to_resolved = mk_acc_to;
+    if (mk_acc_to_resolved == 0) mk_acc_to_resolved = randomAccountId();
+    return runMkAccount(mk_acc_from, mk_acc_to_resolved, mk_acc_amount, mk_acc_fee, mk_acc_pubkey,
+                       mk_acc_meta, mk_acc_min_sig, mk_acc_output, mk_acc_to == 0);
   }
 
   // Handle sign-tx (no server connection needed)
@@ -335,7 +553,20 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: add-tx command requires -m/--miner flag.\n";
       exitCode = 1;
     } else {
-      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, key);
+      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key);
+    }
+  }
+  // Handle add-account command (miner only)
+  else if (add_account_cmd->parsed()) {
+    if (!connectToMiner) {
+      std::cerr << "Error: add-account command requires -m/--miner flag.\n";
+      exitCode = 1;
+    } else {
+      uint64_t add_acc_to_resolved = add_acc_to;
+      if (add_acc_to_resolved == 0) add_acc_to_resolved = randomAccountId();
+      exitCode = runAddAccount(client, add_acc_from, add_acc_to_resolved, add_acc_amount,
+                               add_acc_fee, add_acc_pubkey, add_acc_meta, add_acc_min_sig,
+                               add_account_key, add_acc_to == 0);
     }
   }
   // Handle submit-tx command (miner only)
