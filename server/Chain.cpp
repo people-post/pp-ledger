@@ -979,9 +979,9 @@ Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction& tx, uint64_
     }
   } else {
     // Verify that buffer balances match expected balances after amount and fee
-    auto verifyResult = bank_.verifyBalance(tx.toWalletId, tx.amount, tx.fee, userAccount.wallet.mBalances);
-    if (!verifyResult) {
-      return Error(E_TX_VALIDATION, "User account balances do not match buffer state: " + verifyResult.error().message);
+    auto balanceVerifyResult = bank_.verifyBalance(tx.toWalletId, tx.amount, tx.fee, userAccount.wallet.mBalances);
+    if (!balanceVerifyResult) {
+      return Error(E_TX_VALIDATION, "User account balances do not match buffer state: " + balanceVerifyResult.error().message);
     }
   }
 
