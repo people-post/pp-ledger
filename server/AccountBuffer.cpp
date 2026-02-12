@@ -1,4 +1,5 @@
 #include "AccountBuffer.h"
+#include <limits>
 
 namespace pp {
 
@@ -148,6 +149,86 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId, 
     }
   }
   
+  return {};
+}
+
+AccountBuffer::Roe<void> AccountBuffer::verifyBalance(uint64_t accountId, int64_t amount, int64_t fee, const std::map<uint64_t, int64_t>& expectedBalances) const {
+  // Validate inputs
+  if (amount < 0) {
+    return Error(E_INPUT, "Amount must be non-negative");
+  }
+  if (fee < 0) {
+    return Error(E_INPUT, "Fee must be non-negative");
+  }
+
+  // Check if account exists
+  auto it = mAccounts_.find(accountId);
+  if (it == mAccounts_.end()) {
+    return Error(E_ACCOUNT, "Account not found");
+  }
+
+  const auto& account = it->second;
+  const auto& bufferBalances = account.wallet.mBalances;
+
+  // Helper to get balance or zero
+  auto getBalanceOrZero = [](const std::map<uint64_t, int64_t>& balances, uint64_t tokenId) -> int64_t {
+    auto balanceIt = balances.find(tokenId);
+    if (balanceIt == balances.end()) {
+      return 0;
+    }
+    return balanceIt->second;
+  };
+
+  // Helper for safe addition
+  auto safeAdd = [](int64_t a, int64_t b, int64_t& out) -> bool {
+    if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+        (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
+      return false;
+    }
+    out = a + b;
+    return true;
+  };
+
+  // Check all non-genesis token balances match exactly
+  for (const auto& [tokenId, bufferBalance] : bufferBalances) {
+    if (tokenId == ID_GENESIS) {
+      continue;
+    }
+    int64_t expectedBalance = getBalanceOrZero(expectedBalances, tokenId);
+    if (bufferBalance != expectedBalance) {
+      return Error(E_BALANCE, "Balance mismatch for token " + std::to_string(tokenId));
+    }
+  }
+
+  for (const auto& [tokenId, expectedBalance] : expectedBalances) {
+    if (tokenId == ID_GENESIS) {
+      continue;
+    }
+    int64_t bufferBalance = getBalanceOrZero(bufferBalances, tokenId);
+    if (bufferBalance != expectedBalance) {
+      return Error(E_BALANCE, "Balance mismatch for token " + std::to_string(tokenId));
+    }
+  }
+
+  // For genesis token: buffer balance should equal expected balance + amount + fee
+  // First compute delta = amount + fee
+  int64_t delta = 0;
+  if (!safeAdd(amount, fee, delta)) {
+    return Error(E_BALANCE, "Amount and fee overflow");
+  }
+
+  // Then compute expected buffer genesis = expected genesis + delta
+  int64_t expectedGenesis = getBalanceOrZero(expectedBalances, ID_GENESIS);
+  int64_t expectedBufferGenesis = 0;
+  if (!safeAdd(expectedGenesis, delta, expectedBufferGenesis)) {
+    return Error(E_BALANCE, "Genesis token balance overflow when adding amount and fee");
+  }
+
+  int64_t bufferGenesis = getBalanceOrZero(bufferBalances, ID_GENESIS);
+  if (bufferGenesis != expectedBufferGenesis) {
+    return Error(E_BALANCE, "Genesis token balance mismatch");
+  }
+
   return {};
 }
 

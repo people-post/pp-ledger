@@ -672,3 +672,170 @@ TEST_F(AccountBufferTest, VerifySpendingPower_CustomTokenGenesis_Overflow_Error)
     // would catch if amount could somehow be > INT64_MAX.
     // We can verify the check exists by looking at code coverage.
 }
+
+// --- verifyBalance ---
+
+TEST_F(AccountBufferTest, VerifyBalance_ExactMatch_Success) {
+    // Setup account with some balances
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000; // Buffer has 1000
+    a.wallet.mBalances[100] = 500; // Custom token
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Expected balances: genesis 900, custom 500
+    // With amount=50, fee=50 -> buffer should have 900+50+50=1000 genesis ✓
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+    expectedBalances[100] = 500;
+
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    EXPECT_TRUE(r.isOk());
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_ZeroAmountAndFee_Success) {
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+    a.wallet.mBalances[100] = 500;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // With amount=0, fee=0 -> buffer should exactly match expected
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
+    expectedBalances[100] = 500;
+
+    auto r = buf.verifyBalance(1, 0, 0, expectedBalances);
+    EXPECT_TRUE(r.isOk());
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_CustomTokenMismatch_Error) {
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+    a.wallet.mBalances[100] = 500; // Buffer has 500
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Expected has 600 instead of 500 - should fail
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+    expectedBalances[100] = 600;
+
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_GenesisTokenMismatch_Error) {
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+    a.wallet.mBalances[100] = 500;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Expected genesis 950, amount=50, fee=50 -> buffer should have 1050, but has 1000
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 950;
+    expectedBalances[100] = 500;
+
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+    EXPECT_EQ(r.error().message, "Genesis token balance mismatch");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_AccountNotFound_Error) {
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 1000;
+
+    auto r = buf.verifyBalance(999, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
+    EXPECT_EQ(r.error().message, "Account not found");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_NegativeAmount_Error) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+
+    auto r = buf.verifyBalance(1, -50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+    EXPECT_EQ(r.error().message, "Amount must be non-negative");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_NegativeFee_Error) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+
+    auto r = buf.verifyBalance(1, 50, -50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
+    EXPECT_EQ(r.error().message, "Fee must be non-negative");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_Overflow_AmountPlusFee_Error) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+
+    // Amount + fee would overflow
+    auto r = buf.verifyBalance(1, INT64_MAX, 1, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+    EXPECT_EQ(r.error().message, "Amount and fee overflow");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_Overflow_ExpectedPlusDelta_Error) {
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = INT64_MAX - 50; // Very large expected balance
+
+    // Expected + (amount + fee) would overflow
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+    EXPECT_EQ(r.error().message, "Genesis token balance overflow when adding amount and fee");
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_MissingCustomTokenInBuffer_Error) {
+    // Buffer doesn't have custom token 100
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Expected has custom token 100
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+    expectedBalances[100] = 500;
+
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+}
+
+TEST_F(AccountBufferTest, VerifyBalance_MissingCustomTokenInExpected_Error) {
+    // Buffer has custom token 100
+    AccountBuffer::Account a;
+    a.id = 1;
+    a.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+    a.wallet.mBalances[100] = 500;
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    // Expected doesn't have custom token 100
+    std::map<uint64_t, int64_t> expectedBalances;
+    expectedBalances[AccountBuffer::ID_GENESIS] = 900;
+
+    auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
+    ASSERT_TRUE(r.isError());
+    EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+}

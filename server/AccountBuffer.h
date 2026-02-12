@@ -58,6 +58,14 @@ public:
    *  Returns error if insufficient balances or invalid inputs. */
   Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId, int64_t amount, int64_t fee) const;
 
+  /** Verify that after applying amount and fee, the account balance in buffer exactly matches given balance map.
+   *  For non-genesis tokens, balances must match exactly.
+   *  For genesis token, buffer balance should equal given balance plus amount and fee (buffer = given + amount + fee).
+   *  This is used to validate that the buffer state before a transaction matches the expected state after
+   *  accounting for the transaction's amount and fee.
+   *  Returns error if balances don't match. */
+  Roe<void> verifyBalance(uint64_t accountId, int64_t amount, int64_t fee, const std::map<uint64_t, int64_t>& expectedBalances) const;
+
   Roe<void> add(const Account& account);
 
   Roe<void> update(const AccountBuffer& other);
