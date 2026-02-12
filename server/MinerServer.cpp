@@ -225,6 +225,18 @@ Service::Roe<void> MinerServer::onStart() {
                                        syncResult.error().message);
   }
 
+  auto minerListResult = client_.fetchMinerList();
+  if (minerListResult) {
+    for (const auto &miner : minerListResult.value()) {
+      config_.mMiners[miner.id] = miner;
+    }
+    log().info << "Fetched miner list: " << config_.mMiners.size()
+               << " registered miners";
+  } else {
+    log().warning << "Failed to fetch miner list: "
+                  << minerListResult.error().message;
+  }
+
   initHandlers();
 
   log().info << "Miner core initialized";
@@ -344,9 +356,12 @@ void MinerServer::runLoop() {
   log().info << "Block production and request handler loop stopped";
 }
 
-std::string MinerServer::getSlotLeaderAddress() const {
-  // TODO: Implement slot leader address selection
-  return "";
+std::string MinerServer::findTxSubmitAddress(uint64_t slotLeaderId) {
+  auto it = config_.mMiners.find(slotLeaderId);
+  if (it == config_.mMiners.end()) {
+    return "";
+  }
+  return it->second.endpoint;
 }
 
 std::string MinerServer::handleParsedRequest(const Client::Request &request) {
@@ -423,7 +438,12 @@ MinerServer::hTransactionAdd(const Client::Request &request) {
     return {"Transaction added to pool"};
   }
 
-  std::string leaderAddr = getSlotLeaderAddress();
+  auto slotLeaderIdResult = miner_.getSlotLeaderId();
+  if (!slotLeaderIdResult) {
+    return Error(E_REQUEST, slotLeaderIdResult.error().message);
+  }
+  uint64_t slotLeaderId = slotLeaderIdResult.value();
+  std::string leaderAddr = findTxSubmitAddress(slotLeaderId);
   if (!client_.setEndpoint(leaderAddr)) {
     return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
   }
@@ -525,8 +545,10 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  network::TcpEndpoint endpoint = getFetchServerEndpoint();
-  auto stateResult = client_.registerMinerServer(endpoint);
+  Client::MinerInfo minerInfo;
+  minerInfo.id = config_.minerId;
+  minerInfo.endpoint = getFetchServerEndpoint().ltsToString();
+  auto stateResult = client_.registerMinerServer(minerInfo);
   if (!stateResult) {
     return Error(E_NETWORK,
                  "Failed to get beacon state: " + stateResult.error().message);

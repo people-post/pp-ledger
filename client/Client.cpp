@@ -84,6 +84,109 @@ nlohmann::json Client::UserAccount::toJson() const {
   return j;
 }
 
+nlohmann::json Client::MinerInfo::ltsToJson() const {
+  nlohmann::json j;
+  j["id"] = id;
+  j["tLastMessage"] = tLastMessage;
+  j["endpoint"] = endpoint;
+  return j;
+}
+
+Client::Roe<bool> Client::MinerInfo::ltsFromJson(const nlohmann::json& json) {
+  try {
+    if (!json.is_object()) {
+      return Error(E_PARSE_ERROR, "MinerInfo JSON must be an object");
+    }
+
+    if (!json.contains("id")) {
+      return Error(E_PARSE_ERROR, "Field 'id' is required");
+    }
+    if (!json["id"].is_number_unsigned()) {
+      return Error(E_PARSE_ERROR, "Field 'id' must be a non-negative number");
+    }
+    id = json["id"].get<uint64_t>();
+    if (json.contains("tLastMessage")) {
+      if (json["tLastMessage"].is_number_integer()) {
+        tLastMessage = json["tLastMessage"].get<int64_t>();
+      }
+    }
+    if (json.contains("endpoint")) {
+      if (json["endpoint"].is_string()) {
+        endpoint = json["endpoint"].get<std::string>();
+      }
+    }
+    return true;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerInfo JSON: ") + e.what());
+  }
+}
+
+nlohmann::json Client::MinerStatus::ltsToJson() const {
+  nlohmann::json j;
+  j["minerId"] = minerId;
+  j["stake"] = stake;
+  j["nextBlockId"] = nextBlockId;
+  j["currentSlot"] = currentSlot;
+  j["currentEpoch"] = currentEpoch;
+  j["pendingTransactions"] = pendingTransactions;
+  j["nStakeholders"] = nStakeholders;
+  j["isSlotLeader"] = isSlotLeader;
+  return j;
+}
+
+Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
+  try {
+    if (!json.is_object()) {
+      return Error(E_PARSE_ERROR, "MinerStatus JSON must be an object");
+    }
+
+    minerId = json.value("minerId", uint64_t(0));
+    stake = json.value("stake", uint64_t(0));
+    nextBlockId = json.value("nextBlockId", uint64_t(0));
+    currentSlot = json.value("currentSlot", uint64_t(0));
+    currentEpoch = json.value("currentEpoch", uint64_t(0));
+    pendingTransactions = json.value("pendingTransactions", uint64_t(0));
+    nStakeholders = json.value("nStakeholders", uint64_t(0));
+    isSlotLeader = json.value("isSlotLeader", false);
+
+    return true;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
+  }
+}
+
+nlohmann::json Client::BeaconState::ltsToJson() const {
+  nlohmann::json j;
+  j["currentTimestamp"] = currentTimestamp;
+  j["lastCheckpointId"] = lastCheckpointId;
+  j["checkpointId"] = checkpointId;
+  j["nextBlockId"] = nextBlockId;
+  j["currentSlot"] = currentSlot;
+  j["currentEpoch"] = currentEpoch;
+  j["nStakeholders"] = nStakeholders;
+  return j;
+}
+
+Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
+  try {
+    if (!json.is_object()) {
+      return Error(E_PARSE_ERROR, "BeaconState JSON must be an object");
+    }
+
+    currentTimestamp = json.value("currentTimestamp", int64_t(0));
+    lastCheckpointId = json.value("lastCheckpointId", uint64_t(0));
+    checkpointId = json.value("checkpointId", uint64_t(0));
+    nextBlockId = json.value("nextBlockId", uint64_t(0));
+    currentSlot = json.value("currentSlot", uint64_t(0));
+    currentEpoch = json.value("currentEpoch", uint64_t(0));
+    nStakeholders = json.value("nStakeholders", uint64_t(0));
+
+    return true;
+  } catch (const std::exception& e) {
+    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+  }
+}
+
 Client::Client() {
   fetchClient_.redirectLogger(log().getFullName() + ".FetchClient");
 }
@@ -185,10 +288,10 @@ Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t account
   return account;
 }
 
-Client::Roe<Client::BeaconState> Client::registerMinerServer(const network::TcpEndpoint &endpoint) {
-  log().debug << "Registering miner server: " << endpoint;
+Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &minerInfo) {
+  log().debug << "Registering miner server: " << minerInfo.id << " " << minerInfo.endpoint;
 
-  std::string payload = endpoint.ltsToString();
+  std::string payload = minerInfo.ltsToJson().dump();
   auto result = sendRequest(T_REQ_REGISTER, payload);
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -225,6 +328,35 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
     return state;
   } catch (const std::exception& e) {
     return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+  }
+}
+
+Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
+  log().debug << "Requesting miner list";
+
+  auto result = sendRequest(T_REQ_MINER_LIST, "");
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  try {
+    nlohmann::json response = nlohmann::json::parse(result.value());
+    if (!response.is_array()) {
+      return Error(E_PARSE_ERROR, "Miner list must be a JSON array");
+    }
+    std::vector<MinerInfo> miners;
+    for (const auto &item : response) {
+      MinerInfo info;
+      auto parseResult = info.ltsFromJson(item);
+      if (!parseResult) {
+        return Error(parseResult.error().code, parseResult.error().message);
+      }
+      miners.push_back(std::move(info));
+    }
+    return miners;
+  } catch (const std::exception &e) {
+    return Error(E_PARSE_ERROR,
+                 std::string("Failed to parse miner list JSON: ") + e.what());
   }
 }
 
@@ -273,76 +405,6 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
     return status;
   } catch (const std::exception& e) {
     return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
-  }
-}
-
-// MinerStatus serialization
-
-nlohmann::json Client::MinerStatus::ltsToJson() const {
-  nlohmann::json j;
-  j["minerId"] = minerId;
-  j["stake"] = stake;
-  j["nextBlockId"] = nextBlockId;
-  j["currentSlot"] = currentSlot;
-  j["currentEpoch"] = currentEpoch;
-  j["pendingTransactions"] = pendingTransactions;
-  j["nStakeholders"] = nStakeholders;
-  j["isSlotLeader"] = isSlotLeader;
-  return j;
-}
-
-Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
-  try {
-    if (!json.is_object()) {
-      return Error(E_PARSE_ERROR, "MinerStatus JSON must be an object");
-    }
-
-    minerId = json.value("minerId", uint64_t(0));
-    stake = json.value("stake", uint64_t(0));
-    nextBlockId = json.value("nextBlockId", uint64_t(0));
-    currentSlot = json.value("currentSlot", uint64_t(0));
-    currentEpoch = json.value("currentEpoch", uint64_t(0));
-    pendingTransactions = json.value("pendingTransactions", uint64_t(0));
-    nStakeholders = json.value("nStakeholders", uint64_t(0));
-    isSlotLeader = json.value("isSlotLeader", false);
-
-    return true;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
-  }
-}
-
-// BeaconState serialization
-
-nlohmann::json Client::BeaconState::ltsToJson() const {
-  nlohmann::json j;
-  j["currentTimestamp"] = currentTimestamp;
-  j["lastCheckpointId"] = lastCheckpointId;
-  j["checkpointId"] = checkpointId;
-  j["nextBlockId"] = nextBlockId;
-  j["currentSlot"] = currentSlot;
-  j["currentEpoch"] = currentEpoch;
-  j["nStakeholders"] = nStakeholders;
-  return j;
-}
-
-Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
-  try {
-    if (!json.is_object()) {
-      return Error(E_PARSE_ERROR, "BeaconState JSON must be an object");
-    }
-
-    currentTimestamp = json.value("currentTimestamp", int64_t(0));
-    lastCheckpointId = json.value("lastCheckpointId", uint64_t(0));
-    checkpointId = json.value("checkpointId", uint64_t(0));
-    nextBlockId = json.value("nextBlockId", uint64_t(0));
-    currentSlot = json.value("currentSlot", uint64_t(0));
-    currentEpoch = json.value("currentEpoch", uint64_t(0));
-    nStakeholders = json.value("nStakeholders", uint64_t(0));
-
-    return true;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
   }
 }
 

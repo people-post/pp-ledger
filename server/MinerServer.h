@@ -82,9 +82,10 @@ private:
     uint64_t minerId{ 0 };
     std::string privateKey;  // hex-encoded
     NetworkConfig network;
+    std::map<uint64_t, Client::MinerInfo> mMiners;  // Other miners
   };
 
-  std::string getSlotLeaderAddress() const;
+  std::string findTxSubmitAddress(uint64_t slotLeaderId);
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
   void initHandlers();

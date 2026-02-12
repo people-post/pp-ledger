@@ -17,6 +17,14 @@ bool Miner::isSlotLeader() const {
   return chain_.isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
 }
 
+Miner::Roe<uint64_t> Miner::getSlotLeaderId() const {
+  auto result = chain_.getSlotLeader(getCurrentSlot());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 uint64_t Miner::getStake() const {
   return chain_.getStakeholderStake(config_.minerId);
 }

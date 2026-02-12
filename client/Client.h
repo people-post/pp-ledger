@@ -69,6 +69,7 @@ public:
   // Request types
   static constexpr const uint32_t T_REQ_STATUS = 1;
   static constexpr const uint32_t T_REQ_REGISTER = 2;
+  static constexpr const uint32_t T_REQ_MINER_LIST = 3;
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
@@ -115,10 +116,13 @@ public:
   };
 
   // Response data structures
-  struct ServerInfo {
-    uint64_t nextBlockId{ 0 };
-    uint64_t currentSlot{ 0 };
-    uint64_t currentEpoch{ 0 };
+  struct MinerInfo {
+    uint64_t id{ 0 };
+    int64_t tLastMessage{ 0 };
+    std::string endpoint;
+
+    nlohmann::json ltsToJson() const;
+    Roe<bool> ltsFromJson(const nlohmann::json& json);
   };
 
   struct MinerStatus {
@@ -156,7 +160,8 @@ public:
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
   Roe<BeaconState> fetchBeaconState();
-  Roe<BeaconState> registerMinerServer(const network::TcpEndpoint &endpoint);
+  Roe<BeaconState> registerMinerServer(const MinerInfo &minerInfo);
+  Roe<std::vector<MinerInfo>> fetchMinerList();
   Roe<MinerStatus> fetchMinerStatus();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);

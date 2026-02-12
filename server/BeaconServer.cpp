@@ -438,6 +438,9 @@ void BeaconServer::initHandlers() {
 
   auto &hreg = requestHandlers_[Client::T_REQ_REGISTER];
   hreg = [this](const Client::Request &request) { return hRegister(request); };
+
+  auto &hml = requestHandlers_[Client::T_REQ_MINER_LIST];
+  hml = [this](const Client::Request &request) { return hMinerList(request); };
 };
 
 void BeaconServer::onStop() {
@@ -445,13 +448,9 @@ void BeaconServer::onStop() {
   log().info << "BeaconServer resources cleaned up";
 }
 
-void BeaconServer::registerServer(const std::string &serverAddress) {
-  // Get current timestamp
-  int64_t now = std::chrono::system_clock::now().time_since_epoch().count();
-
-  // Update or add server
-  activeServers_[serverAddress] = now;
-  log().debug << "Updated server record: " << serverAddress;
+void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
+  mMiners_[minerInfo.id] = minerInfo;
+  log().debug << "Updated miner record: " << minerInfo.id << " " << minerInfo.endpoint;
 }
 
 Client::BeaconState BeaconServer::buildStateResponse() const {
@@ -555,15 +554,26 @@ BeaconServer::hAccountGet(const Client::Request &request) {
 
 BeaconServer::Roe<std::string>
 BeaconServer::hRegister(const Client::Request &request) {
-  network::TcpEndpoint endpoint =
-      network::TcpEndpoint::ltsFromString(request.payload);
-  registerServer(endpoint.ltsToString());
+  Client::MinerInfo minerInfo;
+  if (!minerInfo.ltsFromJson(nlohmann::json::parse(request.payload))) {
+    return Error(E_REQUEST, "Failed to parse miner info: " + request.payload);
+  }
+  registerServer(minerInfo);
   return buildStateResponse().ltsToJson().dump();
 }
 
 BeaconServer::Roe<std::string>
 BeaconServer::hStatus(const Client::Request &request) {
   return buildStateResponse().ltsToJson().dump();
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::hMinerList(const Client::Request &request) {
+  nlohmann::json j = nlohmann::json::array();
+  for (const auto &[id, info] : mMiners_) {
+    j.push_back(info.ltsToJson());
+  }
+  return j.dump();
 }
 
 BeaconServer::Roe<std::string>

@@ -115,7 +115,7 @@ private:
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
   void initHandlers();
 
-  void registerServer(const std::string &serverAddress);
+  void registerServer(const Client::MinerInfo &minerInfo);
   Client::BeaconState buildStateResponse() const;
 
   std::string handleParsedRequest(const Client::Request &request) override;
@@ -125,6 +125,7 @@ private:
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
+  Roe<std::string> hMinerList(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Config config_;
@@ -134,7 +135,7 @@ private:
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
 
-  std::map<std::string, int64_t> activeServers_;
+  std::map<uint64_t, Client::MinerInfo> mMiners_;
 };
 
 } // namespace pp

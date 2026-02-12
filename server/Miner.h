@@ -56,6 +56,7 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool isSlotLeader() const;
+  Roe<uint64_t> getSlotLeaderId() const;
 
   uint64_t getStake() const;
   size_t getPendingTransactionCount() const;
