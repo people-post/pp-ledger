@@ -56,7 +56,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
                                   const Chain::BlockChainConfig &chainConfig,
                                   const utl::Ed25519KeyPair &genesisKey,
                                   const utl::Ed25519KeyPair &feeKey,
-                                  const utl::Ed25519KeyPair &reserveKey) {
+                                  const utl::Ed25519KeyPair &reserveKey,
+                                  const utl::Ed25519KeyPair &recycleKey) {
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -107,6 +108,19 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   reserveTx.obj.meta = reserveAccount.ltsToString();
   reserveTx.signatures.push_back(signTx(genesisKey, reserveTx.obj));
   genesis.block.signedTxes.push_back(reserveTx);
+
+  Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
+  recycleAccount.meta = "Account for recycling write-off balances";
+  Ledger::SignedData<Ledger::Transaction> recycleTx;
+  recycleTx.obj.type = Ledger::Transaction::T_NEW_USER;
+  recycleTx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  recycleTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
+  recycleTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
+  recycleTx.obj.amount = 0;
+  recycleTx.obj.fee = static_cast<int64_t>(chainConfig.minFeePerTransaction);
+  recycleTx.obj.meta = recycleAccount.ltsToString();
+  recycleTx.signatures.push_back(signTx(genesisKey, recycleTx.obj));
+  genesis.block.signedTxes.push_back(recycleTx);
 
   genesis.hash = validator.calculateHash(genesis.block);
   return genesis;
@@ -161,9 +175,10 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
   auto genesisKey = makeKeyPair();
   auto feeKey = makeKeyPair();
   auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   genesis.hash = "bad-hash";
 
   auto result = validator.addBlock(genesis, true);
@@ -177,6 +192,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   auto genesisKey = makeKeyPair();
   auto feeKey = makeKeyPair();
   auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
   consensus::Ouroboros::Config consensusConfig;
@@ -197,7 +213,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
 
   auto result = validator.addBlock(genesis, true);
   EXPECT_TRUE(result.isOk());

@@ -278,6 +278,12 @@ BeaconServer::Roe<Beacon::InitKeyConfig> BeaconServer::init(const std::string& w
       return Error("Failed to generate Ed25519 key: " + result.error().message);
     }
     initConfig.key.reserve.push_back(result.value());
+
+    result = utl::ed25519Generate();
+    if (!result) {
+      return Error("Failed to generate Ed25519 key: " + result.error().message);
+    }
+    initConfig.key.recycle.push_back(result.value());
   }
   
   auto result = initFromWorkDir(initConfig);

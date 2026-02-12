@@ -515,9 +515,9 @@ Chain::Roe<void> Chain::validateGenesisBlock(const Ledger::ChainNode& block) con
   if (block.block.slotLeader != 0) {
     return Error(E_BLOCK_GENESIS, "Genesis block must have slotLeader 0");
   }
-  // Exactly three transactions: checkpoint, fee, and miner/reserve transactions
-  if (block.block.signedTxes.size() != 3) {
-    return Error(E_BLOCK_GENESIS, "Genesis block must have exactly three transactions");
+  // Exactly four transactions: checkpoint, fee, reserve, and recycle
+  if (block.block.signedTxes.size() != 4) {
+    return Error(E_BLOCK_GENESIS, "Genesis block must have exactly four transactions");
   }
   
   // First transaction: checkpoint transaction (ID_GENESIS -> ID_GENESIS, amount 0)
@@ -525,6 +525,11 @@ Chain::Roe<void> Chain::validateGenesisBlock(const Ledger::ChainNode& block) con
   if (checkpointTx.obj.type != Ledger::Transaction::T_GENESIS) {
     return Error(E_BLOCK_GENESIS, "First genesis transaction must be genesis transaction");
   }
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(checkpointTx.obj.meta)) {
+    return Error(E_BLOCK_GENESIS, "Failed to deserialize genesis checkpoint meta");
+  }
+  const uint64_t minFeePerTransaction = gm.config.minFeePerTransaction;
   
   // Second transaction: fee transaction (ID_GENESIS -> ID_FEE, 0)
   const auto& feeTx = block.block.signedTxes[1];
@@ -555,7 +560,25 @@ Chain::Roe<void> Chain::validateGenesisBlock(const Ledger::ChainNode& block) con
   if (minerTx.obj.amount + minerTx.obj.fee != AccountBuffer::INITIAL_TOKEN_SUPPLY) {
     return Error(E_BLOCK_GENESIS, "Genesis miner transaction must have amount + fee: " + std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
   }
-  
+
+  // Fourth transaction: recycle account creation (ID_GENESIS -> ID_RECYCLE, 0)
+  const auto& recycleTx = block.block.signedTxes[3];
+  if (recycleTx.obj.type != Ledger::Transaction::T_NEW_USER) {
+    return Error(E_BLOCK_GENESIS, "Fourth genesis transaction must be new user transaction");
+  }
+  if (recycleTx.obj.fromWalletId != AccountBuffer::ID_GENESIS || recycleTx.obj.toWalletId != AccountBuffer::ID_RECYCLE) {
+    return Error(E_BLOCK_GENESIS, "Genesis recycle account creation transaction must transfer from genesis to recycle wallet");
+  }
+  if (recycleTx.obj.amount != 0) {
+    return Error(E_BLOCK_GENESIS, "Genesis recycle account creation transaction must have amount 0");
+  }
+  if (recycleTx.obj.fee != static_cast<int64_t>(minFeePerTransaction)) {
+    return Error(E_BLOCK_GENESIS, "Genesis recycle account creation transaction must have fee: " + std::to_string(minFeePerTransaction));
+  }
+  if (recycleTx.obj.meta.empty()) {
+    return Error(E_BLOCK_GENESIS, "Genesis recycle account creation transaction must have meta");
+  }
+
   std::string calculatedHash = calculateHash(block.block);
   if (calculatedHash != block.hash) {
     return Error(E_BLOCK_HASH, "Genesis block hash validation failed");

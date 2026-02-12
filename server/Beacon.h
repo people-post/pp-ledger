@@ -46,6 +46,7 @@ public:
     std::vector<utl::Ed25519KeyPair> genesis;
     std::vector<utl::Ed25519KeyPair> fee;
     std::vector<utl::Ed25519KeyPair> reserve;
+    std::vector<utl::Ed25519KeyPair> recycle;
 
     nlohmann::json toJson() const;
   };
@@ -90,6 +91,11 @@ private:
   };
 
   Roe<Ledger::ChainNode> createGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key) const;
+
+  /** Signs transaction with genesis keys and adds signatures. Returns error on sign failure. */
+  Roe<void> signWithGenesisKeys(Ledger::SignedData<Ledger::Transaction>& signedTx,
+    const std::vector<utl::Ed25519KeyPair>& genesisKeys,
+    const std::string& errorContext) const;
 
   Chain validator_;
   Config config_;

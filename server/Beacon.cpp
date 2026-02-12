@@ -1,4 +1,5 @@
 #include "Beacon.h"
+#include "../client/Client.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 #include "../lib/BinaryPack.hpp"
@@ -7,6 +8,22 @@
 #include <algorithm>
 
 namespace pp {
+
+namespace {
+
+Client::UserAccount makeUserAccountFromKeys(const std::vector<utl::Ed25519KeyPair>& keys,
+    int64_t balance, const std::string& meta) {
+  Client::UserAccount account;
+  account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
+  for (const auto& kp : keys) {
+    account.wallet.publicKeys.push_back(kp.publicKey);
+  }
+  account.wallet.minSignatures = keys.size();
+  account.meta = meta;
+  return account;
+}
+
+}  // namespace
 
 // Ostream operators for easy logging
 std::ostream& operator<<(std::ostream& os, const Beacon::InitConfig& config) {
@@ -79,6 +96,9 @@ nlohmann::json Beacon::InitKeyConfig::toJson() const {
   }
   for (const auto& kp : reserve) {
     j["reserve"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)}, {"privateKey", utl::hexEncode(kp.privateKey)}});
+  }
+  for (const auto& kp : recycle) {
+    j["recycle"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)}, {"privateKey", utl::hexEncode(kp.privateKey)}});
   }
   return j;
 }
@@ -197,14 +217,26 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode& block) {
 
 // Private helper methods
 
+Beacon::Roe<void> Beacon::signWithGenesisKeys(Ledger::SignedData<Ledger::Transaction>& signedTx,
+    const std::vector<utl::Ed25519KeyPair>& genesisKeys,
+    const std::string& errorContext) const {
+  std::string message = utl::binaryPack(signedTx.obj);
+  for (const auto& kp : genesisKeys) {
+    auto result = utl::ed25519Sign(kp.privateKey, message);
+    if (!result) {
+      return Error(18, "Failed to sign " + errorContext + ": " + result.error().message);
+    }
+    signedTx.signatures.push_back(*result);
+  }
+  return {};
+}
+
 Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Chain::BlockChainConfig& config, const InitKeyConfig& key) const {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
-  // 2. Create native token genesis wallet with zero balance
-  // 3. Create first native token wallet that has stake to bootstrap consensus
+  // 2. Create fee, reserve, and recycle accounts
   log().info << "Creating genesis block";
 
-  // Create genesis block
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
   genesisBlock.block.timestamp = config.genesisTime;
@@ -213,100 +245,76 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createGenesisBlock(const Chain::BlockChai
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
-  // key.genesis/fee/reserve are KeyPairs; use publicKey for checkpoint, privateKey for signing
   Chain::GenesisAccountMeta gm;
   gm.config = config;
-
-  gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
-  for (const auto& kp : key.genesis) {
-    gm.genesis.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  gm.genesis.wallet.minSignatures = key.genesis.size();
-  gm.genesis.meta = "Native token genesis wallet";
+  gm.genesis = makeUserAccountFromKeys(key.genesis, 0, "Native token genesis wallet");
 
   // First transaction: GenesisAccountMeta
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj.type = Ledger::Transaction::T_GENESIS;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS; // Native token
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;     // genesis wallet ID
-  signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;       // genesis wallet ID
-  signedTx.obj.amount = 0;                                   // no funding needed
-  signedTx.obj.fee = 0;                                      // no fee wallet yet
-  // Serialize GenesisAccountMeta to transaction metadata
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.amount = 0;
+  signedTx.obj.fee = 0;
   signedTx.obj.meta = gm.ltsToString();
-
-  std::string message = utl::binaryPack(signedTx.obj);
-  for (const auto& kp : key.genesis) {
-    auto result = utl::ed25519Sign(kp.privateKey, message);
-    if (!result) {
-      return Error(18, "Failed to sign checkpoint transaction: " + result.error().message);
-    }
-    signedTx.signatures.push_back(*result);
+  auto roeGenesis = signWithGenesisKeys(signedTx, key.genesis, "checkpoint transaction");
+  if (!roeGenesis) {
+    return roeGenesis.error();
   }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-
-  // Second transaction: Create fee wallet and fund it with initial fee
-  Client::UserAccount feeAccount;
-  feeAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
-  for (const auto& kp : key.fee) {
-    feeAccount.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  feeAccount.wallet.minSignatures = key.fee.size();
-  feeAccount.meta = "Wallet for transaction fees";
+  // Second transaction: Create fee wallet
+  auto feeAccount = makeUserAccountFromKeys(key.fee, 0, "Wallet for transaction fees");
   signedTx = {};
   signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;       // Native token
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;  // genesis wallet ID
-  signedTx.obj.toWalletId = AccountBuffer::ID_FEE;        // fee wallet ID
-  signedTx.obj.amount = 0;                                // no initial funding
-  signedTx.obj.fee = 0;                                   // minimal fee
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.toWalletId = AccountBuffer::ID_FEE;
+  signedTx.obj.amount = 0;
+  signedTx.obj.fee = 0;
   signedTx.obj.meta = feeAccount.ltsToString();
-
-  message = utl::binaryPack(signedTx.obj);
-  for (const auto& kp : key.genesis) {
-    auto result = utl::ed25519Sign(kp.privateKey, message);
-    if (!result) {
-      return Error(18, "Failed to sign fee transaction: " + result.error().message);
-    }
-    signedTx.signatures.push_back(*result);
+  auto roeFee = signWithGenesisKeys(signedTx, key.genesis, "fee transaction");
+  if (!roeFee) {
+    return roeFee.error();
   }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-
-  Client::UserAccount reserveAccount;
-  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;
-  for (const auto& kp : key.reserve) {
-    reserveAccount.wallet.publicKeys.push_back(kp.publicKey);
-  }
-  reserveAccount.wallet.minSignatures = key.reserve.size();
-  reserveAccount.meta = "Native token reserve wallet";
-
-  // Third transaction: Initial reserve funding for staking
+  // Third transaction: Create reserve wallet with initial stake
+  int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction);
+  auto reserveAccount = makeUserAccountFromKeys(key.reserve, reserveAmount, "Native token reserve wallet");
   signedTx = {};
   signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;             // Native token
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;        // genesis wallet ID
-  signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;          // reserve wallet ID
-  signedTx.obj.amount = AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction;     // initial supply minus fee
-  signedTx.obj.fee = config.minFeePerTransaction; // minimal fee
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;
+  signedTx.obj.amount = reserveAmount;
+  signedTx.obj.fee = static_cast<int64_t>(config.minFeePerTransaction);
   signedTx.obj.meta = reserveAccount.ltsToString();
-
-  message = utl::binaryPack(signedTx.obj);
-  for (const auto& kp : key.genesis) {
-    auto result = utl::ed25519Sign(kp.privateKey, message);
-    if (!result) {
-      return Error(18, "Failed to sign reserve transaction: " + result.error().message);
-    }
-    signedTx.signatures.push_back(*result);
+  auto roeReserve = signWithGenesisKeys(signedTx, key.genesis, "reserve transaction");
+  if (!roeReserve) {
+    return roeReserve.error();
   }
   genesisBlock.block.signedTxes.push_back(signedTx);
 
-  // Calculate hash for genesis block
+  // Fourth transaction: Create recycle account (sink for write-off balances)
+  auto recycleAccount = makeUserAccountFromKeys(key.recycle, 0, "Account for recycling write-off balances");
+  signedTx = {};
+  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
+  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
+  signedTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
+  signedTx.obj.amount = 0;
+  signedTx.obj.fee = static_cast<int64_t>(config.minFeePerTransaction);
+  signedTx.obj.meta = recycleAccount.ltsToString();
+  auto roeRecycle = signWithGenesisKeys(signedTx, key.genesis, "recycle transaction");
+  if (!roeRecycle) {
+    return roeRecycle.error();
+  }
+  genesisBlock.block.signedTxes.push_back(signedTx);
+
   genesisBlock.hash = calculateHash(genesisBlock.block);
-
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;
-
   return genesisBlock;
 }
 
