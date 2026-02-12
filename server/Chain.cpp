@@ -978,61 +978,10 @@ Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction& tx, uint64_
       return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " + std::to_string(tx.toWalletId));
     }
   } else {
-    auto const& bufferAccount = bufferAccountResult.value();
-
-    auto safeAdd = [](int64_t a, int64_t b, int64_t& out) -> bool {
-      if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
-          (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
-        return false;
-      }
-      out = a + b;
-      return true;
-    };
-
-    auto getBalanceOrZero = [](const std::map<uint64_t, int64_t>& balances, uint64_t tokenId) -> int64_t {
-      auto it = balances.find(tokenId);
-      if (it == balances.end()) {
-        return 0;
-      }
-      return it->second;
-    };
-
-    const auto& bufferBalances = bufferAccount.wallet.mBalances;
-    const auto& userBalances = userAccount.wallet.mBalances;
-
-    for (const auto& [tokenId, bufferBalance] : bufferBalances) {
-      if (tokenId == AccountBuffer::ID_GENESIS) {
-        continue;
-      }
-      int64_t userBalance = getBalanceOrZero(userBalances, tokenId);
-      if (bufferBalance != userBalance) {
-        return Error(E_TX_VALIDATION, "User account balances do not match buffer state");
-      }
-    }
-    for (const auto& [tokenId, userBalance] : userBalances) {
-      if (tokenId == AccountBuffer::ID_GENESIS) {
-        continue;
-      }
-      int64_t bufferBalance = getBalanceOrZero(bufferBalances, tokenId);
-      if (bufferBalance != userBalance) {
-        return Error(E_TX_VALIDATION, "User account balances do not match buffer state");
-      }
-    }
-
-    int64_t delta = 0;
-    if (!safeAdd(tx.amount, tx.fee, delta)) {
-      return Error(E_TX_VALIDATION, "User account amount and fee overflow");
-    }
-
-    int64_t expectedBufferGenesis = 0;
-    int64_t userGenesis = getBalanceOrZero(userBalances, AccountBuffer::ID_GENESIS);
-    if (!safeAdd(userGenesis, delta, expectedBufferGenesis)) {
-      return Error(E_TX_VALIDATION, "User account genesis token balance overflow");
-    }
-
-    int64_t bufferGenesis = getBalanceOrZero(bufferBalances, AccountBuffer::ID_GENESIS);
-    if (bufferGenesis != expectedBufferGenesis) {
-      return Error(E_TX_VALIDATION, "User account genesis token balance does not match buffer state");
+    // Verify that buffer balances match expected balances after amount and fee
+    auto verifyResult = bank_.verifyBalance(tx.toWalletId, tx.amount, tx.fee, userAccount.wallet.mBalances);
+    if (!verifyResult) {
+      return Error(E_TX_VALIDATION, "User account balances do not match buffer state: " + verifyResult.error().message);
     }
   }
 
