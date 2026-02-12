@@ -225,6 +225,8 @@ Service::Roe<void> MinerServer::onStart() {
                                        syncResult.error().message);
   }
 
+  initHandlers();
+
   log().info << "Miner core initialized";
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Stake: " << miner_.getStake();
@@ -284,8 +286,6 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
 
   log().info << "Sync complete: " << (latestBlockId - nextBlockId)
              << " blocks added";
-
-  initHandlers();
 
   return {};
 }

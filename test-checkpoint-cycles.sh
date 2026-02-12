@@ -160,7 +160,12 @@ generate_miner_key() {
     mkdir -p "$key_dir"
     if [ ! -f "$key_file" ]; then
         local output hex
-        output=$("$BUILD_DIR/app/pp-client" keygen 2>/dev/null)
+        output=$("$BUILD_DIR/app/pp-client" --debug keygen 2>&1)
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}pp-client keygen failed:${NC}" >&2
+            echo "$output" >&2
+            exit 1
+        fi
         hex=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
         # Miner ed25519Sign expects raw 32 bytes; write binary to file
         if command -v xxd &>/dev/null; then
@@ -234,12 +239,26 @@ start_all_miners() {
 # =============================================================================
 
 fetch_beacon_state() {
-    "$BUILD_DIR/app/pp-client" -b --host "localhost:$BEACON_PORT" status 2>/dev/null || true
+    local output
+    output=$("$BUILD_DIR/app/pp-client" --debug -b --host "localhost:$BEACON_PORT" status 2>&1) || {
+        echo -e "${RED}pp-client beacon status failed:${NC}" >&2
+        echo "$output" >&2
+        echo ""
+        return 0
+    }
+    echo "$output"
 }
 
 fetch_miner_status() {
     local port=$1
-    "$BUILD_DIR/app/pp-client" -m --host "localhost:$port" status 2>/dev/null || true
+    local output
+    output=$("$BUILD_DIR/app/pp-client" --debug -m --host "localhost:$port" status 2>&1) || {
+        echo -e "${RED}pp-client miner status failed (port=$port):${NC}" >&2
+        echo "$output" >&2
+        echo ""
+        return 0
+    }
+    echo "$output"
 }
 
 get_next_block_id() {
@@ -256,6 +275,37 @@ get_checkpoint_ids() {
     echo "${last} ${curr}"
 }
 
+# Wait for at least one miner to accept connections. Returns first working port or empty on timeout.
+get_working_miner_port() {
+    local port
+    for port in $(seq $MINER_BASE_PORT $((MINER_BASE_PORT + NUM_MINERS - 1))); do
+        if "$BUILD_DIR/app/pp-client" --debug -m --host "localhost:$port" status &>/dev/null; then
+            echo "$port"
+            return 0
+        fi
+    done
+    return 1
+}
+
+wait_for_miner_ready() {
+    local max_wait=${1:-20}
+    local elapsed=0
+    echo -e "${CYAN}Waiting for miner to be ready (max ${max_wait}s)...${NC}" >&2
+    while [ $elapsed -lt $max_wait ]; do
+        local port
+        port=$(get_working_miner_port)
+        if [ -n "$port" ]; then
+            echo -e "${GREEN}✓ Miner ready on port $port${NC}" >&2
+            echo "$port"
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    echo -e "${RED}No miner responded within ${max_wait}s${NC}" >&2
+    return 1
+}
+
 # =============================================================================
 # Phase 3: Transaction simulation (when accounts exist)
 # =============================================================================
@@ -270,7 +320,12 @@ generate_tx_keypair() {
     mkdir -p "$key_dir"
     if [ ! -f "$key_file" ]; then
         local output
-        output=$("$BUILD_DIR/app/pp-client" keygen 2>/dev/null)
+        output=$("$BUILD_DIR/app/pp-client" --debug keygen 2>&1)
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}pp-client keygen failed:${NC}" >&2
+            echo "$output" >&2
+            exit 1
+        fi
         echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n' > "$key_file"
         echo "$output" | grep "Public key" | sed 's/.*: *//' | tr -d ' \n' > "$pub_file"
     fi
@@ -278,7 +333,8 @@ generate_tx_keypair() {
 }
 
 # Create new account via mk-account + sign-tx (3x) + submit-tx (reserve needs 3-of-3 multisig)
-# Usage: try_add_account to_wallet_id amount new_pubkey_hex reserve_key1 key2 key3 miner_port
+# Usage: try_add_account to_wallet_id amount new_pubkey_hex reserve_key1 key2 key3 miner_port [fee]
+# On connection failure, tries other miner ports automatically.
 try_add_account() {
     local to=$1
     local amount=$2
@@ -294,32 +350,54 @@ try_add_account() {
         return 1
     fi
 
-    local mk_cmd=("$BUILD_DIR/app/pp-client" mk-account 2 "$amount" -t "$to" -f "$fee" -o "$tx_file")
+    local mk_cmd=("$BUILD_DIR/app/pp-client" --debug mk-account 2 "$amount" -t "$to" -f "$fee" -o "$tx_file")
     [ -n "$new_pubkey_hex" ] && mk_cmd+=(--new-pubkey "$new_pubkey_hex")
-    if ! "${mk_cmd[@]}" 2>/dev/null; then
+    local err
+    err=$("${mk_cmd[@]}" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${YELLOW}  (mk-account failed for to=$to)${NC}"
+        echo -e "${RED}Error:${NC} $err" >&2
         return 1
     fi
     for k in "$key1" "$key2" "$key3"; do
-        if ! "$BUILD_DIR/app/pp-client" sign-tx "$tx_file" -k "$k" 2>/dev/null; then
+        err=$("$BUILD_DIR/app/pp-client" --debug sign-tx "$tx_file" -k "$k" 2>&1)
+        if [ $? -ne 0 ]; then
             echo -e "${YELLOW}  (sign-tx failed)${NC}"
+            echo -e "${RED}Error:${NC} $err" >&2
             rm -f "$tx_file"
             return 1
         fi
     done
-    if "$BUILD_DIR/app/pp-client" -m -p "$miner_port" submit-tx "$tx_file" 2>/dev/null; then
-        echo -e "${GREEN}  ✓ Account created: id=$to amount=$amount${NC}"
-        rm -f "$tx_file"
-        return 0
-    else
+    local ports_to_try
+    ports_to_try="$miner_port"
+    for p in $(seq $MINER_BASE_PORT $((MINER_BASE_PORT + NUM_MINERS - 1))); do
+        [ "$p" = "$miner_port" ] || ports_to_try="$ports_to_try $p"
+    done
+    for p in $ports_to_try; do
+        err=$("$BUILD_DIR/app/pp-client" --debug -m -p "$p" submit-tx "$tx_file" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}  ✓ Account created: id=$to amount=$amount${NC}"
+            rm -f "$tx_file"
+            return 0
+        fi
+        if echo "$err" | grep -q "Failed to connect"; then
+            echo -e "${YELLOW}  (submit-tx port $p unreachable, trying next miner)${NC}" >&2
+            continue
+        fi
         echo -e "${YELLOW}  (submit-tx failed for to=$to)${NC}"
+        echo -e "${RED}Error:${NC} $err" >&2
         rm -f "$tx_file"
         return 1
-    fi
+    done
+    echo -e "${YELLOW}  (submit-tx failed - no miner reachable)${NC}"
+    echo -e "${RED}Error:${NC} $err" >&2
+    rm -f "$tx_file"
+    return 1
 }
 
 # Submit a transfer if we have valid accounts and keys
-# Usage: try_add_tx from_wallet_id to_wallet_id amount fee key_file miner_port
+# Usage: try_add_tx from_wallet_id to_wallet_id amount key_file [fee] [miner_port]
+# On connection failure, tries other miner ports automatically.
 try_add_tx() {
     local from=$1
     local to=$2
@@ -333,13 +411,29 @@ try_add_tx() {
         return 1
     fi
 
-    if "$BUILD_DIR/app/pp-client" -m -p "$miner_port" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" 2>/dev/null; then
-        echo -e "${GREEN}  ✓ Transaction submitted: $from -> $to amount=$amount${NC}"
-        return 0
-    else
+    local ports_to_try
+    ports_to_try="$miner_port"
+    for p in $(seq $MINER_BASE_PORT $((MINER_BASE_PORT + NUM_MINERS - 1))); do
+        [ "$p" = "$miner_port" ] || ports_to_try="$ports_to_try $p"
+    done
+    local err
+    for p in $ports_to_try; do
+        err=$("$BUILD_DIR/app/pp-client" --debug -m -p "$p" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}  ✓ Transaction submitted: $from -> $to amount=$amount${NC}"
+            return 0
+        fi
+        if echo "$err" | grep -q "Failed to connect"; then
+            echo -e "${YELLOW}  (add-tx port $p unreachable, trying next miner)${NC}" >&2
+            continue
+        fi
         echo -e "${YELLOW}  (add-tx skipped - may need valid accounts: $from -> $to)${NC}"
+        echo -e "${RED}Error:${NC} $err" >&2
         return 1
-    fi
+    done
+    echo -e "${YELLOW}  (add-tx skipped - no miner reachable)${NC}"
+    echo -e "${RED}Error:${NC} $err" >&2
+    return 1
 }
 
 # =============================================================================
@@ -350,12 +444,17 @@ inject_transactions_for_block_production() {
     echo ""
     echo -e "${BLUE}═══ Injecting transactions to prime block production ═══${NC}"
 
+    local miner_port
+    miner_port=$(wait_for_miner_ready 25) || {
+        echo -e "${RED}Cannot proceed: no miner reached${NC}" >&2
+        exit 1
+    }
+
     local alice=$((1 << 20))
     local bob=$(( (1 << 20) + 1 ))
     local key_dir="${TEST_DIR}/keys"
     local reserve1="${key_dir}/reserve1.key" reserve2="${key_dir}/reserve2.key" reserve3="${key_dir}/reserve3.key"
     local min_fee=1
-    local miner_port=$((MINER_BASE_PORT + 1))  # miner2 = slot leader (has stake)
 
     generate_tx_keypair "alice" >/dev/null
     generate_tx_keypair "bob" >/dev/null
@@ -515,10 +614,12 @@ test_scenario_multi_cycle() {
 # =============================================================================
 
 usage() {
-    echo "Usage: $0 [run|clean]"
+    echo "Usage: $0 [run|start|stop|clear]"
     echo ""
-    echo "  run    Execute checkpoint cycles test (default)"
-    echo "  clean  Remove test data and exit"
+    echo "  run    Execute full checkpoint cycles test (default)"
+    echo "  start  Start beacon and miners only (no test)"
+    echo "  stop   Stop beacon and miners (e.g. after aborted test)"
+    echo "  clear  Stop network and remove all test data"
     echo ""
     echo "The test:"
     echo "  - Initializes beacon with short slots and checkpoint params"
@@ -531,17 +632,41 @@ usage() {
 main() {
     local cmd=${1:-run}
 
-    if [ "$cmd" = "clean" ]; then
-        stop_network
-        rm -rf "$TEST_DIR"
-        echo -e "${GREEN}✓ Test data cleaned${NC}"
-        return 0
-    fi
-
-    if [ "$cmd" != "run" ] && [ "$cmd" != "" ]; then
-        usage
-        exit 1
-    fi
+    case "$cmd" in
+        stop)
+            stop_network
+            echo -e "${GREEN}✓ Network stopped${NC}"
+            return 0
+            ;;
+        clear|clean)
+            stop_network
+            rm -rf "$TEST_DIR"
+            echo -e "${GREEN}✓ Test data cleared${NC}"
+            return 0
+            ;;
+        start)
+            verify_build
+            stop_network
+            mkdir -p "$TEST_DIR"
+            rm -f "$PID_FILE"
+            if [ ! -f "${TEST_DIR}/beacon/init-config.json" ]; then
+                initialize_beacon_with_test_config
+            fi
+            create_beacon_config
+            start_beacon
+            start_all_miners
+            echo ""
+            echo -e "${GREEN}✓ Network started. Run '$0 run' for full test or '$0 stop' to stop.${NC}"
+            echo ""
+            return 0
+            ;;
+        run|"")
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
 
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║   pp-ledger Checkpoint Cycles Test                      ║${NC}"
@@ -581,7 +706,7 @@ main() {
     echo -e "${CYAN}Note: Block production requires renewals (after checkpointMinBlocks) or pending tx.${NC}"
     echo -e "${CYAN}      With checkpointMinBlocks=2, renewals start at block 3; blocks 1-2 need add-tx.${NC}"
     echo ""
-    echo -e "Network still running. To stop: $0 clean"
+    echo -e "Network still running. To stop: $0 stop   To remove data: $0 clear"
     echo ""
 }
 
