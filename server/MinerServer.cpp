@@ -1,9 +1,9 @@
 #include "MinerServer.h"
 #include "../client/Client.h"
+#include "../ledger/Ledger.h"
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
-#include "../ledger/Ledger.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -29,7 +29,8 @@ nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
   return j;
 }
 
-MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json& jd) {
+MinerServer::Roe<void>
+MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
   try {
     // Validate JSON is an object
     if (!jd.is_object()) {
@@ -92,29 +93,36 @@ MinerServer::Roe<void> MinerServer::RunFileConfig::ltsFromJson(const nlohmann::j
       return Error(E_CONFIG, "Field 'beacons' must be an array");
     }
     if (jd["beacons"].empty()) {
-      return Error(E_CONFIG, "Field 'beacons' array must contain at least one beacon address");
+      return Error(
+          E_CONFIG,
+          "Field 'beacons' array must contain at least one beacon address");
     }
 
     beacons.clear();
     for (size_t i = 0; i < jd["beacons"].size(); ++i) {
-      const auto& beacon = jd["beacons"][i];
+      const auto &beacon = jd["beacons"][i];
       if (!beacon.is_string()) {
-        return Error(E_CONFIG, "All elements in 'beacons' array must be strings (index " + std::to_string(i) + " is not)");
+        return Error(E_CONFIG,
+                     "All elements in 'beacons' array must be strings (index " +
+                         std::to_string(i) + " is not)");
       }
       std::string beaconAddr = beacon.get<std::string>();
       if (beaconAddr.empty()) {
-        return Error(E_CONFIG, "Beacon address at index " + std::to_string(i) + " cannot be empty");
+        return Error(E_CONFIG, "Beacon address at index " + std::to_string(i) +
+                                   " cannot be empty");
       }
       beacons.push_back(beaconAddr);
     }
 
     if (beacons.empty()) {
-      return Error(E_CONFIG, "Field 'beacons' array must contain at least one valid string address");
+      return Error(E_CONFIG, "Field 'beacons' array must contain at least one "
+                             "valid string address");
     }
 
     return {};
-  } catch (const std::exception& e) {
-    return Error(E_CONFIG, "Failed to parse run configuration: " + std::string(e.what()));
+  } catch (const std::exception &e) {
+    return Error(E_CONFIG,
+                 "Failed to parse run configuration: " + std::string(e.what()));
   }
 }
 
@@ -130,33 +138,38 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
-  
+
   if (!std::filesystem::exists(configPath)) {
-    log().info << "No " << FILE_CONFIG << " found, creating with default values";
-    
+    log().info << "No " << FILE_CONFIG
+               << " found, creating with default values";
+
     // Use default values from RunFileConfig struct
     nlohmann::json defaultConfig = runFileConfig.ltsToJson();
-    
+
     std::ofstream configFile(configPath);
     if (!configFile) {
-      return Service::Error(E_MINER, "Failed to create " + std::string(FILE_CONFIG));
+      return Service::Error(E_MINER,
+                            "Failed to create " + std::string(FILE_CONFIG));
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
-    
+
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
-    log().info << "Please edit " << FILE_CONFIG << " to configure your miner settings";
+    log().info << "Please edit " << FILE_CONFIG
+               << " to configure your miner settings";
   } else {
     // Load existing configuration
     auto jsonResult = utl::loadJsonFile(configPathStr);
     if (!jsonResult) {
-      return Service::Error(E_CONFIG, "Failed to load config file: " + jsonResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to load config file: " +
+                                          jsonResult.error().message);
     }
-    
+
     nlohmann::json config = jsonResult.value();
     auto parseResult = runFileConfig.ltsFromJson(config);
     if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " + parseResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to parse config file: " +
+                                          parseResult.error().message);
     }
   }
 
@@ -166,28 +179,32 @@ Service::Roe<void> MinerServer::onStart() {
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
   config_.network.beacons = runFileConfig.beacons;
-  
+
   log().info << "Configuration loaded";
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Endpoint: " << config_.network.endpoint;
   log().info << "  Beacons: " << config_.network.beacons.size();
-  
+
   auto serverStarted = startFetchServer(config_.network.endpoint);
   if (!serverStarted) {
-    return Service::Error(E_MINER, "Failed to start FetchServer: " + serverStarted.error().message);
+    return Service::Error(E_MINER, "Failed to start FetchServer: " +
+                                       serverStarted.error().message);
   }
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();
   if (!beaconResult) {
-    return Service::Error(E_NETWORK, "Failed to connect to beacon: " + beaconResult.error().message);
+    return Service::Error(E_NETWORK, "Failed to connect to beacon: " +
+                                         beaconResult.error().message);
   }
-  log().info << "Successfully connected to beacon and synchronized initial state";
-  const auto& state = beaconResult.value();
+  log().info
+      << "Successfully connected to beacon and synchronized initial state";
+  const auto &state = beaconResult.value();
 
   // Initialize miner core
-  std::filesystem::path minerDataDir = std::filesystem::path(getWorkDir()) / DIR_DATA;
-  
+  std::filesystem::path minerDataDir =
+      std::filesystem::path(getWorkDir()) / DIR_DATA;
+
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.privateKey = config_.privateKey;
@@ -196,15 +213,16 @@ Service::Roe<void> MinerServer::onStart() {
   minerConfig.startingBlockId = state.lastCheckpointId;
   minerConfig.checkpointId = state.checkpointId;
 
-  
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {
-    return Service::Error(E_MINER, "Failed to initialize Miner: " + minerInit.error().message);
+    return Service::Error(E_MINER, "Failed to initialize Miner: " +
+                                       minerInit.error().message);
   }
-  
+
   auto syncResult = syncBlocksFromBeacon();
   if (!syncResult) {
-    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + syncResult.error().message);
+    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " +
+                                       syncResult.error().message);
   }
 
   log().info << "Miner core initialized";
@@ -229,7 +247,8 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
 
   auto stateResult = client_.fetchBeaconState();
   if (!stateResult) {
-    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
+    return Error(E_NETWORK,
+                 "Failed to get beacon state: " + stateResult.error().message);
   }
 
   uint64_t latestBlockId = stateResult.value().nextBlockId;
@@ -247,8 +266,8 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
     auto blockResult = client_.fetchBlock(blockId);
     if (!blockResult) {
       return Error(E_NETWORK,
-                   "Failed to fetch block " + std::to_string(blockId) + " from beacon: " +
-                       blockResult.error().message);
+                   "Failed to fetch block " + std::to_string(blockId) +
+                       " from beacon: " + blockResult.error().message);
     }
 
     Ledger::ChainNode block = blockResult.value();
@@ -256,14 +275,15 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
 
     auto addResult = miner_.addBlock(block);
     if (!addResult) {
-      return Error(E_MINER,
-                   "Failed to add block " + std::to_string(blockId) + ": " + addResult.error().message);
+      return Error(E_MINER, "Failed to add block " + std::to_string(blockId) +
+                                ": " + addResult.error().message);
     }
 
     log().debug << "Synced block " << blockId;
   }
 
-  log().info << "Sync complete: " << (latestBlockId - nextBlockId) << " blocks added";
+  log().info << "Sync complete: " << (latestBlockId - nextBlockId)
+             << " blocks added";
 
   initHandlers();
 
@@ -273,20 +293,22 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
 void MinerServer::initHandlers() {
   requestHandlers_.clear();
 
-  auto& hgs = requestHandlers_[Client::T_REQ_STATUS];
+  auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
   hgs = [this](const Client::Request &request) { return hStatus(request); };
 
-  auto& hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
+  auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
-  auto& hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
+  auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
-  auto& hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
+  auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
-  auto& hta = requestHandlers_[Client::T_REQ_TRANSACTION_ADD];
-  hta = [this](const Client::Request &request) { return hTransactionAdd(request); };
+  auto &hta = requestHandlers_[Client::T_REQ_TRANSACTION_ADD];
+  hta = [this](const Client::Request &request) {
+    return hTransactionAdd(request);
+  };
 }
 
 void MinerServer::onStop() {
@@ -309,16 +331,16 @@ void MinerServer::runLoop() {
       } else {
         handleValidatorRole();
       }
-      
+
       // Sleep for a short time before checking again
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      
-    } catch (const std::exception& e) {
+
+    } catch (const std::exception &e) {
       log().error << "Exception in block production loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
   }
-  
+
   log().info << "Block production and request handler loop stopped";
 }
 
@@ -327,17 +349,20 @@ std::string MinerServer::getSlotLeaderAddress() const {
   return "";
 }
 
-std::string MinerServer::handleParsedRequest(const Client::Request& request) {
+std::string MinerServer::handleParsedRequest(const Client::Request &request) {
   log().debug << "Handling request: " << request.type;
   auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end()) ? it->second(request) : hUnsupported(request);
+  Roe<std::string> result = (it != requestHandlers_.end())
+                                ? it->second(request)
+                                : hUnsupported(request);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
   return Server::packResponse(result.value());
 }
 
-MinerServer::Roe<std::string> MinerServer::hBlockGet(const Client::Request &request) {
+MinerServer::Roe<std::string>
+MinerServer::hBlockGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
@@ -350,7 +375,8 @@ MinerServer::Roe<std::string> MinerServer::hBlockGet(const Client::Request &requ
   return result.value().ltsToString();
 }
 
-MinerServer::Roe<std::string> MinerServer::hBlockAdd(const Client::Request &request) {
+MinerServer::Roe<std::string>
+MinerServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
@@ -363,7 +389,8 @@ MinerServer::Roe<std::string> MinerServer::hBlockAdd(const Client::Request &requ
   return {"Block added"};
 }
 
-MinerServer::Roe<std::string> MinerServer::hAccountGet(const Client::Request &request) {
+MinerServer::Roe<std::string>
+MinerServer::hAccountGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
@@ -377,13 +404,17 @@ MinerServer::Roe<std::string> MinerServer::hAccountGet(const Client::Request &re
   return result.value().ltsToString();
 }
 
-MinerServer::Roe<std::string> MinerServer::hTransactionAdd(const Client::Request &request) {
-  auto signedTxResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(request.payload);
+MinerServer::Roe<std::string>
+MinerServer::hTransactionAdd(const Client::Request &request) {
+  auto signedTxResult =
+      utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(
+          request.payload);
   if (!signedTxResult) {
-    return Error(E_REQUEST, "Failed to deserialize transaction: " + signedTxResult.error().message);
+    return Error(E_REQUEST, "Failed to deserialize transaction: " +
+                                signedTxResult.error().message);
   }
 
-  const auto& signedTx = signedTxResult.value();
+  const auto &signedTx = signedTxResult.value();
   if (miner_.isSlotLeader()) {
     auto result = miner_.addTransaction(signedTx);
     if (!result) {
@@ -404,9 +435,10 @@ MinerServer::Roe<std::string> MinerServer::hTransactionAdd(const Client::Request
   return {"Transaction submitted to slot leader"};
 }
 
-MinerServer::Roe<std::string> MinerServer::hStatus(const Client::Request &request) {
+MinerServer::Roe<std::string>
+MinerServer::hStatus(const Client::Request &request) {
   Client::MinerStatus status;
-  
+
   status.minerId = config_.minerId;
   status.stake = miner_.getStake();
   status.nextBlockId = miner_.getNextBlockId();
@@ -415,34 +447,38 @@ MinerServer::Roe<std::string> MinerServer::hStatus(const Client::Request &reques
   status.pendingTransactions = miner_.getPendingTransactionCount();
   status.nStakeholders = miner_.getStakeholders().size();
   status.isSlotLeader = miner_.isSlotLeader();
-  
+
   return status.ltsToJson().dump();
 }
 
-MinerServer::Roe<std::string> MinerServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
+MinerServer::Roe<std::string>
+MinerServer::hUnsupported(const Client::Request &request) {
+  return Error(E_REQUEST,
+               "Unsupported request type: " + std::to_string(request.type));
 }
 
 void MinerServer::handleSlotLeaderRole() {
   static Ledger::ChainNode block;
   auto produceResult = miner_.produceBlock(block);
   if (!produceResult) {
-    log().warning << "Failed to produce block: " + produceResult.error().message;
+    log().warning << "Failed to produce block: " +
+                         produceResult.error().message;
     return;
   }
-  
+
   if (!produceResult.value()) {
     // No block production needed
     return;
   }
 
-  log().info << "Successfully produced block " << block.block.index 
+  log().info << "Successfully produced block " << block.block.index
              << " with hash " << block.hash;
-    
+
   // Broadcast for verification
   auto broadcastResult = broadcastBlock(block);
   if (!broadcastResult) {
-    log().warning << "Failed to broadcast block: " + broadcastResult.error().message;
+    log().warning << "Failed to broadcast block: " +
+                         broadcastResult.error().message;
     return;
   }
 
@@ -465,13 +501,13 @@ void MinerServer::handleSlotLeaderRole() {
 void MinerServer::handleValidatorRole() {
   // Not slot leader - act as validator
   // Monitor for new blocks from other miners and validate them
-  
+
   // In a full implementation, we would:
   // 1. Listen for blocks from the current slot leader
   // 2. Validate received blocks
   // 3. Add valid blocks to our chain
   // 4. Participate in consensus voting if required
-  
+
   // For now, this is a placeholder for validator behavior
   // The actual block reception would happen via network requests
 }
@@ -492,26 +528,29 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   network::TcpEndpoint endpoint = getFetchServerEndpoint();
   auto stateResult = client_.registerMinerServer(endpoint);
   if (!stateResult) {
-    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
+    return Error(E_NETWORK,
+                 "Failed to get beacon state: " + stateResult.error().message);
   }
 
-  const auto& state = stateResult.value();
+  const auto &state = stateResult.value();
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
 
   return state;
 }
 
-MinerServer::Roe<void> MinerServer::broadcastBlock(const Ledger::ChainNode& block) {
+MinerServer::Roe<void>
+MinerServer::broadcastBlock(const Ledger::ChainNode &block) {
   bool anySuccess = false;
-  for (const auto& beacon : config_.network.beacons) {
+  for (const auto &beacon : config_.network.beacons) {
     if (!client_.setEndpoint(beacon)) {
       log().warning << "Failed to resolve beacon address: " + beacon;
       continue;
     }
     auto clientResult = client_.addBlock(block);
     if (!clientResult) {
-      log().warning << "Failed to add block to beacon: " + beacon + ": " + clientResult.error().message;
+      log().warning << "Failed to add block to beacon: " + beacon + ": " +
+                           clientResult.error().message;
       continue;
     }
     anySuccess = true;

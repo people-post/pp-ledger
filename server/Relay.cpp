@@ -1,15 +1,15 @@
 #include "Relay.h"
+#include "../ledger/Ledger.h"
+#include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
-#include "../lib/BinaryPack.hpp"
-#include "../ledger/Ledger.h"
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <algorithm>
 
 namespace pp {
 
-std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
+std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
      << "timeOffset=" << config.timeOffset << ", "
      << "startingBlockId=" << config.startingBlockId << "}";
@@ -18,35 +18,29 @@ std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config) {
 
 Relay::Relay() {
   redirectLogger("Relay");
-  validator_.redirectLogger(log().getFullName() + ".Chain");
+  chain_.redirectLogger(log().getFullName() + ".Chain");
 }
 
 uint64_t Relay::getLastCheckpointId() const {
-  return validator_.getLastCheckpointId();
+  return chain_.getLastCheckpointId();
 }
 
 uint64_t Relay::getCurrentCheckpointId() const {
-  return validator_.getCurrentCheckpointId();
+  return chain_.getCurrentCheckpointId();
 }
 
-uint64_t Relay::getNextBlockId() const {
-  return validator_.getNextBlockId();
-}
+uint64_t Relay::getNextBlockId() const { return chain_.getNextBlockId(); }
 
-uint64_t Relay::getCurrentSlot() const {
-  return validator_.getCurrentSlot();
-}
+uint64_t Relay::getCurrentSlot() const { return chain_.getCurrentSlot(); }
 
-uint64_t Relay::getCurrentEpoch() const {
-  return validator_.getCurrentEpoch();
-}
+uint64_t Relay::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
 
 std::vector<consensus::Stakeholder> Relay::getStakeholders() const {
-  return validator_.getStakeholders();
+  return chain_.getStakeholders();
 }
 
 Relay::Roe<Ledger::ChainNode> Relay::getBlock(uint64_t blockId) const {
-  auto result = validator_.getBlock(blockId);
+  auto result = chain_.getBlock(blockId);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -54,18 +48,18 @@ Relay::Roe<Ledger::ChainNode> Relay::getBlock(uint64_t blockId) const {
 }
 
 Relay::Roe<Client::UserAccount> Relay::getAccount(uint64_t accountId) const {
-  auto result = validator_.getAccount(accountId);
+  auto result = chain_.getAccount(accountId);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
   return result.value();
 }
 
-std::string Relay::calculateHash(const Ledger::Block& block) const {
-  return validator_.calculateHash(block);
+std::string Relay::calculateHash(const Ledger::Block &block) const {
+  return chain_.calculateHash(block);
 }
 
-Relay::Roe<void> Relay::init(const InitConfig& config) {
+Relay::Roe<void> Relay::init(const InitConfig &config) {
   log().info << "Initializing Relay";
   log().debug << "Init config: " << config;
 
@@ -81,16 +75,18 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
   if (std::filesystem::exists(ledgerDir)) {
-    auto roe = validator_.mountLedger(ledgerDir);
+    auto roe = chain_.mountLedger(ledgerDir);
     if (!roe) {
       return Error(2, "Failed to mount ledger: " + roe.error().message);
     }
     if (getNextBlockId() < config.startingBlockId) {
-      log().info << "Ledger data too old, removing existing work directory: " << ledgerDir;
+      log().info << "Ledger data too old, removing existing work directory: "
+                 << ledgerDir;
       std::error_code ec;
       std::filesystem::remove_all(ledgerDir, ec);
       if (ec) {
-        return Error("Failed to remove existing work directory: " + ec.message());
+        return Error("Failed to remove existing work directory: " +
+                     ec.message());
       }
     }
   }
@@ -99,20 +95,23 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
     Ledger::InitConfig ledgerConfig;
     ledgerConfig.workDir = ledgerDir;
     ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = validator_.initLedger(ledgerConfig);
+    auto ledgerResult = chain_.initLedger(ledgerConfig);
     if (!ledgerResult) {
-      return Error(2, "Failed to initialize ledger: " + ledgerResult.error().message);
+      return Error(2, "Failed to initialize ledger: " +
+                          ledgerResult.error().message);
     }
   }
 
-  // Initialize consensus (timeOffset only; full config from genesis block when loading)
+  // Initialize consensus (timeOffset only; full config from genesis block when
+  // loading)
   consensus::Ouroboros::Config consensusConfig;
   consensusConfig.timeOffset = config.timeOffset;
-  validator_.initConsensus(consensusConfig);
+  chain_.initConsensus(consensusConfig);
 
-  auto loadResult = validator_.loadFromLedger(config.startingBlockId);
+  auto loadResult = chain_.loadFromLedger(config.startingBlockId);
   if (!loadResult) {
-    return Error(2, "Failed to load from ledger: " + loadResult.error().message);
+    return Error(2,
+                 "Failed to load from ledger: " + loadResult.error().message);
   }
 
   log().info << "Relay initialized successfully";
@@ -124,12 +123,12 @@ Relay::Roe<void> Relay::init(const InitConfig& config) {
 
 void Relay::refresh() {
   // Update relay state
-  validator_.refreshStakeholders();
+  chain_.refreshStakeholders();
 }
 
-Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode& block) {
+Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode &block) {
   // Relay starts at block 0, use strict validation
-  auto result = validator_.addBlock(block, true);
+  auto result = chain_.addBlock(block, true);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

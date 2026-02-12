@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_RELAY_SERVER_H
 #define PP_LEDGER_RELAY_SERVER_H
 
-#include "Relay.h"
-#include "Server.h"
 #include "../client/Client.h"
 #include "../lib/ResultOrError.hpp"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
+#include "Relay.h"
+#include "Server.h"
 #include <atomic>
 #include <map>
 #include <memory>

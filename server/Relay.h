@@ -1,24 +1,24 @@
 #ifndef PP_LEDGER_RELAY_H
 #define PP_LEDGER_RELAY_H
 
-#include "Chain.h"
-#include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
-#include "../network/Types.hpp"
+#include "../ledger/Ledger.h"
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../network/Types.hpp"
+#include "Chain.h"
 
-#include <string>
 #include <cstdint>
 #include <list>
-#include <vector>
 #include <mutex>
+#include <string>
+#include <vector>
 
 namespace pp {
 
 /**
  * Relay - Core consensus and ledger management
- * 
+ *
  * Responsibilities:
  * - Maintain full blockchain history from genesis
  * - Serve as authoritative data source for the network
@@ -29,13 +29,13 @@ public:
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
   };
-  
+
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct InitConfig {
     std::string workDir;
-    int64_t timeOffset{ 0 };
-    uint64_t startingBlockId{ 0 };
+    int64_t timeOffset{0};
+    uint64_t startingBlockId{0};
   };
 
   Relay();
@@ -50,28 +50,28 @@ public:
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
-  std::string calculateHash(const Ledger::Block& block) const;
+  std::string calculateHash(const Ledger::Block &block) const;
 
   // ----------------- methods -------------------------------------
-  Roe<void> init(const InitConfig& config);
+  Roe<void> init(const InitConfig &config);
   void refresh();
 
-  Roe<void> addBlock(const Ledger::ChainNode& block);
+  Roe<void> addBlock(const Ledger::ChainNode &block);
 
 private:
-  constexpr static const char* DIR_LEDGER = "ledger";
+  constexpr static const char *DIR_LEDGER = "ledger";
 
   struct Config {
     std::string workDir;
-    int64_t timeOffset{ 0 };
+    int64_t timeOffset{0};
   };
 
-  Chain validator_;
+  Chain chain_;
   Config config_;
 };
 
 // Ostream operators for easy logging
-std::ostream& operator<<(std::ostream& os, const Relay::InitConfig& config);
+std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config);
 
 } // namespace pp
 

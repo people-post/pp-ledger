@@ -1,9 +1,9 @@
 #include "RelayServer.h"
 #include "../client/Client.h"
+#include "../ledger/Ledger.h"
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
-#include "../ledger/Ledger.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -27,7 +27,8 @@ nlohmann::json RelayServer::RunFileConfig::ltsToJson() {
   return j;
 }
 
-RelayServer::Roe<void> RelayServer::RunFileConfig::ltsFromJson(const nlohmann::json& jd) {
+RelayServer::Roe<void>
+RelayServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
   try {
     // Validate JSON is an object
     if (!jd.is_object()) {
@@ -74,8 +75,9 @@ RelayServer::Roe<void> RelayServer::RunFileConfig::ltsFromJson(const nlohmann::j
     }
 
     return {};
-  } catch (const std::exception& e) {
-    return Error(E_CONFIG, "Failed to parse run configuration: " + std::string(e.what()));
+  } catch (const std::exception &e) {
+    return Error(E_CONFIG,
+                 "Failed to parse run configuration: " + std::string(e.what()));
   }
 }
 
@@ -91,30 +93,35 @@ Service::Roe<void> RelayServer::onStart() {
   RunFileConfig runFileConfig;
 
   if (!std::filesystem::exists(configPath)) {
-    log().info << "No " << FILE_CONFIG << " found, creating with default values";
+    log().info << "No " << FILE_CONFIG
+               << " found, creating with default values";
 
     nlohmann::json defaultConfig = runFileConfig.ltsToJson();
 
     std::ofstream configFile(configPath);
     if (!configFile) {
-      return Service::Error(E_CONFIG, "Failed to create " + std::string(FILE_CONFIG));
+      return Service::Error(E_CONFIG,
+                            "Failed to create " + std::string(FILE_CONFIG));
     }
     configFile << defaultConfig.dump(2) << std::endl;
     configFile.close();
 
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
-    log().info << "Please edit " << FILE_CONFIG << " to configure your relay settings";
+    log().info << "Please edit " << FILE_CONFIG
+               << " to configure your relay settings";
   } else {
     // Load existing configuration
     auto jsonResult = utl::loadJsonFile(configPathStr);
     if (!jsonResult) {
-      return Service::Error(E_CONFIG, "Failed to load config file: " + jsonResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to load config file: " +
+                                          jsonResult.error().message);
     }
 
     nlohmann::json config = jsonResult.value();
     auto parseResult = runFileConfig.ltsFromJson(config);
     if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " + parseResult.error().message);
+      return Service::Error(E_CONFIG, "Failed to parse config file: " +
+                                          parseResult.error().message);
     }
   }
 
@@ -129,11 +136,14 @@ Service::Roe<void> RelayServer::onStart() {
 
   auto serverStarted = startFetchServer(config_.network.endpoint);
   if (!serverStarted) {
-    return Service::Error(E_NETWORK, "Failed to start FetchServer: " + serverStarted.error().message);
+    return Service::Error(E_NETWORK, "Failed to start FetchServer: " +
+                                         serverStarted.error().message);
   }
 
-  // Initialize Relay with starting block id 0 (no beacon sync, no block production)
-  std::filesystem::path relayDataDir = std::filesystem::path(getWorkDir()) / DIR_DATA;
+  // Initialize Relay with starting block id 0 (no beacon sync, no block
+  // production)
+  std::filesystem::path relayDataDir =
+      std::filesystem::path(getWorkDir()) / DIR_DATA;
   Relay::InitConfig relayConfig;
   relayConfig.workDir = relayDataDir.string();
   relayConfig.timeOffset = 0;
@@ -141,13 +151,15 @@ Service::Roe<void> RelayServer::onStart() {
 
   auto relayInit = relay_.init(relayConfig);
   if (!relayInit) {
-    return Service::Error(E_RELAY, "Failed to initialize Relay: " + relayInit.error().message);
+    return Service::Error(E_RELAY, "Failed to initialize Relay: " +
+                                       relayInit.error().message);
   }
 
   if (!config_.network.beacon.empty()) {
     auto syncResult = syncBlocksFromBeacon();
     if (!syncResult) {
-      return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " + syncResult.error().message);
+      return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " +
+                                           syncResult.error().message);
     }
   }
 
@@ -173,7 +185,8 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
 
   auto stateResult = client_.fetchBeaconState();
   if (!stateResult) {
-    return Error(E_NETWORK, "Failed to get beacon state: " + stateResult.error().message);
+    return Error(E_NETWORK,
+                 "Failed to get beacon state: " + stateResult.error().message);
   }
 
   uint64_t latestBlockId = stateResult.value().nextBlockId;
@@ -191,8 +204,8 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
     auto blockResult = client_.fetchBlock(blockId);
     if (!blockResult) {
       return Error(E_NETWORK,
-                   "Failed to fetch block " + std::to_string(blockId) + " from beacon: " +
-                       blockResult.error().message);
+                   "Failed to fetch block " + std::to_string(blockId) +
+                       " from beacon: " + blockResult.error().message);
     }
 
     Ledger::ChainNode block = blockResult.value();
@@ -200,33 +213,34 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
 
     auto addResult = relay_.addBlock(block);
     if (!addResult) {
-      return Error(E_RELAY,
-                   "Failed to add block " + std::to_string(blockId) + ": " + addResult.error().message);
+      return Error(E_RELAY, "Failed to add block " + std::to_string(blockId) +
+                                ": " + addResult.error().message);
     }
 
     log().debug << "Synced block " << blockId;
   }
 
-  log().info << "Sync complete: " << (latestBlockId - nextBlockId) << " blocks added";
+  log().info << "Sync complete: " << (latestBlockId - nextBlockId)
+             << " blocks added";
   return {};
 }
 
 void RelayServer::initHandlers() {
   requestHandlers_.clear();
 
-  auto& hgs = requestHandlers_[Client::T_REQ_STATUS];
+  auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
   hgs = [this](const Client::Request &request) { return hStatus(request); };
 
-  auto& hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
+  auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
-  auto& hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
+  auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
-  auto& hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
+  auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
-  auto& hreg = requestHandlers_[Client::T_REQ_REGISTER];
+  auto &hreg = requestHandlers_[Client::T_REQ_REGISTER];
   hreg = [this](const Client::Request &request) { return hRegister(request); };
 };
 
@@ -237,9 +251,7 @@ void RelayServer::onStop() {
 
 void RelayServer::registerServer(const std::string &serverAddress) {
   // Get current timestamp
-  int64_t now = std::chrono::system_clock::now()
-                    .time_since_epoch()
-                    .count();
+  int64_t now = std::chrono::system_clock::now().time_since_epoch().count();
 
   // Update or add server
   activeServers_[serverAddress] = now;
@@ -247,8 +259,10 @@ void RelayServer::registerServer(const std::string &serverAddress) {
 }
 
 Client::BeaconState RelayServer::buildStateResponse() const {
-  int64_t currentTimestamp = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+  int64_t currentTimestamp =
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
 
   Client::BeaconState state;
   state.currentTimestamp = currentTimestamp;
@@ -258,7 +272,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.currentSlot = relay_.getCurrentSlot();
   state.currentEpoch = relay_.getCurrentEpoch();
   state.nStakeholders = relay_.getStakeholders().size();
-  
+
   return state;
 }
 
@@ -275,7 +289,7 @@ void RelayServer::runLoop() {
         // Sleep for a short time if queue is not too busy
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
       log().error << "Exception in request handler loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -284,16 +298,19 @@ void RelayServer::runLoop() {
   log().info << "Request handler loop stopped";
 }
 
-std::string RelayServer::handleParsedRequest(const Client::Request& request) {
+std::string RelayServer::handleParsedRequest(const Client::Request &request) {
   auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end()) ? it->second(request) : hUnsupported(request);
+  Roe<std::string> result = (it != requestHandlers_.end())
+                                ? it->second(request)
+                                : hUnsupported(request);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
   return Server::packResponse(result.value());
 }
 
-RelayServer::Roe<std::string> RelayServer::hBlockGet(const Client::Request &request) {
+RelayServer::Roe<std::string>
+RelayServer::hBlockGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
@@ -308,7 +325,8 @@ RelayServer::Roe<std::string> RelayServer::hBlockGet(const Client::Request &requ
   return result.value().ltsToString();
 }
 
-RelayServer::Roe<std::string> RelayServer::hBlockAdd(const Client::Request &request) {
+RelayServer::Roe<std::string>
+RelayServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
@@ -323,7 +341,8 @@ RelayServer::Roe<std::string> RelayServer::hBlockAdd(const Client::Request &requ
   return resp.dump();
 }
 
-RelayServer::Roe<std::string> RelayServer::hAccountGet(const Client::Request &request) {
+RelayServer::Roe<std::string>
+RelayServer::hAccountGet(const Client::Request &request) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
     return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
@@ -337,18 +356,23 @@ RelayServer::Roe<std::string> RelayServer::hAccountGet(const Client::Request &re
   return result.value().ltsToString();
 }
 
-RelayServer::Roe<std::string> RelayServer::hRegister(const Client::Request &request) {
-  network::TcpEndpoint endpoint = network::TcpEndpoint::ltsFromString(request.payload);
+RelayServer::Roe<std::string>
+RelayServer::hRegister(const Client::Request &request) {
+  network::TcpEndpoint endpoint =
+      network::TcpEndpoint::ltsFromString(request.payload);
   registerServer(endpoint.ltsToString());
   return buildStateResponse().ltsToJson().dump();
 }
 
-RelayServer::Roe<std::string> RelayServer::hStatus(const Client::Request &request) {
+RelayServer::Roe<std::string>
+RelayServer::hStatus(const Client::Request &request) {
   return buildStateResponse().ltsToJson().dump();
 }
 
-RelayServer::Roe<std::string> RelayServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST, "Unsupported request type: " + std::to_string(request.type));
+RelayServer::Roe<std::string>
+RelayServer::hUnsupported(const Client::Request &request) {
+  return Error(E_REQUEST,
+               "Unsupported request type: " + std::to_string(request.type));
 }
 
 } // namespace pp

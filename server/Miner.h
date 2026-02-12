@@ -1,24 +1,24 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
-#include "Chain.h"
-#include "../ledger/Ledger.h"
 #include "../consensus/Ouroboros.h"
-#include "../network/Types.hpp"
+#include "../ledger/Ledger.h"
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../network/Types.hpp"
+#include "Chain.h"
 
-#include <string>
 #include <cstdint>
-#include <vector>
-#include <queue>
 #include <memory>
+#include <queue>
+#include <string>
+#include <vector>
 
 namespace pp {
 
 /**
  * Miner - Block Producer
- * 
+ *
  * Responsibilities:
  * - Produce blocks when selected as slot leader
  * - Maintain local blockchain and ledger state
@@ -26,7 +26,7 @@ namespace pp {
  * - Sync with network to get latest blocks
  * - Reinitialize from checkpoints when needed
  * - Validate incoming blocks from other miners
- * 
+ *
  * Design:
  * - Miners are the primary block producers in the network
  * - Multiple miners compete to produce blocks based on stake
@@ -36,75 +36,76 @@ namespace pp {
  */
 class Miner : public Module {
 public:
-    struct Error : RoeErrorBase {
-        using RoeErrorBase::RoeErrorBase;
-    };
-    
-    template <typename T> using Roe = ResultOrError<T, Error>;
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
 
-    struct InitConfig {
-        std::string workDir;
-        int64_t timeOffset{ 0 };
-        uint64_t minerId{ 0 };
-        uint64_t startingBlockId{ 0 };
-        uint64_t checkpointId{ 0 };
-        std::string privateKey; // hex-encoded private key
-    };
+  template <typename T> using Roe = ResultOrError<T, Error>;
 
-    Miner();
-    ~Miner() override = default;
+  struct InitConfig {
+    std::string workDir;
+    int64_t timeOffset{0};
+    uint64_t minerId{0};
+    uint64_t startingBlockId{0};
+    uint64_t checkpointId{0};
+    std::string privateKey; // hex-encoded private key
+  };
 
-    // ----------------- accessors -------------------------------------
-    bool isSlotLeader() const;
+  Miner();
+  ~Miner() override = default;
 
-    uint64_t getStake() const;
-    size_t getPendingTransactionCount() const;
-    uint64_t getNextBlockId() const;
-    uint64_t getCurrentSlot() const;
-    uint64_t getCurrentEpoch() const;
-    std::vector<consensus::Stakeholder> getStakeholders() const;
-    Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
-    Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
-    std::string calculateHash(const Ledger::Block& block) const;
+  // ----------------- accessors -------------------------------------
+  bool isSlotLeader() const;
 
-    // ----------------- methods -------------------------------------
-    Roe<void> init(const InitConfig &config);
-    void refresh();
+  uint64_t getStake() const;
+  size_t getPendingTransactionCount() const;
+  uint64_t getNextBlockId() const;
+  uint64_t getCurrentSlot() const;
+  uint64_t getCurrentEpoch() const;
+  std::vector<consensus::Stakeholder> getStakeholders() const;
+  Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
+  Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+  std::string calculateHash(const Ledger::Block &block) const;
 
-    Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
-    Roe<void> addBlock(const Ledger::ChainNode& block);
+  // ----------------- methods -------------------------------------
+  Roe<void> init(const InitConfig &config);
+  void refresh();
 
-    Roe<bool> produceBlock(Ledger::ChainNode& block);
-    void markBlockProduction(const Ledger::ChainNode& block);
+  Roe<void>
+  addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
+  Roe<void> addBlock(const Ledger::ChainNode &block);
+
+  Roe<bool> produceBlock(Ledger::ChainNode &block);
+  void markBlockProduction(const Ledger::ChainNode &block);
 
 private:
-    constexpr static const char* DIR_LEDGER = "ledger";
+  constexpr static const char *DIR_LEDGER = "ledger";
 
-    struct Config {
-        std::string workDir;
-        uint64_t minerId{ 0 };
-        uint64_t tokenId{ AccountBuffer::ID_GENESIS };
-        std::string privateKey;  // hex-encoded
-        uint64_t checkpointId{ 0 };
-    };
+  struct Config {
+    std::string workDir;
+    uint64_t minerId{0};
+    uint64_t tokenId{AccountBuffer::ID_GENESIS};
+    std::string privateKey; // hex-encoded
+    uint64_t checkpointId{0};
+  };
 
-    struct SlotCache {
-        uint64_t slot{ 0 };
-        bool isLeader{ false };
-        std::vector<Ledger::SignedData<Ledger::Transaction>> txRenewals;
-    };
+  struct SlotCache {
+    uint64_t slot{0};
+    bool isLeader{false};
+    std::vector<Ledger::SignedData<Ledger::Transaction>> txRenewals;
+  };
 
+  Roe<void> initSlotCache(uint64_t slot);
+  Roe<Ledger::ChainNode> createBlock(uint64_t slot);
 
-    Roe<void> initSlotCache(uint64_t slot);
-    Roe<Ledger::ChainNode> createBlock(uint64_t slot);
-    
-    Chain validator_;
-    Config config_;
-    AccountBuffer bufferBank_;
-    std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
-    uint64_t lastProducedBlockId_{ 0 };
-    uint64_t lastProducedSlot_{ 0 };  // slot we last produced a block for (at most one per slot)
-    SlotCache slotCache_;  // Cache data for block production
+  Chain chain_;
+  Config config_;
+  AccountBuffer bufferBank_;
+  std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
+  uint64_t lastProducedBlockId_{0};
+  uint64_t lastProducedSlot_{
+      0}; // slot we last produced a block for (at most one per slot)
+  SlotCache slotCache_; // Cache data for block production
 };
 
 } // namespace pp
