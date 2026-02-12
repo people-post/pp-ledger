@@ -195,6 +195,10 @@ private:
                                  const std::vector<std::string> &signatures,
                                  const AccountBuffer::Account &account) const;
 
+  /** Ensure account exists in buffer, seeding from bank_ on demand. */
+  Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
+                                  uint64_t accountId) const;
+
   Roe<void> processBlock(const Ledger::ChainNode &block, bool isStrictMode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
@@ -212,13 +216,20 @@ private:
   validateTxSignatures(const Ledger::SignedData<Ledger::Transaction> &signedTx,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
+  // System
   Roe<std::string> updateMetaFromSystemInit(const std::string &meta) const;
   Roe<std::string> updateMetaFromSystemUpdate(const std::string &meta) const;
   Roe<std::string> updateSystemMeta(const std::string &meta) const;
   Roe<void> processSystemInit(const Ledger::Transaction &tx);
+  Roe<GenesisAccountMeta>
+  processSystemUpdateImpl(AccountBuffer &bank,
+                          const Ledger::Transaction &tx) const;
   Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                                 bool isStrictMode);
+  Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
+                                      const Ledger::Transaction &tx) const;
 
+  // User
   Roe<std::string>
   updateMetaFromUserInit(const std::string &meta,
                          const AccountBuffer::Account &account) const;
@@ -230,32 +241,38 @@ private:
                             const AccountBuffer::Account &account) const;
   Roe<std::string> updateUserMeta(const std::string &meta,
                                   const AccountBuffer::Account &account) const;
+  /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
+   * bank_ and checks existence in both. */
+  Roe<void> processUserInitImpl(AccountBuffer &bank,
+                                const Ledger::Transaction &tx,
+                                uint64_t blockId, bool isBufferMode) const;
   Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId);
+  Roe<void> processBufferUserInit(AccountBuffer &bank,
+                                  const Ledger::Transaction &tx) const;
+
+  Roe<void> processUserAccountUpsertImpl(
+      AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
+      bool isBufferMode, bool isStrictMode) const;
+
+  Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
+                                     uint64_t blockId, bool isStrictMode);
   Roe<void> processUserUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                               bool isStrictMode);
   Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
+  Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
+                                           const Ledger::Transaction &tx) const;
 
-  Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
-                                     uint64_t blockId, bool isStrictMode);
-
+  Roe<void> processUserEndImpl(AccountBuffer &bank,
+                              const Ledger::Transaction &tx,
+                              bool isBufferMode) const;
   Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
                            bool isStrictMode);
-
-  /** Ensure account exists in buffer, seeding from bank_ on demand. */
-  Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
-                                  uint64_t accountId) const;
+  Roe<void> processBufferUserEnd(AccountBuffer &bank,
+                                 const Ledger::Transaction &tx) const;
 
   Roe<void> processBufferTransaction(AccountBuffer &bank,
                                      const Ledger::Transaction &signedTx) const;
-  Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::Transaction &tx) const;
-  Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
-                                      const Ledger::Transaction &tx) const;
-  Roe<void> processBufferUserAccountUpsert(
-      AccountBuffer &bank, const Ledger::Transaction &tx) const;
-  Roe<void> processBufferUserEnd(AccountBuffer &bank,
-                                 const Ledger::Transaction &tx) const;
   Roe<void> processTransaction(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
   Roe<void> strictProcessTransaction(AccountBuffer &bank,

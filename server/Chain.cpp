@@ -1064,11 +1064,8 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
   return {};
 }
 
-Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
-                                            uint64_t blockId,
-                                            bool isStrictMode) {
-  log().info << "Processing system update transaction";
-
+Chain::Roe<Chain::GenesisAccountMeta> Chain::processSystemUpdateImpl(
+    AccountBuffer &bank, const Ledger::Transaction &tx) const {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
       tx.toWalletId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION, "System update transaction must use genesis "
@@ -1082,7 +1079,6 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
     return Error(E_TX_VALIDATION, "System update transaction must have fee 0");
   }
 
-  // Deserialize BlockChainConfig from transaction metadata
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(tx.meta)) {
     return Error(E_INTERNAL_DESERIALIZE,
@@ -1111,299 +1107,56 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
                  "Genesis account must have at least 2 signatures");
   }
 
-  if (!bank_.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
-                           gm.genesis.wallet.mBalances)) {
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
+                          gm.genesis.wallet.mBalances)) {
     return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
   }
 
-  // Reset chain configuration
-  chainConfig_ = gm.config;
+  return gm;
+}
 
+Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
+                                            uint64_t blockId,
+                                            bool isStrictMode) {
+  log().info << "Processing system update transaction";
+  auto result = processSystemUpdateImpl(bank_, tx);
+  if (!result) {
+    return result.error();
+  }
+  chainConfig_ = result.value().config;
   log().info << "System updated";
-  log().info << "  Version: " << gm.VERSION;
+  log().info << "  Version: " << GenesisAccountMeta::VERSION;
   log().info << "  Config: " << chainConfig_;
   return {};
 }
 
-Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
-                                        uint64_t blockId) {
-  log().info << "Processing user initialization transaction";
-
+Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
+                                             const Ledger::Transaction &tx,
+                                             uint64_t blockId,
+                                             bool isBufferMode) const {
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_TX_FEE, "New user transaction fee below minimum: " +
                                std::to_string(tx.fee));
   }
 
-  if (bank_.hasAccount(tx.toWalletId)) {
+  bool toWalletExists =
+      bank.hasAccount(tx.toWalletId) ||
+      (isBufferMode && bank_.hasAccount(tx.toWalletId));
+  if (toWalletExists) {
     return Error(E_ACCOUNT_EXISTS,
                  "Account already exists: " + std::to_string(tx.toWalletId));
   }
 
-  auto spendingResult = bank_.verifySpendingPower(
-      tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-  if (!spendingResult) {
-    return Error(E_ACCOUNT_BALANCE,
-                 "Source account must have sufficient balance: " +
-                     spendingResult.error().message);
-  }
-
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS &&
-      tx.toWalletId < AccountBuffer::ID_FIRST_USER) {
-    // Only genesis account can create new account using reserved user ids.
-    return Error(E_TX_VALIDATION,
-                 "New user account id must be larger than: " +
-                     std::to_string(AccountBuffer::ID_FIRST_USER));
-  }
-
-  // Deserialize UserAccount from transaction metadata
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize user account: " + tx.meta);
-  }
-
-  if (userAccount.wallet.publicKeys.empty()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have at least one public key");
-  }
-  if (userAccount.wallet.minSignatures < 1) {
-    return Error(E_TX_VALIDATION,
-                 "User account must require at least one signature");
-  }
-  if (userAccount.wallet.mBalances.size() != 1) {
-    return Error(E_TX_VALIDATION, "User account must have exactly one balance");
-  }
-  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-  if (it == userAccount.wallet.mBalances.end()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have balance in ID_GENESIS token");
-  }
-  if (it->second != tx.amount) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have balance in ID_GENESIS token: " +
-                     std::to_string(it->second));
-  }
-
-  // Add user account to buffer
-  AccountBuffer::Account account;
-  account.id = tx.toWalletId;
-  account.blockId = blockId;
-  account.wallet = userAccount.wallet;
-  account.wallet.mBalances.clear(); // Clear balances in buffer, we will
-                                    // populate from bank_ to ensure consistency
-  auto addResult =
-      bank_.add(account); // Add empty account to buffer first to allow
-                          // self-transfer in case fromWalletId == toWalletId
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
-                                        addResult.error().message);
-  }
-
-  auto transferResult = bank_.transferBalance(
-      tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
-  if (!transferResult) {
-    return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
-                                    transferResult.error().message);
-  }
-
-  log().info << "Added new user " << tx.toWalletId
-             << " account: " << userAccount;
-  return {};
-}
-
-Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction &tx,
-                                          uint64_t blockId, bool isStrictMode) {
-  return processUserAccountUpsert(tx, blockId, isStrictMode);
-}
-
-Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
-                                           uint64_t blockId,
-                                           bool isStrictMode) {
-  return processUserAccountUpsert(tx, blockId, isStrictMode);
-}
-
-Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
-                                                 uint64_t blockId,
-                                                 bool isStrictMode) {
-  log().info << "Processing user update/renewal transaction";
-
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION,
-                 "User update transaction must use genesis token (ID_GENESIS)");
-  }
-
-  if (tx.fromWalletId != tx.toWalletId) {
-    return Error(
-        E_TX_VALIDATION,
-        "User update transaction must use same from and to wallet IDs");
-  }
-
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
-    return Error(E_TX_FEE, "User update transaction fee below minimum: " +
-                               std::to_string(tx.fee));
-  }
-
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION, "User update transaction must have amount 0");
-  }
-
-  // Deserialize UserAccount from transaction metadata
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user meta: " +
-                                             std::to_string(tx.meta.size()) +
-                                             " bytes");
-  }
-
-  if (userAccount.wallet.publicKeys.empty()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have at least one public key");
-  }
-
-  if (userAccount.wallet.minSignatures < 1) {
-    return Error(E_TX_VALIDATION,
-                 "User account must require at least one signature");
-  }
-
-  auto bufferAccountResult = bank_.getAccount(tx.fromWalletId);
-  if (!bufferAccountResult) {
-    if (isStrictMode) {
-      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " +
-                                            std::to_string(tx.fromWalletId));
-    }
-  } else {
-    // Verify that buffer balances match expected balances after amount and fee
-    auto balanceVerifyResult = bank_.verifyBalance(
-        tx.fromWalletId, 0, tx.fee, userAccount.wallet.mBalances);
-    if (!balanceVerifyResult) {
-      return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
+  if (isBufferMode) {
+    auto roe = ensureAccountInBuffer(bank, tx.fromWalletId);
+    if (!roe) {
+      return roe;
     }
   }
 
-  bank_.remove(tx.fromWalletId);
-
-  // Populate bank with user balance using toWalletId from transaction
-  AccountBuffer::Account account;
-  account.id = tx.fromWalletId;
-  account.blockId = blockId;
-  account.wallet = userAccount.wallet;
-  auto addResult = bank_.add(account);
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
-                                        addResult.error().message);
-  }
-
-  log().info << "User account " << tx.fromWalletId
-             << " updated: " << userAccount;
-  return {};
-}
-
-Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
-                                       uint64_t blockId, bool isStrictMode) {
-  log().info << "Processing user end transaction";
-
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION,
-                 "User end transaction must use genesis token (ID_GENESIS)");
-  }
-
-  if (tx.fromWalletId != tx.toWalletId) {
-    return Error(E_TX_VALIDATION,
-                 "User end transaction must use same from and to wallet IDs");
-  }
-
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION, "User end transaction must have amount 0");
-  }
-
-  if (tx.fee != 0) {
-    return Error(E_TX_VALIDATION, "User end transaction must have fee 0");
-  }
-
-  if (!bank_.hasAccount(tx.fromWalletId)) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "User account not found: " + std::to_string(tx.fromWalletId));
-  }
-
-  if (bank_.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
-      chainConfig_.minFeePerTransaction) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have less than " +
-                     std::to_string(chainConfig_.minFeePerTransaction) +
-                     " balance in ID_GENESIS token");
-  }
-
-  // Note: negative balances are not transferred to recycle account, they are
-  // lost.
-  auto writeOffResult = bank_.writeOff(tx.fromWalletId);
-  if (!writeOffResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to write off user account: " +
-                                        writeOffResult.error().message);
-  }
-
-  log().info << "User account " << tx.fromWalletId << " ended";
-  return {};
-}
-
-Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
-                                              uint64_t accountId) const {
-  if (bank.hasAccount(accountId)) {
-    return {};
-  }
-  if (!bank_.hasAccount(accountId)) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Account not found: " + std::to_string(accountId));
-  }
-  auto accountResult = bank_.getAccount(accountId);
-  if (!accountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Failed to get account from bank: " +
-                     accountResult.error().message);
-  }
-  auto addResult = bank.add(accountResult.value());
-  if (!addResult) {
-    return Error(E_ACCOUNT_BUFFER,
-                 "Failed to add account to buffer: " + addResult.error().message);
-  }
-  return {};
-}
-
-Chain::Roe<void>
-Chain::processBufferTransaction(AccountBuffer &bank,
-                                const Ledger::Transaction &tx) const {
-  // All transactions happen in bank; accounts sourced from bank_ on demand
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-  auto toRoe = ensureAccountInBuffer(bank, tx.toWalletId);
-  if (!toRoe) {
-    return toRoe;
-  }
-  return strictProcessTransaction(bank, tx);
-}
-
-Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
-                                              const Ledger::Transaction &tx) const {
-  const uint64_t blockId = getNextBlockId();
-
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
-    return Error(E_TX_FEE, "New user transaction fee below minimum: " +
-                               std::to_string(tx.fee));
-  }
-
-  if (bank.hasAccount(tx.toWalletId) || bank_.hasAccount(tx.toWalletId)) {
-    return Error(E_ACCOUNT_EXISTS,
-                 "Account already exists: " + std::to_string(tx.toWalletId));
-  }
-
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-
-  auto spendingResult = bank.verifySpendingPower(
-      tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
+  auto spendingResult =
+      bank.verifySpendingPower(tx.fromWalletId, AccountBuffer::ID_GENESIS,
+                               tx.amount, tx.fee);
   if (!spendingResult) {
     return Error(E_ACCOUNT_BALANCE,
                  "Source account must have sufficient balance: " +
@@ -1467,67 +1220,31 @@ Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
   return {};
 }
 
-Chain::Roe<void> Chain::processBufferSystemUpdate(
-    AccountBuffer &bank, const Ledger::Transaction &tx) const {
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION, "System update transaction must use genesis "
-                                  "wallet (ID_GENESIS -> ID_GENESIS)");
+Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
+                                        uint64_t blockId) {
+  log().info << "Processing user initialization transaction";
+  auto result = processUserInitImpl(bank_, tx, blockId, false);
+  if (!result) {
+    return result.error();
   }
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION,
-                 "System update transaction must have amount 0");
-  }
-  if (tx.fee != 0) {
-    return Error(E_TX_VALIDATION, "System update transaction must have fee 0");
-  }
-
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize checkpoint config: " + tx.meta);
-  }
-
-  if (gm.config.genesisTime != chainConfig_.genesisTime) {
-    return Error(E_TX_VALIDATION, "Genesis time mismatch");
-  }
-
-  if (gm.config.slotDuration > chainConfig_.slotDuration) {
-    return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
-  }
-
-  if (gm.config.slotsPerEpoch < chainConfig_.slotsPerEpoch) {
-    return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
-  }
-
-  if (gm.genesis.wallet.publicKeys.size() < 3) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 3 public keys");
-  }
-
-  if (gm.genesis.wallet.minSignatures < 2) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 2 signatures");
-  }
-
-  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
-  if (!genesisRoe) {
-    return genesisRoe;
-  }
-
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
-                         gm.genesis.wallet.mBalances)) {
-    return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
-  }
-
-  // Config update happens at block commit; buffer only validates
+  log().info << "Added new user " << tx.toWalletId;
   return {};
 }
 
-Chain::Roe<void> Chain::processBufferUserAccountUpsert(
-    AccountBuffer &bank, const Ledger::Transaction &tx) const {
-  const uint64_t blockId = getNextBlockId();
+Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction &tx,
+                                          uint64_t blockId, bool isStrictMode) {
+  return processUserAccountUpsert(tx, blockId, isStrictMode);
+}
 
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
+                                           uint64_t blockId,
+                                           bool isStrictMode) {
+  return processUserAccountUpsert(tx, blockId, isStrictMode);
+}
+
+Chain::Roe<void> Chain::processUserAccountUpsertImpl(
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
+    bool isBufferMode, bool isStrictMode) const {
   if (tx.tokenId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION,
                  "User update transaction must use genesis token (ID_GENESIS)");
@@ -1564,15 +1281,26 @@ Chain::Roe<void> Chain::processBufferUserAccountUpsert(
                  "User account must require at least one signature");
   }
 
-  auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!accountRoe) {
-    return accountRoe;
+  if (isBufferMode) {
+    auto roe = ensureAccountInBuffer(bank, tx.fromWalletId);
+    if (!roe) {
+      return roe;
+    }
   }
 
-  auto balanceVerifyResult =
-      bank.verifyBalance(tx.fromWalletId, 0, tx.fee, userAccount.wallet.mBalances);
-  if (!balanceVerifyResult) {
-    return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
+  auto bufferAccountResult = bank.getAccount(tx.fromWalletId);
+  if (!bufferAccountResult) {
+    if (isStrictMode) {
+      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " +
+                                            std::to_string(tx.fromWalletId));
+    }
+  } else {
+    auto balanceVerifyResult =
+        bank.verifyBalance(tx.fromWalletId, 0, tx.fee,
+                          userAccount.wallet.mBalances);
+    if (!balanceVerifyResult) {
+      return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
+    }
   }
 
   bank.remove(tx.fromWalletId);
@@ -1590,8 +1318,22 @@ Chain::Roe<void> Chain::processBufferUserAccountUpsert(
   return {};
 }
 
-Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,
-                                             const Ledger::Transaction &tx) const {
+Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
+                                                 uint64_t blockId,
+                                                 bool isStrictMode) {
+  log().info << "Processing user update/renewal transaction";
+  auto result =
+      processUserAccountUpsertImpl(bank_, tx, blockId, false, isStrictMode);
+  if (!result) {
+    return result.error();
+  }
+  log().info << "User account " << tx.fromWalletId << " updated";
+  return {};
+}
+
+Chain::Roe<void> Chain::processUserEndImpl(AccountBuffer &bank,
+                                           const Ledger::Transaction &tx,
+                                           bool isBufferMode) const {
   if (tx.tokenId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION,
                  "User end transaction must use genesis token (ID_GENESIS)");
@@ -1610,14 +1352,20 @@ Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,
     return Error(E_TX_VALIDATION, "User end transaction must have fee 0");
   }
 
-  auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!accountRoe) {
-    return accountRoe;
+  if (isBufferMode) {
+    auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+    if (!accountRoe) {
+      return accountRoe;
+    }
+    auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
+    if (!recycleRoe) {
+      return recycleRoe;
+    }
   }
 
-  auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
-  if (!recycleRoe) {
-    return recycleRoe;
+  if (!bank.hasAccount(tx.fromWalletId)) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "User account not found: " + std::to_string(tx.fromWalletId));
   }
 
   if (bank.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
@@ -1635,6 +1383,84 @@ Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,
   }
 
   return {};
+}
+
+Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
+                                       uint64_t blockId,
+                                       bool isStrictMode) {
+  log().info << "Processing user end transaction";
+  auto result = processUserEndImpl(bank_, tx, false);
+  if (!result) {
+    return result.error();
+  }
+  log().info << "User account " << tx.fromWalletId << " ended";
+  return {};
+}
+
+Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
+                                              uint64_t accountId) const {
+  if (bank.hasAccount(accountId)) {
+    return {};
+  }
+  if (!bank_.hasAccount(accountId)) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "Account not found: " + std::to_string(accountId));
+  }
+  auto accountResult = bank_.getAccount(accountId);
+  if (!accountResult) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "Failed to get account from bank: " +
+                     accountResult.error().message);
+  }
+  auto addResult = bank.add(accountResult.value());
+  if (!addResult) {
+    return Error(E_ACCOUNT_BUFFER,
+                 "Failed to add account to buffer: " + addResult.error().message);
+  }
+  return {};
+}
+
+Chain::Roe<void>
+Chain::processBufferTransaction(AccountBuffer &bank,
+                                const Ledger::Transaction &tx) const {
+  // All transactions happen in bank; accounts sourced from bank_ on demand
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
+  }
+  auto toRoe = ensureAccountInBuffer(bank, tx.toWalletId);
+  if (!toRoe) {
+    return toRoe;
+  }
+  return strictProcessTransaction(bank, tx);
+}
+
+Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
+                                              const Ledger::Transaction &tx) const {
+  return processUserInitImpl(bank, tx, getNextBlockId(), true);
+}
+
+Chain::Roe<void> Chain::processBufferSystemUpdate(
+    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
+  if (!genesisRoe) {
+    return genesisRoe;
+  }
+  auto configResult = processSystemUpdateImpl(bank, tx);
+  if (!configResult) {
+    return configResult.error();
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::processBufferUserAccountUpsert(
+    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+  return processUserAccountUpsertImpl(bank, tx, getNextBlockId(), true, true);
+}
+
+Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,
+                                             const Ledger::Transaction &tx) const {
+  return processUserEndImpl(bank, tx, true);
 }
 
 Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
