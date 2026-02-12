@@ -74,6 +74,7 @@ public:
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId, int64_t amount, int64_t fee = 0);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId, int64_t amount);
+  Roe<void> writeOff(uint64_t accountId);
   
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);

@@ -270,41 +270,38 @@ Chain::Roe<Ledger::SignedData<Ledger::Transaction>> Chain::createRenewalTransact
 
   auto const& account = accountResult.value();
   Ledger::Transaction tx;
+  tx.type = Ledger::Transaction::T_RENEWAL;
   tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.fromWalletId = accountId;
-  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.toWalletId = accountId;
+  tx.amount = 0;
+  tx.fee = static_cast<int64_t>(minFee);
 
   if (accountId != AccountBuffer::ID_GENESIS) {
-    auto it = account.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-    if (it == account.wallet.mBalances.end() || it->second < minFee) {
+    auto balance = bank_.getBalance(accountId, AccountBuffer::ID_GENESIS);
+    if (balance < minFee) {
       // Insufficient balance for renewal, terminate account with whatever balance remains
+      // Notice the fee is 0 here, all remaining balances will be transferred to the recycle account.
       tx.type = Ledger::Transaction::T_END_USER;
-      tx.amount = (it != account.wallet.mBalances.end()) ? it->second : 0;
       tx.fee = 0;
-    } else {
-      // Sufficient fund for renewal
-      tx.type = Ledger::Transaction::T_RENEWAL;
-      tx.amount = 0;
-      tx.fee = static_cast<int64_t>(minFee);
     }
-  } else {
-    // Genesis account renewal
-    tx.type = Ledger::Transaction::T_RENEWAL;
-    tx.amount = 0;
-    tx.fee = static_cast<int64_t>(minFee);
   }
 
-  auto blockResult = ledger_.readBlock(account.blockId);
-  if (!blockResult) {
-    return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(account.blockId));
-  }
-  auto const& block = blockResult.value().block;
+  if (tx.type == Ledger::Transaction::T_RENEWAL) {
+    // Get account metadata from previous block
+    auto blockResult = ledger_.readBlock(account.blockId);
+    if (!blockResult) {
+      return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(account.blockId));
+    }
+    auto const& block = blockResult.value().block;
   
-  auto metaResult = findAccountMetadataInBlock(block, account);
-  if (!metaResult) {
-    return metaResult.error();
+    auto metaResult = findAccountMetadataInBlock(block, account);
+    if (!metaResult) {
+      return metaResult.error();
+    }
+    tx.meta = metaResult.value();
   }
-  tx.meta = metaResult.value();
+  // T_END_USER does not need metadata update
 
   Ledger::SignedData<Ledger::Transaction> signedTx;
   signedTx.obj = tx;
@@ -952,12 +949,32 @@ Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction& tx, uint64_t 
 }
 
 Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
-  log().info << "Processing user update transaction";
+  return processUserAccountUpsert(tx, blockId, isStrictMode);
+}
+
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  return processUserAccountUpsert(tx, blockId, isStrictMode);
+}
+
+Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
+  log().info << "Processing user update/renewal transaction";
+
+  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION, "User update transaction must use genesis token (ID_GENESIS)");
+  }
+
+  if (tx.fromWalletId != tx.toWalletId) {
+    return Error(E_TX_VALIDATION, "User update transaction must use same from and to wallet IDs");
+  }
 
   if (tx.fee < chainConfig_.minFeePerTransaction) {
     return Error(E_TX_FEE, "User update transaction fee below minimum: " + std::to_string(tx.fee));
   }
-  
+
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION, "User update transaction must have amount 0");
+  }
+
   // Deserialize UserAccount from transaction metadata
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(tx.meta)) {
@@ -972,46 +989,70 @@ Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction& tx, uint64_
     return Error(E_TX_VALIDATION, "User account must require at least one signature");
   }
 
-  auto bufferAccountResult = bank_.getAccount(tx.toWalletId);
+  auto bufferAccountResult = bank_.getAccount(tx.fromWalletId);
   if (!bufferAccountResult) {
     if (isStrictMode) {
-      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " + std::to_string(tx.toWalletId));
+      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " + std::to_string(tx.fromWalletId));
     }
   } else {
     // Verify that buffer balances match expected balances after amount and fee
-    auto balanceVerifyResult = bank_.verifyBalance(tx.toWalletId, tx.amount, tx.fee, userAccount.wallet.mBalances);
+    auto balanceVerifyResult = bank_.verifyBalance(tx.fromWalletId, 0, tx.fee, userAccount.wallet.mBalances);
     if (!balanceVerifyResult) {
       return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
     }
   }
 
-  if (bufferAccountResult) {
-    bank_.remove(tx.toWalletId);
-  }
+  bank_.remove(tx.fromWalletId);
 
   // Populate bank with user balance using toWalletId from transaction
   AccountBuffer::Account account;
-  account.id = tx.toWalletId;
+  account.id = tx.fromWalletId;
   account.blockId = blockId;
   account.wallet = userAccount.wallet;
   auto addResult = bank_.add(account);
   if (!addResult) {
     return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " + addResult.error().message);
   }
-  
-  log().info << "User account " << tx.toWalletId << " updated: " << userAccount;
-  
+
+  log().info << "User account " << tx.fromWalletId << " updated: " << userAccount;
   return {};
 }
 
-Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
-  // TODO: Implement user renewal processing, including validating the transaction and updating the account's blockId to extend its validity
-  return Error(E_TX_VALIDATION, "processUserRenewal not implemented");
-}
-
 Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
-  // TODO: Implement user end processing, including validating the transaction and removing the account from buffer and bank if needed
-  return Error(E_TX_VALIDATION, "processUserEnd not implemented");
+  log().info << "Processing user end transaction";
+
+  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION, "User end transaction must use genesis token (ID_GENESIS)");
+  }
+
+  if (tx.fromWalletId != tx.toWalletId) {
+    return Error(E_TX_VALIDATION, "User end transaction must use same from and to wallet IDs");
+  }
+  
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION, "User end transaction must have amount 0");
+  }
+
+  if (tx.fee != 0) {
+    return Error(E_TX_VALIDATION, "User end transaction must have fee 0");
+  }
+
+  if (!bank_.hasAccount(tx.fromWalletId)) {
+    return Error(E_ACCOUNT_NOT_FOUND, "User account not found: " + std::to_string(tx.fromWalletId));
+  }
+
+  if (bank_.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >= chainConfig_.minFeePerTransaction) {
+    return Error(E_TX_VALIDATION, "User account must have less than " + std::to_string(chainConfig_.minFeePerTransaction) + " balance in ID_GENESIS token");
+  }
+
+  // Note: negative balances are not transferred to recycle account, they are lost.
+  auto writeOffResult = bank_.writeOff(tx.fromWalletId);
+  if (!writeOffResult) {
+    return Error(E_INTERNAL_BUFFER, "Failed to write off user account: " + writeOffResult.error().message);
+  }
+
+  log().info << "User account " << tx.fromWalletId << " ended";
+  return {};
 }
 
 Chain::Roe<void> Chain::processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& tx) const {

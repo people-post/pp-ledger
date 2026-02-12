@@ -195,6 +195,8 @@ private:
     Roe<void> processUserUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
     Roe<void> processUserRenewal(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
 
+    Roe<void> processUserAccountUpsert(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
+
     Roe<void> processUserEnd(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode);
 
     Roe<void> processBufferTransaction(AccountBuffer& bank, const Ledger::Transaction& signedTx) const;

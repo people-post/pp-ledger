@@ -343,6 +343,29 @@ AccountBuffer::Roe<void> AccountBuffer::transferBalance(uint64_t fromId, uint64_
   return {};
 }
 
+AccountBuffer::Roe<void> AccountBuffer::writeOff(uint64_t accountId) {
+  auto itAccount = mAccounts_.find(accountId);
+  if (itAccount == mAccounts_.end()) {
+    return Error(E_ACCOUNT, "Account not found");
+  }
+
+  auto itRecycle = mAccounts_.find(ID_RECYCLE);
+  if (itRecycle == mAccounts_.end()) {
+    return Error(E_ACCOUNT, "Recycle account not found");
+  }
+
+  for (const auto& [tokenId, amount] : itAccount->second.wallet.mBalances) {
+    // Notice negative balances are not handled here.
+    // In case of custom token genesis account, the balance becomes history and cannot be used for minting new tokens.
+    if (amount > 0) {
+      itRecycle->second.wallet.mBalances[tokenId] += amount;
+    }
+  }
+
+  mAccounts_.erase(itAccount);
+  return {};
+}
+
 void AccountBuffer::remove(uint64_t id) {
   mAccounts_.erase(id);
 }
