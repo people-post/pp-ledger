@@ -804,6 +804,8 @@ Chain::Roe<void> Chain::validateTxSignatures(const Ledger::SignedData<Ledger::Tr
     return Error(E_TX_SIGNATURE, "Transaction must have at least one signature");
   }
 
+  // TODO: T_RENEWAL and T_END_USER's signatures are from slot leader, need to handle this.
+
   auto accountResult = bank_.getAccount(signedTx.obj.fromWalletId);
   if (!accountResult) {
     if (isStrictMode) {
@@ -903,8 +905,55 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction& tx) {
 }
 
 Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction& tx, uint64_t blockId, bool isStrictMode) {
-  // TODO: Implement system update processing, including validating the transaction and updating the chain configuration if needed
-  return Error(E_TX_VALIDATION, "processSystemUpdate not implemented");
+  log().info << "Processing system update transaction";
+
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION, "System update transaction must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
+  }
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION, "System update transaction must have amount 0");
+  }
+  if (tx.fee != 0) {
+    return Error(E_TX_VALIDATION, "System update transaction must have fee 0");
+  }
+
+  // Deserialize BlockChainConfig from transaction metadata
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(tx.meta)) {
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint config: " + tx.meta);
+  }
+
+  if (gm.config.genesisTime != chainConfig_.genesisTime) {
+    return Error(E_TX_VALIDATION, "Genesis time mismatch");
+  }
+
+  if (gm.config.slotDuration > chainConfig_.slotDuration) {
+    return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
+  }
+
+  if (gm.config.slotsPerEpoch < chainConfig_.slotsPerEpoch) {
+    return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
+  }
+
+  if (gm.genesis.wallet.publicKeys.size() < 3) {
+    return Error(E_TX_VALIDATION, "Genesis account must have at least 3 public keys");
+  }
+
+  if (gm.genesis.wallet.minSignatures < 2) {
+    return Error(E_TX_VALIDATION, "Genesis account must have at least 2 signatures");
+  }
+
+  if (!bank_.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0, gm.genesis.wallet.mBalances)) {
+    return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
+  }
+
+  // Reset chain configuration
+  chainConfig_ = gm.config;
+
+  log().info << "System updated";
+  log().info << "  Version: " << gm.VERSION;
+  log().info << "  Config: " << chainConfig_;
+  return {};
 }
 
 Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction& tx, uint64_t blockId) {
