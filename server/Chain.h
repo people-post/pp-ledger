@@ -171,6 +171,9 @@ private:
 
     Roe<void> validateAccountRenewals(const Ledger::ChainNode& block) const;
 
+    /** Verify that signatures validly sign the transaction using the account's public keys. */
+    Roe<void> verifySignaturesAgainstAccount(const Ledger::Transaction& tx, const std::vector<std::string>& signatures, const AccountBuffer::Account& account) const;
+
     Roe<void> processBlock(const Ledger::ChainNode& block, bool isStrictMode);
     Roe<void> processGenesisBlock(const Ledger::ChainNode& block);
     Roe<void> processNormalBlock(const Ledger::ChainNode& block, bool isStrictMode);
@@ -178,8 +181,8 @@ private:
     Roe<void> validateNormalBlock(const Ledger::ChainNode& block) const;
 
     Roe<void> processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx);
-    Roe<void> processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode);
-    Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode);
+    Roe<void> processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, uint64_t slotLeaderId, bool isStrictMode);
+    Roe<void> validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t slotLeaderId, bool isStrictMode);
 
     Roe<std::string> updateMetaFromSystemInit(const std::string& meta) const;
     Roe<std::string> updateMetaFromSystemUpdate(const std::string& meta) const;

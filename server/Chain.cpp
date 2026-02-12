@@ -738,7 +738,7 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode& block, bool 
 
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto& signedTx : block.block.signedTxes) {
-    auto result = processNormalTxRecord(signedTx, block.block.index, isStrictMode);
+    auto result = processNormalTxRecord(signedTx, block.block.index, block.block.slotLeader, isStrictMode);
     if (!result) {
       return Error(E_TX_VALIDATION, "Failed to process transaction: " + result.error().message);
     }
@@ -758,7 +758,7 @@ Chain::Roe<void> Chain::addBufferTransaction(AccountBuffer& bank, const Ledger::
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx) {
-  auto roe = validateTxSignatures(signedTx, true);
+  auto roe = validateTxSignatures(signedTx, 0, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
   }
@@ -774,8 +774,8 @@ Chain::Roe<void> Chain::processGenesisTxRecord(const Ledger::SignedData<Ledger::
   }
 }
 
-Chain::Roe<void> Chain::processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, bool isStrictMode) {
-  auto roe = validateTxSignatures(signedTx, isStrictMode);
+Chain::Roe<void> Chain::processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t blockId, uint64_t slotLeaderId, bool isStrictMode) {
+  auto roe = validateTxSignatures(signedTx, slotLeaderId, isStrictMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate transaction: " + roe.error().message);
   }
@@ -799,34 +799,13 @@ Chain::Roe<void> Chain::processNormalTxRecord(const Ledger::SignedData<Ledger::T
   }
 }
 
-Chain::Roe<void> Chain::validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, bool isStrictMode) {
-  if (signedTx.signatures.size() < 1) {
-    return Error(E_TX_SIGNATURE, "Transaction must have at least one signature");
+Chain::Roe<void> Chain::verifySignaturesAgainstAccount(const Ledger::Transaction& tx, const std::vector<std::string>& signatures, const AccountBuffer::Account& account) const {
+  if (signatures.size() < account.wallet.minSignatures) {
+    return Error(E_TX_SIGNATURE, "Account " + std::to_string(account.id) + " must have at least " + std::to_string(account.wallet.minSignatures) + " signatures, but has " + std::to_string(signatures.size()));
   }
-
-  // TODO: T_RENEWAL and T_END_USER's signatures are from slot leader, need to handle this.
-
-  auto accountResult = bank_.getAccount(signedTx.obj.fromWalletId);
-  if (!accountResult) {
-    if (isStrictMode) {
-      if (bank_.isEmpty() && signedTx.obj.fromWalletId == AccountBuffer::ID_GENESIS) {
-        // Genesis account is created by the system checkpoint, this is not very good way of handling
-        // Should avoid using this generic handlers for specific case
-        return {};
-      }
-      return Error(E_ACCOUNT_NOT_FOUND, "Failed to get account: " + accountResult.error().message);
-    } else {
-      // In loose mode, account may not be created before their transactions
-      return {};
-    }
-  }
-  auto const& account = accountResult.value();
-  if (signedTx.signatures.size() < account.wallet.minSignatures) {
-    return Error(E_TX_SIGNATURE, "Account " + std::to_string(signedTx.obj.fromWalletId) + " must have at least " + std::to_string(account.wallet.minSignatures) + " signatures, but has " + std::to_string(signedTx.signatures.size()));
-  }
-  auto message = utl::binaryPack(signedTx.obj);
+  auto message = utl::binaryPack(tx);
   std::vector<bool> keyUsed(account.wallet.publicKeys.size(), false);
-  for (const auto& signature : signedTx.signatures) {
+  for (const auto& signature : signatures) {
     bool matched = false;
     for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
       if (keyUsed[i]) continue;
@@ -838,19 +817,49 @@ Chain::Roe<void> Chain::validateTxSignatures(const Ledger::SignedData<Ledger::Tr
       }
     }
     if (!matched) {
-      log().error << "Invalid signature for account " + std::to_string(signedTx.obj.fromWalletId) + ": " + utl::toJsonSafeString(signature);
+      log().error << "Invalid signature for account " + std::to_string(account.id) + ": " + utl::toJsonSafeString(signature);
       log().error << "Expected signatures: " << account.wallet.minSignatures;
       for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
         log().error << "Public key " << i << ": " << utl::toJsonSafeString(account.wallet.publicKeys[i]);
         log().error << "Key used: " << keyUsed[i];
       }
-      for (const auto& signature : signedTx.signatures) {
-        log().error << "Signature: " << utl::toJsonSafeString(signature);
+      for (const auto& sig : signatures) {
+        log().error << "Signature: " << utl::toJsonSafeString(sig);
       }
-      return Error(E_TX_SIGNATURE, "Invalid or duplicate signature for account " + std::to_string(signedTx.obj.fromWalletId));
+      return Error(E_TX_SIGNATURE, "Invalid or duplicate signature for account " + std::to_string(account.id));
     }
   }
   return {};
+}
+
+Chain::Roe<void> Chain::validateTxSignatures(const Ledger::SignedData<Ledger::Transaction>& signedTx, uint64_t slotLeaderId, bool isStrictMode) {
+  if (signedTx.signatures.size() < 1) {
+    return Error(E_TX_SIGNATURE, "Transaction must have at least one signature");
+  }
+
+  const auto& tx = signedTx.obj;
+  uint64_t signerAccountId = tx.fromWalletId;
+
+  // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not by fromWalletId
+  if ((tx.type == Ledger::Transaction::T_RENEWAL || tx.type == Ledger::Transaction::T_END_USER) && slotLeaderId != 0) {
+    signerAccountId = slotLeaderId;
+  }
+
+  auto accountResult = bank_.getAccount(signerAccountId);
+  if (!accountResult) {
+    if (isStrictMode) {
+      if (bank_.isEmpty() && signerAccountId == AccountBuffer::ID_GENESIS) {
+        // Genesis account is created by the system checkpoint, this is not very good way of handling
+        // Should avoid using this generic handlers for specific case
+        return {};
+      }
+      return Error(E_ACCOUNT_NOT_FOUND, "Failed to get account: " + accountResult.error().message);
+    } else {
+      // In loose mode, account may not be created before their transactions
+      return {};
+    }
+  }
+  return verifySignaturesAgainstAccount(tx, signedTx.signatures, accountResult.value());
 }
 
 Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction& tx) {
