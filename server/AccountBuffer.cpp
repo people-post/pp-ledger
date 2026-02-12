@@ -1,4 +1,5 @@
 #include "AccountBuffer.h"
+#include <limits>
 
 namespace pp {
 
@@ -180,8 +181,8 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(uint64_t accountId, int64_
 
   // Helper for safe addition
   auto safeAdd = [](int64_t a, int64_t b, int64_t& out) -> bool {
-    if ((b > 0 && a > INT64_MAX - b) ||
-        (b < 0 && a < INT64_MIN - b)) {
+    if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+        (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
       return false;
     }
     out = a + b;
