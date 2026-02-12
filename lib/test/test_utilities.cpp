@@ -4,6 +4,42 @@
 namespace pp {
 namespace utl {
 
+// SHA-256 tests
+TEST(Sha256Test, EmptyStringProducesKnownHash) {
+  std::string hash = sha256("");
+  // SHA-256 of empty string
+  EXPECT_EQ(hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+TEST(Sha256Test, HelloWorldProducesKnownHash) {
+  std::string hash = sha256("hello world");
+  // SHA-256 of "hello world"
+  EXPECT_EQ(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+}
+
+TEST(Sha256Test, DifferentInputsProduceDifferentHashes) {
+  std::string hash1 = sha256("test1");
+  std::string hash2 = sha256("test2");
+  EXPECT_NE(hash1, hash2);
+}
+
+TEST(Sha256Test, SameInputProducesSameHash) {
+  std::string input = "consistent input";
+  std::string hash1 = sha256(input);
+  std::string hash2 = sha256(input);
+  EXPECT_EQ(hash1, hash2);
+}
+
+TEST(Sha256Test, OutputIsHexadecimal64Characters) {
+  std::string hash = sha256("test");
+  EXPECT_EQ(hash.size(), 64u);  // SHA-256 produces 32 bytes = 64 hex chars
+  // Verify all characters are valid hex
+  for (char c : hash) {
+    EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+  }
+}
+
+// Ed25519 tests
 TEST(Ed25519Test, GenerateReturnsValidKeyPair) {
   auto pair = ed25519Generate();
   ASSERT_TRUE(pair.isOk()) << (pair.isError() ? pair.error().message : "");
