@@ -10,8 +10,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Treat warnings as errors
 add_compile_options(-Werror)
 
-# Find OpenSSL (required for ledger and some tests)
-find_package(OpenSSL REQUIRED)
+# Find Libsodium (required for cryptographic operations)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SODIUM REQUIRED libsodium)
 
 # Fetch Google Test
 include(FetchContent)
