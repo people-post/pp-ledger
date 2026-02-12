@@ -123,8 +123,23 @@ EOF
 
     echo -e "${CYAN}Created init-config.json (slot=${SLOT_DURATION}s, epoch=${SLOTS_PER_EPOCH} slots, checkpointMinBlocks=${CHECKPOINT_MIN_BLOCKS})${NC}"
 
-    run_cmd "$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init
+    local init_output
+    init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init 2>&1)
+    echo "$init_output" | head -5
     echo -e "${GREEN}✓ Beacon initialized with test config${NC}"
+
+    # Extract reserve private keys for add-account (ID_RESERVE=2 needs 3-of-3 multisig)
+    local key_dir="${TEST_DIR}/keys"
+    mkdir -p "$key_dir"
+    local i=1
+    while IFS= read -r line; do
+        local pk
+        pk=$(echo "$line" | sed 's/.*"privateKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | tr -d ' \n')
+        [ -n "$pk" ] && echo "$pk" > "$key_dir/reserve${i}.key" && i=$((i + 1))
+    done < <(echo "$init_output" | sed -n '/"reserve"/,/\]/p' | grep '"privateKey"')
+    if [ -f "$key_dir/reserve1.key" ]; then
+        echo -e "${CYAN}Saved $((i - 1)) reserve keys for add-account tests${NC}"
+    fi
 }
 
 create_beacon_config() {
@@ -180,7 +195,7 @@ EOF
 
 start_beacon() {
     local beacon_dir="${TEST_DIR}/beacon"
-    run_bg_cmd "$beacon_dir/console.log" "$BUILD_DIR/app/pp-beacon" -d "$beacon_dir"
+    run_bg_cmd "$beacon_dir/console.log" "$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --debug
     save_pid "beacon" $!
     sleep 3
     if ! kill -0 $(tail -1 "$PID_FILE" | cut -d: -f2) 2>/dev/null; then
@@ -202,7 +217,7 @@ start_miner() {
         touch "$miner_dir/.signature"
     fi
     create_miner_config "$miner_id" "$miner_dir" "$miner_port"
-    run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir"
+    run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" --debug
     save_pid "miner${miner_id}" $!
     sleep 2
     echo -e "${GREEN}✓ Miner${miner_id} started on port $miner_port${NC}"
@@ -245,36 +260,80 @@ get_checkpoint_ids() {
 # Phase 3: Transaction simulation (when accounts exist)
 # =============================================================================
 
-# Generate a test key for transaction signing (e.g. for alice/bob)
-# Returns path to key file
-generate_tx_key_file() {
+# Generate a test keypair for transaction signing (e.g. for alice/bob)
+# Creates name.key (private hex) and name.pub (public hex). Returns path to private key file.
+generate_tx_keypair() {
     local name=$1
     local key_dir="${TEST_DIR}/keys"
     local key_file="${key_dir}/${name}.key"
+    local pub_file="${key_dir}/${name}.pub"
     mkdir -p "$key_dir"
     if [ ! -f "$key_file" ]; then
         local output
         output=$("$BUILD_DIR/app/pp-client" keygen 2>/dev/null)
         echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n' > "$key_file"
+        echo "$output" | grep "Public key" | sed 's/.*: *//' | tr -d ' \n' > "$pub_file"
     fi
     echo "$key_file"
 }
 
+# Create new account via mk-account + sign-tx (3x) + submit-tx (reserve needs 3-of-3 multisig)
+# Usage: try_add_account to_wallet_id amount new_pubkey_hex reserve_key1 key2 key3 miner_port
+try_add_account() {
+    local to=$1
+    local amount=$2
+    local new_pubkey_hex=$3
+    shift 3
+    local key1=$1 key2=$2 key3=$3
+    local miner_port=${4:-$MINER_BASE_PORT}
+    local fee=${5:-1}
+    local tx_file="${TEST_DIR}/tmp_account_${to}.dat"
+
+    if [ ! -f "$key1" ] || [ ! -f "$key2" ] || [ ! -f "$key3" ]; then
+        echo -e "${YELLOW}  (add-account skipped - reserve keys not found)${NC}"
+        return 1
+    fi
+
+    local mk_cmd=("$BUILD_DIR/app/pp-client" mk-account 2 "$amount" -t "$to" -f "$fee" -o "$tx_file")
+    [ -n "$new_pubkey_hex" ] && mk_cmd+=(--new-pubkey "$new_pubkey_hex")
+    if ! "${mk_cmd[@]}" 2>/dev/null; then
+        echo -e "${YELLOW}  (mk-account failed for to=$to)${NC}"
+        return 1
+    fi
+    for k in "$key1" "$key2" "$key3"; do
+        if ! "$BUILD_DIR/app/pp-client" sign-tx "$tx_file" -k "$k" 2>/dev/null; then
+            echo -e "${YELLOW}  (sign-tx failed)${NC}"
+            rm -f "$tx_file"
+            return 1
+        fi
+    done
+    if "$BUILD_DIR/app/pp-client" -m -p "$miner_port" submit-tx "$tx_file" 2>/dev/null; then
+        echo -e "${GREEN}  ✓ Account created: id=$to amount=$amount${NC}"
+        rm -f "$tx_file"
+        return 0
+    else
+        echo -e "${YELLOW}  (submit-tx failed for to=$to)${NC}"
+        rm -f "$tx_file"
+        return 1
+    fi
+}
+
 # Submit a transfer if we have valid accounts and keys
-# Usage: try_add_tx from_wallet_id to_wallet_id amount key_file miner_port
+# Usage: try_add_tx from_wallet_id to_wallet_id amount fee key_file miner_port
 try_add_tx() {
     local from=$1
     local to=$2
     local amount=$3
     local key_file=$4
-    local miner_port=${5:-$MINER_BASE_PORT}
+    local fee=${5:-1}
+    local miner_port=${6:-$MINER_BASE_PORT}
 
     if [ ! -f "$key_file" ]; then
         echo -e "${YELLOW}  (add-tx skipped - key file not found)${NC}"
         return 1
     fi
 
-    if "$BUILD_DIR/app/pp-client" -m -p "$miner_port" add-tx "$from" "$to" "$amount" -k "$key_file" 2>/dev/null; then
+    if "$BUILD_DIR/app/pp-client" -m -p "$miner_port" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" 2>/dev/null; then
         echo -e "${GREEN}  ✓ Transaction submitted: $from -> $to amount=$amount${NC}"
         return 0
     else
@@ -284,7 +343,46 @@ try_add_tx() {
 }
 
 # =============================================================================
-# Phase 4: Main test scenarios
+# Phase 4: Inject transactions to trigger block production
+# =============================================================================
+
+inject_transactions_for_block_production() {
+    echo ""
+    echo -e "${BLUE}═══ Injecting transactions to prime block production ═══${NC}"
+
+    local alice=$((1 << 20))
+    local bob=$(( (1 << 20) + 1 ))
+    local key_dir="${TEST_DIR}/keys"
+    local reserve1="${key_dir}/reserve1.key" reserve2="${key_dir}/reserve2.key" reserve3="${key_dir}/reserve3.key"
+    local min_fee=1
+    local miner_port=$((MINER_BASE_PORT + 1))  # miner2 = slot leader (has stake)
+
+    generate_tx_keypair "alice" >/dev/null
+    generate_tx_keypair "bob" >/dev/null
+    local alice_key="${key_dir}/alice.key" alice_pub="${key_dir}/alice.pub"
+    local bob_key="${key_dir}/bob.key" bob_pub="${key_dir}/bob.pub"
+    local alice_pub_hex bob_pub_hex
+    alice_pub_hex=$(cat "$alice_pub" 2>/dev/null)
+    bob_pub_hex=$(cat "$bob_pub" 2>/dev/null)
+
+    echo -e "${CYAN}Creating accounts and submitting transfers...${NC}"
+    try_add_account "$alice" 10000 "$alice_pub_hex" "$reserve1" "$reserve2" "$reserve3" "$miner_port" $min_fee || true
+    try_add_account "$bob" 5000 "$bob_pub_hex" "$reserve1" "$reserve2" "$reserve3" "$miner_port" $min_fee || true
+
+    # Wait for block 1 (alice/bob created) before transfers - add-tx requires from account to exist
+    wait_for_blocks 2 25 || true
+
+    # Multiple transfers to feed block production (each block needs pending tx or renewals)
+    for amt in 100 50 25 20 15 10 10 10 5 5 5; do
+        try_add_tx "$alice" "$bob" "$amt" "$alice_key" $min_fee "$miner_port" || true
+    done
+    try_add_tx "$bob" "$alice" 25 "$bob_key" $min_fee "$miner_port" || true
+
+    echo -e "${GREEN}✓ Transactions submitted to miner pool (block production can advance)${NC}"
+}
+
+# =============================================================================
+# Phase 5: Main test scenarios
 # =============================================================================
 
 wait_for_blocks() {
@@ -326,22 +424,17 @@ test_scenario_basic_cycles() {
 
 test_scenario_transaction_attempts() {
     echo ""
-    echo -e "${BLUE}═══ Scenario 2: Transaction simulation attempts ═══${NC}"
+    echo -e "${BLUE}═══ Scenario 2: Transaction simulation (accounts created in inject phase) ═══${NC}"
 
-    # ID_FIRST_USER = 1<<20 = 1048576
     local alice=$((1 << 20))
     local bob=$(( (1 << 20) + 1 ))
+    local key_dir="${TEST_DIR}/keys"
+    local alice_key="${key_dir}/alice.key"
+    local miner_port=$((MINER_BASE_PORT + 1))
+    local min_fee=1
 
-    # Generate keys for potential use
-    local alice_key_file
-    alice_key_file=$(generate_tx_key_file "alice")
-    echo -e "${CYAN}Attempting transactions (accounts may not exist yet):${NC}"
-
-    # Try add-tx - will likely fail without prior T_NEW_USER creating alice
-    try_add_tx "$alice" "$bob" 100 "$alice_key_file" $MINER_BASE_PORT || true
-
-    echo -e "${CYAN}Note: Successful transfers require accounts created via T_NEW_USER.${NC}"
-    echo -e "${CYAN}      The structure is validated; full tx flow depends on account setup.${NC}"
+    echo -e "${CYAN}Verifying transfers (alice -> bob)...${NC}"
+    try_add_tx "$alice" "$bob" 10 "$alice_key" $min_fee "$miner_port" || true
 }
 
 test_scenario_late_joiner_miner() {
@@ -470,6 +563,9 @@ main() {
     create_beacon_config
     start_beacon
     start_all_miners
+
+    # Prime transaction pool so block production can advance (miner needs pending tx or renewals)
+    inject_transactions_for_block_production
 
     # Run test scenarios
     test_scenario_basic_cycles

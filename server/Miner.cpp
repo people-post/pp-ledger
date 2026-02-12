@@ -140,13 +140,14 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
         slotCache_ = {};
         return Error(12, result.error().message);
       }
+      signedTx.signatures.push_back(*result);
       auto addResult =
           chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
       if (!addResult) {
+        slotCache_ = {};
         return Error(12, "Failed to add renewal transaction: " +
                              addResult.error().message);
       }
-      signedTx.signatures.push_back(*result);
     }
   }
   return {};
