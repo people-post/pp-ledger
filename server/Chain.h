@@ -242,8 +242,20 @@ private:
   Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
                            bool isStrictMode);
 
+  /** Ensure account exists in buffer, seeding from bank_ on demand. */
+  Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
+                                  uint64_t accountId) const;
+
   Roe<void> processBufferTransaction(AccountBuffer &bank,
                                      const Ledger::Transaction &signedTx) const;
+  Roe<void> processBufferUserInit(AccountBuffer &bank,
+                                  const Ledger::Transaction &tx) const;
+  Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
+                                      const Ledger::Transaction &tx) const;
+  Roe<void> processBufferUserAccountUpsert(
+      AccountBuffer &bank, const Ledger::Transaction &tx) const;
+  Roe<void> processBufferUserEnd(AccountBuffer &bank,
+                                 const Ledger::Transaction &tx) const;
   Roe<void> processTransaction(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
   Roe<void> strictProcessTransaction(AccountBuffer &bank,

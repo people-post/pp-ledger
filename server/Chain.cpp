@@ -856,12 +856,22 @@ Chain::Roe<void> Chain::addBufferTransaction(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  switch (signedTx.obj.type) {
+  const auto &tx = signedTx.obj;
+  switch (tx.type) {
   case Ledger::Transaction::T_DEFAULT:
-    return processBufferTransaction(bank, signedTx.obj);
+    return processBufferTransaction(bank, tx);
+  case Ledger::Transaction::T_NEW_USER:
+    return processBufferUserInit(bank, tx);
+  case Ledger::Transaction::T_CONFIG:
+    return processBufferSystemUpdate(bank, tx);
+  case Ledger::Transaction::T_USER:
+  case Ledger::Transaction::T_RENEWAL:
+    return processBufferUserAccountUpsert(bank, tx);
+  case Ledger::Transaction::T_END_USER:
+    return processBufferUserEnd(bank, tx);
   default:
     return Error(E_TX_TYPE, "Unknown transaction type: " +
-                                std::to_string(signedTx.obj.type));
+                                std::to_string(tx.type));
   }
 }
 
@@ -1335,64 +1345,296 @@ Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
   return {};
 }
 
+Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
+                                              uint64_t accountId) const {
+  if (bank.hasAccount(accountId)) {
+    return {};
+  }
+  if (!bank_.hasAccount(accountId)) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "Account not found: " + std::to_string(accountId));
+  }
+  auto accountResult = bank_.getAccount(accountId);
+  if (!accountResult) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "Failed to get account from bank: " +
+                     accountResult.error().message);
+  }
+  auto addResult = bank.add(accountResult.value());
+  if (!addResult) {
+    return Error(E_ACCOUNT_BUFFER,
+                 "Failed to add account to buffer: " + addResult.error().message);
+  }
+  return {};
+}
+
 Chain::Roe<void>
 Chain::processBufferTransaction(AccountBuffer &bank,
                                 const Ledger::Transaction &tx) const {
-  // All transactions happen in bank; initial balances come from bank_
-  // Note: bank may add accounts even though transaction validation failed. This
-  // can be a memory concern
-  //       if the limit for pending transactions is very high and many
-  //       transactions are invalid. In that case, we may want to separate the
-  //       "buffer" from the "validation" step, where the validation step only
-  //       checks accounts in bank_ without adding to bank, and then if
-  //       validation passes, we add to bank and apply the transaction.
-  // Ensure fromWalletId exists in bank (seed from bank_ if needed)
-  if (!bank.hasAccount(tx.fromWalletId)) {
-    // Try to get from bank_ if not in bank
-    if (bank_.hasAccount(tx.fromWalletId)) {
-      auto fromAccount = bank_.getAccount(tx.fromWalletId);
-      if (!fromAccount) {
-        return Error(E_ACCOUNT_NOT_FOUND,
-                     "Failed to get source account from bank: " +
-                         fromAccount.error().message);
-      }
-      auto addResult = bank.add(fromAccount.value());
-      if (!addResult) {
-        return Error(E_ACCOUNT_BUFFER,
-                     "Failed to add source account to buffer: " +
-                         addResult.error().message);
-      }
-    } else {
-      return Error(E_ACCOUNT_NOT_FOUND, "Source account not found: " +
-                                            std::to_string(tx.fromWalletId));
-    }
+  // All transactions happen in bank; accounts sourced from bank_ on demand
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
   }
-
-  // Ensure toWalletId exists in bank: seed from bank_ or create if not in bank_
-  if (!bank.hasAccount(tx.toWalletId)) {
-    // Try to get from bank_ if not in bank
-    if (bank_.hasAccount(tx.toWalletId)) {
-      auto toAccount = bank_.getAccount(tx.toWalletId);
-      if (!toAccount) {
-        return Error(E_ACCOUNT_NOT_FOUND,
-                     "Failed to get destination account from bank: " +
-                         toAccount.error().message);
-      }
-      auto addResult = bank.add(toAccount.value());
-      if (!addResult) {
-        return Error(E_ACCOUNT_BUFFER,
-                     "Failed to add destination account to buffer: " +
-                         addResult.error().message);
-      }
-    }
+  auto toRoe = ensureAccountInBuffer(bank, tx.toWalletId);
+  if (!toRoe) {
+    return toRoe;
   }
-
-  if (!bank.hasAccount(tx.toWalletId)) {
-    return Error(E_ACCOUNT_NOT_FOUND, "Destination account not found: " +
-                                          std::to_string(tx.toWalletId));
-  }
-
   return strictProcessTransaction(bank, tx);
+}
+
+Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
+                                              const Ledger::Transaction &tx) const {
+  const uint64_t blockId = getNextBlockId();
+
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(E_TX_FEE, "New user transaction fee below minimum: " +
+                               std::to_string(tx.fee));
+  }
+
+  if (bank.hasAccount(tx.toWalletId) || bank_.hasAccount(tx.toWalletId)) {
+    return Error(E_ACCOUNT_EXISTS,
+                 "Account already exists: " + std::to_string(tx.toWalletId));
+  }
+
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
+  }
+
+  auto spendingResult = bank.verifySpendingPower(
+      tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
+  if (!spendingResult) {
+    return Error(E_ACCOUNT_BALANCE,
+                 "Source account must have sufficient balance: " +
+                     spendingResult.error().message);
+  }
+
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS &&
+      tx.toWalletId < AccountBuffer::ID_FIRST_USER) {
+    return Error(E_TX_VALIDATION,
+                 "New user account id must be larger than: " +
+                     std::to_string(AccountBuffer::ID_FIRST_USER));
+  }
+
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(tx.meta)) {
+    return Error(E_INTERNAL_DESERIALIZE,
+                 "Failed to deserialize user account: " + tx.meta);
+  }
+
+  if (userAccount.wallet.publicKeys.empty()) {
+    return Error(E_TX_VALIDATION,
+                 "User account must have at least one public key");
+  }
+  if (userAccount.wallet.minSignatures < 1) {
+    return Error(E_TX_VALIDATION,
+                 "User account must require at least one signature");
+  }
+  if (userAccount.wallet.mBalances.size() != 1) {
+    return Error(E_TX_VALIDATION, "User account must have exactly one balance");
+  }
+  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+  if (it == userAccount.wallet.mBalances.end()) {
+    return Error(E_TX_VALIDATION,
+                 "User account must have balance in ID_GENESIS token");
+  }
+  if (it->second != tx.amount) {
+    return Error(E_TX_VALIDATION,
+                 "User account must have balance in ID_GENESIS token: " +
+                     std::to_string(it->second));
+  }
+
+  AccountBuffer::Account account;
+  account.id = tx.toWalletId;
+  account.blockId = blockId;
+  account.wallet = userAccount.wallet;
+  account.wallet.mBalances.clear();
+
+  auto addResult = bank.add(account);
+  if (!addResult) {
+    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
+                                        addResult.error().message);
+  }
+
+  auto transferResult = bank.transferBalance(
+      tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
+  if (!transferResult) {
+    return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
+                                    transferResult.error().message);
+  }
+
+  return {};
+}
+
+Chain::Roe<void> Chain::processBufferSystemUpdate(
+    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      tx.toWalletId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION, "System update transaction must use genesis "
+                                  "wallet (ID_GENESIS -> ID_GENESIS)");
+  }
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION,
+                 "System update transaction must have amount 0");
+  }
+  if (tx.fee != 0) {
+    return Error(E_TX_VALIDATION, "System update transaction must have fee 0");
+  }
+
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(tx.meta)) {
+    return Error(E_INTERNAL_DESERIALIZE,
+                 "Failed to deserialize checkpoint config: " + tx.meta);
+  }
+
+  if (gm.config.genesisTime != chainConfig_.genesisTime) {
+    return Error(E_TX_VALIDATION, "Genesis time mismatch");
+  }
+
+  if (gm.config.slotDuration > chainConfig_.slotDuration) {
+    return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
+  }
+
+  if (gm.config.slotsPerEpoch < chainConfig_.slotsPerEpoch) {
+    return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
+  }
+
+  if (gm.genesis.wallet.publicKeys.size() < 3) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis account must have at least 3 public keys");
+  }
+
+  if (gm.genesis.wallet.minSignatures < 2) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis account must have at least 2 signatures");
+  }
+
+  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
+  if (!genesisRoe) {
+    return genesisRoe;
+  }
+
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
+                         gm.genesis.wallet.mBalances)) {
+    return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
+  }
+
+  // Config update happens at block commit; buffer only validates
+  return {};
+}
+
+Chain::Roe<void> Chain::processBufferUserAccountUpsert(
+    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+  const uint64_t blockId = getNextBlockId();
+
+  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION,
+                 "User update transaction must use genesis token (ID_GENESIS)");
+  }
+
+  if (tx.fromWalletId != tx.toWalletId) {
+    return Error(E_TX_VALIDATION,
+                 "User update transaction must use same from and to wallet IDs");
+  }
+
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(E_TX_FEE, "User update transaction fee below minimum: " +
+                               std::to_string(tx.fee));
+  }
+
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION, "User update transaction must have amount 0");
+  }
+
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(tx.meta)) {
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user meta: " +
+                                             std::to_string(tx.meta.size()) +
+                                             " bytes");
+  }
+
+  if (userAccount.wallet.publicKeys.empty()) {
+    return Error(E_TX_VALIDATION,
+                 "User account must have at least one public key");
+  }
+
+  if (userAccount.wallet.minSignatures < 1) {
+    return Error(E_TX_VALIDATION,
+                 "User account must require at least one signature");
+  }
+
+  auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!accountRoe) {
+    return accountRoe;
+  }
+
+  auto balanceVerifyResult =
+      bank.verifyBalance(tx.fromWalletId, 0, tx.fee, userAccount.wallet.mBalances);
+  if (!balanceVerifyResult) {
+    return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
+  }
+
+  bank.remove(tx.fromWalletId);
+
+  AccountBuffer::Account account;
+  account.id = tx.fromWalletId;
+  account.blockId = blockId;
+  account.wallet = userAccount.wallet;
+  auto addResult = bank.add(account);
+  if (!addResult) {
+    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
+                                        addResult.error().message);
+  }
+
+  return {};
+}
+
+Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,
+                                             const Ledger::Transaction &tx) const {
+  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION,
+                 "User end transaction must use genesis token (ID_GENESIS)");
+  }
+
+  if (tx.fromWalletId != tx.toWalletId) {
+    return Error(E_TX_VALIDATION,
+                 "User end transaction must use same from and to wallet IDs");
+  }
+
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION, "User end transaction must have amount 0");
+  }
+
+  if (tx.fee != 0) {
+    return Error(E_TX_VALIDATION, "User end transaction must have fee 0");
+  }
+
+  auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!accountRoe) {
+    return accountRoe;
+  }
+
+  auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
+  if (!recycleRoe) {
+    return recycleRoe;
+  }
+
+  if (bank.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
+      chainConfig_.minFeePerTransaction) {
+    return Error(E_TX_VALIDATION,
+                 "User account must have less than " +
+                     std::to_string(chainConfig_.minFeePerTransaction) +
+                     " balance in ID_GENESIS token");
+  }
+
+  auto writeOffResult = bank.writeOff(tx.fromWalletId);
+  if (!writeOffResult) {
+    return Error(E_INTERNAL_BUFFER, "Failed to write off user account: " +
+                                        writeOffResult.error().message);
+  }
+
+  return {};
 }
 
 Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
