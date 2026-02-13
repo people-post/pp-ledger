@@ -62,9 +62,12 @@ std::string Miner::calculateHash(const Ledger::Block &block) const {
 }
 
 Miner::Roe<void> Miner::init(const InitConfig &config) {
+  if (config.privateKeys.empty()) {
+    return Error(1, "At least one private key is required");
+  }
   config_.workDir = config.workDir;
   config_.minerId = config.minerId;
-  config_.privateKey = config.privateKey;
+  config_.privateKeys = config.privateKeys;
   config_.checkpointId = config.checkpointId;
 
   log().info << "Initializing Miner";
@@ -143,12 +146,14 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     slotCache_.txRenewals = renewalsResult.value();
     for (auto &signedTx : slotCache_.txRenewals) {
       auto message = utl::binaryPack(signedTx.obj);
-      auto result = utl::ed25519Sign(config_.privateKey, message);
-      if (!result) {
-        slotCache_ = {};
-        return Error(12, result.error().message);
+      for (const auto &privateKey : config_.privateKeys) {
+        auto result = utl::ed25519Sign(privateKey, message);
+        if (!result) {
+          slotCache_ = {};
+          return Error(12, result.error().message);
+        }
+        signedTx.signatures.push_back(*result);
       }
-      signedTx.signatures.push_back(*result);
       auto addResult =
           chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
       if (!addResult) {

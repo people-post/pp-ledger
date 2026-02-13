@@ -22,7 +22,7 @@ MinerServer::MinerServer() {
 nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
   nlohmann::json j;
   j["minerId"] = minerId;
-  j["key"] = key;
+  j["keys"] = keys;
   j["host"] = host;
   j["port"] = port;
   j["beacons"] = beacons;
@@ -46,16 +46,31 @@ MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
     }
     minerId = jd["minerId"].get<uint64_t>();
 
-    // Load and validate key file (required)
-    if (!jd.contains("key")) {
-      return Error(E_CONFIG, "Field 'key' is required");
-    }
-    if (!jd["key"].is_string()) {
-      return Error(E_CONFIG, "Field 'key' must be a string");
-    }
-    key = jd["key"].get<std::string>();
-    if (key.empty()) {
-      return Error(E_CONFIG, "Field 'key' cannot be empty");
+    // Load and validate key files (required, supports "keys" array or legacy "key" string)
+    if (jd.contains("keys")) {
+      if (!jd["keys"].is_array()) {
+        return Error(E_CONFIG, "Field 'keys' must be an array");
+      }
+      keys.clear();
+      for (size_t i = 0; i < jd["keys"].size(); ++i) {
+        const auto &k = jd["keys"][i];
+        if (!k.is_string()) {
+          return Error(E_CONFIG,
+                       "All elements in 'keys' array must be strings (index " +
+                           std::to_string(i) + " is not)");
+        }
+        std::string keyFile = k.get<std::string>();
+        if (keyFile.empty()) {
+          return Error(E_CONFIG,
+                       "Key file at index " + std::to_string(i) + " cannot be empty");
+        }
+        keys.push_back(keyFile);
+      }
+      if (keys.empty()) {
+        return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
+      }
+    } else {
+      return Error(E_CONFIG, "Field 'keys' is required");
     }
 
     // Load and validate host
@@ -175,7 +190,15 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.minerId = runFileConfig.minerId;
-  config_.privateKey = utl::readKey(runFileConfig.key);
+  config_.privateKeys.clear();
+  for (const auto &keyFile : runFileConfig.keys) {
+    auto keyStr = utl::readKey(keyFile);
+    if (keyStr.empty()) {
+      return Service::Error(E_CONFIG,
+                            "Failed to read key from file: " + keyFile);
+    }
+    config_.privateKeys.push_back(keyStr);
+  }
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
   config_.network.beacons = runFileConfig.beacons;
@@ -207,7 +230,7 @@ Service::Roe<void> MinerServer::onStart() {
 
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
-  minerConfig.privateKey = config_.privateKey;
+  minerConfig.privateKeys = config_.privateKeys;
   minerConfig.timeOffset = state.currentTimestamp - utl::getCurrentTime();
   minerConfig.workDir = minerDataDir.string();
   minerConfig.startingBlockId = state.lastCheckpointId;

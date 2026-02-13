@@ -380,7 +380,7 @@ After starting a beacon and miner, you can test the system:
 ```json
 {
   "minerId": 1,                   // Required, unique numeric identifier
-  "privateKey": "...",            // Required, private key for signing blocks
+  "keys": ["key.txt"],            // Required, key files for signing (multiple = multiple signatures)
   "host": "localhost",           // Optional, default: "localhost"
   "port": 8518,                  // Optional, default: 8518
   "beacons": [                   // Required, list of beacon addresses to connect to

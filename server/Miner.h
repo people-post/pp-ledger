@@ -48,7 +48,7 @@ public:
     uint64_t minerId{0};
     uint64_t startingBlockId{0};
     uint64_t checkpointId{0};
-    std::string privateKey; // hex-encoded private key
+    std::vector<std::string> privateKeys; // hex-encoded private keys (multiple signatures)
   };
 
   Miner();
@@ -91,7 +91,7 @@ private:
     std::string workDir;
     uint64_t minerId{0};
     uint64_t tokenId{AccountBuffer::ID_GENESIS};
-    std::string privateKey; // hex-encoded
+    std::vector<std::string> privateKeys; // hex-encoded (multiple signatures)
     uint64_t checkpointId{0};
   };
 
