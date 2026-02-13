@@ -162,7 +162,10 @@ public:
   Roe<void> mountLedger(const std::string &workDir);
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
   Roe<void> addBlock(const Ledger::ChainNode &block, bool isStrictMode);
+  /** Refresh stakeholders for live mode (uses current epoch). */
   void refreshStakeholders();
+  /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
+  void refreshStakeholders(uint64_t blockSlot);
 
 protected:
   // Validation helpers

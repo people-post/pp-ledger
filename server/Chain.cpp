@@ -535,6 +535,14 @@ void Chain::refreshStakeholders() {
   }
 }
 
+void Chain::refreshStakeholders(uint64_t blockSlot) {
+  uint64_t epoch = consensus_.getEpochFromSlot(blockSlot);
+  if (consensus_.isStakeUpdateNeeded(epoch)) {
+    auto stakeholders = bank_.getStakeholders();
+    consensus_.setStakeholders(stakeholders, epoch);
+  }
+}
+
 void Chain::initConsensus(const consensus::Ouroboros::Config &config) {
   consensus_.init(config);
 }
@@ -583,16 +591,19 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                       std::to_string(block.block.index));
     }
 
+    // Refresh stakeholders per epoch (so slot leader validation uses correct
+    // stake for this block's epoch; no-op when still in same epoch).
+    // Skip for genesis (block 0): consensus config is not yet loaded.
+    if (blockId > 0) {
+      refreshStakeholders(block.block.slot);
+    }
+
     auto processResult = processBlock(block, isStrictMode);
     if (!processResult) {
       return Error(E_BLOCK_VALIDATION, "Failed to process block " +
                                            std::to_string(blockId) + ": " +
                                            processResult.error().message);
     }
-
-    // Stakeholders must be refreshed after each block so slot leader
-    // validation works for the next block (consensus needs up-to-date stake)
-    refreshStakeholders();
 
     blockId++;
 

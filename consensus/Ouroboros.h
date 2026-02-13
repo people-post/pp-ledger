@@ -48,12 +48,17 @@ public:
 
   // ----- accessors -----
   bool isSlotLeader(uint64_t slot, uint64_t stakeholderId) const;
+  /** True when live clock epoch differs from last update (for live adding). */
   bool isStakeUpdateNeeded() const;
+  /** True when given epoch differs from last update (for load-from-ledger). */
+  bool isStakeUpdateNeeded(uint64_t forEpoch) const;
   bool isSlotBlockProductionTime(uint64_t slot) const;
 
   const Config& getConfig() const { return config_; }
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
+  /** Epoch index for a slot (for load-from-ledger). */
+  uint64_t getEpochFromSlot(uint64_t slot) const;
   uint64_t getSlotInEpoch(uint64_t slot) const;
   int64_t getSlotStartTime(uint64_t slot) const;
   int64_t getSlotEndTime(uint64_t slot) const;
@@ -64,7 +69,11 @@ public:
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   int64_t getTimestamp() const;
 
+  /** Set stakeholders and record update epoch (live: use getCurrentEpoch()). */
   void setStakeholders(const std::vector<Stakeholder>& stakeholders);
+  /** Set stakeholders for a specific epoch (load-from-ledger: use block slot). */
+  void setStakeholders(const std::vector<Stakeholder>& stakeholders,
+                       uint64_t forEpoch);
 
   // ----- methods -----
   void init(const Config& config);
@@ -73,7 +82,6 @@ public:
 
 private:
   // Helper methods for slot leader selection
-  uint64_t getEpochFromSlot(uint64_t slot) const;
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
   uint64_t calculateStakeThreshold(uint64_t stakeholderId,
                                    uint64_t totalStake) const;

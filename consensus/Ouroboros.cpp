@@ -25,6 +25,10 @@ bool Ouroboros::isStakeUpdateNeeded() const {
   return currentEpoch != lastStakeUpdateEpoch_;
 }
 
+bool Ouroboros::isStakeUpdateNeeded(uint64_t forEpoch) const {
+  return forEpoch != lastStakeUpdateEpoch_;
+}
+
 bool Ouroboros::isSlotBlockProductionTime(uint64_t slot) const {
   int64_t currentTime = getTimestamp();
   int64_t slotEndTime = getSlotEndTime(slot);
@@ -125,11 +129,16 @@ void Ouroboros::init(const Config& config) {
 }
 
 void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
+  setStakeholders(stakeholders, getCurrentEpoch());
+}
+
+void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders,
+                                uint64_t forEpoch) {
   mStakeholders_.clear();
   for (const auto& stakeholder : stakeholders) {
     mStakeholders_[stakeholder.id] = stakeholder.stake;
   }
-  lastStakeUpdateEpoch_ = getCurrentEpoch();
+  lastStakeUpdateEpoch_ = forEpoch;
 }
 
 uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
