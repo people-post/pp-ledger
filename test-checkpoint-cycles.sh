@@ -215,51 +215,21 @@ generate_miner_key() {
     echo "$key_file"
 }
 
-# Convert hex key file to raw 32-byte binary file. Echo path to binary file.
-hex_to_binary_key() {
-    local hex_file=$1
-    local out_file=$2
-    local hex
-    hex=$(tr -d ' \n\r' < "$hex_file")
-    if [ ${#hex} -ne 64 ]; then
-        echo -e "${RED}Reserve key file must contain 64 hex chars: $hex_file${NC}" >&2
-        return 1
-    fi
-    if command -v xxd &>/dev/null; then
-        echo -n "$hex" | xxd -r -p > "$out_file"
-    else
-        echo "$hex" | python3 -c "import sys,binascii; sys.stdout.buffer.write(binascii.unhexlify(sys.stdin.read().strip()))" > "$out_file"
-    fi
-    echo "$out_file"
-}
-
 create_miner_config() {
     local miner_id=$1
     local miner_dir=$2
     local miner_port=$3
     local key_dir="${TEST_DIR}/keys"
-    local keys_json
 
     if [ "$miner_id" -eq 2 ] && [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
-        # Miner 2 (reserve account): use 3 reserve keys from beacon init for 3-of-3 multisig signing
-        local abs_miner_dir
-        abs_miner_dir="$(cd "$miner_dir" && pwd)"
-        local key_paths=()
-        for i in 1 2 3; do
-            local bin_file="${abs_miner_dir}/reserve${i}.bin"
-            hex_to_binary_key "$key_dir/reserve${i}.key" "$bin_file" >/dev/null || exit 1
-            key_paths+=("$bin_file")
-        done
-        keys_json="[\"${key_paths[0]}\", \"${key_paths[1]}\", \"${key_paths[2]}\"]"
+        # Miner 2 (reserve account): use 3 reserve keys (hex) from beacon init for 3-of-3 multisig
+        cp "$key_dir/reserve1.key" "$key_dir/reserve2.key" "$key_dir/reserve3.key" "$miner_dir/"
+        local keys_json='["reserve1.key", "reserve2.key", "reserve3.key"]'
         echo -e "${CYAN}Miner 2 using 3 reserve keys for signing${NC}"
     else
-        # Other miners: single miner key
-        local key_file
-        key_file=$(generate_miner_key "$miner_id")
-        cp "$key_file" "$miner_dir/key.txt"
-        local key_path
-        key_path="$(cd "$miner_dir" && pwd)/key.txt"
-        keys_json="[\"$key_path\"]"
+        # Other miners: single miner key (raw 32 bytes)
+        cp "$(generate_miner_key "$miner_id")" "$miner_dir/key.txt"
+        local keys_json='["key.txt"]'
     fi
 
     cat > "$miner_dir/config.json" << EOF

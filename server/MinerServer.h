@@ -114,7 +114,7 @@ private:
   Client client_;
   Config config_;
 
-  static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{60};
+  static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
   static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
   std::chrono::steady_clock::time_point lastMinerListFetchTime_{};
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};

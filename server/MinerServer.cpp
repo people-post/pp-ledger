@@ -190,14 +190,17 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.minerId = runFileConfig.minerId;
+  std::filesystem::path configDir =
+      std::filesystem::path(getWorkDir());
   config_.privateKeys.clear();
   for (const auto &keyFile : runFileConfig.keys) {
-    auto keyStr = utl::readKey(keyFile);
-    if (keyStr.empty()) {
+    auto keyResult = utl::readPrivateKey(keyFile, configDir.string());
+    if (!keyResult) {
       return Service::Error(E_CONFIG,
-                            "Failed to read key from file: " + keyFile);
+                            "Failed to load key '" + keyFile + "': " +
+                                keyResult.error().message);
     }
-    config_.privateKeys.push_back(keyStr);
+    config_.privateKeys.push_back(keyResult.value());
   }
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;

@@ -256,7 +256,7 @@ Chain::findAccountMetadataInBlock(const Ledger::Block &block,
     case Ledger::Transaction::T_USER:
       return unwrapMeta(updateMetaFromUserUpdate(tx.meta, account), false);
     case Ledger::Transaction::T_RENEWAL:
-      return unwrapMeta(updateMetaFromUserRenewal(tx.meta, account), false);
+      return unwrapMeta(updateMetaFromRenewal(tx.meta, account), false);
     // T_USER_END is not expected to update account metadata, and should not be
     // used as source for account meta, so we skip it here.
     default:
@@ -755,8 +755,8 @@ Chain::updateMetaFromUserUpdate(const std::string &meta,
 }
 
 Chain::Roe<std::string>
-Chain::updateMetaFromUserRenewal(const std::string &meta,
-                                 const AccountBuffer::Account &account) const {
+Chain::updateMetaFromRenewal(const std::string &meta,
+                             const AccountBuffer::Account &account) const {
   return updateUserMeta(meta, account);
 }
 
@@ -1266,9 +1266,8 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
 
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user meta: " +
-                                             std::to_string(tx.meta.size()) +
-                                             " bytes");
+    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize user meta for account " + 
+                 std::to_string(tx.fromWalletId) + ": " + std::to_string(tx.meta.size()) + " bytes");
   }
 
   if (userAccount.wallet.publicKeys.empty()) {

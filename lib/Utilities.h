@@ -190,6 +190,16 @@ inline bool isValidPublicKey(const std::string &str) {
  */
 std::string readKey(const std::string& key);
 
+/**
+ * Read private key from file path (relative to baseDir if relative) or inline hex string.
+ * Supports hex-encoded (64 hex chars, optionally 0x prefix) or raw 32 bytes.
+ * @param keyOrPath File path (relative to baseDir) or inline hex private key
+ * @param baseDir Base directory for resolving relative paths (e.g. config file directory)
+ * @return Roe<std::string>: 32-byte raw private key, or error
+ */
+pp::Roe<std::string> readPrivateKey(const std::string& keyOrPath,
+                                    const std::string& baseDir);
+
 } // namespace utl
 } // namespace pp
 

@@ -237,8 +237,8 @@ private:
   updateMetaFromUserUpdate(const std::string &meta,
                            const AccountBuffer::Account &account) const;
   Roe<std::string>
-  updateMetaFromUserRenewal(const std::string &meta,
-                            const AccountBuffer::Account &account) const;
+  updateMetaFromRenewal(const std::string &meta,
+                        const AccountBuffer::Account &account) const;
   Roe<std::string> updateUserMeta(const std::string &meta,
                                   const AccountBuffer::Account &account) const;
   /** Shared impl: operates on bank. When isBufferMode, seeds accounts from

@@ -346,5 +346,61 @@ std::string readKey(const std::string &key) {
   return trimWhitespace(key);
 }
 
+namespace {
+
+bool isHexChar(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+         (c >= 'A' && c <= 'F');
+}
+
+bool isHexString(const std::string &s, size_t expectedLen) {
+  if (s.size() != expectedLen) return false;
+  for (char c : s) {
+    if (!isHexChar(c)) return false;
+  }
+  return true;
+}
+
+} // namespace
+
+pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
+                                    const std::string &baseDir) {
+  if (keyOrPath.empty()) {
+    return Error(1, "Key path or value cannot be empty");
+  }
+  std::string resolvedPath = keyOrPath;
+  if (!baseDir.empty()) {
+    std::filesystem::path p(keyOrPath);
+    if (p.is_relative()) {
+      resolvedPath =
+          (std::filesystem::path(baseDir) / p).lexically_normal().string();
+    }
+  }
+  std::string content = readKey(resolvedPath);
+  if (content.empty()) {
+    return Error(2, "Failed to read key from: " + keyOrPath);
+  }
+  // Strip optional 0x prefix
+  if (content.size() >= 2 && content[0] == '0' &&
+      (content[1] == 'x' || content[1] == 'X')) {
+    content = content.substr(2);
+  }
+  content = trimWhitespace(content);
+  // Hex-encoded: 64 hex chars -> 32 bytes
+  if (isHexString(content, 64)) {
+    std::string raw = hexDecode(content);
+    if (raw.size() != 32) {
+      return Error(3, "Invalid hex-encoded private key (expected 64 hex chars)");
+    }
+    return raw;
+  }
+  // Raw 32 bytes
+  if (content.size() == 32) {
+    return content;
+  }
+  return Error(4, "Private key must be 32 bytes raw or 64 hex characters, got " +
+                      std::to_string(content.size()));
+}
+
 } // namespace utl
 } // namespace pp

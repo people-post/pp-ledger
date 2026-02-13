@@ -21,7 +21,7 @@ public:
     constexpr static uint16_t T_NEW_USER = 2;   // By any account to fund initialize a new user
     constexpr static uint16_t T_CONFIG = 3;     // By genesis account to update the system config
     constexpr static uint16_t T_USER = 4;       // By user accounts to update their account info
-    constexpr static uint16_t T_RENEWAL = 5;    // By miner to renew user account with latest account info
+    constexpr static uint16_t T_RENEWAL = 5;    // By miner to renew user/genesis account with latest account info
     constexpr static uint16_t T_END_USER = 6;   // By miner to terminate user account due to insufficient fee.
 
     uint16_t type{ T_DEFAULT };
