@@ -181,10 +181,25 @@ private:
   Roe<Ledger::SignedData<Ledger::Transaction>>
   createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
 
-  /** Find and update account metadata from a block's transactions. */
+  /** Find matching tx in block, update meta with current account state, return
+   * serialized meta. Name reflects that meta is updated, not merely found. */
   Roe<std::string>
-  findAccountMetadataInBlock(const Ledger::Block &block,
-                             const AccountBuffer::Account &account) const;
+  getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
+                                 const AccountBuffer::Account &account) const;
+
+  /** Get user account meta as struct (no serialize); used to avoid double
+   * deserialize when caller needs to modify before serializing. */
+  Roe<Client::UserAccount>
+  getUserAccountMetaFromBlock(const Ledger::Block &block,
+                              const AccountBuffer::Account &account) const;
+
+  /** Account metadata for renewal: user accounts get genesis balance adjusted to
+   * post-renewal (current - fee) since verifyBalance expects that. Single
+   * serialize at end by using getUserAccountMetaFromBlock. */
+  Roe<std::string>
+  findAccountMetadataForRenewal(const Ledger::Block &block,
+                                const AccountBuffer::Account &account,
+                                uint64_t minFee) const;
 
   Roe<void> validateAccountRenewals(const Ledger::ChainNode &block) const;
 
@@ -243,6 +258,11 @@ private:
                             const AccountBuffer::Account &account) const;
   Roe<std::string> updateUserMeta(const std::string &meta,
                                   const AccountBuffer::Account &account) const;
+  /** Like updateUserMeta but returns struct (avoids serialize when caller
+   * will modify before serializing). */
+  Roe<Client::UserAccount>
+  updateUserMetaToStruct(const std::string &meta,
+                        const AccountBuffer::Account &account) const;
   /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
    * bank_ and checks existence in both. */
   Roe<void> processUserInitImpl(AccountBuffer &bank,

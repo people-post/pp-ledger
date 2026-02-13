@@ -199,9 +199,43 @@ uint64_t Chain::getBlockAgeSeconds(uint64_t blockId) const {
   return 0;
 }
 
-Chain::Roe<std::string>
-Chain::findAccountMetadataInBlock(const Ledger::Block &block,
+Chain::Roe<Client::UserAccount>
+Chain::getUserAccountMetaFromBlock(const Ledger::Block &block,
                                   const AccountBuffer::Account &account) const {
+  const uint64_t accountId = account.id;
+
+  auto matchesUserAccount = [&](const Ledger::Transaction &tx) -> bool {
+    switch (tx.type) {
+    case Ledger::Transaction::T_NEW_USER:
+      return accountId != AccountBuffer::ID_GENESIS &&
+             tx.toWalletId == accountId;
+    case Ledger::Transaction::T_USER:
+      return accountId != AccountBuffer::ID_GENESIS &&
+             tx.fromWalletId == accountId && tx.toWalletId == accountId;
+    case Ledger::Transaction::T_RENEWAL:
+      return tx.fromWalletId == accountId &&
+             accountId != AccountBuffer::ID_GENESIS;
+    default:
+      return false;
+    }
+  };
+
+  for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend();
+       ++it) {
+    const auto &tx = it->obj;
+    if (!matchesUserAccount(tx)) {
+      continue;
+    }
+    return updateUserMetaToStruct(tx.meta, account);
+  }
+
+  return Error(E_INTERNAL,
+               "No prior user/renewal from this account in block");
+}
+
+Chain::Roe<std::string>
+Chain::getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
+                                      const AccountBuffer::Account &account) const {
   const uint64_t accountId = account.id;
 
   auto unwrapMeta = [](const Chain::Roe<std::string> &metaResult,
@@ -271,6 +305,33 @@ Chain::findAccountMetadataInBlock(const Ledger::Block &block,
                "No prior checkpoint/user/renewal from this account in block");
 }
 
+Chain::Roe<std::string>
+Chain::findAccountMetadataForRenewal(const Ledger::Block &block,
+                                    const AccountBuffer::Account &account,
+                                    uint64_t minFee) const {
+  if (account.id == AccountBuffer::ID_GENESIS) {
+    return getUpdatedAccountMetaFromBlock(block, account);
+  }
+
+  auto userAccountRoe = getUserAccountMetaFromBlock(block, account);
+  if (!userAccountRoe) {
+    return userAccountRoe.error();
+  }
+  Client::UserAccount userAccount = std::move(userAccountRoe.value());
+
+  // verifyBalance expects "expected" = post-renewal balance (current - fee)
+  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+  if (it != userAccount.wallet.mBalances.end()) {
+    const int64_t fee = static_cast<int64_t>(minFee);
+    if (it->second < fee) {
+      return Error(E_ACCOUNT_BALANCE,
+                  "Insufficient genesis balance for renewal fee");
+    }
+    it->second -= fee;
+  }
+  return userAccount.ltsToString();
+}
+
 Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
 Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
   auto accountResult = bank_.getAccount(accountId);
@@ -308,7 +369,7 @@ Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
     }
     auto const &block = blockResult.value().block;
 
-    auto metaResult = findAccountMetadataInBlock(block, account);
+    auto metaResult = findAccountMetadataForRenewal(block, account, minFee);
     if (!metaResult) {
       return metaResult.error();
     }
@@ -763,9 +824,9 @@ Chain::updateMetaFromUserRenewal(const std::string &meta,
   return updateUserMeta(meta, account);
 }
 
-Chain::Roe<std::string>
-Chain::updateUserMeta(const std::string &meta,
-                      const AccountBuffer::Account &account) const {
+Chain::Roe<Client::UserAccount>
+Chain::updateUserMetaToStruct(const std::string &meta,
+                              const AccountBuffer::Account &account) const {
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(meta)) {
     return Error(E_INTERNAL_DESERIALIZE,
@@ -773,7 +834,17 @@ Chain::updateUserMeta(const std::string &meta,
                      std::to_string(meta.size()) + " bytes");
   }
   userAccount.wallet = account.wallet;
-  return userAccount.ltsToString();
+  return userAccount;
+}
+
+Chain::Roe<std::string>
+Chain::updateUserMeta(const std::string &meta,
+                      const AccountBuffer::Account &account) const {
+  auto roe = updateUserMetaToStruct(meta, account);
+  if (!roe) {
+    return roe.error();
+  }
+  return roe.value().ltsToString();
 }
 
 Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block,

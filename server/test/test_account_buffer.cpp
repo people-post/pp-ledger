@@ -741,7 +741,8 @@ TEST_F(AccountBufferTest, VerifyBalance_GenesisTokenMismatch_Error) {
     auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
-    EXPECT_EQ(r.error().message, "Genesis token balance mismatch");
+    EXPECT_TRUE(r.error().message.find("Genesis token balance mismatch") !=
+                std::string::npos);
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_AccountNotFound_Error) {

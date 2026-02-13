@@ -137,6 +137,8 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
   slotCache_.slot = slot;
   slotCache_.isLeader = chain_.isStakeholderSlotLeader(config_.minerId, slot);
   if (slotCache_.isLeader) {
+    // Reset buffer so renewals see chain state; pending txes applied after
+    bufferBank_.clear();
     // Leader initial evaluations per slot
     auto renewalsResult = chain_.collectRenewals(slot);
     if (!renewalsResult) {
@@ -159,6 +161,16 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       if (!addResult) {
         slotCache_ = {};
         return Error(12, "Failed to add renewal transaction: " +
+                             addResult.error().message);
+      }
+    }
+    // Re-apply pending txes so buffer matches block order (renewals then pending)
+    for (const auto &signedTx : pendingTxes_) {
+      auto addResult =
+          chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
+      if (!addResult) {
+        slotCache_ = {};
+        return Error(12, "Failed to add pending transaction: " +
                              addResult.error().message);
       }
     }
