@@ -931,7 +931,7 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
     return Error(
         E_TX_SIGNATURE,
         "Account " + std::to_string(account.id) + " must have at least " +
-            std::to_string(account.wallet.minSignatures) +
+            std::to_string(int(account.wallet.minSignatures)) +
             " signatures, but has " + std::to_string(signatures.size()));
   }
   auto message = utl::binaryPack(tx);
@@ -952,7 +952,7 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
       log().error << "Invalid signature for account " +
                          std::to_string(account.id) + ": " +
                          utl::toJsonSafeString(signature);
-      log().error << "Expected signatures: " << account.wallet.minSignatures;
+      log().error << "Expected signatures: " << int(account.wallet.minSignatures);
       for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
         log().error << "Public key " << i << ": "
                     << utl::toJsonSafeString(account.wallet.publicKeys[i]);

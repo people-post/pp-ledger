@@ -224,18 +224,9 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_MINER, "Failed to sync blocks from beacon: " +
                                        syncResult.error().message);
   }
+  lastBlockSyncTime_ = std::chrono::steady_clock::now();
 
-  auto minerListResult = client_.fetchMinerList();
-  if (minerListResult) {
-    for (const auto &miner : minerListResult.value()) {
-      config_.mMiners[miner.id] = miner;
-    }
-    log().info << "Fetched miner list: " << config_.mMiners.size()
-               << " registered miners";
-  } else {
-    log().warning << "Failed to fetch miner list: "
-                  << minerListResult.error().message;
-  }
+  refreshMinerListFromBeacon();
 
   initHandlers();
 
@@ -338,6 +329,8 @@ void MinerServer::runLoop() {
 
       pollAndProcessOneRequest();
 
+      syncBlocksPeriodically();
+
       if (miner_.isSlotLeader()) {
         handleSlotLeaderRole();
       } else {
@@ -356,12 +349,64 @@ void MinerServer::runLoop() {
   log().info << "Block production and request handler loop stopped";
 }
 
+void MinerServer::syncBlocksPeriodically() {
+  auto now = std::chrono::steady_clock::now();
+  auto elapsedSinceSync =
+      std::chrono::duration_cast<std::chrono::seconds>(
+          now - lastBlockSyncTime_);
+  if (elapsedSinceSync >= BLOCK_SYNC_INTERVAL) {
+    auto syncResult = syncBlocksFromBeacon();
+    if (syncResult) {
+      lastBlockSyncTime_ = now;
+    } else {
+      log().warning << "Periodic block sync failed: "
+                    << syncResult.error().message;
+    }
+  }
+}
+
+void MinerServer::refreshMinerListFromBeacon() {
+  if (config_.network.beacons.empty()) {
+    return;
+  }
+  std::string beaconAddr = config_.network.beacons[0];
+  if (!client_.setEndpoint(beaconAddr)) {
+    log().warning << "Failed to resolve beacon for miner list: " << beaconAddr;
+    return;
+  }
+  auto minerListResult = client_.fetchMinerList();
+  if (minerListResult) {
+    for (const auto &miner : minerListResult.value()) {
+      config_.mMiners[miner.id] = miner;
+    }
+    lastMinerListFetchTime_ = std::chrono::steady_clock::now();
+    log().info << "Fetched miner list: " << config_.mMiners.size()
+               << " registered miners";
+  } else {
+    log().warning << "Failed to fetch miner list: "
+                  << minerListResult.error().message;
+  }
+}
+
 std::string MinerServer::findTxSubmitAddress(uint64_t slotLeaderId) {
   auto it = config_.mMiners.find(slotLeaderId);
-  if (it == config_.mMiners.end()) {
-    return "";
+  if (it != config_.mMiners.end()) {
+    return it->second.endpoint;
   }
-  return it->second.endpoint;
+  // Not found: refetch from beacon if enough time has elapsed
+  auto now = std::chrono::steady_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+      now - lastMinerListFetchTime_);
+  if (elapsed >= MINER_LIST_REFETCH_INTERVAL) {
+    log().info << "Slot leader " << slotLeaderId
+               << " not in miner list, refetching from beacon";
+    refreshMinerListFromBeacon();
+    it = config_.mMiners.find(slotLeaderId);
+    if (it != config_.mMiners.end()) {
+      return it->second.endpoint;
+    }
+  }
+  return "";
 }
 
 std::string MinerServer::handleParsedRequest(const Client::Request &request) {
@@ -444,6 +489,12 @@ MinerServer::hTransactionAdd(const Client::Request &request) {
   }
   uint64_t slotLeaderId = slotLeaderIdResult.value();
   std::string leaderAddr = findTxSubmitAddress(slotLeaderId);
+  if (leaderAddr.empty()) {
+    miner_.addToForwardCache(signedTx);
+    log().info << "Slot leader " << slotLeaderId
+               << " address unknown, transaction cached for retry in next slot";
+    return {"Transaction cached for retry in next slot"};
+  }
   if (!client_.setEndpoint(leaderAddr)) {
     return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
   }
@@ -478,6 +529,21 @@ MinerServer::hUnsupported(const Client::Request &request) {
 }
 
 void MinerServer::handleSlotLeaderRole() {
+  // Add cached transactions to our own pool (we are slot leader, no need to forward)
+  auto cached = miner_.drainForwardCache();
+  size_t added = 0;
+  for (const auto &signedTx : cached) {
+    auto result = miner_.addTransaction(signedTx);
+    if (result) {
+      added++;
+    } else {
+      miner_.addToForwardCache(signedTx);
+    }
+  }
+  if (added > 0) {
+    log().info << "Added " << added << " cached transactions to slot leader pool";
+  }
+
   static Ledger::ChainNode block;
   auto produceResult = miner_.produceBlock(block);
   if (!produceResult) {
@@ -518,7 +584,62 @@ void MinerServer::handleSlotLeaderRole() {
   log().info << "  Hash: " << block.hash;
 }
 
+void MinerServer::retryCachedTransactionForwards() {
+  // Only forward cached txes when in validator role; slot leader adds them itself
+  if (miner_.isSlotLeader()) {
+    return;
+  }
+  uint64_t currentSlot = miner_.getCurrentSlot();
+  if (currentSlot == lastForwardRetrySlot_) {
+    return;
+  }
+  auto cached = miner_.drainForwardCache();
+  if (cached.empty()) {
+    lastForwardRetrySlot_ = currentSlot;
+    return;
+  }
+  lastForwardRetrySlot_ = currentSlot;
+  auto slotLeaderIdResult = miner_.getSlotLeaderId();
+  if (!slotLeaderIdResult) {
+    for (const auto &tx : cached) {
+      miner_.addToForwardCache(tx);
+    }
+    return;
+  }
+  uint64_t slotLeaderId = slotLeaderIdResult.value();
+  std::string leaderAddr = findTxSubmitAddress(slotLeaderId);
+  if (leaderAddr.empty()) {
+    for (const auto &tx : cached) {
+      miner_.addToForwardCache(tx);
+    }
+    log().debug << "Still cannot find slot leader " << slotLeaderId
+                << " address, " << cached.size()
+                << " transactions remain cached";
+    return;
+  }
+  if (!client_.setEndpoint(leaderAddr)) {
+    for (const auto &tx : cached) {
+      miner_.addToForwardCache(tx);
+    }
+    return;
+  }
+  size_t forwarded = 0;
+  for (const auto &signedTx : cached) {
+    auto result = client_.addTransaction(signedTx);
+    if (result) {
+      forwarded++;
+    } else {
+      miner_.addToForwardCache(signedTx);
+    }
+  }
+  if (forwarded > 0) {
+    log().info << "Forwarded " << forwarded << " cached transactions to slot "
+               << currentSlot << " leader";
+  }
+}
+
 void MinerServer::handleValidatorRole() {
+  retryCachedTransactionForwards();
   // Not slot leader - act as validator
   // Monitor for new blocks from other miners and validate them
 

@@ -131,14 +131,52 @@ EOF
     # Extract reserve private keys for add-account (ID_RESERVE=2 needs 3-of-3 multisig)
     local key_dir="${TEST_DIR}/keys"
     mkdir -p "$key_dir"
-    local i=1
-    while IFS= read -r line; do
-        local pk
-        pk=$(echo "$line" | sed 's/.*"privateKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | tr -d ' \n')
-        [ -n "$pk" ] && echo "$pk" > "$key_dir/reserve${i}.key" && i=$((i + 1))
-    done < <(echo "$init_output" | sed -n '/"reserve"/,/\]/p' | grep '"privateKey"')
-    if [ -f "$key_dir/reserve1.key" ]; then
-        echo -e "${CYAN}Saved $((i - 1)) reserve keys for add-account tests${NC}"
+    # Use Python for robust JSON parsing (reserve needs exactly 3 distinct keys)
+    local keys_ok=false
+    if command -v python3 &>/dev/null; then
+        local json_file="${TEST_DIR}/keys_init.json"
+        echo "$init_output" > "$json_file"
+        if python3 - "$key_dir" "$json_file" <<'PYEOF' 2>/dev/null
+import json, sys, os, re
+key_dir, init_path = sys.argv[1], sys.argv[2]
+with open(init_path) as f:
+    text = f.read()
+# Find JSON after "recoverable:"
+m = re.search(r'recoverable:\s*(\{[\s\S]*\})', text)
+if not m:
+    sys.exit(1)
+j = json.loads(m.group(1))
+reserve = j.get('reserve', [])
+if len(reserve) != 3:
+    sys.exit(1)
+for i, kp in enumerate(reserve, 1):
+    pk = kp.get('privateKey', '')
+    if not pk or len(pk) != 64:
+        sys.exit(1)
+    with open(os.path.join(key_dir, f'reserve{i}.key'), 'w') as f:
+        f.write(pk)
+PYEOF
+            then
+                keys_ok=true
+            fi
+            rm -f "$json_file"
+    fi
+    # Fallback: sed extraction (less robust)
+    if ! $keys_ok; then
+        local i=1
+        while IFS= read -r line; do
+            local pk
+            pk=$(echo "$line" | sed 's/.*"privateKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | tr -d ' \n')
+            if [ -n "$pk" ] && [ ${#pk} -eq 64 ]; then
+                echo "$pk" > "$key_dir/reserve${i}.key"
+                i=$((i + 1))
+            fi
+        done < <(echo "$init_output" | sed -n '/"reserve"/,/\]/p' | grep '"privateKey"')
+    fi
+    if [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
+        echo -e "${CYAN}Saved 3 reserve keys for add-account tests (3-of-3 multisig)${NC}"
+    elif [ -f "$key_dir/reserve1.key" ]; then
+        echo -e "${YELLOW}Saved reserve keys (need 3 for multisig)${NC}"
     fi
 }
 

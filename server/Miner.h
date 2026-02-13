@@ -76,6 +76,11 @@ public:
   addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
+  /** Cache a transaction for forwarding retry when slot leader address is unknown. */
+  void addToForwardCache(const Ledger::SignedData<Ledger::Transaction> &signedTx);
+  /** Take all cached transactions for retry; returns and clears the cache. */
+  std::vector<Ledger::SignedData<Ledger::Transaction>> drainForwardCache();
+
   Roe<bool> produceBlock(Ledger::ChainNode &block);
   void markBlockProduction(const Ledger::ChainNode &block);
 
@@ -103,6 +108,7 @@ private:
   Config config_;
   AccountBuffer bufferBank_;
   std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
+  std::vector<Ledger::SignedData<Ledger::Transaction>> forwardCache_;
   uint64_t lastProducedBlockId_{0};
   uint64_t lastProducedSlot_{
       0}; // slot we last produced a block for (at most one per slot)

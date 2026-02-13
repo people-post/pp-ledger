@@ -222,6 +222,18 @@ Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
   return {};
 }
 
+void Miner::addToForwardCache(
+    const Ledger::SignedData<Ledger::Transaction> &signedTx) {
+  forwardCache_.push_back(signedTx);
+}
+
+std::vector<Ledger::SignedData<Ledger::Transaction>>
+Miner::drainForwardCache() {
+  std::vector<Ledger::SignedData<Ledger::Transaction>> result;
+  result.swap(forwardCache_);
+  return result;
+}
+
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   // Adding block is in strict mode if it is at or after the checkpoint id
   bool isStrictMode = block.block.index >= config_.checkpointId;

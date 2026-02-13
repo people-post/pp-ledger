@@ -6,6 +6,7 @@
 #include "../client/Client.h"
 #include "../network/Types.hpp"
 #include "../lib/ResultOrError.hpp"
+#include <chrono>
 #include <string>
 #include <thread>
 #include <atomic>
@@ -86,11 +87,18 @@ private:
   };
 
   std::string findTxSubmitAddress(uint64_t slotLeaderId);
+
+  /** Refetch miner list from beacon. Updates config_.mMiners and lastMinerListFetchTime_. */
+  void refreshMinerListFromBeacon();
+  /** Periodically sync to latest block from beacon since last sync. */
+  void syncBlocksPeriodically();
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
   void handleValidatorRole();
+  /** Retry forwarding cached transactions when slot has changed. */
+  void retryCachedTransactionForwards();
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
 
   std::string handleParsedRequest(const Client::Request &request) override;
@@ -105,6 +113,12 @@ private:
   Miner miner_;
   Client client_;
   Config config_;
+
+  static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{60};
+  static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
+  std::chrono::steady_clock::time_point lastMinerListFetchTime_{};
+  std::chrono::steady_clock::time_point lastBlockSyncTime_{};
+  uint64_t lastForwardRetrySlot_{0};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
