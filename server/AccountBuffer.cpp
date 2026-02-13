@@ -242,7 +242,8 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
 
   int64_t bufferGenesis = getBalanceOrZero(bufferBalances, ID_GENESIS);
   if (bufferGenesis != expectedBufferGenesis) {
-    return Error(E_BALANCE, "Genesis token balance mismatch");
+    return Error(E_BALANCE, "Genesis token balance mismatch for account " + std::to_string(accountId) + ": expected " +
+                 std::to_string(expectedBufferGenesis) + ", got " + std::to_string(bufferGenesis));
   }
 
   return {};

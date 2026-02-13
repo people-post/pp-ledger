@@ -256,7 +256,10 @@ Chain::findAccountMetadataInBlock(const Ledger::Block &block,
     case Ledger::Transaction::T_USER:
       return unwrapMeta(updateMetaFromUserUpdate(tx.meta, account), false);
     case Ledger::Transaction::T_RENEWAL:
-      return unwrapMeta(updateMetaFromRenewal(tx.meta, account), false);
+      if (accountId == AccountBuffer::ID_GENESIS) {
+        return unwrapMeta(updateMetaFromSystemUpdate(tx.meta), true);
+      }
+      return unwrapMeta(updateMetaFromUserRenewal(tx.meta, account), false);
     // T_USER_END is not expected to update account metadata, and should not be
     // used as source for account meta, so we skip it here.
     default:
@@ -755,8 +758,8 @@ Chain::updateMetaFromUserUpdate(const std::string &meta,
 }
 
 Chain::Roe<std::string>
-Chain::updateMetaFromRenewal(const std::string &meta,
-                             const AccountBuffer::Account &account) const {
+Chain::updateMetaFromUserRenewal(const std::string &meta,
+                                 const AccountBuffer::Account &account) const {
   return updateUserMeta(meta, account);
 }
 
@@ -856,17 +859,22 @@ Chain::Roe<void> Chain::addBufferTransaction(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
+  auto blockId = getNextBlockId();
   const auto &tx = signedTx.obj;
   switch (tx.type) {
   case Ledger::Transaction::T_DEFAULT:
     return processBufferTransaction(bank, tx);
   case Ledger::Transaction::T_NEW_USER:
-    return processBufferUserInit(bank, tx);
+    return processBufferUserInit(bank, tx, blockId);
   case Ledger::Transaction::T_CONFIG:
-    return processBufferSystemUpdate(bank, tx);
+    return processBufferSystemUpdate(bank, tx, blockId);
   case Ledger::Transaction::T_USER:
+    return processBufferUserAccountUpsert(bank, tx, blockId);
   case Ledger::Transaction::T_RENEWAL:
-    return processBufferUserAccountUpsert(bank, tx);
+    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+      return processBufferGenesisRenewal(bank, tx, blockId);
+    }
+    return processBufferUserAccountUpsert(bank, tx, blockId);
   case Ledger::Transaction::T_END_USER:
     return processBufferUserEnd(bank, tx);
   default:
@@ -913,6 +921,9 @@ Chain::Roe<void> Chain::processNormalTxRecord(
   case Ledger::Transaction::T_USER:
     return processUserUpdate(tx, blockId, isStrictMode);
   case Ledger::Transaction::T_RENEWAL:
+    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+      return processGenesisRenewal(tx, blockId, isStrictMode);
+    }
     return processUserRenewal(tx, blockId, isStrictMode);
   case Ledger::Transaction::T_END_USER:
     return processUserEnd(tx, blockId, isStrictMode);
@@ -1048,6 +1059,7 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
 
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;
+  genesisAccount.blockId = 0;
   genesisAccount.wallet = gm.genesis.wallet;
   auto roeAddGenesis = bank_.add(genesisAccount);
   if (!roeAddGenesis) {
@@ -1065,7 +1077,7 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
 }
 
 Chain::Roe<Chain::GenesisAccountMeta> Chain::processSystemUpdateImpl(
-    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId) const {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
       tx.toWalletId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION, "System update transaction must use genesis "
@@ -1112,6 +1124,19 @@ Chain::Roe<Chain::GenesisAccountMeta> Chain::processSystemUpdateImpl(
     return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
   }
 
+  bank.remove(AccountBuffer::ID_GENESIS);
+
+  AccountBuffer::Account account;
+  account.id = AccountBuffer::ID_GENESIS;
+  account.blockId = blockId;
+  account.wallet = gm.genesis.wallet;
+  auto addResult = bank.add(account);
+  if (!addResult) {
+    return Error(E_INTERNAL_BUFFER,
+                 "Failed to add updated genesis account: " +
+                     addResult.error().message);
+  }
+
   return gm;
 }
 
@@ -1119,7 +1144,7 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
   log().info << "Processing system update transaction";
-  auto result = processSystemUpdateImpl(bank_, tx);
+  auto result = processSystemUpdateImpl(bank_, tx, blockId);
   if (!result) {
     return result.error();
   }
@@ -1127,6 +1152,86 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
   log().info << "System updated";
   log().info << "  Version: " << GenesisAccountMeta::VERSION;
   log().info << "  Config: " << chainConfig_;
+  return {};
+}
+
+Chain::Roe<void> Chain::processGenesisRenewalImpl(
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
+    bool isStrictMode) const {
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      tx.toWalletId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
+  }
+  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis renewal must use genesis token (ID_GENESIS)");
+  }
+  if (tx.amount != 0) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis renewal transaction must have amount 0");
+  }
+  if (tx.fee < chainConfig_.minFeePerTransaction) {
+    return Error(E_TX_FEE,
+                 "Genesis renewal fee below minimum: " + std::to_string(tx.fee));
+  }
+
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(tx.meta)) {
+    return Error(E_INTERNAL_DESERIALIZE,
+                 "Failed to deserialize genesis renewal meta: " +
+                     std::to_string(tx.meta.size()) + " bytes");
+  }
+
+  if (gm.genesis.wallet.publicKeys.size() < 3) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis account must have at least 3 public keys");
+  }
+  if (gm.genesis.wallet.minSignatures < 2) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis account must have at least 2 signatures");
+  }
+
+  auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
+  if (!genesisAccountResult) {
+    if (isStrictMode) {
+      return Error(E_ACCOUNT_NOT_FOUND,
+                   "Genesis account not found for renewal");
+    }
+    return {};
+  }
+
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
+                          gm.genesis.wallet.mBalances)) {
+    return Error(E_TX_VALIDATION,
+                 "Genesis account balance mismatch in renewal");
+  }
+
+  bank.remove(AccountBuffer::ID_GENESIS);
+
+  AccountBuffer::Account account;
+  account.id = AccountBuffer::ID_GENESIS;
+  account.blockId = blockId;
+  account.wallet = gm.genesis.wallet;
+  auto addResult = bank.add(account);
+  if (!addResult) {
+    return Error(E_INTERNAL_BUFFER,
+                 "Failed to add renewed genesis account: " +
+                     addResult.error().message);
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
+                                              uint64_t blockId,
+                                              bool isStrictMode) {
+  log().info << "Processing genesis renewal transaction";
+  auto result =
+      processGenesisRenewalImpl(bank_, tx, blockId, isStrictMode);
+  if (!result) {
+    return result.error();
+  }
+  log().info << "Genesis account renewed";
   return {};
 }
 
@@ -1435,17 +1540,17 @@ Chain::processBufferTransaction(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
-                                              const Ledger::Transaction &tx) const {
-  return processUserInitImpl(bank, tx, getNextBlockId(), true);
+                                              const Ledger::Transaction &tx, uint64_t blockId) const {
+  return processUserInitImpl(bank, tx, blockId, true);
 }
 
 Chain::Roe<void> Chain::processBufferSystemUpdate(
-    AccountBuffer &bank, const Ledger::Transaction &tx) const {
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId) const {
   auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
   if (!genesisRoe) {
     return genesisRoe;
   }
-  auto configResult = processSystemUpdateImpl(bank, tx);
+  auto configResult = processSystemUpdateImpl(bank, tx, blockId);
   if (!configResult) {
     return configResult.error();
   }
@@ -1453,8 +1558,17 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(
 }
 
 Chain::Roe<void> Chain::processBufferUserAccountUpsert(
-    AccountBuffer &bank, const Ledger::Transaction &tx) const {
-  return processUserAccountUpsertImpl(bank, tx, getNextBlockId(), true, true);
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId) const {
+  return processUserAccountUpsertImpl(bank, tx, blockId, true, true);
+}
+
+Chain::Roe<void> Chain::processBufferGenesisRenewal(
+    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId) const {
+  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
+  if (!genesisRoe) {
+    return genesisRoe;
+  }
+  return processGenesisRenewalImpl(bank, tx, blockId, true);
 }
 
 Chain::Roe<void> Chain::processBufferUserEnd(AccountBuffer &bank,

@@ -275,13 +275,14 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot) {
   block.block.slotLeader = config_.minerId;
 
   // Populate signedTxes
-  block.block.signedTxes = pendingTxes_;
+  block.block.signedTxes = slotCache_.txRenewals;
+  block.block.signedTxes.insert(block.block.signedTxes.end(), pendingTxes_.begin(), pendingTxes_.end());
 
   // Calculate hash
   block.hash = calculateHash(block.block);
 
   log().debug << "Created block " << blockIndex << " with "
-              << pendingTxes_.size() << " transactions";
+              << block.block.signedTxes.size() << " transactions";
 
   return block;
 }

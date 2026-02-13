@@ -223,11 +223,13 @@ private:
   Roe<void> processSystemInit(const Ledger::Transaction &tx);
   Roe<GenesisAccountMeta>
   processSystemUpdateImpl(AccountBuffer &bank,
-                          const Ledger::Transaction &tx) const;
+                          const Ledger::Transaction &tx,
+                          uint64_t blockId) const;
   Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                                 bool isStrictMode);
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
-                                      const Ledger::Transaction &tx) const;
+                                      const Ledger::Transaction &tx,
+                                      uint64_t blockId) const;
 
   // User
   Roe<std::string>
@@ -237,8 +239,8 @@ private:
   updateMetaFromUserUpdate(const std::string &meta,
                            const AccountBuffer::Account &account) const;
   Roe<std::string>
-  updateMetaFromRenewal(const std::string &meta,
-                        const AccountBuffer::Account &account) const;
+  updateMetaFromUserRenewal(const std::string &meta,
+                            const AccountBuffer::Account &account) const;
   Roe<std::string> updateUserMeta(const std::string &meta,
                                   const AccountBuffer::Account &account) const;
   /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
@@ -248,7 +250,7 @@ private:
                                 uint64_t blockId, bool isBufferMode) const;
   Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId);
   Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::Transaction &tx) const;
+                                  const Ledger::Transaction &tx, uint64_t blockId) const;
 
   Roe<void> processUserAccountUpsertImpl(
       AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
@@ -260,8 +262,18 @@ private:
                               bool isStrictMode);
   Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
+  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx, uint64_t blockId,
+                                  bool isStrictMode);
+  Roe<void> processGenesisRenewalImpl(AccountBuffer &bank,
+                                     const Ledger::Transaction &tx,
+                                     uint64_t blockId,
+                                     bool isStrictMode) const;
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
-                                           const Ledger::Transaction &tx) const;
+                                           const Ledger::Transaction &tx,
+                                           uint64_t blockId) const;
+  Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
+                                        const Ledger::Transaction &tx,
+                                        uint64_t blockId) const;
 
   Roe<void> processUserEndImpl(AccountBuffer &bank,
                               const Ledger::Transaction &tx,
