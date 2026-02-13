@@ -84,10 +84,14 @@ bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
 }
 
 bool Chain::isValidBlockSequence(const Ledger::ChainNode &block) const {
-  if (block.block.index != ledger_.getNextBlockId()) {
-    log().warning << "Invalid block index: expected "
-                  << ledger_.getNextBlockId() << " got " << block.block.index;
-    return false;
+  // When appending: block must be the next one (index == getNextBlockId)
+  // When loading: block is already in ledger (index < getNextBlockId), skip this
+  if (block.block.index >= ledger_.getNextBlockId()) {
+    if (block.block.index != ledger_.getNextBlockId()) {
+      log().warning << "Invalid block index: expected "
+                    << ledger_.getNextBlockId() << " got " << block.block.index;
+      return false;
+    }
   }
 
   if (block.block.index == 0) {
@@ -585,6 +589,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                            std::to_string(blockId) + ": " +
                                            processResult.error().message);
     }
+
+    // Stakeholders must be refreshed after each block so slot leader
+    // validation works for the next block (consensus needs up-to-date stake)
+    refreshStakeholders();
 
     blockId++;
 

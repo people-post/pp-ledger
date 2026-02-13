@@ -1,5 +1,6 @@
 #include "Utilities.h"
 #include <charconv>
+#include <ctime>
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
@@ -27,6 +28,16 @@ namespace {
 int64_t getCurrentTime() {
   return std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+std::string formatTimestampLocal(int64_t unixSeconds) {
+  time_t t = static_cast<time_t>(unixSeconds);
+  std::tm* local = std::localtime(&t);
+  if (!local) return std::to_string(unixSeconds);
+  char buf[64];
+  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", local) == 0)
+    return std::to_string(unixSeconds);
+  return std::string(buf);
 }
 
 bool parseInt(const std::string &str, int &value) {

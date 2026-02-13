@@ -8,7 +8,6 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
-#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -47,20 +46,10 @@ static uint64_t randomAccountId() {
   return dist(gen);
 }
 
-static std::string formatTimestampLocal(int64_t unixSeconds) {
-  time_t t = static_cast<time_t>(unixSeconds);
-  std::tm* local = std::localtime(&t);
-  if (!local) return std::to_string(unixSeconds);
-  char buf[64];
-  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", local) == 0)
-    return std::to_string(unixSeconds);
-  return std::string(buf);
-}
-
 using json = nlohmann::json;
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
-  std::cout << "Current Timestamp: " << formatTimestampLocal(status.currentTimestamp) << "\n";
+  std::cout << "Current Timestamp: " << pp::utl::formatTimestampLocal(status.currentTimestamp) << "\n";
   std::cout << status.ltsToJson().dump(2) << "\n";
 }
 

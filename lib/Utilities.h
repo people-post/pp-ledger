@@ -28,6 +28,13 @@ namespace utl {
 int64_t getCurrentTime();
 
 /**
+ * Format a Unix timestamp as a human-readable local time string
+ * @param unixSeconds Seconds since 1970-01-01 00:00:00 UTC
+ * @return Formatted string (e.g. "2025-02-13 12:34:56 PST") or raw number as string on failure
+ */
+std::string formatTimestampLocal(int64_t unixSeconds);
+
+/**
  * Parse an integer from a string
  * @param str String to parse
  * @param value Output parameter for the parsed value

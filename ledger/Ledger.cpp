@@ -10,6 +10,23 @@
 
 namespace pp {
 
+namespace {
+
+std::string transactionTypeToHumanString(uint16_t type) {
+  switch (type) {
+    case Ledger::Transaction::T_DEFAULT:   return "default";
+    case Ledger::Transaction::T_GENESIS:   return "genesis";
+    case Ledger::Transaction::T_NEW_USER: return "new_user";
+    case Ledger::Transaction::T_CONFIG:   return "config";
+    case Ledger::Transaction::T_USER:     return "user";
+    case Ledger::Transaction::T_RENEWAL:  return "renewal";
+    case Ledger::Transaction::T_END_USER: return "end_user";
+    default: return "unknown_" + std::to_string(type);
+  }
+}
+
+} // namespace
+
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -50,7 +67,7 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
 
 nlohmann::json Ledger::Transaction::toJson() const {
   nlohmann::json j;
-  j["type"] = type;
+  j["type"] = transactionTypeToHumanString(type);
   j["tokenId"] = tokenId;
   j["fromWalletId"] = fromWalletId;
   j["toWalletId"] = toWalletId;
@@ -63,7 +80,7 @@ nlohmann::json Ledger::Transaction::toJson() const {
 nlohmann::json Ledger::Block::toJson() const {
   nlohmann::json j;
   j["index"] = index;
-  j["timestamp"] = timestamp;
+  j["timestamp"] = utl::formatTimestampLocal(timestamp);
   j["previousHash"] = utl::toJsonSafeString(previousHash);
   j["nonce"] = nonce;
   j["slot"] = slot;
