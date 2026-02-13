@@ -592,11 +592,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
     }
 
     // Refresh stakeholders per epoch (so slot leader validation uses correct
-    // stake for this block's epoch; no-op when still in same epoch).
-    // Skip for genesis (block 0): consensus config is not yet loaded.
-    if (blockId > 0) {
-      refreshStakeholders(block.block.slot);
-    }
+    // stake for this block's epoch; no-op when still in same epoch)
+    refreshStakeholders(block.block.slot);
 
     auto processResult = processBlock(block, isStrictMode);
     if (!processResult) {

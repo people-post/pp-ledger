@@ -22,11 +22,11 @@ bool Ouroboros::isSlotLeader(uint64_t slot,
 
 bool Ouroboros::isStakeUpdateNeeded() const {
   uint64_t currentEpoch = getCurrentEpoch();
-  return currentEpoch != lastStakeUpdateEpoch_;
+  return currentEpoch != cache_.lastStakeUpdateEpoch;
 }
 
 bool Ouroboros::isStakeUpdateNeeded(uint64_t forEpoch) const {
-  return forEpoch != lastStakeUpdateEpoch_;
+  return forEpoch != cache_.lastStakeUpdateEpoch;
 }
 
 bool Ouroboros::isSlotBlockProductionTime(uint64_t slot) const {
@@ -78,7 +78,7 @@ int64_t Ouroboros::getSlotEndTime(uint64_t slot) const {
 }
 
 Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
-  if (mStakeholders_.empty()) {
+  if (cache_.mStakeholders.empty()) {
     return Error(1, "No stakeholders registered");
   }
 
@@ -96,8 +96,8 @@ uint64_t Ouroboros::getEpochFromSlot(uint64_t slot) const {
 }
 
 uint64_t Ouroboros::getStake(uint64_t stakeholderId) const {
-  auto it = mStakeholders_.find(stakeholderId);
-  if (it == mStakeholders_.end()) {
+  auto it = cache_.mStakeholders.find(stakeholderId);
+  if (it == cache_.mStakeholders.end()) {
     return 0;
   }
   return it->second;
@@ -105,17 +105,17 @@ uint64_t Ouroboros::getStake(uint64_t stakeholderId) const {
 
 uint64_t Ouroboros::getTotalStake() const {
   return std::accumulate(
-      mStakeholders_.begin(), mStakeholders_.end(), uint64_t(0),
+      cache_.mStakeholders.begin(), cache_.mStakeholders.end(), uint64_t(0),
       [](uint64_t sum, const auto &pair) { return sum + pair.second; });
 }
 
-size_t Ouroboros::getStakeholderCount() const { return mStakeholders_.size(); }
+size_t Ouroboros::getStakeholderCount() const { return cache_.mStakeholders.size(); }
 
 std::vector<Stakeholder> Ouroboros::getStakeholders() const {
   std::vector<Stakeholder> result;
-  result.reserve(mStakeholders_.size());
+  result.reserve(cache_.mStakeholders.size());
 
-  for (const auto &[id, stake] : mStakeholders_) {
+  for (const auto &[id, stake] : cache_.mStakeholders) {
     result.emplace_back();
     result.back().id = id;
     result.back().stake = stake;
@@ -126,6 +126,7 @@ std::vector<Stakeholder> Ouroboros::getStakeholders() const {
 
 void Ouroboros::init(const Config& config) {
   config_ = config;
+  cache_ = {};
 }
 
 void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
@@ -134,11 +135,11 @@ void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
 
 void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders,
                                 uint64_t forEpoch) {
-  mStakeholders_.clear();
+  cache_.mStakeholders.clear();
   for (const auto& stakeholder : stakeholders) {
-    mStakeholders_[stakeholder.id] = stakeholder.stake;
+    cache_.mStakeholders[stakeholder.id] = stakeholder.stake;
   }
-  lastStakeUpdateEpoch_ = forEpoch;
+  cache_.lastStakeUpdateEpoch = forEpoch;
 }
 
 uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
@@ -162,7 +163,7 @@ uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
 
   // Select stakeholder based on cumulative stake
   uint64_t cumulative = 0;
-  for (const auto &[id, stake] : mStakeholders_) {
+  for (const auto &[id, stake] : cache_.mStakeholders) {
     cumulative += stake;
     if (position < cumulative) {
       return id;
@@ -170,7 +171,7 @@ uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
   }
 
   // Fallback to first stakeholder
-  return mStakeholders_.begin()->first;
+  return cache_.mStakeholders.begin()->first;
 }
 
 std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {

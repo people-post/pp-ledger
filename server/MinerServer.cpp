@@ -258,7 +258,7 @@ Service::Roe<void> MinerServer::onStart() {
 
   log().info << "Miner core initialized";
   log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Stake: " << miner_.getStake();
+  log().info << "  Stake at init: " << miner_.getStake();
 
   log().info << "MinerServer initialization complete";
   return {};

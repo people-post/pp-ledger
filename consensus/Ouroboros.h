@@ -81,6 +81,11 @@ public:
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
 
 private:
+  struct Cache {
+    std::map<uint64_t, uint64_t> mStakeholders;
+    uint64_t lastStakeUpdateEpoch{ static_cast<uint64_t>(-1) }; // -1 = never
+  };
+
   // Helper methods for slot leader selection
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
   uint64_t calculateStakeThreshold(uint64_t stakeholderId,
@@ -88,9 +93,8 @@ private:
   std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
 
   // Data members
-  std::map<uint64_t, uint64_t> mStakeholders_;
   Config config_;
-  uint64_t lastStakeUpdateEpoch_{ static_cast<uint64_t>(-1) }; // -1 = never
+  Cache cache_;
 };
 
 } // namespace consensus
