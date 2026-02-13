@@ -47,6 +47,8 @@ protected:
   std::string getServerName() const override { return "BeaconServer"; }
   int32_t getRunErrorCode() const override { return E_BEACON; }
 
+  void customizeFetchServerConfig(network::FetchServer::Config &config) override;
+
   /**
    * Service thread main loop - processes queued requests
    */

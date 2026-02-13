@@ -49,6 +49,9 @@ protected:
   Service::Roe<void> startFetchServer(const network::TcpEndpoint &endpoint);
   void stopFetchServer();
 
+  /** Override to customize FetchServer config (e.g. whitelist) before start. */
+  virtual void customizeFetchServerConfig(network::FetchServer::Config &config) {}
+
   void onStop() override;
 
 private:

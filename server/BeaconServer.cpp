@@ -421,6 +421,11 @@ Service::Roe<void> BeaconServer::onStart() {
   return {};
 }
 
+void BeaconServer::customizeFetchServerConfig(
+    network::FetchServer::Config &config) {
+  config.whitelist = config_.network.whitelist;
+}
+
 void BeaconServer::initHandlers() {
   requestHandlers_.clear();
 

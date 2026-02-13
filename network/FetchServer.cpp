@@ -1,4 +1,5 @@
 #include "FetchServer.h"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -113,6 +114,29 @@ bool FetchServer::setNonBlocking(int fd) {
     return false;
   }
   return true;
+}
+
+FetchServer::Roe<TcpEndpoint> FetchServer::getPeerEndpoint(int fd) {
+  struct sockaddr_in peer_addr;
+  socklen_t addr_len = sizeof(peer_addr);
+  if (getpeername(fd, (struct sockaddr *)&peer_addr, &addr_len) != 0) {
+    return Error(static_cast<int32_t>(errno),
+                 "getpeername failed: " + std::string(std::strerror(errno)));
+  }
+  TcpEndpoint peer;
+  char addr_str[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &peer_addr.sin_addr, addr_str, INET_ADDRSTRLEN);
+  peer.address = addr_str;
+  peer.port = ntohs(peer_addr.sin_port);
+  return peer;
+}
+
+bool FetchServer::isAllowedByWhitelist(const TcpEndpoint& peer) const {
+  if (config_.whitelist.empty()) {
+    return true;
+  }
+  return std::find(config_.whitelist.begin(), config_.whitelist.end(),
+                   peer.address) != config_.whitelist.end();
 }
 
 void FetchServer::processReadEvents(const std::vector<int>& readyFds) {
@@ -242,22 +266,27 @@ void FetchServer::runLoop() {
 
     int clientFd = acceptResult.value();
     
-    // Set connection to non-blocking mode
-    if (!setNonBlocking(clientFd)) {
-      log().error << "Failed to set non-blocking mode for fd " << clientFd;
+    auto peerResult = getPeerEndpoint(clientFd);
+    if (!peerResult) {
+      log().error << "Failed to get peer endpoint for fd " << clientFd << ": "
+                  << peerResult.error().message;
+      ::close(clientFd);
+      continue;
+    }
+    TcpEndpoint peerEndpoint = peerResult.value();
+
+    if (!isAllowedByWhitelist(peerEndpoint)) {
+      log().info << "Rejected connection from " << peerEndpoint.address << ":"
+                 << peerEndpoint.port << " (not in whitelist)";
       ::close(clientFd);
       continue;
     }
 
-    // Get peer endpoint info
-    TcpEndpoint peerEndpoint;
-    struct sockaddr_in peer_addr;
-    socklen_t addr_len = sizeof(peer_addr);
-    if (getpeername(clientFd, (struct sockaddr *)&peer_addr, &addr_len) == 0) {
-      char addr_str[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &peer_addr.sin_addr, addr_str, INET_ADDRSTRLEN);
-      peerEndpoint.address = addr_str;
-      peerEndpoint.port = ntohs(peer_addr.sin_port);
+    // Set client socket to non-blocking mode
+    if (!setNonBlocking(clientFd)) {
+      log().error << "Failed to set non-blocking mode for fd " << clientFd;
+      ::close(clientFd);
+      continue;
     }
 
     // Add to epoll/kqueue for read monitoring

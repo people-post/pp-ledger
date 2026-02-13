@@ -82,6 +82,7 @@ Server::startFetchServer(const network::TcpEndpoint &endpoint) {
     log().debug << "Request enqueued (queue size: " << getRequestQueueSize()
                 << ")";
   };
+  customizeFetchServerConfig(config);
   return fetchServer_.start(config);
 }
 

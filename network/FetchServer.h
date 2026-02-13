@@ -33,6 +33,7 @@ public:
   struct Config {
     TcpEndpoint endpoint;
     RequestHandler handler{ nullptr };
+    std::vector<std::string> whitelist;
   };
 
   /**
@@ -61,6 +62,12 @@ private:
 
   // Helper: set a file descriptor to non-blocking mode
   bool setNonBlocking(int fd);
+
+  // Helper: get peer endpoint for a connected socket
+  Roe<TcpEndpoint> getPeerEndpoint(int fd);
+
+  // Helper: true if peer is allowed by whitelist (empty whitelist = allow all)
+  bool isAllowedByWhitelist(const TcpEndpoint& peer) const;
 
   // Helper: process read events from epoll
   void processReadEvents(const std::vector<int>& readyFds);
