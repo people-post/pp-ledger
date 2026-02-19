@@ -90,7 +90,7 @@ private:
   /** Periodically sync to latest block from beacon since last sync. */
   void syncBlocksPeriodically();
 
-  void registerServer(const std::string &serverAddress);
+  void registerServer(const Client::MinerInfo &minerInfo);
   Client::BeaconState buildStateResponse() const;
 
   std::string handleParsedRequest(const Client::Request &request) override;
@@ -116,7 +116,7 @@ private:
       std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
 
-  std::map<std::string, int64_t> activeServers_;
+  std::map<uint64_t, Client::MinerInfo> mMiners_;
 };
 
 } // namespace pp

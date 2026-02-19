@@ -250,13 +250,10 @@ void RelayServer::onStop() {
   log().info << "RelayServer resources cleaned up";
 }
 
-void RelayServer::registerServer(const std::string &serverAddress) {
-  // Get current timestamp
-  int64_t now = std::chrono::system_clock::now().time_since_epoch().count();
-
-  // Update or add server
-  activeServers_[serverAddress] = now;
-  log().debug << "Updated server record: " << serverAddress;
+void RelayServer::registerServer(const Client::MinerInfo &minerInfo) {
+  mMiners_[minerInfo.id] = minerInfo;
+  log().debug << "Updated miner record: " << minerInfo.id << " "
+              << minerInfo.endpoint;
 }
 
 Client::BeaconState RelayServer::buildStateResponse() const {
@@ -349,17 +346,23 @@ RelayServer::hBlockGet(const Client::Request &request) {
 
 RelayServer::Roe<std::string>
 RelayServer::hBlockAdd(const Client::Request &request) {
+  if (config_.network.beacon.empty()) {
+    return Error(E_CONFIG, "No beacon configured; cannot relay block add");
+  }
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
-  auto result = relay_.addBlock(block);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to add block: " + result.error().message);
+  if (!client_.setEndpoint(config_.network.beacon)) {
+    return Error(E_NETWORK,
+                 "Failed to resolve beacon address: " + config_.network.beacon);
   }
-  nlohmann::json resp;
-  resp["message"] = "Block added";
-  return resp.dump();
+  auto result = client_.addBlock(block);
+  if (!result) {
+    return Error(E_NETWORK, result.error().message);
+  }
+  relay_.addBlock(block); // Don't care about the result
+  return {"Block added"};
 }
 
 RelayServer::Roe<std::string>
@@ -379,9 +382,19 @@ RelayServer::hAccountGet(const Client::Request &request) {
 
 RelayServer::Roe<std::string>
 RelayServer::hRegister(const Client::Request &request) {
-  network::TcpEndpoint endpoint =
-      network::TcpEndpoint::ltsFromString(request.payload);
-  registerServer(endpoint.ltsToString());
+  Client::MinerInfo minerInfo;
+  nlohmann::json j;
+  try {
+    j = nlohmann::json::parse(request.payload);
+  } catch (const std::exception &e) {
+    return Error(E_REQUEST,
+                 "Failed to parse miner info: " + std::string(e.what()));
+  }
+  auto parseResult = minerInfo.ltsFromJson(j);
+  if (!parseResult) {
+    return Error(E_REQUEST, parseResult.error().message);
+  }
+  registerServer(minerInfo);
   return buildStateResponse().ltsToJson().dump();
 }
 

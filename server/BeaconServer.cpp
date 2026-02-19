@@ -607,9 +607,7 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   if (!result) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
-  nlohmann::json resp;
-  resp["message"] = "Block added";
-  return resp.dump();
+  return {"Block added"};
 }
 
 BeaconServer::Roe<std::string>

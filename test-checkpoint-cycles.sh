@@ -20,6 +20,7 @@ TEST_DIR="${BUILD_DIR}/test-checkpoint-cycles"
 PID_FILE="${TEST_DIR}/network.pids"
 NUM_MINERS=3
 BEACON_PORT=8617
+RELAY_PORT=8622
 MINER_BASE_PORT=8618
 
 # Test-friendly consensus: short slots, small epoch, aggressive checkpoint params
@@ -65,7 +66,7 @@ verify_build() {
         echo -e "${RED}Build directory not found. Run: mkdir build && cd build && cmake .. && make${NC}"
         exit 1
     fi
-    for exe in pp-beacon pp-miner pp-client; do
+    for exe in pp-beacon pp-relay pp-miner pp-client; do
         if [ ! -f "$BUILD_DIR/app/$exe" ]; then
             echo -e "${RED}$exe not found. Build the project first.${NC}"
             exit 1
@@ -191,6 +192,18 @@ create_beacon_config() {
 EOF
 }
 
+create_relay_config() {
+    local relay_dir="${TEST_DIR}/relay"
+    mkdir -p "$relay_dir"
+    cat > "$relay_dir/config.json" << EOF
+{
+  "host": "localhost",
+  "port": $RELAY_PORT,
+  "beacon": "localhost:$BEACON_PORT"
+}
+EOF
+}
+
 # Generate Ed25519 key for miner - file must contain raw 32 bytes (Miner uses readKey, ed25519Sign needs 32 bytes)
 generate_miner_key() {
     local miner_id=$1
@@ -239,7 +252,7 @@ create_miner_config() {
   "keys": $keys_json,
   "host": "localhost",
   "port": $miner_port,
-  "beacons": ["localhost:$BEACON_PORT"]
+  "beacons": ["localhost:$RELAY_PORT"]
 }
 EOF
 }
@@ -255,6 +268,24 @@ start_beacon() {
         exit 1
     fi
     echo -e "${GREEN}✓ Beacon started on port $BEACON_PORT${NC}"
+}
+
+start_relay() {
+    local relay_dir="${TEST_DIR}/relay"
+    mkdir -p "$relay_dir"
+    if [ ! -f "$relay_dir/.signature" ]; then
+        touch "$relay_dir/.signature"
+    fi
+    create_relay_config
+    run_bg_cmd "$relay_dir/console.log" "$BUILD_DIR/app/pp-relay" -d "$relay_dir" --debug
+    save_pid "relay" $!
+    sleep 2
+    if ! kill -0 $(grep "^relay:" "$PID_FILE" 2>/dev/null | cut -d: -f2) 2>/dev/null; then
+        echo -e "${RED}Relay failed to start${NC}"
+        cat "$relay_dir/console.log" 2>/dev/null || true
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Relay started on port $RELAY_PORT (beacon: $BEACON_PORT)${NC}"
 }
 
 start_miner() {
@@ -286,7 +317,8 @@ start_all_miners() {
 
 fetch_beacon_state() {
     local output
-    output=$("$BUILD_DIR/app/pp-client" --debug -b --host "localhost:$BEACON_PORT" status 2>&1) || {
+    # Query via relay so miners and test use the same path (relay -> beacon)
+    output=$("$BUILD_DIR/app/pp-client" --debug -b --host "localhost:$RELAY_PORT" status 2>&1) || {
         echo -e "${RED}pp-client beacon status failed:${NC}" >&2
         echo "$output" >&2
         echo ""
@@ -617,7 +649,7 @@ test_scenario_late_joiner_miner() {
     next_after=$(get_next_block_id)
     echo -e "${CYAN}Chain progressed: nextBlockId=$next_after${NC}"
 
-    # Restart miner3 - it will sync from beacon (lastCheckpointId, checkpointId)
+    # Restart miner3 - it will sync from relay/beacon (lastCheckpointId, checkpointId)
     echo -e "${CYAN}Restarting miner3 (late joiner)...${NC}"
     start_miner 3
     sleep 4
@@ -664,12 +696,12 @@ usage() {
     echo ""
     echo "  run    Execute full checkpoint cycles test (default)"
     echo "  start  Start beacon and miners only (no test)"
-    echo "  stop   Stop beacon and miners (e.g. after aborted test)"
+    echo "  stop   Stop beacon, relay, and miners (e.g. after aborted test)"
     echo "  clear  Stop network and remove all test data"
     echo ""
     echo "The test:"
     echo "  - Initializes beacon with short slots and checkpoint params"
-    echo "  - Starts beacon and miners"
+    echo "  - Starts beacon, relay, and miners (miners connect to relay, not beacon)"
     echo "  - Simulates transaction conditions"
     echo "  - Tests late-joiner miner sync (non-strict → strict flow)"
     echo "  - Observes multi-slot cycles"
@@ -700,9 +732,11 @@ main() {
             fi
             create_beacon_config
             start_beacon
+            create_relay_config
+            start_relay
             start_all_miners
             echo ""
-            echo -e "${GREEN}✓ Network started. Run '$0 run' for full test or '$0 stop' to stop.${NC}"
+            echo -e "${GREEN}✓ Network started (beacon → relay → miners). Run '$0 run' for full test or '$0 stop' to stop.${NC}"
             echo ""
             return 0
             ;;
@@ -729,10 +763,12 @@ main() {
     mkdir -p "$TEST_DIR"
     rm -f "$PID_FILE"
 
-    # Initialize and start network
+    # Initialize and start network (beacon → relay → miners)
     initialize_beacon_with_test_config
     create_beacon_config
     start_beacon
+    create_relay_config
+    start_relay
     start_all_miners
 
     # Prime transaction pool so block production can advance (miner needs pending tx or renewals)
