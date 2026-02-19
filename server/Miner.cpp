@@ -183,9 +183,6 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   if (lastProducedSlot_ == slot) {
     return false;
   }
-  if (!chain_.isSlotBlockProductionTime(slot)) {
-    return false;
-  }
 
   if (slotCache_.slot != slot) {
     auto initResult = initSlotCache(slot);
@@ -197,6 +194,10 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     return false;
   }
   if (slotCache_.txRenewals.empty() && pendingTxes_.empty()) {
+    return false;
+  }
+
+  if (!chain_.isSlotBlockProductionTime(slot)) {
     return false;
   }
 
