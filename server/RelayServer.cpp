@@ -161,6 +161,7 @@ Service::Roe<void> RelayServer::onStart() {
       return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " +
                                            syncResult.error().message);
     }
+    lastBlockSyncTime_ = std::chrono::steady_clock::now();
   }
 
   log().info << "Relay core initialized";
@@ -284,6 +285,8 @@ void RelayServer::runLoop() {
       // Update relay state
       relay_.refresh();
 
+      syncBlocksPeriodically();
+
       // Process queued requests
       if (!pollAndProcessOneRequest()) {
         // Sleep for a short time if queue is not too busy
@@ -296,6 +299,25 @@ void RelayServer::runLoop() {
   }
 
   log().info << "Request handler loop stopped";
+}
+
+void RelayServer::syncBlocksPeriodically() {
+  if (config_.network.beacon.empty()) {
+    return;
+  }
+  auto now = std::chrono::steady_clock::now();
+  auto elapsedSinceSync =
+      std::chrono::duration_cast<std::chrono::seconds>(
+          now - lastBlockSyncTime_);
+  if (elapsedSinceSync >= BLOCK_SYNC_INTERVAL) {
+    auto syncResult = syncBlocksFromBeacon();
+    if (syncResult) {
+      lastBlockSyncTime_ = now;
+    } else {
+      log().warning << "Periodic block sync failed: "
+                    << syncResult.error().message;
+    }
+  }
 }
 
 std::string RelayServer::handleParsedRequest(const Client::Request &request) {

@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <chrono>
 #include <string>
 #include <thread>
 #include <vector>
@@ -86,22 +87,30 @@ private:
 
   void initHandlers();
   Roe<void> syncBlocksFromBeacon();
+  /** Periodically sync to latest block from beacon since last sync. */
+  void syncBlocksPeriodically();
 
   void registerServer(const std::string &serverAddress);
   Client::BeaconState buildStateResponse() const;
 
   std::string handleParsedRequest(const Client::Request &request) override;
 
+  // Getters
   Roe<std::string> hBlockGet(const Client::Request &request);
-  Roe<std::string> hBlockAdd(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
+
+  // Modifiers
+  Roe<std::string> hBlockAdd(const Client::Request &request);
+  Roe<std::string> hRegister(const Client::Request &request);
 
   Config config_;
   Relay relay_;
   Client client_;
+
+  static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
+  std::chrono::steady_clock::time_point lastBlockSyncTime_{};
 
   using Handler =
       std::function<Roe<std::string>(const Client::Request &request)>;
