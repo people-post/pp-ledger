@@ -11,14 +11,34 @@ using namespace pp;
 
 namespace {
 
+constexpr uint64_t BYTES_PER_MIB = 1024ULL * 1024ULL;
+
+uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
+               size_t index) {
+  return index < coefficients.size() ? static_cast<uint64_t>(coefficients[index])
+                   : 0ULL;
+}
+
+uint64_t calculateMinimumFeeFromNonFreeMetaSize(
+    const Chain::BlockChainConfig &config, uint64_t nonFreeBytes) {
+  const uint64_t nonFreeSizeMiB =
+    nonFreeBytes == 0 ? 0ULL : (nonFreeBytes + BYTES_PER_MIB - 1) / BYTES_PER_MIB;
+
+  const uint64_t a = getFeeCoefficient(config.minFeeCoefficients, 0);
+  const uint64_t b = getFeeCoefficient(config.minFeeCoefficients, 1);
+  const uint64_t c = getFeeCoefficient(config.minFeeCoefficients, 2);
+  return a + b * nonFreeSizeMiB + c * nonFreeSizeMiB * nonFreeSizeMiB;
+}
+
 Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   Chain::BlockChainConfig cfg;
   cfg.genesisTime = genesisTime;
   cfg.slotDuration = 5;
   cfg.slotsPerEpoch = 10;
-  cfg.maxPendingTransactions = 1000;
+  cfg.maxCustomMetaSize = 1000;
   cfg.maxTransactionsPerBlock = 100;
-  cfg.minFeePerTransaction = 0;
+  cfg.minFeeCoefficients = {1, 1, 0};
+  cfg.freeCustomMetaSize = 512;
   cfg.checkpoint.minBlocks = 10;
   cfg.checkpoint.minAgeSeconds = 20;
   return cfg;
@@ -91,33 +111,62 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   feeTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   feeTx.obj.toWalletId = AccountBuffer::ID_FEE;
   feeTx.obj.amount = 0;
-  feeTx.obj.fee = 0;
+    const uint64_t feeNonFreeBytes =
+      feeAccount.meta.size() > chainConfig.freeCustomMetaSize
+        ? static_cast<uint64_t>(feeAccount.meta.size()) -
+          chainConfig.freeCustomMetaSize
+        : 0ULL;
+    const int64_t feeWalletFee = static_cast<int64_t>(
+      calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
+    feeTx.obj.fee = feeWalletFee;
   feeTx.obj.meta = feeAccount.ltsToString();
   feeTx.signatures.push_back(signTx(genesisKey, feeTx.obj));
   genesis.block.signedTxes.push_back(feeTx);
 
-  int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY - chainConfig.minFeePerTransaction);
-  Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, reserveAmount);
+    Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
+    Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
+    recycleAccount.meta = "Account for recycling write-off balances";
+
+    const uint64_t recycleNonFreeBytes =
+      recycleAccount.meta.size() > chainConfig.freeCustomMetaSize
+        ? static_cast<uint64_t>(recycleAccount.meta.size()) - chainConfig.freeCustomMetaSize
+        : 0ULL;
+    const int64_t recycleFee = static_cast<int64_t>(
+      calculateMinimumFeeFromNonFreeMetaSize(chainConfig, recycleNonFreeBytes));
+
+    int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
+    int64_t reserveFee = 0;
+    for (int i = 0; i < 2; ++i) {
+    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
+    const uint64_t reserveNonFreeBytes =
+      reserveAccount.meta.size() > chainConfig.freeCustomMetaSize
+        ? static_cast<uint64_t>(reserveAccount.meta.size()) - chainConfig.freeCustomMetaSize
+        : 0ULL;
+    reserveFee = static_cast<int64_t>(calculateMinimumFeeFromNonFreeMetaSize(
+      chainConfig, reserveNonFreeBytes));
+        reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
+          feeWalletFee - reserveFee - recycleFee;
+    }
+    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
+
   Ledger::SignedData<Ledger::Transaction> reserveTx;
   reserveTx.obj.type = Ledger::Transaction::T_NEW_USER;
   reserveTx.obj.tokenId = AccountBuffer::ID_GENESIS;
   reserveTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   reserveTx.obj.toWalletId = AccountBuffer::ID_RESERVE;
   reserveTx.obj.amount = reserveAmount;
-  reserveTx.obj.fee = static_cast<int64_t>(chainConfig.minFeePerTransaction);
+  reserveTx.obj.fee = reserveFee;
   reserveTx.obj.meta = reserveAccount.ltsToString();
   reserveTx.signatures.push_back(signTx(genesisKey, reserveTx.obj));
   genesis.block.signedTxes.push_back(reserveTx);
 
-  Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
-  recycleAccount.meta = "Account for recycling write-off balances";
   Ledger::SignedData<Ledger::Transaction> recycleTx;
   recycleTx.obj.type = Ledger::Transaction::T_NEW_USER;
   recycleTx.obj.tokenId = AccountBuffer::ID_GENESIS;
   recycleTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   recycleTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
   recycleTx.obj.amount = 0;
-  recycleTx.obj.fee = static_cast<int64_t>(chainConfig.minFeePerTransaction);
+  recycleTx.obj.fee = recycleFee;
   recycleTx.obj.meta = recycleAccount.ltsToString();
   recycleTx.signatures.push_back(signTx(genesisKey, recycleTx.obj));
   genesis.block.signedTxes.push_back(recycleTx);
@@ -139,9 +188,10 @@ TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.config.genesisTime, gm.config.genesisTime);
   EXPECT_EQ(parsed.config.slotDuration, gm.config.slotDuration);
   EXPECT_EQ(parsed.config.slotsPerEpoch, gm.config.slotsPerEpoch);
-  EXPECT_EQ(parsed.config.maxPendingTransactions, gm.config.maxPendingTransactions);
+  EXPECT_EQ(parsed.config.maxCustomMetaSize, gm.config.maxCustomMetaSize);
   EXPECT_EQ(parsed.config.maxTransactionsPerBlock, gm.config.maxTransactionsPerBlock);
-  EXPECT_EQ(parsed.config.minFeePerTransaction, gm.config.minFeePerTransaction);
+  EXPECT_EQ(parsed.config.minFeeCoefficients, gm.config.minFeeCoefficients);
+  EXPECT_EQ(parsed.config.freeCustomMetaSize, gm.config.freeCustomMetaSize);
   EXPECT_EQ(parsed.config.checkpoint.minBlocks, gm.config.checkpoint.minBlocks);
   EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds, gm.config.checkpoint.minAgeSeconds);
   EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);

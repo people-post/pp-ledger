@@ -60,7 +60,7 @@ public:
    *  Checks both the transfer amount and fee balance requirements.
    *  Returns error if insufficient balances or invalid inputs. */
   Roe<void> verifySpendingPower(uint64_t accountId, uint64_t tokenId,
-                                int64_t amount, int64_t fee) const;
+                                uint64_t amount, uint64_t fee) const;
 
   /** Verify that after applying amount and fee, the account balance in buffer
    * exactly matches given balance map. For non-genesis tokens, balances must
@@ -70,7 +70,7 @@ public:
    * state after accounting for the transaction's amount and fee. Returns error
    * if balances don't match. */
   Roe<void>
-  verifyBalance(uint64_t accountId, int64_t amount, int64_t fee,
+  verifyBalance(uint64_t accountId, uint64_t amount, uint64_t fee,
                 const std::map<uint64_t, int64_t> &expectedBalances) const;
 
   Roe<void> add(const Account &account);
@@ -82,7 +82,7 @@ public:
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId,
                            int64_t amount);
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
-                            int64_t amount, int64_t fee = 0);
+                            uint64_t amount, uint64_t fee = 0);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId,
                             int64_t amount);
   Roe<void> writeOff(uint64_t accountId);

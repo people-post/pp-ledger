@@ -113,9 +113,10 @@ initialize_beacon_with_test_config() {
 {
   "slotDuration": ${SLOT_DURATION},
   "slotsPerEpoch": ${SLOTS_PER_EPOCH},
-  "maxPendingTransactions": 10000,
+  "maxCustomMetaSize": 10000,
   "maxTransactionsPerBlock": 100,
-  "minFeePerTransaction": 1,
+  "minFeeCoefficients": [1, 1, 0],
+  "freeCustomMetaSize": 1024,
   "checkpointMinBlocks": ${CHECKPOINT_MIN_BLOCKS},
   "checkpointMinAgeSeconds": ${CHECKPOINT_MIN_AGE_SECONDS}
 }

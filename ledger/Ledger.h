@@ -28,8 +28,8 @@ public:
     uint64_t tokenId{ 0 };      // Token ID (0 = native token)
     uint64_t fromWalletId{ 0 }; // Source wallet ID
     uint64_t toWalletId{ 0 };   // Destination wallet ID
-    int64_t amount{ 0 };        // Transfer amount
-    int64_t fee{ 0 };           // Transaction fee, always in native token, always goes to system fee account
+    uint64_t amount{ 0 };       // Transfer amount
+    uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
     std::string meta;           // Transaction metadata
 
     template <typename Archive> void serialize(Archive &ar) {

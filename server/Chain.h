@@ -41,17 +41,18 @@ public:
   // BlockChainConfig - Configuration for the block chain
   // This is used to restore the block chain from a checkpoint transaction
   struct BlockChainConfig {
-    int64_t genesisTime{0};
-    uint64_t slotDuration{0};
+    int64_t genesisTime{0};               // In seconds
+    uint64_t slotDuration{0};             // In seconds
     uint64_t slotsPerEpoch{0};
-    uint64_t maxPendingTransactions{0};
+    uint64_t maxCustomMetaSize{0};        // In bytes
     uint64_t maxTransactionsPerBlock{0};
-    uint64_t minFeePerTransaction{0};
+    std::vector<uint16_t> minFeeCoefficients;  // a + b * sizeInNonFreeMiB + c * sizeInNonFreeMiB^2
+    uint32_t freeCustomMetaSize{0};       // In bytes
     CheckpointConfig checkpoint;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar &genesisTime &slotDuration &slotsPerEpoch &maxPendingTransactions
-          &maxTransactionsPerBlock &minFeePerTransaction &checkpoint;
+      ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
+          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize &checkpoint;
     }
   };
 
@@ -149,6 +150,15 @@ public:
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
+  Roe<uint64_t>
+  calculateMinimumFeeFromNonFreeMetaSize(const BlockChainConfig &config,
+                                         uint64_t nonFreeCustomMetaSizeBytes) const;
+  Roe<size_t>
+  extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
+                                     const Ledger::Transaction &tx) const;
+  Roe<uint64_t>
+  calculateMinimumFeeForTransaction(const BlockChainConfig &config,
+                                    const Ledger::Transaction &tx) const;
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
   collectRenewals(uint64_t slot) const;
   Roe<Ledger::ChainNode> readLastBlock() const;
@@ -182,27 +192,25 @@ private:
 
   /** Create a renewal or end-user transaction for a given account. */
   Roe<Ledger::SignedData<Ledger::Transaction>>
-  createRenewalTransaction(uint64_t accountId, uint64_t minFee) const;
+  createRenewalTransaction(uint64_t accountId) const;
 
   /** Find matching tx in block, update meta with current account state, return
    * serialized meta. Name reflects that meta is updated, not merely found. */
-  Roe<std::string>
-  getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
-                                 const AccountBuffer::Account &account) const;
+  Roe<GenesisAccountMeta>
+  getGenesisAccountMetaFromBlock(const Ledger::Block &block) const;
 
   /** Get user account meta as struct (no serialize); used to avoid double
    * deserialize when caller needs to modify before serializing. */
   Roe<Client::UserAccount>
-  getUserAccountMetaFromBlock(const Ledger::Block &block,
-                              const AccountBuffer::Account &account) const;
+  getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) const;
 
   /** Account metadata for renewal: user accounts get genesis balance adjusted to
    * post-renewal (current - fee) since verifyBalance expects that. Single
    * serialize at end by using getUserAccountMetaFromBlock. */
   Roe<std::string>
-  findAccountMetadataForRenewal(const Ledger::Block &block,
-                                const AccountBuffer::Account &account,
-                                uint64_t minFee) const;
+  getUpdatedAccountMetadataForRenewal(const Ledger::Block &block,
+                                      const AccountBuffer::Account &account,
+                                      uint64_t minFee) const;
 
   Roe<void> validateAccountRenewals(const Ledger::ChainNode &block) const;
 
@@ -235,9 +243,6 @@ private:
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
   // System
-  Roe<std::string> updateMetaFromSystemInit(const std::string &meta) const;
-  Roe<std::string> updateMetaFromSystemUpdate(const std::string &meta) const;
-  Roe<std::string> updateSystemMeta(const std::string &meta) const;
   Roe<void> processSystemInit(const Ledger::Transaction &tx);
   Roe<GenesisAccountMeta>
   processSystemUpdateImpl(AccountBuffer &bank,
@@ -250,22 +255,6 @@ private:
                                       uint64_t blockId) const;
 
   // User
-  Roe<std::string>
-  updateMetaFromUserInit(const std::string &meta,
-                         const AccountBuffer::Account &account) const;
-  Roe<std::string>
-  updateMetaFromUserUpdate(const std::string &meta,
-                           const AccountBuffer::Account &account) const;
-  Roe<std::string>
-  updateMetaFromUserRenewal(const std::string &meta,
-                            const AccountBuffer::Account &account) const;
-  Roe<std::string> updateUserMeta(const std::string &meta,
-                                  const AccountBuffer::Account &account) const;
-  /** Like updateUserMeta but returns struct (avoids serialize when caller
-   * will modify before serializing). */
-  Roe<Client::UserAccount>
-  updateUserMetaToStruct(const std::string &meta,
-                        const AccountBuffer::Account &account) const;
   /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
    * bank_ and checks existence in both. */
   Roe<void> processUserInitImpl(AccountBuffer &bank,
@@ -297,6 +286,10 @@ private:
   Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
                                         const Ledger::Transaction &tx,
                                         uint64_t blockId) const;
+
+  Roe<uint64_t>
+  calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
+                                    uint64_t accountId) const;
 
   Roe<void> processUserEndImpl(AccountBuffer &bank,
                               const Ledger::Transaction &tx,

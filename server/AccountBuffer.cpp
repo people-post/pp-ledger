@@ -86,15 +86,17 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
 
 AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
                                                             uint64_t tokenId,
-                                                            int64_t amount,
-                                                            int64_t fee) const {
+                                                            uint64_t amount,
+                                                            uint64_t fee) const {
   // Validate inputs
-  if (amount < 0) {
-    return Error(E_INPUT, "Transfer amount must be non-negative");
+  if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_INPUT, "Amount exceeds int64_t range");
   }
-  if (fee < 0) {
-    return Error(E_INPUT, "Fee must be non-negative");
+  if (fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_INPUT, "Fee exceeds int64_t range");
   }
+  const int64_t amountSigned = static_cast<int64_t>(amount);
+  const int64_t feeSigned = static_cast<int64_t>(fee);
 
   // Check if account exists
   auto it = mAccounts_.find(accountId);
@@ -132,13 +134,13 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
     // Both amount and fee come from the same balance
     // For genesis account, allow negative balance
     if (allowNegativeTokenBalance) {
-      if (amount + fee + INT64_MIN > tokenBalance) {
+      if (amountSigned + feeSigned + INT64_MIN > tokenBalance) {
         return Error(E_BALANCE,
                      "Transfer amount and fee would cause balance underflow");
       }
       return {};
     }
-    if (tokenBalance < amount + fee) {
+    if (tokenBalance < amountSigned + feeSigned) {
       return Error(E_BALANCE, "Insufficient balance for transfer and fee");
     }
   } else {
@@ -147,14 +149,14 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
     // must have enough fee in ID_GENESIS
     if (allowNegativeTokenBalance) {
       // For custom token genesis account, check for underflow
-      if (amount + INT64_MIN > tokenBalance) {
+      if (amountSigned + INT64_MIN > tokenBalance) {
         return Error(E_BALANCE,
                      "Transfer amount would cause balance underflow");
       }
-    } else if (tokenBalance < amount) {
+    } else if (tokenBalance < amountSigned) {
       return Error(E_BALANCE, "Insufficient balance for transfer");
     }
-    if (feeBalance < fee) {
+    if (feeBalance < feeSigned) {
       return Error(E_BALANCE, "Insufficient balance for fee");
     }
   }
@@ -163,15 +165,17 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
 }
 
 AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
-    uint64_t accountId, int64_t amount, int64_t fee,
+  uint64_t accountId, uint64_t amount, uint64_t fee,
     const std::map<uint64_t, int64_t> &expectedBalances) const {
   // Validate inputs
-  if (amount < 0) {
-    return Error(E_INPUT, "Amount must be non-negative");
+  if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_INPUT, "Amount exceeds int64_t range");
   }
-  if (fee < 0) {
-    return Error(E_INPUT, "Fee must be non-negative");
+  if (fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_INPUT, "Fee exceeds int64_t range");
   }
+  const int64_t amountSigned = static_cast<int64_t>(amount);
+  const int64_t feeSigned = static_cast<int64_t>(fee);
 
   // Check if account exists
   auto it = mAccounts_.find(accountId);
@@ -228,7 +232,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
   // For genesis token: buffer balance should equal expected balance + amount +
   // fee First compute delta = amount + fee
   int64_t delta = 0;
-  if (!safeAdd(amount, fee, delta)) {
+  if (!safeAdd(amountSigned, feeSigned, delta)) {
     return Error(E_BALANCE, "Amount and fee overflow");
   }
 
@@ -305,12 +309,14 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
 
 AccountBuffer::Roe<void>
 AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
-                               int64_t amount, int64_t fee) {
+                               uint64_t amount, uint64_t fee) {
   // Verify spending power of source account
   auto spendingResult = verifySpendingPower(fromId, tokenId, amount, fee);
   if (!spendingResult) {
     return spendingResult;
   }
+  const int64_t amountSigned = static_cast<int64_t>(amount);
+  const int64_t feeSigned = static_cast<int64_t>(fee);
 
   auto fromIt = mAccounts_.find(fromId);
   if (fromIt == mAccounts_.end()) {
@@ -335,7 +341,7 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
   }
 
   // Check for overflow in destination account
-  if (toBalance > INT64_MAX - amount) {
+  if (toBalance > INT64_MAX - amountSigned) {
     return Error(E_INPUT, "Transfer would cause balance overflow");
   }
 
@@ -350,17 +356,18 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
   }
 
   // Perform the transfer
-  fromIt->second.wallet.mBalances[tokenId] = fromBalance - amount;
-  toIt->second.wallet.mBalances[tokenId] = toBalance + amount;
+  fromIt->second.wallet.mBalances[tokenId] = fromBalance - amountSigned;
+  toIt->second.wallet.mBalances[tokenId] = toBalance + amountSigned;
 
   // Deduct the fee if non-zero
   if (fee > 0) {
     if (tokenId == ID_GENESIS) {
       // Fee already accounted for in the balance check above
-      fromIt->second.wallet.mBalances[ID_GENESIS] = fromBalance - amount - fee;
+      fromIt->second.wallet.mBalances[ID_GENESIS] =
+          fromBalance - amountSigned - feeSigned;
     } else {
       // Deduct fee from ID_GENESIS balance (already retrieved above)
-      fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - fee;
+      fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - feeSigned;
     }
   }
 

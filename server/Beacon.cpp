@@ -160,10 +160,15 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   log().info << "  Time offset: " << consensusConfig.timeOffset;
   log().info << "  Slot duration: " << consensusConfig.slotDuration;
   log().info << "  Slots per epoch: " << consensusConfig.slotsPerEpoch;
-  log().info << "  Max pending transactions: "
-             << chainConfig.maxPendingTransactions;
+  log().info << "  Max custom meta size: "
+             << chainConfig.maxCustomMetaSize;
   log().info << "  Max transactions per block: "
              << chainConfig.maxTransactionsPerBlock;
+  log().info << "  Free custom meta size: "
+             << chainConfig.freeCustomMetaSize;
+  log().info << "  Min fee coefficients: "
+             << "[" << utl::join(chainConfig.minFeeCoefficients, ", ")
+             << "]";
   log().info << "  Current slot: " << getCurrentSlot();
   log().info << "  Current epoch: " << getCurrentEpoch();
 
@@ -287,8 +292,15 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   signedTx.obj.toWalletId = AccountBuffer::ID_FEE;
   signedTx.obj.amount = 0;
-  signedTx.obj.fee = 0;
   signedTx.obj.meta = feeAccount.ltsToString();
+  auto feeWalletFeeResult = chain_.calculateMinimumFeeForTransaction(config, signedTx.obj);
+  if (!feeWalletFeeResult) {
+    return Error(2, "Failed to calculate fee-wallet transaction fee: " +
+                        feeWalletFeeResult.error().message);
+  }
+  const int64_t feeWalletFee =
+      static_cast<int64_t>(feeWalletFeeResult.value());
+  signedTx.obj.fee = feeWalletFee;
   auto roeFee = signWithGenesisKeys(signedTx, key.genesis, "fee transaction");
   if (!roeFee) {
     return roeFee.error();
@@ -296,17 +308,59 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   // Third transaction: Create reserve wallet with initial stake
-  int64_t reserveAmount = static_cast<int64_t>(
-      AccountBuffer::INITIAL_TOKEN_SUPPLY - config.minFeePerTransaction);
-  auto reserveAccount = makeUserAccountFromKeys(key.reserve, reserveAmount,
-                                                "Native token reserve wallet");
+  auto reserveAccount =
+      makeUserAccountFromKeys(key.reserve, 0, "Native token reserve wallet");
+  auto recycleAccount = makeUserAccountFromKeys(
+      key.recycle, 0, "Account for recycling write-off balances");
+
+  auto getNonFreeMetaSize = [&](size_t customMetaSize) -> uint64_t {
+    return customMetaSize > config.freeCustomMetaSize
+               ? static_cast<uint64_t>(customMetaSize) -
+                     config.freeCustomMetaSize
+               : 0ULL;
+  };
+
+    auto recycleFeeResult = chain_.calculateMinimumFeeFromNonFreeMetaSize(
+      config, getNonFreeMetaSize(recycleAccount.meta.size()));
+  if (!recycleFeeResult) {
+      return Error(2, "Failed to calculate recycle fee: " +
+                          recycleFeeResult.error().message);
+  }
+  const int64_t recycleFee = static_cast<int64_t>(recycleFeeResult.value());
+
+  int64_t reserveAmount =
+      static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
+  int64_t reserveFee = 0;
+  for (int i = 0; i < 2; ++i) {
+    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
+    auto reserveFeeResult = chain_.calculateMinimumFeeFromNonFreeMetaSize(
+      config, getNonFreeMetaSize(reserveAccount.meta.size()));
+    if (!reserveFeeResult) {
+      return Error(2, "Failed to calculate reserve fee: " +
+                          reserveFeeResult.error().message);
+    }
+    reserveFee = static_cast<int64_t>(reserveFeeResult.value());
+
+    const int64_t updatedReserveAmount =
+        static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
+        feeWalletFee - reserveFee - recycleFee;
+    if (updatedReserveAmount < 0) {
+      return Error(2, "Initial token supply is insufficient for genesis fees");
+    }
+    if (updatedReserveAmount == reserveAmount) {
+      break;
+    }
+    reserveAmount = updatedReserveAmount;
+  }
+  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
+
   signedTx = {};
   signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;
   signedTx.obj.amount = reserveAmount;
-  signedTx.obj.fee = static_cast<int64_t>(config.minFeePerTransaction);
+  signedTx.obj.fee = reserveFee;
   signedTx.obj.meta = reserveAccount.ltsToString();
   auto roeReserve =
       signWithGenesisKeys(signedTx, key.genesis, "reserve transaction");
@@ -316,15 +370,13 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   genesisBlock.block.signedTxes.push_back(signedTx);
 
   // Fourth transaction: Create recycle account (sink for write-off balances)
-  auto recycleAccount = makeUserAccountFromKeys(
-      key.recycle, 0, "Account for recycling write-off balances");
   signedTx = {};
   signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
   signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
   signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   signedTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
   signedTx.obj.amount = 0;
-  signedTx.obj.fee = static_cast<int64_t>(config.minFeePerTransaction);
+  signedTx.obj.fee = recycleFee;
   signedTx.obj.meta = recycleAccount.ltsToString();
   auto roeRecycle =
       signWithGenesisKeys(signedTx, key.genesis, "recycle transaction");

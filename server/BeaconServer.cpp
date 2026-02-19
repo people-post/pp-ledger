@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <nlohmann/json.hpp>
 
 namespace pp {
@@ -23,9 +24,10 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   nlohmann::json j;
   j["slotDuration"] = slotDuration;
   j["slotsPerEpoch"] = slotsPerEpoch;
-  j["maxPendingTransactions"] = maxPendingTransactions;
+  j["maxCustomMetaSize"] = maxCustomMetaSize;
   j["maxTransactionsPerBlock"] = maxTransactionsPerBlock;
-  j["minFeePerTransaction"] = minFeePerTransaction;
+  j["minFeeCoefficients"] = minFeeCoefficients;
+  j["freeCustomMetaSize"] = freeCustomMetaSize;
   j["checkpointMinBlocks"] = checkpointMinBlocks;
   j["checkpointMinAgeSeconds"] = checkpointMinAgeSeconds;
   return j;
@@ -67,20 +69,19 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
       slotsPerEpoch = DEFAULT_SLOTS_PER_EPOCH;
     }
 
-    // Load and validate maxPendingTransactions
-    if (jd.contains("maxPendingTransactions")) {
-      if (!jd["maxPendingTransactions"].is_number_unsigned()) {
-        return Error(
-            E_CONFIG,
-            "Field 'maxPendingTransactions' must be a positive number");
-      }
-      maxPendingTransactions = jd["maxPendingTransactions"].get<uint64_t>();
-      if (maxPendingTransactions == 0) {
+    // Load and validate maxCustomMetaSize
+    if (jd.contains("maxCustomMetaSize")) {
+      if (!jd["maxCustomMetaSize"].is_number_unsigned()) {
         return Error(E_CONFIG,
-                     "Field 'maxPendingTransactions' must be greater than 0");
+                     "Field 'maxCustomMetaSize' must be a positive number");
+      }
+      maxCustomMetaSize = jd["maxCustomMetaSize"].get<uint64_t>();
+      if (maxCustomMetaSize == 0) {
+        return Error(E_CONFIG,
+                     "Field 'maxCustomMetaSize' must be greater than 0");
       }
     } else {
-      maxPendingTransactions = DEFAULT_MAX_PENDING_TRANSACTIONS;
+      maxCustomMetaSize = DEFAULT_MAX_CUSTOM_META_SIZE;
     }
 
     // Load and validate maxTransactionsPerBlock
@@ -99,15 +100,84 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
       maxTransactionsPerBlock = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
     }
 
-    // Load and validate minFeePerTransaction
-    if (jd.contains("minFeePerTransaction")) {
-      if (!jd["minFeePerTransaction"].is_number_unsigned()) {
-        return Error(E_CONFIG,
-                     "Field 'minFeePerTransaction' must be a positive number");
+    // Load and validate minFeeCoefficients
+    if (jd.contains("minFeeCoefficients")) {
+      if (!jd["minFeeCoefficients"].is_array()) {
+        return Error(E_CONFIG, "Field 'minFeeCoefficients' must be an array");
       }
-      minFeePerTransaction = jd["minFeePerTransaction"].get<uint64_t>();
+      minFeeCoefficients.clear();
+      for (const auto &value : jd["minFeeCoefficients"]) {
+        if (!value.is_number_unsigned()) {
+          return Error(
+              E_CONFIG,
+              "Field 'minFeeCoefficients' values must be positive numbers");
+        }
+        const uint64_t coefficient = value.get<uint64_t>();
+        if (coefficient > std::numeric_limits<uint16_t>::max()) {
+          return Error(
+              E_CONFIG,
+              "Field 'minFeeCoefficients' values must be <= 65535");
+        }
+        minFeeCoefficients.push_back(static_cast<uint16_t>(coefficient));
+      }
+      if (minFeeCoefficients.empty()) {
+        return Error(E_CONFIG,
+                     "Field 'minFeeCoefficients' must not be empty");
+      }
     } else {
-      minFeePerTransaction = DEFAULT_MIN_FEE_PER_TRANSACTION;
+      uint64_t minFeePerTransaction = DEFAULT_MIN_FEE_COEFF_A;
+      uint64_t minFeePerCustomMetaMiB = DEFAULT_MIN_FEE_COEFF_B;
+
+      if (jd.contains("minFeePerTransaction")) {
+        if (!jd["minFeePerTransaction"].is_number_unsigned()) {
+          return Error(
+              E_CONFIG,
+              "Field 'minFeePerTransaction' must be a positive number");
+        }
+        minFeePerTransaction = jd["minFeePerTransaction"].get<uint64_t>();
+      }
+
+      if (jd.contains("minFeePerCustomMetaMiB")) {
+        if (!jd["minFeePerCustomMetaMiB"].is_number_unsigned()) {
+          return Error(
+              E_CONFIG,
+              "Field 'minFeePerCustomMetaMiB' must be a positive number");
+        }
+        minFeePerCustomMetaMiB = jd["minFeePerCustomMetaMiB"].get<uint64_t>();
+      }
+
+      if (minFeePerTransaction > std::numeric_limits<uint16_t>::max() ||
+          minFeePerCustomMetaMiB > std::numeric_limits<uint16_t>::max()) {
+        return Error(
+            E_CONFIG,
+            "Legacy fee fields must be <= 65535 to map to minFeeCoefficients");
+      }
+
+      minFeeCoefficients = {
+          static_cast<uint16_t>(minFeePerTransaction),
+          static_cast<uint16_t>(minFeePerCustomMetaMiB),
+          DEFAULT_MIN_FEE_COEFF_C,
+      };
+    }
+
+    // Load and validate freeCustomMetaSize
+    if (jd.contains("freeCustomMetaSize")) {
+      if (!jd["freeCustomMetaSize"].is_number_unsigned()) {
+        return Error(E_CONFIG,
+                     "Field 'freeCustomMetaSize' must be a positive number");
+      }
+      freeCustomMetaSize = jd["freeCustomMetaSize"].get<uint64_t>();
+      if (freeCustomMetaSize > maxCustomMetaSize) {
+        return Error(
+            E_CONFIG,
+            "Field 'freeCustomMetaSize' must be less than or equal to "
+            "'maxCustomMetaSize'");
+      }
+    } else {
+      freeCustomMetaSize = DEFAULT_FREE_CUSTOM_META_SIZE;
+      if (freeCustomMetaSize > maxCustomMetaSize) {
+        freeCustomMetaSize = maxCustomMetaSize;
+      }
     }
 
     // Load and validate checkpointMinBlocks
@@ -270,8 +340,8 @@ BeaconServer::init(const std::string &workDir) {
   log().info << "  Slot duration: " << initFileConfig.slotDuration
              << " seconds";
   log().info << "  Slots per epoch: " << initFileConfig.slotsPerEpoch;
-  log().info << "  Max pending transactions: "
-             << initFileConfig.maxPendingTransactions;
+  log().info << "  Max custom meta size: "
+             << initFileConfig.maxCustomMetaSize;
   log().info << "  Max transactions per block: "
              << initFileConfig.maxTransactionsPerBlock;
 
@@ -280,10 +350,11 @@ BeaconServer::init(const std::string &workDir) {
   initConfig.workDir = workDir + "/" + DIR_DATA;
   initConfig.chain.slotDuration = initFileConfig.slotDuration;
   initConfig.chain.slotsPerEpoch = initFileConfig.slotsPerEpoch;
-  initConfig.chain.maxPendingTransactions =
-      initFileConfig.maxPendingTransactions;
+  initConfig.chain.maxCustomMetaSize = initFileConfig.maxCustomMetaSize;
   initConfig.chain.maxTransactionsPerBlock =
       initFileConfig.maxTransactionsPerBlock;
+    initConfig.chain.minFeeCoefficients = initFileConfig.minFeeCoefficients;
+  initConfig.chain.freeCustomMetaSize = initFileConfig.freeCustomMetaSize;
   initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
   initConfig.chain.checkpoint.minAgeSeconds =
       initFileConfig.checkpointMinAgeSeconds;

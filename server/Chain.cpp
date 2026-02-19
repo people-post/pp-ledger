@@ -9,6 +9,18 @@
 
 namespace pp {
 
+namespace {
+
+constexpr uint64_t BYTES_PER_MIB = 1024ULL * 1024ULL;
+
+uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
+                           size_t index) {
+  return index < coefficients.size() ? static_cast<uint64_t>(coefficients[index])
+                                     : 0ULL;
+}
+
+} // namespace
+
 std::ostream &operator<<(std::ostream &os,
                          const Chain::CheckpointConfig &config) {
   os << "CheckpointConfig{minBlocks: " << config.minBlocks
@@ -21,9 +33,10 @@ std::ostream &operator<<(std::ostream &os,
   os << "BlockChainConfig{genesisTime: " << config.genesisTime << ", "
      << "slotDuration: " << config.slotDuration << ", "
      << "slotsPerEpoch: " << config.slotsPerEpoch << ", "
-     << "maxPendingTransactions: " << config.maxPendingTransactions << ", "
+     << "maxCustomMetaSize: " << config.maxCustomMetaSize << ", "
      << "maxTransactionsPerBlock: " << config.maxTransactionsPerBlock << ", "
-     << "minFeePerTransaction: " << config.minFeePerTransaction << ", "
+     << "minFeeCoefficients: [" << utl::join(config.minFeeCoefficients, ", ") << "], "
+     << "freeCustomMetaSize: " << config.freeCustomMetaSize << ", "
      << "checkpoint: " << config.checkpoint << "}";
   return os;
 }
@@ -48,6 +61,95 @@ bool Chain::GenesisAccountMeta::ltsFromString(const std::string &str) {
     return false;
   }
   return true;
+}
+
+Chain::Roe<uint64_t> Chain::calculateMinimumFeeFromNonFreeMetaSize(
+    const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes) const {
+  if (config.minFeeCoefficients.empty()) {
+    return Error(E_TX_VALIDATION, "minFeeCoefficients must not be empty");
+  }
+  const uint64_t nonFreeSizeMiB =
+      nonFreeCustomMetaSizeBytes == 0
+          ? 0ULL
+          : (nonFreeCustomMetaSizeBytes + BYTES_PER_MIB - 1) / BYTES_PER_MIB;
+
+  const unsigned __int128 a = getFeeCoefficient(config.minFeeCoefficients, 0);
+  const unsigned __int128 b = getFeeCoefficient(config.minFeeCoefficients, 1);
+  const unsigned __int128 c = getFeeCoefficient(config.minFeeCoefficients, 2);
+  const unsigned __int128 x = nonFreeSizeMiB;
+  const unsigned __int128 minimumFee = a + b * x + c * x * x;
+
+  if (minimumFee >
+      static_cast<unsigned __int128>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_TX_VALIDATION,
+                 "Calculated minimum fee exceeds int64_t range");
+  }
+
+  return static_cast<uint64_t>(minimumFee);
+}
+
+Chain::Roe<size_t>
+Chain::extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
+                                          const Ledger::Transaction &tx) const {
+  auto toNonFree = [&](size_t customMetaSizeBytes) -> Roe<size_t> {
+    if (customMetaSizeBytes > config.maxCustomMetaSize) {
+      return Error(E_TX_VALIDATION,
+                   "Custom metadata exceeds maxCustomMetaSize: " +
+                       std::to_string(customMetaSizeBytes) + " > " +
+                       std::to_string(config.maxCustomMetaSize));
+    }
+    if (customMetaSizeBytes <= config.freeCustomMetaSize) {
+      return 0;
+    }
+    return customMetaSizeBytes - config.freeCustomMetaSize;
+  };
+
+  if (tx.meta.size() <= config.freeCustomMetaSize) {
+    return 0;
+  }
+
+  switch (tx.type) {
+  case Ledger::Transaction::T_NEW_USER:
+  case Ledger::Transaction::T_USER: {
+    Client::UserAccount userAccount;
+    if (!userAccount.ltsFromString(tx.meta)) {
+      return Error(E_INTERNAL_DESERIALIZE,
+                   "Failed to deserialize user account metadata for fee calculation");
+    }
+    return toNonFree(userAccount.meta.size());
+  }
+  case Ledger::Transaction::T_RENEWAL: {
+    if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
+        tx.toWalletId == AccountBuffer::ID_GENESIS) {
+      GenesisAccountMeta gm;
+      if (!gm.ltsFromString(tx.meta)) {
+        return Error(E_INTERNAL_DESERIALIZE,
+                     "Failed to deserialize genesis metadata for fee calculation");
+      }
+      return toNonFree(gm.genesis.meta.size());
+    }
+
+    Client::UserAccount userAccount;
+    if (!userAccount.ltsFromString(tx.meta)) {
+      return Error(E_INTERNAL_DESERIALIZE,
+                   "Failed to deserialize renewal metadata for fee calculation");
+    }
+    return toNonFree(userAccount.meta.size());
+  }
+  default:
+    return toNonFree(tx.meta.size());
+  }
+}
+
+Chain::Roe<uint64_t>
+Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
+                                         const Ledger::Transaction &tx) const {
+  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
+  if (!nonFreeMetaSizeResult) {
+    return nonFreeMetaSizeResult.error();
+  }
+  return calculateMinimumFeeFromNonFreeMetaSize(config,
+                                                nonFreeMetaSizeResult.value());
 }
 
 Chain::Chain() {
@@ -204,10 +306,7 @@ uint64_t Chain::getBlockAgeSeconds(uint64_t blockId) const {
 }
 
 Chain::Roe<Client::UserAccount>
-Chain::getUserAccountMetaFromBlock(const Ledger::Block &block,
-                                  const AccountBuffer::Account &account) const {
-  const uint64_t accountId = account.id;
-
+Chain::getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) const {
   auto matchesUserAccount = [&](const Ledger::Transaction &tx) -> bool {
     switch (tx.type) {
     case Ledger::Transaction::T_NEW_USER:
@@ -230,48 +329,29 @@ Chain::getUserAccountMetaFromBlock(const Ledger::Block &block,
     if (!matchesUserAccount(tx)) {
       continue;
     }
-    return updateUserMetaToStruct(tx.meta, account);
+    Client::UserAccount userAccount;
+    if (!userAccount.ltsFromString(tx.meta)) {
+      return Error(E_INTERNAL_DESERIALIZE,
+                   "Failed to deserialize account info: " +
+                       std::to_string(tx.meta.size()) + " bytes");
+    }
+    return userAccount;
   }
 
   return Error(E_INTERNAL,
                "No prior user/renewal from this account in block");
 }
 
-Chain::Roe<std::string>
-Chain::getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
-                                      const AccountBuffer::Account &account) const {
-  const uint64_t accountId = account.id;
-
-  auto unwrapMeta = [](const Chain::Roe<std::string> &metaResult,
-                       bool errorAsMessage) -> Chain::Roe<std::string> {
-    if (!metaResult) {
-      if (errorAsMessage) {
-        return metaResult.error().message;
-      }
-      return metaResult.error();
-    }
-    return metaResult.value();
-  };
-
+Chain::Roe<Chain::GenesisAccountMeta>
+Chain::getGenesisAccountMetaFromBlock(const Ledger::Block &block) const {
   auto matchesAccount = [&](const Ledger::Transaction &tx) -> bool {
     switch (tx.type) {
     case Ledger::Transaction::T_GENESIS:
       // GENESIS record only happens at first block.
-      return accountId == AccountBuffer::ID_GENESIS && block.index == 0;
+      return tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
     case Ledger::Transaction::T_CONFIG:
-      // CONFIG record only happens with genesis account.
-      return accountId == AccountBuffer::ID_GENESIS;
-    case Ledger::Transaction::T_NEW_USER:
-      // NEW_USER record only happens for non-genesis accounts.
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.toWalletId == accountId;
-    case Ledger::Transaction::T_USER:
-      // User update must be from the account itself, and cannot be for genesis
-      // account (which is only updated by system transactions)
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.fromWalletId == accountId && tx.toWalletId == accountId;
     case Ledger::Transaction::T_RENEWAL:
-      return tx.fromWalletId == accountId;
+      return tx.fromWalletId == AccountBuffer::ID_GENESIS;
     default:
       return false;
     }
@@ -284,25 +364,13 @@ Chain::getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
       continue;
     }
 
-    switch (tx.type) {
-    case Ledger::Transaction::T_GENESIS:
-      return unwrapMeta(updateMetaFromSystemInit(tx.meta), true);
-    case Ledger::Transaction::T_NEW_USER:
-      return unwrapMeta(updateMetaFromUserInit(tx.meta, account), false);
-    case Ledger::Transaction::T_CONFIG:
-      return unwrapMeta(updateMetaFromSystemUpdate(tx.meta), true);
-    case Ledger::Transaction::T_USER:
-      return unwrapMeta(updateMetaFromUserUpdate(tx.meta, account), false);
-    case Ledger::Transaction::T_RENEWAL:
-      if (accountId == AccountBuffer::ID_GENESIS) {
-        return unwrapMeta(updateMetaFromSystemUpdate(tx.meta), true);
-      }
-      return unwrapMeta(updateMetaFromUserRenewal(tx.meta, account), false);
-    // T_USER_END is not expected to update account metadata, and should not be
-    // used as source for account meta, so we skip it here.
-    default:
-      break;
+    GenesisAccountMeta gm;
+    if (!gm.ltsFromString(tx.meta)) {
+      return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint: " +
+                                            std::to_string(tx.meta.size()) +
+                                            " bytes");
     }
+    return gm;
   }
 
   return Error(E_INTERNAL,
@@ -310,18 +378,36 @@ Chain::getUpdatedAccountMetaFromBlock(const Ledger::Block &block,
 }
 
 Chain::Roe<std::string>
-Chain::findAccountMetadataForRenewal(const Ledger::Block &block,
-                                    const AccountBuffer::Account &account,
-                                    uint64_t minFee) const {
+Chain::getUpdatedAccountMetadataForRenewal(const Ledger::Block &block,
+                                           const AccountBuffer::Account &account,
+                                           uint64_t minFee) const {
   if (account.id == AccountBuffer::ID_GENESIS) {
-    return getUpdatedAccountMetaFromBlock(block, account);
+    auto metaResult = getGenesisAccountMetaFromBlock(block);
+    if (!metaResult) {
+      return metaResult.error();
+    }
+    auto gm = metaResult.value();
+    gm.genesis.wallet = account.wallet;
+
+    auto it = gm.genesis.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+    if (it != gm.genesis.wallet.mBalances.end()) {
+      const int64_t fee = static_cast<int64_t>(minFee);
+      if (it->second < std::numeric_limits<int64_t>::min() + fee) {
+        return Error(E_TX_VALIDATION,
+                     "Genesis balance underflow while applying renewal fee");
+      }
+      it->second -= fee;
+    }
+
+    return gm.ltsToString();
   }
 
-  auto userAccountRoe = getUserAccountMetaFromBlock(block, account);
+  auto userAccountRoe = getUserAccountMetaFromBlock(block, account.id);
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }
   Client::UserAccount userAccount = std::move(userAccountRoe.value());
+  userAccount.wallet = account.wallet;
 
   // verifyBalance expects "expected" = post-renewal balance (current - fee)
   auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
@@ -337,7 +423,7 @@ Chain::findAccountMetadataForRenewal(const Ledger::Block &block,
 }
 
 Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
-Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
+Chain::createRenewalTransaction(uint64_t accountId) const {
   auto accountResult = bank_.getAccount(accountId);
   if (!accountResult) {
     return Error(E_ACCOUNT_NOT_FOUND,
@@ -351,14 +437,20 @@ Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
   tx.fromWalletId = accountId;
   tx.toWalletId = accountId;
   tx.amount = 0;
-  tx.fee = static_cast<int64_t>(minFee);
+
+  // Compute minimum fee from current account metadata state.
+  auto minimumFeeResult = calculateMinimumFeeForAccountMeta(bank_, accountId);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minimumFee = minimumFeeResult.value();
 
   if (accountId != AccountBuffer::ID_GENESIS) {
     auto balance = bank_.getBalance(accountId, AccountBuffer::ID_GENESIS);
-    if (balance < minFee) {
+    if (balance < minimumFee) {
       // Insufficient balance for renewal, terminate account with whatever
-      // balance remains Notice the fee is 0 here, all remaining balances will
-      // be transferred to the recycle account.
+      // balance remains. Fee is 0 here; all remaining balances are transferred
+      // to recycle account.
       tx.type = Ledger::Transaction::T_END_USER;
       tx.fee = 0;
     }
@@ -372,8 +464,8 @@ Chain::createRenewalTransaction(uint64_t accountId, uint64_t minFee) const {
                    "Block not found: " + std::to_string(account.blockId));
     }
     auto const &block = blockResult.value().block;
-
-    auto metaResult = findAccountMetadataForRenewal(block, account, minFee);
+    tx.fee = minimumFee;
+    auto metaResult = getUpdatedAccountMetadataForRenewal(block, account, minimumFee);
     if (!metaResult) {
       return metaResult.error();
     }
@@ -500,10 +592,9 @@ Chain::collectRenewals(uint64_t slot) const {
     return renewals;
   }
 
-  const uint64_t minFee = chainConfig_.minFeePerTransaction;
   for (uint64_t accountId :
        bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
-    auto renewalResult = createRenewalTransaction(accountId, minFee);
+    auto renewalResult = createRenewalTransaction(accountId);
     if (!renewalResult) {
       return renewalResult.error();
     }
@@ -592,8 +683,13 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
     }
 
     // Refresh stakeholders per epoch (so slot leader validation uses correct
-    // stake for this block's epoch; no-op when still in same epoch)
-    refreshStakeholders(block.block.slot);
+    // stake for this block's epoch; no-op when still in same epoch).
+    // Skip block 0 because:
+    //   1. 0 block is using strict mode by default.
+    //   2. Consensus parameters are initialized while processing the genesis transaction.
+    if (blockId > 0) {
+      refreshStakeholders(block.block.slot);
+    }
 
     auto processResult = processBlock(block, isStrictMode);
     if (!processResult) {
@@ -651,7 +747,6 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
     return Error(E_BLOCK_GENESIS,
                  "Failed to deserialize genesis checkpoint meta");
   }
-  const uint64_t minFeePerTransaction = gm.config.minFeePerTransaction;
 
   // Second transaction: fee transaction (ID_GENESIS -> ID_FEE, 0)
   const auto &feeTx = block.block.signedTxes[1];
@@ -668,9 +763,15 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
     return Error(E_BLOCK_GENESIS,
                  "Genesis fee account creation transaction must have amount 0");
   }
-  if (feeTx.obj.fee != 0) {
+  auto feeWalletFeeResult = calculateMinimumFeeForTransaction(gm.config, feeTx.obj);
+  if (!feeWalletFeeResult) {
+    return feeWalletFeeResult.error();
+  }
+  const uint64_t expectedFeeWalletFee = feeWalletFeeResult.value();
+  if (feeTx.obj.fee != expectedFeeWalletFee) {
     return Error(E_BLOCK_GENESIS,
-                 "Genesis fee account creation transaction must have fee 0");
+                 "Genesis fee account creation transaction must have fee: " +
+                     std::to_string(expectedFeeWalletFee));
   }
   if (feeTx.obj.meta.empty()) {
     return Error(E_BLOCK_GENESIS,
@@ -689,15 +790,50 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
     return Error(E_BLOCK_GENESIS, "Genesis miner transaction must transfer "
                                   "from genesis to new user wallet");
   }
-  if (minerTx.obj.amount + minerTx.obj.fee !=
-      AccountBuffer::INITIAL_TOKEN_SUPPLY) {
+  auto reserveFeeResult =
+      calculateMinimumFeeForTransaction(gm.config, minerTx.obj);
+  if (!reserveFeeResult) {
+    return reserveFeeResult.error();
+  }
+  const uint64_t expectedReserveFee = reserveFeeResult.value();
+  if (minerTx.obj.fee != expectedReserveFee) {
     return Error(E_BLOCK_GENESIS,
-                 "Genesis miner transaction must have amount + fee: " +
-                     std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
+                 "Genesis reserve transaction must have fee: " +
+                     std::to_string(expectedReserveFee));
   }
 
   // Fourth transaction: recycle account creation (ID_GENESIS -> ID_RECYCLE, 0)
   const auto &recycleTx = block.block.signedTxes[3];
+  auto recycleFeeResult =
+      calculateMinimumFeeForTransaction(gm.config, recycleTx.obj);
+  if (!recycleFeeResult) {
+    return recycleFeeResult.error();
+  }
+    const uint64_t expectedRecycleFee = recycleFeeResult.value();
+
+    if (minerTx.obj.fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+      recycleTx.obj.fee >
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_BLOCK_GENESIS,
+           "Genesis transaction fee exceeds int64_t range");
+    }
+    const int64_t minerFeeSigned = static_cast<int64_t>(minerTx.obj.fee);
+    const int64_t recycleFeeSigned = static_cast<int64_t>(recycleTx.obj.fee);
+
+    if (feeTx.obj.fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return Error(E_BLOCK_GENESIS,
+           "Genesis fee-wallet transaction fee exceeds int64_t range");
+    }
+    const int64_t feeWalletFeeSigned = static_cast<int64_t>(feeTx.obj.fee);
+
+    if (minerTx.obj.amount + feeWalletFeeSigned + minerFeeSigned + recycleFeeSigned !=
+      AccountBuffer::INITIAL_TOKEN_SUPPLY) {
+    return Error(E_BLOCK_GENESIS,
+                 "Genesis reserve+recycle transactions must satisfy amount + "
+                 "fees: " +
+                     std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
+  }
+
   if (recycleTx.obj.type != Ledger::Transaction::T_NEW_USER) {
     return Error(E_BLOCK_GENESIS,
                  "Fourth genesis transaction must be new user transaction");
@@ -713,11 +849,11 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
         E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have amount 0");
   }
-  if (recycleTx.obj.fee != static_cast<int64_t>(minFeePerTransaction)) {
+  if (recycleTx.obj.fee != expectedRecycleFee) {
     return Error(
         E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have fee: " +
-            std::to_string(minFeePerTransaction));
+            std::to_string(expectedRecycleFee));
   }
   if (recycleTx.obj.meta.empty()) {
     return Error(E_BLOCK_GENESIS,
@@ -791,76 +927,6 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block) const {
   }
 
   return {};
-}
-
-Chain::Roe<std::string>
-Chain::updateMetaFromSystemInit(const std::string &meta) const {
-  return updateSystemMeta(meta);
-}
-
-Chain::Roe<std::string>
-Chain::updateMetaFromSystemUpdate(const std::string &meta) const {
-  return updateSystemMeta(meta);
-}
-
-Chain::Roe<std::string> Chain::updateSystemMeta(const std::string &meta) const {
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize checkpoint: " +
-                                             std::to_string(meta.size()) +
-                                             " bytes");
-  }
-
-  auto genesisAccountResult = bank_.getAccount(AccountBuffer::ID_GENESIS);
-  if (!genesisAccountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Account not found: " +
-                     std::to_string(AccountBuffer::ID_GENESIS));
-  }
-  auto const &genesisAccount = genesisAccountResult.value();
-  gm.genesis.wallet = genesisAccount.wallet;
-  return gm.ltsToString();
-}
-
-Chain::Roe<std::string>
-Chain::updateMetaFromUserInit(const std::string &meta,
-                              const AccountBuffer::Account &account) const {
-  return updateUserMeta(meta, account);
-}
-
-Chain::Roe<std::string>
-Chain::updateMetaFromUserUpdate(const std::string &meta,
-                                const AccountBuffer::Account &account) const {
-  return updateUserMeta(meta, account);
-}
-
-Chain::Roe<std::string>
-Chain::updateMetaFromUserRenewal(const std::string &meta,
-                                 const AccountBuffer::Account &account) const {
-  return updateUserMeta(meta, account);
-}
-
-Chain::Roe<Client::UserAccount>
-Chain::updateUserMetaToStruct(const std::string &meta,
-                              const AccountBuffer::Account &account) const {
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize account info: " +
-                     std::to_string(meta.size()) + " bytes");
-  }
-  userAccount.wallet = account.wallet;
-  return userAccount;
-}
-
-Chain::Roe<std::string>
-Chain::updateUserMeta(const std::string &meta,
-                      const AccountBuffer::Account &account) const {
-  auto roe = updateUserMetaToStruct(meta, account);
-  if (!roe) {
-    return roe.error();
-  }
-  return roe.value().ltsToString();
 }
 
 Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block,
@@ -1258,7 +1324,12 @@ Chain::Roe<void> Chain::processGenesisRenewalImpl(
     return Error(E_TX_VALIDATION,
                  "Genesis renewal transaction must have amount 0");
   }
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minFeePerTransaction = minimumFeeResult.value();
+  if (tx.fee < minFeePerTransaction) {
     return Error(E_TX_FEE,
                  "Genesis renewal fee below minimum: " + std::to_string(tx.fee));
   }
@@ -1326,7 +1397,12 @@ Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
                                              const Ledger::Transaction &tx,
                                              uint64_t blockId,
                                              bool isBufferMode) const {
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minFeePerTransaction = minimumFeeResult.value();
+  if (tx.fee < minFeePerTransaction) {
     return Error(E_TX_FEE, "New user transaction fee below minimum: " +
                                std::to_string(tx.fee));
   }
@@ -1434,6 +1510,56 @@ Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
   return processUserAccountUpsert(tx, blockId, isStrictMode);
 }
 
+Chain::Roe<uint64_t>
+Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
+                                         uint64_t accountId) const {
+  auto accountResult = bank.getAccount(accountId);
+  if (!accountResult) {
+    return Error(E_ACCOUNT_NOT_FOUND,
+                 "User account not found: " + std::to_string(accountId));
+  }
+
+  auto blockResult = ledger_.readBlock(accountResult.value().blockId);
+  if (!blockResult) {
+    return Error(E_BLOCK_NOT_FOUND,
+                 "Block not found: " + std::to_string(accountResult.value().blockId));
+  }
+
+  size_t metaSize = 0;
+
+  if (accountId == AccountBuffer::ID_GENESIS) {
+    auto metaResult =
+        getGenesisAccountMetaFromBlock(blockResult.value().block);
+    if (!metaResult) {
+      return metaResult.error();
+    }
+
+    metaSize = metaResult.value().genesis.meta.size();
+  } else {
+    auto userMetaResult =
+        getUserAccountMetaFromBlock(blockResult.value().block, accountId);
+    if (!userMetaResult) {
+      return userMetaResult.error();
+    }
+    metaSize = userMetaResult.value().meta.size();
+  }
+
+  if (metaSize > chainConfig_.maxCustomMetaSize) {
+    return Error(E_TX_VALIDATION,
+                 "Custom metadata exceeds maxCustomMetaSize: " +
+                     std::to_string(metaSize) +
+                     " > " + std::to_string(chainConfig_.maxCustomMetaSize));
+  }
+
+  const uint64_t nonFreeMetaSize =
+      metaSize > chainConfig_.freeCustomMetaSize
+          ? static_cast<uint64_t>(metaSize) -
+                chainConfig_.freeCustomMetaSize
+          : 0ULL;
+
+  return calculateMinimumFeeFromNonFreeMetaSize(chainConfig_, nonFreeMetaSize);
+}
+
 Chain::Roe<void> Chain::processUserAccountUpsertImpl(
     AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
     bool isBufferMode, bool isStrictMode) const {
@@ -1447,7 +1573,12 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
                  "User update transaction must use same from and to wallet IDs");
   }
 
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minFeePerTransaction = minimumFeeResult.value();
+  if (tx.fee < minFeePerTransaction) {
     return Error(E_TX_FEE, "User update transaction fee below minimum: " +
                                std::to_string(tx.fee));
   }
@@ -1559,11 +1690,16 @@ Chain::Roe<void> Chain::processUserEndImpl(AccountBuffer &bank,
                  "User account not found: " + std::to_string(tx.fromWalletId));
   }
 
+  auto minimumFeeResult = calculateMinimumFeeForAccountMeta(bank, tx.fromWalletId);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minFeePerTransaction = minimumFeeResult.value();
   if (bank.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
-      chainConfig_.minFeePerTransaction) {
+      static_cast<int64_t>(minFeePerTransaction)) {
     return Error(E_TX_VALIDATION,
                  "User account must have less than " +
-                     std::to_string(chainConfig_.minFeePerTransaction) +
+                     std::to_string(minFeePerTransaction) +
                      " balance in ID_GENESIS token");
   }
 
@@ -1678,7 +1814,12 @@ Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
 Chain::Roe<void>
 Chain::strictProcessTransaction(AccountBuffer &bank,
                                 const Ledger::Transaction &tx) const {
-  if (tx.fee < chainConfig_.minFeePerTransaction) {
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  const uint64_t minFeePerTransaction = minimumFeeResult.value();
+  if (tx.fee < minFeePerTransaction) {
     return Error(E_TX_FEE,
                  "Transaction fee below minimum: " + std::to_string(tx.fee));
   }

@@ -366,18 +366,18 @@ TEST_F(AccountBufferTest, TransferBalance_WithZeroFee_Success) {
     EXPECT_EQ(to.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 100);
 }
 
-TEST_F(AccountBufferTest, TransferBalance_WithNegativeFee_Error) {
+TEST_F(AccountBufferTest, TransferBalance_WithOutOfRangeFee_Error) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
     
     auto b = makeAccount(2, 0);
     ASSERT_TRUE(buf.add(b).isOk());
 
-    // Negative fee should fail
+    // Negative literal wraps to a large uint64_t fee and should fail range checks
     auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, -10);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Fee must be non-negative");
+    EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
 }
 
 TEST_F(AccountBufferTest, TransferBalance_InsufficientBalance_GenesisToken_WithFee_Error) {
@@ -755,7 +755,7 @@ TEST_F(AccountBufferTest, VerifyBalance_AccountNotFound_Error) {
     EXPECT_EQ(r.error().message, "Account not found");
 }
 
-TEST_F(AccountBufferTest, VerifyBalance_NegativeAmount_Error) {
+TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeAmount_Error) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
@@ -765,10 +765,10 @@ TEST_F(AccountBufferTest, VerifyBalance_NegativeAmount_Error) {
     auto r = buf.verifyBalance(1, -50, 50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Amount must be non-negative");
+    EXPECT_EQ(r.error().message, "Amount exceeds int64_t range");
 }
 
-TEST_F(AccountBufferTest, VerifyBalance_NegativeFee_Error) {
+TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeFee_Error) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
@@ -778,7 +778,7 @@ TEST_F(AccountBufferTest, VerifyBalance_NegativeFee_Error) {
     auto r = buf.verifyBalance(1, 50, -50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
-    EXPECT_EQ(r.error().message, "Fee must be non-negative");
+    EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_Overflow_AmountPlusFee_Error) {

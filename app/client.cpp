@@ -19,7 +19,7 @@
 static constexpr uint64_t ID_GENESIS = 0;  // Native token (matches AccountBuffer)
 
 static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyHex,
-                                                     int64_t amount,
+                                                     uint64_t amount,
                                                      const std::string& metaDesc,
                                                      uint8_t minSignatures) {
   pp::Client::UserAccount account;
@@ -54,7 +54,7 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    int64_t amount, int64_t fee, const std::string& key) {
+                    uint64_t amount, uint64_t fee, const std::string& key) {
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
@@ -96,7 +96,7 @@ static pp::Roe<std::string> readFileContent(const std::string& path) {
   return oss.str();
 }
 
-static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
+static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
                    const std::string& outputPath) {
   SignedTx signedTx;
   signedTx.obj.fromWalletId = fromWalletId;
@@ -113,8 +113,8 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
   return 0;
 }
 
-static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, int64_t amount,
-                       int64_t fee, const std::string& newPubkeyHex,
+static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
+                       uint64_t fee, const std::string& newPubkeyHex,
                        const std::string& metaDesc, uint8_t minSignatures,
                        const std::string& outputPath, bool toWasGenerated) {
   std::string pubkeyToUse;
@@ -168,7 +168,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, int64_t amou
 }
 
 static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                         int64_t amount, int64_t fee, const std::string& newPubkeyHex,
+                         uint64_t amount, uint64_t fee, const std::string& newPubkeyHex,
                          const std::string& metaDesc, uint8_t minSignatures,
                          const std::string& key, bool toWasGenerated) {
   std::string pubkeyToUse;
@@ -335,8 +335,8 @@ int main(int argc, char *argv[]) {
   // Miner commands
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
-  int64_t amount = 0;
-  int64_t fee = 0;
+  uint64_t amount = 0;
+  uint64_t fee = 0;
   std::string key;
   add_tx_cmd->add_option("from", fromWalletId, "From wallet ID")->required();
   add_tx_cmd->add_option("to", toWalletId, "To wallet ID")->required();
@@ -349,7 +349,7 @@ int main(int argc, char *argv[]) {
   // mk-tx: create unsigned SignedData and save to file
   auto* mk_tx_cmd = app.add_subcommand("mk-tx", "Create unsigned transaction file");
   uint64_t mk_from = 0, mk_to = 0;
-  int64_t mk_amount = 0;
+  uint64_t mk_amount = 0;
   std::string mk_output;
   mk_tx_cmd->add_option("from", mk_from, "From wallet ID")->required();
   mk_tx_cmd->add_option("to", mk_to, "To wallet ID")->required();
@@ -361,8 +361,8 @@ int main(int argc, char *argv[]) {
   auto* mk_account_cmd = app.add_subcommand("mk-account",
                                             "Create unsigned T_NEW_USER transaction file");
   uint64_t mk_acc_from = 0, mk_acc_to = 0;
-  int64_t mk_acc_amount = 0;
-  int64_t mk_acc_fee = 0;
+  uint64_t mk_acc_amount = 0;
+  uint64_t mk_acc_fee = 0;
   std::string mk_acc_pubkey;
   std::string mk_acc_meta;
   uint8_t mk_acc_min_sig = 1;
@@ -386,8 +386,8 @@ int main(int argc, char *argv[]) {
   auto* add_account_cmd =
       app.add_subcommand("add-account", "Create and submit T_NEW_USER account creation");
   uint64_t add_acc_from = 0, add_acc_to = 0;
-  int64_t add_acc_amount = 0;
-  int64_t add_acc_fee = 0;
+  uint64_t add_acc_amount = 0;
+  uint64_t add_acc_fee = 0;
   std::string add_acc_pubkey;
   std::string add_acc_meta;
   uint8_t add_acc_min_sig = 1;

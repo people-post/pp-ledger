@@ -79,19 +79,6 @@ bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &por
   return parsePort(portStr, port);
 }
 
-std::string join(const std::vector<std::string> &strings, const std::string &delimiter) {
-  if (strings.empty()) {
-    return "";
-  }
-  
-  std::ostringstream result;
-  result << strings[0];
-  for (size_t i = 1; i < strings.size(); ++i) {
-    result << delimiter << strings[i];
-  }
-  return result.str();
-}
-
 pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath) {
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);

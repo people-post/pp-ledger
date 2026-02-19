@@ -3,6 +3,8 @@
 
 #include <string>
 #include <cstdint>
+#include <sstream>
+#include <vector>
 #include "ResultOrError.hpp"
 #include <nlohmann/json.hpp>
 
@@ -76,12 +78,24 @@ bool parsePort(const std::string &str, uint16_t &port);
 bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &port);
 
 /**
- * Join a vector of strings with a delimiter
- * @param strings Vector of strings to join
+ * Join a vector of streamable values with a delimiter
+ * @param values Vector of values to join
  * @param delimiter Delimiter to insert between strings
  * @return Joined string
  */
-std::string join(const std::vector<std::string> &strings, const std::string &delimiter);
+template <typename T>
+std::string join(const std::vector<T> &values, const std::string &delimiter) {
+  if (values.empty()) {
+    return "";
+  }
+
+  std::ostringstream result;
+  result << values[0];
+  for (size_t i = 1; i < values.size(); ++i) {
+    result << delimiter << values[i];
+  }
+  return result.str();
+}
 
 /**
  * Load and parse a JSON configuration file
