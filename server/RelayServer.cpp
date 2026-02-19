@@ -331,7 +331,6 @@ RelayServer::hBlockAdd(const Client::Request &request) {
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
-  block.hash = relay_.calculateHash(block.block);
   auto result = relay_.addBlock(block);
   if (!result) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
