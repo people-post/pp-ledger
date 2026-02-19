@@ -179,41 +179,39 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
 }
 
 Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
-  uint64_t slot = getCurrentSlot();
-  // At most one block per slot
+  const uint64_t slot = getCurrentSlot();
   if (lastProducedSlot_ == slot) {
+    return false;
+  }
+  if (!chain_.isSlotBlockProductionTime(slot)) {
     return false;
   }
 
   if (slotCache_.slot != slot) {
-    // One time initialization of slot cache
     auto initResult = initSlotCache(slot);
     if (!initResult) {
       return Error(12, initResult.error().message);
     }
   }
-
   if (!slotCache_.isLeader) {
-    // Only slot leader can produce block
     return false;
   }
-
   if (slotCache_.txRenewals.empty() && pendingTxes_.empty()) {
-    // No transactions to produce block with
-    return false;
-  }
-
-  // Only produce at end of current slot (within last second of slot)
-  if (!chain_.isSlotBlockProductionTime(slot)) {
     return false;
   }
 
   log().info << "Producing block for slot " << slot;
 
-  // Create the block
-  auto createResult = createBlock(slot);
+  Miner::BlockTxSet txSet = getBlockTransactionSet();
+  auto createResult = createBlock(slot, txSet.signedTxes);
   if (!createResult) {
     return Error(7, "Failed to create block: " + createResult.error().message);
+  }
+
+  if (txSet.nPendingIncluded < pendingTxes_.size()) {
+    forwardCache_.insert(forwardCache_.end(),
+                         pendingTxes_.begin() + txSet.nPendingIncluded,
+                         pendingTxes_.end());
   }
   pendingTxes_.clear();
 
@@ -265,33 +263,48 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
 
 // Private helper methods
 
-Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot) {
+Miner::BlockTxSet Miner::getBlockTransactionSet() const {
+  Miner::BlockTxSet out;
+  const size_t renewalsCount = slotCache_.txRenewals.size();
+  const uint64_t maxTx = chain_.getMaxTransactionsPerBlock();
+  out.signedTxes = slotCache_.txRenewals;
+  if (maxTx == 0) {
+    out.nPendingIncluded = pendingTxes_.size();
+    out.signedTxes.insert(out.signedTxes.end(), pendingTxes_.begin(),
+                          pendingTxes_.end());
+  } else {
+    const size_t pendingCap =
+        (maxTx > renewalsCount) ? static_cast<size_t>(maxTx - renewalsCount)
+                               : 0;
+    out.nPendingIncluded = std::min(pendingTxes_.size(), pendingCap);
+    out.signedTxes.insert(out.signedTxes.end(), pendingTxes_.begin(),
+                          pendingTxes_.begin() + out.nPendingIncluded);
+  }
+  return out;
+}
+
+Miner::Roe<Ledger::ChainNode> Miner::createBlock(
+    uint64_t slot,
+    const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes) {
   auto timestamp = chain_.getConsensusTimestamp();
 
-  // Get previous block info
   auto latestBlockResult = chain_.readLastBlock();
   if (!latestBlockResult) {
     return Error(11, "Failed to read latest block: " +
                          latestBlockResult.error().message);
   }
   auto latestBlock = latestBlockResult.value();
-  uint64_t blockIndex = latestBlock.block.index + 1;
-  std::string previousHash = latestBlock.hash;
+  const uint64_t blockIndex = latestBlock.block.index + 1;
 
-  // Create the block
   Ledger::ChainNode block;
   block.block.index = blockIndex;
   block.block.timestamp = timestamp;
-  block.block.previousHash = previousHash;
+  block.block.previousHash = latestBlock.hash;
   block.block.slot = slot;
   block.block.slotLeader = config_.minerId;
-  block.block.txIndex = latestBlock.block.txIndex + latestBlock.block.signedTxes.size();
-
-  // Populate signedTxes
-  block.block.signedTxes = slotCache_.txRenewals;
-  block.block.signedTxes.insert(block.block.signedTxes.end(), pendingTxes_.begin(), pendingTxes_.end());
-
-  // Calculate hash
+  block.block.txIndex =
+      latestBlock.block.txIndex + latestBlock.block.signedTxes.size();
+  block.block.signedTxes = signedTxes;
   block.hash = calculateHash(block.block);
 
   log().debug << "Created block " << blockIndex << " with "

@@ -147,6 +147,8 @@ public:
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   int64_t getConsensusTimestamp() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
+  /** Max transactions per block (0 = no limit). Renewals are not counted toward this cap. */
+  uint64_t getMaxTransactionsPerBlock() const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;

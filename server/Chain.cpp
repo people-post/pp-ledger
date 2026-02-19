@@ -254,6 +254,10 @@ uint64_t Chain::getStakeholderStake(uint64_t stakeholderId) const {
   return consensus_.getStake(stakeholderId);
 }
 
+uint64_t Chain::getMaxTransactionsPerBlock() const {
+  return chainConfig_.maxTransactionsPerBlock;
+}
+
 Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
   auto result = consensus_.getSlotLeader(slot);
   if (!result) {
@@ -937,6 +941,20 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block) const {
   auto renewalValidation = validateAccountRenewals(block);
   if (!renewalValidation) {
     return renewalValidation.error();
+  }
+
+  // Validate max transactions per block: if total > max, all must be renewals
+  const uint64_t maxTx = chainConfig_.maxTransactionsPerBlock;
+  if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
+    for (const auto &signedTx : block.block.signedTxes) {
+      if (signedTx.obj.type != Ledger::Transaction::T_RENEWAL) {
+        return Error(E_BLOCK_VALIDATION,
+                     "Block has more than max transactions per block (" +
+                         std::to_string(block.block.signedTxes.size()) + " > " +
+                         std::to_string(maxTx) +
+                         ") but contains non-renewal transaction");
+      }
+    }
   }
 
   return {};

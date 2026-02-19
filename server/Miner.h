@@ -101,17 +101,28 @@ private:
     std::vector<Ledger::SignedData<Ledger::Transaction>> txRenewals;
   };
 
+  /** Transactions for the next block and count of pending included (for trimmed). */
+  struct BlockTxSet {
+    std::vector<Ledger::SignedData<Ledger::Transaction>> signedTxes;
+    size_t nPendingIncluded{0};
+  };
+
+  BlockTxSet getBlockTransactionSet() const;
+
   Roe<void> initSlotCache(uint64_t slot);
-  Roe<Ledger::ChainNode> createBlock(uint64_t slot);
+  Roe<Ledger::ChainNode> createBlock(
+      uint64_t slot,
+      const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes);
 
   Chain chain_;
   Config config_;
   AccountBuffer bufferBank_;
   std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
   std::vector<Ledger::SignedData<Ledger::Transaction>> forwardCache_;
+
   uint64_t lastProducedBlockId_{0};
-  uint64_t lastProducedSlot_{
-      0}; // slot we last produced a block for (at most one per slot)
+  // slot last produced block in (at most one per slot)
+  uint64_t lastProducedSlot_{0};
   SlotCache slotCache_; // Cache data for block production
 };
 
