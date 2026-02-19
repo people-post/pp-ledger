@@ -74,9 +74,11 @@ public:
     uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
     uint64_t slotLeader{ 0 };
+    /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
+    uint64_t txIndex{ 0 };
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader;
+      ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader & txIndex;
     }
 
     std::string ltsToString() const;

@@ -31,7 +31,7 @@ std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
 
-  // Serialize version and block fields
+  // Serialize version and block fields (always write CURRENT_VERSION with all fields)
   uint16_t version = CURRENT_VERSION;
   ar & version & *this;
 
@@ -85,7 +85,8 @@ nlohmann::json Ledger::Block::toJson() const {
   j["nonce"] = nonce;
   j["slot"] = slot;
   j["slotLeader"] = slotLeader;
-  
+  j["startingTxIndex"] = txIndex;
+
   // Convert signed transactions to JSON array
   nlohmann::json txArray = nlohmann::json::array();
   for (const auto& signedTx : signedTxes) {

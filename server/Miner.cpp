@@ -285,6 +285,7 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(uint64_t slot) {
   block.block.previousHash = previousHash;
   block.block.slot = slot;
   block.block.slotLeader = config_.minerId;
+  block.block.txIndex = latestBlock.block.txIndex + latestBlock.block.signedTxes.size();
 
   // Populate signedTxes
   block.block.signedTxes = slotCache_.txRenewals;

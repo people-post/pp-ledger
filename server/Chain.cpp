@@ -729,6 +729,9 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
   if (block.block.slotLeader != 0) {
     return Error(E_BLOCK_GENESIS, "Genesis block must have slotLeader 0");
   }
+  if (block.block.txIndex != 0) {
+    return Error(E_BLOCK_GENESIS, "Genesis block must have txIndex 0");
+  }
   // Exactly four transactions: checkpoint, fee, reserve, and recycle
   if (block.block.signedTxes.size() != 4) {
     return Error(E_BLOCK_GENESIS,
@@ -896,6 +899,16 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block) const {
     }
     if (block.block.index != latestBlock.block.index + 1) {
       return Error(E_BLOCK_INDEX, "Block index mismatch");
+    }
+    // txIndex must equal previous block's cumulative count
+    const uint64_t expected =
+        latestBlock.block.txIndex +
+        latestBlock.block.signedTxes.size();
+    if (block.block.txIndex != expected) {
+      return Error(E_BLOCK_INDEX,
+                   "Block txIndex mismatch: expected " +
+                       std::to_string(expected) + " got " +
+                       std::to_string(block.block.txIndex));
     }
   }
 
