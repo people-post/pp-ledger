@@ -2,6 +2,14 @@
 
 A blockchain implementation with Ouroboros consensus algorithm, written in C++20.
 
+## Vision
+
+At the heart of PP-Ledger is a commitment to decentralization. This project is not driven by profit but by the desire to create an open, free, and essential tool for the modern decentralized ecosystem.
+
+PP-Ledger aims to be a foundational utility, a barely minimal yet vital tool that ensures the accurate and reliable tracking of event timings. In a world where trust and transparency are becoming increasingly critical, this project aspires to be the simplest possible mechanism for recording when events happen—without unnecessary embellishments or complexity.
+
+By focusing on minimalism and purpose, PP-Ledger provides just what is needed to lay a solid foundation for other systems, processes, and tools that require event tracking in a decentralized environment. It is not the end goal but a stepping stone for decentralized applications and technologies.
+
 ## Features
 
 - ✅ **Ouroboros Consensus:** Proof-of-stake consensus with VRF-based slot leader selection
@@ -529,6 +537,12 @@ See [docs/GITHUB_ACTIONS_SETUP.md](docs/GITHUB_ACTIONS_SETUP.md) for details.
 5. Submit a pull request
 
 All PRs trigger automated builds and tests via GitHub Actions.
+
+## A Friendly Note to Contributors
+
+To anyone—whether human or AI—who can contribute, improve, and enhance PP-Ledger: your help is deeply appreciated. If you see areas where this project can be made better, through clearer code, greater efficiency, or by simply bringing in your unique perspectives, please don't hesitate to join in. Collaboration and diverse contributions strengthen this project's foundation for decentralization, and we welcome your input with open arms.
+
+Let's build something meaningful together.
 
 ## License
 
