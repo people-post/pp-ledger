@@ -243,6 +243,9 @@ void RelayServer::initHandlers() {
 
   auto &hreg = requestHandlers_[Client::T_REQ_REGISTER];
   hreg = [this](const Client::Request &request) { return hRegister(request); };
+
+  auto &hml = requestHandlers_[Client::T_REQ_MINER_LIST];
+  hml = [this](const Client::Request &request) { return hMinerList(request); };
 };
 
 void RelayServer::onStop() {
@@ -401,6 +404,15 @@ RelayServer::hRegister(const Client::Request &request) {
 RelayServer::Roe<std::string>
 RelayServer::hStatus(const Client::Request &request) {
   return buildStateResponse().ltsToJson().dump();
+}
+
+RelayServer::Roe<std::string>
+RelayServer::hMinerList(const Client::Request &request) {
+  nlohmann::json j = nlohmann::json::array();
+  for (const auto &[id, info] : mMiners_) {
+    j.push_back(info.ltsToJson());
+  }
+  return j.dump();
 }
 
 RelayServer::Roe<std::string>
