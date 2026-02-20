@@ -154,7 +154,8 @@ Service::Roe<void> RelayServer::onStart() {
   if (!config_.network.beacon.empty()) {
     auto offsetResult = calibrateTimeToBeacon();
     if (offsetResult) {
-      relayConfig.timeOffset = offsetResult.value();
+      timeOffsetToBeaconMs_ = offsetResult.value();
+      relayConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
     } else {
       log().warning << "Time calibration skipped: " << offsetResult.error().message;
     }
@@ -425,7 +426,8 @@ RelayServer::hTimestamp(const Client::Request &request) {
   int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();
-  return utl::binaryPack(nowMs);
+  int64_t beaconTimeMs = nowMs + timeOffsetToBeaconMs_;
+  return utl::binaryPack(beaconTimeMs);
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
@@ -439,7 +441,7 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
   }
 
   struct Sample {
-    int64_t offsetSec;
+    int64_t offsetMs;
     int64_t rttMs;
   };
   std::vector<Sample> samples;
@@ -454,14 +456,14 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
                    "Failed to fetch beacon timestamp: " + result.error().message);
     }
     int64_t serverTimeMs = result.value();
-    int64_t localTimeSec = utl::getCurrentTime();
+    int64_t localTimeMs = utl::getCurrentTime() * 1000;
     int64_t rttMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    int64_t offsetSec = (serverTimeMs / 1000) - localTimeSec + (rttMs / 2000);
-    samples.push_back({offsetSec, rttMs});
+    int64_t offsetMs = serverTimeMs - localTimeMs + (rttMs / 2);
+    samples.push_back({offsetMs, rttMs});
 
     if (rttMs <= RTT_THRESHOLD_MS) {
-      log().info << "Time calibrated to beacon: offset=" << offsetSec << " s, RTT=" << rttMs << " ms (single sample)";
-      return offsetSec;
+      log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, RTT=" << rttMs << " ms (single sample)";
+      return offsetMs;
     }
     if (i == 0) {
       log().debug << "High RTT (" << rttMs << " ms), taking up to " << CALIBRATION_SAMPLES << " samples";
@@ -470,10 +472,10 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 
   auto best = std::min_element(samples.begin(), samples.end(),
                               [](const Sample &a, const Sample &b) { return a.rttMs < b.rttMs; });
-  int64_t offsetSec = best->offsetSec;
-  log().info << "Time calibrated to beacon: offset=" << offsetSec << " s, samples=" << samples.size()
+  int64_t offsetMs = best->offsetMs;
+  log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, samples=" << samples.size()
              << ", min RTT=" << best->rttMs << " ms";
-  return offsetSec;
+  return offsetMs;
 }
 
 RelayServer::Roe<std::string>

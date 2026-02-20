@@ -95,7 +95,7 @@ private:
 
   std::string handleParsedRequest(const Client::Request &request) override;
 
-  /** Compute time offset in seconds to beacon (beacon_time = local_time + offset). */
+  /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). */
   Roe<int64_t> calibrateTimeToBeacon();
 
   // Getters
@@ -119,6 +119,9 @@ private:
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   /** Max number of timestamp samples when RTT is high. */
   static constexpr int CALIBRATION_SAMPLES = 5;
+
+  /** Cached time offset to beacon in ms (beacon_time_ms = local_time_ms + offset). Set by calibrateTimeToBeacon; 0 if no beacon or calibration skipped. */
+  int64_t timeOffsetToBeaconMs_{0};
 
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
 
