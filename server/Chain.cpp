@@ -1249,8 +1249,8 @@ Chain::Roe<void> Chain::validateTxSignatures(
                                         accountResult.value());
 }
 
-Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId, uint64_t walletId, uint64_t slotMin,
-                                         uint64_t slotMax) const {
+Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId,
+                                         uint64_t slotMin, uint64_t slotMax) const {
   if (idempotentId == 0) {
     return {};
   }
@@ -1275,10 +1275,11 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId, uint64_t walletI
       continue;
     }
     for (const auto &signedTx : block.signedTxes) {
-      if (signedTx.obj.idempotentId == idempotentId && signedTx.obj.fromWalletId == walletId) {
+      if (signedTx.obj.idempotentId == idempotentId &&
+          signedTx.obj.fromWalletId == fromWalletId) {
         return Error(E_TX_IDEMPOTENCY,
                      "Duplicate idempotent id: " + std::to_string(idempotentId) +
-                     " for wallet: " + std::to_string(walletId));
+                         " for wallet: " + std::to_string(fromWalletId));
       }
     }
   }

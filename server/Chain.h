@@ -249,8 +249,8 @@ private:
   validateTxSignatures(const Ledger::SignedData<Ledger::Transaction> &signedTx,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
-  /** Check that no block with slot in [slotMin, slotMax] already contains a tx with the given idempotentId. */
-  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t walletId, uint64_t slotMin,
+  /** Check that no block with slot in [slotMin, slotMax] already contains a tx with the same idempotentId and fromWalletId (idempotency is per wallet). */
+  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
                             uint64_t slotMax) const;
 
   /** Validate idempotency rules (timespan, slot in window, duplicate id). effectiveSlot is current slot (submit) or block.slot (replay). */
