@@ -654,6 +654,9 @@ Chain::findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const 
       }
     }
     ++nBlocksScanned;
+    if (out.size() >= THRESHOLD_TXES_FOR_WALLET_TX) {
+      break;
+    }
   }
   ioBlockId = currentBlockId;
   return out;
