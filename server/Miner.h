@@ -64,8 +64,10 @@ public:
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
-  Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+
+  Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
+
   std::string calculateHash(const Ledger::Block &block) const;
 
   // ----------------- methods -------------------------------------

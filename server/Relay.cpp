@@ -39,8 +39,8 @@ std::vector<consensus::Stakeholder> Relay::getStakeholders() const {
   return chain_.getStakeholders();
 }
 
-Relay::Roe<Ledger::ChainNode> Relay::getBlock(uint64_t blockId) const {
-  auto result = chain_.getBlock(blockId);
+Relay::Roe<Ledger::ChainNode> Relay::readBlock(uint64_t blockId) const {
+  auto result = chain_.readBlock(blockId);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

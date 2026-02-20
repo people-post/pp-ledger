@@ -272,7 +272,7 @@ std::vector<consensus::Stakeholder> Chain::getStakeholders() const {
   return consensus_.getStakeholders();
 }
 
-Chain::Roe<Ledger::ChainNode> Chain::getBlock(uint64_t blockId) const {
+Chain::Roe<Ledger::ChainNode> Chain::readBlock(uint64_t blockId) const {
   auto result = ledger_.readBlock(blockId);
   if (!result) {
     return Error(E_BLOCK_NOT_FOUND,
@@ -619,6 +619,38 @@ Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
                  "Failed to read last block: " + result.error().message);
   }
   return result.value();
+}
+
+Chain::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Chain::findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const {
+  // ioBlockId is the block ID to start scanning from. It is updated to the last scanned block ID.
+
+  std::vector<Ledger::SignedData<Ledger::Transaction>> out;
+  ioBlockId = std::min(ioBlockId, ledger_.getNextBlockId());
+  if (ioBlockId == 0) {
+    return out;
+  }
+
+  size_t nBlocksScanned = 0;
+  while (ioBlockId-- > 0) {
+    auto blockRoe = ledger_.readBlock(ioBlockId);
+    if (!blockRoe) {
+      return Error(E_BLOCK_NOT_FOUND,
+                   "Block not found: " + std::to_string(ioBlockId));
+    }
+    auto const &txes = blockRoe.value().block.signedTxes;
+    for (auto it = txes.rbegin(); it != txes.rend(); ++it) {
+      const Ledger::Transaction &tx = it->obj;
+      if (tx.fromWalletId == walletId || tx.toWalletId == walletId) {
+        out.push_back(*it);
+      }
+    }
+
+    if (++nBlocksScanned >= MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
+      break;
+    }
+  }
+  return out;
 }
 
 std::string Chain::calculateHash(const Ledger::Block &block) const {

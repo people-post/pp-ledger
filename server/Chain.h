@@ -82,6 +82,7 @@ public:
   // State and initialization errors (1-9)
   constexpr static int32_t E_STATE_INIT = 1;  // Ledger initialization failed
   constexpr static int32_t E_STATE_MOUNT = 2; // Ledger mount failed
+  constexpr static int32_t E_INVALID_ARGUMENT = 3; // Invalid argument
 
   // Block validation errors (10-29)
   constexpr static int32_t E_BLOCK_NOT_FOUND = 10; // Block not found
@@ -148,7 +149,6 @@ public:
   uint64_t getTotalStake() const;
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
-  Roe<Ledger::ChainNode> getBlock(uint64_t blockId) const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   int64_t getConsensusTimestamp() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
@@ -168,7 +168,13 @@ public:
                                     const Ledger::Transaction &tx) const;
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
   collectRenewals(uint64_t slot) const;
+
+  Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   Roe<Ledger::ChainNode> readLastBlock() const;
+
+  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const;
+
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,
                        const Ledger::SignedData<Ledger::Transaction> &signedTx,
@@ -190,6 +196,9 @@ protected:
   uint64_t getBlockAgeSeconds(uint64_t blockId) const;
 
 private:
+  /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs. */
+  constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 1000;
+
   bool isValidBlockSequence(const Ledger::ChainNode &block) const;
   bool isValidSlotLeader(const Ledger::ChainNode &block) const;
   bool isValidTimestamp(const Ledger::ChainNode &block) const;

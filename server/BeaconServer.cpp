@@ -612,7 +612,7 @@ BeaconServer::hBlockGet(const Client::Request &request) {
   }
 
   uint64_t blockId = idResult.value();
-  auto result = beacon_.getBlock(blockId);
+  auto result = beacon_.readBlock(blockId);
   if (!result) {
     return Error(E_REQUEST, "Failed to get block: " + result.error().message);
   }

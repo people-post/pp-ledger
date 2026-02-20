@@ -61,8 +61,8 @@ std::vector<consensus::Stakeholder> Beacon::getStakeholders() const {
   return chain_.getStakeholders();
 }
 
-Beacon::Roe<Ledger::ChainNode> Beacon::getBlock(uint64_t blockId) const {
-  auto result = chain_.getBlock(blockId);
+Beacon::Roe<Ledger::ChainNode> Beacon::readBlock(uint64_t blockId) const {
+  auto result = chain_.readBlock(blockId);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

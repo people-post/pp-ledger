@@ -511,7 +511,7 @@ MinerServer::hBlockGet(const Client::Request &request) {
     return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
   }
   uint64_t blockId = idResult.value();
-  auto result = miner_.getBlock(blockId);
+  auto result = miner_.readBlock(blockId);
   if (!result) {
     return Error(E_REQUEST, "Failed to get block: " + result.error().message);
   }

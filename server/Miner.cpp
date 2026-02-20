@@ -41,8 +41,8 @@ std::vector<consensus::Stakeholder> Miner::getStakeholders() const {
   return chain_.getStakeholders();
 }
 
-Miner::Roe<Ledger::ChainNode> Miner::getBlock(uint64_t blockId) const {
-  auto result = chain_.getBlock(blockId);
+Miner::Roe<Ledger::ChainNode> Miner::readBlock(uint64_t blockId) const {
+  auto result = chain_.readBlock(blockId);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

@@ -354,7 +354,7 @@ RelayServer::hBlockGet(const Client::Request &request) {
   }
 
   uint64_t blockId = idResult.value();
-  auto result = relay_.getBlock(blockId);
+  auto result = relay_.readBlock(blockId);
   if (!result) {
     return Error(E_REQUEST, "Failed to get block: " + result.error().message);
   }
