@@ -94,7 +94,7 @@ private:
   void syncBlocksPeriodically();
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
-  /** Compute time offset in seconds to beacon (beacon_time = local_time + offset). Call after connectToBeacon(); client_ must be set to beacon. */
+  /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). Call after connectToBeacon(); client_ must be set to beacon. */
   Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
@@ -119,6 +119,13 @@ private:
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
   static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
+  /** RTT above this (ms) triggers multiple calibration samples. */
+  static constexpr int64_t RTT_THRESHOLD_MS = 200;
+  /** Max number of timestamp samples when RTT is high. */
+  static constexpr int CALIBRATION_SAMPLES = 5;
+  /** Cached time offset to beacon in ms (beacon_time_ms = local_time_ms + offset). Set by calibrateTimeToBeacon; 0 if no beacon or calibration skipped. */
+  int64_t timeOffsetToBeaconMs_{0};
+
   std::chrono::steady_clock::time_point lastMinerListFetchTime_{};
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastForwardRetrySlot_{0};

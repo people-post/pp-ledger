@@ -4,10 +4,12 @@
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <vector>
 
 namespace pp {
 
@@ -232,8 +234,7 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to calibrate time to beacon: " +
                                        calResult.error().message);
   }
-  int64_t timeOffsetSec = calResult.value();
-  log().info << "Time calibrated to beacon: offset=" << timeOffsetSec << " s";
+  timeOffsetToBeaconMs_ = calResult.value();
 
   // Initialize miner core
   std::filesystem::path minerDataDir =
@@ -242,7 +243,7 @@ Service::Roe<void> MinerServer::onStart() {
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.privateKeys = config_.privateKeys;
-  minerConfig.timeOffset = timeOffsetSec;
+  minerConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
   minerConfig.workDir = minerDataDir.string();
   minerConfig.startingBlockId = state.lastCheckpointId;
   minerConfig.checkpointId = state.checkpointId;
@@ -276,14 +277,45 @@ MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
   if (config_.network.beacons.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
-  auto result = client_.fetchTimestamp();
-  if (!result) {
-    return Error(E_NETWORK,
-                "Failed to fetch beacon timestamp: " + result.error().message);
+
+  struct Sample {
+    int64_t offsetMs;
+    int64_t rttMs;
+  };
+  std::vector<Sample> samples;
+  samples.reserve(static_cast<size_t>(CALIBRATION_SAMPLES));
+
+  for (int i = 0; i < CALIBRATION_SAMPLES; ++i) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto result = client_.fetchTimestamp();
+    auto t1 = std::chrono::steady_clock::now();
+    if (!result) {
+      return Error(E_NETWORK,
+                   "Failed to fetch beacon timestamp: " + result.error().message);
+    }
+    int64_t serverTimeMs = result.value();
+    int64_t localTimeMs = utl::getCurrentTime() * 1000;
+    int64_t rttMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    int64_t offsetMs = serverTimeMs - localTimeMs + (rttMs / 2);
+    samples.push_back({offsetMs, rttMs});
+
+    if (rttMs <= RTT_THRESHOLD_MS) {
+      log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, RTT=" << rttMs
+                 << " ms (single sample)";
+      return offsetMs;
+    }
+    if (i == 0) {
+      log().debug << "High RTT (" << rttMs << " ms), taking up to " << CALIBRATION_SAMPLES
+                  << " samples";
+    }
   }
-  int64_t serverTimeMs = result.value();
-  int64_t localTimeSec = utl::getCurrentTime();
-  return (serverTimeMs / 1000) - localTimeSec;
+
+  auto best = std::min_element(samples.begin(), samples.end(),
+                              [](const Sample &a, const Sample &b) { return a.rttMs < b.rttMs; });
+  int64_t offsetMs = best->offsetMs;
+  log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, samples=" << samples.size()
+             << ", min RTT=" << best->rttMs << " ms";
+  return offsetMs;
 }
 
 MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
@@ -578,7 +610,8 @@ MinerServer::hTimestamp(const Client::Request &request) {
   int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();
-  return utl::binaryPack(nowMs);
+  int64_t beaconTimeMs = nowMs + timeOffsetToBeaconMs_;
+  return utl::binaryPack(beaconTimeMs);
 }
 
 MinerServer::Roe<std::string>
