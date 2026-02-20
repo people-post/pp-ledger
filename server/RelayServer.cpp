@@ -4,10 +4,12 @@
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <vector>
 
 namespace pp {
 
@@ -153,7 +155,6 @@ Service::Roe<void> RelayServer::onStart() {
     auto offsetResult = calibrateTimeToBeacon();
     if (offsetResult) {
       relayConfig.timeOffset = offsetResult.value();
-      log().info << "Time calibrated to beacon: offset=" << relayConfig.timeOffset << " s";
     } else {
       log().warning << "Time calibration skipped: " << offsetResult.error().message;
     }
@@ -436,14 +437,42 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
     return Error(E_NETWORK,
                  "Failed to resolve beacon address: " + config_.network.beacon);
   }
-  auto result = client_.fetchTimestamp();
-  if (!result) {
-    return Error(E_NETWORK,
-                 "Failed to fetch beacon timestamp: " + result.error().message);
+
+  struct Sample {
+    int64_t offsetSec;
+    int64_t rttMs;
+  };
+  std::vector<Sample> samples;
+  samples.reserve(static_cast<size_t>(CALIBRATION_SAMPLES));
+
+  for (int i = 0; i < CALIBRATION_SAMPLES; ++i) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto result = client_.fetchTimestamp();
+    auto t1 = std::chrono::steady_clock::now();
+    if (!result) {
+      return Error(E_NETWORK,
+                   "Failed to fetch beacon timestamp: " + result.error().message);
+    }
+    int64_t serverTimeMs = result.value();
+    int64_t localTimeSec = utl::getCurrentTime();
+    int64_t rttMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    int64_t offsetSec = (serverTimeMs / 1000) - localTimeSec + (rttMs / 2000);
+    samples.push_back({offsetSec, rttMs});
+
+    if (rttMs <= RTT_THRESHOLD_MS) {
+      log().info << "Time calibrated to beacon: offset=" << offsetSec << " s, RTT=" << rttMs << " ms (single sample)";
+      return offsetSec;
+    }
+    if (i == 0) {
+      log().debug << "High RTT (" << rttMs << " ms), taking up to " << CALIBRATION_SAMPLES << " samples";
+    }
   }
-  int64_t serverTimeMs = result.value();
-  int64_t localTimeSec = utl::getCurrentTime();
-  int64_t offsetSec = (serverTimeMs / 1000) - localTimeSec;
+
+  auto best = std::min_element(samples.begin(), samples.end(),
+                              [](const Sample &a, const Sample &b) { return a.rttMs < b.rttMs; });
+  int64_t offsetSec = best->offsetSec;
+  log().info << "Time calibrated to beacon: offset=" << offsetSec << " s, samples=" << samples.size()
+             << ", min RTT=" << best->rttMs << " ms";
   return offsetSec;
 }
 
