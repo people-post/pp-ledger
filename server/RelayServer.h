@@ -95,10 +95,14 @@ private:
 
   std::string handleParsedRequest(const Client::Request &request) override;
 
+  /** Compute time offset in seconds to beacon (beacon_time = local_time + offset). */
+  Roe<int64_t> calibrateTimeToBeacon();
+
   // Getters
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
+  Roe<std::string> hTimestamp(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 

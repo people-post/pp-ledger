@@ -70,6 +70,8 @@ public:
   static constexpr const uint32_t T_REQ_STATUS = 1;
   static constexpr const uint32_t T_REQ_REGISTER = 2;
   static constexpr const uint32_t T_REQ_MINER_LIST = 3;
+  /** Request precise server timestamp in ms since epoch for time calibration. */
+  static constexpr const uint32_t T_REQ_TIMESTAMP = 4;
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
@@ -160,6 +162,8 @@ public:
   void setEndpoint(const network::TcpEndpoint &endpoint);
 
   Roe<BeaconState> fetchBeaconState();
+  /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */
+  Roe<int64_t> fetchTimestamp();
   Roe<BeaconState> registerMinerServer(const MinerInfo &minerInfo);
   Roe<std::vector<MinerInfo>> fetchMinerList();
   Roe<MinerStatus> fetchMinerStatus();

@@ -149,6 +149,16 @@ Service::Roe<void> RelayServer::onStart() {
   relayConfig.timeOffset = 0;
   relayConfig.startingBlockId = 0;
 
+  if (!config_.network.beacon.empty()) {
+    auto offsetResult = calibrateTimeToBeacon();
+    if (offsetResult) {
+      relayConfig.timeOffset = offsetResult.value();
+      log().info << "Time calibrated to beacon: offset=" << relayConfig.timeOffset << " s";
+    } else {
+      log().warning << "Time calibration skipped: " << offsetResult.error().message;
+    }
+  }
+
   auto relayInit = relay_.init(relayConfig);
   if (!relayInit) {
     return Service::Error(E_RELAY, "Failed to initialize Relay: " +
@@ -231,6 +241,9 @@ void RelayServer::initHandlers() {
 
   auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
   hgs = [this](const Client::Request &request) { return hStatus(request); };
+
+  auto &hts = requestHandlers_[Client::T_REQ_TIMESTAMP];
+  hts = [this](const Client::Request &request) { return hTimestamp(request); };
 
   auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
@@ -404,6 +417,34 @@ RelayServer::hRegister(const Client::Request &request) {
 RelayServer::Roe<std::string>
 RelayServer::hStatus(const Client::Request &request) {
   return buildStateResponse().ltsToJson().dump();
+}
+
+RelayServer::Roe<std::string>
+RelayServer::hTimestamp(const Client::Request &request) {
+  int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
+  return utl::binaryPack(nowMs);
+}
+
+RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
+  if (config_.network.beacon.empty()) {
+    return Error(E_CONFIG, "No beacon configured");
+  }
+  auto setResult = client_.setEndpoint(config_.network.beacon);
+  if (!setResult) {
+    return Error(E_NETWORK,
+                 "Failed to resolve beacon address: " + config_.network.beacon);
+  }
+  auto result = client_.fetchTimestamp();
+  if (!result) {
+    return Error(E_NETWORK,
+                 "Failed to fetch beacon timestamp: " + result.error().message);
+  }
+  int64_t serverTimeMs = result.value();
+  int64_t localTimeSec = utl::getCurrentTime();
+  int64_t offsetSec = (serverTimeMs / 1000) - localTimeSec;
+  return offsetSec;
 }
 
 RelayServer::Roe<std::string>

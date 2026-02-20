@@ -94,6 +94,8 @@ private:
   void syncBlocksPeriodically();
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
+  /** Compute time offset in seconds to beacon (beacon_time = local_time + offset). Call after connectToBeacon(); client_ must be set to beacon. */
+  Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
   void handleValidatorRole();
@@ -108,6 +110,7 @@ private:
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTransactionAdd(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
+  Roe<std::string> hTimestamp(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;

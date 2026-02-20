@@ -503,6 +503,9 @@ void BeaconServer::initHandlers() {
   auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
   hgs = [this](const Client::Request &request) { return hStatus(request); };
 
+  auto &hts = requestHandlers_[Client::T_REQ_TIMESTAMP];
+  hts = [this](const Client::Request &request) { return hTimestamp(request); };
+
   auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
@@ -638,6 +641,14 @@ BeaconServer::hRegister(const Client::Request &request) {
 BeaconServer::Roe<std::string>
 BeaconServer::hStatus(const Client::Request &request) {
   return buildStateResponse().ltsToJson().dump();
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::hTimestamp(const Client::Request &request) {
+  int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
+  return utl::binaryPack(nowMs);
 }
 
 BeaconServer::Roe<std::string>

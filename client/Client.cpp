@@ -331,6 +331,21 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   }
 }
 
+Client::Roe<int64_t> Client::fetchTimestamp() {
+  log().debug << "Requesting precise timestamp for calibration";
+
+  auto result = sendRequest(T_REQ_TIMESTAMP, "");
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  auto unpacked = utl::binaryUnpack<int64_t>(result.value());
+  if (!unpacked) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack timestamp: " + unpacked.error().message);
+  }
+  return unpacked.value();
+}
+
 Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
   log().debug << "Requesting miner list";
 

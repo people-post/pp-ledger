@@ -227,6 +227,14 @@ Service::Roe<void> MinerServer::onStart() {
       << "Successfully connected to beacon and synchronized initial state";
   const auto &state = beaconResult.value();
 
+  auto calResult = calibrateTimeToBeacon();
+  if (!calResult) {
+    return Service::Error(E_NETWORK, "Failed to calibrate time to beacon: " +
+                                       calResult.error().message);
+  }
+  int64_t timeOffsetSec = calResult.value();
+  log().info << "Time calibrated to beacon: offset=" << timeOffsetSec << " s";
+
   // Initialize miner core
   std::filesystem::path minerDataDir =
       std::filesystem::path(getWorkDir()) / DIR_DATA;
@@ -234,7 +242,7 @@ Service::Roe<void> MinerServer::onStart() {
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.privateKeys = config_.privateKeys;
-  minerConfig.timeOffset = state.currentTimestamp - utl::getCurrentTime();
+  minerConfig.timeOffset = timeOffsetSec;
   minerConfig.workDir = minerDataDir.string();
   minerConfig.startingBlockId = state.lastCheckpointId;
   minerConfig.checkpointId = state.checkpointId;
@@ -262,6 +270,20 @@ Service::Roe<void> MinerServer::onStart() {
 
   log().info << "MinerServer initialization complete";
   return {};
+}
+
+MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
+  if (config_.network.beacons.empty()) {
+    return Error(E_CONFIG, "No beacon servers configured");
+  }
+  auto result = client_.fetchTimestamp();
+  if (!result) {
+    return Error(E_NETWORK,
+                "Failed to fetch beacon timestamp: " + result.error().message);
+  }
+  int64_t serverTimeMs = result.value();
+  int64_t localTimeSec = utl::getCurrentTime();
+  return (serverTimeMs / 1000) - localTimeSec;
 }
 
 MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
@@ -324,6 +346,9 @@ void MinerServer::initHandlers() {
 
   auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
   hgs = [this](const Client::Request &request) { return hStatus(request); };
+
+  auto &hts = requestHandlers_[Client::T_REQ_TIMESTAMP];
+  hts = [this](const Client::Request &request) { return hTimestamp(request); };
 
   auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
@@ -546,6 +571,14 @@ MinerServer::hStatus(const Client::Request &request) {
   status.isSlotLeader = miner_.isSlotLeader();
 
   return status.ltsToJson().dump();
+}
+
+MinerServer::Roe<std::string>
+MinerServer::hTimestamp(const Client::Request &request) {
+  int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
+  return utl::binaryPack(nowMs);
 }
 
 MinerServer::Roe<std::string>
