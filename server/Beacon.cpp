@@ -81,6 +81,15 @@ std::string Beacon::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+Beacon::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
+  auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 nlohmann::json Beacon::InitKeyConfig::toJson() const {
   nlohmann::json j;
   for (const auto &kp : genesis) {

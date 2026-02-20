@@ -272,3 +272,205 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
 
   std::filesystem::remove_all(tempDir, ec);
 }
+
+TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
+  Chain validator;
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+  ASSERT_EQ(validator.getNextBlockId(), 0u);
+
+  uint64_t blockId = 0;
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  ASSERT_TRUE(result.isOk());
+  EXPECT_TRUE(result.value().empty());
+  EXPECT_EQ(blockId, 0u);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  uint64_t blockId = 0;
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  ASSERT_TRUE(result.isOk());
+  EXPECT_FALSE(result.value().empty());
+  EXPECT_EQ(blockId, 0u);
+  for (const auto& st : result.value()) {
+    EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
+                st.obj.toWalletId == AccountBuffer::ID_GENESIS);
+  }
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  uint64_t blockId = validator.getNextBlockId();
+  ASSERT_GT(blockId, 0u);
+
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  ASSERT_TRUE(result.isOk());
+  const auto& txes = result.value();
+  EXPECT_FALSE(txes.empty());
+  for (const auto& st : txes) {
+    EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
+                st.obj.toWalletId == AccountBuffer::ID_GENESIS);
+  }
+  EXPECT_EQ(blockId, 0u);
+}
+
+TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  constexpr uint64_t unknownWalletId = 9999;
+  uint64_t blockId = validator.getNextBlockId();
+  auto result = validator.findTransactionsByWalletId(unknownWalletId, blockId);
+  ASSERT_TRUE(result.isOk());
+  EXPECT_TRUE(result.value().empty());
+  EXPECT_EQ(blockId, 0u);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  uint64_t nextBlockId = validator.getNextBlockId();
+  uint64_t blockId = nextBlockId + 1000u;
+  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_FEE, blockId);
+  ASSERT_TRUE(result.isOk());
+  EXPECT_GT(result.value().size(), 0u);
+  EXPECT_EQ(blockId, 0u);
+
+  std::filesystem::remove_all(tempDir, ec);
+}

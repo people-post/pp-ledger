@@ -78,7 +78,8 @@ public:
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
 
-  static constexpr const uint32_t T_REQ_TRANSACTION_ADD = 3001;
+  static constexpr const uint32_t T_REQ_TX_GET_BY_WALLET = 3001;
+  static constexpr const uint32_t T_REQ_TX_ADD = 3002;
 
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
@@ -155,6 +156,28 @@ public:
     Roe<bool> ltsFromJson(const nlohmann::json &json);
   };
 
+  struct TxGetByWalletRequest {
+    uint64_t walletId{ 0 };
+    uint64_t beforeBlockId{ 0 };
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & walletId & beforeBlockId;
+    }
+  };
+
+  struct TxGetByWalletResponse {
+    std::vector<Ledger::SignedData<Ledger::Transaction>> transactions;
+    uint64_t nextBlockId{ 0 };
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & transactions & nextBlockId;
+    }
+
+    nlohmann::json toJson() const;
+  };
+
   Client();
   ~Client();
 
@@ -169,6 +192,7 @@ public:
   Roe<MinerStatus> fetchMinerStatus();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
+  Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
 
   Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<bool> addBlock(const Ledger::ChainNode& block);

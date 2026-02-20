@@ -77,6 +77,9 @@ public:
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
+  /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
+  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig &config);

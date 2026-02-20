@@ -61,6 +61,15 @@ std::string Miner::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+Miner::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
+  auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (config.privateKeys.empty()) {
     return Error(1, "At least one private key is required");

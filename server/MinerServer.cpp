@@ -388,13 +388,14 @@ void MinerServer::initHandlers() {
   auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
+  auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
+  htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
+
   auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
-  auto &hta = requestHandlers_[Client::T_REQ_TRANSACTION_ADD];
-  hta = [this](const Client::Request &request) {
-    return hTransactionAdd(request);
-  };
+  auto &hta = requestHandlers_[Client::T_REQ_TX_ADD];
+  hta = [this](const Client::Request &request) { return hTxAdd(request); };
 }
 
 void MinerServer::onStop() {
@@ -548,7 +549,24 @@ MinerServer::hAccountGet(const Client::Request &request) {
 }
 
 MinerServer::Roe<std::string>
-MinerServer::hTransactionAdd(const Client::Request &request) {
+MinerServer::hTxGetByWallet(const Client::Request &request) {
+  auto reqResult = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);
+  if (!reqResult) {
+    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
+  }
+  auto &req = reqResult.value();
+  auto result = miner_.findTransactionsByWalletId(req.walletId, req.beforeBlockId);
+  if (!result) {
+    return Error(E_REQUEST, "Failed to get transactions: " + result.error().message);
+  }
+  Client::TxGetByWalletResponse response;
+  response.transactions = result.value();
+  response.nextBlockId = req.beforeBlockId;
+  return utl::binaryPack(response);
+}
+
+MinerServer::Roe<std::string>
+MinerServer::hTxAdd(const Client::Request &request) {
   auto signedTxResult =
       utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(
           request.payload);

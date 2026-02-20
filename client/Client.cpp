@@ -187,6 +187,17 @@ Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
   }
 }
 
+nlohmann::json Client::TxGetByWalletResponse::toJson() const {
+  nlohmann::json j;
+  nlohmann::json transactionsArray = nlohmann::json::array();
+  for (const auto& tx : transactions) {
+    transactionsArray.push_back(tx.toJson());
+  }
+  j["transactions"] = transactionsArray;
+  j["nextBlockId"] = nextBlockId;
+  return j;
+}
+
 Client::Client() {
   fetchClient_.redirectLogger(log().getFullName() + ".FetchClient");
 }
@@ -375,6 +386,23 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
   }
 }
 
+Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(const TxGetByWalletRequest &request) {
+  log().debug << "Requesting transactions by wallet: " << request.walletId << " " << request.beforeBlockId;
+
+  std::string payload = utl::binaryPack(request);
+  auto result = sendRequest(T_REQ_TX_GET_BY_WALLET, payload);
+
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  auto responseResult = utl::binaryUnpack<TxGetByWalletResponse>(result.value());
+  if (!responseResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack transactions by wallet response: " + responseResult.error().message);
+  }
+  return responseResult.value();
+}
+
 Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
@@ -392,7 +420,7 @@ Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transa
   log().debug << "Adding transaction";
 
   std::string payload = utl::binaryPack(signedTx);
-  auto result = sendRequest(T_REQ_TRANSACTION_ADD, payload);
+  auto result = sendRequest(T_REQ_TX_ADD, payload);
   if (!result) {
     return result.error();
   }

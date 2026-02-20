@@ -59,6 +59,15 @@ std::string Relay::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+Relay::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Relay::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
+  auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 Relay::Roe<void> Relay::init(const InitConfig &config) {
   log().info << "Initializing Relay";
   log().debug << "Init config: " << config;

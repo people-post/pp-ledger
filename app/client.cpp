@@ -350,6 +350,15 @@ int main(int argc, char *argv[]) {
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
 
+  auto* txs_cmd = app.add_subcommand("transactions",
+                                    "Get transactions by wallet ID (use -b/--beacon or -m/--miner)");
+  uint64_t txs_walletId = 0;
+  uint64_t txs_beforeBlockId = 0;
+  txs_cmd->add_option("walletId", txs_walletId, "Wallet ID to query")->required();
+  txs_cmd->add_option("--before", txs_beforeBlockId,
+                     "Search backwards from before this block ID (0 = latest)")
+      ->default_val(0);
+
   // Miner commands
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
@@ -547,6 +556,19 @@ int main(int argc, char *argv[]) {
   // Handle account command
   else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);
+    if (result) {
+      std::cout << result.value().toJson().dump(2) << "\n";
+    } else {
+      std::cerr << "Error: " << result.error().message << "\n";
+      exitCode = 1;
+    }
+  }
+  // Handle transactions-by-wallet command (beacon/relay/miner)
+  else if (txs_cmd->parsed()) {
+    pp::Client::TxGetByWalletRequest req;
+    req.walletId = txs_walletId;
+    req.beforeBlockId = txs_beforeBlockId;
+    auto result = client.fetchTransactionsByWallet(req);
     if (result) {
       std::cout << result.value().toJson().dump(2) << "\n";
     } else {

@@ -48,19 +48,27 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
 
   log().debug << "Data sent and write shutdown, waiting for response";
 
-  // Receive response
-  char buffer[4096];
-  auto recvResult = client.receive(buffer, sizeof(buffer) - 1);
-  if (!recvResult) {
-    client.close();
-    return Error(3, "Failed to receive response: " + recvResult.error().message);
+  // Receive full response (server sends entire payload then closes connection)
+  std::string response;
+  const size_t chunkSize = 8192;
+  char buffer[chunkSize];
+  while (client.isConnected()) {
+    auto recvResult = client.receive(buffer, sizeof(buffer));
+    if (!recvResult) {
+      if (!response.empty()) {
+        break; // Partial data received then error; return what we have
+      }
+      client.close();
+      return Error(3, "Failed to receive response: " + recvResult.error().message);
+    }
+    size_t bytesRead = recvResult.value();
+    if (bytesRead == 0) {
+      break; // Server closed connection
+    }
+    response.append(buffer, bytesRead);
   }
 
-  size_t bytesRead = recvResult.value();
-  buffer[bytesRead] = '\0';
-  std::string response(buffer, bytesRead);
-
-  log().debug << "Received response (" + std::to_string(bytesRead) + " bytes)";
+  log().debug << "Received response (" + std::to_string(response.size()) + " bytes)";
 
   client.close();
   return response;

@@ -133,6 +133,7 @@ private:
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
+  Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hTimestamp(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
