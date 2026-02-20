@@ -22,6 +22,7 @@ NUM_MINERS=3
 BEACON_PORT=8617
 RELAY_PORT=8622
 MINER_BASE_PORT=8618
+HTTP_PORT=8680
 
 # Test-friendly consensus: short slots, small epoch, aggressive checkpoint params
 # checkpointMinBlocks=2: renewals start when creating block 3 (need blocks 1,2 from pending tx first)
@@ -66,7 +67,7 @@ verify_build() {
         echo -e "${RED}Build directory not found. Run: mkdir build && cd build && cmake .. && make${NC}"
         exit 1
     fi
-    for exe in pp-beacon pp-relay pp-miner pp-client; do
+    for exe in pp-beacon pp-relay pp-miner pp-client pp-http; do
         if [ ! -f "$BUILD_DIR/app/$exe" ]; then
             echo -e "${RED}$exe not found. Build the project first.${NC}"
             exit 1
@@ -309,6 +310,23 @@ start_all_miners() {
     for i in $(seq 1 $NUM_MINERS); do
         start_miner $i
     done
+}
+
+start_http() {
+    local http_dir="${TEST_DIR}/http"
+    mkdir -p "$http_dir"
+    # Proxy to relay (beacon API) and first miner (miner API + add-tx)
+    run_bg_cmd "$http_dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
+        --beacon "localhost:$RELAY_PORT" \
+        --miner "localhost:$MINER_BASE_PORT"
+    save_pid "http" $!
+    sleep 1
+    if ! kill -0 $(grep "^http:" "$PID_FILE" 2>/dev/null | cut -d: -f2) 2>/dev/null; then
+        echo -e "${RED}HTTP server failed to start${NC}"
+        cat "$http_dir/console.log" 2>/dev/null || true
+        exit 1
+    fi
+    echo -e "${GREEN}✓ HTTP API started on port $HTTP_PORT (beacon→relay, miner→$MINER_BASE_PORT)${NC}"
 }
 
 # =============================================================================
@@ -701,7 +719,7 @@ usage() {
     echo ""
     echo "The test:"
     echo "  - Initializes beacon with short slots and checkpoint params"
-    echo "  - Starts beacon, relay, and miners (miners connect to relay, not beacon)"
+    echo "  - Starts beacon, relay, miners, and HTTP API (pp-http on port $HTTP_PORT)"
     echo "  - Simulates transaction conditions"
     echo "  - Tests late-joiner miner sync (non-strict → strict flow)"
     echo "  - Observes multi-slot cycles"
@@ -735,8 +753,9 @@ main() {
             create_relay_config
             start_relay
             start_all_miners
+            start_http
             echo ""
-            echo -e "${GREEN}✓ Network started (beacon → relay → miners). Run '$0 run' for full test or '$0 stop' to stop.${NC}"
+            echo -e "${GREEN}✓ Network started (beacon → relay → miners, HTTP on $HTTP_PORT). Run '$0 run' for full test or '$0 stop' to stop.${NC}"
             echo ""
             return 0
             ;;
@@ -770,6 +789,7 @@ main() {
     create_relay_config
     start_relay
     start_all_miners
+    start_http
 
     # Prime transaction pool so block production can advance (miner needs pending tx or renewals)
     inject_transactions_for_block_production
