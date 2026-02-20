@@ -123,20 +123,24 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
-  // POST /tx/by-wallet — body JSON: { "walletId": number, "beforeBlockId": number }
-  svr.Post("/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
-    if (req.get_header_value("Content-Type").find("application/json") == std::string::npos) {
-      setJsonError(res, 400, "Content-Type must be application/json");
-      return;
-    }
+  // GET /tx/by-wallet?walletId=<id>&beforeBlockId=<id>
+  svr.Get("/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
     pp::Client::TxGetByWalletRequest wr;
-    try {
-      auto j = json::parse(req.body);
-      wr.walletId = j.value("walletId", 0ULL);
-      wr.beforeBlockId = j.value("beforeBlockId", 0ULL);
-    } catch (const std::exception& e) {
-      setJsonError(res, 400, std::string("Invalid JSON: ") + e.what());
-      return;
+    if (req.has_param("walletId")) {
+      try {
+        wr.walletId = std::stoull(req.get_param_value("walletId"));
+      } catch (...) {
+        setJsonError(res, 400, "Invalid walletId");
+        return;
+      }
+    }
+    if (req.has_param("beforeBlockId")) {
+      try {
+        wr.beforeBlockId = std::stoull(req.get_param_value("beforeBlockId"));
+      } catch (...) {
+        setJsonError(res, 400, "Invalid beforeBlockId");
+        return;
+      }
     }
     auto r = beaconClient.fetchTransactionsByWallet(wr);
     if (!r) {
@@ -165,7 +169,7 @@ int main(int argc, char** argv) {
   std::cout << "HTTP API listening on " << httpHost << ":" << httpPort << "\n";
   std::cout << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort << "\n";
   std::cout << "Routes: GET /beacon/state, /beacon/timestamp, /beacon/miners, /miner/status, /block/<id>, /account/<id>\n";
-  std::cout << "        POST /tx/by-wallet (JSON body), POST /tx (binary body)\n";
+  std::cout << "        GET /tx/by-wallet?walletId=&beforeBlockId=, POST /tx (binary body)\n";
   svr.listen(httpHost, static_cast<int>(httpPort));
   return 0;
 }

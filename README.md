@@ -17,6 +17,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
 - ✅ **Modular Architecture:** Clean separation of concerns (lib, consensus, ledger, server, client, network)
 - ✅ **TCP Networking:** Simple TCP-based peer-to-peer communication
+- ✅ **HTTP API Server:** REST-style HTTP server (pp-http) exposing client interfaces for beacon, miner, block, account, and transactions
 - ✅ **Comprehensive Testing:** Automated tests with Google Test
 - ✅ **CI/CD Pipeline:** GitHub Actions for automated builds and testing
 
@@ -272,6 +273,52 @@ The client can connect to either the beacon server or miner server to query stat
 ./app/pp-client -h 192.168.1.100 -p 8518 -m add-tx wallet1 wallet2 500
 ```
 
+### HTTP API Server (pp-http)
+
+The HTTP server exposes the same interfaces as the client over REST-style HTTP, proxying to configured beacon and miner endpoints. Useful for web UIs, scripts, or tools that prefer HTTP over the native TCP protocol.
+
+**Build and run:**
+
+```bash
+cd build
+make pp-http
+./app/pp-http --port 8080 --beacon localhost:8517 --miner localhost:8518
+```
+
+**Options:**
+- `--port <port>` - HTTP listen port (default: 8080)
+- `--bind <address>` - Bind address (default: 0.0.0.0)
+- `--beacon <host:port>` - Beacon (or relay) endpoint for chain/beacon API (default: localhost:8517)
+- `--miner <host:port>` - Miner endpoint for status and submitting transactions (default: localhost:8518)
+
+**Routes:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/beacon/state` | Beacon state (checkpoint, block, slot, epoch, timestamp) |
+| GET | `/beacon/timestamp` | Server timestamp in ms (for calibration) |
+| GET | `/beacon/miners` | Miner list from beacon |
+| GET | `/miner/status` | Miner status (stake, nextBlockId, pending txs, etc.) |
+| GET | `/block/<id>` | Block by ID (JSON) |
+| GET | `/account/<id>` | User account by ID (JSON) |
+| GET | `/tx/by-wallet?walletId=&beforeBlockId=` | Transactions by wallet (query params optional, default 0) |
+| POST | `/tx` | Submit transaction (body: binary packed `SignedData<Transaction>`) |
+
+**Examples:**
+
+```bash
+# Beacon state
+curl http://localhost:8080/beacon/state
+
+# Miner status
+curl http://localhost:8080/miner/status
+
+# Transactions for a wallet
+curl "http://localhost:8080/tx/by-wallet?walletId=1048576&beforeBlockId=10"
+```
+
+The checkpoint-cycles test script (`./test-checkpoint-cycles.sh`) starts the HTTP server on port 8680 when you run `start` or `run`.
+
 ### Multi-Node Setup
 
 To run multiple nodes for a distributed network:
@@ -474,7 +521,8 @@ pp-ledger/
 ├── app/              # Command-line applications
 │   ├── pp-beacon     # Beacon server executable
 │   ├── pp-miner      # Miner server executable
-│   └── pp-client     # Client executable
+│   ├── pp-client     # Client executable
+│   └── pp-http       # HTTP API server (client interfaces over HTTP)
 └── docs/             # Documentation
     ├── GITHUB_ACTIONS_SETUP.md
     └── README.md (in consensus/, network/, server/)
@@ -490,7 +538,7 @@ pp-ledger/
 | **server** | Beacon and Miner server implementations | ✅ Working |
 | **client** | Client library for server communication | ✅ Working |
 | **network** | TCP networking (FetchClient/Server, TcpClient/Server) | ✅ Working |
-| **app** | Command-line applications (beacon, miner, client) | ✅ Working |
+| **app** | Command-line applications (beacon, miner, client, http API server) | ✅ Working |
 
 ## Documentation
 
@@ -588,6 +636,9 @@ cmake -DCMAKE_BUILD_TYPE=Release .. && make -j$(nproc)
 # Add transaction
 ./app/pp-client -m add-tx sender receiver 100
 
+# Start HTTP API server (proxies to beacon + miner)
+./app/pp-http --port 8080
+
 # Run all tests
 ctest --output-on-failure
 ```
@@ -596,6 +647,7 @@ ctest --output-on-failure
 
 - **Beacon Server:** 8517
 - **Miner Server:** 8518
+- **HTTP API Server:** 8080
 
 ### Log Files
 
