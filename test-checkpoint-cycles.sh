@@ -754,8 +754,6 @@ main() {
             start_relay
             start_all_miners
             start_http
-            # Prime transaction pool so block production can advance and renewals trigger for existing (genesis) accounts
-            inject_transactions_for_block_production
             echo ""
             echo -e "${GREEN}✓ Network started (beacon → relay → miners, HTTP on $HTTP_PORT). Run '$0 run' for full test or '$0 stop' to stop.${NC}"
             echo ""
