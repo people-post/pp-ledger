@@ -31,9 +31,13 @@ public:
     uint64_t amount{ 0 };       // Transfer amount
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
     std::string meta;           // Transaction metadata
+    uint64_t idempotentId{ 0 }; // Client-chosen unique id to prevent double spend; 0 = no idempotency (genesis/miner)
+    int64_t validationTsMin{ 0 };  // Validation window start (Unix seconds)
+    int64_t validationTsMax{ 0 };  // Validation window end (Unix seconds)
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & type & tokenId& fromWalletId & toWalletId & amount & fee & meta;
+      ar & type & tokenId& fromWalletId & toWalletId & amount & fee & meta
+        & idempotentId & validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;

@@ -37,7 +37,8 @@ std::ostream &operator<<(std::ostream &os,
      << "maxTransactionsPerBlock: " << config.maxTransactionsPerBlock << ", "
      << "minFeeCoefficients: [" << utl::join(config.minFeeCoefficients, ", ") << "], "
      << "freeCustomMetaSize: " << config.freeCustomMetaSize << ", "
-     << "checkpoint: " << config.checkpoint << "}";
+     << "checkpoint: " << config.checkpoint << ", "
+     << "maxValidationTimespanSeconds: " << config.maxValidationTimespanSeconds << "}";
   return os;
 }
 
@@ -441,6 +442,9 @@ Chain::createRenewalTransaction(uint64_t accountId) const {
   tx.fromWalletId = accountId;
   tx.toWalletId = accountId;
   tx.amount = 0;
+  tx.idempotentId = 0;
+  tx.validationTsMin = 0;
+  tx.validationTsMax = 0;
 
   // Compute minimum fee from current account metadata state.
   auto minimumFeeResult = calculateMinimumFeeForAccountMeta(bank_, accountId);
@@ -1023,7 +1027,8 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
   // Process checkpoint transactions to restore BlockChainConfig
   for (const auto &signedTx : block.block.signedTxes) {
     auto result = processNormalTxRecord(signedTx, block.block.index,
-                                        block.block.slotLeader, isStrictMode);
+                                        block.block.slot, block.block.slotLeader,
+                                        isStrictMode);
     if (!result) {
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
@@ -1045,15 +1050,36 @@ Chain::Roe<void> Chain::addBufferTransaction(
 
   auto blockId = getNextBlockId();
   const auto &tx = signedTx.obj;
+  const uint64_t currentSlot = getCurrentSlot();
   switch (tx.type) {
-  case Ledger::Transaction::T_DEFAULT:
+  case Ledger::Transaction::T_DEFAULT: {
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processBufferTransaction(bank, tx);
-  case Ledger::Transaction::T_NEW_USER:
+  }
+  case Ledger::Transaction::T_NEW_USER: {
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processBufferUserInit(bank, tx, blockId);
-  case Ledger::Transaction::T_CONFIG:
+  }
+  case Ledger::Transaction::T_CONFIG: {
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processBufferSystemUpdate(bank, tx, blockId);
-  case Ledger::Transaction::T_USER:
+  }
+  case Ledger::Transaction::T_USER: {
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processBufferUserAccountUpsert(bank, tx, blockId);
+  }
   case Ledger::Transaction::T_RENEWAL:
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processBufferGenesisRenewal(bank, tx, blockId);
@@ -1089,7 +1115,7 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
 
 Chain::Roe<void> Chain::processNormalTxRecord(
     const Ledger::SignedData<Ledger::Transaction> &signedTx, uint64_t blockId,
-    uint64_t slotLeaderId, bool isStrictMode) {
+    uint64_t blockSlot, uint64_t slotLeaderId, bool isStrictMode) {
   auto roe = validateTxSignatures(signedTx, slotLeaderId, isStrictMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
@@ -1098,12 +1124,27 @@ Chain::Roe<void> Chain::processNormalTxRecord(
 
   auto const &tx = signedTx.obj;
   switch (tx.type) {
-  case Ledger::Transaction::T_NEW_USER:
+  case Ledger::Transaction::T_NEW_USER: {
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processUserInit(tx, blockId);
-  case Ledger::Transaction::T_CONFIG:
+  }
+  case Ledger::Transaction::T_CONFIG: {
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processSystemUpdate(tx, blockId, isStrictMode);
-  case Ledger::Transaction::T_USER:
+  }
+  case Ledger::Transaction::T_USER: {
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processUserUpdate(tx, blockId, isStrictMode);
+  }
   case Ledger::Transaction::T_RENEWAL:
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processGenesisRenewal(tx, blockId, isStrictMode);
@@ -1111,8 +1152,13 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     return processUserRenewal(tx, blockId, isStrictMode);
   case Ledger::Transaction::T_END_USER:
     return processUserEnd(tx, blockId, isStrictMode);
-  case Ledger::Transaction::T_DEFAULT:
+  case Ledger::Transaction::T_DEFAULT: {
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    if (!idemRoe) {
+      return idemRoe.error();
+    }
     return processTransaction(tx, blockId, isStrictMode);
+  }
   default:
     return Error(E_TX_TYPE,
                  "Unknown transaction type: " + std::to_string(tx.type));
@@ -1201,6 +1247,69 @@ Chain::Roe<void> Chain::validateTxSignatures(
   }
   return verifySignaturesAgainstAccount(tx, signedTx.signatures,
                                         accountResult.value());
+}
+
+Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId, uint64_t walletId, uint64_t slotMin,
+                                         uint64_t slotMax) const {
+  if (idempotentId == 0) {
+    return {};
+  }
+  const int64_t tsStart = consensus_.getSlotStartTime(slotMin);
+  auto startBlockRoe = ledger_.findBlockByTimestamp(tsStart);
+  if (!startBlockRoe) {
+    // No blocks at or after window start -> no duplicate
+    return {};
+  }
+  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  for (uint64_t blockId = startBlockRoe.value().block.index; blockId < nextBlockId;
+       ++blockId) {
+    auto blockRoe = ledger_.readBlock(blockId);
+    if (!blockRoe) {
+      break;
+    }
+    const auto &block = blockRoe.value().block;
+    if (block.slot > slotMax) {
+      break;
+    }
+    if (block.slot < slotMin) {
+      continue;
+    }
+    for (const auto &signedTx : block.signedTxes) {
+      if (signedTx.obj.idempotentId == idempotentId && signedTx.obj.fromWalletId == walletId) {
+        return Error(E_TX_IDEMPOTENCY,
+                     "Duplicate idempotent id: " + std::to_string(idempotentId) +
+                     " for wallet: " + std::to_string(walletId));
+      }
+    }
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
+                                                 uint64_t effectiveSlot) const {
+  if (tx.idempotentId == 0) {
+    return {};
+  }
+  if (tx.validationTsMax < tx.validationTsMin) {
+    return Error(E_TX_VALIDATION,
+                 "Validation window invalid: validationTsMax < validationTsMin");
+  }
+  const uint64_t spanSeconds = static_cast<uint64_t>(tx.validationTsMax - tx.validationTsMin);
+  if (chainConfig_.maxValidationTimespanSeconds > 0 &&
+      spanSeconds > chainConfig_.maxValidationTimespanSeconds) {
+    return Error(E_TX_VALIDATION_TIMESPAN,
+                 "Validation window exceeds max timespan: " + std::to_string(spanSeconds) +
+                     " > " + std::to_string(chainConfig_.maxValidationTimespanSeconds));
+  }
+  const uint64_t slotMin = consensus_.getSlotFromTimestamp(tx.validationTsMin);
+  const uint64_t slotMax = consensus_.getSlotFromTimestamp(tx.validationTsMax);
+  if (effectiveSlot < slotMin || effectiveSlot > slotMax) {
+    return Error(E_TX_TIME_OUTSIDE_WINDOW,
+                 "Current time (slot " + std::to_string(effectiveSlot) +
+                     ") outside validation window [slot " + std::to_string(slotMin) +
+                     ", " + std::to_string(slotMax) + "]");
+  }
+  return checkIdempotency(tx.idempotentId, tx.fromWalletId, slotMin, slotMax);
 }
 
 Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {

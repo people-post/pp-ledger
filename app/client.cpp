@@ -8,6 +8,7 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -46,6 +47,17 @@ static uint64_t randomAccountId() {
   return dist(gen);
 }
 
+/** Set idempotency and validation window on a user transaction (T_DEFAULT, T_NEW_USER, etc.). */
+static void setValidationWindow(pp::Ledger::Transaction& tx) {
+  const int64_t now = static_cast<int64_t>(
+      std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+  tx.idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
+  if (tx.idempotentId == 0) tx.idempotentId = 1;
+  tx.validationTsMin = now - 60;
+  tx.validationTsMax = now + 3600;
+}
+
 using json = nlohmann::json;
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
@@ -64,10 +76,12 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
     return 1;
   }
   pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
+  signedTx.obj.type = pp::Ledger::Transaction::T_DEFAULT;
   signedTx.obj.fromWalletId = fromWalletId;
   signedTx.obj.toWalletId = toWalletId;
   signedTx.obj.amount = amount;
   signedTx.obj.fee = fee;
+  setValidationWindow(signedTx.obj);
   std::string message = pp::utl::binaryPack(signedTx.obj);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
@@ -99,9 +113,11 @@ static pp::Roe<std::string> readFileContent(const std::string& path) {
 static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
                    const std::string& outputPath) {
   SignedTx signedTx;
+  signedTx.obj.type = pp::Ledger::Transaction::T_DEFAULT;
   signedTx.obj.fromWalletId = fromWalletId;
   signedTx.obj.toWalletId = toWalletId;
   signedTx.obj.amount = amount;
+  setValidationWindow(signedTx.obj);
   signedTx.signatures = {};
   std::string packed = pp::utl::binaryPack(signedTx);
   auto result = pp::utl::writeToNewFile(outputPath, packed);
@@ -148,6 +164,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   signedTx.obj.amount = amount;
   signedTx.obj.fee = fee;
   signedTx.obj.meta = userAccount.ltsToString();
+  setValidationWindow(signedTx.obj);
   signedTx.signatures = {};
   std::string packed = pp::utl::binaryPack(signedTx);
   auto result = pp::utl::writeToNewFile(outputPath, packed);
@@ -210,6 +227,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   signedTx.obj.amount = amount;
   signedTx.obj.fee = fee;
   signedTx.obj.meta = userAccount.ltsToString();
+  setValidationWindow(signedTx.obj);
   std::string message = pp::utl::binaryPack(signedTx.obj);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {

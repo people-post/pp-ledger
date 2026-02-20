@@ -56,6 +56,8 @@ public:
 
   const Config& getConfig() const { return config_; }
   uint64_t getCurrentSlot() const;
+  /** Slot that contains the given timestamp (same formula as getCurrentSlot but for arbitrary time). */
+  uint64_t getSlotFromTimestamp(int64_t timestamp) const;
   uint64_t getCurrentEpoch() const;
   /** Epoch index for a slot (for load-from-ledger). */
   uint64_t getEpochFromSlot(uint64_t slot) const;

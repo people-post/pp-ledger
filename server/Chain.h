@@ -49,10 +49,12 @@ public:
     std::vector<uint16_t> minFeeCoefficients;  // a + b * sizeInNonFreeMiB + c * sizeInNonFreeMiB^2
     uint32_t freeCustomMetaSize{0};       // In bytes
     CheckpointConfig checkpoint;
+    uint64_t maxValidationTimespanSeconds{0}; // Max allowed (validationTsMax - validationTsMin); must be > 0 at init
 
     template <typename Archive> void serialize(Archive &ar) {
       ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
-          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize &checkpoint;
+          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize &checkpoint
+          &maxValidationTimespanSeconds;
     }
   };
 
@@ -116,6 +118,9 @@ public:
   constexpr static int32_t E_TX_AMOUNT = 63;    // Invalid transaction amount
   constexpr static int32_t E_TX_TYPE = 64;      // Unknown transaction type
   constexpr static int32_t E_TX_TRANSFER = 65;  // Transaction transfer failed
+  constexpr static int32_t E_TX_IDEMPOTENCY = 66;     // Duplicate idempotent id
+  constexpr static int32_t E_TX_VALIDATION_TIMESPAN = 67; // Validation window exceeds max timespan
+  constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW = 68; // Current time outside validation window
 
   // Ledger operation errors (80-89)
   constexpr static int32_t E_LEDGER_WRITE = 80; // Failed to persist to ledger
@@ -238,11 +243,19 @@ private:
       const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<void>
   processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction> &signedTx,
-                        uint64_t blockId, uint64_t slotLeaderId,
-                        bool isStrictMode);
+                        uint64_t blockId, uint64_t blockSlot,
+                        uint64_t slotLeaderId, bool isStrictMode);
   Roe<void>
   validateTxSignatures(const Ledger::SignedData<Ledger::Transaction> &signedTx,
                        uint64_t slotLeaderId, bool isStrictMode) const;
+
+  /** Check that no block with slot in [slotMin, slotMax] already contains a tx with the given idempotentId. */
+  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t walletId, uint64_t slotMin,
+                            uint64_t slotMax) const;
+
+  /** Validate idempotency rules (timespan, slot in window, duplicate id). effectiveSlot is current slot (submit) or block.slot (replay). */
+  Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
+                                     uint64_t effectiveSlot) const;
 
   // System
   Roe<void> processSystemInit(const Ledger::Transaction &tx);

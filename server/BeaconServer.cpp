@@ -30,6 +30,7 @@ nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
   j["freeCustomMetaSize"] = freeCustomMetaSize;
   j["checkpointMinBlocks"] = checkpointMinBlocks;
   j["checkpointMinAgeSeconds"] = checkpointMinAgeSeconds;
+  j["maxValidationTimespanSeconds"] = maxValidationTimespanSeconds;
   return j;
 }
 
@@ -203,6 +204,23 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
       checkpointMinAgeSeconds = DEFAULT_CHECKPOINT_MIN_AGE_SECONDS;
     }
 
+    // Load and validate maxValidationTimespanSeconds (must be > 0)
+    if (jd.contains("maxValidationTimespanSeconds")) {
+      if (!jd["maxValidationTimespanSeconds"].is_number_unsigned()) {
+        return Error(
+            E_CONFIG,
+            "Field 'maxValidationTimespanSeconds' must be a positive number");
+      }
+      maxValidationTimespanSeconds =
+          jd["maxValidationTimespanSeconds"].get<uint64_t>();
+      if (maxValidationTimespanSeconds == 0) {
+        return Error(E_CONFIG,
+                     "Field 'maxValidationTimespanSeconds' must be greater than 0");
+      }
+    } else {
+      maxValidationTimespanSeconds = DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS;
+    }
+
     return {};
   } catch (const std::exception &e) {
     return Error(E_CONFIG, "Failed to parse init configuration: " +
@@ -358,6 +376,8 @@ BeaconServer::init(const std::string &workDir) {
   initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
   initConfig.chain.checkpoint.minAgeSeconds =
       initFileConfig.checkpointMinAgeSeconds;
+  initConfig.chain.maxValidationTimespanSeconds =
+      initFileConfig.maxValidationTimespanSeconds;
 
   // Generate keypairs; pass KeyPairs to beacon for genesis signing and
   // checkpoint public keys

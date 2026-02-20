@@ -45,12 +45,14 @@ int64_t Ouroboros::getTimestamp() const {
 }
 
 uint64_t Ouroboros::getCurrentSlot() const {
-  int64_t currentTime = getTimestamp();
-  if (currentTime < config_.genesisTime) {
+  return getSlotFromTimestamp(getTimestamp());
+}
+
+uint64_t Ouroboros::getSlotFromTimestamp(int64_t timestamp) const {
+  if (timestamp < config_.genesisTime) {
     return 0;
   }
-
-  int64_t elapsed = currentTime - config_.genesisTime;
+  int64_t elapsed = timestamp - config_.genesisTime;
   if (config_.slotDuration == 0) {
     log().error << "Slot duration is 0";
   }

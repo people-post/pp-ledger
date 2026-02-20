@@ -84,6 +84,7 @@ private:
   // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = 365 * 24 * 3600; // 1 year (365 days)
+  constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = 86400; // 24 hours
 
   struct InitFileConfig {
     uint64_t slotDuration{ DEFAULT_SLOT_DURATION };
@@ -96,6 +97,7 @@ private:
     uint64_t freeCustomMetaSize{ DEFAULT_FREE_CUSTOM_META_SIZE };
     uint64_t checkpointMinBlocks{ DEFAULT_CHECKPOINT_MIN_BLOCKS };
     uint64_t checkpointMinAgeSeconds{ DEFAULT_CHECKPOINT_MIN_AGE_SECONDS };
+    uint64_t maxValidationTimespanSeconds{ DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS };
 
     nlohmann::json ltsToJson();
     Roe<void> ltsFromJson(const nlohmann::json& jd);

@@ -41,6 +41,7 @@ Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   cfg.freeCustomMetaSize = 512;
   cfg.checkpoint.minBlocks = 10;
   cfg.checkpoint.minAgeSeconds = 20;
+  cfg.maxValidationTimespanSeconds = 86400;
   return cfg;
 }
 

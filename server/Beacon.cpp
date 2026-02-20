@@ -276,6 +276,9 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   signedTx.obj.amount = 0;
   signedTx.obj.fee = 0;
   signedTx.obj.meta = gm.ltsToString();
+  signedTx.obj.idempotentId = 0;
+  signedTx.obj.validationTsMin = 0;
+  signedTx.obj.validationTsMax = 0;
   auto roeGenesis =
       signWithGenesisKeys(signedTx, key.genesis, "checkpoint transaction");
   if (!roeGenesis) {

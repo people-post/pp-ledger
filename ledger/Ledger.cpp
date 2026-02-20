@@ -74,6 +74,9 @@ nlohmann::json Ledger::Transaction::toJson() const {
   j["amount"] = amount;
   j["fee"] = fee;
   j["meta"] = utl::toJsonSafeString(meta);
+  j["idempotentId"] = idempotentId;
+  j["validationTsMin"] = validationTsMin;
+  j["validationTsMax"] = validationTsMax;
   return j;
 }
 
