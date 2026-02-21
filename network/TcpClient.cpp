@@ -127,6 +127,18 @@ TcpClient::Roe<void> TcpClient::shutdownWrite() {
   return {};
 }
 
+TcpClient::Roe<void> TcpClient::setTimeout(std::chrono::milliseconds timeout) {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+
+  auto result = connection_->setTimeout(timeout);
+  if (result.isError()) {
+    return Error(result.error().message);
+  }
+  return {};
+}
+
 TcpClient::Roe<size_t> TcpClient::receive(void *buffer, size_t maxLength) {
   if (!connection_.has_value()) {
     return Error("Not connected");

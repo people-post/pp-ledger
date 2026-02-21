@@ -7,19 +7,21 @@ namespace network {
 FetchClient::FetchClient() {}
 
 void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
-                        ResponseCallback callback) {
+                        ResponseCallback callback,
+                        std::chrono::milliseconds timeout) {
 
   log().info << "Fetching from " << endpoint;
 
   // Run in a separate thread for async behavior
-  std::thread([this, endpoint, data, callback]() {
-    auto result = fetchSync(endpoint, data);
+  std::thread([this, endpoint, data, callback, timeout]() {
+    auto result = fetchSync(endpoint, data, timeout);
     callback(result);
   }).detach();
 }
 
 FetchClient::Roe<std::string>
-FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
+FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data,
+                       std::chrono::milliseconds timeout) {
   log().debug << "Sync fetch from " << endpoint;
 
   TcpClient client;
@@ -31,6 +33,15 @@ FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data) {
   }
 
   log().debug << "Connected successfully";
+
+  // Apply socket timeout for send and receive operations
+  if (timeout.count() > 0) {
+    auto timeoutResult = client.setTimeout(timeout);
+    if (!timeoutResult) {
+      client.close();
+      return Error(1, "Failed to set timeout: " + timeoutResult.error().message);
+    }
+  }
 
   // Send the data and shutdown writing
   auto sendResult = client.send(data);

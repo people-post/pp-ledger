@@ -3,6 +3,7 @@
 #include "ResultOrError.hpp"
 #include "Types.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -43,6 +44,9 @@ public:
   // Receive data
   Roe<size_t> receive(void *buffer, size_t maxLength);
   Roe<std::string> receiveLine();
+
+  // Set socket send/receive timeout (0 = no timeout)
+  Roe<void> setTimeout(std::chrono::milliseconds timeout);
 
   // Close connection
   void close();

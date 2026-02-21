@@ -4,6 +4,7 @@
 #include "TcpConnection.h"
 #include "Types.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -44,6 +45,9 @@ public:
 
   // Shutdown writing (half-close the connection)
   Roe<void> shutdownWrite();
+
+  // Set socket send/receive timeout (0 = no timeout)
+  Roe<void> setTimeout(std::chrono::milliseconds timeout);
 
   // Receive data
   Roe<size_t> receive(void *buffer, size_t maxLength);

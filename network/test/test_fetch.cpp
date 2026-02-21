@@ -192,3 +192,30 @@ TEST_F(FetchIntegrationTest, AsyncFetch) {
     
     server->stop();
 }
+
+TEST_F(FetchIntegrationTest, FetchSyncTimesOutWhenServerStalls) {
+    // Start a server that accepts connections but never responds
+    FetchServer::Config config;
+    config.endpoint = {"127.0.0.1", 18885};
+    config.handler = [](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+        // Intentionally do nothing - simulate a stalled server
+    };
+    auto started = server->start(config);
+    ASSERT_TRUE(started.isOk());
+
+    // Give server time to start
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    auto before = std::chrono::steady_clock::now();
+    auto result = client->fetchSync({"127.0.0.1", 18885}, "Hello",
+                                    std::chrono::milliseconds(200));
+    auto elapsed = std::chrono::steady_clock::now() - before;
+
+    // Should fail with timeout error
+    EXPECT_FALSE(result.isOk());
+    // Should have respected the timeout: not too fast, not too slow
+    EXPECT_GT(elapsed, std::chrono::milliseconds(150));
+    EXPECT_LT(elapsed, std::chrono::milliseconds(2000));
+
+    server->stop();
+}
