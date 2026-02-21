@@ -24,6 +24,11 @@ int setNonBlocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0) return -1;
   if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+#if !defined(__linux__)
+  // On non-Linux platforms (e.g. macOS), suppress SIGPIPE per socket
+  int val = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val));
+#endif
   return 0;
 }
 
@@ -137,6 +142,8 @@ size_t BulkWriter::runEpoll(int timeoutMs) {
       break;
     }
     if (n == 0) {
+      // epoll timed out - still process jobs to check for expired timeouts
+      processJobs({});
       break;
     }
 
@@ -174,7 +181,11 @@ size_t BulkWriter::runPoll(int timeoutMs) {
     if (errno == EINTR) return jobs_.size();
     return jobs_.size();
   }
-  if (r == 0) return jobs_.size();
+  if (r == 0) {
+    // poll timed out - still process jobs to check for expired timeouts
+    processJobs({});
+    return jobs_.size();
+  }
 
   std::unordered_set<int> ready;
   for (size_t i = 0; i < pfds.size(); ++i) {
@@ -208,6 +219,7 @@ void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
       if (config_.errorCallback) {
         config_.errorCallback(job.fd, Error("Send timeout exceeded"));
       }
+      ::close(job.fd);
       continue;
     }
 
@@ -226,7 +238,11 @@ void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
 BulkWriter::WriteResult BulkWriter::attemptWrite(WriteJob &job) {
   size_t remaining = job.buffer.size() - job.offset;
   const void *ptr = job.buffer.data() + job.offset;
+#if defined(__linux__)
+  ssize_t sent = ::send(job.fd, ptr, remaining, MSG_NOSIGNAL);
+#else
   ssize_t sent = ::send(job.fd, ptr, remaining, 0);
+#endif
 
   if (sent < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -254,6 +270,7 @@ void BulkWriter::handleWriteResult(WriteJob &job, WriteResult result,
       if (config_.errorCallback) {
         config_.errorCallback(job.fd, Error("Send failed: " + std::string(std::strerror(errno))));
       }
+      ::close(job.fd);
       break;
   }
 }
