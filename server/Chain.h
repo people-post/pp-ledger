@@ -197,8 +197,8 @@ protected:
 
 private:
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs. */
-  constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 1000;
-  constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 1000;
+  constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
+  constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
   bool isValidBlockSequence(const Ledger::ChainNode &block) const;
   bool isValidSlotLeader(const Ledger::ChainNode &block) const;
