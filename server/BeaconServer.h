@@ -74,12 +74,12 @@ private:
   // Default configuration values
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = 7; // 7 seconds per slot
   constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = 24 * 3600; // 7 days per epoch
-  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = 10 * 1024;
-  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = 100;
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = 1;
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = 1;
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = 0;
-  constexpr static const uint64_t DEFAULT_FREE_CUSTOM_META_SIZE = 1024;
+  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = 1 * 1024 * 1024; // 1MB
+  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = 10 * 1024; // 10K
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = 1;  // Base fee per transaction
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = 1;  // Fee per custom meta KiB
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = 1;  // Fee per custom meta KiB^2
+  constexpr static const uint64_t DEFAULT_FREE_CUSTOM_META_SIZE = 1024; // 1KiB free custom meta size
 
   // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks

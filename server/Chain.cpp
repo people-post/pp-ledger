@@ -11,7 +11,7 @@ namespace pp {
 
 namespace {
 
-constexpr uint64_t BYTES_PER_MIB = 1024ULL * 1024ULL;
+constexpr uint64_t BYTES_PER_KIB = 1024ULL;
 
 uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
                            size_t index) {
@@ -69,15 +69,15 @@ Chain::Roe<uint64_t> Chain::calculateMinimumFeeFromNonFreeMetaSize(
   if (config.minFeeCoefficients.empty()) {
     return Error(E_TX_VALIDATION, "minFeeCoefficients must not be empty");
   }
-  const uint64_t nonFreeSizeMiB =
+  const uint64_t nonFreeSizeKiB =
       nonFreeCustomMetaSizeBytes == 0
           ? 0ULL
-          : (nonFreeCustomMetaSizeBytes + BYTES_PER_MIB - 1) / BYTES_PER_MIB;
+          : (nonFreeCustomMetaSizeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
 
   const unsigned __int128 a = getFeeCoefficient(config.minFeeCoefficients, 0);
   const unsigned __int128 b = getFeeCoefficient(config.minFeeCoefficients, 1);
   const unsigned __int128 c = getFeeCoefficient(config.minFeeCoefficients, 2);
-  const unsigned __int128 x = nonFreeSizeMiB;
+  const unsigned __int128 x = nonFreeSizeKiB;
   const unsigned __int128 minimumFee = a + b * x + c * x * x;
 
   if (minimumFee >

@@ -46,7 +46,7 @@ public:
     uint64_t slotsPerEpoch{0};
     uint64_t maxCustomMetaSize{0};        // In bytes
     uint64_t maxTransactionsPerBlock{0};
-    std::vector<uint16_t> minFeeCoefficients;  // a + b * sizeInNonFreeMiB + c * sizeInNonFreeMiB^2
+    std::vector<uint16_t> minFeeCoefficients;  // a + b * sizeInNonFreeKiB + c * sizeInNonFreeKiB^2
     uint32_t freeCustomMetaSize{0};       // In bytes
     CheckpointConfig checkpoint;
     uint64_t maxValidationTimespanSeconds{0}; // Max allowed (validationTsMax - validationTsMin); must be > 0 at init

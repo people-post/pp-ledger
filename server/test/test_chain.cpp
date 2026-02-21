@@ -11,7 +11,7 @@ using namespace pp;
 
 namespace {
 
-constexpr uint64_t BYTES_PER_MIB = 1024ULL * 1024ULL;
+constexpr uint64_t BYTES_PER_KIB = 1024ULL;
 
 uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
                size_t index) {
@@ -21,13 +21,13 @@ uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
 
 uint64_t calculateMinimumFeeFromNonFreeMetaSize(
     const Chain::BlockChainConfig &config, uint64_t nonFreeBytes) {
-  const uint64_t nonFreeSizeMiB =
-    nonFreeBytes == 0 ? 0ULL : (nonFreeBytes + BYTES_PER_MIB - 1) / BYTES_PER_MIB;
+  const uint64_t nonFreeSizeKiB =
+    nonFreeBytes == 0 ? 0ULL : (nonFreeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
 
   const uint64_t a = getFeeCoefficient(config.minFeeCoefficients, 0);
   const uint64_t b = getFeeCoefficient(config.minFeeCoefficients, 1);
   const uint64_t c = getFeeCoefficient(config.minFeeCoefficients, 2);
-  return a + b * nonFreeSizeMiB + c * nonFreeSizeMiB * nonFreeSizeMiB;
+  return a + b * nonFreeSizeKiB + c * nonFreeSizeKiB * nonFreeSizeKiB;
 }
 
 Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {

@@ -127,7 +127,8 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
       }
     } else {
       uint64_t minFeePerTransaction = DEFAULT_MIN_FEE_COEFF_A;
-      uint64_t minFeePerCustomMetaMiB = DEFAULT_MIN_FEE_COEFF_B;
+      uint64_t minFeePerCustomMetaMiB =
+          static_cast<uint64_t>(DEFAULT_MIN_FEE_COEFF_B) * 1024ULL;  // legacy: per MiB
 
       if (jd.contains("minFeePerTransaction")) {
         if (!jd["minFeePerTransaction"].is_number_unsigned()) {
@@ -147,8 +148,10 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
         minFeePerCustomMetaMiB = jd["minFeePerCustomMetaMiB"].get<uint64_t>();
       }
 
+      // Legacy field is per MiB; coefficients are per KiB, so scale down by 1024
+      const uint64_t minFeePerCustomMetaKiB = minFeePerCustomMetaMiB / 1024ULL;
       if (minFeePerTransaction > std::numeric_limits<uint16_t>::max() ||
-          minFeePerCustomMetaMiB > std::numeric_limits<uint16_t>::max()) {
+          minFeePerCustomMetaKiB > std::numeric_limits<uint16_t>::max()) {
         return Error(
             E_CONFIG,
             "Legacy fee fields must be <= 65535 to map to minFeeCoefficients");
@@ -156,7 +159,7 @@ BeaconServer::InitFileConfig::ltsFromJson(const nlohmann::json &jd) {
 
       minFeeCoefficients = {
           static_cast<uint16_t>(minFeePerTransaction),
-          static_cast<uint16_t>(minFeePerCustomMetaMiB),
+          static_cast<uint16_t>(minFeePerCustomMetaKiB),
           DEFAULT_MIN_FEE_COEFF_C,
       };
     }
