@@ -234,7 +234,8 @@ void Client::setEndpoint(const network::TcpEndpoint &endpoint) {
   endpoint_ = endpoint;
 }
 
-Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload) {
+Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload,
+                                             std::chrono::milliseconds timeout) {
   if (endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
@@ -247,7 +248,7 @@ Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &p
   std::string requestData = utl::binaryPack(req);
   log().debug << "Sending binary request: " << req;
 
-  auto result = fetchClient_.fetchSync(endpoint_, requestData);
+  auto result = fetchClient_.fetchSync(endpoint_, requestData, timeout);
 
   if (!result.isOk()) {
     return Error(E_REQUEST_FAILED,
@@ -271,7 +272,7 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
   std::string payload = utl::binaryPack(blockId);
-  auto result = sendRequest(T_REQ_BLOCK_GET, payload);
+  auto result = sendRequest(T_REQ_BLOCK_GET, payload, TIMEOUT_DATA);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -287,7 +288,7 @@ Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t account
   log().debug << "Requesting user account: " << accountId;
 
   std::string payload = utl::binaryPack(accountId);
-  auto result = sendRequest(T_REQ_ACCOUNT_GET, payload);
+  auto result = sendRequest(T_REQ_ACCOUNT_GET, payload, TIMEOUT_DATA);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -303,7 +304,7 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
   log().debug << "Registering miner server: " << minerInfo.id << " " << minerInfo.endpoint;
 
   std::string payload = minerInfo.ltsToJson().dump();
-  auto result = sendRequest(T_REQ_REGISTER, payload);
+  auto result = sendRequest(T_REQ_REGISTER, payload, TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -324,7 +325,7 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block)";
 
-  auto result = sendRequest(T_REQ_STATUS, "");
+  auto result = sendRequest(T_REQ_STATUS, "", TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -345,7 +346,7 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 Client::Roe<int64_t> Client::fetchTimestamp() {
   log().debug << "Requesting precise timestamp for calibration";
 
-  auto result = sendRequest(T_REQ_TIMESTAMP, "");
+  auto result = sendRequest(T_REQ_TIMESTAMP, "", TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -360,7 +361,7 @@ Client::Roe<int64_t> Client::fetchTimestamp() {
 Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
   log().debug << "Requesting miner list";
 
-  auto result = sendRequest(T_REQ_MINER_LIST, "");
+  auto result = sendRequest(T_REQ_MINER_LIST, "", TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -390,7 +391,7 @@ Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(con
   log().debug << "Requesting transactions by wallet: " << request.walletId << " " << request.beforeBlockId;
 
   std::string payload = utl::binaryPack(request);
-  auto result = sendRequest(T_REQ_TX_GET_BY_WALLET, payload);
+  auto result = sendRequest(T_REQ_TX_GET_BY_WALLET, payload, TIMEOUT_DATA);
 
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -407,7 +408,7 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
   std::string payload = block.ltsToString();
-  auto result = sendRequest(T_REQ_BLOCK_ADD, payload);
+  auto result = sendRequest(T_REQ_BLOCK_ADD, payload, TIMEOUT_DATA);
   if (!result) {
     return result.error();
   }
@@ -420,7 +421,7 @@ Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transa
   log().debug << "Adding transaction";
 
   std::string payload = utl::binaryPack(signedTx);
-  auto result = sendRequest(T_REQ_TX_ADD, payload);
+  auto result = sendRequest(T_REQ_TX_ADD, payload, TIMEOUT_DATA);
   if (!result) {
     return result.error();
   }
@@ -433,7 +434,7 @@ Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transa
 Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   log().debug << "Requesting miner status";
 
-  auto result = sendRequest(T_REQ_STATUS, "");
+  auto result = sendRequest(T_REQ_STATUS, "", TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

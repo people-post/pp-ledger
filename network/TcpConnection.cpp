@@ -128,6 +128,25 @@ TcpConnection::Roe<std::string> TcpConnection::receiveLine() {
   return Roe<std::string>(line);
 }
 
+TcpConnection::Roe<void> TcpConnection::setTimeout(std::chrono::milliseconds timeout) {
+  if (socketFd_ < 0) {
+    return Error("Connection closed");
+  }
+
+  struct timeval tv;
+  tv.tv_sec = timeout.count() / 1000;
+  tv.tv_usec = (timeout.count() % 1000) * 1000;
+
+  if (setsockopt(socketFd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+    return Error("Failed to set receive timeout: " + std::string(std::strerror(errno)));
+  }
+  if (setsockopt(socketFd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {
+    return Error("Failed to set send timeout: " + std::string(std::strerror(errno)));
+  }
+
+  return {};
+}
+
 void TcpConnection::close() {
   if (socketFd_ >= 0) {
     ::close(socketFd_);

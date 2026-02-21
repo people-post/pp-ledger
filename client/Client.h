@@ -8,6 +8,7 @@
 #include "../network/Types.hpp"
 #include "../consensus/Types.hpp"
 
+#include <chrono>
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -65,6 +66,12 @@ public:
   static constexpr const char *DEFAULT_HOST = "localhost";
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
+
+  // Request timeouts
+  /** Timeout for fast, lightweight requests (status, timestamp, registration). */
+  static constexpr std::chrono::milliseconds TIMEOUT_FAST{5000};
+  /** Timeout for data-retrieval or data-submission requests (blocks, transactions, accounts). */
+  static constexpr std::chrono::milliseconds TIMEOUT_DATA{10000};
 
   // Request types
   static constexpr const uint32_t T_REQ_STATUS = 1;
@@ -198,7 +205,8 @@ public:
   Roe<bool> addBlock(const Ledger::ChainNode& block);
 
 private:
-  Roe<std::string> sendRequest(uint32_t type, const std::string &payload);
+  Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
+                               std::chrono::milliseconds timeout = TIMEOUT_FAST);
 
   bool connected_{false};
   network::TcpEndpoint endpoint_;
