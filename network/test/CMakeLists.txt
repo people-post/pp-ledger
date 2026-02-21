@@ -38,3 +38,21 @@ target_link_libraries(test_tcp PRIVATE
 )
 
 gtest_discover_tests(test_tcp)
+
+# Test for BulkWriter
+add_executable(test_bulkwriter
+    test_bulkwriter.cpp
+)
+
+target_include_directories(test_bulkwriter PRIVATE
+    ${CMAKE_SOURCE_DIR}/network
+)
+
+target_link_libraries(test_bulkwriter PRIVATE
+    pp_lib
+    pp_network
+    GTest::gtest_main
+    GTest::gmock
+)
+
+gtest_discover_tests(test_bulkwriter)
