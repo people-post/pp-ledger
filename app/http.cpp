@@ -68,6 +68,21 @@ int main(int argc, char** argv) {
     httpLog.error << "HTTP error " << httplib::to_string(err) << " path=" << path;
   });
 
+  // CORS: allow cross-origin requests
+  svr.set_default_headers(httplib::Headers{
+      {"Access-Control-Allow-Origin", "*"},
+      {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+      {"Access-Control-Allow-Headers", "Content-Type, Authorization"},
+      {"Access-Control-Max-Age", "86400"},
+  });
+  svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
+    if (req.method == "OPTIONS") {
+      res.status = 204;
+      return httplib::Server::HandlerResponse::Handled;
+    }
+    return httplib::Server::HandlerResponse::Unhandled;
+  });
+
   // GET /api/beacon/state
   svr.Get("/api/beacon/state", [&](const httplib::Request&, httplib::Response& res) {
     auto r = beaconClient.fetchBeaconState();
