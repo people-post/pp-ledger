@@ -87,8 +87,10 @@ private:
 
   void initHandlers();
   Roe<void> syncBlocksFromBeacon();
-  /** Periodically sync to latest block from beacon since last sync. */
+  /** Smart sync: when needed (epoch start, on-demand) and rate-limited. No block production. */
   void syncBlocksPeriodically();
+  /** Perform sync from beacon (updates lastBlockSyncTime_ and lastSyncedEpoch_ on success). */
+  void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
 
   void registerServer(const Client::MinerInfo &minerInfo);
   Client::BeaconState buildStateResponse() const;
@@ -115,7 +117,6 @@ private:
   Relay relay_;
   Client client_;
 
-  static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
   /** RTT above this (ms) triggers multiple calibration samples. */
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   /** Max number of timestamp samples when RTT is high. */
@@ -125,6 +126,7 @@ private:
   int64_t timeOffsetToBeaconMs_{0};
 
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
+  uint64_t lastSyncedEpoch_{0};
 
   using Handler =
       std::function<Roe<std::string>(const Client::Request &request)>;

@@ -47,6 +47,8 @@ public:
   uint64_t getNextBlockId() const;
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
+  /** Slot duration in seconds (for sync rate limiting). */
+  uint64_t getSlotDuration() const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
 

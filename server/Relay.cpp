@@ -35,6 +35,8 @@ uint64_t Relay::getCurrentSlot() const { return chain_.getCurrentSlot(); }
 
 uint64_t Relay::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
 
+uint64_t Relay::getSlotDuration() const { return chain_.getSlotDuration(); }
+
 std::vector<consensus::Stakeholder> Relay::getStakeholders() const {
   return chain_.getStakeholders();
 }

@@ -174,6 +174,7 @@ Service::Roe<void> RelayServer::onStart() {
                                            syncResult.error().message);
     }
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
+    lastSyncedEpoch_ = relay_.getCurrentEpoch();
   }
 
   log().info << "Relay core initialized";
@@ -319,23 +320,45 @@ void RelayServer::runLoop() {
   log().info << "Request handler loop stopped";
 }
 
+void RelayServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
+  if (config_.network.beacon.empty()) {
+    return;
+  }
+  const uint64_t slotDurationSec = relay_.getSlotDuration();
+  if (!bypassRateLimit && slotDurationSec > 0) {
+    auto now = std::chrono::steady_clock::now();
+    auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(
+        now - lastBlockSyncTime_).count();
+    if (elapsedSec < static_cast<int64_t>(slotDurationSec)) {
+      return; // Rate limit: at most one sync per slot time
+    }
+  }
+  auto syncResult = syncBlocksFromBeacon();
+  if (syncResult) {
+    lastBlockSyncTime_ = std::chrono::steady_clock::now();
+    lastSyncedEpoch_ = relay_.getCurrentEpoch();
+  } else {
+    log().warning << "Block sync failed: " << syncResult.error().message;
+  }
+}
+
 void RelayServer::syncBlocksPeriodically() {
   if (config_.network.beacon.empty()) {
     return;
   }
-  auto now = std::chrono::steady_clock::now();
-  auto elapsedSinceSync =
-      std::chrono::duration_cast<std::chrono::seconds>(
-          now - lastBlockSyncTime_);
-  if (elapsedSinceSync >= BLOCK_SYNC_INTERVAL) {
-    auto syncResult = syncBlocksFromBeacon();
-    if (syncResult) {
-      lastBlockSyncTime_ = now;
-    } else {
-      log().warning << "Periodic block sync failed: "
-                    << syncResult.error().message;
-    }
+  const uint64_t currentEpoch = relay_.getCurrentEpoch();
+  const uint64_t slotDurationSec = relay_.getSlotDuration();
+  if (slotDurationSec == 0) {
+    return;
   }
+
+  // At beginning of each epoch: sync to update stakeholders (relay never produces blocks)
+  const bool needSyncForEpoch = (currentEpoch > lastSyncedEpoch_);
+  if (!needSyncForEpoch) {
+    return;
+  }
+
+  trySyncBlocksFromBeacon(false);
 }
 
 std::string RelayServer::handleParsedRequest(const Client::Request &request) {
@@ -359,7 +382,14 @@ RelayServer::hBlockGet(const Client::Request &request) {
   uint64_t blockId = idResult.value();
   auto result = relay_.readBlock(blockId);
   if (!result) {
-    return Error(E_REQUEST, "Failed to get block: " + result.error().message);
+    // User requested block we don't have: sync from beacon then retry
+    if (blockId >= relay_.getNextBlockId()) {
+      trySyncBlocksFromBeacon(true);
+      result = relay_.readBlock(blockId);
+    }
+    if (!result) {
+      return Error(E_REQUEST, "Failed to get block: " + result.error().message);
+    }
   }
 
   return result.value().ltsToString();
