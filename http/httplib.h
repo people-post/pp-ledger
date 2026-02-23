@@ -3154,6 +3154,79 @@ bool is_field_content(const std::string &s);
 bool is_field_value(const std::string &s);
 
 } // namespace fields
+
+int shutdown_socket(socket_t sock);
+
+class SocketStream final : public Stream {
+public:
+  SocketStream(socket_t sock, time_t read_timeout_sec, time_t read_timeout_usec,
+               time_t write_timeout_sec, time_t write_timeout_usec,
+               time_t max_timeout_msec = 0,
+               std::chrono::time_point<std::chrono::steady_clock> start_time =
+                   (std::chrono::steady_clock::time_point::min)());
+  ~SocketStream() override;
+
+  bool is_readable() const override;
+  bool wait_readable() const override;
+  bool wait_writable() const override;
+  ssize_t read(char *ptr, size_t size) override;
+  ssize_t write(const char *ptr, size_t size) override;
+  void get_remote_ip_and_port(std::string &ip, int &port) const override;
+  void get_local_ip_and_port(std::string &ip, int &port) const override;
+  socket_t socket() const override;
+  time_t duration() const override;
+  void set_read_timeout(time_t sec, time_t usec = 0) override;
+
+private:
+  socket_t sock_;
+  time_t read_timeout_sec_;
+  time_t read_timeout_usec_;
+  time_t write_timeout_sec_;
+  time_t write_timeout_usec_;
+  time_t max_timeout_msec_;
+  const std::chrono::time_point<std::chrono::steady_clock> start_time_;
+
+  std::vector<char> read_buff_;
+  size_t read_buff_off_ = 0;
+  size_t read_buff_content_size_ = 0;
+
+  static const size_t read_buff_size_ = 1024l * 4;
+};
+
+#ifdef CPPHTTPLIB_SSL_ENABLED
+class SSLSocketStream final : public Stream {
+public:
+  SSLSocketStream(
+      socket_t sock, tls::session_t session, time_t read_timeout_sec,
+      time_t read_timeout_usec, time_t write_timeout_sec,
+      time_t write_timeout_usec, time_t max_timeout_msec = 0,
+      std::chrono::time_point<std::chrono::steady_clock> start_time =
+          (std::chrono::steady_clock::time_point::min)());
+  ~SSLSocketStream() override;
+
+  bool is_readable() const override;
+  bool wait_readable() const override;
+  bool wait_writable() const override;
+  ssize_t read(char *ptr, size_t size) override;
+  ssize_t write(const char *ptr, size_t size) override;
+  void get_remote_ip_and_port(std::string &ip, int &port) const override;
+  void get_local_ip_and_port(std::string &ip, int &port) const override;
+  socket_t socket() const override;
+  time_t duration() const override;
+  void set_read_timeout(time_t sec, time_t usec = 0) override;
+
+private:
+  socket_t sock_;
+  tls::session_t session_;
+  time_t read_timeout_sec_;
+  time_t read_timeout_usec_;
+  time_t write_timeout_sec_;
+  time_t write_timeout_usec_;
+  time_t max_timeout_msec_;
+  const std::chrono::time_point<std::chrono::steady_clock> start_time_;
+};
+#endif
+
 } // namespace detail
 
 /*
@@ -3723,6 +3796,19 @@ bool read_websocket_frame(Stream &strm, Opcode &opcode, std::string &payload,
 
 } // namespace ws
 
+namespace detail {
+
+bool write_websocket_frame(Stream &strm, ws::Opcode opcode, const char *data,
+                           size_t len, bool fin, bool mask);
+bool read_websocket_upgrade_response(Stream &strm,
+                                     const std::string &expected_accept,
+                                     std::string &selected_subprotocol);
+bool perform_websocket_handshake(Stream &strm, const std::string &host,
+                                 int port, const std::string &path,
+                                 const Headers &headers,
+                                 std::string &selected_subprotocol);
+
+} // namespace detail
 
 } // namespace httplib
 
