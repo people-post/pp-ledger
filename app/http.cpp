@@ -4,6 +4,7 @@
  */
 #include "Client.h"
 #include "../lib/BinaryPack.hpp"
+#include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
 #include "../http/httplib.h"
@@ -57,9 +58,18 @@ int main(int argc, char** argv) {
   minerClient.setEndpoint(pp::network::TcpEndpoint{minerHost, minerPort});
 
   httplib::Server svr;
+  auto httpLog = pp::logging::getLogger("HttpServer");
+  svr.set_logger([&httpLog](const httplib::Request& req, const httplib::Response& res) {
+    httpLog.info << req.method << " " << req.path << " " << res.status
+                 << " (" << (req.remote_addr.empty() ? "-" : req.remote_addr) << ")";
+  });
+  svr.set_error_logger([&httpLog](const httplib::Error& err, const httplib::Request* req) {
+    std::string path = req ? req->path : "-";
+    httpLog.error << "HTTP error " << httplib::to_string(err) << " path=" << path;
+  });
 
-  // GET /beacon/state
-  svr.Get("/beacon/state", [&](const httplib::Request&, httplib::Response& res) {
+  // GET /api/beacon/state
+  svr.Get("/api/beacon/state", [&](const httplib::Request&, httplib::Response& res) {
     auto r = beaconClient.fetchBeaconState();
     if (!r) {
       setJsonError(res, 502, r.error().message);
@@ -68,8 +78,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().ltsToJson().dump(), "application/json");
   });
 
-  // GET /beacon/calibration
-  svr.Get("/beacon/calibration", [&](const httplib::Request&, httplib::Response& res) {
+  // GET /api/beacon/calibration
+  svr.Get("/api/beacon/calibration", [&](const httplib::Request&, httplib::Response& res) {
     auto r = beaconClient.fetchCalibration();
     if (!r) {
       setJsonError(res, 502, r.error().message);
@@ -78,8 +88,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
-  // GET /beacon/miners
-  svr.Get("/beacon/miners", [&](const httplib::Request&, httplib::Response& res) {
+  // GET /api/beacon/miners
+  svr.Get("/api/beacon/miners", [&](const httplib::Request&, httplib::Response& res) {
     auto r = beaconClient.fetchMinerList();
     if (!r) {
       setJsonError(res, 502, r.error().message);
@@ -91,8 +101,8 @@ int main(int argc, char** argv) {
     res.set_content(arr.dump(), "application/json");
   });
 
-  // GET /miner/status
-  svr.Get("/miner/status", [&](const httplib::Request&, httplib::Response& res) {
+  // GET /api/miner/status
+  svr.Get("/api/miner/status", [&](const httplib::Request&, httplib::Response& res) {
     auto r = minerClient.fetchMinerStatus();
     if (!r) {
       setJsonError(res, 502, r.error().message);
@@ -101,8 +111,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().ltsToJson().dump(), "application/json");
   });
 
-  // GET /block/:id
-  svr.Get(R"(/block/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
+  // GET /api/block/:id
+  svr.Get(R"(/api/block/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
     uint64_t blockId = std::stoull(req.matches[1].str());
     auto r = beaconClient.fetchBlock(blockId);
     if (!r) {
@@ -112,8 +122,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
-  // GET /account/:id
-  svr.Get(R"(/account/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
+  // GET /api/account/:id
+  svr.Get(R"(/api/account/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
     uint64_t accountId = std::stoull(req.matches[1].str());
     auto r = beaconClient.fetchUserAccount(accountId);
     if (!r) {
@@ -123,8 +133,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
-  // GET /tx/by-wallet?walletId=<id>&beforeBlockId=<id>
-  svr.Get("/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
+  // GET /api/tx/by-wallet?walletId=<id>&beforeBlockId=<id>
+  svr.Get("/api/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
     pp::Client::TxGetByWalletRequest wr;
     if (req.has_param("walletId")) {
       try {
@@ -150,8 +160,8 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
-  // POST /tx — body: binary packed SignedData<Transaction> (application/octet-stream)
-  svr.Post("/tx", [&](const httplib::Request& req, httplib::Response& res) {
+  // POST /api/tx — body: binary packed SignedData<Transaction> (application/octet-stream)
+  svr.Post("/api/tx", [&](const httplib::Request& req, httplib::Response& res) {
     const std::string& body = req.body;
     auto unpacked = pp::utl::binaryUnpack<pp::Ledger::SignedData<pp::Ledger::Transaction>>(body);
     if (!unpacked) {
@@ -166,10 +176,10 @@ int main(int argc, char** argv) {
     res.status = 204;
   });
 
-  std::cout << "HTTP API listening on " << httpHost << ":" << httpPort << "\n";
-  std::cout << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort << "\n";
-  std::cout << "Routes: GET /beacon/state, /beacon/timestamp, /beacon/miners, /miner/status, /block/<id>, /account/<id>\n";
-  std::cout << "        GET /tx/by-wallet?walletId=&beforeBlockId=, POST /tx (binary body)\n";
+  httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
+  httpLog.info << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort;
+  httpLog.info << "Routes: GET /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
+  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, POST /api/tx (binary body)";
   svr.listen(httpHost, static_cast<int>(httpPort));
   return 0;
 }
