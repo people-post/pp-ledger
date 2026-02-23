@@ -196,13 +196,13 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
     return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
   }
 
-  auto stateResult = client_.fetchBeaconState();
-  if (!stateResult) {
+  auto calibrationResult = client_.fetchCalibration();
+  if (!calibrationResult) {
     return Error(E_NETWORK,
-                 "Failed to get beacon state: " + stateResult.error().message);
+                 "Failed to get beacon calibration: " + calibrationResult.error().message);
   }
 
-  uint64_t latestBlockId = stateResult.value().nextBlockId;
+  uint64_t latestBlockId = calibrationResult.value().nextBlockId;
   uint64_t nextBlockId = relay_.getNextBlockId();
 
   if (nextBlockId >= latestBlockId) {
