@@ -67,11 +67,11 @@ public:
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
 
-  // Request timeouts
+  // Request timeouts (generous enough for beacon under load, e.g. test-checkpoint-cycles)
   /** Timeout for fast, lightweight requests (status, timestamp, registration). */
-  static constexpr std::chrono::milliseconds TIMEOUT_FAST{5000};
+  static constexpr std::chrono::milliseconds TIMEOUT_FAST{15000};
   /** Timeout for data-retrieval or data-submission requests (blocks, transactions, accounts). */
-  static constexpr std::chrono::milliseconds TIMEOUT_DATA{10000};
+  static constexpr std::chrono::milliseconds TIMEOUT_DATA{30000};
 
   // Request types
   static constexpr const uint32_t T_REQ_STATUS = 1;

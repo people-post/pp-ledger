@@ -98,6 +98,9 @@ TcpConnection::Roe<size_t> TcpConnection::receive(void *buffer,
 
   ssize_t received = recv(socketFd_, buffer, maxLength, 0);
   if (received < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return Error("Receive timeout (no data within socket timeout)");
+    }
     return Error("Failed to receive data: " + std::string(std::strerror(errno)));
   }
   if (received == 0) {
