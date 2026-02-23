@@ -260,6 +260,7 @@ Service::Roe<void> MinerServer::onStart() {
                                        syncResult.error().message);
   }
   lastBlockSyncTime_ = std::chrono::steady_clock::now();
+  lastSyncedEpoch_ = miner_.getCurrentEpoch();
 
   refreshMinerListFromBeacon();
 
@@ -433,20 +434,51 @@ void MinerServer::runLoop() {
   log().info << "Block production and request handler loop stopped";
 }
 
-void MinerServer::syncBlocksPeriodically() {
-  auto now = std::chrono::steady_clock::now();
-  auto elapsedSinceSync =
-      std::chrono::duration_cast<std::chrono::seconds>(
-          now - lastBlockSyncTime_);
-  if (elapsedSinceSync >= BLOCK_SYNC_INTERVAL) {
-    auto syncResult = syncBlocksFromBeacon();
-    if (syncResult) {
-      lastBlockSyncTime_ = now;
-    } else {
-      log().warning << "Periodic block sync failed: "
-                    << syncResult.error().message;
+void MinerServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
+  const uint64_t slotDurationSec = miner_.getSlotDuration();
+  if (!bypassRateLimit && slotDurationSec > 0) {
+    auto now = std::chrono::steady_clock::now();
+    auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(
+        now - lastBlockSyncTime_).count();
+    if (elapsedSec < static_cast<int64_t>(slotDurationSec)) {
+      return; // Rate limit: at most one sync per slot time
     }
   }
+  auto syncResult = syncBlocksFromBeacon();
+  if (syncResult) {
+    lastBlockSyncTime_ = std::chrono::steady_clock::now();
+    lastSyncedEpoch_ = miner_.getCurrentEpoch();
+  } else {
+    log().warning << "Block sync failed: " << syncResult.error().message;
+  }
+}
+
+void MinerServer::syncBlocksPeriodically() {
+  const uint64_t currentEpoch = miner_.getCurrentEpoch();
+  const uint64_t currentSlot = miner_.getCurrentSlot();
+  const uint64_t slotDurationSec = miner_.getSlotDuration();
+  if (slotDurationSec == 0) {
+    return;
+  }
+
+  // 1. At beginning of each epoch: sync to update stakeholders
+  const bool needSyncForEpoch = (currentEpoch > lastSyncedEpoch_);
+
+  // 2. Before producing: we are expected to be slot leader for next slot; sync before that slot starts
+  const uint64_t nextSlot = currentSlot + 1;
+  const bool weAreLeaderForNextSlot = miner_.isSlotLeaderForSlot(nextSlot);
+  const int64_t nowSec = miner_.getConsensusTimestamp();
+  const int64_t nextSlotStartSec = miner_.getSlotStartTime(nextSlot);
+  const int64_t secUntilNextSlot = nextSlotStartSec - nowSec;
+  const bool needSyncBeforeProduce =
+      weAreLeaderForNextSlot && secUntilNextSlot >= 0 &&
+      secUntilNextSlot <= SYNC_BEFORE_SLOT_SECONDS;
+
+  if (!needSyncForEpoch && !needSyncBeforeProduce) {
+    return;
+  }
+
+  trySyncBlocksFromBeacon(false);
 }
 
 void MinerServer::refreshMinerListFromBeacon() {
@@ -514,7 +546,14 @@ MinerServer::hBlockGet(const Client::Request &request) {
   uint64_t blockId = idResult.value();
   auto result = miner_.readBlock(blockId);
   if (!result) {
-    return Error(E_REQUEST, "Failed to get block: " + result.error().message);
+    // User requested block we don't have: sync from beacon then retry
+    if (blockId >= miner_.getNextBlockId()) {
+      trySyncBlocksFromBeacon(true);
+      result = miner_.readBlock(blockId);
+    }
+    if (!result) {
+      return Error(E_REQUEST, "Failed to get block: " + result.error().message);
+    }
   }
   return result.value().ltsToString();
 }

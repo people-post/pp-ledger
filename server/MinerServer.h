@@ -90,8 +90,10 @@ private:
 
   /** Refetch miner list from beacon. Updates config_.mMiners and lastMinerListFetchTime_. */
   void refreshMinerListFromBeacon();
-  /** Periodically sync to latest block from beacon since last sync. */
+  /** Smart sync: when needed (epoch start, before produce, on-demand) and rate-limited. */
   void syncBlocksPeriodically();
+  /** Perform sync from beacon (updates lastBlockSyncTime_ and lastSyncedEpoch_ on success). */
+  void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   Roe<Client::BeaconState> connectToBeacon();
   Roe<void> syncBlocksFromBeacon();
   /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). Call after connectToBeacon(); client_ must be set to beacon. */
@@ -119,7 +121,8 @@ private:
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
-  static constexpr std::chrono::seconds BLOCK_SYNC_INTERVAL{5};
+  /** Seconds before our slot start to sync (so we have latest chain for block production). */
+  static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
   /** RTT above this (ms) triggers multiple calibration samples. */
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   /** Max number of timestamp samples when RTT is high. */
@@ -129,6 +132,7 @@ private:
 
   std::chrono::steady_clock::time_point lastMinerListFetchTime_{};
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
+  uint64_t lastSyncedEpoch_{0};
   uint64_t lastForwardRetrySlot_{0};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;

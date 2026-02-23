@@ -56,6 +56,8 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool isSlotLeader() const;
+  /** True if this miner is slot leader for the given slot. */
+  bool isSlotLeaderForSlot(uint64_t slot) const;
   Roe<uint64_t> getSlotLeaderId() const;
 
   uint64_t getStake() const;
@@ -63,6 +65,12 @@ public:
   uint64_t getNextBlockId() const;
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
+  /** Consensus (beacon) time in seconds. */
+  int64_t getConsensusTimestamp() const;
+  /** Start time of the given slot (consensus timestamp in seconds). */
+  int64_t getSlotStartTime(uint64_t slot) const;
+  /** Slot duration in seconds. */
+  uint64_t getSlotDuration() const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
 

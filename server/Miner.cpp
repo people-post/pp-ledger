@@ -17,6 +17,10 @@ bool Miner::isSlotLeader() const {
   return chain_.isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
 }
 
+bool Miner::isSlotLeaderForSlot(uint64_t slot) const {
+  return chain_.isStakeholderSlotLeader(config_.minerId, slot);
+}
+
 Miner::Roe<uint64_t> Miner::getSlotLeaderId() const {
   auto result = chain_.getSlotLeader(getCurrentSlot());
   if (!result) {
@@ -36,6 +40,18 @@ uint64_t Miner::getNextBlockId() const { return chain_.getNextBlockId(); }
 uint64_t Miner::getCurrentSlot() const { return chain_.getCurrentSlot(); }
 
 uint64_t Miner::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
+
+int64_t Miner::getConsensusTimestamp() const {
+  return chain_.getConsensusTimestamp();
+}
+
+int64_t Miner::getSlotStartTime(uint64_t slot) const {
+  return chain_.getSlotStartTime(slot);
+}
+
+uint64_t Miner::getSlotDuration() const {
+  return chain_.getSlotDuration();
+}
 
 std::vector<consensus::Stakeholder> Miner::getStakeholders() const {
   return chain_.getStakeholders();

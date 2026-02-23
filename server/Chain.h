@@ -151,6 +151,10 @@ public:
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   int64_t getConsensusTimestamp() const;
+  /** Start time of the given slot (consensus timestamp). */
+  int64_t getSlotStartTime(uint64_t slot) const;
+  /** Slot duration in seconds. */
+  uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
   /** Max transactions per block (0 = no limit). Renewals are not counted toward this cap. */
   uint64_t getMaxTransactionsPerBlock() const;

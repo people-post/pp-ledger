@@ -245,6 +245,14 @@ int64_t Chain::getConsensusTimestamp() const {
   return consensus_.getTimestamp();
 }
 
+int64_t Chain::getSlotStartTime(uint64_t slot) const {
+  return consensus_.getSlotStartTime(slot);
+}
+
+uint64_t Chain::getSlotDuration() const {
+  return chainConfig_.slotDuration;
+}
+
 uint64_t Chain::getCurrentSlot() const { return consensus_.getCurrentSlot(); }
 
 uint64_t Chain::getCurrentEpoch() const { return consensus_.getCurrentEpoch(); }
