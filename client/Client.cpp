@@ -198,6 +198,13 @@ nlohmann::json Client::TxGetByWalletResponse::toJson() const {
   return j;
 }
 
+nlohmann::json Client::CalibrationResponse::toJson() const {
+  nlohmann::json j;
+  j["msTimestamp"] = msTimestamp;
+  j["nextBlockId"] = nextBlockId;
+  return j;
+}
+
 Client::Client() {
   fetchClient_.redirectLogger(log().getFullName() + ".FetchClient");
 }
@@ -343,19 +350,19 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   }
 }
 
-Client::Roe<int64_t> Client::fetchTimestamp() {
+Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {
   log().debug << "Requesting precise timestamp for calibration";
 
-  auto result = sendRequest(T_REQ_TIMESTAMP, "", TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_CALIBRATION, "", TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
 
-  auto unpacked = utl::binaryUnpack<int64_t>(result.value());
-  if (!unpacked) {
-    return Error(E_INVALID_RESPONSE, "Failed to unpack timestamp: " + unpacked.error().message);
+  auto roe = utl::binaryUnpack<CalibrationResponse>(result.value());
+  if (!roe) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack calibration response: " + roe.error().message);
   }
-  return unpacked.value();
+  return roe.value();
 }
 
 Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {

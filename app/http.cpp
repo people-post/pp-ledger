@@ -68,14 +68,14 @@ int main(int argc, char** argv) {
     res.set_content(r.value().ltsToJson().dump(), "application/json");
   });
 
-  // GET /beacon/timestamp
-  svr.Get("/beacon/timestamp", [&](const httplib::Request&, httplib::Response& res) {
-    auto r = beaconClient.fetchTimestamp();
+  // GET /beacon/calibration
+  svr.Get("/beacon/calibration", [&](const httplib::Request&, httplib::Response& res) {
+    auto r = beaconClient.fetchCalibration();
     if (!r) {
       setJsonError(res, 502, r.error().message);
       return;
     }
-    res.set_content(json{{"timestamp", r.value()}}.dump(), "application/json");
+    res.set_content(r.value().toJson().dump(), "application/json");
   });
 
   // GET /beacon/miners

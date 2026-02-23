@@ -103,7 +103,7 @@ private:
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hTimestamp(const Client::Request &request);
+  Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
