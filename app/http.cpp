@@ -6,7 +6,7 @@
 #include "../lib/BinaryPack.hpp"
 #include "../lib/Utilities.h"
 
-#include "httplib.h"
+#include "../http/httplib.h"
 
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
