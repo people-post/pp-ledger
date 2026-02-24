@@ -1950,6 +1950,12 @@ Chain::processBufferTransaction(AccountBuffer &bank,
   if (!toRoe) {
     return toRoe;
   }
+  if (tx.fee > 0) {
+    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+    if (!feeRoe) {
+      return feeRoe;
+    }
+  }
   return strictProcessTransaction(bank, tx);
 }
 
@@ -2037,7 +2043,7 @@ Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction &tx) {
                                         transferResult.error().message);
       }
     } else {
-      // To unknown wallet: deduct amount and fee from sender
+      // To unknown wallet: deduct amount and fee from sender, credit fee to ID_FEE
       if (tx.tokenId == AccountBuffer::ID_GENESIS) {
         auto withdrawResult = bank_.withdrawBalance(
             tx.fromWalletId, tx.tokenId,
@@ -2062,6 +2068,15 @@ Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction &tx) {
             return Error(E_TX_TRANSFER, "Failed to withdraw fee: " +
                                             withdrawFeeResult.error().message);
           }
+        }
+      }
+      if (tx.fee > 0 && bank_.hasAccount(AccountBuffer::ID_FEE)) {
+        auto depositFeeResult = bank_.depositBalance(
+            AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
+            static_cast<int64_t>(tx.fee));
+        if (!depositFeeResult) {
+          return Error(E_TX_TRANSFER, "Failed to credit fee: " +
+                                          depositFeeResult.error().message);
         }
       }
     }

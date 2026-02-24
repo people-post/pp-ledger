@@ -359,16 +359,28 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
   fromIt->second.wallet.mBalances[tokenId] = fromBalance - amountSigned;
   toIt->second.wallet.mBalances[tokenId] = toBalance + amountSigned;
 
-  // Deduct the fee if non-zero
+  // Deduct the fee from sender and credit to ID_FEE account
   if (fee > 0) {
     if (tokenId == ID_GENESIS) {
-      // Fee already accounted for in the balance check above
       fromIt->second.wallet.mBalances[ID_GENESIS] =
           fromBalance - amountSigned - feeSigned;
     } else {
-      // Deduct fee from ID_GENESIS balance (already retrieved above)
       fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - feeSigned;
     }
+
+    auto feeIt = mAccounts_.find(ID_FEE);
+    if (feeIt == mAccounts_.end()) {
+      return Error(E_ACCOUNT, "Fee account not found");
+    }
+    int64_t feeAccountBalance = 0;
+    auto feeBalanceIt = feeIt->second.wallet.mBalances.find(ID_GENESIS);
+    if (feeBalanceIt != feeIt->second.wallet.mBalances.end()) {
+      feeAccountBalance = feeBalanceIt->second;
+    }
+    if (feeAccountBalance > INT64_MAX - feeSigned) {
+      return Error(E_INPUT, "Fee account balance would overflow");
+    }
+    feeIt->second.wallet.mBalances[ID_GENESIS] = feeAccountBalance + feeSigned;
   }
 
   return {};
