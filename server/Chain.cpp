@@ -1669,7 +1669,8 @@ Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
   }
 
   auto transferResult = bank.transferBalance(
-      tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount);
+      tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS, tx.amount,
+      tx.fee);
   if (!transferResult) {
     return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
                                     transferResult.error().message);
@@ -2030,18 +2031,38 @@ Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction &tx) {
   if (bank_.hasAccount(tx.fromWalletId)) {
     if (bank_.hasAccount(tx.toWalletId)) {
       auto transferResult = bank_.transferBalance(
-          tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount);
+          tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
       if (!transferResult) {
         return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
                                         transferResult.error().message);
       }
     } else {
-      // To unknown wallet
-      auto withdrawResult =
-          bank_.withdrawBalance(tx.fromWalletId, tx.tokenId, tx.amount);
-      if (!withdrawResult) {
-        return Error(E_TX_TRANSFER, "Failed to withdraw balance: " +
-                                        withdrawResult.error().message);
+      // To unknown wallet: deduct amount and fee from sender
+      if (tx.tokenId == AccountBuffer::ID_GENESIS) {
+        auto withdrawResult = bank_.withdrawBalance(
+            tx.fromWalletId, tx.tokenId,
+            static_cast<int64_t>(tx.amount) + static_cast<int64_t>(tx.fee));
+        if (!withdrawResult) {
+          return Error(E_TX_TRANSFER, "Failed to withdraw balance: " +
+                                          withdrawResult.error().message);
+        }
+      } else {
+        auto withdrawAmountResult =
+            bank_.withdrawBalance(tx.fromWalletId, tx.tokenId,
+                                  static_cast<int64_t>(tx.amount));
+        if (!withdrawAmountResult) {
+          return Error(E_TX_TRANSFER, "Failed to withdraw balance: " +
+                                          withdrawAmountResult.error().message);
+        }
+        if (tx.fee > 0) {
+          auto withdrawFeeResult = bank_.withdrawBalance(
+              tx.fromWalletId, AccountBuffer::ID_GENESIS,
+              static_cast<int64_t>(tx.fee));
+          if (!withdrawFeeResult) {
+            return Error(E_TX_TRANSFER, "Failed to withdraw fee: " +
+                                            withdrawFeeResult.error().message);
+          }
+        }
       }
     }
   } else {
