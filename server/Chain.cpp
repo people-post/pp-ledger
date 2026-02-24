@@ -1113,6 +1113,12 @@ Chain::Roe<void> Chain::addBufferTransaction(
     if (!idemRoe) {
       return idemRoe.error();
     }
+    if (tx.fee > 0) {
+      auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+      if (!feeRoe) {
+        return feeRoe;
+      }
+    }
     return processBufferUserInit(bank, tx, blockId);
   }
   case Ledger::Transaction::T_CONFIG: {
