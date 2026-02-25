@@ -13,7 +13,7 @@ void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
   log().info << "Fetching from " << endpoint;
 
   // Run in a separate thread for async behavior
-  std::thread([this, endpoint, data, callback, timeout]() {
+  std::thread([this, endpoint, data, callback = std::move(callback), timeout]() {
     auto result = fetchSync(endpoint, data, timeout);
     callback(result);
   }).detach();
