@@ -27,6 +27,8 @@ private:
   Napi::Value FetchBlock(const Napi::CallbackInfo& info);
   Napi::Value FetchUserAccount(const Napi::CallbackInfo& info);
   Napi::Value FetchTransactionsByWallet(const Napi::CallbackInfo& info);
+  Napi::Value BuildTransactionHex(const Napi::CallbackInfo& info);
+  Napi::Value AddTransaction(const Napi::CallbackInfo& info);
 
   Napi::Value queueJson(const Napi::Env& env, JsonAsyncWorker::WorkFn fn);
 

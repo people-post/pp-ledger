@@ -18,7 +18,9 @@ async function main() {
     'fetchMinerStatus',
     'fetchBlock',
     'fetchUserAccount',
-    'fetchTransactionsByWallet'
+    'fetchTransactionsByWallet',
+    'buildTransactionHex',
+    'addTransaction'
   ];
 
   for (const method of methods) {
@@ -29,6 +31,34 @@ async function main() {
     () => client.setEndpoint(123),
     /endpoint/i,
     'setEndpoint should validate input type'
+  );
+
+  assert.throws(
+    () => client.addTransaction('0x1234'),
+    /object/i,
+    'addTransaction should require object input'
+  );
+
+  const transactionHex = client.buildTransactionHex({
+    fromWalletId: 1,
+    toWalletId: 2,
+    amount: 3,
+    fee: 1
+  });
+  assert.equal(typeof transactionHex, 'string', 'buildTransactionHex should return a string');
+  assert.match(transactionHex, /^[0-9a-f]+$/i, 'buildTransactionHex should return hex');
+  assert.equal(transactionHex.length % 2, 0, 'buildTransactionHex should return even-length hex');
+
+  assert.throws(
+    () => client.addTransaction({ transactionHex, signaturesHex: [] }),
+    /at least one signature/i,
+    'addTransaction should require at least one signature'
+  );
+
+  assert.throws(
+    () => client.addTransaction({ transactionHex, signaturesHex: ['abcd'] }),
+    /128 hex chars/i,
+    'addTransaction should validate signature size'
   );
 
   const pending = client.fetchBeaconState();

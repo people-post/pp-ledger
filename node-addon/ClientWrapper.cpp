@@ -1,5 +1,78 @@
 #include "ClientWrapper.h"
 
+#include "../lib/BinaryPack.hpp"
+#include "../lib/Utilities.h"
+#include <chrono>
+#include <cctype>
+#include <random>
+
+namespace {
+
+class VoidAsyncWorker : public Napi::AsyncWorker {
+public:
+  using WorkFn = std::function<bool(std::string&)>;
+
+  VoidAsyncWorker(const Napi::Env& env, WorkFn fn)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), fn_(std::move(fn)) {}
+
+  void Execute() override {
+    if (!fn_(errorMessage_)) {
+      SetError(errorMessage_);
+    }
+  }
+
+  void OnOK() override {
+    Napi::HandleScope scope(Env());
+    deferred_.Resolve(Napi::Boolean::New(Env(), true));
+  }
+
+  void OnError(const Napi::Error& e) override {
+    Napi::HandleScope scope(Env());
+    deferred_.Reject(e.Value());
+  }
+
+  Napi::Promise Promise() const {
+    return deferred_.Promise();
+  }
+
+private:
+  Napi::Promise::Deferred deferred_;
+  WorkFn fn_;
+  std::string errorMessage_;
+};
+
+bool isHexStringStrict(const std::string& input) {
+  if (input.empty() || (input.size() % 2) != 0) {
+    return false;
+  }
+  for (unsigned char ch : input) {
+    if (!std::isxdigit(ch)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+uint64_t randomUInt64() {
+  static std::random_device rd;
+  static std::mt19937_64 gen(rd());
+  static std::uniform_int_distribution<uint64_t> dist;
+  return dist(gen);
+}
+
+uint64_t parseStrictHexField(const Napi::Env& env, const Napi::Object& obj, const char* key, bool required) {
+  if (!obj.Has(key)) {
+    if (required) {
+      throw Napi::TypeError::New(env, std::string("request.") + key + " is required");
+    }
+    return 0;
+  }
+  Napi::Value value = obj.Get(key);
+  return pp::nodeaddon::ValueToUint64(env, value, key);
+}
+
+} // namespace
+
 namespace pp {
 namespace nodeaddon {
 
@@ -16,6 +89,8 @@ Napi::Object ClientWrapper::Init(Napi::Env env, Napi::Object exports) {
       InstanceMethod("fetchBlock", &ClientWrapper::FetchBlock),
       InstanceMethod("fetchUserAccount", &ClientWrapper::FetchUserAccount),
       InstanceMethod("fetchTransactionsByWallet", &ClientWrapper::FetchTransactionsByWallet),
+      InstanceMethod("buildTransactionHex", &ClientWrapper::BuildTransactionHex),
+      InstanceMethod("addTransaction", &ClientWrapper::AddTransaction),
     }
   );
 
@@ -192,6 +267,138 @@ Napi::Value ClientWrapper::FetchTransactionsByWallet(const Napi::CallbackInfo& i
     outJson = result.value().toJson().dump();
     return true;
   });
+}
+
+Napi::Value ClientWrapper::BuildTransactionHex(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsObject()) {
+    throw Napi::TypeError::New(env, "buildTransactionHex(request) expects one object argument");
+  }
+
+  Napi::Object req = info[0].As<Napi::Object>();
+
+  Ledger::SignedData<Ledger::Transaction> signedTx;
+  signedTx.obj.type = static_cast<uint16_t>(parseStrictHexField(env, req, "type", false));
+  signedTx.obj.tokenId = parseStrictHexField(env, req, "tokenId", false);
+  signedTx.obj.fromWalletId = parseStrictHexField(env, req, "fromWalletId", true);
+  signedTx.obj.toWalletId = parseStrictHexField(env, req, "toWalletId", true);
+  signedTx.obj.amount = parseStrictHexField(env, req, "amount", true);
+  signedTx.obj.fee = parseStrictHexField(env, req, "fee", false);
+
+  if (req.Has("metaHex")) {
+    if (!req.Get("metaHex").IsString()) {
+      throw Napi::TypeError::New(env, "request.metaHex must be a hex string when provided");
+    }
+    std::string metaHex = req.Get("metaHex").As<Napi::String>().Utf8Value();
+    if (!metaHex.empty()) {
+      if (!isHexStringStrict(metaHex)) {
+        throw Napi::TypeError::New(env, "request.metaHex must be an even-length hex string without 0x prefix");
+      }
+      signedTx.obj.meta = pp::utl::hexDecode(metaHex);
+      if (signedTx.obj.meta.empty()) {
+        throw Napi::TypeError::New(env, "request.metaHex failed to decode");
+      }
+    }
+  }
+
+  if (req.Has("idempotentId")) {
+    signedTx.obj.idempotentId = parseStrictHexField(env, req, "idempotentId", false);
+  } else {
+    const int64_t now = static_cast<int64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    signedTx.obj.idempotentId = static_cast<uint64_t>(now) ^ (randomUInt64() & 0xFFFFULL);
+    if (signedTx.obj.idempotentId == 0) {
+      signedTx.obj.idempotentId = 1;
+    }
+  }
+
+  if (req.Has("validationTsMin")) {
+    signedTx.obj.validationTsMin = static_cast<int64_t>(ValueToUint64(env, req.Get("validationTsMin"), "validationTsMin"));
+  }
+  if (req.Has("validationTsMax")) {
+    signedTx.obj.validationTsMax = static_cast<int64_t>(ValueToUint64(env, req.Get("validationTsMax"), "validationTsMax"));
+  }
+  if (!req.Has("validationTsMin") && !req.Has("validationTsMax")) {
+    const int64_t now = static_cast<int64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count());
+    signedTx.obj.validationTsMin = now - 60;
+    signedTx.obj.validationTsMax = now + 3600;
+  }
+
+  // External signing flow: return unsigned transaction bytes only.
+  std::string unsignedTxPayload = pp::utl::binaryPack(signedTx.obj);
+  return Napi::String::New(env, pp::utl::hexEncode(unsignedTxPayload));
+}
+
+Napi::Value ClientWrapper::AddTransaction(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsObject()) {
+    throw Napi::TypeError::New(env, "addTransaction(request) expects one object argument");
+  }
+
+  Napi::Object req = info[0].As<Napi::Object>();
+  if (!req.Has("transactionHex") || !req.Get("transactionHex").IsString()) {
+    throw Napi::TypeError::New(env, "request.transactionHex is required and must be a hex string");
+  }
+
+  if (!req.Has("signaturesHex") || !req.Get("signaturesHex").IsArray()) {
+    throw Napi::TypeError::New(env, "request.signaturesHex is required and must be an array of hex strings");
+  }
+
+  std::string transactionHex = req.Get("transactionHex").As<Napi::String>().Utf8Value();
+  if (!isHexStringStrict(transactionHex)) {
+    throw Napi::TypeError::New(env, "request.transactionHex must be a non-empty even-length hex string without 0x prefix");
+  }
+  std::string transactionPayload = pp::utl::hexDecode(transactionHex);
+  if (transactionPayload.empty()) {
+    throw Napi::TypeError::New(env, "request.transactionHex failed to decode");
+  }
+
+  auto txUnpacked = pp::utl::binaryUnpack<Ledger::Transaction>(transactionPayload);
+  if (!txUnpacked) {
+    throw Napi::TypeError::New(env, std::string("Invalid packed transactionHex: ") + txUnpacked.error().message);
+  }
+
+  Ledger::SignedData<Ledger::Transaction> signedTx;
+  signedTx.obj = txUnpacked.value();
+
+  Napi::Array signaturesArray = req.Get("signaturesHex").As<Napi::Array>();
+  if (signaturesArray.Length() == 0) {
+    throw Napi::TypeError::New(env, "request.signaturesHex must contain at least one signature");
+  }
+
+  signedTx.signatures.reserve(signaturesArray.Length());
+  for (uint32_t i = 0; i < signaturesArray.Length(); ++i) {
+    Napi::Value item = signaturesArray.Get(i);
+    if (!item.IsString()) {
+      throw Napi::TypeError::New(env, "request.signaturesHex entries must be strings");
+    }
+    std::string sigHex = item.As<Napi::String>().Utf8Value();
+    if (!isHexStringStrict(sigHex) || sigHex.size() != 128) {
+      throw Napi::TypeError::New(env, "each signature hex must be exactly 128 hex chars (64 bytes), without 0x prefix");
+    }
+    std::string sig = pp::utl::hexDecode(sigHex);
+    if (sig.size() != 64) {
+      throw Napi::TypeError::New(env, "signature hex failed to decode to 64 bytes");
+    }
+    signedTx.signatures.push_back(std::move(sig));
+  }
+
+  auto* worker = new VoidAsyncWorker(env, [this, signedTx](std::string& errorMessage) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto result = client_.addTransaction(signedTx);
+    if (!result) {
+      errorMessage = result.error().message;
+      return false;
+    }
+    return true;
+  });
+  worker->Queue();
+  return worker->Promise();
 }
 
 Napi::Value ClientWrapper::queueJson(const Napi::Env& env, JsonAsyncWorker::WorkFn fn) {
