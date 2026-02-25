@@ -33,7 +33,7 @@ static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyH
   }
   account.wallet.publicKeys.push_back(decoded);
   account.wallet.minSignatures = minSignatures;
-  account.wallet.mBalances[ID_GENESIS] = amount;
+  account.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   account.meta = metaDesc;
   return account;
 }
@@ -154,7 +154,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
-  userAccount.wallet.mBalances[ID_GENESIS] = amount;
+  userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   SignedTx signedTx;
   signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
@@ -209,7 +209,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
-  userAccount.wallet.mBalances[ID_GENESIS] = amount;
+  userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
