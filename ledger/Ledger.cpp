@@ -152,7 +152,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   storeConfig.dirPath = dataDir_;
   storeConfig.maxDirCount = 1000;    // Default values - can be made configurable
   storeConfig.maxFileCount = 1000;
-  storeConfig.maxFileSize = 10 * 1024 * 1024; // 10 MB
+  storeConfig.maxFileSize = static_cast<size_t>(10) * 1024 * 1024; // 10 MB
   storeConfig.maxLevel = 2;
 
   auto initResult = store_.init(storeConfig);

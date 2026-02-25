@@ -44,7 +44,7 @@ public:
   /**
    * Destructor - ensures file is properly closed
    */
-  ~FileStore();
+  ~FileStore() override;
 
   /**
    * Initialize the file store (creates new file)

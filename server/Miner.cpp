@@ -236,7 +236,7 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
 
   if (txSet.nPendingIncluded < pendingTxes_.size()) {
     forwardCache_.insert(forwardCache_.end(),
-                         pendingTxes_.begin() + txSet.nPendingIncluded,
+                         pendingTxes_.begin() + static_cast<std::ptrdiff_t>(txSet.nPendingIncluded),
                          pendingTxes_.end());
   }
   pendingTxes_.clear();
@@ -304,7 +304,7 @@ Miner::BlockTxSet Miner::getBlockTransactionSet() const {
                                : 0;
     out.nPendingIncluded = std::min(pendingTxes_.size(), pendingCap);
     out.signedTxes.insert(out.signedTxes.end(), pendingTxes_.begin(),
-                          pendingTxes_.begin() + out.nPendingIncluded);
+                          pendingTxes_.begin() + static_cast<std::ptrdiff_t>(out.nPendingIncluded));
   }
   return out;
 }

@@ -30,7 +30,7 @@ public:
   static constexpr const int32_t E_REQUEST = -4;
 
   MinerServer();
-  ~MinerServer();
+  ~MinerServer() override;
 
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);

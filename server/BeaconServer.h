@@ -33,7 +33,7 @@ public:
   static constexpr const int32_t E_REQUEST = -4;
 
   BeaconServer();
-  ~BeaconServer() = default;
+  ~BeaconServer() override = default;
 
   Roe<Beacon::InitKeyConfig> init(const std::string& workDir);
   Service::Roe<void> run(const std::string &workDir) override {
@@ -73,9 +73,9 @@ private:
 
   // Default configuration values
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = 7; // 7 seconds per slot
-  constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = 24 * 3600; // 7 days per epoch
-  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = 1 * 1024 * 1024; // 1MB
-  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = 10 * 1024; // 10K
+  constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = static_cast<uint64_t>(24) * 3600; // 7 days per epoch
+  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = static_cast<uint64_t>(1) * 1024 * 1024; // 1MB
+  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = static_cast<uint64_t>(10) * 1024; // 10K
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = 1;  // Base fee per transaction
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = 1;  // Fee per custom meta KiB
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = 1;  // Fee per custom meta KiB^2
@@ -83,7 +83,7 @@ private:
 
   // Checkpoint configuration values
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = 365 * 24 * 3600; // 1 year (365 days)
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = static_cast<uint64_t>(365) * 24 * 3600; // 1 year (365 days)
   constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = 86400; // 24 hours
 
   struct InitFileConfig {

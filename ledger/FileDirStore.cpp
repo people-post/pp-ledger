@@ -463,7 +463,7 @@ bool FileDirStore::saveIndex() {
 
     FileIndexEntry entry(fileId, it->second.startBlockId);
     std::string packed = utl::binaryPack(entry);
-    indexFile.write(packed.data(), packed.size());
+    indexFile.write(packed.data(), static_cast<std::streamsize>(packed.size()));
   }
 
   indexFile.close();

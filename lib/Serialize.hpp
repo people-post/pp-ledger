@@ -199,7 +199,7 @@ public:
     uint64_t size = value.size();
     write(size);
     if (size > 0) {
-      os_.write(value.data(), size);
+      os_.write(value.data(), static_cast<std::streamsize>(size));
     }
   }
 
@@ -591,7 +591,7 @@ public:
 
     value.resize(static_cast<size_t>(size));
     if (size > 0) {
-      if (!is_.read(&value[0], size)) {
+      if (!is_.read(&value[0], static_cast<std::streamsize>(size))) {
         failed_ = true;
         return false;
       }
@@ -863,7 +863,7 @@ public:
   bool failed() const { return failed_; }
 
 private:
-  static constexpr uint64_t MAX_STRING_SIZE = 64 * 1024 * 1024;  // 64 MB
+  static constexpr uint64_t MAX_STRING_SIZE = static_cast<uint64_t>(64) * 1024 * 1024;  // 64 MB
 
   std::istream &is_;
   bool failed_ = false;

@@ -26,7 +26,7 @@ void Service::stop() {
   isStopSet_ = true;
   if (thread_.joinable()) {
     thread_.join();
-    onStop();
+    onStop(); // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
   }
 }
 

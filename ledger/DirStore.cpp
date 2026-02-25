@@ -39,7 +39,7 @@ DirStore::Roe<void> DirStore::ensureDirectory(const std::string &dirPath) const 
 }
 
 DirStore::Roe<void> DirStore::validateMinFileSize(size_t maxFileSize) const {
-    if (maxFileSize < 1024 * 1024) {
+    if (maxFileSize < static_cast<size_t>(1024) * 1024) {
         return Error("Max file size shall be at least 1MB");
     }
     return {};
@@ -81,9 +81,13 @@ DirStore::Roe<std::string> DirStore::performDirectoryRelocation(
 
     // Step 4: Move exclude files back to original dir
     for (const auto &fileName : excludeFiles) {
-        std::string srcFile = targetSubdir + "/" + fileName;
+        std::string srcFile = targetSubdir;
+        srcFile += "/";
+        srcFile += fileName;
         if (std::filesystem::exists(srcFile)) {
-            std::string destFile = originalPath + "/" + fileName;
+            std::string destFile = originalPath;
+            destFile += "/";
+            destFile += fileName;
             std::filesystem::rename(srcFile, destFile, ec);
             if (ec) {
                 return Error("Failed to move excluded file " + fileName + 

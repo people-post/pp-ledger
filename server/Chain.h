@@ -135,7 +135,7 @@ public:
   constexpr static int32_t E_INTERNAL = 99; // Other internal error
 
   Chain();
-  virtual ~Chain() = default;
+  ~Chain() override = default;
 
   // ----------------- accessors -------------------------------------
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;

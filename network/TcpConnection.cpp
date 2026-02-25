@@ -112,7 +112,7 @@ TcpConnection::Roe<size_t> TcpConnection::receive(void *buffer,
 
 TcpConnection::Roe<std::string> TcpConnection::receiveLine() {
   std::string line;
-  char ch;
+  char ch = 0;
 
   while (true) {
     auto result = receive(&ch, 1);

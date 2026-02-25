@@ -2090,7 +2090,7 @@ Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction &tx) {
     // From unknown wallet
     if (bank_.hasAccount(tx.toWalletId)) {
       auto depositResult =
-          bank_.depositBalance(tx.toWalletId, tx.tokenId, tx.amount);
+          bank_.depositBalance(tx.toWalletId, tx.tokenId, static_cast<int64_t>(tx.amount));
       if (!depositResult) {
         return Error(E_TX_TRANSFER, "Failed to deposit balance: " +
                                         depositResult.error().message);

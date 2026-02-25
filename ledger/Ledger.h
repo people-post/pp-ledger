@@ -122,7 +122,7 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   Ledger();
-  virtual ~Ledger() = default;
+  ~Ledger() override = default;
 
   struct InitConfig {
     std::string workDir;

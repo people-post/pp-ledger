@@ -198,7 +198,7 @@ public:
   };
 
   Client();
-  ~Client();
+  ~Client() override;
 
   Roe<void> setEndpoint(const std::string& endpoint);
   void setEndpoint(const network::TcpEndpoint &endpoint);

@@ -17,7 +17,7 @@ FileStore::Roe<void> FileStore::init(const InitConfig &config) {
   blockIndex_.clear();
   indexBuilt_ = false;
 
-  if (maxSize_ < 1024 * 1024) {
+  if (maxSize_ < static_cast<size_t>(1024) * 1024) {
     return Error("Max file size shall be at least 1MB");
   }
 
@@ -57,7 +57,7 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
   blockIndex_.clear();
   indexBuilt_ = false;
 
-  if (maxSize_ < 1024 * 1024) {
+  if (maxSize_ < static_cast<size_t>(1024) * 1024) {
     return Error("Max file size shall be at least 1MB");
   }
 
@@ -154,7 +154,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
   }
 
   // Write block data
-  file_.write(static_cast<const char *>(data), size);
+  file_.write(static_cast<const char *>(data), static_cast<std::streamsize>(size));
 
   if (!file_.good()) {
     log().error << "Failed to write data to file: " << filepath_;
@@ -239,7 +239,7 @@ FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
   }
 
   // Read block data
-  file_.read(static_cast<char *>(data), entry.size);
+  file_.read(static_cast<char *>(data), static_cast<std::streamsize>(entry.size));
 
   int64_t bytesRead = file_.gcount();
 
@@ -490,7 +490,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
   }
 
   // Read block data
-  nonConstThis->file_.read(&buffer[0], entry.size);
+  nonConstThis->file_.read(&buffer[0], static_cast<std::streamsize>(entry.size));
 
   int64_t bytesRead = nonConstThis->file_.gcount();
 

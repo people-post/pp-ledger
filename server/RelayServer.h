@@ -34,7 +34,7 @@ public:
   static constexpr const int32_t E_REQUEST = -4;
 
   RelayServer();
-  ~RelayServer() = default;
+  ~RelayServer() override = default;
 
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);

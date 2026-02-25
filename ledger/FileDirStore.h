@@ -42,7 +42,7 @@ public:
     };
 
     FileDirStore();
-    virtual ~FileDirStore();
+    ~FileDirStore() override;
 
     bool canFit(uint64_t size) const override;
 

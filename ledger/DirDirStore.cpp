@@ -181,9 +181,8 @@ bool DirDirStore::canFit(uint64_t size) const {
   if (!dirInfoMap_.empty()) {
     auto it = dirInfoMap_.find(currentDirId_);
     if (it != dirInfoMap_.end()) {
-      if (it->second.fileDirStore && it->second.fileDirStore->canFit(size)) {
-        return true;
-      } else if (it->second.dirDirStore && it->second.dirDirStore->canFit(size)) {
+      if ((it->second.fileDirStore && it->second.fileDirStore->canFit(size)) ||
+          (it->second.dirDirStore && it->second.dirDirStore->canFit(size))) {
         return true;
       }
     }
@@ -716,7 +715,7 @@ bool DirDirStore::saveIndex() {
     entry.startBlockId = it->second.startBlockId;
     entry.isRecursive = it->second.dirDirStore != nullptr || it->second.isRecursive;
     std::string packed = utl::binaryPack(entry);
-    indexFile.write(packed.data(), packed.size());
+    indexFile.write(packed.data(), static_cast<std::streamsize>(packed.size()));
   }
 
   indexFile.close();

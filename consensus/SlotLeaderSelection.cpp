@@ -20,7 +20,7 @@ VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
   std::string input = hashInput(seed, slot, privateKey);
 
   // Generate VRF output
-  std::string value = input;
+  const std::string& value = input;
 
   // Generate proof (simplified - in real VRF, this proves knowledge of private
   // key)
@@ -69,7 +69,7 @@ bool VRF::checkLeadership(const std::string &vrfOutput, uint64_t stake,
   double stakeRatio =
       static_cast<double>(stake) / static_cast<double>(totalStake);
   uint64_t threshold =
-      static_cast<uint64_t>(UINT64_MAX * stakeRatio * difficulty);
+      static_cast<uint64_t>(static_cast<double>(UINT64_MAX) * stakeRatio * difficulty);
 
   bool isLeader = outputNum < threshold;
   return isLeader;

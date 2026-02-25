@@ -27,7 +27,7 @@ public:
     static constexpr uint32_t MAGIC_DIR_DIR = 0x504C4444;  // "PLDD" (PP Ledger Dir-Dir)
 
     DirStore() = default;
-    virtual ~DirStore() = default;
+    ~DirStore() override = default;
 
     /**
      * Check if the store can accommodate more data

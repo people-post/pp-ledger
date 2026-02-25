@@ -106,7 +106,7 @@ public:
   bool getPropagate() const { return propagate_; }
 
   // Tree structure methods
-  void setParent(std::weak_ptr<LoggerNode> parent) { parent_ = parent; }
+  void setParent(std::weak_ptr<LoggerNode> parent) { parent_ = std::move(parent); }
   std::shared_ptr<LoggerNode> getParent() const { return parent_.lock(); }
   void addChild(std::shared_ptr<LoggerNode> child);
   void removeChild(LoggerNode* child);
@@ -160,7 +160,7 @@ public:
   void setLevel(Level level) { spNode_->setLevel(level); }
   Level getLevel() const { return spNode_->getLevel(); }
 
-  void addHandler(std::shared_ptr<Handler> spHandler) { spNode_->addHandler(spHandler); }
+  void addHandler(std::shared_ptr<Handler> spHandler) { spNode_->addHandler(std::move(spHandler)); }
   void addFileHandler(const std::string &filename, Level level = Level::DEBUG) { 
     spNode_->addFileHandler(filename, level); 
   }

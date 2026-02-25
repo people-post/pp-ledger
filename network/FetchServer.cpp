@@ -248,6 +248,7 @@ void FetchServer::runLoop() {
         int n = epoll_wait(epollFd_, events, 32, 1); // 1ms timeout
         if (n > 0) {
           std::vector<int> readyFds;
+          readyFds.reserve(n);
           for (int i = 0; i < n; ++i) {
             readyFds.push_back(events[i].data.fd);
           }
