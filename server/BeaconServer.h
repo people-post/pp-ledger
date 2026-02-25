@@ -33,7 +33,7 @@ public:
   static constexpr const int32_t E_REQUEST = -4;
 
   BeaconServer();
-  ~BeaconServer() = default;
+  ~BeaconServer() override = default;
 
   Roe<Beacon::InitKeyConfig> init(const std::string& workDir);
   Service::Roe<void> run(const std::string &workDir) override {
