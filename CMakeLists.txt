@@ -7,6 +7,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(BUILD_NODE_ADDON "Build Node.js N-API addon" OFF)
+
+if(BUILD_NODE_ADDON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Treat warnings as errors
 add_compile_options(-Werror)
 
@@ -54,3 +60,7 @@ add_subdirectory(ledger)
 add_subdirectory(server)
 add_subdirectory(http)
 add_subdirectory(app)
+
+if(BUILD_NODE_ADDON)
+  add_subdirectory(node-addon)
+endif()
