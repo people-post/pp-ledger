@@ -13,20 +13,34 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `build-essential`, `g++` (GCC 13+)
 - `cmake` (3.15+)
 - `libsodium-dev`
+- `libstdc++-14-dev` (required for Clang to link against libstdc++)
+- `clang-tidy` (linter)
 - `pkg-config`
 
 `nlohmann-json3-dev` is optional (CMake FetchContent downloads it automatically).
 
 ### Build
 
-The default `c++` symlink points to **Clang**, which fails to link against libstdc++. Always specify GCC explicitly:
+Both Clang (default `c++`) and GCC (`g++`) are supported. Use `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` to generate `compile_commands.json` for clang-tidy:
 
 ```bash
 cd /workspace
 mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ ..
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
 make -j$(nproc)
 ```
+
+### Lint
+
+Run clang-tidy against project source files (requires `compile_commands.json` from the build):
+
+```bash
+cd /workspace
+clang-tidy -p build lib/*.cpp consensus/*.cpp ledger/*.cpp network/*.cpp \
+  server/*.cpp client/*.cpp app/*.cpp
+```
+
+The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`http/httplib.h`) is excluded via the header filter.
 
 ### Tests
 

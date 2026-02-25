@@ -1,0 +1,18 @@
+---
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  clang-analyzer-*,
+  performance-*,
+  -performance-enum-size,
+  -performance-avoid-endl,
+  modernize-use-override,
+  modernize-use-nullptr
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '^.*/(?:lib|consensus|ledger|network|server|client|app)/.*'
+
+FormatStyle: none
