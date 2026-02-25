@@ -130,7 +130,7 @@ std::string LoggerNode::getFullName() const {
 
 void LoggerNode::addHandler(std::shared_ptr<Handler> spHandler) {
   std::lock_guard<std::mutex> lock(mutex_);
-  spHandlers_.push_back(spHandler);
+  spHandlers_.push_back(std::move(spHandler));
 }
 
 void LoggerNode::addFileHandler(const std::string &filename, Level level) {
@@ -219,7 +219,7 @@ std::string LoggerNode::levelToString(Level level) {
 
 void LoggerNode::addChild(std::shared_ptr<LoggerNode> child) {
   std::lock_guard<std::mutex> lock(mutex_);
-  spChildren_.push_back(child);
+  spChildren_.push_back(std::move(child));
 }
 
 void LoggerNode::removeChild(LoggerNode* child) {
@@ -277,7 +277,7 @@ static std::shared_ptr<LoggerNode> g_spRoot = initRootLogger();
 // ========== Logger Implementation ==========
 
 Logger::Logger(std::shared_ptr<LoggerNode> node)
-    : spNode_(node),
+    : spNode_(std::move(node)),
       debug(this, Level::DEBUG),
       info(this, Level::INFO),
       warning(this, Level::WARNING),
