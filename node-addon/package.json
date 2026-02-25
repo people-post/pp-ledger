@@ -4,7 +4,9 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "build": "cmake -S .. -B ../build -DBUILD_NODE_ADDON=ON -DCMAKE_BUILD_TYPE=Release && cmake --build ../build -j"
+    "build": "cmake -S .. -B ../build -DBUILD_NODE_ADDON=ON -DCMAKE_BUILD_TYPE=Release && cmake --build ../build -j",
+    "test": "node test/smoke.js",
+    "test:live": "node test/live-beacon.js"
   },
   "dependencies": {
     "node-addon-api": "^8.5.0"
