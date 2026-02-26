@@ -1,0 +1,58 @@
+name: Release Node addon
+
+on:
+  push:
+    tags:
+      - 'release/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libsodium-dev \
+            nlohmann-json3-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install node-addon npm dependencies
+        run: npm ci
+        working-directory: node-addon
+
+      - name: Build with node addon
+        run: ./scripts/ci-build.sh --node-addon
+
+      - name: Package node addon
+        id: package
+        run: |
+          # Strip "release/v" or "release/" prefix from tag (e.g. release/v1.0.0 -> 1.0.0)
+          VERSION="${GITHUB_REF_NAME#release/v}"
+          VERSION="${VERSION#release/}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          ARCHIVE=$(./scripts/package-node-addon.sh "$VERSION" linux-x64)
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.archive }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

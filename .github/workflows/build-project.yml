@@ -24,18 +24,5 @@ jobs:
             libsodium-dev \
             nlohmann-json3-dev
       
-      - name: Configure CMake
-        run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-      
-      - name: Build
-        run: |
-          cd build
-          make -j$(nproc)
-      
-      - name: Run tests
-        run: |
-          cd build
-          ctest --output-on-failure
+      - name: Build and test
+        run: ./scripts/ci-build.sh --test
