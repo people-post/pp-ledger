@@ -58,5 +58,7 @@ cp "$ADDON_BINARY" "$STAGING_DIR/pp_client_node.node"
 cp "$NODE_ADDON_SOURCE/index.js" "$STAGING_DIR/"
 cp "$NODE_ADDON_SOURCE/package.json" "$STAGING_DIR/"
 
-tar czvf "$OUTPUT_ARCHIVE" -C "$STAGING_DIR" .
-echo "$OUTPUT_ARCHIVE"
+# Use tar czf (no -v) so stdout contains only the path we echo below, for CI capture
+tar czf "$OUTPUT_ARCHIVE" -C "$STAGING_DIR" .
+# Print path only (no newline) so CI capture gives a single valid path
+printf '%s' "$OUTPUT_ARCHIVE"
