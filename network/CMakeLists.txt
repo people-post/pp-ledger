@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 
-# Network Library
-project(network VERSION 1.0.0 LANGUAGES CXX)
+# Network Library (CXX + C for DHT)
+project(network VERSION 1.0.0 LANGUAGES CXX C)
+
+# DHT subdirectory (jech/dht)
+add_subdirectory(dht)
 
 # Source files
 set(NETWORK_SOURCES
@@ -33,10 +36,11 @@ target_include_directories(pp_network
         ${CMAKE_SOURCE_DIR}/lib
 )
 
-# Link with lib (uses ResultOrError from lib)
+# Link with lib (uses ResultOrError from lib) and DHT (optional peer discovery)
 target_link_libraries(pp_network
     PUBLIC
         pp_lib
+        pp_dht
 )
 
 # Set properties
