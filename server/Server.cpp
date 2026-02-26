@@ -64,6 +64,16 @@ bool Server::pollAndProcessOneRequest() {
   return true;
 }
 
+size_t Server::pollAndProcessAllRequests(size_t maxCount) {
+  size_t n = 0;
+  QueuedRequest qr;
+  while (n < maxCount && requestQueue_.poll(qr)) {
+    processQueuedRequest(qr);
+    ++n;
+  }
+  return n;
+}
+
 void Server::processQueuedRequest(QueuedRequest &qr) {
   log().debug << "Processing request from queue";
   std::string response = handleRequest(qr.request);

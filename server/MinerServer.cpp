@@ -513,7 +513,7 @@ void MinerServer::runLoop() {
       // Update miner state
       miner_.refresh();
 
-      pollAndProcessOneRequest();
+      pollAndProcessAllRequests();
 
       syncBlocksPeriodically();
 

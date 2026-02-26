@@ -38,11 +38,15 @@ protected:
     return fetchServer_.getEndpoint();
   }
 
+  size_t getRequestQueueSize() const;
+
   static std::string packResponse(const std::string &payload);
   static std::string packResponse(uint16_t errorCode,
                                   const std::string &message);
 
   bool pollAndProcessOneRequest();
+  /** Process all pending requests in the queue (up to a cap). Returns number processed. */
+  size_t pollAndProcessAllRequests(size_t maxCount = 100);
 
   virtual std::string handleParsedRequest(const Client::Request &request) = 0;
 
@@ -60,7 +64,6 @@ private:
     std::string request;
   };
 
-  size_t getRequestQueueSize() const;
   void processQueuedRequest(QueuedRequest &qr);
   std::string handleRequest(const std::string &request);
 
