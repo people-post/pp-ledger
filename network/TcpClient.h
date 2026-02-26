@@ -33,7 +33,7 @@ public:
   TcpClient &operator=(TcpClient &&other) noexcept;
 
   // Connect to a server
-  Roe<void> connect(const TcpEndpoint &endpoint);
+  Roe<void> connect(const IpEndpoint &endpoint);
 
   // Send data
   Roe<size_t> send(const void *data, size_t length);

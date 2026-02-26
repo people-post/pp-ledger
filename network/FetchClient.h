@@ -45,7 +45,7 @@ public:
    * @param callback Callback function to receive the response
    * @param timeout Maximum time to wait for a response (0 = no timeout)
    */
-  void fetch(const TcpEndpoint &endpoint, const std::string &data,
+  void fetch(const IpEndpoint &endpoint, const std::string &data,
              ResponseCallback callback,
              std::chrono::milliseconds timeout = DEFAULT_TIMEOUT);
 
@@ -56,7 +56,7 @@ public:
    * @param timeout Maximum time to wait for a response (0 = no timeout)
    * @return Response data or error
    */
-  Roe<std::string> fetchSync(const TcpEndpoint &endpoint,
+  Roe<std::string> fetchSync(const IpEndpoint &endpoint,
                              const std::string &data,
                              std::chrono::milliseconds timeout = DEFAULT_TIMEOUT);
 };

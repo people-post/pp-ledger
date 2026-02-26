@@ -71,12 +71,12 @@ void Server::processQueuedRequest(QueuedRequest &qr) {
 }
 
 Service::Roe<void>
-Server::startFetchServer(const network::TcpEndpoint &endpoint) {
+Server::startFetchServer(const network::IpEndpoint &endpoint) {
   fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
   network::FetchServer::Config config;
   config.endpoint = endpoint;
   config.handler = [this](int fd, const std::string &request,
-                          const network::TcpEndpoint &) {
+                          const network::IpEndpoint &) {
     requestQueue_.push(QueuedRequest{fd, request});
 
     log().debug << "Request enqueued (queue size: " << getRequestQueueSize()

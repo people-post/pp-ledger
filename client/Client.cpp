@@ -229,7 +229,7 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
 }
 
 Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
-  auto ep = network::TcpEndpoint::ltsFromString(endpoint);
+  auto ep = network::IpEndpoint::ltsFromString(endpoint);
   if (ep.port == 0) {
     return Error(E_NOT_CONNECTED, "Invalid endpoint: " + endpoint);
   }
@@ -237,7 +237,7 @@ Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
   return {};
 }
 
-void Client::setEndpoint(const network::TcpEndpoint &endpoint) {
+void Client::setEndpoint(const network::IpEndpoint &endpoint) {
   endpoint_ = endpoint;
 }
 

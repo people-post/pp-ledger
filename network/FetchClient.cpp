@@ -6,7 +6,7 @@ namespace network {
 
 FetchClient::FetchClient() {}
 
-void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
+void FetchClient::fetch(const IpEndpoint &endpoint, const std::string &data,
                         ResponseCallback callback,
                         std::chrono::milliseconds timeout) {
 
@@ -20,7 +20,7 @@ void FetchClient::fetch(const TcpEndpoint &endpoint, const std::string &data,
 }
 
 FetchClient::Roe<std::string>
-FetchClient::fetchSync(const TcpEndpoint &endpoint, const std::string &data,
+FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
                        std::chrono::milliseconds timeout) {
   log().debug << "Sync fetch from " << endpoint;
 

@@ -53,7 +53,7 @@ TEST_F(FetchServerTest, CreatesSuccessfully) {
 TEST_F(FetchServerTest, StartsAndStops) {
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18880};
-    config.handler = [this](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint& endpoint) {
         std::string response = "Echo: " + req;
         server->addResponse(fd, response);
     };
@@ -70,7 +70,7 @@ TEST_F(FetchServerTest, StartsAndStops) {
 TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18881};
-    config.handler = [this](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint& endpoint) {
         std::string response = "Echo: " + req;
         server->addResponse(fd, response);
     };
@@ -81,7 +81,7 @@ TEST_F(FetchServerTest, FailsToStartOnSamePortTwice) {
     FetchServer server2;
     FetchServer::Config config2;
     config2.endpoint = {"127.0.0.1", 18881};
-    config2.handler = [](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config2.handler = [](int fd, const std::string& req, const IpEndpoint& endpoint) {
         // This server won't start, so handler won't be called
     };
     auto started2 = server2.start(config2);
@@ -115,7 +115,7 @@ TEST_F(FetchIntegrationTest, ClientServerCommunication) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18882};
-    config.handler = [this](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint& endpoint) {
         std::string response = "Echo: " + req;
         server->addResponse(fd, response);
     };
@@ -138,7 +138,7 @@ TEST_F(FetchIntegrationTest, MultipleRequests) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18883};
-    config.handler = [this](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint& endpoint) {
         std::string response = "Response: " + req;
         server->addResponse(fd, response);
     };
@@ -162,7 +162,7 @@ TEST_F(FetchIntegrationTest, AsyncFetch) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18884};
-    config.handler = [this](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint& endpoint) {
         std::string response = "Async: " + req;
         server->addResponse(fd, response);
     };
@@ -197,7 +197,7 @@ TEST_F(FetchIntegrationTest, FetchSyncTimesOutWhenServerStalls) {
     // Start a server that accepts connections but never responds
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18885};
-    config.handler = [](int fd, const std::string& req, const TcpEndpoint& endpoint) {
+    config.handler = [](int fd, const std::string& req, const IpEndpoint& endpoint) {
         // Intentionally do nothing - simulate a stalled server
     };
     auto started = server->start(config);

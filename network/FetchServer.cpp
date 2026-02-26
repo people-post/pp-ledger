@@ -116,14 +116,14 @@ bool FetchServer::setNonBlocking(int fd) {
   return true;
 }
 
-FetchServer::Roe<TcpEndpoint> FetchServer::getPeerEndpoint(int fd) {
+FetchServer::Roe<IpEndpoint> FetchServer::getPeerEndpoint(int fd) {
   struct sockaddr_in peer_addr;
   socklen_t addr_len = sizeof(peer_addr);
   if (getpeername(fd, (struct sockaddr *)&peer_addr, &addr_len) != 0) {
     return Error(static_cast<int32_t>(errno),
                  "getpeername failed: " + std::string(std::strerror(errno)));
   }
-  TcpEndpoint peer;
+  IpEndpoint peer;
   char addr_str[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &peer_addr.sin_addr, addr_str, INET_ADDRSTRLEN);
   peer.address = addr_str;
@@ -131,7 +131,7 @@ FetchServer::Roe<TcpEndpoint> FetchServer::getPeerEndpoint(int fd) {
   return peer;
 }
 
-bool FetchServer::isAllowedByWhitelist(const TcpEndpoint& peer) const {
+bool FetchServer::isAllowedByWhitelist(const IpEndpoint& peer) const {
   if (config_.whitelist.empty()) {
     return true;
   }
@@ -274,7 +274,7 @@ void FetchServer::runLoop() {
       ::close(clientFd);
       continue;
     }
-    TcpEndpoint peerEndpoint = peerResult.value();
+    IpEndpoint peerEndpoint = peerResult.value();
 
     if (!isAllowedByWhitelist(peerEndpoint)) {
       log().info << "Rejected connection from " << peerEndpoint.address << ":"

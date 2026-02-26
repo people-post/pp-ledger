@@ -13,21 +13,78 @@
 
 namespace pp {
 
-MinerServer::MinerServer() {
-  redirectLogger("MinerServer");
-  miner_.redirectLogger(log().getFullName() + ".Miner");
-  client_.redirectLogger(log().getFullName() + ".Client");
+nlohmann::json MinerServer::BeaconConfig::ltsToJson() const {
+  nlohmann::json j;
+  j["host"] = host;
+  j["port"] = port;
+  j["dhtPort"] = dhtPort;
+  return j;
+}
+
+MinerServer::Roe<void> MinerServer::BeaconConfig::ltsFromJson(const nlohmann::json& jd) {
+  try {
+    // Validate JSON is an object
+    if (!jd.is_object()) {
+      return Error(E_CONFIG, "Configuration must be a JSON object");
+    }
+
+    // Load and validate host
+    if (!jd.contains("host")) {
+      return Error(E_CONFIG, "Field 'host' is required");
+    }
+    if (!jd["host"].is_string()) {
+      return Error(E_CONFIG, "Field 'host' must be a string");
+    }
+    host = jd["host"].get<std::string>();
+    if (host.empty()) {
+      return Error(E_CONFIG, "Field 'host' cannot be empty");
+    }
+
+    // Load and validate port
+    if (!jd.contains("port")) {
+      return Error(E_CONFIG, "Field 'port' is required");
+    }
+    if (!jd["port"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'port' must be a positive number");
+    }
+    uint64_t portValue = jd["port"].get<uint64_t>();
+    if (portValue == 0 || portValue > 65535) {
+      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+    }
+    port = static_cast<uint16_t>(portValue);
+
+    if (!jd.contains("dhtPort")) {
+      return Error(E_CONFIG, "Field 'dhtPort' is required");
+    }
+    if (!jd["dhtPort"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be a non-negative number");
+    }
+    uint64_t dhtPortValue = jd["dhtPort"].get<uint64_t>();
+    if (dhtPortValue > 65535) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+    }
+    dhtPort = static_cast<uint16_t>(dhtPortValue);
+
+    return {};
+  }
+  catch (const std::exception &e) {
+    return Error(E_CONFIG, "Failed to parse beacon configuration: " + std::string(e.what()));
+  }
 }
 
 // ============ RunFileConfig methods ============
 
-nlohmann::json MinerServer::RunFileConfig::ltsToJson() {
+nlohmann::json MinerServer::RunFileConfig::ltsToJson() const {
   nlohmann::json j;
   j["minerId"] = minerId;
   j["keys"] = keys;
   j["host"] = host;
   j["port"] = port;
-  j["beacons"] = beacons;
+  j["dhtPort"] = dhtPort;
+  j["beacons"] = nlohmann::json::array();
+  for (const auto& b : beacons) {
+    j["beacons"].push_back(b.ltsToJson());
+  }
   return j;
 }
 
@@ -49,58 +106,68 @@ MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
     minerId = jd["minerId"].get<uint64_t>();
 
     // Load and validate key files (required, supports "keys" array or legacy "key" string)
-    if (jd.contains("keys")) {
-      if (!jd["keys"].is_array()) {
-        return Error(E_CONFIG, "Field 'keys' must be an array");
-      }
-      keys.clear();
-      for (size_t i = 0; i < jd["keys"].size(); ++i) {
-        const auto &k = jd["keys"][i];
-        if (!k.is_string()) {
-          return Error(E_CONFIG,
-                       "All elements in 'keys' array must be strings (index " +
-                           std::to_string(i) + " is not)");
-        }
-        std::string keyFile = k.get<std::string>();
-        if (keyFile.empty()) {
-          return Error(E_CONFIG,
-                       "Key file at index " + std::to_string(i) + " cannot be empty");
-        }
-        keys.push_back(keyFile);
-      }
-      if (keys.empty()) {
-        return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
-      }
-    } else {
+    if (!jd.contains("keys")) {
       return Error(E_CONFIG, "Field 'keys' is required");
+    }
+    if (!jd["keys"].is_array()) {
+      return Error(E_CONFIG, "Field 'keys' must be an array");
+    }
+    keys.clear();
+    for (size_t i = 0; i < jd["keys"].size(); ++i) {
+      const auto &k = jd["keys"][i];
+      if (!k.is_string()) {
+        return Error(E_CONFIG,
+                     "All elements in 'keys' array must be strings (index " +
+                         std::to_string(i) + " is not)");
+      }
+      std::string keyFile = k.get<std::string>();
+      if (keyFile.empty()) {
+        return Error(E_CONFIG,
+                     "Key file at index " + std::to_string(i) + " cannot be empty");
+      }
+      keys.push_back(keyFile);
+    }
+    if (keys.empty()) {
+      return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
     }
 
     // Load and validate host
-    if (jd.contains("host")) {
-      if (!jd["host"].is_string()) {
-        return Error(E_CONFIG, "Field 'host' must be a string");
-      }
-      host = jd["host"].get<std::string>();
-      if (host.empty()) {
-        return Error(E_CONFIG, "Field 'host' cannot be empty");
-      }
-    } else {
-      host = Client::DEFAULT_HOST;
+    if (!jd.contains("host")) {
+      return Error(E_CONFIG, "Field 'host' is required");
+    }
+    if (!jd["host"].is_string()) {
+      return Error(E_CONFIG, "Field 'host' must be a string");
+    }
+    host = jd["host"].get<std::string>();
+    if (host.empty()) {
+      return Error(E_CONFIG, "Field 'host' cannot be empty");
     }
 
     // Load and validate port
-    if (jd.contains("port")) {
-      if (!jd["port"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'port' must be a positive number");
-      }
-      uint64_t portValue = jd["port"].get<uint64_t>();
-      if (portValue == 0 || portValue > 65535) {
-        return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-      }
-      port = static_cast<uint16_t>(portValue);
-    } else {
-      port = Client::DEFAULT_MINER_PORT;
+    if (!jd.contains("port")) {
+      return Error(E_CONFIG, "Field 'port' is required");
     }
+    if (!jd["port"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'port' must be a positive number");
+    }
+    uint64_t portValue = jd["port"].get<uint64_t>();
+    if (portValue == 0 || portValue > 65535) {
+      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+    }
+    port = static_cast<uint16_t>(portValue);
+
+    // Load and validate dhtPort
+    if (!jd.contains("dhtPort")) {
+      return Error(E_CONFIG, "Field 'dhtPort' is required");
+    }
+    if (!jd["dhtPort"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be a non-negative number");
+    }
+    uint64_t dhtPortValue = jd["dhtPort"].get<uint64_t>();
+    if (dhtPortValue > 65535) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+    }
+    dhtPort = static_cast<uint16_t>(dhtPortValue);
 
     // Load and validate beacons array (required, must have at least one)
     if (!jd.contains("beacons")) {
@@ -112,28 +179,28 @@ MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
     if (jd["beacons"].empty()) {
       return Error(
           E_CONFIG,
-          "Field 'beacons' array must contain at least one beacon address");
+          "Field 'beacons' array must contain at least one beacon object");
     }
 
     beacons.clear();
     for (size_t i = 0; i < jd["beacons"].size(); ++i) {
       const auto &beacon = jd["beacons"][i];
-      if (!beacon.is_string()) {
+      if (!beacon.is_object()) {
         return Error(E_CONFIG,
-                     "All elements in 'beacons' array must be strings (index " +
+                     "All elements in 'beacons' array must be objects (index " +
                          std::to_string(i) + " is not)");
       }
-      std::string beaconAddr = beacon.get<std::string>();
-      if (beaconAddr.empty()) {
-        return Error(E_CONFIG, "Beacon address at index " + std::to_string(i) +
-                                   " cannot be empty");
+      BeaconConfig bc;
+      auto parseResult = bc.ltsFromJson(beacon);
+      if (!parseResult) {
+        return Error(E_CONFIG, "Failed to parse beacon configuration: " + parseResult.error().message);
       }
-      beacons.push_back(beaconAddr);
+      beacons.push_back(std::move(bc));
     }
 
     if (beacons.empty()) {
       return Error(E_CONFIG, "Field 'beacons' array must contain at least one "
-                             "valid string address");
+                             "valid beacon object");
     }
 
     return {};
@@ -144,6 +211,13 @@ MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
 }
 
 // ============ MinerServer methods ============
+
+MinerServer::MinerServer() {
+  redirectLogger("MinerServer");
+  miner_.redirectLogger(log().getFullName() + ".Miner");
+  client_.redirectLogger(log().getFullName() + ".Client");
+  dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
+}
 
 MinerServer::~MinerServer() {}
 
@@ -206,7 +280,16 @@ Service::Roe<void> MinerServer::onStart() {
   }
   config_.network.endpoint.address = runFileConfig.host;
   config_.network.endpoint.port = runFileConfig.port;
-  config_.network.beacons = runFileConfig.beacons;
+  config_.network.beacons.clear();
+  config_.network.beacons.reserve(runFileConfig.beacons.size());
+  for (const auto& b : runFileConfig.beacons) {
+    BeaconPeer peer;
+    peer.endpoint.address = b.host;
+    peer.endpoint.port = b.port;
+    peer.dht.address = b.host;
+    peer.dht.port = b.dhtPort;
+    config_.network.beacons.push_back(std::move(peer));
+  }
 
   log().info << "Configuration loaded";
   log().info << "  Miner ID: " << config_.minerId;
@@ -217,6 +300,23 @@ Service::Roe<void> MinerServer::onStart() {
   if (!serverStarted) {
     return Service::Error(E_MINER, "Failed to start FetchServer: " +
                                        serverStarted.error().message);
+  }
+
+  // Start DHT (bootstrap from each beacon/relay DHT)
+  std::vector<std::string> dhtBootstrap;
+  for (const auto& b : config_.network.beacons) {
+    dhtBootstrap.push_back(b.dht.ltsToString());
+  }
+  network::DhtRunner::Config dhtConfig;
+  dhtConfig.bootstrapEndpoints = dhtBootstrap;
+  dhtConfig.dhtPort = runFileConfig.dhtPort;
+  dhtConfig.myTcpPort = config_.network.endpoint.port;
+  dhtConfig.networkId = network::DhtRunner::getDefaultNetworkId();
+  dhtConfig.nodeIdPath = getWorkDir() + "/dht-node.id";
+  auto dhtStart = dhtRunner_.start(dhtConfig);
+  if (!dhtStart) {
+    return Service::Error(E_NETWORK, "Failed to start DHT: " +
+                                        dhtStart.error().message);
   }
 
   // Connect to beacon server and fetch initial state
@@ -324,12 +424,12 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  std::string beaconAddr = config_.network.beacons[0];
+  const auto &beacon0 = config_.network.beacons[0];
+  std::string beaconAddr =
+      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
   log().info << "Syncing blocks from beacon: " << beaconAddr;
 
-  if (!client_.setEndpoint(beaconAddr)) {
-    return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
-  }
+  client_.setEndpoint(beacon0.endpoint);
 
   auto calibrationResult = client_.fetchCalibration();
   if (!calibrationResult) {
@@ -400,6 +500,7 @@ void MinerServer::initHandlers() {
 }
 
 void MinerServer::onStop() {
+  dhtRunner_.stop();
   Server::onStop();
   log().info << "MinerServer resources cleaned up";
 }
@@ -485,11 +586,10 @@ void MinerServer::refreshMinerListFromBeacon() {
   if (config_.network.beacons.empty()) {
     return;
   }
-  std::string beaconAddr = config_.network.beacons[0];
-  if (!client_.setEndpoint(beaconAddr)) {
-    log().warning << "Failed to resolve beacon for miner list: " << beaconAddr;
-    return;
-  }
+  const auto &beacon0 = config_.network.beacons[0];
+  std::string beaconAddr =
+      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
+  client_.setEndpoint(beacon0.endpoint);
   auto minerListResult = client_.fetchMinerList();
   if (minerListResult) {
     for (const auto &miner : minerListResult.value()) {
@@ -810,12 +910,12 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   }
 
   // Try to connect to the first beacon in the list
-  std::string beaconAddr = config_.network.beacons[0];
+  const auto &beacon0 = config_.network.beacons[0];
+  std::string beaconAddr =
+      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
   log().info << "Connecting to beacon server: " << beaconAddr;
 
-  if (!client_.setEndpoint(beaconAddr)) {
-    return Error(E_CONFIG, "Failed to resolve beacon address: " + beaconAddr);
-  }
+  client_.setEndpoint(beacon0.endpoint);
 
   Client::MinerInfo minerInfo;
   minerInfo.id = config_.minerId;
@@ -837,13 +937,12 @@ MinerServer::Roe<void>
 MinerServer::broadcastBlock(const Ledger::ChainNode &block) {
   bool anySuccess = false;
   for (const auto &beacon : config_.network.beacons) {
-    if (!client_.setEndpoint(beacon)) {
-      log().warning << "Failed to resolve beacon address: " + beacon;
-      continue;
-    }
+    std::string beaconAddr =
+        beacon.endpoint.address + ":" + std::to_string(beacon.endpoint.port);
+    client_.setEndpoint(beacon.endpoint);
     auto clientResult = client_.addBlock(block);
     if (!clientResult) {
-      log().warning << "Failed to add block to beacon: " + beacon + ": " +
+      log().warning << "Failed to add block to beacon: " + beaconAddr + ": " +
                            clientResult.error().message;
       continue;
     }

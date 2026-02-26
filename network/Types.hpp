@@ -7,7 +7,7 @@
 namespace pp {
 namespace network {
 
-struct TcpEndpoint {
+struct IpEndpoint {
   std::string address;
   uint16_t port{0};
 
@@ -15,8 +15,8 @@ struct TcpEndpoint {
     return address + ":" + std::to_string(port);
   }
 
-  static TcpEndpoint ltsFromString(const std::string &endpointStr) {
-    TcpEndpoint endpoint;
+  static IpEndpoint ltsFromString(const std::string &endpointStr) {
+    IpEndpoint endpoint;
     size_t colonPos = endpointStr.find(':');
     if (colonPos != std::string::npos) {
       endpoint.address = endpointStr.substr(0, colonPos);
@@ -30,7 +30,7 @@ struct TcpEndpoint {
   }
 };
 
-inline std::ostream &operator<<(std::ostream &os, const TcpEndpoint &endpoint) {
+inline std::ostream &operator<<(std::ostream &os, const IpEndpoint &endpoint) {
   return os << endpoint.address << ":" << endpoint.port;
 }
 

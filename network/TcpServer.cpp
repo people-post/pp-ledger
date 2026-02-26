@@ -24,7 +24,7 @@ TcpServer::TcpServer() {}
 
 TcpServer::~TcpServer() { stop(); }
 
-TcpServer::Roe<void> TcpServer::listen(const TcpEndpoint &endpoint, int backlog) {
+TcpServer::Roe<void> TcpServer::listen(const IpEndpoint &endpoint, int backlog) {
   if (listening_) {
     return Error("Server already listening");
   }
@@ -217,8 +217,8 @@ void TcpServer::stop() {
 
 bool TcpServer::isListening() const { return listening_; }
 
-TcpEndpoint TcpServer::getEndpoint() const { 
-  network::TcpEndpoint ep;
+IpEndpoint TcpServer::getEndpoint() const { 
+  network::IpEndpoint ep;
   ep.address = getHost();
   ep.port = endpoint_.port;
   return ep;

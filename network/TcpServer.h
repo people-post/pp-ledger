@@ -26,7 +26,7 @@ public:
   TcpServer &operator=(const TcpServer &) = delete;
 
   // Bind to a host and port and start listening
-  Roe<void> listen(const TcpEndpoint &endpoint, int backlog = 10);
+  Roe<void> listen(const IpEndpoint &endpoint, int backlog = 10);
 
   // Accept a client connection (non-blocking)
   Roe<int> accept();
@@ -40,7 +40,7 @@ public:
   // Check if server is listening
   bool isListening() const;
 
-  TcpEndpoint getEndpoint() const;
+  IpEndpoint getEndpoint() const;
 
 private:
   std::string getHost() const;
@@ -54,7 +54,7 @@ private:
   int epollFd_{ -1 };
 #endif
   bool listening_{ false };
-  TcpEndpoint endpoint_;
+  IpEndpoint endpoint_;
 };
 
 } // namespace network

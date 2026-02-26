@@ -27,7 +27,7 @@ TcpClient &TcpClient::operator=(TcpClient &&other) noexcept {
   return *this;
 }
 
-TcpClient::Roe<void> TcpClient::connect(const TcpEndpoint &endpoint) {
+TcpClient::Roe<void> TcpClient::connect(const IpEndpoint &endpoint) {
   if (connection_.has_value()) {
     return Error("Already connected");
   }

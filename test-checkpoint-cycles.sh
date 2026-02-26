@@ -23,6 +23,10 @@ BEACON_PORT=8617
 RELAY_PORT=8622
 MINER_BASE_PORT=8618
 HTTP_PORT=8680
+# Distinct DHT UDP ports to avoid clash (all would default to 18517 otherwise)
+BEACON_DHT_PORT=18617
+RELAY_DHT_PORT=18622
+MINER_BASE_DHT_PORT=18618
 
 # Test-friendly consensus: short slots, small epoch, aggressive checkpoint params
 # checkpointMinBlocks=2: renewals start when creating block 3 (need blocks 1,2 from pending tx first)
@@ -188,7 +192,8 @@ create_beacon_config() {
     cat > "$beacon_dir/config.json" << EOF
 {
   "host": "localhost",
-  "port": $BEACON_PORT
+  "port": $BEACON_PORT,
+  "dhtPort": $BEACON_DHT_PORT
 }
 EOF
 }
@@ -200,7 +205,8 @@ create_relay_config() {
 {
   "host": "localhost",
   "port": $RELAY_PORT,
-  "beacon": "localhost:$BEACON_PORT"
+  "beacon": {"host":"localhost","port":$BEACON_PORT,"dhtPort":$BEACON_DHT_PORT},
+  "dhtPort": $RELAY_DHT_PORT
 }
 EOF
 }
@@ -235,6 +241,7 @@ create_miner_config() {
     local miner_dir=$2
     local miner_port=$3
     local key_dir="${TEST_DIR}/keys"
+    local miner_dht_port=$((MINER_BASE_DHT_PORT + miner_id - 1))
 
     if [ "$miner_id" -eq 2 ] && [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
         # Miner 2 (reserve account): use 3 reserve keys (hex) from beacon init for 3-of-3 multisig
@@ -253,7 +260,8 @@ create_miner_config() {
   "keys": $keys_json,
   "host": "localhost",
   "port": $miner_port,
-  "beacons": ["localhost:$RELAY_PORT"]
+  "beacons": [{"host":"localhost","port":$RELAY_PORT,"dhtPort":$RELAY_DHT_PORT}],
+  "dhtPort": $miner_dht_port
 }
 EOF
 }

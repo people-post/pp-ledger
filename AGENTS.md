@@ -55,7 +55,7 @@ cd /workspace/build && ctest --output-on-failure
 See `README.md` "Quick Start" section. Key gotchas:
 
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
-- **Miner config** requires `"keys"` (array of key-file paths) pointing to files containing 64-hex-character Ed25519 private keys, and `"beacons"` (array of `"host:port"` strings).
+- **Miner config** requires `"keys"` (array of key-file paths) pointing to files containing 64-hex-character Ed25519 private keys, and `"beacons"` (array of `{ "host", "port", "dhtPort" }` objects).
 - The `test-network.sh` script uses `"key"` (singular string) in miner configs instead of `"keys"` (array). If this hasn't been fixed, set up miners manually — see the manual setup example below.
 - Slot leader election is **VRF-based and probabilistic**; a single miner may not be elected for many consecutive slots. This is normal.
 
@@ -79,7 +79,7 @@ cat > test-manual/miner1/config.json << 'EOF'
   "keys": ["/workspace/build/test-manual/miner1/key.txt"],
   "host": "localhost",
   "port": 8518,
-  "beacons": ["localhost:8517"]
+  "beacons": [{"host":"localhost","port":8517,"dhtPort":0}]
 }
 EOF
 

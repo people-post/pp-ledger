@@ -52,11 +52,11 @@ public:
   void close();
 
   // Get peer endpoint
-  const TcpEndpoint &getPeerEndpoint() const;
+  const IpEndpoint &getPeerEndpoint() const;
 
 private:
   int socketFd_;
-  TcpEndpoint peer_;
+  IpEndpoint peer_;
 };
 
 } // namespace network

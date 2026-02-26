@@ -66,6 +66,7 @@ public:
   static constexpr const char *DEFAULT_HOST = "localhost";
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
+  static constexpr const uint16_t DEFAULT_DHT_PORT = 18517;
 
   // Request timeouts (generous enough for beacon under load, e.g. test-checkpoint-cycles)
   /** Timeout for fast, lightweight requests (status, timestamp, registration). */
@@ -201,7 +202,7 @@ public:
   ~Client() override;
 
   Roe<void> setEndpoint(const std::string& endpoint);
-  void setEndpoint(const network::TcpEndpoint &endpoint);
+  void setEndpoint(const network::IpEndpoint &endpoint);
 
   Roe<BeaconState> fetchBeaconState();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */
@@ -221,7 +222,7 @@ private:
                                std::chrono::milliseconds timeout = TIMEOUT_FAST);
 
   bool connected_{false};
-  network::TcpEndpoint endpoint_;
+  network::IpEndpoint endpoint_;
   network::FetchClient fetchClient_;
 };
 

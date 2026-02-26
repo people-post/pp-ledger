@@ -53,9 +53,9 @@ int main(int argc, char** argv) {
   parseEndpoint(minerSpec, minerHost, minerPort, "localhost", pp::Client::DEFAULT_MINER_PORT);
 
   pp::Client beaconClient;
-  beaconClient.setEndpoint(pp::network::TcpEndpoint{beaconHost, beaconPort});
+  beaconClient.setEndpoint(pp::network::IpEndpoint{beaconHost, beaconPort});
   pp::Client minerClient;
-  minerClient.setEndpoint(pp::network::TcpEndpoint{minerHost, minerPort});
+  minerClient.setEndpoint(pp::network::IpEndpoint{minerHost, minerPort});
 
   httplib::Server svr;
   auto httpLog = pp::logging::getLogger("HttpServer");

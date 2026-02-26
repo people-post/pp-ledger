@@ -9,6 +9,7 @@ add_subdirectory(dht)
 # Source files
 set(NETWORK_SOURCES
     BulkWriter.cpp
+    DhtRunner.cpp
     FetchClient.cpp
     FetchServer.cpp
     TcpClient.cpp
@@ -19,6 +20,7 @@ set(NETWORK_SOURCES
 # Header files
 set(NETWORK_HEADERS
     BulkWriter.h
+    DhtRunner.h
     FetchClient.h
     FetchServer.h
     TcpClient.h

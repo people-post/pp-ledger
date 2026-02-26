@@ -188,7 +188,7 @@ On first run, the miner will create a default `miner1/config.json`:
   "privateKey": "your_private_key_here",
   "host": "localhost",
   "port": 8518,
-  "beacons": ["127.0.0.1:8517"]
+  "beacons": [{"host":"127.0.0.1","port":8517,"dhtPort":0}]
 }
 ```
 
@@ -197,7 +197,7 @@ On first run, the miner will create a default `miner1/config.json`:
 - `privateKey` (required): Private key for signing blocks
 - `host` (optional): Listen address, default: "localhost"
 - `port` (optional): Listen port, default: 8518
-- `beacons` (required): List of beacon addresses to connect to
+- `beacons` (required): List of beacon endpoints `{host, port, dhtPort}` to connect to
 
 **Start the miner:**
 
@@ -362,7 +362,7 @@ cat > miner1/config.json << EOF
   "privateKey": "miner1_private_key",
   "host": "localhost",
   "port": 8518,
-  "beacons": ["localhost:8517", "localhost:8527"]
+  "beacons": [{"host":"localhost","port":8517,"dhtPort":0},{"host":"localhost","port":8527,"dhtPort":0}]
 }
 EOF
 ./app/pp-miner -d miner1
@@ -377,7 +377,7 @@ cat > miner2/config.json << EOF
   "privateKey": "miner2_private_key",
   "host": "localhost",
   "port": 8528,
-  "beacons": ["localhost:8517", "localhost:8527"]
+  "beacons": [{"host":"localhost","port":8517,"dhtPort":0},{"host":"localhost","port":8527,"dhtPort":0}]
 }
 EOF
 ./app/pp-miner -d miner2
@@ -439,7 +439,7 @@ After starting a beacon and miner, you can test the system:
   "host": "localhost",           // Optional, default: "localhost"
   "port": 8518,                  // Optional, default: 8518
   "beacons": [                   // Required, list of beacon addresses to connect to
-    "localhost:8517"
+    {"host":"localhost","port":8517,"dhtPort":0}
   ]
 }
 ```

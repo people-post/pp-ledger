@@ -34,7 +34,7 @@ protected:
   virtual std::string getLogFileName() const = 0;
   virtual std::string getServerName() const = 0;
   virtual int32_t getRunErrorCode() const { return -1; }
-  virtual network::TcpEndpoint getFetchServerEndpoint() const {
+  virtual network::IpEndpoint getFetchServerEndpoint() const {
     return fetchServer_.getEndpoint();
   }
 
@@ -46,7 +46,7 @@ protected:
 
   virtual std::string handleParsedRequest(const Client::Request &request) = 0;
 
-  Service::Roe<void> startFetchServer(const network::TcpEndpoint &endpoint);
+  Service::Roe<void> startFetchServer(const network::IpEndpoint &endpoint);
   void stopFetchServer();
 
   /** Override to customize FetchServer config (e.g. whitelist) before start. */

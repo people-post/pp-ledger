@@ -518,7 +518,7 @@ int main(int argc, char *argv[]) {
   pp::Client client;
 
   // Initialize connection
-  pp::network::TcpEndpoint endpoint{parsedHost, parsedPort};
+  pp::network::IpEndpoint endpoint{parsedHost, parsedPort};
   client.setEndpoint(endpoint);
 
   int exitCode = 0;

@@ -362,11 +362,10 @@ create_miner_config() {
     local miner_dir=$2
     local miner_port=$3
     
-    local private_key=$(printf 'test_private_key_miner%d_DO_NOT_USE_IN_PRODUCTION' $miner_id)
     local key_file="$miner_dir/key.txt"
     
-    # Miner server requires a key file; write the key into key.txt
-    printf '%s' "$private_key" > "$key_file"
+    # Miner server requires a key file containing a 64-hex-character Ed25519 private key.
+    python3 -c "import os; print(os.urandom(32).hex(), end='')" > "$key_file"
     
     # Use absolute path for key so it works regardless of process cwd
     local key_path="$key_file"
@@ -374,10 +373,10 @@ create_miner_config() {
     cat > "$miner_dir/config.json" << EOF
 {
   "minerId": $miner_id,
-  "key": "$key_path",
+  "keys": ["$key_path"],
   "host": "localhost",
   "port": $miner_port,
-  "beacons": ["localhost:$BEACON_PORT"]
+  "beacons": [{"host":"localhost","port":$BEACON_PORT,"dhtPort":0}]
 }
 EOF
 }

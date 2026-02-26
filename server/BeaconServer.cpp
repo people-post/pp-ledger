@@ -12,12 +12,6 @@
 
 namespace pp {
 
-BeaconServer::BeaconServer() {
-  redirectLogger("BeaconServer");
-  beacon_.redirectLogger(log().getFullName() + ".Beacon");
-  client_.redirectLogger(log().getFullName() + ".Client");
-}
-
 // ============ InitFileConfig methods ============
 
 nlohmann::json BeaconServer::InitFileConfig::ltsToJson() {
@@ -237,6 +231,7 @@ nlohmann::json BeaconServer::RunFileConfig::ltsToJson() {
   nlohmann::json j;
   j["host"] = host;
   j["port"] = port;
+  j["dhtPort"] = dhtPort;
   j["whitelist"] = whitelist;
   return j;
 }
@@ -250,31 +245,41 @@ BeaconServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
     }
 
     // Load and validate host
-    if (jd.contains("host")) {
-      if (!jd["host"].is_string()) {
-        return Error(E_CONFIG, "Field 'host' must be a string");
-      }
-      host = jd["host"].get<std::string>();
-      if (host.empty()) {
-        return Error(E_CONFIG, "Field 'host' cannot be empty");
-      }
-    } else {
-      host = Client::DEFAULT_HOST;
+    if (!jd.contains("host")) {
+      return Error(E_CONFIG, "Field 'host' is required");
+    }
+    if (!jd["host"].is_string()) {
+      return Error(E_CONFIG, "Field 'host' must be a string");
+    }
+    host = jd["host"].get<std::string>();
+    if (host.empty()) {
+      return Error(E_CONFIG, "Field 'host' cannot be empty");
     }
 
     // Load and validate port
-    if (jd.contains("port")) {
-      if (!jd["port"].is_number_unsigned()) {
-        return Error(E_CONFIG, "Field 'port' must be a positive number");
-      }
-      uint64_t portValue = jd["port"].get<uint64_t>();
-      if (portValue == 0 || portValue > 65535) {
-        return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-      }
-      port = static_cast<uint16_t>(portValue);
-    } else {
-      port = Client::DEFAULT_BEACON_PORT;
+    if (!jd.contains("port")) {
+      return Error(E_CONFIG, "Field 'port' is required");
     }
+    if (!jd["port"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'port' must be a positive number");
+    }
+    uint64_t portValue = jd["port"].get<uint64_t>();
+    if (portValue == 0 || portValue > 65535) {
+      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+    }
+    port = static_cast<uint16_t>(portValue);
+
+    if (!jd.contains("dhtPort")) {
+      return Error(E_CONFIG, "Field 'dhtPort' is required");
+    }
+    if (!jd["dhtPort"].is_number_unsigned()) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be a non-negative number");
+    }
+    uint64_t dhtPortValue = jd["dhtPort"].get<uint64_t>();
+    if (dhtPortValue > 65535) {
+      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+    }
+    dhtPort = static_cast<uint16_t>(dhtPortValue);
 
     // Load and validate whitelist
     if (jd.contains("whitelist")) {
@@ -292,6 +297,13 @@ BeaconServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
 }
 
 // ============ BeaconServer methods ============
+
+BeaconServer::BeaconServer() {
+  redirectLogger("BeaconServer");
+  beacon_.redirectLogger(log().getFullName() + ".Beacon");
+  client_.redirectLogger(log().getFullName() + ".Client");
+  dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
+}
 
 BeaconServer::Roe<Beacon::InitKeyConfig>
 BeaconServer::init(const std::string &workDir) {
@@ -493,6 +505,19 @@ Service::Roe<void> BeaconServer::onStart() {
   log().info << "  Whitelisted beacons: "
              << utl::join(config_.network.whitelist, ", ");
 
+  // Start DHT (beacon is the bootstrapping peer; no bootstrap endpoints)
+  network::DhtRunner::Config dhtConfig;
+  dhtConfig.bootstrapEndpoints = {};
+  dhtConfig.dhtPort = runFileConfig.dhtPort;
+  dhtConfig.myTcpPort = config_.network.endpoint.port;
+  dhtConfig.networkId = network::DhtRunner::getDefaultNetworkId();
+  dhtConfig.nodeIdPath = getWorkDir() + "/dht-node.id";
+  auto dhtStart = dhtRunner_.start(dhtConfig);
+  if (!dhtStart) {
+    return Service::Error(E_NETWORK, "Failed to start DHT: " +
+                                        dhtStart.error().message);
+  }
+
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
   mountConfig.workDir = getWorkDir() + "/" + DIR_DATA;
@@ -549,6 +574,7 @@ void BeaconServer::initHandlers() {
 };
 
 void BeaconServer::onStop() {
+  dhtRunner_.stop();
   Server::onStop();
   log().info << "BeaconServer resources cleaned up";
 }

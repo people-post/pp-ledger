@@ -236,7 +236,7 @@ All requests/responses use JSON format.
   "minerId": "miner1",
   "host": "localhost",
   "port": 8518,
-  "beacons": ["127.0.0.1:8517"]
+  "beacons": [{"host":"127.0.0.1","port":8517,"dhtPort":0}]
 }
 ```
 
@@ -245,7 +245,7 @@ All requests/responses use JSON format.
 - `stake` (required): Stake amount (affects slot leader probability)
 - `host` (optional): Listen address, default: "localhost"
 - `port` (optional): Listen port, default: 8518
-- `beacons` (required): List of beacon addresses to connect to
+- `beacons` (required): List of beacon endpoints `{host, port, dhtPort}` to connect to
 
 ### Miner API Endpoints
 

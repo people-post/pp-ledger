@@ -157,7 +157,7 @@ void TcpConnection::close() {
   }
 }
 
-const TcpEndpoint &TcpConnection::getPeerEndpoint() const { return peer_; }
+const IpEndpoint &TcpConnection::getPeerEndpoint() const { return peer_; }
 
 } // namespace network
 } // namespace pp

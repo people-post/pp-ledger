@@ -28,10 +28,10 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  using RequestHandler = std::function<void(int fd, const std::string&, const TcpEndpoint& endpoint)>;
+  using RequestHandler = std::function<void(int fd, const std::string&, const IpEndpoint& endpoint)>;
 
   struct Config {
-    TcpEndpoint endpoint;
+    IpEndpoint endpoint;
     RequestHandler handler{ nullptr };
     std::vector<std::string> whitelist;
   };
@@ -43,7 +43,7 @@ public:
 
   ~FetchServer() override;
 
-  TcpEndpoint getEndpoint() const { return server_.getEndpoint(); }
+  IpEndpoint getEndpoint() const { return server_.getEndpoint(); }
   Roe<void> addResponse(int fd, const std::string &response);
   Service::Roe<void> start(const Config &config);
 protected:
@@ -57,17 +57,17 @@ private:
   struct ActiveConnection {
     int fd;
     std::string buffer;
-    TcpEndpoint endpoint;
+    IpEndpoint endpoint;
   };
 
   // Helper: set a file descriptor to non-blocking mode
   bool setNonBlocking(int fd);
 
   // Helper: get peer endpoint for a connected socket
-  Roe<TcpEndpoint> getPeerEndpoint(int fd);
+  Roe<IpEndpoint> getPeerEndpoint(int fd);
 
   // Helper: true if peer is allowed by whitelist (empty whitelist = allow all)
-  bool isAllowedByWhitelist(const TcpEndpoint& peer) const;
+  bool isAllowedByWhitelist(const IpEndpoint& peer) const;
 
   // Helper: process read events from epoll
   void processReadEvents(const std::vector<int>& readyFds);
