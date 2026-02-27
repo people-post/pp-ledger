@@ -1,7 +1,7 @@
-#include "../Chain.h"
-#include "../AccountBuffer.h"
-#include "../../lib/Utilities.h"
 #include "../../lib/BinaryPack.hpp"
+#include "../../lib/Utilities.h"
+#include "../AccountBuffer.h"
+#include "../Chain.h"
 
 #include <gtest/gtest.h>
 
@@ -14,15 +14,18 @@ namespace {
 constexpr uint64_t BYTES_PER_KIB = 1024ULL;
 
 uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
-               size_t index) {
-  return index < coefficients.size() ? static_cast<uint64_t>(coefficients[index])
-                   : 0ULL;
+                           size_t index) {
+  return index < coefficients.size()
+             ? static_cast<uint64_t>(coefficients[index])
+             : 0ULL;
 }
 
-uint64_t calculateMinimumFeeFromNonFreeMetaSize(
-    const Chain::BlockChainConfig &config, uint64_t nonFreeBytes) {
+uint64_t
+calculateMinimumFeeFromNonFreeMetaSize(const Chain::BlockChainConfig &config,
+                                       uint64_t nonFreeBytes) {
   const uint64_t nonFreeSizeKiB =
-    nonFreeBytes == 0 ? 0ULL : (nonFreeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
+      nonFreeBytes == 0 ? 0ULL
+                        : (nonFreeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
 
   const uint64_t a = getFeeCoefficient(config.minFeeCoefficients, 0);
   const uint64_t b = getFeeCoefficient(config.minFeeCoefficients, 1);
@@ -54,7 +57,8 @@ utl::Ed25519KeyPair makeKeyPair() {
   return result.value();
 }
 
-Client::UserAccount makeUserAccount(const std::string &publicKey, int64_t balance) {
+Client::UserAccount makeUserAccount(const std::string &publicKey,
+                                    int64_t balance) {
   Client::UserAccount account;
   account.wallet.publicKeys = {publicKey};
   account.wallet.minSignatures = 1;
@@ -63,7 +67,8 @@ Client::UserAccount makeUserAccount(const std::string &publicKey, int64_t balanc
   return account;
 }
 
-std::string signTx(const utl::Ed25519KeyPair &keyPair, const Ledger::Transaction &tx) {
+std::string signTx(const utl::Ed25519KeyPair &keyPair,
+                   const Ledger::Transaction &tx) {
   auto message = utl::binaryPack(tx);
   auto result = utl::ed25519Sign(keyPair.privateKey, message);
   EXPECT_TRUE(result.isOk());
@@ -74,11 +79,11 @@ std::string signTx(const utl::Ed25519KeyPair &keyPair, const Ledger::Transaction
 }
 
 Ledger::ChainNode makeGenesisBlock(Chain &validator,
-                                  const Chain::BlockChainConfig &chainConfig,
-                                  const utl::Ed25519KeyPair &genesisKey,
-                                  const utl::Ed25519KeyPair &feeKey,
-                                  const utl::Ed25519KeyPair &reserveKey,
-                                  const utl::Ed25519KeyPair &recycleKey) {
+                                   const Chain::BlockChainConfig &chainConfig,
+                                   const utl::Ed25519KeyPair &genesisKey,
+                                   const utl::Ed25519KeyPair &feeKey,
+                                   const utl::Ed25519KeyPair &reserveKey,
+                                   const utl::Ed25519KeyPair &recycleKey) {
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -112,43 +117,46 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   feeTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
   feeTx.obj.toWalletId = AccountBuffer::ID_FEE;
   feeTx.obj.amount = 0;
-    const uint64_t feeNonFreeBytes =
+  const uint64_t feeNonFreeBytes =
       feeAccount.meta.size() > chainConfig.freeCustomMetaSize
-        ? static_cast<uint64_t>(feeAccount.meta.size()) -
-          chainConfig.freeCustomMetaSize
-        : 0ULL;
-    const int64_t feeWalletFee = static_cast<int64_t>(
+          ? static_cast<uint64_t>(feeAccount.meta.size()) -
+                chainConfig.freeCustomMetaSize
+          : 0ULL;
+  const int64_t feeWalletFee = static_cast<int64_t>(
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
-    feeTx.obj.fee = feeWalletFee;
+  feeTx.obj.fee = feeWalletFee;
   feeTx.obj.meta = feeAccount.ltsToString();
   feeTx.signatures.push_back(signTx(genesisKey, feeTx.obj));
   genesis.block.signedTxes.push_back(feeTx);
 
-    Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
-    Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
-    recycleAccount.meta = "Account for recycling write-off balances";
+  Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
+  Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
+  recycleAccount.meta = "Account for recycling write-off balances";
 
-    const uint64_t recycleNonFreeBytes =
+  const uint64_t recycleNonFreeBytes =
       recycleAccount.meta.size() > chainConfig.freeCustomMetaSize
-        ? static_cast<uint64_t>(recycleAccount.meta.size()) - chainConfig.freeCustomMetaSize
-        : 0ULL;
-    const int64_t recycleFee = static_cast<int64_t>(
+          ? static_cast<uint64_t>(recycleAccount.meta.size()) -
+                chainConfig.freeCustomMetaSize
+          : 0ULL;
+  const int64_t recycleFee = static_cast<int64_t>(
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, recycleNonFreeBytes));
 
-    int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
-    int64_t reserveFee = 0;
-    for (int i = 0; i < 2; ++i) {
+  int64_t reserveAmount =
+      static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
+  int64_t reserveFee = 0;
+  for (int i = 0; i < 2; ++i) {
     reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
     const uint64_t reserveNonFreeBytes =
-      reserveAccount.meta.size() > chainConfig.freeCustomMetaSize
-        ? static_cast<uint64_t>(reserveAccount.meta.size()) - chainConfig.freeCustomMetaSize
-        : 0ULL;
+        reserveAccount.meta.size() > chainConfig.freeCustomMetaSize
+            ? static_cast<uint64_t>(reserveAccount.meta.size()) -
+                  chainConfig.freeCustomMetaSize
+            : 0ULL;
     reserveFee = static_cast<int64_t>(calculateMinimumFeeFromNonFreeMetaSize(
-      chainConfig, reserveNonFreeBytes));
-        reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-          feeWalletFee - reserveFee - recycleFee;
-    }
-    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
+        chainConfig, reserveNonFreeBytes));
+    reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
+                    feeWalletFee - reserveFee - recycleFee;
+  }
+  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
   Ledger::SignedData<Ledger::Transaction> reserveTx;
   reserveTx.obj.type = Ledger::Transaction::T_NEW_USER;
@@ -190,13 +198,16 @@ TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.config.slotDuration, gm.config.slotDuration);
   EXPECT_EQ(parsed.config.slotsPerEpoch, gm.config.slotsPerEpoch);
   EXPECT_EQ(parsed.config.maxCustomMetaSize, gm.config.maxCustomMetaSize);
-  EXPECT_EQ(parsed.config.maxTransactionsPerBlock, gm.config.maxTransactionsPerBlock);
+  EXPECT_EQ(parsed.config.maxTransactionsPerBlock,
+            gm.config.maxTransactionsPerBlock);
   EXPECT_EQ(parsed.config.minFeeCoefficients, gm.config.minFeeCoefficients);
   EXPECT_EQ(parsed.config.freeCustomMetaSize, gm.config.freeCustomMetaSize);
   EXPECT_EQ(parsed.config.checkpoint.minBlocks, gm.config.checkpoint.minBlocks);
-  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds, gm.config.checkpoint.minAgeSeconds);
+  EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds,
+            gm.config.checkpoint.minAgeSeconds);
   EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);
-  EXPECT_EQ(parsed.genesis.wallet.minSignatures, gm.genesis.wallet.minSignatures);
+  EXPECT_EQ(parsed.genesis.wallet.minSignatures,
+            gm.genesis.wallet.minSignatures);
   EXPECT_EQ(parsed.genesis.wallet.mBalances, gm.genesis.wallet.mBalances);
 }
 
@@ -229,12 +240,14 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   genesis.hash = "bad-hash";
 
   auto result = validator.addBlock(genesis, true);
   EXPECT_TRUE(result.isError());
-  EXPECT_NE(result.error().message.find("Genesis block hash validation failed"), std::string::npos);
+  EXPECT_NE(result.error().message.find("Genesis block hash validation failed"),
+            std::string::npos);
 }
 
 TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
@@ -253,7 +266,8 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -264,7 +278,8 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
 
   auto result = validator.addBlock(genesis, true);
   EXPECT_TRUE(result.isOk());
@@ -283,7 +298,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -296,7 +312,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   ASSERT_EQ(validator.getNextBlockId(), 0u);
 
   uint64_t blockId = 0;
-  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result =
+      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_TRUE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
@@ -304,7 +321,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest) {
+TEST(ChainTest,
+     FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -320,7 +338,8 @@ TEST(ChainTest, FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest)
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -331,16 +350,18 @@ TEST(ChainTest, FindTransactionsByWalletId_WhenStartBlockIdZero_ScansFromLatest)
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = 0;
-  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result =
+      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_FALSE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
-  for (const auto& st : result.value()) {
+  for (const auto &st : result.value()) {
     EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
                 st.obj.toWalletId == AccountBuffer::ID_GENESIS);
   }
@@ -364,7 +385,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -375,18 +397,20 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = validator.getNextBlockId();
   ASSERT_GT(blockId, 0u);
 
-  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
+  auto result =
+      validator.findTransactionsByWalletId(AccountBuffer::ID_GENESIS, blockId);
   ASSERT_TRUE(result.isOk());
-  const auto& txes = result.value();
+  const auto &txes = result.value();
   EXPECT_FALSE(txes.empty());
-  for (const auto& st : txes) {
+  for (const auto &st : txes) {
     EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
                 st.obj.toWalletId == AccountBuffer::ID_GENESIS);
   }
@@ -409,7 +433,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -420,7 +445,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
@@ -450,7 +476,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -461,13 +488,15 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis = makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t nextBlockId = validator.getNextBlockId();
   uint64_t blockId = nextBlockId + 1000u;
-  auto result = validator.findTransactionsByWalletId(AccountBuffer::ID_FEE, blockId);
+  auto result =
+      validator.findTransactionsByWalletId(AccountBuffer::ID_FEE, blockId);
   ASSERT_TRUE(result.isOk());
   EXPECT_GT(result.value().size(), 0u);
   EXPECT_EQ(blockId, 0u);
@@ -475,7 +504,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenNoBlocks) {
+TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenNoBlocks) {
   Chain validator;
 
   consensus::Ouroboros::Config consensusConfig;
@@ -498,14 +527,14 @@ TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenNoBlocks) {
   ASSERT_TRUE(initResult.isOk());
   ASSERT_EQ(validator.getNextBlockId(), 0u);
 
-  auto result = validator.getTransactionByIndex(0);
+  auto result = validator.findTransactionByIndex(0);
   ASSERT_TRUE(result.isError());
   EXPECT_NE(result.error().message.find("No blocks"), std::string::npos);
 
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
+TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -533,14 +562,13 @@ TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis =
-      makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey,
-                      recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
   // Genesis has 4 transactions (indices 0..3). Index 4 is out of range.
-  auto result = validator.getTransactionByIndex(4);
+  auto result = validator.findTransactionByIndex(4);
   ASSERT_TRUE(result.isError());
   EXPECT_EQ(result.error().code, Chain::E_INVALID_ARGUMENT);
   EXPECT_NE(result.error().message.find("out of range"), std::string::npos);
@@ -548,7 +576,8 @@ TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, GetTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
+TEST(ChainTest,
+     FindTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -576,16 +605,15 @@ TEST(ChainTest, GetTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  Ledger::ChainNode genesis =
-      makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey,
-                      recycleKey);
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   auto addResult = validator.addBlock(genesis, true);
   ASSERT_TRUE(addResult.isOk());
 
   // Genesis block has 4 transactions at indices 0..3.
   for (size_t i = 0; i < genesis.block.signedTxes.size(); ++i) {
-    auto result = validator.getTransactionByIndex(static_cast<uint64_t>(i));
-    ASSERT_TRUE(result.isOk()) << "getTransactionByIndex(" << i << ") failed";
+    auto result = validator.findTransactionByIndex(static_cast<uint64_t>(i));
+    ASSERT_TRUE(result.isOk()) << "findTransactionByIndex(" << i << ") failed";
     EXPECT_EQ(result.value().obj.type, genesis.block.signedTxes[i].obj.type);
     EXPECT_EQ(result.value().obj.fromWalletId,
               genesis.block.signedTxes[i].obj.fromWalletId);

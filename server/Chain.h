@@ -41,20 +41,23 @@ public:
   // BlockChainConfig - Configuration for the block chain
   // This is used to restore the block chain from a checkpoint transaction
   struct BlockChainConfig {
-    int64_t genesisTime{0};               // In seconds
-    uint64_t slotDuration{0};             // In seconds
+    int64_t genesisTime{0};   // In seconds
+    uint64_t slotDuration{0}; // In seconds
     uint64_t slotsPerEpoch{0};
-    uint64_t maxCustomMetaSize{0};        // In bytes
+    uint64_t maxCustomMetaSize{0}; // In bytes
     uint64_t maxTransactionsPerBlock{0};
-    std::vector<uint16_t> minFeeCoefficients;  // a + b * sizeInNonFreeKiB + c * sizeInNonFreeKiB^2
-    uint32_t freeCustomMetaSize{0};       // In bytes
+    std::vector<uint16_t>
+        minFeeCoefficients; // a + b * sizeInNonFreeKiB + c * sizeInNonFreeKiB^2
+    uint32_t freeCustomMetaSize{0}; // In bytes
     CheckpointConfig checkpoint;
-    uint64_t maxValidationTimespanSeconds{0}; // Max allowed (validationTsMax - validationTsMin); must be > 0 at init
+    uint64_t maxValidationTimespanSeconds{
+        0}; // Max allowed (validationTsMax - validationTsMin); must be > 0 at
+            // init
 
     template <typename Archive> void serialize(Archive &ar) {
       ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
-          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize &checkpoint
-          &maxValidationTimespanSeconds;
+          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
+              &checkpoint &maxValidationTimespanSeconds;
     }
   };
 
@@ -119,9 +122,11 @@ public:
   constexpr static int32_t E_TX_AMOUNT = 63;    // Invalid transaction amount
   constexpr static int32_t E_TX_TYPE = 64;      // Unknown transaction type
   constexpr static int32_t E_TX_TRANSFER = 65;  // Transaction transfer failed
-  constexpr static int32_t E_TX_IDEMPOTENCY = 66;     // Duplicate idempotent id
-  constexpr static int32_t E_TX_VALIDATION_TIMESPAN = 67; // Validation window exceeds max timespan
-  constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW = 68; // Current time outside validation window
+  constexpr static int32_t E_TX_IDEMPOTENCY = 66; // Duplicate idempotent id
+  constexpr static int32_t E_TX_VALIDATION_TIMESPAN =
+      67; // Validation window exceeds max timespan
+  constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW =
+      68; // Current time outside validation window
 
   // Ledger operation errors (80-89)
   constexpr static int32_t E_LEDGER_WRITE = 80; // Failed to persist to ledger
@@ -156,14 +161,15 @@ public:
   /** Slot duration in seconds. */
   uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
-  /** Max transactions per block (0 = no limit). Renewals are not counted toward this cap. */
+  /** Max transactions per block (0 = no limit). Renewals are not counted toward
+   * this cap. */
   uint64_t getMaxTransactionsPerBlock() const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
-  Roe<uint64_t>
-  calculateMinimumFeeFromNonFreeMetaSize(const BlockChainConfig &config,
-                                         uint64_t nonFreeCustomMetaSizeBytes) const;
+  Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
+      const BlockChainConfig &config,
+      uint64_t nonFreeCustomMetaSizeBytes) const;
   Roe<size_t>
   extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
                                      const Ledger::Transaction &tx) const;
@@ -177,9 +183,9 @@ public:
   Roe<Ledger::ChainNode> readLastBlock() const;
 
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
-  findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const;
+  findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   Roe<Ledger::SignedData<Ledger::Transaction>>
-  getTransactionByIndex(uint64_t txIndex) const;
+  findTransactionByIndex(uint64_t txIndex) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,
@@ -202,7 +208,8 @@ protected:
   uint64_t getBlockAgeSeconds(uint64_t blockId) const;
 
 private:
-  /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs. */
+  /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
+   */
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
@@ -225,10 +232,11 @@ private:
   /** Get user account meta as struct (no serialize); used to avoid double
    * deserialize when caller needs to modify before serializing. */
   Roe<Client::UserAccount>
-  getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) const;
+  getUserAccountMetaFromBlock(const Ledger::Block &block,
+                              uint64_t accountId) const;
 
-  /** Account metadata for renewal: user accounts get genesis balance adjusted to
-   * post-renewal (current - fee) since verifyBalance expects that. Single
+  /** Account metadata for renewal: user accounts get genesis balance adjusted
+   * to post-renewal (current - fee) since verifyBalance expects that. Single
    * serialize at end by using getUserAccountMetaFromBlock. */
   Roe<std::string>
   getUpdatedAccountMetadataForRenewal(const Ledger::Block &block,
@@ -265,20 +273,21 @@ private:
   validateTxSignatures(const Ledger::SignedData<Ledger::Transaction> &signedTx,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
-  /** Check that no block with slot in [slotMin, slotMax] already contains a tx with the same idempotentId and fromWalletId (idempotency is per wallet). */
-  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
-                            uint64_t slotMax) const;
+  /** Check that no block with slot in [slotMin, slotMax] already contains a tx
+   * with the same idempotentId and fromWalletId (idempotency is per wallet). */
+  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId,
+                             uint64_t slotMin, uint64_t slotMax) const;
 
-  /** Validate idempotency rules (timespan, slot in window, duplicate id). effectiveSlot is current slot (submit) or block.slot (replay). */
+  /** Validate idempotency rules (timespan, slot in window, duplicate id).
+   * effectiveSlot is current slot (submit) or block.slot (replay). */
   Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
                                      uint64_t effectiveSlot) const;
 
   // System
   Roe<void> processSystemInit(const Ledger::Transaction &tx);
-  Roe<GenesisAccountMeta>
-  processSystemUpdateImpl(AccountBuffer &bank,
-                          const Ledger::Transaction &tx,
-                          uint64_t blockId) const;
+  Roe<GenesisAccountMeta> processSystemUpdateImpl(AccountBuffer &bank,
+                                                  const Ledger::Transaction &tx,
+                                                  uint64_t blockId) const;
   Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                                 bool isStrictMode);
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
@@ -289,15 +298,17 @@ private:
   /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
    * bank_ and checks existence in both. */
   Roe<void> processUserInitImpl(AccountBuffer &bank,
-                                const Ledger::Transaction &tx,
-                                uint64_t blockId, bool isBufferMode) const;
+                                const Ledger::Transaction &tx, uint64_t blockId,
+                                bool isBufferMode) const;
   Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId);
   Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::Transaction &tx, uint64_t blockId) const;
+                                  const Ledger::Transaction &tx,
+                                  uint64_t blockId) const;
 
-  Roe<void> processUserAccountUpsertImpl(
-      AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
-      bool isBufferMode, bool isStrictMode) const;
+  Roe<void> processUserAccountUpsertImpl(AccountBuffer &bank,
+                                         const Ledger::Transaction &tx,
+                                         uint64_t blockId, bool isBufferMode,
+                                         bool isStrictMode) const;
 
   Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
                                      uint64_t blockId, bool isStrictMode);
@@ -305,12 +316,12 @@ private:
                               bool isStrictMode);
   Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
-  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx, uint64_t blockId,
-                                  bool isStrictMode);
+  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx,
+                                  uint64_t blockId, bool isStrictMode);
   Roe<void> processGenesisRenewalImpl(AccountBuffer &bank,
-                                     const Ledger::Transaction &tx,
-                                     uint64_t blockId,
-                                     bool isStrictMode) const;
+                                      const Ledger::Transaction &tx,
+                                      uint64_t blockId,
+                                      bool isStrictMode) const;
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
                                            const Ledger::Transaction &tx,
                                            uint64_t blockId) const;
@@ -318,13 +329,12 @@ private:
                                         const Ledger::Transaction &tx,
                                         uint64_t blockId) const;
 
-  Roe<uint64_t>
-  calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
-                                    uint64_t accountId) const;
+  Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
+                                                  uint64_t accountId) const;
 
   Roe<void> processUserEndImpl(AccountBuffer &bank,
-                              const Ledger::Transaction &tx,
-                              bool isBufferMode) const;
+                               const Ledger::Transaction &tx,
+                               bool isBufferMode) const;
   Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
                            bool isStrictMode);
   Roe<void> processBufferUserEnd(AccountBuffer &bank,
