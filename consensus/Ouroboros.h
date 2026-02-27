@@ -89,10 +89,14 @@ private:
   };
 
   // Helper methods for slot leader selection
+  /** Eligible pool for leader selection: all if ≤kMaxLeaderPoolSize, else top by stake. */
+  std::vector<uint64_t> getEligibleLeaderPool() const;
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
   uint64_t calculateStakeThreshold(uint64_t stakeholderId,
                                    uint64_t totalStake) const;
   std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
+
+  static constexpr size_t kMaxLeaderPoolSize = 100;
 
   // Data members
   Config config_;

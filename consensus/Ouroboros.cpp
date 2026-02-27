@@ -1,6 +1,8 @@
 #include "Ouroboros.h"
+#include "Utilities.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <iomanip>
 #include <numeric>
 #include <sstream>
@@ -144,54 +146,51 @@ void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders,
   cache_.lastStakeUpdateEpoch = forEpoch;
 }
 
-uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
-  // Simple deterministic leader selection based on stake weight
-  // In production, this would use VRF (Verifiable Random Function)
+std::vector<uint64_t> Ouroboros::getEligibleLeaderPool() const {
+  if (cache_.mStakeholders.empty()) {
+    return {};
+  }
+  std::vector<std::pair<uint64_t, uint64_t>> byStake(cache_.mStakeholders.begin(),
+                                                     cache_.mStakeholders.end());
+  // Sort by stake descending, then by id ascending for deterministic tie-break
+  std::sort(byStake.begin(), byStake.end(),
+            [](const auto& a, const auto& b) {
+              if (a.second != b.second) return a.second > b.second;
+              return a.first < b.first;
+            });
+  size_t n = std::min(kMaxLeaderPoolSize, byStake.size());
+  std::vector<uint64_t> pool;
+  pool.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    pool.push_back(byStake[i].first);
+  }
+  return pool;
+}
 
-  uint64_t totalStake = getTotalStake();
-  if (totalStake == 0) {
+uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
+  std::vector<uint64_t> pool = getEligibleLeaderPool();
+  if (pool.empty()) {
     return 0;
   }
 
-  // Create a deterministic hash from slot and epoch
+  // Cryptographic hash (SHA-256) for unpredictable, verifiable leader selection
   std::string slotHash = hashSlotAndEpoch(slot, epoch);
-
-  // Convert hash to a number in range [0, totalStake)
-  uint64_t hashValue = 0;
-  for (size_t i = 0; i < std::min(slotHash.size(), size_t(8)); ++i) {
-    hashValue = (hashValue << 8) | static_cast<uint8_t>(slotHash[i]);
-  }
-  uint64_t position = hashValue % totalStake;
-
-  // Select stakeholder based on cumulative stake
-  uint64_t cumulative = 0;
-  for (const auto &[id, stake] : cache_.mStakeholders) {
-    cumulative += stake;
-    if (position < cumulative) {
-      return id;
-    }
+  if (slotHash.size() < 16) {
+    return pool[0];
   }
 
-  // Fallback to first stakeholder
-  return cache_.mStakeholders.begin()->first;
+  // Use first 64 bits of hash; equal weight over eligible pool (normalized layer)
+  uint64_t hashValue = std::strtoull(slotHash.substr(0, 16).c_str(), nullptr, 16);
+  size_t index = static_cast<size_t>(hashValue % pool.size());
+  return pool[index];
 }
 
 std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
-  // Simple hash function (in production, use cryptographic hash)
+  // Domain-separated input for protocol versioning and cross-system uniqueness
   std::stringstream ss;
-  ss << "slot:" << slot << ":epoch:" << epoch;
+  ss << "pp-ledger/ouroboros/v1:slot:" << slot << ":epoch:" << epoch;
   std::string input = ss.str();
-
-  // Simple hash computation
-  uint64_t hash = 0x123456789abcdef0ULL;
-  for (char c : input) {
-    hash ^= static_cast<uint64_t>(c);
-    hash *= 0x100000001b3ULL;
-  }
-
-  ss.str("");
-  ss << std::hex << std::setfill('0') << std::setw(16) << hash;
-  return ss.str();
+  return pp::utl::sha256(input);
 }
 
 bool Ouroboros::validateSlotLeader(uint64_t slotLeader,
