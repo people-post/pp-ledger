@@ -31,14 +31,14 @@ declare class Client {
 
   setEndpoint(endpoint: string): void;
 
-  fetchBeaconState(): Promise<object>;
-  fetchCalibration(): Promise<object>;
-  fetchMinerList(): Promise<object>;
-  fetchMinerStatus(): Promise<object>;
-  fetchBlock(blockId: number | string): Promise<object>;
-  fetchUserAccount(accountId: number | string): Promise<object>;
-  fetchTransactionsByWallet(request: FetchTransactionsByWalletRequest): Promise<object>;
-  fetchTransactionByIndex(request: FetchTransactionByIndexRequest): Promise<object>;
+  fetchBeaconState(): Promise<Record<string, unknown>>;
+  fetchCalibration(): Promise<Record<string, unknown>>;
+  fetchMinerList(): Promise<Record<string, unknown>[]>;
+  fetchMinerStatus(): Promise<Record<string, unknown>>;
+  fetchBlock(blockId: number | string): Promise<Record<string, unknown>>;
+  fetchUserAccount(accountId: number | string): Promise<Record<string, unknown>>;
+  fetchTransactionsByWallet(request: FetchTransactionsByWalletRequest): Promise<Record<string, unknown>>;
+  fetchTransactionByIndex(request: FetchTransactionByIndexRequest): Promise<Record<string, unknown>>;
 
   buildTransactionHex(request: BuildTransactionRequest): string;
   addTransaction(request: AddTransactionRequest): Promise<boolean>;
