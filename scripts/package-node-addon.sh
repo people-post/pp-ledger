@@ -56,6 +56,7 @@ mkdir -p "$STAGING_DIR"
 
 cp "$ADDON_BINARY" "$STAGING_DIR/pp_client_node.node"
 cp "$NODE_ADDON_SOURCE/index.js" "$STAGING_DIR/"
+cp "$NODE_ADDON_SOURCE/index.d.ts" "$STAGING_DIR/"
 cp "$NODE_ADDON_SOURCE/package.json" "$STAGING_DIR/"
 
 # Use tar czf (no -v) so stdout contains only the path we echo below, for CI capture
