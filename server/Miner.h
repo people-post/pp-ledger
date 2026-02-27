@@ -80,6 +80,9 @@ public:
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
+  /** Find transaction by global chain index (0-based). */
+  Roe<Ledger::SignedData<Ledger::Transaction>>
+  findTransactionByIndex(uint64_t txIndex) const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig &config);

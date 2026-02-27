@@ -70,6 +70,15 @@ Relay::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const 
   return result.value();
 }
 
+Relay::Roe<Ledger::SignedData<Ledger::Transaction>>
+Relay::findTransactionByIndex(uint64_t txIndex) const {
+  auto result = chain_.findTransactionByIndex(txIndex);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 Relay::Roe<void> Relay::init(const InitConfig &config) {
   log().info << "Initializing Relay";
   log().debug << "Init config: " << config;

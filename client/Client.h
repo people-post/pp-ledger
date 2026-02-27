@@ -88,6 +88,7 @@ public:
 
   static constexpr const uint32_t T_REQ_TX_GET_BY_WALLET = 3001;
   static constexpr const uint32_t T_REQ_TX_ADD = 3002;
+  static constexpr const uint32_t T_REQ_TX_GET_BY_INDEX = 3003;
 
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
@@ -186,6 +187,15 @@ public:
     nlohmann::json toJson() const;
   };
 
+  struct TxGetByIndexRequest {
+    uint64_t txIndex{ 0 };
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & txIndex;
+    }
+  };
+
   struct CalibrationResponse {
     int64_t msTimestamp{ 0 };
     uint64_t nextBlockId{ 0 };
@@ -213,6 +223,7 @@ public:
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
+  Roe<Ledger::SignedData<Ledger::Transaction>> fetchTransactionByIndex(const TxGetByIndexRequest &request);
 
   Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<bool> addBlock(const Ledger::ChainNode& block);

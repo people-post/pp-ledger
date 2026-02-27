@@ -89,6 +89,7 @@ Napi::Object ClientWrapper::Init(Napi::Env env, Napi::Object exports) {
       InstanceMethod("fetchBlock", &ClientWrapper::FetchBlock),
       InstanceMethod("fetchUserAccount", &ClientWrapper::FetchUserAccount),
       InstanceMethod("fetchTransactionsByWallet", &ClientWrapper::FetchTransactionsByWallet),
+      InstanceMethod("fetchTransactionByIndex", &ClientWrapper::FetchTransactionByIndex),
       InstanceMethod("buildTransactionHex", &ClientWrapper::BuildTransactionHex),
       InstanceMethod("addTransaction", &ClientWrapper::AddTransaction),
     }
@@ -260,6 +261,34 @@ Napi::Value ClientWrapper::FetchTransactionsByWallet(const Napi::CallbackInfo& i
   return queueJson(env, [this, request](std::string& outJson, std::string& errorMessage) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto result = client_.fetchTransactionsByWallet(request);
+    if (!result) {
+      errorMessage = result.error().message;
+      return false;
+    }
+    outJson = result.value().toJson().dump();
+    return true;
+  });
+}
+
+Napi::Value ClientWrapper::FetchTransactionByIndex(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsObject()) {
+    throw Napi::TypeError::New(env, "fetchTransactionByIndex(request) expects an object");
+  }
+
+  Napi::Object requestObj = info[0].As<Napi::Object>();
+  if (!requestObj.Has("txIndex")) {
+    throw Napi::TypeError::New(env, "request.txIndex is required");
+  }
+
+  uint64_t txIndex = ValueToUint64(env, requestObj.Get("txIndex"), "txIndex");
+
+  Client::TxGetByIndexRequest request;
+  request.txIndex = txIndex;
+
+  return queueJson(env, [this, request](std::string& outJson, std::string& errorMessage) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto result = client_.fetchTransactionByIndex(request);
     if (!result) {
       errorMessage = result.error().message;
       return false;

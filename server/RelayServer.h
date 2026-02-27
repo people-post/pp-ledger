@@ -117,6 +117,7 @@ private:
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
+  Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);

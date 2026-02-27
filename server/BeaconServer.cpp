@@ -563,6 +563,9 @@ void BeaconServer::initHandlers() {
   auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
   htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
 
+  auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
+  htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
+
   auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
@@ -667,6 +670,20 @@ BeaconServer::hTxGetByWallet(const Client::Request &request) {
   response.transactions = result.value();
   response.nextBlockId = req.beforeBlockId;
   return utl::binaryPack(response);
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::hTxGetByIndex(const Client::Request &request) {
+  auto reqResult = utl::binaryUnpack<Client::TxGetByIndexRequest>(request.payload);
+  if (!reqResult) {
+    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
+  }
+  auto &req = reqResult.value();
+  auto result = beacon_.findTransactionByIndex(req.txIndex);
+  if (!result) {
+    return Error(E_REQUEST, "Failed to get transaction: " + result.error().message);
+  }
+  return utl::binaryPack(result.value());
 }
 
 BeaconServer::Roe<std::string>

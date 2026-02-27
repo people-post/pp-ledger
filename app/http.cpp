@@ -175,6 +175,29 @@ int main(int argc, char** argv) {
     res.set_content(r.value().toJson().dump(), "application/json");
   });
 
+  // GET /api/tx/by-index?txIndex=<index>
+  svr.Get("/api/tx/by-index", [&](const httplib::Request& req, httplib::Response& res) {
+    if (!req.has_param("txIndex")) {
+      setJsonError(res, 400, "txIndex is required");
+      return;
+    }
+    uint64_t txIndex;
+    try {
+      txIndex = std::stoull(req.get_param_value("txIndex"));
+    } catch (...) {
+      setJsonError(res, 400, "Invalid txIndex");
+      return;
+    }
+    pp::Client::TxGetByIndexRequest wr;
+    wr.txIndex = txIndex;
+    auto r = beaconClient.fetchTransactionByIndex(wr);
+    if (!r) {
+      setJsonError(res, 502, r.error().message);
+      return;
+    }
+    res.set_content(r.value().toJson().dump(), "application/json");
+  });
+
   // POST /api/tx — body: binary packed SignedData<Transaction> (application/octet-stream)
   svr.Post("/api/tx", [&](const httplib::Request& req, httplib::Response& res) {
     const std::string& body = req.body;
@@ -194,7 +217,7 @@ int main(int argc, char** argv) {
   httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
   httpLog.info << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort;
   httpLog.info << "Routes: GET /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
-  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, POST /api/tx (binary body)";
+  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx (binary body)";
   svr.listen(httpHost, static_cast<int>(httpPort));
   return 0;
 }

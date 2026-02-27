@@ -359,6 +359,11 @@ int main(int argc, char *argv[]) {
                      "Search backwards from before this block ID (0 = latest)")
       ->default_val(0);
 
+  auto* tx_cmd = app.add_subcommand("transaction",
+                                    "Get transaction by chain index (use -b/--beacon or -m/--miner)");
+  uint64_t tx_index = 0;
+  tx_cmd->add_option("index", tx_index, "Transaction index (0-based)")->required();
+
   // Miner commands
   auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
   uint64_t fromWalletId = 0, toWalletId = 0;
@@ -569,6 +574,18 @@ int main(int argc, char *argv[]) {
     req.walletId = txs_walletId;
     req.beforeBlockId = txs_beforeBlockId;
     auto result = client.fetchTransactionsByWallet(req);
+    if (result) {
+      std::cout << result.value().toJson().dump(2) << "\n";
+    } else {
+      std::cerr << "Error: " << result.error().message << "\n";
+      exitCode = 1;
+    }
+  }
+  // Handle transaction-by-index command (beacon/relay/miner)
+  else if (tx_cmd->parsed()) {
+    pp::Client::TxGetByIndexRequest req;
+    req.txIndex = tx_index;
+    auto result = client.fetchTransactionByIndex(req);
     if (result) {
       std::cout << result.value().toJson().dump(2) << "\n";
     } else {

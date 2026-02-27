@@ -411,6 +411,24 @@ Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(con
   return responseResult.value();
 }
 
+Client::Roe<Ledger::SignedData<Ledger::Transaction>>
+Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
+  log().debug << "Requesting transaction by index: " << request.txIndex;
+
+  std::string payload = utl::binaryPack(request);
+  auto result = sendRequest(T_REQ_TX_GET_BY_INDEX, payload, TIMEOUT_DATA);
+
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+
+  auto responseResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(result.value());
+  if (!responseResult) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack transaction by index response: " + responseResult.error().message);
+  }
+  return responseResult.value();
+}
+
 Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 

@@ -86,6 +86,15 @@ Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const 
   return result.value();
 }
 
+Miner::Roe<Ledger::SignedData<Ledger::Transaction>>
+Miner::findTransactionByIndex(uint64_t txIndex) const {
+  auto result = chain_.findTransactionByIndex(txIndex);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (config.privateKeys.empty()) {
     return Error(1, "At least one private key is required");

@@ -90,6 +90,15 @@ Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const
   return result.value();
 }
 
+Beacon::Roe<Ledger::SignedData<Ledger::Transaction>>
+Beacon::findTransactionByIndex(uint64_t txIndex) const {
+  auto result = chain_.findTransactionByIndex(txIndex);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 nlohmann::json Beacon::InitKeyConfig::toJson() const {
   nlohmann::json j;
   for (const auto &kp : genesis) {
