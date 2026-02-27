@@ -474,3 +474,124 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
 
   std::filesystem::remove_all(tempDir, ec);
 }
+
+TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenNoBlocks) {
+  Chain validator;
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+  ASSERT_EQ(validator.getNextBlockId(), 0u);
+
+  auto result = validator.getTransactionByIndex(0);
+  ASSERT_TRUE(result.isError());
+  EXPECT_NE(result.error().message.find("No blocks"), std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, GetTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis =
+      makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey,
+                      recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  // Genesis has 4 transactions (indices 0..3). Index 4 is out of range.
+  auto result = validator.getTransactionByIndex(4);
+  ASSERT_TRUE(result.isError());
+  EXPECT_EQ(result.error().code, Chain::E_INVALID_ARGUMENT);
+  EXPECT_NE(result.error().message.find("out of range"), std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, GetTransactionByIndex_ReturnsCorrectTransactionInGenesisBlock) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis =
+      makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey,
+                      recycleKey);
+  auto addResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addResult.isOk());
+
+  // Genesis block has 4 transactions at indices 0..3.
+  for (size_t i = 0; i < genesis.block.signedTxes.size(); ++i) {
+    auto result = validator.getTransactionByIndex(static_cast<uint64_t>(i));
+    ASSERT_TRUE(result.isOk()) << "getTransactionByIndex(" << i << ") failed";
+    EXPECT_EQ(result.value().obj.type, genesis.block.signedTxes[i].obj.type);
+    EXPECT_EQ(result.value().obj.fromWalletId,
+              genesis.block.signedTxes[i].obj.fromWalletId);
+    EXPECT_EQ(result.value().obj.toWalletId,
+              genesis.block.signedTxes[i].obj.toWalletId);
+  }
+
+  std::filesystem::remove_all(tempDir, ec);
+}

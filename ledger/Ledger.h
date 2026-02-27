@@ -130,6 +130,8 @@ public:
   };
 
   uint64_t getNextBlockId() const;
+  /** First valid block ID (same as startingBlockId from init/mount). No blocks when getNextBlockId() <= getStartingBlockId(). */
+  uint64_t getStartingBlockId() const;
 
   Roe<void> init(const InitConfig& config);
   Roe<void> mount(const std::string& workDir);

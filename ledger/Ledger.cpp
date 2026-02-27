@@ -129,6 +129,10 @@ uint64_t Ledger::getNextBlockId() const {
   return meta_.startingBlockId + blockCount;
 }
 
+uint64_t Ledger::getStartingBlockId() const {
+  return meta_.startingBlockId;
+}
+
 Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   workDir_ = config.workDir;
   dataDir_ = workDir_ + "/data";

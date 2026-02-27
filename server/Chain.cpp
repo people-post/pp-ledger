@@ -670,6 +670,77 @@ Chain::findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const 
   return out;
 }
 
+Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
+Chain::getTransactionByIndex(uint64_t txIndex) const {
+  const uint64_t firstBlockId = ledger_.getStartingBlockId();
+  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  if (nextBlockId <= firstBlockId) {
+    return Error(E_LEDGER_READ, "No blocks in ledger");
+  }
+
+  auto lastBlockRoe = ledger_.readLastBlock();
+  if (!lastBlockRoe) {
+    return Error(E_LEDGER_READ,
+                 "Failed to read last block: " + lastBlockRoe.error().message);
+  }
+
+  const auto &lastBlock = lastBlockRoe.value().block;
+  const uint64_t lastBlockTxCount = static_cast<uint64_t>(lastBlock.signedTxes.size());
+  const uint64_t totalTxCount =
+      lastBlock.txIndex + lastBlockTxCount;
+
+  if (txIndex >= totalTxCount) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Transaction index out of range: " + std::to_string(txIndex) +
+                     " >= " + std::to_string(totalTxCount));
+  }
+
+  uint64_t low = firstBlockId;
+  uint64_t high = nextBlockId - 1;
+
+  while (low <= high) {
+    const uint64_t mid = low + (high - low) / 2;
+    auto blockRoe = ledger_.readBlock(mid);
+    if (!blockRoe) {
+      return Error(E_LEDGER_READ,
+                   "Failed to read block " + std::to_string(mid) +
+                       " during getTransactionByIndex: " +
+                       blockRoe.error().message);
+    }
+
+    const auto &block = blockRoe.value().block;
+    const uint64_t blockStart = block.txIndex;
+    const uint64_t blockTxCount =
+        static_cast<uint64_t>(block.signedTxes.size());
+
+    if (txIndex < blockStart) {
+      if (mid == firstBlockId) {
+        break;
+      }
+      high = mid - 1;
+      continue;
+    }
+
+    if (blockTxCount == 0) {
+      low = mid + 1;
+      continue;
+    }
+
+    const uint64_t blockEnd = blockStart + blockTxCount; // exclusive
+    if (txIndex >= blockEnd) {
+      low = mid + 1;
+      continue;
+    }
+
+    const uint64_t localIndex = txIndex - blockStart;
+    return block.signedTxes[static_cast<size_t>(localIndex)];
+  }
+
+  return Error(E_LEDGER_READ,
+               "Transaction index " + std::to_string(txIndex) +
+                   " not found in any block");
+}
+
 std::string Chain::calculateHash(const Ledger::Block &block) const {
   // Use ltsToString() to get the serialized block representation
   std::string serialized = block.ltsToString();

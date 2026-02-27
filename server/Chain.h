@@ -178,6 +178,8 @@ public:
 
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t& ioBlockId) const;
+  Roe<Ledger::SignedData<Ledger::Transaction>>
+  getTransactionByIndex(uint64_t txIndex) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,
