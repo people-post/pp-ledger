@@ -219,6 +219,13 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
             << " with startingBlockId=" << meta_.startingBlockId
             << ", nextBlockId=" << getNextBlockId();
 
+  if (store_.getBlockCount() > 0) {
+    auto result = readBlock(getNextBlockId() - 1);
+    if (result.isOk()) {
+      latestBlockCache_ = result.value();
+    }
+  }
+
   return {};
 }
 
@@ -242,6 +249,7 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
     return Error("Failed to save index after adding block");
   }
 
+  latestBlockCache_ = block;
   return {};
 }
 
@@ -308,6 +316,11 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
                  " exceeds or equals next block ID " + std::to_string(nextBlockId));
   }
 
+  uint64_t lastBlockId = nextBlockId - 1;
+  if (blockId == lastBlockId && latestBlockCache_.has_value()) {
+    return *latestBlockCache_;
+  }
+
   // Convert blockId to store index: index = blockId - startingBlockId
   if (blockId < meta_.startingBlockId) {
     return Error("Block ID " + std::to_string(blockId) + 
@@ -340,6 +353,9 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
   node.block = block;
   node.hash = rawBlock.hash;
 
+  if (blockId == lastBlockId) {
+    latestBlockCache_ = node;
+  }
   return node;
 }
 
@@ -457,8 +473,11 @@ uint64_t Ledger::countSizeFromBlockId(uint64_t blockId) const {
 
 Ledger::Roe<Ledger::ChainNode> Ledger::readLastBlock() const {
   uint64_t nextBlockId = getNextBlockId();
-  if (nextBlockId == 0) {
+  if (nextBlockId <= getStartingBlockId()) {
     return Error("No blocks in ledger");
+  }
+  if (latestBlockCache_.has_value()) {
+    return *latestBlockCache_;
   }
   return readBlock(nextBlockId - 1);
 }

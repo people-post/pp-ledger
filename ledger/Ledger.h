@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <optional>
 #include <nlohmann/json.hpp>
 
 namespace pp {
@@ -193,6 +194,9 @@ private:
   std::string indexFilePath_;
   Meta meta_;
   DirDirStore store_;
+
+  /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
+  mutable std::optional<ChainNode> latestBlockCache_;
 
   bool loadIndex();
   bool saveIndex();
