@@ -1,5 +1,7 @@
 # Lib library
 add_library(pp_lib STATIC
+    Crypto.cpp
+    Crypto.h
     Logger.cpp
     Logger.h
     Module.cpp

@@ -1,6 +1,7 @@
 #include "Beacon.h"
 #include "../client/Client.h"
 #include "../lib/BinaryPack.hpp"
+#include "../lib/Crypto.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 #include <algorithm>
@@ -20,6 +21,7 @@ makeUserAccountFromKeys(const std::vector<utl::Ed25519KeyPair> &keys,
     account.wallet.publicKeys.push_back(kp.publicKey);
   }
   account.wallet.minSignatures = keys.size();
+  account.wallet.keyType = Crypto::TK_ED25519;
   account.meta = meta;
   return account;
 }

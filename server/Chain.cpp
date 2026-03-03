@@ -1303,7 +1303,8 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
       if (keyUsed[i])
         continue;
       const auto &publicKey = account.wallet.publicKeys[i];
-      if (utl::ed25519Verify(publicKey, message, signature)) {
+      if (crypto_.verify(account.wallet.keyType, publicKey, message,
+                         signature)) {
         keyUsed[i] = true;
         matched = true;
         break;
@@ -1721,6 +1722,11 @@ Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
                  "Failed to deserialize user account: " + tx.meta);
   }
 
+  if (!crypto_.isSupported(userAccount.wallet.keyType)) {
+    return Error(E_TX_VALIDATION,
+                 "Unsupported key type: " +
+                     std::to_string(int(userAccount.wallet.keyType)));
+  }
   if (userAccount.wallet.publicKeys.empty()) {
     return Error(E_TX_VALIDATION,
                  "User account must have at least one public key");
@@ -1875,6 +1881,11 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
                      std::to_string(tx.meta.size()) + " bytes");
   }
 
+  if (!crypto_.isSupported(userAccount.wallet.keyType)) {
+    return Error(E_TX_VALIDATION,
+                 "Unsupported key type: " +
+                     std::to_string(int(userAccount.wallet.keyType)));
+  }
   if (userAccount.wallet.publicKeys.empty()) {
     return Error(E_TX_VALIDATION,
                  "User account must have at least one public key");

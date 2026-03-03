@@ -2,6 +2,7 @@
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
 #include "../lib/BinaryPack.hpp"
+#include "../lib/Crypto.h"
 #include "../lib/Logger.h"
 #include "../lib/Utilities.h"
 
@@ -33,6 +34,7 @@ static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyH
   }
   account.wallet.publicKeys.push_back(decoded);
   account.wallet.minSignatures = minSignatures;
+  account.wallet.keyType = pp::Crypto::TK_ED25519;
   account.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   account.meta = metaDesc;
   return account;
@@ -154,6 +156,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
+  userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   SignedTx signedTx;
@@ -209,6 +212,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
+  userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   std::string keyStr = pp::utl::readKey(key);

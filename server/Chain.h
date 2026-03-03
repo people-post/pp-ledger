@@ -6,6 +6,7 @@
 #include "../ledger/Ledger.h"
 #include "../lib/Module.h"
 #include "../lib/ResultOrError.hpp"
+#include "../lib/Crypto.h"
 #include "../lib/Utilities.h"
 #include "AccountBuffer.h"
 
@@ -348,6 +349,7 @@ private:
                                      const Ledger::Transaction &tx) const;
   Roe<void> looseProcessTransaction(const Ledger::Transaction &tx);
 
+  Crypto crypto_;
   consensus::Ouroboros consensus_;
   Ledger ledger_;
   AccountBuffer bank_;

@@ -1,4 +1,5 @@
 #include "../../lib/BinaryPack.hpp"
+#include "../../lib/Crypto.h"
 #include "../../lib/Utilities.h"
 #include "../AccountBuffer.h"
 #include "../Chain.h"
@@ -62,6 +63,7 @@ Client::UserAccount makeUserAccount(const std::string &publicKey,
   Client::UserAccount account;
   account.wallet.publicKeys = {publicKey};
   account.wallet.minSignatures = 1;
+  account.wallet.keyType = Crypto::TK_ED25519;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
   account.meta = "test";
   return account;
@@ -89,6 +91,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
   gm.genesis.wallet.publicKeys = {genesisKey.publicKey};
   gm.genesis.wallet.minSignatures = 1;
+  gm.genesis.wallet.keyType = Crypto::TK_ED25519;
   gm.genesis.meta = "genesis";
 
   Ledger::ChainNode genesis;

@@ -23,15 +23,17 @@ public:
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
     std::vector<std::string> publicKeys;
     uint8_t minSignatures{ 0 };
+    uint8_t keyType{ 0 };  // Crypto::TK_ED25519 = 1; use Crypto::isSupported() to check
 
     bool operator==(const Wallet& other) const {
       return mBalances == other.mBalances &&
              publicKeys == other.publicKeys &&
-             minSignatures == other.minSignatures;
+             minSignatures == other.minSignatures &&
+             keyType == other.keyType;
     }
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & mBalances & publicKeys & minSignatures;
+      ar & mBalances & publicKeys & minSignatures & keyType;
     }
 
     nlohmann::json toJson() const;

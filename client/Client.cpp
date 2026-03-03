@@ -30,7 +30,8 @@ std::ostream& operator<<(std::ostream& os, const Client::Wallet& wallet) {
     os << utl::toJsonSafeString(pk);
     firstKey = false;
   }
-  os << "], minSignatures: " << (int)wallet.minSignatures << "}";
+  os << "], minSignatures: " << (int)wallet.minSignatures
+     << ", keyType: " << (int)wallet.keyType << "}";
   return os;
 }
 
@@ -52,6 +53,7 @@ nlohmann::json Client::Wallet::toJson() const {
   }
   j["publicKeys"] = keysArray;
   j["minSignatures"] = minSignatures;
+  j["keyType"] = keyType;
   return j;
 }
 
