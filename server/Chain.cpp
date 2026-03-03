@@ -1586,6 +1586,7 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
 Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
                                                   const Ledger::Transaction &tx,
                                                   uint64_t blockId,
+                                                  bool isBufferMode,
                                                   bool isStrictMode) const {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
       tx.toWalletId != AccountBuffer::ID_GENESIS) {
@@ -1639,6 +1640,13 @@ Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
     return {};
   }
 
+  if (isBufferMode && tx.fee > 0) {
+    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+    if (!feeRoe) {
+      return feeRoe;
+    }
+  }
+
   if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
                           gm.genesis.wallet.mBalances)) {
     return Error(E_TX_VALIDATION,
@@ -1656,6 +1664,18 @@ Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
     return Error(E_INTERNAL_BUFFER, "Failed to add renewed genesis account: " +
                                         addResult.error().message);
   }
+
+  if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
+    auto depositResult = bank.depositBalance(
+        AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
+        static_cast<int64_t>(tx.fee));
+    if (!depositResult) {
+      return Error(E_TX_TRANSFER,
+                   "Failed to credit fee to fee account: " +
+                       depositResult.error().message);
+    }
+  }
+
   return {};
 }
 
@@ -1663,7 +1683,7 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
                                               uint64_t blockId,
                                               bool isStrictMode) {
   log().info << "Processing genesis renewal transaction";
-  auto result = processGenesisRenewalImpl(bank_, tx, blockId, isStrictMode);
+  auto result = processGenesisRenewalImpl(bank_, tx, blockId, false, isStrictMode);
   if (!result) {
     return result.error();
   }
@@ -1901,6 +1921,12 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
     if (!roe) {
       return roe;
     }
+    if (tx.fee > 0) {
+      auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+      if (!feeRoe) {
+        return feeRoe;
+      }
+    }
   }
 
   auto bufferAccountResult = bank.getAccount(tx.fromWalletId);
@@ -1927,6 +1953,17 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
   if (!addResult) {
     return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
                                         addResult.error().message);
+  }
+
+  if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
+    auto depositResult = bank.depositBalance(
+        AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
+        static_cast<int64_t>(tx.fee));
+    if (!depositResult) {
+      return Error(E_TX_TRANSFER,
+                   "Failed to credit fee to fee account: " +
+                       depositResult.error().message);
+    }
   }
 
   return {};
@@ -2093,7 +2130,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
   if (!genesisRoe) {
     return genesisRoe;
   }
-  return processGenesisRenewalImpl(bank, tx, blockId, true);
+  return processGenesisRenewalImpl(bank, tx, blockId, true, true);
 }
 
 Chain::Roe<void>

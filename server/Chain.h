@@ -321,7 +321,7 @@ private:
                                   uint64_t blockId, bool isStrictMode);
   Roe<void> processGenesisRenewalImpl(AccountBuffer &bank,
                                       const Ledger::Transaction &tx,
-                                      uint64_t blockId,
+                                      uint64_t blockId, bool isBufferMode,
                                       bool isStrictMode) const;
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
                                            const Ledger::Transaction &tx,
