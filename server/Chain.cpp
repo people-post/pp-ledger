@@ -429,20 +429,20 @@ Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
   auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
   if (it != userAccount.wallet.mBalances.end()) {
     const int64_t fee = static_cast<int64_t>(minFee);
-    if (account.id != AccountBuffer::ID_FEE) {
-      if (it->second < fee) {
-        return Error(E_ACCOUNT_BALANCE,
-                     "Insufficient genesis balance for renewal fee");
-      }
-    } else {
+    if (account.id == AccountBuffer::ID_FEE) {
       // Fee account renewing itself: fee is paid to self, so balance may go
       // negative temporarily; check for underflow only.
       if (it->second < std::numeric_limits<int64_t>::min() + fee) {
         return Error(E_TX_VALIDATION,
                      "Fee account balance underflow while applying renewal fee");
       }
+    } else {
+      if (it->second < fee) {
+        return Error(E_ACCOUNT_BALANCE,
+                     "Insufficient genesis balance for renewal fee");
+      }
+      it->second -= fee;
     }
-    it->second -= fee;
   }
   return userAccount.ltsToString();
 }
