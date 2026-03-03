@@ -14,6 +14,7 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <iostream>
@@ -448,15 +449,149 @@ static void handleTxByIndex(const httplib::Request& req, httplib::Response& res,
   res.set_content(r.value().toJson().dump(), "application/json");
 }
 
-static void handleTxPost(const httplib::Request& req, httplib::Response& res,
-                        pp::Client& minerClient) {
-  const std::string& body = req.body;
-  auto unpacked = pp::utl::binaryUnpack<pp::Ledger::SignedData<pp::Ledger::Transaction>>(body);
-  if (!unpacked) {
-    setJsonError(res, 400, std::string("Invalid signed tx: ") + unpacked.error().message);
+static uint64_t jsonToUint64(const json& j, const std::string& key, uint64_t defaultVal) {
+  if (!j.contains(key)) return defaultVal;
+  const auto& v = j[key];
+  if (v.is_number_unsigned()) return v.get<uint64_t>();
+  if (v.is_number_integer()) {
+    int64_t n = v.get<int64_t>();
+    if (n < 0) return defaultVal;
+    return static_cast<uint64_t>(n);
+  }
+  if (v.is_string()) {
+    std::string s = v.get<std::string>();
+    if (s.size() >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+      s = s.substr(2);
+    try {
+      return std::stoull(s, nullptr, 16);
+    } catch (...) {
+      return defaultVal;
+    }
+  }
+  return defaultVal;
+}
+
+static bool isHexStringStrict(const std::string& input) {
+  if (input.empty() || (input.size() % 2) != 0) return false;
+  for (unsigned char ch : input) {
+    if (!std::isxdigit(static_cast<unsigned char>(ch))) return false;
+  }
+  return true;
+}
+
+static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
+                          pp::Client& /*minerClient*/) {
+  json body;
+  try {
+    body = json::parse(req.body);
+  } catch (const json::exception&) {
+    setJsonError(res, 400, "Invalid JSON in request body");
     return;
   }
-  auto r = minerClient.addTransaction(unpacked.value());
+  if (!body.contains("fromWalletId") || !body.contains("toWalletId") || !body.contains("amount")) {
+    setJsonError(res, 400, "fromWalletId, toWalletId, and amount are required");
+    return;
+  }
+
+  pp::Ledger::Transaction tx;
+  tx.type = static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::Transaction::T_DEFAULT));
+  tx.tokenId = jsonToUint64(body, "tokenId", 0);
+  tx.fromWalletId = jsonToUint64(body, "fromWalletId", 0);
+  tx.toWalletId = jsonToUint64(body, "toWalletId", 0);
+  tx.amount = jsonToUint64(body, "amount", 0);
+  tx.fee = jsonToUint64(body, "fee", 0);
+
+  if (body.contains("metaHex") && body["metaHex"].is_string()) {
+    std::string metaHex = body["metaHex"].get<std::string>();
+    if (!metaHex.empty()) {
+      if (!isHexStringStrict(metaHex)) {
+        setJsonError(res, 400, "metaHex must be an even-length hex string without 0x prefix");
+        return;
+      }
+      tx.meta = pp::utl::hexDecode(metaHex);
+    }
+  }
+
+  if (body.contains("idempotentId")) {
+    tx.idempotentId = jsonToUint64(body, "idempotentId", 0);
+  }
+  if (body.contains("validationTsMin")) {
+    tx.validationTsMin = static_cast<int64_t>(jsonToUint64(body, "validationTsMin", 0));
+  }
+  if (body.contains("validationTsMax")) {
+    tx.validationTsMax = static_cast<int64_t>(jsonToUint64(body, "validationTsMax", 0));
+  }
+  if (!body.contains("validationTsMin") && !body.contains("validationTsMax")) {
+    setValidationWindow(tx);
+  }
+
+  std::string unsignedTxPayload = pp::utl::binaryPack(tx);
+  json resp = {{"transactionHex", pp::utl::hexEncode(unsignedTxPayload)}};
+  res.set_content(resp.dump(), "application/json");
+}
+
+static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
+                           pp::Client& minerClient) {
+  json body;
+  try {
+    body = json::parse(req.body);
+  } catch (const json::exception&) {
+    setJsonError(res, 400, "Invalid JSON in request body");
+    return;
+  }
+  if (!body.contains("transactionHex") || !body["transactionHex"].is_string()) {
+    setJsonError(res, 400, "transactionHex is required and must be a string");
+    return;
+  }
+  if (!body.contains("signaturesHex") || !body["signaturesHex"].is_array()) {
+    setJsonError(res, 400, "signaturesHex is required and must be an array");
+    return;
+  }
+
+  std::string transactionHex = body["transactionHex"].get<std::string>();
+  if (!isHexStringStrict(transactionHex)) {
+    setJsonError(res, 400, "transactionHex must be a non-empty even-length hex string without 0x prefix");
+    return;
+  }
+  std::string transactionPayload = pp::utl::hexDecode(transactionHex);
+  if (transactionPayload.empty()) {
+    setJsonError(res, 400, "transactionHex failed to decode");
+    return;
+  }
+
+  auto txUnpacked = pp::utl::binaryUnpack<pp::Ledger::Transaction>(transactionPayload);
+  if (!txUnpacked) {
+    setJsonError(res, 400, std::string("Invalid packed transactionHex: ") + txUnpacked.error().message);
+    return;
+  }
+
+  pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
+  signedTx.obj = txUnpacked.value();
+
+  const auto& sigsArr = body["signaturesHex"];
+  if (sigsArr.empty()) {
+    setJsonError(res, 400, "signaturesHex must contain at least one signature");
+    return;
+  }
+  for (const auto& item : sigsArr) {
+    if (!item.is_string()) {
+      setJsonError(res, 400, "signaturesHex entries must be strings");
+      return;
+    }
+    std::string sigHex = item.get<std::string>();
+    if (!isHexStringStrict(sigHex) || sigHex.size() != 128) {
+      setJsonError(res, 400, "each signature hex must be exactly 128 hex chars (64 bytes), without 0x prefix");
+      return;
+    }
+    std::string sig = pp::utl::hexDecode(sigHex);
+    if (sig.size() != 64) {
+      setJsonError(res, 400, "signature hex failed to decode to 64 bytes");
+      return;
+    }
+    signedTx.signatures.push_back(std::move(sig));
+  }
+
+  auto r = minerClient.addTransaction(signedTx);
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
@@ -635,8 +770,11 @@ int main(int argc, char** argv) {
   svr.Get("/api/tx/by-index", [&](const httplib::Request& req, httplib::Response& res) {
     handleTxByIndex(req, res, beaconClient);
   });
-  svr.Post("/api/tx", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxPost(req, res, minerClient);
+  svr.Post("/api/tx/build", [&](const httplib::Request& req, httplib::Response& res) {
+    handleTxBuild(req, res, minerClient);
+  });
+  svr.Post("/api/tx/submit", [&](const httplib::Request& req, httplib::Response& res) {
+    handleTxSubmit(req, res, minerClient);
   });
 
   // MCP routes
@@ -651,7 +789,7 @@ int main(int argc, char** argv) {
   httpLog.info << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort;
   httpLog.info << "Routes: GET /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
   httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
-  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx (binary body)";
+  httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
   httpLog.info << "MCP:    GET /mcp/sse (SSE endpoint), POST /mcp/messages?sessionId=<id>";
   svr.listen(httpHost, static_cast<int>(httpPort));
   return 0;
