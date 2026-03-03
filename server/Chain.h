@@ -213,7 +213,6 @@ private:
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
-  bool isValidBlockSequence(const Ledger::ChainNode &block) const;
   bool isValidSlotLeader(const Ledger::ChainNode &block) const;
   bool isValidTimestamp(const Ledger::ChainNode &block) const;
 
@@ -243,6 +242,7 @@ private:
                                       const AccountBuffer::Account &account,
                                       uint64_t minFee) const;
 
+  Roe<void> validateBlockSequence(const Ledger::ChainNode &block) const;
   Roe<void> validateAccountRenewals(const Ledger::ChainNode &block) const;
 
   /** Verify that signatures validly sign the transaction using the account's
@@ -261,7 +261,7 @@ private:
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                bool isStrictMode);
   Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) const;
-  Roe<void> validateNormalBlock(const Ledger::ChainNode &block) const;
+  Roe<void> validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) const;
 
   Roe<void> processGenesisTxRecord(
       const Ledger::SignedData<Ledger::Transaction> &signedTx);
@@ -281,13 +281,13 @@ private:
   /** Validate idempotency rules (timespan, slot in window, duplicate id).
    * effectiveSlot is current slot (submit) or block.slot (replay). */
   Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
-                                     uint64_t effectiveSlot) const;
+                                     uint64_t effectiveSlot, bool isStrictMode) const;
 
   // System
   Roe<void> processSystemInit(const Ledger::Transaction &tx);
   Roe<GenesisAccountMeta> processSystemUpdateImpl(AccountBuffer &bank,
                                                   const Ledger::Transaction &tx,
-                                                  uint64_t blockId) const;
+                                                  uint64_t blockId, bool isStrictMode) const;
   Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                                 bool isStrictMode);
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
@@ -299,8 +299,8 @@ private:
    * bank_ and checks existence in both. */
   Roe<void> processUserInitImpl(AccountBuffer &bank,
                                 const Ledger::Transaction &tx, uint64_t blockId,
-                                bool isBufferMode) const;
-  Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId);
+                                bool isBufferMode, bool isStrictMode) const;
+  Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId, bool isStrictMode);
   Roe<void> processBufferUserInit(AccountBuffer &bank,
                                   const Ledger::Transaction &tx,
                                   uint64_t blockId) const;
@@ -351,7 +351,7 @@ private:
   consensus::Ouroboros consensus_;
   Ledger ledger_;
   AccountBuffer bank_;
-  BlockChainConfig chainConfig_;
+  std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
   uint64_t currentCheckpointId_{0};
   uint64_t lastCheckpointId_{0};
 };

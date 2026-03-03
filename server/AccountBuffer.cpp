@@ -32,7 +32,7 @@ AccountBuffer::Roe<const AccountBuffer::Account &>
 AccountBuffer::getAccount(uint64_t id) const {
   auto it = mAccounts_.find(id);
   if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
   }
   return it->second;
 }
@@ -101,7 +101,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   // Check if account exists
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
   // Get token balance
@@ -180,7 +180,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
   // Check if account exists
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
   const auto &account = it->second;
@@ -262,7 +262,7 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId,
 
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
   int64_t currentBalance = 0;
@@ -287,7 +287,7 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
 
   auto it = mAccounts_.find(accountId);
   if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
   int64_t currentBalance = 0;
@@ -320,12 +320,12 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
 
   auto fromIt = mAccounts_.find(fromId);
   if (fromIt == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Source account not found");
+    return Error(E_ACCOUNT, "Source account not found: " + std::to_string(fromId));
   }
 
   auto toIt = mAccounts_.find(toId);
   if (toIt == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Destination account not found");
+    return Error(E_ACCOUNT, "Destination account not found: " + std::to_string(toId));
   }
 
   int64_t fromBalance = 0;
@@ -370,7 +370,7 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
 
     auto feeIt = mAccounts_.find(ID_FEE);
     if (feeIt == mAccounts_.end()) {
-      return Error(E_ACCOUNT, "Fee account not found");
+      return Error(E_ACCOUNT, "Fee account not found: " + std::to_string(ID_FEE));
     }
     int64_t feeAccountBalance = 0;
     auto feeBalanceIt = feeIt->second.wallet.mBalances.find(ID_GENESIS);
@@ -389,12 +389,12 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
 AccountBuffer::Roe<void> AccountBuffer::writeOff(uint64_t accountId) {
   auto itAccount = mAccounts_.find(accountId);
   if (itAccount == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found");
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
   auto itRecycle = mAccounts_.find(ID_RECYCLE);
   if (itRecycle == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Recycle account not found");
+    return Error(E_ACCOUNT, "Recycle account not found: " + std::to_string(ID_RECYCLE));
   }
 
   for (const auto &[tokenId, amount] : itAccount->second.wallet.mBalances) {

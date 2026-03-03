@@ -192,43 +192,42 @@ bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
   return true;
 }
 
-bool Chain::isValidBlockSequence(const Ledger::ChainNode &block) const {
-  // When appending: block must be the next one (index == getNextBlockId)
-  // When loading: block is already in ledger (index < getNextBlockId), skip
-  // this
-  if (block.block.index >= ledger_.getNextBlockId()) {
-    if (block.block.index != ledger_.getNextBlockId()) {
-      log().warning << "Invalid block index: expected "
-                    << ledger_.getNextBlockId() << " got " << block.block.index;
-      return false;
+Chain::Roe<void> Chain::validateBlockSequence(const Ledger::ChainNode &block) const {
+  const uint64_t startingBlockId = ledger_.getStartingBlockId();
+  if (block.block.index < startingBlockId) {
+    return Error(E_BLOCK_INDEX, "Invalid block index: expected >= " + std::to_string(startingBlockId) + " got " + std::to_string(block.block.index));
+  }
+
+  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  if (block.block.index > nextBlockId) {
+    return Error(E_BLOCK_INDEX, "Invalid block index: expected <= " + std::to_string(nextBlockId) + " got " + std::to_string(block.block.index));
+  }
+
+  // For the first block in this ledger range, there is no previous block.
+  if (block.block.index > startingBlockId) {
+    auto prevBlockResult = ledger_.readBlock(block.block.index - 1);
+    if (!prevBlockResult) {
+      return Error(E_BLOCK_NOT_FOUND, "Latest block not found: " + std::to_string(block.block.index - 1));
+    }
+    auto prevBlock = prevBlockResult.value();
+
+    if (block.block.index != prevBlock.block.index + 1) {
+      return Error(E_BLOCK_INDEX, "Invalid block index: expected " + std::to_string(prevBlock.block.index + 1) + " got " + std::to_string(block.block.index));
+    }
+
+    // Check previous hash matches
+    if (block.block.previousHash != prevBlock.hash) {
+      return Error(E_BLOCK_HASH, "Invalid previous hash: expected " + prevBlock.hash + " got " + block.block.previousHash);
+    }
+
+    // txIndex must equal previous block's cumulative transaction count
+    const uint64_t expectedTxIndex = prevBlock.block.txIndex + prevBlock.block.signedTxes.size();
+    if (block.block.txIndex != expectedTxIndex) {
+      return Error(E_BLOCK_INDEX, "Invalid txIndex: expected " + std::to_string(expectedTxIndex) + " got " + std::to_string(block.block.txIndex));
     }
   }
 
-  if (block.block.index == 0) {
-    return true;
-  }
-
-  auto latestBlockResult = ledger_.readBlock(block.block.index - 1);
-  if (!latestBlockResult) {
-    log().warning << "Latest block not found: " << block.block.index - 1;
-    return false;
-  }
-  auto latestBlock = latestBlockResult.value();
-
-  if (block.block.index != latestBlock.block.index + 1) {
-    log().warning << "Invalid block index: expected "
-                  << (latestBlock.block.index + 1) << " got "
-                  << block.block.index;
-    return false;
-  }
-
-  // Check previous hash matches
-  if (block.block.previousHash != latestBlock.hash) {
-    log().warning << "Invalid previous hash";
-    return false;
-  }
-
-  return true;
+  return {};
 }
 
 bool Chain::needsCheckpoint(const CheckpointConfig &checkpointConfig) const {
@@ -256,7 +255,7 @@ int64_t Chain::getSlotStartTime(uint64_t slot) const {
   return consensus_.getSlotStartTime(slot);
 }
 
-uint64_t Chain::getSlotDuration() const { return chainConfig_.slotDuration; }
+uint64_t Chain::getSlotDuration() const { return optChainConfig_.has_value() ? optChainConfig_.value().slotDuration : 0; }
 
 uint64_t Chain::getCurrentSlot() const { return consensus_.getCurrentSlot(); }
 
@@ -269,7 +268,7 @@ uint64_t Chain::getStakeholderStake(uint64_t stakeholderId) const {
 }
 
 uint64_t Chain::getMaxTransactionsPerBlock() const {
-  return chainConfig_.maxTransactionsPerBlock;
+  return optChainConfig_.has_value() ? optChainConfig_.value().maxTransactionsPerBlock : 0;
 }
 
 Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
@@ -572,13 +571,17 @@ Chain::validateAccountRenewals(const Ledger::ChainNode &block) const {
 
 Chain::Roe<uint64_t>
 Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
-  const uint64_t minBlocks = chainConfig_.checkpoint.minBlocks;
+  if (!optChainConfig_.has_value()) {
+    return Error(E_INTERNAL, "Chain config not initialized");
+  }
+  const BlockChainConfig &config = optChainConfig_.value();
+  const uint64_t minBlocks = config.checkpoint.minBlocks;
   if (atBlockId < minBlocks) {
     return 0;
   }
   uint64_t maxBlockIdFromBlocks = atBlockId - minBlocks + 1;
 
-  const uint64_t minAgeSeconds = chainConfig_.checkpoint.minAgeSeconds;
+  const uint64_t minAgeSeconds = config.checkpoint.minAgeSeconds;
 
   uint64_t maxBlockIdFromTime = atBlockId;
   if (minAgeSeconds > 0 && atBlockId > 0) {
@@ -796,12 +799,14 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Resetting account buffer";
   bank_.reset();
 
-  // Process blocks from ledger one by one
+  // Process blocks from ledger one by one (replay existing chain state)
+  // Starting block id is always a checkpoint id
+  lastCheckpointId_ = startingBlockId;
+  currentCheckpointId_ = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  bool isStrictMode =
-      startingBlockId ==
-      0; // True if we are loading from the beginning (strict validation)
+  // Strict validatation if we are loading from the beginning
+  bool isStrictMode = startingBlockId == 0;
   while (true) {
     auto blockResult = ledger_.readBlock(blockId);
     if (!blockResult) {
@@ -1010,44 +1015,8 @@ Chain::validateGenesisBlock(const Ledger::ChainNode &block) const {
 }
 
 Chain::Roe<void>
-Chain::validateNormalBlock(const Ledger::ChainNode &block) const {
+Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) const {
   // Non-genesis: validate slot leader and timing
-  uint64_t slot = block.block.slot;
-  uint64_t slotLeader = block.block.slotLeader;
-  if (!consensus_.validateSlotLeader(slotLeader, slot)) {
-    return Error(E_CONSENSUS_SLOT_LEADER,
-                 "Invalid slot leader for block at slot " +
-                     std::to_string(slot));
-  }
-  if (!consensus_.validateBlockTiming(block.block.timestamp, slot)) {
-    return Error(E_CONSENSUS_TIMING,
-                 "Block timestamp outside valid slot range");
-  }
-
-  // Validate hash chain (previous block link and index)
-  if (block.block.index > 0) {
-    auto latestBlockResult = ledger_.readBlock(block.block.index - 1);
-    if (!latestBlockResult) {
-      return Error(E_BLOCK_NOT_FOUND,
-                   "Latest block not found: " +
-                       std::to_string(block.block.index - 1));
-    }
-    auto latestBlock = latestBlockResult.value();
-    if (block.block.previousHash != latestBlock.hash) {
-      return Error(E_BLOCK_CHAIN, "Block previous hash does not match chain");
-    }
-    if (block.block.index != latestBlock.block.index + 1) {
-      return Error(E_BLOCK_INDEX, "Block index mismatch");
-    }
-    // txIndex must equal previous block's cumulative count
-    const uint64_t expected =
-        latestBlock.block.txIndex + latestBlock.block.signedTxes.size();
-    if (block.block.txIndex != expected) {
-      return Error(E_BLOCK_INDEX, "Block txIndex mismatch: expected " +
-                                      std::to_string(expected) + " got " +
-                                      std::to_string(block.block.txIndex));
-    }
-  }
 
   // Validate block hash
   std::string calculatedHash = calculateHash(block.block);
@@ -1055,37 +1024,53 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block) const {
     return Error(E_BLOCK_HASH, "Block hash validation failed");
   }
 
-  // Validate sequence
-  if (!isValidBlockSequence(block)) {
-    return Error(E_BLOCK_SEQUENCE, "Invalid block sequence");
+  // Validate sequence (hash chain, index, txIndex)
+  auto sequenceValidation = validateBlockSequence(block);
+  if (!sequenceValidation) {
+    return sequenceValidation.error();
   }
 
-  // Validate slot leader
-  if (!isValidSlotLeader(block)) {
-    return Error(E_CONSENSUS_SLOT_LEADER, "Invalid slot leader");
-  }
+  if (isStrictMode) {
+    // Strict mode only checks
+    uint64_t slot = block.block.slot;
+    uint64_t slotLeader = block.block.slotLeader;
+    if (!consensus_.validateSlotLeader(slotLeader, slot)) {
+      return Error(E_CONSENSUS_SLOT_LEADER,
+                   "Invalid slot leader for block at slot " +
+                       std::to_string(slot));
+    }
+    if (!consensus_.validateBlockTiming(block.block.timestamp, slot)) {
+      return Error(E_CONSENSUS_TIMING,
+                   "Block timestamp outside valid slot range");
+    }
 
-  // Validate timestamp
-  if (!isValidTimestamp(block)) {
-    return Error(E_CONSENSUS_TIMING, "Invalid timestamp");
-  }
+    // Validate slot leader
+    if (!isValidSlotLeader(block)) {
+      return Error(E_CONSENSUS_SLOT_LEADER, "Invalid slot leader");
+    }
 
-  // Validate account renewals in the block
-  auto renewalValidation = validateAccountRenewals(block);
-  if (!renewalValidation) {
-    return renewalValidation.error();
-  }
+    // Validate timestamp
+    if (!isValidTimestamp(block)) {
+      return Error(E_CONSENSUS_TIMING, "Invalid timestamp");
+    }
 
-  // Validate max transactions per block: if total > max, all must be renewals
-  const uint64_t maxTx = chainConfig_.maxTransactionsPerBlock;
-  if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
-    for (const auto &signedTx : block.block.signedTxes) {
-      if (signedTx.obj.type != Ledger::Transaction::T_RENEWAL) {
-        return Error(E_BLOCK_VALIDATION,
-                     "Block has more than max transactions per block (" +
-                         std::to_string(block.block.signedTxes.size()) + " > " +
-                         std::to_string(maxTx) +
-                         ") but contains non-renewal transaction");
+    // Validate account renewals in the block
+    auto renewalValidation = validateAccountRenewals(block);
+    if (!renewalValidation) {
+      return renewalValidation.error();
+    }
+
+    // Validate max transactions per block: if total > max, all must be renewals
+    const uint64_t maxTx = optChainConfig_.value().maxTransactionsPerBlock;
+    if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
+      for (const auto &signedTx : block.block.signedTxes) {
+        if (signedTx.obj.type != Ledger::Transaction::T_RENEWAL) {
+          return Error(E_BLOCK_VALIDATION,
+                       "Block has more than max transactions per block (" +
+                           std::to_string(block.block.signedTxes.size()) + " > " +
+                           std::to_string(maxTx) +
+                           ") but contains non-renewal transaction");
+        }
       }
     }
   }
@@ -1146,7 +1131,7 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
 Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
                                            bool isStrictMode) {
   // Validate the block first
-  auto roe = validateNormalBlock(block);
+  auto roe = validateNormalBlock(block, isStrictMode);
   if (!roe) {
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +
@@ -1174,7 +1159,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
   auto roe = validateTxSignatures(signedTx, slotLeaderId, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
-                 "Failed to validate transaction: " + roe.error().message);
+                 "Failed to validate buffer transaction: " + roe.error().message);
   }
 
   auto blockId = getNextBlockId();
@@ -1182,14 +1167,14 @@ Chain::Roe<void> Chain::addBufferTransaction(
   const uint64_t currentSlot = getCurrentSlot();
   switch (tx.type) {
   case Ledger::Transaction::T_DEFAULT: {
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processBufferTransaction(bank, tx);
   }
   case Ledger::Transaction::T_NEW_USER: {
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
@@ -1202,14 +1187,14 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return processBufferUserInit(bank, tx, blockId);
   }
   case Ledger::Transaction::T_CONFIG: {
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processBufferSystemUpdate(bank, tx, blockId);
   }
   case Ledger::Transaction::T_USER: {
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot);
+    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
@@ -1241,7 +1226,7 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
   case Ledger::Transaction::T_GENESIS:
     return processSystemInit(tx);
   case Ledger::Transaction::T_NEW_USER:
-    return processUserInit(tx, 0);
+    return processUserInit(tx, 0, true);
   default:
     return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
                                 std::to_string(tx.type));
@@ -1260,21 +1245,21 @@ Chain::Roe<void> Chain::processNormalTxRecord(
   auto const &tx = signedTx.obj;
   switch (tx.type) {
   case Ledger::Transaction::T_NEW_USER: {
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
-    return processUserInit(tx, blockId);
+    return processUserInit(tx, blockId, isStrictMode);
   }
   case Ledger::Transaction::T_CONFIG: {
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processSystemUpdate(tx, blockId, isStrictMode);
   }
   case Ledger::Transaction::T_USER: {
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
@@ -1288,7 +1273,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
   case Ledger::Transaction::T_END_USER:
     return processUserEnd(tx, blockId, isStrictMode);
   case Ledger::Transaction::T_DEFAULT: {
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot);
+    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
@@ -1375,7 +1360,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
         return {};
       }
       return Error(E_ACCOUNT_NOT_FOUND,
-                   "Failed to get account: " + accountResult.error().message);
+                   "Failed to get account when validating transaction signatures: " + accountResult.error().message);
     } else {
       // In loose mode, account may not be created before their transactions
       return {};
@@ -1426,7 +1411,10 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId,
 }
 
 Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
-                                                 uint64_t effectiveSlot) const {
+                                                 uint64_t effectiveSlot, bool isStrictMode) const {
+  if (!isStrictMode) {
+    return {};
+  }
   if (tx.idempotentId == 0) {
     return {};
   }
@@ -1437,12 +1425,12 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
   }
   const uint64_t spanSeconds =
       static_cast<uint64_t>(tx.validationTsMax - tx.validationTsMin);
-  if (chainConfig_.maxValidationTimespanSeconds > 0 &&
-      spanSeconds > chainConfig_.maxValidationTimespanSeconds) {
+  if (optChainConfig_.value().maxValidationTimespanSeconds > 0 &&
+      spanSeconds > optChainConfig_.value().maxValidationTimespanSeconds) {
     return Error(E_TX_VALIDATION_TIMESPAN,
                  "Validation window exceeds max timespan: " +
                      std::to_string(spanSeconds) + " > " +
-                     std::to_string(chainConfig_.maxValidationTimespanSeconds));
+                     std::to_string(optChainConfig_.value().maxValidationTimespanSeconds));
   }
   const uint64_t slotMin = consensus_.getSlotFromTimestamp(tx.validationTsMin);
   const uint64_t slotMax = consensus_.getSlotFromTimestamp(tx.validationTsMax);
@@ -1479,19 +1467,18 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
   }
 
   // Reset chain configuration
-  chainConfig_ = gm.config;
+  optChainConfig_ = gm.config;
 
   // Reset consensus parameters
   auto config = consensus_.getConfig();
 
   if (config.genesisTime == 0) {
-    config.genesisTime = chainConfig_.genesisTime;
-  } else if (chainConfig_.genesisTime != config.genesisTime) {
+    config.genesisTime = optChainConfig_.value().genesisTime;
+  } else if (optChainConfig_.value().genesisTime != config.genesisTime) {
     return Error(E_TX_VALIDATION, "Genesis time mismatch");
   }
-
-  config.slotDuration = chainConfig_.slotDuration;
-  config.slotsPerEpoch = chainConfig_.slotsPerEpoch;
+  config.slotDuration = optChainConfig_.value().slotDuration;
+  config.slotsPerEpoch = optChainConfig_.value().slotsPerEpoch;
   consensus_.init(config);
 
   AccountBuffer::Account genesisAccount;
@@ -1507,7 +1494,7 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
 
   log().info << "System initialized";
   log().info << "  Version: " << gm.VERSION;
-  log().info << "  Config: " << chainConfig_;
+  log().info << "  Config: " << optChainConfig_.value();
   log().info << "  Genesis: " << gm.genesis;
 
   return {};
@@ -1516,7 +1503,7 @@ Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
 Chain::Roe<Chain::GenesisAccountMeta>
 Chain::processSystemUpdateImpl(AccountBuffer &bank,
                                const Ledger::Transaction &tx,
-                               uint64_t blockId) const {
+                               uint64_t blockId, bool isStrictMode) const {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
       tx.toWalletId != AccountBuffer::ID_GENESIS) {
     return Error(E_TX_VALIDATION, "System update transaction must use genesis "
@@ -1536,18 +1523,6 @@ Chain::processSystemUpdateImpl(AccountBuffer &bank,
                  "Failed to deserialize checkpoint config: " + tx.meta);
   }
 
-  if (gm.config.genesisTime != chainConfig_.genesisTime) {
-    return Error(E_TX_VALIDATION, "Genesis time mismatch");
-  }
-
-  if (gm.config.slotDuration > chainConfig_.slotDuration) {
-    return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
-  }
-
-  if (gm.config.slotsPerEpoch < chainConfig_.slotsPerEpoch) {
-    return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
-  }
-
   if (gm.genesis.wallet.publicKeys.size() < 3) {
     return Error(E_TX_VALIDATION,
                  "Genesis account must have at least 3 public keys");
@@ -1556,6 +1531,20 @@ Chain::processSystemUpdateImpl(AccountBuffer &bank,
   if (gm.genesis.wallet.minSignatures < 2) {
     return Error(E_TX_VALIDATION,
                  "Genesis account must have at least 2 signatures");
+  }
+
+  if (isStrictMode) {
+    if (gm.config.genesisTime != optChainConfig_.value().genesisTime) {
+      return Error(E_TX_VALIDATION, "Genesis time mismatch");
+    }
+
+    if (gm.config.slotDuration > optChainConfig_.value().slotDuration) {
+      return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
+    }
+
+    if (gm.config.slotsPerEpoch < optChainConfig_.value().slotsPerEpoch) {
+      return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
+    }
   }
 
   if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
@@ -1582,14 +1571,14 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
   log().info << "Processing system update transaction";
-  auto result = processSystemUpdateImpl(bank_, tx, blockId);
+  auto result = processSystemUpdateImpl(bank_, tx, blockId, isStrictMode);
   if (!result) {
     return result.error();
   }
-  chainConfig_ = result.value().config;
+  optChainConfig_ = result.value().config;
   log().info << "System updated";
   log().info << "  Version: " << GenesisAccountMeta::VERSION;
-  log().info << "  Config: " << chainConfig_;
+  log().info << "  Config: " << optChainConfig_.value();
   return {};
 }
 
@@ -1611,15 +1600,6 @@ Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
     return Error(E_TX_VALIDATION,
                  "Genesis renewal transaction must have amount 0");
   }
-  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (tx.fee < minFeePerTransaction) {
-    return Error(E_TX_FEE, "Genesis renewal fee below minimum: " +
-                               std::to_string(tx.fee));
-  }
 
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(tx.meta)) {
@@ -1635,6 +1615,18 @@ Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
   if (gm.genesis.wallet.minSignatures < 2) {
     return Error(E_TX_VALIDATION,
                  "Genesis account must have at least 2 signatures");
+  }
+
+  if (isStrictMode) {
+    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
+    if (!minimumFeeResult) {
+      return minimumFeeResult.error();
+    }
+    const uint64_t minFeePerTransaction = minimumFeeResult.value();
+    if (tx.fee < minFeePerTransaction) {
+      return Error(E_TX_FEE, "Genesis renewal fee below minimum: " +
+                                 std::to_string(tx.fee));
+    }
   }
 
   auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
@@ -1681,15 +1673,17 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
 Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
                                             const Ledger::Transaction &tx,
                                             uint64_t blockId,
-                                            bool isBufferMode) const {
-  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (tx.fee < minFeePerTransaction) {
-    return Error(E_TX_FEE, "New user transaction fee below minimum: " +
-                               std::to_string(tx.fee));
+                                            bool isBufferMode, bool isStrictMode) const {
+  if (isStrictMode) {
+    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
+    if (!minimumFeeResult) {
+      return minimumFeeResult.error();
+    }
+    const uint64_t minFeePerTransaction = minimumFeeResult.value();
+    if (tx.fee < minFeePerTransaction) {
+      return Error(E_TX_FEE, "New user transaction fee below minimum: " +
+                                 std::to_string(tx.fee));
+    }
   }
 
   bool toWalletExists = bank.hasAccount(tx.toWalletId) ||
@@ -1773,9 +1767,9 @@ Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
-                                        uint64_t blockId) {
+                                        uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user initialization transaction";
-  auto result = processUserInitImpl(bank_, tx, blockId, false);
+  auto result = processUserInitImpl(bank_, tx, blockId, false, isStrictMode);
   if (!result) {
     return result.error();
   }
@@ -1828,19 +1822,19 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
     metaSize = userMetaResult.value().meta.size();
   }
 
-  if (metaSize > chainConfig_.maxCustomMetaSize) {
+  if (metaSize > optChainConfig_.value().maxCustomMetaSize) {
     return Error(E_TX_VALIDATION,
                  "Custom metadata exceeds maxCustomMetaSize: " +
                      std::to_string(metaSize) + " > " +
-                     std::to_string(chainConfig_.maxCustomMetaSize));
+                     std::to_string(optChainConfig_.value().maxCustomMetaSize));
   }
 
   const uint64_t nonFreeMetaSize =
-      metaSize > chainConfig_.freeCustomMetaSize
-          ? static_cast<uint64_t>(metaSize) - chainConfig_.freeCustomMetaSize
+      metaSize > optChainConfig_.value().freeCustomMetaSize
+          ? static_cast<uint64_t>(metaSize) - optChainConfig_.value().freeCustomMetaSize
           : 0ULL;
 
-  return calculateMinimumFeeFromNonFreeMetaSize(chainConfig_, nonFreeMetaSize);
+  return calculateMinimumFeeFromNonFreeMetaSize(optChainConfig_.value(), nonFreeMetaSize);
 }
 
 Chain::Roe<void> Chain::processUserAccountUpsertImpl(
@@ -1857,14 +1851,16 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
         "User update transaction must use same from and to wallet IDs");
   }
 
-  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (tx.fee < minFeePerTransaction) {
-    return Error(E_TX_FEE, "User update transaction fee below minimum: " +
-                               std::to_string(tx.fee));
+  if (isStrictMode) {
+    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
+    if (!minimumFeeResult) {
+      return minimumFeeResult.error();
+    }
+    const uint64_t minFeePerTransaction = minimumFeeResult.value();
+    if (tx.fee < minFeePerTransaction) {
+      return Error(E_TX_FEE, "User update transaction fee below minimum: " +
+                                 std::to_string(tx.fee));
+    }
   }
 
   if (tx.amount != 0) {
@@ -2054,7 +2050,7 @@ Chain::processBufferTransaction(AccountBuffer &bank,
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
                                               const Ledger::Transaction &tx,
                                               uint64_t blockId) const {
-  return processUserInitImpl(bank, tx, blockId, true);
+  return processUserInitImpl(bank, tx, blockId, true, true);
 }
 
 Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
@@ -2064,7 +2060,7 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
   if (!genesisRoe) {
     return genesisRoe;
   }
-  auto configResult = processSystemUpdateImpl(bank, tx, blockId);
+  auto configResult = processSystemUpdateImpl(bank, tx, blockId, true);
   if (!configResult) {
     return configResult.error();
   }
@@ -2110,7 +2106,7 @@ Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
 Chain::Roe<void>
 Chain::strictProcessTransaction(AccountBuffer &bank,
                                 const Ledger::Transaction &tx) const {
-  auto minimumFeeResult = calculateMinimumFeeForTransaction(chainConfig_, tx);
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }

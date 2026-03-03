@@ -115,6 +115,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
   log().info << "  Work directory: " << config.workDir;
 
+  // Initialize consensus(timeOffset only, full config from genesis block when loading)
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.timeOffset = config.timeOffset;
+  chain_.initConsensus(consensusConfig);
+
   // Initialize ledger
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
 
@@ -145,11 +150,6 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
                           ledgerResult.error().message);
     }
   }
-
-  // Initialize consensus
-  consensus::Ouroboros::Config consensusConfig;
-  consensusConfig.timeOffset = config.timeOffset;
-  chain_.initConsensus(consensusConfig);
 
   auto loadResult = chain_.loadFromLedger(config.startingBlockId);
   if (!loadResult) {
