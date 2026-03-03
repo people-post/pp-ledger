@@ -64,7 +64,7 @@ TEST_F(AccountBufferTest, DepositBalance_AccountNotFound_Error) {
     auto r = buf.depositBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found");
+    EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, DepositBalance_Overflow_Error) {
@@ -133,7 +133,7 @@ TEST_F(AccountBufferTest, WithdrawBalance_AccountNotFound_Error) {
     auto r = buf.withdrawBalance(999, AccountBuffer::ID_GENESIS, 100); // tokenId = ID_GENESIS
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found");
+    EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, WithdrawBalance_InsufficientBalance_Error) {
@@ -789,7 +789,7 @@ TEST_F(AccountBufferTest, VerifyBalance_AccountNotFound_Error) {
     auto r = buf.verifyBalance(999, 50, 50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_ACCOUNT);
-    EXPECT_EQ(r.error().message, "Account not found");
+    EXPECT_EQ(r.error().message, "Account not found: 999");
 }
 
 TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeAmount_Error) {
