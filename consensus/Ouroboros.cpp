@@ -152,6 +152,13 @@ std::vector<uint64_t> Ouroboros::getEligibleLeaderPool() const {
   }
   std::vector<std::pair<uint64_t, uint64_t>> byStake(cache_.mStakeholders.begin(),
                                                      cache_.mStakeholders.end());
+  byStake.erase(
+      std::remove_if(byStake.begin(), byStake.end(),
+                     [](const auto& p) { return p.second == 0; }),
+      byStake.end());
+  if (byStake.empty()) {
+    return {};
+  }
   // Sort by stake descending, then by id ascending for deterministic tie-break
   std::sort(byStake.begin(), byStake.end(),
             [](const auto& a, const auto& b) {

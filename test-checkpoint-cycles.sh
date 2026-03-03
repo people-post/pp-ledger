@@ -135,7 +135,11 @@ EOF
     echo "$init_output" | head -5
     echo -e "${GREEN}✓ Beacon initialized with test config${NC}"
 
-    # Extract reserve private keys for add-account (ID_RESERVE=2 needs 3-of-3 multisig)
+    # Extract fee, reserve, and recycle private keys from beacon init output.
+    # Each account uses 3-of-3 multisig:
+    # - Reserve (3 keys) for add-account (ID_RESERVE=2)
+    # - Fee (3 keys) for miner1
+    # - Recycle (3 keys) for miner3
     local key_dir="${TEST_DIR}/keys"
     mkdir -p "$key_dir"
     # Use Python for robust JSON parsing (reserve needs exactly 3 distinct keys)
@@ -154,13 +158,27 @@ if not m:
     sys.exit(1)
 j = json.loads(m.group(1))
 reserve = j.get('reserve', [])
-if len(reserve) != 3:
+fee = j.get('fee', [])
+recycle = j.get('recycle', [])
+if len(reserve) != 3 or len(fee) != 3 or len(recycle) != 3:
     sys.exit(1)
 for i, kp in enumerate(reserve, 1):
     pk = kp.get('privateKey', '')
     if not pk or len(pk) != 64:
         sys.exit(1)
     with open(os.path.join(key_dir, f'reserve{i}.key'), 'w') as f:
+        f.write(pk)
+for i, kp in enumerate(fee, 1):
+    pk = kp.get('privateKey', '')
+    if not pk or len(pk) != 64:
+        sys.exit(1)
+    with open(os.path.join(key_dir, f'fee{i}.key'), 'w') as f:
+        f.write(pk)
+for i, kp in enumerate(recycle, 1):
+    pk = kp.get('privateKey', '')
+    if not pk or len(pk) != 64:
+        sys.exit(1)
+    with open(os.path.join(key_dir, f'recycle{i}.key'), 'w') as f:
         f.write(pk)
 PYEOF
             then
@@ -179,6 +197,24 @@ PYEOF
                 i=$((i + 1))
             fi
         done < <(echo "$init_output" | sed -n '/"reserve"/,/\]/p' | grep '"privateKey"')
+        local j=1
+        while IFS= read -r line; do
+            local pk
+            pk=$(echo "$line" | sed 's/.*"privateKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | tr -d ' \n')
+            if [ -n "$pk" ] && [ ${#pk} -eq 64 ]; then
+                echo "$pk" > "$key_dir/fee${j}.key"
+                j=$((j + 1))
+            fi
+        done < <(echo "$init_output" | sed -n '/"fee"/,/\]/p' | grep '"privateKey"')
+        local k=1
+        while IFS= read -r line; do
+            local pk
+            pk=$(echo "$line" | sed 's/.*"privateKey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | tr -d ' \n')
+            if [ -n "$pk" ] && [ ${#pk} -eq 64 ]; then
+                echo "$pk" > "$key_dir/recycle${k}.key"
+                k=$((k + 1))
+            fi
+        done < <(echo "$init_output" | sed -n '/"recycle"/,/\]/p' | grep '"privateKey"')
     fi
     if [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
         echo -e "${CYAN}Saved 3 reserve keys for add-account tests (3-of-3 multisig)${NC}"
@@ -243,11 +279,24 @@ create_miner_config() {
     local key_dir="${TEST_DIR}/keys"
     local miner_dht_port=$((MINER_BASE_DHT_PORT + miner_id - 1))
 
-    if [ "$miner_id" -eq 2 ] && [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
+    if [ "$miner_id" -eq 1 ] && \
+       [ -f "$key_dir/fee1.key" ] && [ -f "$key_dir/fee2.key" ] && [ -f "$key_dir/fee3.key" ]; then
+        # Miner 1: use 3 fee keys from beacon init (3-of-3 multisig)
+        cp "$key_dir/fee1.key" "$key_dir/fee2.key" "$key_dir/fee3.key" "$miner_dir/"
+        local keys_json='["fee1.key", "fee2.key", "fee3.key"]'
+        echo -e "${CYAN}Miner 1 using 3 fee keys for signing${NC}"
+    elif [ "$miner_id" -eq 2 ] && \
+         [ -f "$key_dir/reserve1.key" ] && [ -f "$key_dir/reserve2.key" ] && [ -f "$key_dir/reserve3.key" ]; then
         # Miner 2 (reserve account): use 3 reserve keys (hex) from beacon init for 3-of-3 multisig
         cp "$key_dir/reserve1.key" "$key_dir/reserve2.key" "$key_dir/reserve3.key" "$miner_dir/"
         local keys_json='["reserve1.key", "reserve2.key", "reserve3.key"]'
         echo -e "${CYAN}Miner 2 using 3 reserve keys for signing${NC}"
+    elif [ "$miner_id" -eq 3 ] && \
+         [ -f "$key_dir/recycle1.key" ] && [ -f "$key_dir/recycle2.key" ] && [ -f "$key_dir/recycle3.key" ]; then
+        # Miner 3: use 3 recycle keys from beacon init (3-of-3 multisig)
+        cp "$key_dir/recycle1.key" "$key_dir/recycle2.key" "$key_dir/recycle3.key" "$miner_dir/"
+        local keys_json='["recycle1.key", "recycle2.key", "recycle3.key"]'
+        echo -e "${CYAN}Miner 3 using 3 recycle keys for signing${NC}"
     else
         # Other miners: single miner key (raw 32 bytes)
         cp "$(generate_miner_key "$miner_id")" "$miner_dir/key.txt"
@@ -521,10 +570,12 @@ try_add_tx() {
         [ "$p" = "$miner_port" ] || ports_to_try="$ports_to_try $p"
     done
     local err
+    echo "Trying to submit transaction to miners: $ports_to_try"
     for p in $ports_to_try; do
+        echo "Submitting transaction to miner port $p"
         err=$("$BUILD_DIR/app/pp-client" --debug -m -p "$p" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" 2>&1)
         if [ $? -eq 0 ]; then
-            echo -e "${GREEN}  ✓ Transaction submitted: $from -> $to amount=$amount${NC}"
+            echo -e "${GREEN}  ✓ Transaction submitted to miner port $p: $from -> $to amount=$amount${NC}"
             return 0
         fi
         if echo "$err" | grep -q "Failed to connect"; then
