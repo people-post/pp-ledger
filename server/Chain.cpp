@@ -429,9 +429,18 @@ Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
   auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
   if (it != userAccount.wallet.mBalances.end()) {
     const int64_t fee = static_cast<int64_t>(minFee);
-    if (it->second < fee) {
-      return Error(E_ACCOUNT_BALANCE,
-                   "Insufficient genesis balance for renewal fee");
+    if (account.id != AccountBuffer::ID_FEE) {
+      if (it->second < fee) {
+        return Error(E_ACCOUNT_BALANCE,
+                     "Insufficient genesis balance for renewal fee");
+      }
+    } else {
+      // Fee account renewing itself: fee is paid to self, so balance may go
+      // negative temporarily; check for underflow only.
+      if (it->second < std::numeric_limits<int64_t>::min() + fee) {
+        return Error(E_TX_VALIDATION,
+                     "Fee account balance underflow while applying renewal fee");
+      }
     }
     it->second -= fee;
   }
@@ -464,12 +473,13 @@ Chain::createRenewalTransaction(uint64_t accountId) const {
   }
   const uint64_t minimumFee = minimumFeeResult.value();
 
-  if (accountId != AccountBuffer::ID_GENESIS) {
+  if (accountId != AccountBuffer::ID_GENESIS &&
+      accountId != AccountBuffer::ID_FEE) {
     auto balance = bank_.getBalance(accountId, AccountBuffer::ID_GENESIS);
     if (balance < minimumFee) {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
-      // to recycle account.
+      // to recycle account. Never terminate fee account (it pays fee to self).
       tx.type = Ledger::Transaction::T_END_USER;
       tx.fee = 0;
     }
@@ -1921,7 +1931,7 @@ Chain::Roe<void> Chain::processUserAccountUpsertImpl(
     if (!roe) {
       return roe;
     }
-    if (tx.fee > 0) {
+    if (tx.fee > 0 && tx.fromWalletId != AccountBuffer::ID_FEE) {
       auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
       if (!feeRoe) {
         return feeRoe;
