@@ -13,6 +13,7 @@ PID_FILE="${TEST_DIR}/network.pids"
 NUM_MINERS=3
 BEACON_PORT=8517
 MINER_BASE_PORT=8518
+HTTP_PORT=8080
 DEBUG_MODE=false
 
 # Color codes for output
@@ -56,6 +57,7 @@ usage() {
     echo "Options (for logs command):"
     echo "  -b            Show beacon logs"
     echo "  -m NUM        Show miner logs (specify miner number)"
+    echo "  -H            Show HTTP server logs"
     echo "  -f            Follow logs (tail -f)"
     echo ""
     echo "Examples:"
@@ -64,6 +66,7 @@ usage() {
     echo "  $0 status           # Check network status"
     echo "  $0 logs -b -f       # Follow beacon logs"
     echo "  $0 logs -m 1        # Show miner1 logs"
+    echo "  $0 logs -H -f       # Follow HTTP server logs"
     echo "  $0 clear            # Clear all test data"
 }
 
@@ -167,18 +170,22 @@ check_status() {
 # Show logs
 show_logs() {
     local show_beacon=false
+    local show_http=false
     local miner_num=""
     local follow=false
     
     shift # Remove 'logs' command
     
-    while getopts "bm:f" opt; do
+    while getopts "bm:Hf" opt; do
         case $opt in
             b)
                 show_beacon=true
                 ;;
             m)
                 miner_num=$OPTARG
+                ;;
+            H)
+                show_http=true
                 ;;
             f)
                 follow=true
@@ -216,8 +223,21 @@ show_logs() {
         else
             echo -e "${RED}Miner log file not found: $miner_log${NC}"
         fi
+    elif [ "$show_http" = true ]; then
+        local http_log="${TEST_DIR}/http/console.log"
+        if [ -f "$http_log" ]; then
+            if [ "$follow" = true ]; then
+                echo -e "${BLUE}Following HTTP server logs (Ctrl+C to exit)...${NC}"
+                tail -f "$http_log"
+            else
+                echo -e "${BLUE}HTTP server logs:${NC}"
+                cat "$http_log"
+            fi
+        else
+            echo -e "${RED}HTTP log file not found: $http_log${NC}"
+        fi
     else
-        echo -e "${YELLOW}Please specify -b for beacon or -m NUM for miner${NC}"
+        echo -e "${YELLOW}Please specify -b for beacon, -m NUM for miner, or -H for HTTP${NC}"
         usage
         exit 1
     fi
@@ -271,6 +291,12 @@ verify_build_environment() {
         echo -e "${YELLOW}Please build the project first: cd build && make${NC}"
         exit 1
     fi
+
+    if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
+        echo -e "${RED}Error: pp-http executable not found${NC}"
+        echo -e "${YELLOW}Please build the project first: cd build && make${NC}"
+        exit 1
+    fi
 }
 
 # Print welcome banner
@@ -285,6 +311,7 @@ print_banner() {
     echo -e "  Beacon port:     ${BEACON_PORT}"
     echo -e "  Number of miners: ${NUM_MINERS}"
     echo -e "  Miner ports:     ${MINER_BASE_PORT}-$((MINER_BASE_PORT + NUM_MINERS - 1))"
+    echo -e "  HTTP API port:   ${HTTP_PORT}"
     echo -e "  Debug mode:      ${DEBUG_MODE}"
     echo ""
 }
@@ -330,7 +357,8 @@ create_beacon_config() {
     cat > "$beacon_dir/config.json" << EOF
 {
   "host": "localhost",
-  "port": $BEACON_PORT
+  "port": $BEACON_PORT,
+  "dhtPort": 0
 }
 EOF
 }
@@ -376,6 +404,7 @@ create_miner_config() {
   "keys": ["$key_path"],
   "host": "localhost",
   "port": $miner_port,
+  "dhtPort": 0,
   "beacons": [{"host":"localhost","port":$BEACON_PORT,"dhtPort":0}]
 }
 EOF
@@ -400,7 +429,7 @@ start_miner() {
         "$BUILD_DIR/app/pp-miner" -d "$miner_dir" >&/dev/null || true
     fi
     
-    # Always write key file and config (miner requires "key" pointing to a key file)
+    # Always write key file and config (miner requires "keys" array of key-file paths)
     create_miner_config $miner_id "$miner_dir" $miner_port
     
     # Start miner with the updated config
@@ -428,6 +457,30 @@ start_miners() {
     done
 }
 
+# Start HTTP API server
+start_http() {
+    local http_dir="${TEST_DIR}/http"
+    mkdir -p "$http_dir"
+
+    echo -e "${YELLOW}Starting HTTP API server on port ${HTTP_PORT}...${NC}"
+    run_bg_cmd "$http_dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
+        --beacon "localhost:$BEACON_PORT" \
+        --miner "localhost:$MINER_BASE_PORT"
+    local http_pid=$!
+    save_pid "http" $http_pid
+
+    sleep 1
+
+    if ! kill -0 $http_pid 2>/dev/null; then
+        echo -e "${RED}Failed to start HTTP server${NC}"
+        cat "$http_dir/console.log"
+        stop_network
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ HTTP API server running (PID: $http_pid) on port ${HTTP_PORT}${NC}"
+}
+
 # Print success message and usage instructions
 print_success_message() {
     echo ""
@@ -440,8 +493,9 @@ print_success_message() {
     echo -e "${BLUE}Control Commands:${NC}"
     echo -e "  ${YELLOW}$0 status${NC}    # Check network status"
     echo -e "  ${YELLOW}$0 stop${NC}      # Stop the network"
-    echo -e "  ${YELLOW}$0 logs -b -f${NC} # Follow beacon logs"
-    echo -e "  ${YELLOW}$0 logs -m 1${NC}  # Show miner1 logs"
+    echo -e "  ${YELLOW}$0 logs -b -f${NC}  # Follow beacon logs"
+    echo -e "  ${YELLOW}$0 logs -m 1${NC}   # Show miner1 logs"
+    echo -e "  ${YELLOW}$0 logs -H -f${NC}  # Follow HTTP server logs"
     echo ""
     echo -e "${BLUE}Quick Client Commands:${NC}"
     echo -e "  ${YELLOW}# Check beacon status${NC}"
@@ -457,11 +511,16 @@ print_success_message() {
     echo -e "  $BUILD_DIR/app/pp-client -m -p 8519 status  # miner2"
     echo -e "  $BUILD_DIR/app/pp-client -m -p 8520 status  # miner3"
     echo ""
+    echo -e "  ${YELLOW}# HTTP API (REST)${NC}"
+    echo -e "  curl http://localhost:${HTTP_PORT}/api/beacon/state"
+    echo -e "  curl http://localhost:${HTTP_PORT}/api/miner/status"
+    echo ""
     echo -e "${BLUE}Log Files:${NC}"
     echo -e "  Beacon:  ${TEST_DIR}/beacon/beacon.log"
     for i in $(seq 1 $NUM_MINERS); do
         echo -e "  Miner${i}:  ${TEST_DIR}/miner${i}/miner.log"
     done
+    echo -e "  HTTP:   ${TEST_DIR}/http/console.log"
     echo ""
 }
 
@@ -490,6 +549,9 @@ start_network() {
     
     # Set up miners
     start_miners
+
+    # Set up HTTP API server
+    start_http
     
     # Show success message
     print_success_message

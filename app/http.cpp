@@ -210,6 +210,72 @@ static void setJsonError(httplib::Response& res, int status, const std::string& 
   res.set_content(json{{"error", message}}.dump(), "application/json");
 }
 
+static std::string htmlEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (unsigned char c : s) {
+    switch (c) {
+      case '&': out += "&amp;"; break;
+      case '<': out += "&lt;"; break;
+      case '>': out += "&gt;"; break;
+      case '"': out += "&quot;"; break;
+      default: out += c; break;
+    }
+  }
+  return out;
+}
+
+static std::string makeErrorHtml(int status, const std::string& path,
+                                 const std::string& title, const std::string& message) {
+  std::string pathEsc = htmlEscape(path);
+  return R"(<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>)" + std::to_string(status) + " " + htmlEscape(title) + R"(</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #e8e8e8;
+      padding: 1.5rem;
+    }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 2.5rem;
+      max-width: 480px;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .status { font-size: 4rem; font-weight: 700; color: #e94560; margin-bottom: 0.5rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #fff; }
+    p { color: #b8b8b8; line-height: 1.6; margin-bottom: 1rem; }
+    .path { font-family: monospace; background: rgba(0,0,0,0.3); padding: 0.5rem 0.75rem; border-radius: 8px; word-break: break-all; margin: 1rem 0; font-size: 0.9rem; }
+    .hint { font-size: 0.875rem; color: #7a8a9a; margin-top: 1.5rem; }
+    a { color: #e94560; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status">)" + std::to_string(status) + R"(</div>
+    <h1>)" + htmlEscape(title) + R"(</h1>
+    <p>)" + htmlEscape(message) + R"(</p>
+    <div class="path">)" + (pathEsc.empty() ? "/" : pathEsc) + R"(</div>
+    <p class="hint">Try <a href="/api/beacon/state">/api/beacon/state</a> or <a href="/api/miner/status">/api/miner/status</a> for the API.</p>
+  </div>
+</body>
+</html>)";
+}
+
 // ── API route handlers ───────────────────────────────────────────────────────
 
 static void handleBeaconState(const httplib::Request&, httplib::Response& res,
@@ -707,6 +773,18 @@ int main(int argc, char** argv) {
   svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
     if (req.method == "OPTIONS") {
       res.status = 204;
+      return httplib::Server::HandlerResponse::Handled;
+    }
+    return httplib::Server::HandlerResponse::Unhandled;
+  });
+
+  // Custom HTML for unhandled endpoints (404)
+  svr.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
+    if (res.status == 404) {
+      res.set_content(
+        makeErrorHtml(404, req.path, "Page not found",
+          "The page you're looking for doesn't exist. This might be a typo, or the endpoint may have moved."),
+        "text/html");
       return httplib::Server::HandlerResponse::Handled;
     }
     return httplib::Server::HandlerResponse::Unhandled;
