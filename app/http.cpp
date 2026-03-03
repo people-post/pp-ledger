@@ -17,6 +17,7 @@
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -24,6 +25,7 @@
 #include <queue>
 #include <random>
 #include <string>
+#include <vector>
 
 #include <sodium.h>
 
@@ -92,87 +94,40 @@ static json makeRpcError(const json& id, int code, const std::string& message) {
   return {{"jsonrpc", "2.0"}, {"id", id}, {"error", {{"code", code}, {"message", message}}}};
 }
 
-// ── MCP: tools & resources ──────────────────────────────────────────────────
+// ── MCP: tool/resource registries ────────────────────────────────────────────
 
-static json buildToolsList() {
-  return json::array({
-    {{"name", "get_beacon_state"},
-     {"description", "Get the current state of the pp-ledger beacon node (slot, epoch, checkpoint, stakeholders)."},
-     {"inputSchema", {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}}}},
-    {{"name", "get_miner_status"},
-     {"description", "Get the current status of the connected miner (stake, slot leadership, pending transactions)."},
-     {"inputSchema", {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}}}},
-    {{"name", "list_miners"},
-     {"description", "List all miners currently registered with the beacon node."},
-     {"inputSchema", {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}}}},
-    {{"name", "get_block"},
-     {"description", "Fetch a block from the pp-ledger blockchain by its block ID."},
-     {"inputSchema", {{"type", "object"},
-       {"properties", {{"block_id", {{"type", "integer"}, {"description", "The block ID to fetch"}}}}},
-       {"required", json::array({"block_id"})}}}}
-  });
+struct McpTool {
+  std::string name;
+  std::string description;
+  json inputSchema;
+  std::function<json(const json&, pp::Client&, pp::Client&)> handler;
+};
+
+struct McpResource {
+  std::string uri;
+  std::string name;
+  std::string description;
+  std::string mimeType;
+  std::function<json(pp::Client&, pp::Client&)> handler;
+};
+
+static std::vector<McpTool> g_mcpTools;
+static std::vector<McpResource> g_mcpResources;
+
+static void registerMcpTool(McpTool tool) {
+  g_mcpTools.push_back(std::move(tool));
 }
 
-static json buildResourcesList() {
-  return json::array({
-    {{"uri", "beacon://state"},
-     {"name", "Beacon State"},
-     {"description", "Current state of the pp-ledger beacon node."},
-     {"mimeType", "application/json"}},
-    {{"uri", "miner://status"},
-     {"name", "Miner Status"},
-     {"description", "Current status of the connected miner."},
-     {"mimeType", "application/json"}}
-  });
+static void registerMcpResource(McpResource resource) {
+  g_mcpResources.push_back(std::move(resource));
 }
 
-static json callMcpTool(const std::string& name, const json& args,
-                         pp::Client& beaconClient, pp::Client& minerClient) {
-  auto ok  = [](const std::string& text) {
-    return json{{"content", json::array({{{"type", "text"}, {"text", text}}})}, {"isError", false}};
-  };
-  auto err = [](const std::string& text) {
-    return json{{"content", json::array({{{"type", "text"}, {"text", text}}})}, {"isError", true}};
-  };
-
-  if (name == "get_beacon_state") {
-    auto r = beaconClient.fetchBeaconState();
-    return r ? ok(r.value().ltsToJson().dump(2)) : err(r.error().message);
-  }
-  if (name == "get_miner_status") {
-    auto r = minerClient.fetchMinerStatus();
-    return r ? ok(r.value().ltsToJson().dump(2)) : err(r.error().message);
-  }
-  if (name == "list_miners") {
-    auto r = beaconClient.fetchMinerList();
-    if (!r) return err(r.error().message);
-    json arr = json::array();
-    for (const auto& m : r.value()) arr.push_back(m.ltsToJson());
-    return ok(arr.dump(2));
-  }
-  if (name == "get_block") {
-    if (!args.contains("block_id")) return err("block_id is required");
-    auto r = beaconClient.fetchBlock(args["block_id"].get<uint64_t>());
-    return r ? ok(r.value().toJson().dump(2)) : err(r.error().message);
-  }
-  return err("Unknown tool: " + name);
+static json mcpOk(const std::string& text) {
+  return json{{"content", json::array({{{"type", "text"}, {"text", text}}})}, {"isError", false}};
 }
 
-static json readMcpResource(const std::string& uri,
-                             pp::Client& beaconClient, pp::Client& minerClient) {
-  if (uri == "beacon://state") {
-    auto r = beaconClient.fetchBeaconState();
-    if (!r) return {{"error", r.error().message}};
-    return {{"contents", json::array({{{"uri", uri}, {"mimeType", "application/json"},
-                                       {"text", r.value().ltsToJson().dump(2)}}})}};
-  }
-  if (uri == "miner://status") {
-    auto r = minerClient.fetchMinerStatus();
-    if (!r) return {{"error", r.error().message}};
-    return {{"contents", json::array({{{"uri", uri}, {"mimeType", "application/json"},
-                                       {"text", r.value().ltsToJson().dump(2)}}})}};
-  }
-  return {{"error", "Unknown resource: " + uri}};
+static json mcpErr(const std::string& text) {
+  return json{{"content", json::array({{{"type", "text"}, {"text", text}}})}, {"isError", true}};
 }
 
 // ── MCP: JSON-RPC dispatcher ────────────────────────────────────────────────
@@ -201,22 +156,37 @@ static std::optional<json> handleMcpRpc(const json& req,
     return makeRpcResult(id, json::object());
   }
   if (method == "tools/list") {
-    return makeRpcResult(id, {{"tools", buildToolsList()}});
+    json tools = json::array();
+    for (const auto& t : g_mcpTools)
+      tools.push_back({{"name", t.name}, {"description", t.description}, {"inputSchema", t.inputSchema}});
+    return makeRpcResult(id, {{"tools", tools}});
   }
   if (method == "tools/call") {
     const std::string name = params.value("name", "");
     const json args = params.value("arguments", json::object());
-    return makeRpcResult(id, callMcpTool(name, args, beaconClient, minerClient));
+    for (const auto& t : g_mcpTools) {
+      if (t.name == name)
+        return makeRpcResult(id, t.handler(args, beaconClient, minerClient));
+    }
+    return makeRpcResult(id, mcpErr("Unknown tool: " + name));
   }
   if (method == "resources/list") {
-    return makeRpcResult(id, {{"resources", buildResourcesList()}});
+    json resources = json::array();
+    for (const auto& r : g_mcpResources)
+      resources.push_back({{"uri", r.uri}, {"name", r.name}, {"description", r.description}, {"mimeType", r.mimeType}});
+    return makeRpcResult(id, {{"resources", resources}});
   }
   if (method == "resources/read") {
     const std::string uri = params.value("uri", "");
-    json result = readMcpResource(uri, beaconClient, minerClient);
-    if (result.contains("error"))
-      return makeRpcError(id, -32602, result["error"].get<std::string>());
-    return makeRpcResult(id, result);
+    for (const auto& r : g_mcpResources) {
+      if (r.uri == uri) {
+        json result = r.handler(beaconClient, minerClient);
+        if (result.contains("error"))
+          return makeRpcError(id, -32602, result["error"].get<std::string>());
+        return makeRpcResult(id, result);
+      }
+    }
+    return makeRpcError(id, -32602, "Unknown resource: " + uri);
   }
 
   return makeRpcError(id, -32601, "Method not found: " + method);
@@ -742,22 +712,93 @@ int main(int argc, char** argv) {
     return httplib::Server::HandlerResponse::Unhandled;
   });
 
-  // API routes
+  // API routes (MCP tools/resources registered alongside corresponding endpoints)
   svr.Get("/api/beacon/state", [&](const httplib::Request& req, httplib::Response& res) {
     handleBeaconState(req, res, beaconClient);
   });
+  registerMcpTool({
+    "get_beacon_state",
+    "Get the current state of the pp-ledger beacon node (slot, epoch, checkpoint, stakeholders).",
+    {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}},
+    [](const json&, pp::Client& beacon, pp::Client&) {
+      auto r = beacon.fetchBeaconState();
+      return r ? mcpOk(r.value().ltsToJson().dump(2)) : mcpErr(r.error().message);
+    }
+  });
+  registerMcpResource({
+    "beacon://state",
+    "Beacon State",
+    "Current state of the pp-ledger beacon node.",
+    "application/json",
+    [](pp::Client& beacon, pp::Client&) {
+      auto r = beacon.fetchBeaconState();
+      if (!r) return json{{"error", r.error().message}};
+      return json{{"contents", json::array({{{"uri", "beacon://state"}, {"mimeType", "application/json"},
+                                           {"text", r.value().ltsToJson().dump(2)}}})}};
+    }
+  });
+
   svr.Get("/api/beacon/calibration", [&](const httplib::Request& req, httplib::Response& res) {
     handleBeaconCalibration(req, res, beaconClient);
   });
+
   svr.Get("/api/beacon/miners", [&](const httplib::Request& req, httplib::Response& res) {
     handleBeaconMiners(req, res, beaconClient);
   });
+  registerMcpTool({
+    "list_miners",
+    "List all miners currently registered with the beacon node.",
+    {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}},
+    [](const json&, pp::Client& beacon, pp::Client&) {
+      auto r = beacon.fetchMinerList();
+      if (!r) return mcpErr(r.error().message);
+      json arr = json::array();
+      for (const auto& m : r.value()) arr.push_back(m.ltsToJson());
+      return mcpOk(arr.dump(2));
+    }
+  });
+
   svr.Get("/api/miner/status", [&](const httplib::Request& req, httplib::Response& res) {
     handleMinerStatus(req, res, minerClient);
   });
+  registerMcpTool({
+    "get_miner_status",
+    "Get the current status of the connected miner (stake, slot leadership, pending transactions).",
+    {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}},
+    [](const json&, pp::Client&, pp::Client& miner) {
+      auto r = miner.fetchMinerStatus();
+      return r ? mcpOk(r.value().ltsToJson().dump(2)) : mcpErr(r.error().message);
+    }
+  });
+  registerMcpResource({
+    "miner://status",
+    "Miner Status",
+    "Current status of the connected miner.",
+    "application/json",
+    [](pp::Client&, pp::Client& miner) {
+      auto r = miner.fetchMinerStatus();
+      if (!r) return json{{"error", r.error().message}};
+      return json{{"contents", json::array({{{"uri", "miner://status"}, {"mimeType", "application/json"},
+                                            {"text", r.value().ltsToJson().dump(2)}}})}};
+    }
+  });
+
   svr.Get(R"(/api/block/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
     handleBlockGet(req, res, beaconClient);
   });
+  registerMcpTool({
+    "get_block",
+    "Fetch a block from the pp-ledger blockchain by its block ID.",
+    {{"type", "object"},
+     {"properties", {{"block_id", {{"type", "integer"}, {"description", "The block ID to fetch"}}}}},
+     {"required", json::array({"block_id"})}},
+    [](const json& args, pp::Client& beacon, pp::Client&) {
+      if (!args.contains("block_id")) return mcpErr("block_id is required");
+      auto r = beacon.fetchBlock(args["block_id"].get<uint64_t>());
+      return r ? mcpOk(r.value().toJson().dump(2)) : mcpErr(r.error().message);
+    }
+  });
+
   svr.Get(R"(/api/account/(\d+))", [&](const httplib::Request& req, httplib::Response& res) {
     handleAccountGet(req, res, beaconClient);
   });
