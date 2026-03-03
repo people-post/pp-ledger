@@ -34,6 +34,9 @@ CMAKE_ARGS=(
 if [[ -n "$NODE_ADDON" ]]; then
   CMAKE_ARGS+=(-DBUILD_NODE_ADDON=ON)
 fi
+if [[ -n "$RUN_TESTS" ]]; then
+  CMAKE_ARGS+=(-DBUILD_TESTING=ON)
+fi
 
 cmake "${CMAKE_ARGS[@]}"
 cmake --build "$BUILD_DIR" -j"$(nproc)"

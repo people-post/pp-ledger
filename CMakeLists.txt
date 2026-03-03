@@ -20,16 +20,21 @@ add_compile_options(-Werror)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED libsodium)
 
-# Fetch Google Test
+# Test build option (default OFF) - gtest only fetched when enabled
+option(BUILD_TESTING "Build the testing tree" OFF)
+
 include(FetchContent)
-FetchContent_Declare(
-  googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG v1.14.0
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+if(BUILD_TESTING)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+  )
+  # For Windows: Prevent overriding the parent project's compiler/linker settings
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+  enable_testing()
+endif()
 
 # Fetch nlohmann/json
 FetchContent_Declare(
@@ -46,10 +51,6 @@ FetchContent_Declare(
   GIT_TAG v2.4.2
 )
 FetchContent_MakeAvailable(cli11)
-
-# Enable testing and set BUILD_TESTING before adding subdirectories
-enable_testing()
-option(BUILD_TESTING "Build the testing tree" ON)
 
 # Add subdirectories for each component
 add_subdirectory(lib)
