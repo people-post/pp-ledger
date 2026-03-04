@@ -292,11 +292,6 @@ verify_build_environment() {
         exit 1
     fi
 
-    if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
-        echo -e "${RED}Error: pp-http executable not found${NC}"
-        echo -e "${YELLOW}Please build the project first: cd build && make${NC}"
-        exit 1
-    fi
 }
 
 # Print welcome banner
@@ -457,8 +452,13 @@ start_miners() {
     done
 }
 
-# Start HTTP API server
+# Start HTTP API server (skipped if pp-http not built, e.g. BUILD_HTTP=OFF)
 start_http() {
+    if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
+        echo -e "${YELLOW}pp-http not built (BUILD_HTTP=OFF), skipping HTTP server${NC}"
+        return 0
+    fi
+
     local http_dir="${TEST_DIR}/http"
     mkdir -p "$http_dir"
 

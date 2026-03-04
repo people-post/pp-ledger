@@ -30,6 +30,8 @@ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
 make -j$(nproc)
 ```
 
+- `BUILD_HTTP` (default OFF): Build the HTTP API server (pp-http). Use `-DBUILD_HTTP=ON` to enable it.
+
 ### Lint
 
 Run clang-tidy against project source files (requires `compile_commands.json` from the build):

@@ -44,15 +44,17 @@ target_link_libraries(pp-miner PRIVATE
 )
 
 # HTTP API server (client interfaces over HTTP, using cpp-httplib)
-add_executable(pp-http
-    http.cpp
-)
+if(BUILD_HTTP)
+  add_executable(pp-http
+      http.cpp
+  )
 
-target_include_directories(pp-http PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(pp-http PRIVATE
-    pp_lib
-    pp_client
-    pp_ledger
-    pp_http
-    CLI11::CLI11
-)
+  target_include_directories(pp-http PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(pp-http PRIVATE
+      pp_lib
+      pp_client
+      pp_ledger
+      pp_http
+      CLI11::CLI11
+  )
+endif()

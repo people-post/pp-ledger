@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_NODE_ADDON "Build Node.js N-API addon" OFF)
+option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 
 if(BUILD_NODE_ADDON)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -59,7 +60,9 @@ add_subdirectory(network)
 add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(server)
-add_subdirectory(http)
+if(BUILD_HTTP)
+  add_subdirectory(http)
+endif()
 add_subdirectory(app)
 
 if(BUILD_NODE_ADDON)

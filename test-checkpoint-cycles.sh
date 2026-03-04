@@ -71,7 +71,7 @@ verify_build() {
         echo -e "${RED}Build directory not found. Run: mkdir build && cd build && cmake .. && make${NC}"
         exit 1
     fi
-    for exe in pp-beacon pp-relay pp-miner pp-client pp-http; do
+    for exe in pp-beacon pp-relay pp-miner pp-client; do
         if [ ! -f "$BUILD_DIR/app/$exe" ]; then
             echo -e "${RED}$exe not found. Build the project first.${NC}"
             exit 1
@@ -370,6 +370,10 @@ start_all_miners() {
 }
 
 start_http() {
+    if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
+        echo -e "${YELLOW}pp-http not built (BUILD_HTTP=OFF), skipping HTTP server${NC}"
+        return 0
+    fi
     local http_dir="${TEST_DIR}/http"
     mkdir -p "$http_dir"
     # Proxy to relay (beacon API) and first miner (miner API + add-tx)
