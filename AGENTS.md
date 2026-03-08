@@ -4,7 +4,7 @@
 
 ### Overview
 
-pp-ledger is a C++20 blockchain with Ouroboros PoS consensus. It builds with CMake and has no Docker/containerization dependencies. See `README.md` for the full quick-start guide.
+pp-ledger is a C++20 blockchain with Ouroboros PoS consensus. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy). It builds with CMake and has no Docker/containerization dependencies. See `README.md` for the full quick-start guide.
 
 ### System dependencies
 
@@ -61,6 +61,27 @@ See `README.md` "Quick Start" section. Key gotchas:
 - The `test-network.sh` script uses `"key"` (singular string) in miner configs instead of `"keys"` (array). If this hasn't been fixed, set up miners manually — see the manual setup example below.
 - Slot leader election is **VRF-based and probabilistic**; a single miner may not be elected for many consecutive slots. This is normal.
 
+#### Relay server
+
+The **relay server** (`pp-relay`) sits between the beacon and miners. Miners connect to the relay instead of the beacon directly. Start with:
+
+```bash
+./app/pp-relay -d relay1
+```
+
+Config (`relay1/config.json`) is auto-created on first run. Edit it to set the upstream `beacon` endpoint:
+
+```json
+{
+  "host": "localhost",
+  "port": 8519,
+  "dhtPort": 0,
+  "beacon": { "host": "localhost", "port": 8517, "dhtPort": 0 }
+}
+```
+
+Point miners' `beacons` config entries at the relay endpoint (e.g. `localhost:8519`) rather than directly at the beacon.
+
 #### Manual test network
 
 ```bash
@@ -97,6 +118,7 @@ EOF
 | Service | Port |
 |---------|------|
 | Beacon  | 8517 |
+| Relay   | 8519 (configure to avoid conflict with beacon/miner) |
 | Miner   | 8518 |
 | HTTP API| 8080 |
 

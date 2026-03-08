@@ -18,6 +18,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - ✅ **Ouroboros Consensus:** Proof-of-stake consensus with VRF-based slot leader selection
 - ✅ **Blockchain & Ledger:** Complete transaction and wallet management
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
+- ✅ **Relay Server:** Trusted intermediary between beacons and miners — exposes beacon-compatible API to miners
 - ✅ **Modular Architecture:** Clean separation of concerns (lib, consensus, ledger, server, client, network)
 - ✅ **TCP Networking:** Simple TCP-based peer-to-peer communication
 - ✅ **HTTP API Server:** REST-style HTTP server (pp-http) exposing client interfaces for beacon, miner, block, account, and transactions
@@ -36,13 +37,22 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - Implement checkpoint system for data pruning (1GB threshold, 1 year age)
 - Limited in number (5-10 globally), run by network founders or elected stakeholders
 
+**Relay Servers:**
+- Trusted intermediaries between beacons and miners
+- Beacons only communicate with trusted relays (not directly with miners)
+- Miners use the relay with the same API as a beacon
+- Sync blocks from a single upstream beacon
+- Register miners and serve chain data on their behalf
+- Do NOT produce blocks
+- Run `pp-relay` binary
+
 **Miner Servers:**
 - Block producers selected via Ouroboros proof-of-stake
 - Maintain transaction pools for pending transactions
 - Produce blocks when elected as slot leader
 - Stake is registered with and managed by beacon servers
 - Selection probability based on registered stake amount
-- Sync with beacon servers to stay up-to-date
+- Sync with beacon (or relay) servers to stay up-to-date
 
 ### Consensus Mechanism
 
@@ -101,6 +111,8 @@ Use the automated script to spin up a local test network (1 beacon + 3 miners):
 
 The script initializes a beacon on port 8517 and miners on ports 8518+. Stop with Ctrl+C.
 
+The network topology is `Beacon → Relay → Miners`: beacons communicate with trusted relays, and miners connect to relays using the same API they would use for a beacon directly.
+
 **Test the network** (in another terminal):
 ```bash
 ./build/app/pp-client -b status
@@ -120,7 +132,7 @@ pp-ledger/
 ├── server/           # Beacon and Miner server implementations
 ├── client/           # TCP client library
 ├── network/          # Low-level TCP networking
-├── app/              # Executables: pp-beacon, pp-miner, pp-client, pp-http
+├── app/              # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── node-addon/       # Node.js native addon wrapping the client library
 ├── scripts/          # Helper scripts
 └── docs/             # Documentation
@@ -133,10 +145,10 @@ pp-ledger/
 | **lib** | Core utilities, logging, serialization | ✅ Working |
 | **consensus** | Ouroboros PoS consensus implementation | ✅ Working |
 | **ledger** | Blockchain storage, ledger, wallet management | ✅ Working |
-| **server** | Beacon and Miner server implementations | ✅ Working |
+| **server** | Beacon, Relay, and Miner server implementations | ✅ Working |
 | **client** | Client library for server communication | ✅ Working |
 | **network** | TCP networking (FetchClient/Server, TcpClient/Server) | ✅ Working |
-| **app** | Command-line applications (beacon, miner, client, http API server) | ✅ Working |
+| **app** | Command-line applications (beacon, relay, miner, client, http API server) | ✅ Working |
 | **node-addon** | Node.js native addon for client integration | ✅ Working |
 
 ## Documentation

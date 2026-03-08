@@ -4,7 +4,7 @@ This file provides context for GitHub Copilot and Copilot coding agents working 
 
 ## Project Summary
 
-`pp-ledger` is a C++20 blockchain with Ouroboros Proof-of-Stake consensus, written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
+`pp-ledger` is a C++20 blockchain with Ouroboros Proof-of-Stake consensus, written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
 
 ## Repository Layout
 
@@ -15,11 +15,11 @@ pp-ledger/
 ├── consensus/    # Ouroboros PoS: Ouroboros, EpochManager, SlotLeaderSelection, SlotTimer
 ├── ledger/       # Blockchain storage: Ledger, FileStore, DirStore, etc.
 ├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
-├── server/       # Beacon + Miner server logic and AccountBuffer
+├── server/       # Beacon + Relay + Miner server logic and AccountBuffer
 ├── client/       # TCP client library
 ├── http/         # HTTP API server (pp-http), built with -DBUILD_HTTP=ON
 ├── node-addon/   # Node.js native addon
-├── app/          # Entrypoints: pp-beacon, pp-miner, pp-client, pp-http
+├── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts
 ├── docs/         # Documentation
 ├── AGENTS.md     # Cursor Cloud agent instructions
@@ -74,6 +74,9 @@ See `.aicodeguide` for the full style guide. Key points:
 
 - **Miner config uses `"keys"` (array of file paths)**, NOT `"privateKey"`. Each file contains a 64-hex-char Ed25519 private key.
 - **Beacon must be initialized with `--init` on first run**, then started without `--init` thereafter.
+- **Relay does NOT require `--init`** — it auto-creates `config.json` on first run.
+- **Relay config uses a `"beacon"` object** (single upstream beacon), NOT a `"beacons"` array like miners use.
+- **Miners point their `"beacons"` config to relay endpoints**, not directly to beacon endpoints in production deployments.
 - **HTTP API routes are prefixed with `/api/`** (e.g., `/api/beacon/state`, `/api/miner/status`). The README may not reflect this.
 - **VRF leader election is probabilistic** — a miner may not be elected for many consecutive slots. This is normal.
 - **`test-network.sh`** is the correct script name (not `start-test-network.sh`).
@@ -83,6 +86,7 @@ See `.aicodeguide` for the full style guide. Key points:
 | Service    | Port |
 |------------|------|
 | Beacon     | 8517 |
+| Relay      | 8519 (configure to avoid conflict with beacon/miner) |
 | Miner      | 8518 |
 | HTTP API   | 8080 |
 
@@ -96,6 +100,7 @@ See `.aicodeguide` for the full style guide. Key points:
 | Start test network | `./test-network.sh` |
 | Init beacon (first time) | `./build/app/pp-beacon -d beacon --init` |
 | Start beacon | `./build/app/pp-beacon -d beacon` |
+| Start relay | `./build/app/pp-relay -d relay1` |
 | Start miner | `./build/app/pp-miner -d miner1` |
 | Check beacon status | `./build/app/pp-client -b status` |
 | Submit transaction | `./build/app/pp-client -m add-tx <from> <to> <amount>` |
