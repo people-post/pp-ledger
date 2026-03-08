@@ -7,19 +7,21 @@ This document describes the server architecture for the pp-ledger blockchain sys
 1. [Overview](#overview)
 2. [Components](#components)
 3. [Beacon Architecture](#beacon-architecture)
-4. [Miner Architecture](#miner-architecture)
-5. [Network Topology](#network-topology)
-6. [Configuration](#configuration)
-7. [API Reference](#api-reference)
-8. [Usage Examples](#usage-examples)
+4. [Relay Architecture](#relay-architecture)
+5. [Miner Architecture](#miner-architecture)
+6. [Network Topology](#network-topology)
+7. [Configuration](#configuration)
+8. [API Reference](#api-reference)
+9. [Usage Examples](#usage-examples)
 
 ## Overview
 
-The pp-ledger server architecture consists of three main components:
+The pp-ledger server architecture consists of four main components:
 
 1. **Chain** - Base class providing common block validation and chain management
 2. **Beacon** - Network validator and data archiver (extends Chain)
-3. **Miner** - Block producer (extends Chain)
+3. **Relay** - Trusted intermediary between beacons and miners (extends Chain)
+4. **Miner** - Block producer (extends Chain)
 
 Each component has a corresponding server wrapper (*Server classes) that handles network communication via TCP.
 
@@ -117,6 +119,25 @@ Beacons implement an intelligent checkpoint system to manage data growth:
 - Accept transactions into pending pool
 - Route requests to Miner core logic
 - Provide mining status and control
+
+### RelayServer + Relay
+
+**Purpose:** Trusted intermediary between beacons and miners
+
+**Relay (Core Logic) Responsibilities:**
+- Sync blocks from a single upstream beacon (`syncBlocksFromBeacon`)
+- Calibrate time to the upstream beacon
+- Register miners just as a beacon would
+- Serve chain data (blocks, accounts, transactions, status) to miners
+- Participate in DHT, bootstrapped from the beacon's DHT endpoint
+- Do NOT produce blocks
+
+**RelayServer (Communication Layer) Responsibilities:**
+- Expose the same request handlers as `BeaconServer` to miners: block get/add, account queries, transaction queries, status, calibration, miner registration
+- Handle network requests via FetchServer (TCP)
+- Route requests to Relay core logic
+
+See [Relay Architecture](#relay-architecture) below for configuration details.
 
 ## Beacon Architecture
 
@@ -225,6 +246,43 @@ All requests/responses use JSON format.
 {"type": "consensus", "action": "slotLeader", "slot": 123}
 ```
 
+## Relay Architecture
+
+### Relay Role in Network
+
+Relay servers sit between beacons and miners:
+
+- **Beacons** are few, trusted, and run by founders/elected stakeholders — they only communicate with trusted relays
+- **Relays** sync blocks from a single upstream beacon and expose the beacon-compatible API to miners
+- **Miners** connect to relays using exactly the same API they would use to connect to a beacon directly
+
+### Relay Configuration
+
+**File:** `config.json` in work directory (auto-created on first run — no `--init` flag needed)
+
+```json
+{
+  "host": "localhost",
+  "port": 8519,
+  "dhtPort": 0,
+  "beacon": {
+    "host": "localhost",
+    "port": 8517,
+    "dhtPort": 0
+  }
+}
+```
+
+**Fields:**
+- `host` (optional): Listen address, default: "localhost"
+- `port` (optional): Listen port — configure to avoid conflict with beacon (8517) and miner (8518)
+- `dhtPort` (optional): DHT port, default: 0
+- `beacon` (required): Single upstream beacon endpoint `{host, port, dhtPort}`
+
+### Relay API Endpoints
+
+The relay exposes the same API as the beacon to miners. Miners can use the relay transparently as if it were a beacon.
+
 ## Miner Architecture
 
 ### Miner Configuration
@@ -245,7 +303,7 @@ All requests/responses use JSON format.
 - `stake` (required): Stake amount (affects slot leader probability)
 - `host` (optional): Listen address, default: "localhost"
 - `port` (optional): Listen port, default: 8518
-- `beacons` (required): List of beacon endpoints `{host, port, dhtPort}` to connect to
+- `beacons` (required): List of relay (or beacon) endpoints `{host, port, dhtPort}` to connect to — miners typically point this to relay endpoints
 
 ### Miner API Endpoints
 
@@ -367,7 +425,14 @@ Miner is considered out of date if:
 │  (8517)     │          │  (8527)     │          │  (8537)     │
 └──────▲──────┘          └──────▲──────┘          └──────▲──────┘
        │                        │                        │
-       │ Blocks/Validation      │                        │
+       │ Sync blocks             │                        │
+       │                        │                        │
+┌──────┴──────┐          ┌──────┴──────┐          ┌──────┴──────┐
+│   Relay     │          │   Relay     │          │   Relay     │
+│  (8519)     │          │  (8529)     │          │  (8539)     │
+└──────▲──────┘          └──────▲──────┘          └──────▲──────┘
+       │                        │                        │
+       │ Beacon-compatible API  │                        │
        │                        │                        │
 ┌──────┴──────┐          ┌──────┴──────┐          ┌──────┴──────┐
 │   Miner     │          │   Miner     │          │   Miner     │
@@ -376,8 +441,10 @@ Miner is considered out of date if:
 ```
 
 **Interaction Flow:**
-- **Miners** produce blocks based on stake
-- **Beacons** validate and archive blocks from miners
+- **Beacons** validate and archive blocks, communicate only with trusted relays
+- **Relays** sync blocks from their upstream beacon and serve the beacon-compatible API to miners
+- **Miners** connect to relays (using the same API as they would use for a beacon directly)
+- **Miners** produce blocks based on stake and submit them via the relay
 - **Beacons** form a network and sync with each other
 - **Beacons** create checkpoints when criteria are met (1GB + 1 year)
 - **Miners** sync from checkpoints when falling behind

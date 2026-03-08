@@ -4,7 +4,7 @@ This file provides guidelines for AI coding agents working on the pp-ledger proj
 
 ## Project Overview
 
-pp-ledger is a C++ ledger system with client-server architecture managed by CMake.
+pp-ledger is a C++ blockchain ledger system with Ouroboros Proof-of-Stake consensus and client-server architecture managed by CMake. Key server roles: Beacon (validator), Relay (trusted intermediary between beacon and miners), and Miner (block producer).
 
 ## Project Structure
 
@@ -16,7 +16,7 @@ pp-ledger/
 ├── consensus/    # Consensus algorithm lib
 ├── network/      # Network communication lib
 ├── client/       # Client library
-├── server/       # Server library
+├── server/       # Server library (Beacon, Relay, and Miner implementations)
 └── app/          # Main application (binary entry point)
 ```
 
