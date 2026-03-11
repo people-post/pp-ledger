@@ -31,6 +31,9 @@
 
 static constexpr uint64_t ID_GENESIS = 0;
 static constexpr uint64_t ID_FIRST_USER = 1ULL << 20;
+static constexpr size_t MAX_MCP_SESSIONS = 4;
+static constexpr size_t MAX_MCP_PENDING_EVENTS_PER_SESSION = 256;
+static constexpr size_t HTTP_PAYLOAD_MAX_LENGTH = 2 * 1024 * 1024; // 2 MiB
 
 static uint64_t randomAccountId() {
   std::random_device rd;
@@ -57,12 +60,22 @@ struct McpSession {
   std::mutex              mutex;
   std::condition_variable cv;
   std::queue<std::string> pending; // pre-formatted SSE strings
+  const size_t            maxPendingEvents;
   bool                    closed{false};
 
-  void enqueue(std::string event) {
+  explicit McpSession(size_t maxPendingEventsIn)
+      : maxPendingEvents(maxPendingEventsIn) {}
+
+  bool enqueue(std::string event) {
     std::lock_guard<std::mutex> lk(mutex);
+    if (closed) return false;
+    if (pending.size() >= maxPendingEvents) {
+      // Drop the oldest event to keep bounded memory for slow clients.
+      pending.pop();
+    }
     pending.push(std::move(event));
     cv.notify_one();
+    return true;
   }
 
   void close() {
@@ -641,10 +654,15 @@ static void handleMcpSse(const httplib::Request& req, httplib::Response& res,
                          const std::string& httpHost, uint16_t httpPort,
                          std::map<std::string, std::shared_ptr<McpSession>>& mcpSessions,
                          std::mutex& mcpSessionsMutex) {
+  (void)req;
   std::string sessionId = generateSessionId();
-  auto session = std::make_shared<McpSession>();
+  auto session = std::make_shared<McpSession>(MAX_MCP_PENDING_EVENTS_PER_SESSION);
   {
     std::lock_guard<std::mutex> lk(mcpSessionsMutex);
+    if (mcpSessions.size() >= MAX_MCP_SESSIONS) {
+      setJsonError(res, 503, "Too many active MCP sessions");
+      return;
+    }
     mcpSessions[sessionId] = session;
   }
 
@@ -711,7 +729,11 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
 
   auto handle = [&](const json& rpc) {
     auto response = handleMcpRpc(rpc, beaconClient, minerClient);
-    if (response) session->enqueue(makeSseEvent("message", response->dump()));
+    if (response) {
+      if (!session->enqueue(makeSseEvent("message", response->dump()))) {
+        setJsonError(res, 409, "Session is closed");
+      }
+    }
   };
 
   if (body.is_array()) {
@@ -753,6 +775,8 @@ int main(int argc, char** argv) {
   std::mutex mcpSessionsMutex;
 
   httplib::Server svr;
+  // API requests here are small JSON payloads; keep a tighter cap than httplib default.
+  svr.set_payload_max_length(HTTP_PAYLOAD_MAX_LENGTH);
   auto httpLog = pp::logging::getLogger("HttpServer");
   svr.set_logger([&httpLog](const httplib::Request& req, const httplib::Response& res) {
     httpLog.info << req.method << " " << req.path << " " << res.status
