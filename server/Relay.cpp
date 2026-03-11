@@ -21,12 +21,8 @@ Relay::Relay() {
   chain_.redirectLogger(log().getFullName() + ".Chain");
 }
 
-uint64_t Relay::getLastCheckpointId() const {
-  return chain_.getLastCheckpointId();
-}
-
-uint64_t Relay::getCurrentCheckpointId() const {
-  return chain_.getCurrentCheckpointId();
+Chain::Checkpoint Relay::getCheckpoint() const {
+  return chain_.getCheckpoint();
 }
 
 uint64_t Relay::getNextBlockId() const { return chain_.getNextBlockId(); }
@@ -147,8 +143,7 @@ void Relay::refresh() {
 }
 
 Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode &block) {
-  // Relay starts at block 0, use strict validation
-  auto result = chain_.addBlock(block, true);
+  auto result = chain_.addBlock(block);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

@@ -29,6 +29,15 @@ namespace pp {
  */
 class Chain : public Module {
 public:
+  struct Checkpoint {
+    uint64_t lastId{0};
+    uint64_t currentId{0};
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar &lastId &currentId;
+    }
+  };
+
   struct CheckpointConfig {
     uint64_t minBlocks{0}; // minimum number of blocks to trigger a checkpoint
     uint64_t minAgeSeconds{
@@ -148,8 +157,7 @@ public:
   bool isSlotBlockProductionTime(uint64_t slot) const;
 
   uint64_t getNextBlockId() const;
-  uint64_t getLastCheckpointId() const;
-  uint64_t getCurrentCheckpointId() const;
+  Checkpoint getCheckpoint() const;
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;
   uint64_t getTotalStake() const;
@@ -197,7 +205,7 @@ public:
   Roe<void> initLedger(const Ledger::InitConfig &config);
   Roe<void> mountLedger(const std::string &workDir);
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
-  Roe<void> addBlock(const Ledger::ChainNode &block, bool isStrictMode);
+  Roe<void> addBlock(const Ledger::ChainNode &block);
   /** Refresh stakeholders for live mode (uses current epoch). */
   void refreshStakeholders();
   /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
@@ -354,8 +362,7 @@ private:
   Ledger ledger_;
   AccountBuffer bank_;
   std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
-  uint64_t currentCheckpointId_{0};
-  uint64_t lastCheckpointId_{0};
+  Checkpoint checkpoint_{};
 };
 
 std::ostream &operator<<(std::ostream &os,

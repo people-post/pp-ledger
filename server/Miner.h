@@ -47,7 +47,6 @@ public:
     int64_t timeOffset{0};
     uint64_t minerId{0};
     uint64_t startingBlockId{0};
-    uint64_t checkpointId{0};
     std::vector<std::string> privateKeys; // hex-encoded private keys (multiple signatures)
   };
 
@@ -106,9 +105,9 @@ private:
   struct Config {
     std::string workDir;
     uint64_t minerId{0};
+    uint64_t startingBlockId{0};
     uint64_t tokenId{AccountBuffer::ID_GENESIS};
     std::vector<std::string> privateKeys; // hex-encoded (multiple signatures)
-    uint64_t checkpointId{0};
   };
 
   struct SlotCache {

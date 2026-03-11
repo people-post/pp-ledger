@@ -231,19 +231,19 @@ Chain::Roe<void> Chain::validateBlockSequence(const Ledger::ChainNode &block) co
 }
 
 bool Chain::needsCheckpoint(const CheckpointConfig &checkpointConfig) const {
-  if (getNextBlockId() < currentCheckpointId_ + checkpointConfig.minBlocks) {
+  if (getNextBlockId() < checkpoint_.currentId + checkpointConfig.minBlocks) {
     return false;
   }
-  if (getBlockAgeSeconds(currentCheckpointId_) <
+  if (getBlockAgeSeconds(checkpoint_.currentId) <
       checkpointConfig.minAgeSeconds) {
     return false;
   }
   return true;
 }
 
-uint64_t Chain::getLastCheckpointId() const { return lastCheckpointId_; }
-
-uint64_t Chain::getCurrentCheckpointId() const { return currentCheckpointId_; }
+Chain::Checkpoint Chain::getCheckpoint() const {
+  return checkpoint_;
+}
 
 uint64_t Chain::getNextBlockId() const { return ledger_.getNextBlockId(); }
 
@@ -811,8 +811,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
-  lastCheckpointId_ = startingBlockId;
-  currentCheckpointId_ = startingBlockId;
+  checkpoint_.lastId = startingBlockId;
+  checkpoint_.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
   // Strict validatation if we are loading from the beginning
@@ -1088,8 +1088,8 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
   return {};
 }
 
-Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block,
-                                 bool isStrictMode) {
+Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
+  bool isStrictMode = block.block.index >= checkpoint_.currentId;
   auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
     return Error(E_BLOCK_VALIDATION,
@@ -1161,11 +1161,11 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
 
   if (optChainConfig_.has_value() &&
       needsCheckpoint(optChainConfig_.value().checkpoint) &&
-      block.block.index > currentCheckpointId_) {
-    lastCheckpointId_ = currentCheckpointId_;
-    currentCheckpointId_ = block.block.index;
-    log().info << "Checkpoint rotated: last=" << lastCheckpointId_
-               << ", current=" << currentCheckpointId_;
+      block.block.index > checkpoint_.currentId) {
+    checkpoint_.lastId = checkpoint_.currentId;
+    checkpoint_.currentId = block.block.index;
+    log().info << "Checkpoint rotated: last=" << checkpoint_.lastId
+               << ", current=" << checkpoint_.currentId;
   }
 
   return {};

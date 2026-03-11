@@ -42,8 +42,7 @@ public:
   ~Relay() override = default;
 
   // ----------------- accessors -------------------------------------
-  uint64_t getLastCheckpointId() const;
-  uint64_t getCurrentCheckpointId() const;
+  Chain::Checkpoint getCheckpoint() const;
   uint64_t getNextBlockId() const;
   uint64_t getCurrentSlot() const;
   uint64_t getCurrentEpoch() const;

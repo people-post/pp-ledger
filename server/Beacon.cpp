@@ -45,12 +45,8 @@ Beacon::Beacon() {
   chain_.redirectLogger(log().getFullName() + ".Chain");
 }
 
-uint64_t Beacon::getLastCheckpointId() const {
-  return chain_.getLastCheckpointId();
-}
-
-uint64_t Beacon::getCurrentCheckpointId() const {
-  return chain_.getCurrentCheckpointId();
+Chain::Checkpoint Beacon::getCheckpoint() const {
+  return chain_.getCheckpoint();
 }
 
 uint64_t Beacon::getNextBlockId() const { return chain_.getNextBlockId(); }
@@ -241,7 +237,7 @@ void Beacon::refresh() {
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
   // Call base class implementation which validates and adds to chain/ledger
-  auto result = chain_.addBlock(block, true);
+  auto result = chain_.addBlock(block);
   if (!result) {
     return Error(4, result.error().message);
   }

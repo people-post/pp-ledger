@@ -390,8 +390,8 @@ Client::BeaconState RelayServer::buildStateResponse() const {
 
   Client::BeaconState state;
   state.currentTimestamp = currentTimestamp;
-  state.lastCheckpointId = relay_.getLastCheckpointId();
-  state.checkpointId = relay_.getCurrentCheckpointId();
+  const auto checkpoint = relay_.getCheckpoint();
+  state.checkpointId = checkpoint.lastId;  // User lastId so that miners can replay blocks to current checkpoint
   state.nextBlockId = relay_.getNextBlockId();
   state.currentSlot = relay_.getCurrentSlot();
   state.currentEpoch = relay_.getCurrentEpoch();

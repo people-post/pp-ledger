@@ -160,7 +160,6 @@ Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
 nlohmann::json Client::BeaconState::ltsToJson() const {
   nlohmann::json j;
   j["currentTimestamp"] = currentTimestamp;
-  j["lastCheckpointId"] = lastCheckpointId;
   j["checkpointId"] = checkpointId;
   j["nextBlockId"] = nextBlockId;
   j["currentSlot"] = currentSlot;
@@ -176,7 +175,6 @@ Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
     }
 
     currentTimestamp = json.value("currentTimestamp", int64_t(0));
-    lastCheckpointId = json.value("lastCheckpointId", uint64_t(0));
     checkpointId = json.value("checkpointId", uint64_t(0));
     nextBlockId = json.value("nextBlockId", uint64_t(0));
     currentSlot = json.value("currentSlot", uint64_t(0));

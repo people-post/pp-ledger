@@ -156,7 +156,6 @@ public:
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
-    uint64_t lastCheckpointId{ 0 };
     uint64_t checkpointId{ 0 };
     uint64_t nextBlockId { 0 };
     uint64_t currentSlot { 0 };

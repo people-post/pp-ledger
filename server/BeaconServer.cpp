@@ -595,8 +595,8 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
 
   Client::BeaconState state;
   state.currentTimestamp = currentTimestamp;
-  state.lastCheckpointId = beacon_.getLastCheckpointId();
-  state.checkpointId = beacon_.getCurrentCheckpointId();
+  const auto checkpoint = beacon_.getCheckpoint();
+  state.checkpointId = checkpoint.lastId;  // Use lastId so that miners can replay blocks to current checkpoint
   state.nextBlockId = beacon_.getNextBlockId();
   state.currentSlot = beacon_.getCurrentSlot();
   state.currentEpoch = beacon_.getCurrentEpoch();

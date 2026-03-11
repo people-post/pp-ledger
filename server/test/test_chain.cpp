@@ -192,11 +192,13 @@ Ledger::ChainNode makeNextBlock(
     const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes) {
   Ledger::ChainNode block;
   block.block.index = previous.block.index + 1;
-  block.block.timestamp = previous.block.timestamp + 1;
   block.block.previousHash = previous.hash;
   block.block.nonce = 0;
   block.block.slot = previous.block.slot + 1;
-  block.block.slotLeader = 9999;
+  block.block.timestamp = validator.getSlotStartTime(block.block.slot);
+  auto leaderResult = validator.getSlotLeader(block.block.slot);
+  EXPECT_TRUE(leaderResult.isOk());
+  block.block.slotLeader = leaderResult.isOk() ? leaderResult.value() : 0;
   block.block.txIndex =
       previous.block.txIndex + previous.block.signedTxes.size();
   block.block.signedTxes = signedTxes;
@@ -264,7 +266,7 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
   genesis.hash = "bad-hash";
 
-  auto result = validator.addBlock(genesis, true);
+  auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isError());
   EXPECT_NE(result.error().message.find("Genesis block hash validation failed"),
             std::string::npos);
@@ -301,7 +303,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
 
-  auto result = validator.addBlock(genesis, true);
+  auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isOk());
   EXPECT_EQ(validator.getNextBlockId(), 1u);
 
@@ -372,7 +374,7 @@ TEST(ChainTest,
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = 0;
@@ -419,7 +421,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t blockId = validator.getNextBlockId();
@@ -467,7 +469,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   constexpr uint64_t unknownWalletId = 9999;
@@ -510,7 +512,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   uint64_t nextBlockId = validator.getNextBlockId();
@@ -584,7 +586,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   // Genesis has 4 transactions (indices 0..3). Index 4 is out of range.
@@ -627,7 +629,7 @@ TEST(ChainTest,
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addResult = validator.addBlock(genesis, true);
+  auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
   // Genesis block has 4 transactions at indices 0..3.
@@ -644,7 +646,7 @@ TEST(ChainTest,
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, CheckpointIds_RotateAndKeepRecentTwo) {
+TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   Chain validator;
 
   auto genesisKey = makeKeyPair();
@@ -678,22 +680,27 @@ TEST(ChainTest, CheckpointIds_RotateAndKeepRecentTwo) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addGenesisResult = validator.addBlock(genesis, true);
+  auto addGenesisResult = validator.addBlock(genesis);
   ASSERT_TRUE(addGenesisResult.isOk());
-  EXPECT_EQ(validator.getLastCheckpointId(), 0u);
-  EXPECT_EQ(validator.getCurrentCheckpointId(), 0u);
+  auto checkpoint = validator.getCheckpoint();
+  EXPECT_EQ(checkpoint.lastId, 0u);
+  EXPECT_EQ(checkpoint.currentId, 0u);
 
+  validator.refreshStakeholders();
   Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {});
-  auto addBlock1Result = validator.addBlock(block1, false);
+  auto addBlock1Result = validator.addBlock(block1);
   ASSERT_TRUE(addBlock1Result.isOk());
-  EXPECT_EQ(validator.getLastCheckpointId(), 0u);
-  EXPECT_EQ(validator.getCurrentCheckpointId(), 1u);
+  checkpoint = validator.getCheckpoint();
+  EXPECT_EQ(checkpoint.lastId, 0u);
+  EXPECT_EQ(checkpoint.currentId, 1u);
 
+  validator.refreshStakeholders();
   Ledger::ChainNode block2 = makeNextBlock(validator, block1, {});
-  auto addBlock2Result = validator.addBlock(block2, false);
+  auto addBlock2Result = validator.addBlock(block2);
   ASSERT_TRUE(addBlock2Result.isOk());
-  EXPECT_EQ(validator.getLastCheckpointId(), 1u);
-  EXPECT_EQ(validator.getCurrentCheckpointId(), 2u);
+  checkpoint = validator.getCheckpoint();
+  EXPECT_EQ(checkpoint.lastId, 1u);
+  EXPECT_EQ(checkpoint.currentId, 2u);
 
   std::filesystem::remove_all(tempDir, ec);
 }

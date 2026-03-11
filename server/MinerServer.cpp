@@ -345,8 +345,7 @@ Service::Roe<void> MinerServer::onStart() {
   minerConfig.privateKeys = config_.privateKeys;
   minerConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
   minerConfig.workDir = minerDataDir.string();
-  minerConfig.startingBlockId = state.lastCheckpointId;
-  minerConfig.checkpointId = state.checkpointId;
+  minerConfig.startingBlockId = state.checkpointId;
 
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {
@@ -359,6 +358,7 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_MINER, "Failed to sync blocks from beacon: " +
                                        syncResult.error().message);
   }
+
   lastBlockSyncTime_ = std::chrono::steady_clock::now();
   lastSyncedEpoch_ = miner_.getCurrentEpoch();
 
