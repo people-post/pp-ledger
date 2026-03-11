@@ -660,6 +660,7 @@ static void handleMcpSse(const httplib::Request& req, httplib::Response& res,
   {
     std::lock_guard<std::mutex> lk(mcpSessionsMutex);
     if (mcpSessions.size() >= MAX_MCP_SESSIONS) {
+      res.set_header("Retry-After", "5");
       setJsonError(res, 503, "Too many active MCP sessions");
       return;
     }
@@ -727,11 +728,13 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
     return;
   }
 
+  bool enqueueFailed = false;
   auto handle = [&](const json& rpc) {
+    if (enqueueFailed) return;
     auto response = handleMcpRpc(rpc, beaconClient, minerClient);
     if (response) {
       if (!session->enqueue(makeSseEvent("message", response->dump()))) {
-        setJsonError(res, 409, "Session is closed");
+        enqueueFailed = true;
       }
     }
   };
@@ -740,6 +743,11 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
     for (const auto& item : body) handle(item);
   } else {
     handle(body);
+  }
+
+  if (enqueueFailed) {
+    setJsonError(res, 409, "Session is closed");
+    return;
   }
 
   res.status = 202;
