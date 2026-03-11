@@ -187,6 +187,23 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   return genesis;
 }
 
+Ledger::ChainNode makeNextBlock(
+    Chain &validator, const Ledger::ChainNode &previous,
+    const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes) {
+  Ledger::ChainNode block;
+  block.block.index = previous.block.index + 1;
+  block.block.timestamp = previous.block.timestamp + 1;
+  block.block.previousHash = previous.hash;
+  block.block.nonce = 0;
+  block.block.slot = previous.block.slot + 1;
+  block.block.slotLeader = 9999;
+  block.block.txIndex =
+      previous.block.txIndex + previous.block.signedTxes.size();
+  block.block.signedTxes = signedTxes;
+  block.hash = validator.calculateHash(block.block);
+  return block;
+}
+
 } // namespace
 
 TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
@@ -623,6 +640,60 @@ TEST(ChainTest,
     EXPECT_EQ(result.value().obj.toWalletId,
               genesis.block.signedTxes[i].obj.toWalletId);
   }
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, CheckpointIds_RotateAndKeepRecentTwo) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+  chainConfig.checkpoint.minBlocks = 1;
+  chainConfig.checkpoint.minAgeSeconds = 0;
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() /
+      "pp-ledger-chain-test-checkpoints";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addGenesisResult = validator.addBlock(genesis, true);
+  ASSERT_TRUE(addGenesisResult.isOk());
+  EXPECT_EQ(validator.getLastCheckpointId(), 0u);
+  EXPECT_EQ(validator.getCurrentCheckpointId(), 0u);
+
+  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {});
+  auto addBlock1Result = validator.addBlock(block1, false);
+  ASSERT_TRUE(addBlock1Result.isOk());
+  EXPECT_EQ(validator.getLastCheckpointId(), 0u);
+  EXPECT_EQ(validator.getCurrentCheckpointId(), 1u);
+
+  Ledger::ChainNode block2 = makeNextBlock(validator, block1, {});
+  auto addBlock2Result = validator.addBlock(block2, false);
+  ASSERT_TRUE(addBlock2Result.isOk());
+  EXPECT_EQ(validator.getLastCheckpointId(), 1u);
+  EXPECT_EQ(validator.getCurrentCheckpointId(), 2u);
 
   std::filesystem::remove_all(tempDir, ec);
 }

@@ -1159,6 +1159,15 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
     }
   }
 
+  if (optChainConfig_.has_value() &&
+      needsCheckpoint(optChainConfig_.value().checkpoint) &&
+      block.block.index > currentCheckpointId_) {
+    lastCheckpointId_ = currentCheckpointId_;
+    currentCheckpointId_ = block.block.index;
+    log().info << "Checkpoint rotated: last=" << lastCheckpointId_
+               << ", current=" << currentCheckpointId_;
+  }
+
   return {};
 }
 
