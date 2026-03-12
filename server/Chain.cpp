@@ -192,6 +192,17 @@ bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
   return true;
 }
 
+bool Chain::shouldUseStrictMode(uint64_t blockIndex) const {
+  if (checkpoint_.currentId == 0) {
+    return true;
+  }
+  if (checkpoint_.currentId == checkpoint_.lastId) {
+    // Not fully initialized yet
+    return false;
+  }
+  return blockIndex >= checkpoint_.currentId;
+}
+
 Chain::Roe<void> Chain::validateBlockSequence(const Ledger::ChainNode &block) const {
   const uint64_t startingBlockId = ledger_.getStartingBlockId();
   if (block.block.index < startingBlockId) {
@@ -1089,7 +1100,7 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
 }
 
 Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
-  bool isStrictMode = block.block.index >= checkpoint_.currentId;
+  bool isStrictMode = shouldUseStrictMode(block.block.index);
   auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
     return Error(E_BLOCK_VALIDATION,

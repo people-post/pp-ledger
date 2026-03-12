@@ -224,6 +224,7 @@ private:
 
   bool isValidSlotLeader(const Ledger::ChainNode &block) const;
   bool isValidTimestamp(const Ledger::ChainNode &block) const;
+  bool shouldUseStrictMode(uint64_t blockIndex) const;
 
   /** Calculate the maximum blockId for account renewals at a given block. */
   Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
