@@ -520,7 +520,10 @@ void MinerServer::runLoop() {
 
       syncBlocksPeriodically();
 
-      if (miner_.isSlotLeader()) {
+      if (!miner_.isConfigReady()) {
+        // Config not loaded yet (late joiner waiting for T_CONFIG in synced blocks).
+        // Skip slot leader / validator roles; continue syncing only.
+      } else if (miner_.isSlotLeader()) {
         handleSlotLeaderRole();
       } else {
         handleValidatorRole();
@@ -723,6 +726,9 @@ MinerServer::hTxGetByIndex(const Client::Request &request) {
 
 MinerServer::Roe<std::string>
 MinerServer::hTxAdd(const Client::Request &request) {
+  if (!miner_.isConfigReady()) {
+    return Error(E_REQUEST, "Miner syncing, please retry later");
+  }
   auto signedTxResult =
       utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(
           request.payload);
@@ -768,19 +774,30 @@ MinerServer::hStatus(const Client::Request &request) {
   Client::MinerStatus status;
 
   status.minerId = config_.minerId;
-  status.stake = miner_.getStake();
   status.nextBlockId = miner_.getNextBlockId();
-  status.currentSlot = miner_.getCurrentSlot();
-  status.currentEpoch = miner_.getCurrentEpoch();
   status.pendingTransactions = miner_.getPendingTransactionCount();
-  status.nStakeholders = miner_.getStakeholders().size();
-  status.isSlotLeader = miner_.isSlotLeader();
+  if (!miner_.isConfigReady()) {
+    status.stake = 0;
+    status.currentSlot = 0;
+    status.currentEpoch = 0;
+    status.nStakeholders = 0;
+    status.isSlotLeader = false;
+  } else {
+    status.stake = miner_.getStake();
+    status.currentSlot = miner_.getCurrentSlot();
+    status.currentEpoch = miner_.getCurrentEpoch();
+    status.nStakeholders = miner_.getStakeholders().size();
+    status.isSlotLeader = miner_.isSlotLeader();
+  }
 
   return status.ltsToJson().dump();
 }
 
 MinerServer::Roe<std::string>
 MinerServer::hCalibration(const Client::Request &request) {
+  if (!miner_.isConfigReady()) {
+    return Error(E_REQUEST, "Miner syncing, please retry later");
+  }
   int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();

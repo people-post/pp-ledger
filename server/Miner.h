@@ -57,6 +57,8 @@ public:
   bool isSlotLeader() const;
   /** True if this miner is slot leader for the given slot. */
   bool isSlotLeaderForSlot(uint64_t slot) const;
+  /** True when chain config is ready (from T_GENESIS or T_CONFIG). */
+  bool isConfigReady() const;
   Roe<uint64_t> getSlotLeaderId() const;
 
   uint64_t getStake() const;

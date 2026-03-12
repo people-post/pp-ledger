@@ -88,6 +88,7 @@ private:
     uint64_t lastStakeUpdateEpoch{ static_cast<uint64_t>(-1) }; // -1 = never
   };
 
+  void assertConfigIsSet() const;
   // Helper methods for slot leader selection
   /** Eligible pool for leader selection: all if ≤kMaxLeaderPoolSize, else top by stake. */
   std::vector<uint64_t> getEligibleLeaderPool() const;

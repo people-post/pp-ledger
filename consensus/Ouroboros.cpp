@@ -51,13 +51,11 @@ uint64_t Ouroboros::getCurrentSlot() const {
 }
 
 uint64_t Ouroboros::getSlotFromTimestamp(int64_t timestamp) const {
+  assertConfigIsSet();
   if (timestamp < config_.genesisTime) {
     return 0;
   }
   int64_t elapsed = timestamp - config_.genesisTime;
-  if (config_.slotDuration == 0) {
-    log().error << "Slot duration is 0";
-  }
   return static_cast<uint64_t>(elapsed / config_.slotDuration);
 }
 
@@ -126,6 +124,17 @@ std::vector<Stakeholder> Ouroboros::getStakeholders() const {
   }
 
   return result;
+}
+
+void Ouroboros::assertConfigIsSet() const {
+  if (config_.slotDuration == 0) {
+    log().error << "Config is not set. Slot duration is 0";
+    throw std::runtime_error("Config is not set. Slot duration is 0");
+  }
+  if (config_.slotsPerEpoch == 0) {
+    log().error << "Config is not set. Slots per epoch is 0";
+    throw std::runtime_error("Config is not set. Slots per epoch is 0");
+  }
 }
 
 void Ouroboros::init(const Config& config) {

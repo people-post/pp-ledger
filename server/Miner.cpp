@@ -21,6 +21,8 @@ bool Miner::isSlotLeaderForSlot(uint64_t slot) const {
   return chain_.isStakeholderSlotLeader(config_.minerId, slot);
 }
 
+bool Miner::isConfigReady() const { return chain_.isChainConfigReady(); }
+
 Miner::Roe<uint64_t> Miner::getSlotLeaderId() const {
   auto result = chain_.getSlotLeader(getCurrentSlot());
   if (!result) {

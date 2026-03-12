@@ -192,6 +192,8 @@ bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
   return true;
 }
 
+bool Chain::isChainConfigReady() const { return optChainConfig_.has_value(); }
+
 bool Chain::shouldUseStrictMode(uint64_t blockIndex) const {
   if (checkpoint_.currentId == 0) {
     return true;
@@ -593,7 +595,12 @@ Chain::validateAccountRenewals(const Ledger::ChainNode &block) const {
 Chain::Roe<uint64_t>
 Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
   if (!optChainConfig_.has_value()) {
-    return Error(E_INTERNAL, "Chain config not initialized");
+    if (checkpoint_.currentId > checkpoint_.lastId) {
+      return Error(E_INTERNAL,
+                   "Chain config not initialized; expected config when "
+                   "checkpoint.currentId > checkpoint.lastId");
+    }
+    return 0;  // No renewals while still syncing
   }
   const BlockChainConfig &config = optChainConfig_.value();
   const uint64_t minBlocks = config.checkpoint.minBlocks;
@@ -1082,6 +1089,10 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
     }
 
     // Validate max transactions per block: if total > max, all must be renewals
+    if (!optChainConfig_.has_value()) {
+      return Error(E_INTERNAL,
+                   "Chain config not initialized; expected config in strict mode");
+    }
     const uint64_t maxTx = optChainConfig_.value().maxTransactionsPerBlock;
     if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
       for (const auto &signedTx : block.block.signedTxes) {

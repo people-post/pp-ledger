@@ -155,6 +155,8 @@ public:
   // ----------------- accessors -------------------------------------
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
   bool isSlotBlockProductionTime(uint64_t slot) const;
+  /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
+  bool isChainConfigReady() const;
 
   uint64_t getNextBlockId() const;
   Checkpoint getCheckpoint() const;
