@@ -725,6 +725,81 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+TEST(ChainTest,
+     ValidateIdempotencyRules_OnlyScansPreviousBlocksOnReplay) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() /
+      "pp-ledger-chain-test-idempotency-replay";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto addGenesisResult = validator.addBlock(genesis);
+  ASSERT_TRUE(addGenesisResult.isOk());
+
+  // Create a normal block with a single idempotent transaction from RESERVE to FEE.
+  Ledger::SignedData<Ledger::Transaction> tx;
+  tx.obj.type = Ledger::Transaction::T_DEFAULT;
+  tx.obj.tokenId = AccountBuffer::ID_GENESIS;
+  tx.obj.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.obj.toWalletId = AccountBuffer::ID_FEE;
+  tx.obj.amount = 0;
+  tx.obj.fee = 1; // Small non-zero fee; reserve account has ample balance.
+  tx.obj.idempotentId = 42;
+  tx.obj.validationTsMin = chainConfig.genesisTime;
+  tx.obj.validationTsMax = chainConfig.genesisTime + 3600;
+  tx.obj.meta.clear();
+  tx.signatures.push_back(signTx(reserveKey, tx.obj));
+
+  validator.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {tx});
+  auto addBlock1Result = validator.addBlock(block1);
+  ASSERT_TRUE(addBlock1Result.isOk());
+
+  // Now create a new validator instance and replay from the existing ledger.
+  Chain replayValidator;
+
+  consensus::Ouroboros::Config consensusConfig2;
+  consensusConfig2.genesisTime = 0;
+  consensusConfig2.timeOffset = 0;
+  consensusConfig2.slotDuration = 5;
+  consensusConfig2.slotsPerEpoch = 10;
+  replayValidator.initConsensus(consensusConfig2);
+
+  auto mountResult2 = replayValidator.mountLedger(tempDir.string());
+  ASSERT_TRUE(mountResult2.isOk());
+
+  auto loadResult = replayValidator.loadFromLedger(0);
+  ASSERT_TRUE(loadResult.isOk())
+      << "loadFromLedger failed: " << loadResult.error().message;
+  EXPECT_EQ(loadResult.value(), 2u); // genesis + one normal block
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
 // Reproduces late joiner scenario: config not set (no T_GENESIS/T_CONFIG processed),
 // checkpoint.currentId == checkpoint.lastId. collectRenewals must return empty, not error.
 TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
