@@ -1533,12 +1533,17 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
                      std::to_string(slotMin) + ", " + std::to_string(slotMax) +
                      "]");
   }
-  // Only enforce idempotency against transactions that occurred up to the
-  // current effective slot (submit time or block slot), so that replay in
-  // strict mode does not consider future transactions within the same
-  // validation window.
+  // Only enforce idempotency against transactions that occurred strictly
+  // before the current effective slot (submit time or block slot), so that
+  // we do not treat the transaction being validated (or other txs in the same
+  // block) as duplicates.
+  if (effectiveSlot == 0 || effectiveSlot <= slotMin) {
+    // No earlier slots within the validation window to check.
+    return {};
+  }
+  const uint64_t slotMaxIdempotency = effectiveSlot - 1;
   return checkIdempotency(tx.idempotentId, tx.fromWalletId, slotMin,
-                          effectiveSlot);
+                          slotMaxIdempotency);
 }
 
 Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
