@@ -215,7 +215,7 @@ public:
 
 protected:
   // Validation helpers
-  bool needsCheckpoint(const CheckpointConfig &checkpointConfig) const;
+  bool needsCheckpoint(const BlockChainConfig &config) const;
   uint64_t getBlockAgeSeconds(uint64_t blockId) const;
 
 private:

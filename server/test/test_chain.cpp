@@ -691,16 +691,80 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   auto addBlock1Result = validator.addBlock(block1);
   ASSERT_TRUE(addBlock1Result.isOk());
   checkpoint = validator.getCheckpoint();
+  // With additional slotsPerEpoch spacing, checkpoint does not rotate yet.
   EXPECT_EQ(checkpoint.lastId, 0u);
-  EXPECT_EQ(checkpoint.currentId, 1u);
+  EXPECT_EQ(checkpoint.currentId, 0u);
 
   validator.refreshStakeholders();
   Ledger::ChainNode block2 = makeNextBlock(validator, block1, {});
   auto addBlock2Result = validator.addBlock(block2);
   ASSERT_TRUE(addBlock2Result.isOk());
   checkpoint = validator.getCheckpoint();
-  EXPECT_EQ(checkpoint.lastId, 1u);
-  EXPECT_EQ(checkpoint.currentId, 2u);
+  // Still below requiredBlocks (minBlocks + slotsPerEpoch), no rotation yet.
+  EXPECT_EQ(checkpoint.lastId, 0u);
+  EXPECT_EQ(checkpoint.currentId, 0u);
+
+  // Now add enough blocks to satisfy the new spacing requirement
+  // requiredBlocks = checkpoint.currentId + minBlocks + slotsPerEpoch.
+  const uint64_t firstCheckpointIndex =
+      chainConfig.checkpoint.minBlocks + consensusConfig.slotsPerEpoch;
+
+  Ledger::ChainNode prev = block2;
+  for (uint64_t idx = 3; idx <= firstCheckpointIndex; ++idx) {
+    validator.refreshStakeholders();
+    Ledger::ChainNode next = makeNextBlock(validator, prev, {});
+    auto addResult = validator.addBlock(next);
+    ASSERT_TRUE(addResult.isOk());
+    prev = next;
+  }
+
+  checkpoint = validator.getCheckpoint();
+  EXPECT_EQ(checkpoint.lastId, 0u);
+  EXPECT_EQ(checkpoint.currentId, firstCheckpointIndex);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// Reproduces late joiner scenario: config not set (no T_GENESIS/T_CONFIG processed),
+// checkpoint.currentId == checkpoint.lastId. collectRenewals must return empty, not error.
+TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
+  Chain validator;
+
+  // Minimal consensus: late joiner init with timeOffset only (no genesis processed)
+  consensus::Ouroboros::Config consensusConfig;
+  consensusConfig.genesisTime = 1000;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() /
+      "pp-ledger-chain-test-late-joiner";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  // Ledger starting from checkpoint (e.g. 5) - no blocks in ledger yet
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 5;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  // loadFromLedger(5): empty ledger, processes nothing, optChainConfig_ stays unset
+  auto loadResult = validator.loadFromLedger(5);
+  ASSERT_TRUE(loadResult.isOk());
+  EXPECT_EQ(loadResult.value(), 5u);
+
+  EXPECT_FALSE(validator.isChainConfigReady());
+
+  // collectRenewals must not fail with "Chain config not initialized"
+  auto renewalsResult = validator.collectRenewals(0);
+  ASSERT_TRUE(renewalsResult.isOk())
+      << "collectRenewals failed (late joiner config not set): "
+      << (renewalsResult ? "" : renewalsResult.error().message);
+  EXPECT_TRUE(renewalsResult.value().empty());
 
   std::filesystem::remove_all(tempDir, ec);
 }

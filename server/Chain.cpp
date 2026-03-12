@@ -243,12 +243,19 @@ Chain::Roe<void> Chain::validateBlockSequence(const Ledger::ChainNode &block) co
   return {};
 }
 
-bool Chain::needsCheckpoint(const CheckpointConfig &checkpointConfig) const {
-  if (getNextBlockId() < checkpoint_.currentId + checkpointConfig.minBlocks) {
+bool Chain::needsCheckpoint(const BlockChainConfig &config) const {
+  // Keep checkpoints at least one epoch beyond the renewal span to avoid
+  // edge cases where renewal windows and checkpoint boundaries overlap in
+  // strict mode. This is a conservative safety margin.
+  uint64_t margin = config.slotsPerEpoch;
+
+  const uint64_t requiredBlocks = checkpoint_.currentId + config.checkpoint.minBlocks + margin;
+
+  if (getNextBlockId() < requiredBlocks) {
     return false;
   }
   if (getBlockAgeSeconds(checkpoint_.currentId) <
-      checkpointConfig.minAgeSeconds) {
+      config.checkpoint.minAgeSeconds) {
     return false;
   }
   return true;
@@ -1181,8 +1188,7 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
     }
   }
 
-  if (optChainConfig_.has_value() &&
-      needsCheckpoint(optChainConfig_.value().checkpoint) &&
+  if (optChainConfig_.has_value() && needsCheckpoint(optChainConfig_.value()) &&
       block.block.index > checkpoint_.currentId) {
     checkpoint_.lastId = checkpoint_.currentId;
     checkpoint_.currentId = block.block.index;
