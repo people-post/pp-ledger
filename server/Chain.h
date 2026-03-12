@@ -275,6 +275,10 @@ private:
   Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) const;
   Roe<void> validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) const;
 
+  /** Validate that within a single block there is at most one transaction per
+   * (fromWalletId, idempotentId) pair for idempotent-aware transaction types. */
+  Roe<void> validateIntraBlockIdempotency(const Ledger::ChainNode &block) const;
+
   Roe<void> processGenesisTxRecord(
       const Ledger::SignedData<Ledger::Transaction> &signedTx);
   Roe<void>

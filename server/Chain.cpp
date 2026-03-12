@@ -1112,8 +1112,46 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
         }
       }
     }
+    auto intraBlockIdem = validateIntraBlockIdempotency(block);
+    if (!intraBlockIdem) {
+      return intraBlockIdem.error();
+    }
   }
 
+  return {};
+}
+
+Chain::Roe<void>
+Chain::validateIntraBlockIdempotency(const Ledger::ChainNode &block) const {
+  // Validate that within a single block there is at most one transaction
+  // per (fromWalletId, idempotentId) pair. Idempotency is per wallet and
+  // idempotentId == 0 is treated as "no idempotency".
+  std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
+  for (const auto &signedTx : block.block.signedTxes) {
+    const auto &tx = signedTx.obj;
+    if (tx.idempotentId == 0) {
+      continue;
+    }
+    // Only enforce for transaction types that participate in idempotency rules.
+    switch (tx.type) {
+    case Ledger::Transaction::T_DEFAULT:
+    case Ledger::Transaction::T_NEW_USER:
+    case Ledger::Transaction::T_CONFIG:
+    case Ledger::Transaction::T_USER: {
+      auto key = std::make_pair(tx.fromWalletId, tx.idempotentId);
+      if (!seenIdempotentPairs.insert(key).second) {
+        return Error(
+            E_TX_IDEMPOTENCY,
+            "Duplicate idempotent id within block: " +
+                std::to_string(tx.idempotentId) +
+                " for wallet: " + std::to_string(tx.fromWalletId));
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
   return {};
 }
 
@@ -1464,6 +1502,7 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
     return {};
   }
   if (tx.idempotentId == 0) {
+    // Special value to skip idempotency check, this is dangerous, use it with caution
     return {};
   }
   if (tx.validationTsMax < tx.validationTsMin) {
@@ -1471,14 +1510,19 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
         E_TX_VALIDATION,
         "Validation window invalid: validationTsMax < validationTsMin");
   }
+  if (!optChainConfig_.has_value()) {
+    return Error(E_TX_VALIDATION,
+                 "Chain config not initialized; expected config in strict mode");
+  }
   const uint64_t spanSeconds =
       static_cast<uint64_t>(tx.validationTsMax - tx.validationTsMin);
-  if (optChainConfig_.value().maxValidationTimespanSeconds > 0 &&
-      spanSeconds > optChainConfig_.value().maxValidationTimespanSeconds) {
+  const auto &config = optChainConfig_.value();
+
+  if (spanSeconds > config.maxValidationTimespanSeconds) {
     return Error(E_TX_VALIDATION_TIMESPAN,
                  "Validation window exceeds max timespan: " +
                      std::to_string(spanSeconds) + " > " +
-                     std::to_string(optChainConfig_.value().maxValidationTimespanSeconds));
+                     std::to_string(config.maxValidationTimespanSeconds));
   }
   const uint64_t slotMin = consensus_.getSlotFromTimestamp(tx.validationTsMin);
   const uint64_t slotMax = consensus_.getSlotFromTimestamp(tx.validationTsMax);
@@ -1489,7 +1533,12 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
                      std::to_string(slotMin) + ", " + std::to_string(slotMax) +
                      "]");
   }
-  return checkIdempotency(tx.idempotentId, tx.fromWalletId, slotMin, slotMax);
+  // Only enforce idempotency against transactions that occurred up to the
+  // current effective slot (submit time or block slot), so that replay in
+  // strict mode does not consider future transactions within the same
+  // validation window.
+  return checkIdempotency(tx.idempotentId, tx.fromWalletId, slotMin,
+                          effectiveSlot);
 }
 
 Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
