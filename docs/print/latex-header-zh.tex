@@ -1,0 +1,10 @@
+% --- Chinese typesetting tweaks for XeLaTeX ---
+% Enable proper CJK line breaking and fonts under XeLaTeX.
+\usepackage{xeCJK}
+\setCJKmainfont{Noto Serif CJK SC}
+\setCJKsansfont{Noto Sans CJK SC}
+\XeTeXlinebreaklocale "zh"
+\XeTeXlinebreakskip = 0pt plus 0.1pt
+
+% --- Footer in Chinese (CJK fonts set via xeCJK above) ---
+\fancyfoot[C]{\sffamily\small 时间链 --- 设计概览 \quad \thepage}

@@ -1,0 +1,21 @@
+flowchart TD
+    B(["Beacon<br>(single trusted authority)"])
+
+    subgraph Relays["Relays  (trusted intermediaries)"]
+        R1["Relay 1"]
+        R2["Relay 2"]
+    end
+
+    subgraph Miners["Miners  (block producers)"]
+        M1["Miner A"]
+        M2["Miner B"]
+        M3["Miner C"]
+        M4["Miner D"]
+    end
+
+    R1 -- receives & stores chain --> B
+    R2 -- receives & stores chain --> B
+    M1 -- submits new blocks --> R1
+    M2 -- submits new blocks --> R1
+    M3 -- submits new blocks --> R2
+    M4 -- submits new blocks --> R2

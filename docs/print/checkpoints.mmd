@@ -1,0 +1,15 @@
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "titleFontSize": "12px"}}}%%
+timeline
+    title How checkpoints work (time →)
+    section Network launches
+        Day 1 : Network launches (first checkpoint; genesis block)
+    section Chain grows
+        Months later : Thousands of blocks accumulate
+    section Checkpoint 1
+        Checkpoint marked : All account data is known to appear somewhere between this mark and the previous one; older history can be archived
+    section More growth
+        More blocks : Chain continues as normal
+    section Checkpoint 2
+        New checkpoint : Previous checkpoint becomes the safe join-point for new miners
+    section New miner joins
+        Uses previous checkpoint : Starts from the safe join-point — no need to replay all history
