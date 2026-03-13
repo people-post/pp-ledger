@@ -1,286 +1,225 @@
 # Time Chain
 
-## 1. Chain: Slots, Blocks, and Epochs
+## 1. The Chain: Time, Blocks, and Rounds
 
-Time is divided into fixed-duration **slots** (default 5 s). Every `slotsPerEpoch` slots (default 432 = 36 min) form an **epoch**. Each slot has at most one block; empty slots produce no block.
+The Time Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. Every 432 ticks (~36 minutes) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
 
 ```mermaid
 %%{init: {"theme": "base"}}%%
 block-beta
   columns 12
   space:1
-  block:epoch0["Epoch 0"]:6
+  block:epoch0["Round 1  (~36 min)"]:6
     columns 6
-    b0["Block 0\nslot 0"] b1["Block 1\nslot 1"] e0["…"] b431["Block N\nslot 431"]
+    b0["Block 1\ntick 1"] b1["Block 2\ntick 2"] e0["…"] b431["Block N\ntick 432"]
   end
-  block:epoch1["Epoch 1"]:6
+  block:epoch1["Round 2  (~36 min)"]:6
     columns 6
-    b432["Block\nslot 432"] e1["…(empty\nslot)"] e2["…"] b863["Block\nslot 863"]
+    b432["Block\ntick 433"] e1["…(idle\ntick)"] e2["…"] b863["Block\ntick 864"]
   end
 ```
 
-**Key relationships**
-
-| Concept | Detail |
-|---------|--------|
-| Slot | Smallest time unit (`slotDuration` seconds). At most one block per slot. |
-| Epoch | `slotsPerEpoch` consecutive slots. Slot leaders are chosen per epoch using VRF + stake. |
-| Block | Carries a slot number, previous-block hash, slot-leader wallet ID, and a list of signed transactions. |
+| Concept | Plain meaning |
+|---------|---------------|
+| Tick (slot) | 5-second window. At most one block is added per tick. |
+| Round (epoch) | 432 ticks. Block producers for the next round are chosen at the end of each round, weighted by their stake. |
+| Block | A sealed package of activity: transfers, account changes, and other records — linked to the block before it. |
 
 ---
 
-## 2. Block Structure
+## 2. What Is Inside a Block
 
-```mermaid
-classDiagram
-    class Block {
-        uint64  index
-        uint64  slot
-        int64   timestamp
-        uint64  slotLeader
-        string  previousHash
-        uint64  nonce
-        uint64  txIndex
-        SignedTransaction[] signedTxes
-    }
-
-    class SignedTransaction {
-        Transaction tx
-        string[]    signatures
-    }
-
-    class Transaction {
-        uint16  type
-        uint64  tokenId
-        uint64  fromWalletId
-        uint64  toWalletId
-        uint64  amount
-        uint64  fee
-        string  meta
-        uint64  idempotentId
-        int64   validationTsMin
-        int64   validationTsMax
-    }
-
-    Block "1" --> "0..*" SignedTransaction : contains
-    SignedTransaction "1" --> "1" Transaction : wraps
-```
-
-**Transaction types**
-
-| Type | Constant | Purpose |
-|------|----------|---------|
-| 1 | `T_GENESIS` | Initialize the system (genesis block) |
-| 2 | `T_NEW_USER` | Fund / register a new user account |
-| 3 | `T_CONFIG` | Update blockchain config |
-| 4 | `T_USER` | User updates their own account info |
-| 5 | `T_RENEWAL` | Miner renews an account (keeps it active) |
-| 6 | `T_END_USER` | Miner terminates account (insufficient fee) |
-
----
-
-## 3. Beacon, Relay, and Miners
-
-There is exactly **one beacon** per network. Miners connect through one or more **relays**; relays forward to the beacon. The beacon never talks directly to untrusted miners.
+Each block is a tamper-proof envelope. Once added to the chain it cannot be changed.
 
 ```mermaid
 flowchart TD
-    B(["🔵 Beacon\n(single, port 8517)"])
+    B["📦 Block\n─────────────────\nNumber · Timestamp\nProducer · Link to previous block"]
+    T1["✅ Transfer\nAlice → Bob · 50 tokens"]
+    T2["✅ Transfer\nCarol → Dave · 200 tokens"]
+    T3["✅ New account\nEve joins the network"]
+    B --> T1
+    B --> T2
+    B --> T3
+```
 
-    subgraph Relays
-        R1["Relay 1\n(port 8519)"]
-        R2["Relay 2\n(port 8520)"]
+**Types of activity a block can record**
+
+| Activity | What it does |
+|----------|-------------|
+| Launch | Sets up the network for the first time |
+| New account | Registers and funds a new participant |
+| Transfer | Moves tokens between accounts |
+| Update account | Participant updates their own profile |
+| Renew account | Network keeps an account active |
+| Close account | Network closes an account that can no longer pay its upkeep |
+
+---
+
+## 3. Network Participants: Beacon, Relays, and Miners
+
+Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain.
+
+```mermaid
+flowchart TD
+    B(["🔵 Beacon\n(single trusted authority)"])
+
+    subgraph Relays["Relays  (trusted intermediaries)"]
+        R1["Relay 1"]
+        R2["Relay 2"]
     end
 
-    subgraph Miners
-        M1["Miner A\n(port 8518)"]
+    subgraph Miners["Miners  (block producers)"]
+        M1["Miner A"]
         M2["Miner B"]
         M3["Miner C"]
         M4["Miner D"]
     end
 
-    R1 -- sync blocks --> B
-    R2 -- sync blocks --> B
-    M1 -- beacon-compatible API --> R1
-    M2 -- beacon-compatible API --> R1
-    M3 -- beacon-compatible API --> R2
-    M4 -- beacon-compatible API --> R2
+    R1 -- receives & stores chain --> B
+    R2 -- receives & stores chain --> B
+    M1 -- submits new blocks --> R1
+    M2 -- submits new blocks --> R1
+    M3 -- submits new blocks --> R2
+    M4 -- submits new blocks --> R2
 ```
 
-**Roles**
+| Role | What they do | Adds blocks? | Sees full history? |
+|------|-------------|:---:|:---:|
+| **Beacon** | Single authoritative record-keeper; validates everything | ✗ | ✓ |
+| **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | ✗ | ✓ |
+| **Miner** | Elected participant who packages and adds new blocks; earns fees | ✓ | partial |
 
-| Node | Produces blocks | Stores full chain | Exposed to untrusted miners |
-|------|:-:|:-:|:-:|
-| Beacon | ✗ | ✓ | ✗ |
-| Relay | ✗ | ✓ | ✓ |
-| Miner | ✓ | partial | ✓ |
+> **Why this matters:** Miners compete fairly — only the randomly elected miner for a given tick may add a block, and their election odds are proportional to how much they have staked. This makes the network both decentralised and predictable.
 
 ---
 
-## 4. Checkpoints
+## 4. Checkpoints — Keeping the Network Lean
 
-A checkpoint is created when the stored chain data exceeds `minBlocks` blocks and those blocks are older than `minAgeSeconds`. Miners may start syncing from the **second-to-last checkpoint** (i.e. `checkpoint.lastId`) rather than from genesis, avoiding the need to replay the full history.
+As the chain grows over months and years, storing every block from the very beginning becomes expensive. **Checkpoints** solve this: periodically the network takes a verified snapshot of all account balances. New participants can join using the snapshot instead of replaying years of history.
 
 ```mermaid
 timeline
-    title Checkpoint lifecycle (block IDs not to scale)
-    section Genesis
-        Block 0 : genesis block
-    section Growing chain
-        Block N : normal production
-    section Checkpoint 1 (lastId = 0, currentId = N)
-        Block N : criteria met – snapshot written
-    section More blocks
-        Block M : normal production
-    section Checkpoint 2 (lastId = N, currentId = M)
-        Block M : new snapshot
+    title How checkpoints work (time →)
+    section Network launches
+        Day 1 : First block is added
+    section Chain grows
+        Months later : Thousands of blocks accumulate
+    section Snapshot 1
+        Snapshot taken : Verified state saved; old blocks can be pruned
+    section More growth
+        More blocks : Chain continues as normal
+    section Snapshot 2
+        New snapshot : Previous snapshot becomes the safe join-point for new miners
     section New miner joins
-        Syncs from block N : second-to-last checkpoint (lastId of latest checkpoint)
+        Uses Snapshot 1 : Starts from the safe join-point — no need to replay all history
 ```
 
-**Checkpoint struct**
-
-| Field | Meaning |
-|-------|---------|
-| `lastId` | Block ID of the previous checkpoint (miner sync start) |
-| `currentId` | Block ID of this checkpoint |
+| Term | Meaning |
+|------|---------|
+| Snapshot (checkpoint) | A verified record of every account balance at a specific point in time |
+| Safe join-point | The snapshot before the latest one — proven stable and widely agreed upon |
 
 ---
 
-## 5. System Reserved Wallets
+## 5. Reserved Accounts — Issuing Tokens
 
-Wallet IDs below `ID_FIRST_USER` (`1 << 20 = 1,048,576`) are **system reserved**. They are allowed to carry negative balances for accounting purposes and can issue tokens.
-
-```mermaid
-block-beta
-  columns 1
-  block:system["System-reserved range  (ID < 1,048,576)"]:1
-    columns 4
-    id0["ID 0\nGenesis\n(native token issuer)"]
-    id1["ID 1\nFee collector"]
-    id2["ID 2\nReserve"]
-    id3["ID 3\nRecycle"]
-    space:4
-    gap["IDs 4 … 1,048,575\n(available for additional\nsystem tokens / roles)"]
-  end
-```
-
-**Token partitioning** – each system wallet that acts as a token issuer can be dedicated to a token class:
+The network reserves a range of special accounts for issuing and managing tokens. These accounts are allowed to show negative balances as an accounting device (similar to a central bank's balance sheet) and can create new token types.
 
 ```mermaid
 mindmap
-  root((System\nWallets))
-    Native Token
-      ID 0 genesis token
+  root((Reserved\nAccounts))
+    Native Coin
+      The network's built-in currency
     Currency Tokens
-      e.g. USD stablecoin
-      e.g. EUR stablecoin
+      Stablecoins e.g. USD, EUR
     Stock Tokens
-      e.g. company equity
+      Equity in companies
     Bond Tokens
-      e.g. government bond
-    RWA Tokens
-      e.g. real-estate token
-    Other Custom
-      any further partition
+      Government or corporate bonds
+    Real-World Asset Tokens
+      Real estate, commodities
+    Other
+      Any additional token class
 ```
 
-Tokens are distinguished at runtime by `tokenId` (the issuing wallet ID). A transaction with `tokenId = 0` uses the native genesis token; any other value references a custom token issued by that system wallet.
+| Account | Purpose |
+|---------|---------|
+| Genesis (account 0) | Issues the network's native coin; sets initial supply |
+| Fee collector (account 1) | Receives small upkeep fees paid by all accounts |
+| Reserve (account 2) | Holds unallocated supply |
+| Recycle (account 3) | Receives balances from closed accounts |
+| Accounts 4 and above | Available for currency, stock, bond, RWA, and other token classes |
+
+> Each token type is issued from its own dedicated reserved account, giving issuance a clear, auditable home on-chain.
 
 ---
 
-## 6. User Wallets
+## 6. User Accounts — Holding and Doing
 
-User wallet IDs start at `ID_FIRST_USER` (`1,048,576`). Each account is an `AccountBuffer::Account` carrying a `Client::Wallet`.
+Every person or organisation on the network has a **user account**. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
 
 ```mermaid
-classDiagram
-    class UserAccount {
-        uint64  id  ≥ ID_FIRST_USER
-        Wallet  wallet
-        string  meta
-    }
+flowchart LR
+    A["👤 User Account"]
+    B["💰 Balances\n─────────────\nNative coin\nStablecoins\nStock tokens\nBond tokens\n…"]
+    C["🔑 Security\n─────────────\nOne or more keys\nRequires M-of-N signatures\nto authorise spending"]
+    D["📎 Data Attachment\n─────────────\nProfile info\nDigital collectibles · NFTs (planned)\nSelf-executing rules · Smart contracts (planned)"]
 
-    class Wallet {
-        map~tokenId, balance~ mBalances
-        string[]   publicKeys
-        uint8      minSignatures
-        uint8      keyType
-    }
-
-    class MetaField["meta (extensible)"] {
-        -- today --
-        arbitrary JSON / binary
-        -- planned --
-        NFTs
-        Smart contracts
-        Custom data schemas
-    }
-
-    UserAccount "1" --> "1" Wallet : owns
-    UserAccount "1" --> "1" MetaField : carries
+    A --> B
+    A --> C
+    A --> D
 ```
 
-**Capabilities**
-
-| Feature | Status |
-|---------|--------|
-| Multi-token balances | ✓ implemented |
-| Multi-key / threshold signatures | ✓ implemented |
-| Arbitrary `meta` field | ✓ implemented |
-| NFT ownership records | planned |
-| Smart contract storage | planned |
-| Custom data schemas | planned |
+| Capability | Available today |
+|------------|:---:|
+| Hold multiple token types | ✓ |
+| Require more than one key to spend (multi-sig) | ✓ |
+| Attach profile or custom data | ✓ |
+| Own digital collectibles (NFTs) | Planned |
+| Self-executing rules (smart contracts) | Planned |
 
 ---
 
-## 7. Implementation Status
+## 7. What Is Built and What Is Next
 
-### Core Protocol
+### Core Chain
 
-| Area | Component | Status |
-|------|-----------|--------|
-| Consensus | Ouroboros slot/epoch timing | ✅ done |
-| Consensus | VRF-based slot-leader selection | ✅ done |
-| Consensus | Stake-weighted election | ✅ done |
-| Ledger | Block production & validation | ✅ done |
-| Ledger | Persistent storage (FileStore / DirStore) | ✅ done |
-| Ledger | Multi-token balances | ✅ done |
-| Ledger | Transaction fee calculation (quadratic) | ✅ done |
-| Checkpoints | Create / detect / reinitialize from checkpoint | ✅ done |
+| Capability | Status |
+|------------|--------|
+| Predictable, time-based block production | ✅ Live |
+| Stake-weighted, tamper-proof leader election | ✅ Live |
+| Immutable transaction records | ✅ Live |
+| Multi-token balances | ✅ Live |
+| Small, usage-based fees | ✅ Live |
+| Periodic snapshots to keep storage lean | ✅ Live |
 
-### Nodes
+### Network
 
-| Node | Feature | Status |
-|------|---------|--------|
-| Beacon | Full chain archival | ✅ done |
-| Beacon | Checkpoint management | ✅ done |
-| Relay | Sync from beacon, expose beacon API | ✅ done |
-| Relay | DHT participation | ✅ done |
-| Miner | Block production loop | ✅ done |
-| Miner | Transaction pool | ✅ done |
-| Miner | Reinit from checkpoint | ✅ done |
+| Capability | Status |
+|------------|--------|
+| Beacon — authoritative record-keeper | ✅ Live |
+| Relays — scalable miner gateway | ✅ Live |
+| Miners — decentralised block production | ✅ Live |
+| Miner fast-join via snapshots | ✅ Live |
 
-### Accounts & Tokens
+### Tokens & Accounts
 
-| Feature | Status |
-|---------|--------|
-| System reserved wallets (IDs 0–3) | ✅ done |
-| Native genesis token | ✅ done |
-| Custom token issuance (by system wallets) | ✅ done |
-| User wallet registration (`T_NEW_USER`) | ✅ done |
-| Account renewal / termination | ✅ done |
-| NFT support | ⬜ not started |
-| Smart contracts | ⬜ not started |
-| Currency / stock / bond / RWA token partitioning | ⬜ convention only |
+| Capability | Status |
+|------------|--------|
+| Native coin | ✅ Live |
+| Custom token issuance (by reserved accounts) | ✅ Live |
+| User account registration | ✅ Live |
+| Account upkeep and closure | ✅ Live |
+| Digital collectibles (NFTs) | ⬜ Planned |
+| Self-executing rules (smart contracts) | ⬜ Planned |
+| Dedicated currency / stock / bond / RWA token classes | ⬜ Planned |
 
-### Interfaces & Tooling
+### Interfaces
 
-| Feature | Status |
-|---------|--------|
-| TCP client/server (FetchClient/FetchServer) | ✅ done |
-| CLI (`pp-client`) | ✅ done |
-| HTTP API proxy (`pp-http`) | ✅ done |
-| Node.js native addon | ✅ done |
-| WebSocket / streaming API | ⬜ not started |
-| Explorer UI | ⬜ not started |
+| Capability | Status |
+|------------|--------|
+| Command-line tool | ✅ Live |
+| REST (HTTP) API | ✅ Live |
+| JavaScript / Node.js library | ✅ Live |
+| Real-time streaming API | ⬜ Planned |
+| Web explorer / dashboard | ⬜ Planned |
