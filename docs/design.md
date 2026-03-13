@@ -22,7 +22,7 @@ block-beta
 | Concept | Plain meaning |
 |---------|---------------|
 | Tick (slot) | 5-second window. At most one block is added per tick. |
-| Round (epoch) | 432 ticks. Block producers for the next round are chosen at the end of each round, weighted by their stake. |
+| Round (epoch) | 7 days. Block producers for the next round are chosen at the end of each round, weighted by their stake. |
 | Block | A sealed package of activity: transfers, account changes, and other records — linked to the block before it. |
 
 ---
@@ -57,7 +57,7 @@ flowchart TD
 
 ## 3. Network Participants: Beacon, Relays, and Miners
 
-Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain.
+Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain. In the rare event that the original Beacon is permanently lost, a Relay that already holds the full chain can be promoted to become the new Beacon, preserving continuity.
 
 ```mermaid
 flowchart TD
@@ -95,29 +95,29 @@ flowchart TD
 
 ## 4. Checkpoints — Keeping the Network Lean
 
-As the chain grows over months and years, storing every block from the very beginning becomes expensive. **Checkpoints** solve this: periodically the network takes a verified snapshot of all account balances. New participants can join using the snapshot instead of replaying years of history.
+As the chain grows over months and years, storing every block from the very beginning becomes expensive. **Checkpoints** solve this: starting from launch day, the network marks confirmed ranges of blocks whose combined contents fully determine the current state of every account. The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks. New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
 ```mermaid
 timeline
     title How checkpoints work (time →)
     section Network launches
-        Day 1 : First block is added
+        Day 1 : Network launches (first checkpoint; genesis block)
     section Chain grows
         Months later : Thousands of blocks accumulate
-    section Snapshot 1
-        Snapshot taken : Verified state saved; old blocks can be pruned
+    section Checkpoint 1
+        Checkpoint marked : All account data is known to appear somewhere between this mark and the previous one; older history can be archived
     section More growth
         More blocks : Chain continues as normal
-    section Snapshot 2
-        New snapshot : Previous snapshot becomes the safe join-point for new miners
+    section Checkpoint 2
+        New checkpoint : Previous checkpoint becomes the safe join-point for new miners
     section New miner joins
-        Uses Snapshot 1 : Starts from the safe join-point — no need to replay all history
+        Uses previous checkpoint : Starts from the safe join-point — no need to replay all history
 ```
 
 | Term | Meaning |
 |------|---------|
-| Snapshot (checkpoint) | A verified record of every account balance at a specific point in time |
-| Safe join-point | The snapshot before the latest one — proven stable and widely agreed upon |
+| Snapshot (checkpoint) | A marker in the chain that guarantees every account's latest state can be reconstructed from the blocks between this mark and the previous one (states are not required to sit in a single block) |
+| Safe join-point | The checkpoint before the latest one — proven stable and widely agreed upon |
 
 ---
 
@@ -191,7 +191,7 @@ flowchart LR
 | Immutable transaction records | ✅ Live |
 | Multi-token balances | ✅ Live |
 | Small, usage-based fees | ✅ Live |
-| Periodic snapshots to keep storage lean | ✅ Live |
+| Periodic checkpoints to keep storage lean | ✅ Live |
 
 ### Network
 
@@ -201,6 +201,8 @@ flowchart LR
 | Relays — scalable miner gateway | ✅ Live |
 | Miners — decentralised block production | ✅ Live |
 | Miner fast-join via snapshots | ✅ Live |
+
+> **Security note:** The current network stack focuses on correctness and basic robustness. Advanced protections against large-scale abusive behaviour (such as massive connection floods or automated probing) are not yet implemented and should be assumed to require additional hardening before internet-wide deployment.
 
 ### Tokens & Accounts
 
@@ -221,5 +223,6 @@ flowchart LR
 | Command-line tool | ✅ Live |
 | REST (HTTP) API | ✅ Live |
 | JavaScript / Node.js library | ✅ Live |
+| MCP (Model Context Protocol) server | ✅ Live |
 | Real-time streaming API | ⬜ Planned |
 | Web explorer / dashboard | ⬜ Planned |
