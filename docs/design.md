@@ -2,21 +2,20 @@
 
 ## 1. The Chain: Time, Blocks, and Rounds
 
-The Time Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. Every 432 ticks (~36 minutes) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
+The Time Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
 
 ```mermaid
-%%{init: {"theme": "base"}}%%
-block-beta
-  columns 12
-  space:1
-  block:epoch0["Round 1  (~36 min)"]:6
-    columns 6
-    b0["Block 1\ntick 1"] b1["Block 2\ntick 2"] e0["…"] b431["Block N\ntick 432"]
-  end
-  block:epoch1["Round 2  (~36 min)"]:6
-    columns 6
-    b432["Block\ntick 433"] e1["…(idle\ntick)"] e2["…"] b863["Block\ntick 864"]
-  end
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "titleFontSize": "12px"}}}%%
+timeline
+    title Slots and rounds (time →)
+    section Round 1 (~7 days)
+        Early slots : Some slots have blocks
+        Middle slots : Many slots (some with blocks, some idle)
+        Late slots : Final slots of round 1
+    section Round 2 (~7 days)
+        Early slots : First slots of round 2
+        Middle slots : Many slots (some with blocks, some idle)
+        Late slots : Final slots of round 2
 ```
 
 | Concept | Plain meaning |
@@ -33,10 +32,10 @@ Each block is a tamper-proof envelope. Once added to the chain it cannot be chan
 
 ```mermaid
 flowchart TD
-    B["📦 Block\n─────────────────\nNumber · Timestamp\nProducer · Link to previous block"]
-    T1["✅ Transfer\nAlice → Bob · 50 tokens"]
-    T2["✅ Transfer\nCarol → Dave · 200 tokens"]
-    T3["✅ New account\nEve joins the network"]
+    B["Block<br>────────────<br>Number · Timestamp<br>Producer · Link to previous block"]
+    T1["Transfer<br>Alice → Bob · 50 tokens"]
+    T2["Transfer<br>Carol → Dave · 200 tokens"]
+    T3["New account<br>Eve joins the network"]
     B --> T1
     B --> T2
     B --> T3
@@ -61,7 +60,7 @@ Three types of node keep the network running. They have distinct, non-overlappin
 
 ```mermaid
 flowchart TD
-    B(["🔵 Beacon\n(single trusted authority)"])
+    B(["Beacon<br>(single trusted authority)"])
 
     subgraph Relays["Relays  (trusted intermediaries)"]
         R1["Relay 1"]
@@ -95,9 +94,13 @@ flowchart TD
 
 ## 4. Checkpoints — Keeping the Network Lean
 
-As the chain grows over months and years, storing every block from the very beginning becomes expensive. **Checkpoints** solve this: starting from launch day, the network marks confirmed ranges of blocks whose combined contents fully determine the current state of every account. The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks. New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
+As the chain grows over months and years, storing every block from the very beginning becomes expensive.
+**Checkpoints** solve this: starting from launch day, the network marks confirmed ranges of blocks whose combined contents fully determine the current state of every account.
+The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks.
+New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "titleFontSize": "12px"}}}%%
 timeline
     title How checkpoints work (time →)
     section Network launches
@@ -160,10 +163,10 @@ Every person or organisation on the network has a **user account**. An account c
 
 ```mermaid
 flowchart LR
-    A["👤 User Account"]
-    B["💰 Balances\n─────────────\nNative coin\nStablecoins\nStock tokens\nBond tokens\n…"]
-    C["🔑 Security\n─────────────\nOne or more keys\nRequires M-of-N signatures\nto authorise spending"]
-    D["📎 Data Attachment\n─────────────\nProfile info\nDigital collectibles · NFTs (planned)\nSelf-executing rules · Smart contracts (planned)"]
+    A["User Account"]
+    B["Balances<br>─────────────<br>Native coin<br>Stablecoins<br>Stock tokens<br>Bond tokens<br>…"]
+    C["Security<br>─────────────<br>One or more keys<br>Requires M-of-N signatures<br>to authorise spending"]
+    D["Data Attachment<br>─────────────<br>Profile info<br>Digital collectibles · NFTs (planned)<br>Self-executing rules · Smart contracts (planned)"]
 
     A --> B
     A --> C
@@ -202,7 +205,9 @@ flowchart LR
 | Miners — decentralised block production | ✅ Live |
 | Miner fast-join via snapshots | ✅ Live |
 
-> **Security note:** The current network stack focuses on correctness and basic robustness. Advanced protections against large-scale abusive behaviour (such as massive connection floods or automated probing) are not yet implemented and should be assumed to require additional hardening before internet-wide deployment.
+> **Security note:** The current network stack focuses on correctness and basic robustness.
+> Advanced protections against large-scale abusive behaviour (such as massive connection floods or automated probing)
+> are not yet implemented and should be assumed to require additional hardening before internet-wide deployment.
 
 ### Tokens & Accounts
 
