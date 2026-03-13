@@ -54,7 +54,16 @@ To re-render the diagram images (requires Node and `@mermaid-js/mermaid-cli`):
 
 ```bash
 cd docs/print
-for f in slots-and-rounds block-contents beacon-relays-miners checkpoints reserved-accounts user-account; do
+for f in slots-and-rounds block-contents beacon-relays-miners checkpoints reserved-accounts reserved-accounts-zh user-account; do
   npx -y @mermaid-js/mermaid-cli -i "$f.mmd" -o "$f.png" -b transparent
 done
+```
+
+To regenerate a **single** diagram (for example `reserved-accounts.png`):
+
+```bash
+cd docs/print
+npx -y @mermaid-js/mermaid-cli -i reserved-accounts.mmd -o reserved-accounts.png -b transparent
+# Chinese version
+npx -y @mermaid-js/mermaid-cli -i reserved-accounts-zh.mmd -o reserved-accounts-zh.png -b transparent
 ```

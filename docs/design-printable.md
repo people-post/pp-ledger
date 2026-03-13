@@ -1,12 +1,12 @@
 ---
-title: "Time Chain"
+title: "Block Chain"
 author: "Technical design overview"
 date: ""
 ---
 
 ## 1. The Chain: Time, Blocks, and Rounds
 
-The Time Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
+The Block Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
 
 ![Slots and rounds (time)](print/slots-and-rounds.png)
 

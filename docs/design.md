@@ -130,7 +130,7 @@ The network reserves a range of special accounts for issuing and managing tokens
 
 ```mermaid
 mindmap
-  root((Reserved\nAccounts))
+  root((Reserved<br>Accounts))
     Native Coin
       The network's built-in currency
     Currency Tokens
