@@ -151,3 +151,33 @@ Every person or organisation on the network has a **user account**. An account c
 | MCP (Model Context Protocol) server | Live |
 | Real-time streaming API | Planned |
 | Web explorer / dashboard | Planned |
+
+---
+
+## 8. Key Differences vs Other Chain Designs
+
+This section summarises how our design differs from many other blockchain systems in two areas: consensus/network and accounts/checkpoints.
+
+### 8.1 Consensus and Network
+
+| Aspect | our design | Typical other chains |
+|--------|-----------|---------------------|
+| **Authority model** | Single **Beacon** as authoritative record-keeper; **Relays** as trusted gateways; **Miners** only produce blocks. No single role can alter the chain alone. | Often all full nodes are equal (e.g. Bitcoin) or validators both propose and validate (e.g. many PoS chains). |
+| **Block production** | Only **Miners** add blocks; Beacon and Relays never produce blocks. Miners are elected per slot and connect via Relays (or optionally to Beacon). | Validators or miners usually talk to each other in a flat or mesh topology; no dedicated "authority + gateway" split. |
+| **Visibility** | Miners see only a **partial** history (needed for proposing blocks); full chain lives at Beacon and Relays. | Full nodes and validators typically store and validate the full chain. |
+| **Recovery** | A Relay that holds the full chain can be **promoted to Beacon** if the original Beacon is lost, preserving continuity without changing the protocol. | Failover is usually handled by out-of-band replacement or social consensus, not a defined "next Beacon" role. |
+| **Time and slots** | Fixed **5-second slots** and at most one block per slot; stake-weighted, VRF-based leader election (Ouroboros-style). | Variable block times or multiple blocks per "round" are common; leader selection varies by chain. |
+
+In short: our design separates **who keeps the truth** (Beacon), **who distributes it** (Relays), and **who extends it** (Miners), instead of merging these into one validator set.
+
+### 8.2 Account and Checkpoint
+
+| Aspect | our design | Typical other chains |
+|--------|-----------|---------------------|
+| **Checkpoints / sync** | **Checkpoints** mark confirmed ranges; new participants join from a checkpoint and only process blocks **between that checkpoint and the previous one**. No need to replay from genesis. | New nodes often sync from genesis or from a recent "snapshot" that may be a full state dump rather than a chain-range guarantee. |
+| **State and history** | Checkpoints guarantee that account state can be **reconstructed from the blocks** in the range between two consecutive checkpoints; state is not required to live in a single block. | State is usually derived from applying all blocks (or from a state DB); "checkpoint = chain range" is not always explicit. |
+| **Reserved accounts** | **Fixed reserved accounts** (Genesis, Fee collector, Reserve, Recycle, then token issuers) with defined roles; some may have negative balances as an accounting device. | Often a single "system" or treasury address, or no formal reserved range; token issuance is contract- or protocol-specific. |
+| **Account lifecycle** | Explicit **registration, upkeep (fees), renewal, and closure**; closed-account balances go to Recycle. Accounts can be closed by the network when they cannot pay upkeep. | Accounts are often "create once, use forever" or closed only by user action; no built-in upkeep or network-initiated closure. |
+| **Multi-token and issuance** | Native **multi-token** balances per account; each token type is issued from a **dedicated reserved account** (4+), giving issuance a clear on-chain home. | Multi-token is usually via contracts or side tables; issuance is not always tied to a fixed reserved-account model. |
+
+In short: our design treats **checkpoints as bounded chain ranges** that define state reconstruction and lean sync, and **accounts** as first-class objects with lifecycle, upkeep, and reserved-account-based token issuance, rather than only "address + balance" or contract-only issuance.

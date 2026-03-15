@@ -19,6 +19,13 @@ pandoc design.md -o design.pdf \
 ```
 Uses serif body text and sans-serif headings, generous margins, 1.25 line spacing, and a clean title page. Requires [pandoc](https://pandoc.org/) and `texlive-xetex` plus `fonts-dejavu` (e.g. `sudo apt install texlive-xetex fonts-dejavu`).
 
+**Option B — HTML (easy layout tweaks and print)**  
+```bash
+cd docs
+pandoc design.md -o design.html --standalone --css=print/design-print.css
+```
+Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P) to print or save as PDF. Layout is controlled by `print/design-print.css`: edit the `:root` variables at the top to change print margins (`--print-margin-*`), paper size (`--print-paper`), fonts (`--font-sans`, `--font-serif`), font size (`--font-size-body`), and line height (`--line-height`). No LaTeX required; only pandoc.
+
 **Chinese (简体中文) PDF**  
 ```bash
 cd docs
