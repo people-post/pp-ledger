@@ -51,6 +51,8 @@ Three types of node keep the network running. They have distinct, non-overlappin
 
 > **Why this matters:** Miners compete fairly — only the randomly elected miner for a given tick may add a block, and their election odds are proportional to how much they have staked. This makes the network both decentralised and predictable.
 
+Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.
+
 ---
 
 ## 4. Checkpoints — Keeping the Network Lean
@@ -89,7 +91,7 @@ The network reserves a range of special accounts for issuing and managing tokens
 
 ## 6. User Accounts — Holding and Doing
 
-Every person or organisation on the network has a **user account**. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
+Every person or organisation on the network has a **user account**. Account identities are separate from cryptographic keys: users can rotate keys and switch algorithms without changing their account, enabling a path to post-quantum security. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
 
 ![User Account](print/user-account.png){width=50%}
 
