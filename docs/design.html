@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Technical design overview" />
+  <title>Block Chain</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="print/design-print.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Block Chain</h1>
+<p class="author">Technical design overview</p>
+</header>
+<h2 id="the-chain-time-blocks-and-rounds">1. The Chain: Time, Blocks,
+and Rounds</h2>
+<p>The Block Chain organises activity into a fixed heartbeat. Every
+<strong>5 seconds</strong> one “tick” (called a <strong>slot</strong>)
+passes. During each tick, one elected participant may add a bundle of
+activity (a <strong>block</strong>) to the chain. A fixed number of
+ticks (currently about <strong>7 days</strong> of slots) forms a
+<strong>round</strong> (called an <strong>epoch</strong>) at the end of
+which participants for the next round are elected.</p>
+<figure>
+<img src="print/slots-and-rounds.png" alt="Slots and rounds (time)" />
+<figcaption aria-hidden="true">Slots and rounds (time)</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 37%" />
+<col style="width: 62%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Concept</th>
+<th>Plain meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Tick (slot)</td>
+<td>5-second window. At most one block is added per tick.</td>
+</tr>
+<tr class="even">
+<td>Round (epoch)</td>
+<td>7 days. Block producers for the next round are chosen at the end of
+each round, weighted by their stake.</td>
+</tr>
+<tr class="odd">
+<td>Block</td>
+<td>A sealed package of activity: transfers, account changes, and other
+records — linked to the block before it.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="what-is-inside-a-block">2. What Is Inside a Block</h2>
+<p>Each block is a tamper-proof envelope. Once added to the chain it
+cannot be changed.</p>
+<figure>
+<img src="print/block-contents.png" alt="Block contents" />
+<figcaption aria-hidden="true">Block contents</figcaption>
+</figure>
+<p><strong>Types of activity a block can record</strong></p>
+<table>
+<colgroup>
+<col style="width: 43%" />
+<col style="width: 56%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Activity</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Launch</td>
+<td>Sets up the network for the first time</td>
+</tr>
+<tr class="even">
+<td>New account</td>
+<td>Registers and funds a new participant</td>
+</tr>
+<tr class="odd">
+<td>Transfer</td>
+<td>Moves tokens between accounts</td>
+</tr>
+<tr class="even">
+<td>Update account</td>
+<td>Participant updates their own profile</td>
+</tr>
+<tr class="odd">
+<td>Renew account</td>
+<td>Network keeps an account active</td>
+</tr>
+<tr class="even">
+<td>Close account</td>
+<td>Network closes an account that can no longer pay its upkeep</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="network-participants-beacon-relays-and-miners">3. Network
+Participants: Beacon, Relays, and Miners</h2>
+<p>Three types of node keep the network running. They have distinct,
+non-overlapping roles so that no single participant can act alone to
+alter the chain. In the rare event that the original Beacon is
+permanently lost, a Relay that already holds the full chain can be
+promoted to become the new Beacon, preserving continuity.</p>
+<figure>
+<img src="print/beacon-relays-miners.png"
+alt="Beacon, Relays, and Miners" />
+<figcaption aria-hidden="true">Beacon, Relays, and Miners</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 44%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Role</th>
+<th>What they do</th>
+<th style="text-align: center;">Adds blocks?</th>
+<th style="text-align: center;">Sees full history?</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Beacon</strong></td>
+<td>Single authoritative record-keeper; validates everything</td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr class="even">
+<td><strong>Relay</strong></td>
+<td>Trusted gateway — distributes the chain to miners, shields the
+Beacon</td>
+<td style="text-align: center;">No</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr class="odd">
+<td><strong>Miner</strong></td>
+<td>Elected participant who packages and adds new blocks; earns
+fees</td>
+<td style="text-align: center;">Yes</td>
+<td style="text-align: center;">partial</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Why this matters:</strong> Miners compete fairly — only the
+randomly elected miner for a given tick may add a block, and their
+election odds are proportional to how much they have staked. This makes
+the network both decentralised and predictable.</p>
+</blockquote>
+<hr />
+<h2 id="checkpoints-keeping-the-network-lean">4. Checkpoints — Keeping
+the Network Lean</h2>
+<p>As the chain grows over months and years, storing every block from
+the very beginning becomes expensive. <strong>Checkpoints</strong> solve
+this: starting from launch day, the network marks confirmed ranges of
+blocks whose combined contents fully determine the current state of
+every account. The first checkpoint is the network launch itself; later
+checkpoints cover ranges between two neighbouring marks. New
+participants can join from a checkpoint and only need to read the blocks
+between that checkpoint and the previous one, instead of replaying the
+entire history.</p>
+<figure>
+<img src="print/checkpoints.png" alt="How checkpoints work (time)" />
+<figcaption aria-hidden="true">How checkpoints work (time)</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Snapshot (checkpoint)</td>
+<td>A marker in the chain that guarantees every account’s latest state
+can be reconstructed from the blocks between this mark and the previous
+one (states are not required to sit in a single block)</td>
+</tr>
+<tr class="even">
+<td>Safe join-point</td>
+<td>The checkpoint before the latest one — proven stable and widely
+agreed upon</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="reserved-accounts-issuing-tokens">5. Reserved Accounts — Issuing
+Tokens</h2>
+<p>The network reserves a range of special accounts for issuing and
+managing tokens. These accounts are allowed to show negative balances as
+an accounting device (similar to a central bank’s balance sheet) and can
+create new token types.</p>
+<figure>
+<img src="print/reserved-accounts.png" alt="Reserved Accounts" />
+<figcaption aria-hidden="true">Reserved Accounts</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Account</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Genesis (account 0)</td>
+<td>Issues the network’s native coin; sets initial supply</td>
+</tr>
+<tr class="even">
+<td>Fee collector (account 1)</td>
+<td>Receives small upkeep fees paid by all accounts</td>
+</tr>
+<tr class="odd">
+<td>Reserve (account 2)</td>
+<td>Holds unallocated supply</td>
+</tr>
+<tr class="even">
+<td>Recycle (account 3)</td>
+<td>Receives balances from closed accounts</td>
+</tr>
+<tr class="odd">
+<td>Accounts 4 and above</td>
+<td>Available for currency, stock, bond, RWA, and other token
+classes</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Each token type is issued from its own dedicated reserved account,
+giving issuance a clear, auditable home on-chain.</p>
+</blockquote>
+<hr />
+<h2 id="user-accounts-holding-and-doing">6. User Accounts — Holding and
+Doing</h2>
+<p>Every person or organisation on the network has a <strong>user
+account</strong>. An account can hold any mix of tokens (native coin,
+stablecoins, equity, bonds, etc.) and carry a personal data attachment
+that can grow to include digital collectibles and self-executing
+contracts.</p>
+<figure>
+<img src="print/user-account.png" style="width:50.0%"
+alt="User Account" />
+<figcaption aria-hidden="true">User Account</figcaption>
+</figure>
+<table>
+<thead>
+<tr class="header">
+<th>Capability</th>
+<th style="text-align: center;">Available today</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Hold multiple token types</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr class="even">
+<td>Require more than one key to spend (multi-sig)</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr class="odd">
+<td>Attach profile or custom data</td>
+<td style="text-align: center;">Yes</td>
+</tr>
+<tr class="even">
+<td>Own digital collectibles (NFTs)</td>
+<td style="text-align: center;">Planned</td>
+</tr>
+<tr class="odd">
+<td>Self-executing rules (smart contracts)</td>
+<td style="text-align: center;">Planned</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="what-is-built-and-what-is-next">7. What Is Built and What Is
+Next</h2>
+<h3 id="core-chain">Core Chain</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Capability</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Predictable, time-based block production</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Stake-weighted, tamper-proof leader election</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>Immutable transaction records</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Multi-token balances</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>Small, usage-based fees</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Periodic checkpoints to keep storage lean</td>
+<td>Live</td>
+</tr>
+</tbody>
+</table>
+<h3 id="network">Network</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Capability</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Beacon — authoritative record-keeper</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Relays — scalable miner gateway</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>Miners — decentralised block production</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Miner fast-join via snapshots</td>
+<td>Live</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Security note:</strong> The current network stack focuses on
+correctness and basic robustness. Advanced protections against
+large-scale abusive behaviour (such as massive connection floods or
+automated probing) are not yet implemented and should be assumed to
+require additional hardening before internet-wide deployment.</p>
+</blockquote>
+<h3 id="tokens-accounts">Tokens &amp; Accounts</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Capability</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Native coin</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Custom token issuance (by reserved accounts)</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>User account registration</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>Account upkeep and closure</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>Digital collectibles (NFTs)</td>
+<td>Planned</td>
+</tr>
+<tr class="even">
+<td>Self-executing rules (smart contracts)</td>
+<td>Planned</td>
+</tr>
+<tr class="odd">
+<td>Dedicated currency / stock / bond / RWA token classes</td>
+<td>Planned</td>
+</tr>
+</tbody>
+</table>
+<h3 id="interfaces">Interfaces</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Capability</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Command-line tool</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>REST (HTTP) API</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>JavaScript / Node.js library</td>
+<td>Live</td>
+</tr>
+<tr class="even">
+<td>MCP (Model Context Protocol) server</td>
+<td>Live</td>
+</tr>
+<tr class="odd">
+<td>Real-time streaming API</td>
+<td>Planned</td>
+</tr>
+<tr class="even">
+<td>Web explorer / dashboard</td>
+<td>Planned</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="key-differences-vs-other-chain-designs">8. Key Differences vs
+Other Chain Designs</h2>
+<p>This section summarises how our design differs from many other
+blockchain systems in two areas: consensus/network and
+accounts/checkpoints.</p>
+<h3 id="consensus-and-network">8.1 Consensus and Network</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col />
+<col />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Aspect</th>
+<th>our design</th>
+<th>Typical other chains</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Authority model</strong></td>
+<td>Single <strong>Beacon</strong> as authoritative record-keeper;
+<strong>Relays</strong> as trusted gateways; <strong>Miners</strong>
+only produce blocks. No single role can alter the chain alone.</td>
+<td>Often all full nodes are equal (e.g. Bitcoin) or validators both
+propose and validate (e.g. many PoS chains).</td>
+</tr>
+<tr class="even">
+<td><strong>Block production</strong></td>
+<td>Only <strong>Miners</strong> add blocks; Beacon and Relays never
+produce blocks. Miners are elected per slot and connect via Relays (or
+optionally to Beacon).</td>
+<td>Validators or miners usually talk to each other in a flat or mesh
+topology; no dedicated “authority + gateway” split.</td>
+</tr>
+<tr class="odd">
+<td><strong>Visibility</strong></td>
+<td>Miners see only a <strong>partial</strong> history (needed for
+proposing blocks); full chain lives at Beacon and Relays.</td>
+<td>Full nodes and validators typically store and validate the full
+chain.</td>
+</tr>
+<tr class="even">
+<td><strong>Recovery</strong></td>
+<td>A Relay that holds the full chain can be <strong>promoted to
+Beacon</strong> if the original Beacon is lost, preserving continuity
+without changing the protocol.</td>
+<td>Failover is usually handled by out-of-band replacement or social
+consensus, not a defined “next Beacon” role.</td>
+</tr>
+<tr class="odd">
+<td><strong>Time and slots</strong></td>
+<td>Fixed <strong>5-second slots</strong> and at most one block per
+slot; stake-weighted, VRF-based leader election (Ouroboros-style).</td>
+<td>Variable block times or multiple blocks per “round” are common;
+leader selection varies by chain.</td>
+</tr>
+</tbody>
+</table>
+<p>In short: our design separates <strong>who keeps the truth</strong>
+(Beacon), <strong>who distributes it</strong> (Relays), and <strong>who
+extends it</strong> (Miners), instead of merging these into one
+validator set.</p>
+<h3 id="account-and-checkpoint">8.2 Account and Checkpoint</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col />
+<col />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Aspect</th>
+<th>our design</th>
+<th>Typical other chains</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Checkpoints / sync</strong></td>
+<td><strong>Checkpoints</strong> mark confirmed ranges; new participants
+join from a checkpoint and only process blocks <strong>between that
+checkpoint and the previous one</strong>. No need to replay from
+genesis.</td>
+<td>New nodes often sync from genesis or from a recent “snapshot” that
+may be a full state dump rather than a chain-range guarantee.</td>
+</tr>
+<tr class="even">
+<td><strong>State and history</strong></td>
+<td>Checkpoints guarantee that account state can be
+<strong>reconstructed from the blocks</strong> in the range between two
+consecutive checkpoints; state is not required to live in a single
+block.</td>
+<td>State is usually derived from applying all blocks (or from a state
+DB); “checkpoint = chain range” is not always explicit.</td>
+</tr>
+<tr class="odd">
+<td><strong>Reserved accounts</strong></td>
+<td><strong>Fixed reserved accounts</strong> (Genesis, Fee collector,
+Reserve, Recycle, then token issuers) with defined roles; some may have
+negative balances as an accounting device.</td>
+<td>Often a single “system” or treasury address, or no formal reserved
+range; token issuance is contract- or protocol-specific.</td>
+</tr>
+<tr class="even">
+<td><strong>Account lifecycle</strong></td>
+<td>Explicit <strong>registration, upkeep (fees), renewal, and
+closure</strong>; closed-account balances go to Recycle. Accounts can be
+closed by the network when they cannot pay upkeep.</td>
+<td>Accounts are often “create once, use forever” or closed only by user
+action; no built-in upkeep or network-initiated closure.</td>
+</tr>
+<tr class="odd">
+<td><strong>Multi-token and issuance</strong></td>
+<td>Native <strong>multi-token</strong> balances per account; each token
+type is issued from a <strong>dedicated reserved account</strong> (4+),
+giving issuance a clear on-chain home.</td>
+<td>Multi-token is usually via contracts or side tables; issuance is not
+always tied to a fixed reserved-account model.</td>
+</tr>
+</tbody>
+</table>
+<p>In short: our design treats <strong>checkpoints as bounded chain
+ranges</strong> that define state reconstruction and lean sync, and
+<strong>accounts</strong> as first-class objects with lifecycle, upkeep,
+and reserved-account-based token issuance, rather than only “address +
+balance” or contract-only issuance.</p>
+</body>
+</html>

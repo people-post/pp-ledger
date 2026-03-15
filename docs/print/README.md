@@ -2,53 +2,17 @@
 
 This folder contains pre-rendered Mermaid diagrams as PNGs and the source `.mmd` files, used by `design.md` for printing.
 
-## Generating PDF or printable output
+## Generating printable output
 
 From the **docs** directory (parent of `print/`):
 
-**Option A — PDF (investor-friendly layout and fonts)**  
-```bash
-cd docs
-pandoc design.md -o design.pdf \
-  --pdf-engine=xelatex \
-  --include-in-header=print/latex-header.tex \
-  -V mainfont="DejaVu Serif" \
-  -V sansfont="DejaVu Sans" \
-  -V fontsize=11pt \
-  -V papersize=a4
-```
-Uses serif body text and sans-serif headings, generous margins, 1.25 line spacing, and a clean title page. Requires [pandoc](https://pandoc.org/) and `texlive-xetex` plus `fonts-dejavu` (e.g. `sudo apt install texlive-xetex fonts-dejavu`).
-
-**Option B — HTML (easy layout tweaks and print)**  
 ```bash
 cd docs
 pandoc design.md -o design.html --standalone --css=print/design-print.css
 ```
-Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P) to print or save as PDF. Layout is controlled by `print/design-print.css`: edit the `:root` variables at the top to change print margins (`--print-margin-*`), paper size (`--print-paper`), fonts (`--font-sans`, `--font-serif`), font size (`--font-size-body`), and line height (`--line-height`). No LaTeX required; only pandoc.
+Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P) to print. Layout is controlled by `print/design-print.css`: edit the `:root` variables at the top to change print margins (`--print-margin-*`), paper size (`--print-paper`), fonts (`--font-sans`, `--font-serif`), font size (`--font-size-body`), and line height (`--line-height`). Requires only [pandoc](https://pandoc.org/).
 
-**Chinese (简体中文) PDF**  
-```bash
-cd docs
-pandoc design-zh.md -o design-zh.pdf \
-  --pdf-engine=xelatex \
-  --include-in-header=print/latex-header.tex \
-  --include-in-header=print/latex-header-zh.tex \
-  -V mainfont="Noto Serif CJK SC" \
-  -V sansfont="Noto Sans CJK SC" \
-  -V fontsize=11pt \
-  -V papersize=a4
-```
-Same layout as the English PDF; reuses the same diagram images. Requires Noto CJK fonts: `sudo apt install fonts-noto-cjk`.
-
-**Chinese (简体中文) PDF with pdfLaTeX + ctex**  
-```bash
-cd docs
-pandoc design-zh.md -o design-zh-pdflatex.pdf \
-  --pdf-engine=pdflatex \
-  --include-in-header=print/latex-header.tex \
-  --include-in-header=print/latex-header-zh-ctex.tex
-```
-This uses the `ctex` package to manage Chinese fonts and line breaking under pdfLaTeX. Requires `texlive-lang-chinese` (or an equivalent TeX Live Chinese language collection).
+For **Chinese (简体中文)** use `design-zh.md` instead of `design.md`; the same diagram images are reused. Requires Noto CJK fonts: `sudo apt install fonts-noto-cjk`.
 
 To re-render the diagram images (requires Node and `@mermaid-js/mermaid-cli`):
 
