@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="技术设计概览" />
+  <title>区块链（Block Chain）</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="print/design-print.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">区块链（Block Chain）</h1>
+<p class="author">技术设计概览</p>
+</header>
+<h2 id="链时间区块与轮次">1. 链：时间、区块与轮次</h2>
+<p>区块链将网络活动组织成固定的节奏。每 <strong>5 秒</strong>
+为一个「拍」（称为 <strong>时隙
+slot</strong>）。在每个时隙内，一名被选中的参与者可以向链上添加一批活动（即一个
+<strong>区块 block</strong>）。固定数量的时隙（目前约为 <strong>7
+天</strong>）组成一 <strong>轮</strong>（称为
+<strong>epoch</strong>），每轮结束时选出下一轮的参与者。</p>
+<figure>
+<img src="print/slots-and-rounds.png" alt="时隙与轮次（时间）" />
+<figcaption aria-hidden="true">时隙与轮次（时间）</figcaption>
+</figure>
+<table>
+<thead>
+<tr class="header">
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>拍（时隙 slot）</td>
+<td>5 秒的时间窗，每个时隙最多添加一个区块。</td>
+</tr>
+<tr class="even">
+<td>轮（epoch）</td>
+<td>7 天。每轮结束时按质押权重选出下一轮的区块生产者。</td>
+</tr>
+<tr class="odd">
+<td>区块</td>
+<td>经密封的一批活动：转账、账户变更等记录，并链接到前一个区块。</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="区块里有什么">2. 区块里有什么</h2>
+<p>每个区块相当于一个防篡改的信封，一旦上链即不可更改。</p>
+<figure>
+<img src="print/block-contents.png" alt="区块内容" />
+<figcaption aria-hidden="true">区块内容</figcaption>
+</figure>
+<p><strong>区块可记录的活动类型</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>活动</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>启动</td>
+<td>首次搭建网络</td>
+</tr>
+<tr class="even">
+<td>新账户</td>
+<td>注册并为新参与者注资</td>
+</tr>
+<tr class="odd">
+<td>转账</td>
+<td>在账户之间转移代币</td>
+</tr>
+<tr class="even">
+<td>更新账户</td>
+<td>参与者更新自己的资料</td>
+</tr>
+<tr class="odd">
+<td>续期账户</td>
+<td>网络维持账户有效</td>
+</tr>
+<tr class="even">
+<td>关闭账户</td>
+<td>网络关闭无法继续支付维护费的账户</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="网络参与者校准节点中继节点-与-记账节点">3.
+网络参与者：校准节点、中继节点 与 记账节点</h2>
+<p>三类节点共同维持网络运行，角色清晰、互不重叠，因此没有单一参与者能独自篡改链。若原始校准节点失灵，任一持有完整链的中继节点均可被指定为新的校准节点，保持连续性。</p>
+<figure>
+<img src="print/beacon-relays-miners.png"
+alt="校准节点、中继节点 与 记账节点" />
+<figcaption aria-hidden="true">校准节点、中继节点 与
+记账节点</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 27%" />
+<col style="width: 27%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>角色</th>
+<th>职责</th>
+<th style="text-align: center;">是否出块</th>
+<th style="text-align: center;">是否持有完整历史</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>校准节点</strong></td>
+<td>唯一权威账本；校验一切</td>
+<td style="text-align: center;">否</td>
+<td style="text-align: center;">是</td>
+</tr>
+<tr class="even">
+<td><strong>中继节点</strong></td>
+<td>可信网关，向记账节点分发链数据，分压校准节点</td>
+<td style="text-align: center;">否</td>
+<td style="text-align: center;">是</td>
+</tr>
+<tr class="odd">
+<td><strong>记账节点</strong></td>
+<td>被选中的参与者，打包并提交新交易区块；获得费用</td>
+<td style="text-align: center;">是</td>
+<td style="text-align: center;">部分</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>意义：</strong>
+矿工公平竞争——每个时隙只有随机选出的矿工可以出块，当选概率与其质押量成正比，使网络既去中心化又可预期。</p>
+</blockquote>
+<hr />
+<h2 id="存档点保持网络轻量化">4. 存档点：保持网络轻量化</h2>
+<p>随着链在数月、数年中增长，从创世块起长期存储所有区块成本高昂。<strong>存档点</strong>
+解决这一问题：从启动日起，网络标记已确认的区块区间，这些区间的内容共同决定每个账户的当前状态。第一个存档点即网络启动；后续存档点覆盖相邻两个标记之间的区间。新参与者可从某个存档点加入，只需读取该存档点与上一存档点之间的区块，而无需重读全部历史。</p>
+<figure>
+<img src="print/checkpoints.png" alt="存档点如何工作（时间）" />
+<figcaption aria-hidden="true">存档点如何工作（时间）</figcaption>
+</figure>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>术语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>快照（存档点）</td>
+<td>链上的一个标记，保证从该标记与上一标记之间的区块即可重建每个账户的最新状态（状态不必位于单个区块内）</td>
+</tr>
+<tr class="even">
+<td>安全接入点</td>
+<td>最新存档点之前的一个存档点，已证明稳定且被广泛认可</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="预留账户发行代币">5. 预留账户：发行代币</h2>
+<p>链上预留一批特殊账户用于发行和管理代币。这些账户可显示负余额（类似央行资产负债表），并可创建新的代币类型。</p>
+<figure>
+<img src="print/reserved-accounts-zh.png" alt="预留账户" />
+<figcaption aria-hidden="true">预留账户</figcaption>
+</figure>
+<table>
+<thead>
+<tr class="header">
+<th>账户</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>创世账户（账户 0）</td>
+<td>发行原生代币，设定初始供应</td>
+</tr>
+<tr class="even">
+<td>费用归集（账户 1）</td>
+<td>收取各账户支付的小额维护费</td>
+</tr>
+<tr class="odd">
+<td>储备（账户 2）</td>
+<td>持有未分配供应</td>
+</tr>
+<tr class="even">
+<td>回收（账户 3）</td>
+<td>接收被关闭账户的余额</td>
+</tr>
+<tr class="odd">
+<td>账户 4 及以上</td>
+<td>用于货币、股票、债券、RWA 及其他代币类别</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>每种代币由各自专用的预留账户发行，发行在链上有清晰、可审计的归属。</p>
+</blockquote>
+<hr />
+<h2 id="用户账户持有与使用">6. 用户账户：持有与使用</h2>
+<p>链上的每个个人或机构拥有一个
+<strong>用户账户</strong>。账户可持有多种代币（原生币、稳定币、权益、债券等），并可携带可扩展的个人数据附件，未来可包含数字藏品与自执行合约。</p>
+<figure>
+<img src="print/user-account.png" style="width:50.0%" alt="用户账户" />
+<figcaption aria-hidden="true">用户账户</figcaption>
+</figure>
+<table>
+<thead>
+<tr class="header">
+<th>功能</th>
+<th style="text-align: center;">当前是否支持</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>持有多种代币</td>
+<td style="text-align: center;">是</td>
+</tr>
+<tr class="even">
+<td>多签消费（M-of-N）</td>
+<td style="text-align: center;">是</td>
+</tr>
+<tr class="odd">
+<td>附加资料或自定义数据</td>
+<td style="text-align: center;">是</td>
+</tr>
+<tr class="even">
+<td>持有数字藏品（NFT）</td>
+<td style="text-align: center;">规划中</td>
+</tr>
+<tr class="odd">
+<td>自执行规则（智能合约）</td>
+<td style="text-align: center;">规划中</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="功能与规划">7. 功能与规划</h2>
+<h3 id="核心链">核心链</h3>
+<table>
+<thead>
+<tr class="header">
+<th>功能</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>可预期、基于时间的出块</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>基于质押、防篡改的记账者选择</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>不可篡改的交易记录</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>多代币余额</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>小额、按使用计费</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>定期检查点以保持存储轻量</td>
+<td>已完成</td>
+</tr>
+</tbody>
+</table>
+<h3 id="网络">网络</h3>
+<table>
+<thead>
+<tr class="header">
+<th>功能</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>校准节点：权威账本</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>中继节点：可扩展矿工网关</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>记账节点：去中心化出块</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>矿工通过快照快速加入</td>
+<td>已完成</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>安全说明：</strong>
+当前网络栈侧重正确性与完整性。针对大规模滥用行为（如大规模连接洪泛或自动化探测）的高级防护尚未实现，在面向公网部署前需进一步加固。</p>
+</blockquote>
+<h3 id="代币与账户">代币与账户</h3>
+<table>
+<thead>
+<tr class="header">
+<th>功能</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>原生代币</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>预留账户的自定义代币发行</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>用户账户注册</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>账户维护与关闭</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>数字藏品（NFT）</td>
+<td>规划中</td>
+</tr>
+<tr class="even">
+<td>自执行规则（智能合约）</td>
+<td>规划中</td>
+</tr>
+<tr class="odd">
+<td>专用货币 / 股票 / 债券 / RWA 代币类别</td>
+<td>规划中</td>
+</tr>
+</tbody>
+</table>
+<h3 id="接口">接口</h3>
+<table>
+<thead>
+<tr class="header">
+<th>功能</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>命令行工具</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>REST（HTTP）API</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>JavaScript / Node.js 库</td>
+<td>已完成</td>
+</tr>
+<tr class="even">
+<td>MCP（Model Context Protocol）服务端</td>
+<td>已完成</td>
+</tr>
+<tr class="odd">
+<td>实时流式 API</td>
+<td>规划中</td>
+</tr>
+<tr class="even">
+<td>Web 浏览器 / 后台监测</td>
+<td>规划中</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="与其他链设计的主要差异">8. 与其他链设计的主要差异</h2>
+<p>本节从共识/网络与账户/存档点两方面概括本设计与常见区块链的差异。</p>
+<h3 id="共识与网络">8.1 共识与网络</h3>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col/>
+<col/>
+</colgroup>
+<thead>
+<tr class="header">
+<th>方面</th>
+<th>本设计</th>
+<th>常见其他链</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>权威模型</strong></td>
+<td>单一 <strong>校准节点</strong>
+作为权威账本；<strong>中继节点</strong>
+为可信网关；<strong>记账节点</strong>
+仅负责出块。任一角色无法单独篡改链。</td>
+<td>常见为全节点地位平等（如比特币）或验证者既提议又验证（如多数 PoS
+链）。</td>
+</tr>
+<tr class="even">
+<td><strong>出块</strong></td>
+<td>仅 <strong>记账节点</strong>
+添加区块；校准节点与中继节点从不出块。记账节点按时隙选举，通过中继（或可选直连校准节点）接入。</td>
+<td>验证者/矿工通常以扁平或网状拓扑互连；没有「权威 +
+网关」的职责分离。</td>
+</tr>
+<tr class="odd">
+<td><strong>可见性</strong></td>
+<td>记账节点仅持有 <strong>部分</strong>
+历史（用于提议区块）；完整链保存在校准节点与中继节点。</td>
+<td>全节点与验证者通常存储并验证完整链。</td>
+</tr>
+<tr class="even">
+<td><strong>恢复</strong></td>
+<td>持有完整链的中继节点可在原校准节点丢失时
+<strong>晋升为校准节点</strong>，在不改协议的前提下保持连续性。</td>
+<td>故障转移多通过链外替换或社会共识处理，少有明确的「下一校准节点」角色。</td>
+</tr>
+<tr class="odd">
+<td><strong>时间与时隙</strong></td>
+<td>固定 <strong>5 秒时隙</strong>，每时隙至多一个区块；基于质押权重的
+VRF 记账者选举（类 Ouroboros）。</td>
+<td>可变出块时间或每轮多区块较常见；记账者选择因链而异。</td>
+</tr>
+</tbody>
+</table>
+<p>简言之：本设计将
+<strong>谁持有真相</strong>（校准节点）、<strong>谁分发</strong>（中继节点）、<strong>谁扩展</strong>（记账节点）分离，而非合并为单一验证者集合。</p>
+<h3 id="账户与存档点">8.2 账户与存档点</h3>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col/>
+<col/>
+</colgroup>
+<thead>
+<tr class="header">
+<th>方面</th>
+<th>本设计</th>
+<th>常见其他链</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>存档点 / 同步</strong></td>
+<td><strong>存档点</strong>
+标记已确认区间；新参与者从某存档点加入，仅处理
+<strong>该存档点与上一存档点之间</strong> 的区块，无需从创世重放。</td>
+<td>新节点常从创世或近期「快照」同步，快照多为完整状态转储，而非链区间保证。</td>
+</tr>
+<tr class="even">
+<td><strong>状态与历史</strong></td>
+<td>存档点保证账户状态可
+<strong>由区间内区块重建</strong>；状态不必存在于单个区块中。</td>
+<td>状态多由应用全部区块或状态库得出；「存档点 = 链区间」未必显式。</td>
+</tr>
+<tr class="odd">
+<td><strong>预留账户</strong></td>
+<td><strong>固定预留账户</strong>（创世、费用归集、储备、回收及代币发行账户）角色明确；部分可为负余额作为记账手段。</td>
+<td>多为单一「系统」或国库地址，或无正式预留区间；代币发行由合约或协议约定。</td>
+</tr>
+<tr class="even">
+<td><strong>账户生命周期</strong></td>
+<td>显式的
+<strong>注册、维护（费用）、续期、关闭</strong>；关闭账户余额进入回收账户。网络可在账户无法支付维护费时关闭账户。</td>
+<td>账户多为「一次创建、永久使用」或仅由用户主动关闭；无内置维护费或网络发起的关闭。</td>
+</tr>
+<tr class="odd">
+<td><strong>多代币与发行</strong></td>
+<td>每账户原生 <strong>多代币</strong> 余额；每种代币由
+<strong>专用预留账户</strong>（4
+及以上）发行，发行在链上有明确归属。</td>
+<td>多代币多通过合约或侧表实现；发行未必与固定预留账户模型绑定。</td>
+</tr>
+</tbody>
+</table>
+<p>简言之：本设计将
+<strong>存档点视为有界的链区间</strong>，用于定义状态重建与轻量同步；<strong>账户</strong>
+为一等对象，具备生命周期、维护费及基于预留账户的代币发行，而非仅「地址 +
+余额」或仅靠合约发行。</p>
+</body>
+</html>
