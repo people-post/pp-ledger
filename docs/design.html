@@ -167,6 +167,8 @@ randomly elected miner for a given tick may add a block, and their
 election odds are proportional to how much they have staked. This makes
 the network both decentralised and predictable.</p>
 </blockquote>
+<p>Nodes may be operated by AI agents. The design allows the transport
+layer to be upgraded later to quantum-resistant communication.</p>
 <hr />
 <h2 id="checkpoints-keeping-the-network-lean">4. Checkpoints — Keeping
 the Network Lean</h2>
@@ -262,10 +264,12 @@ giving issuance a clear, auditable home on-chain.</p>
 <h2 id="user-accounts-holding-and-doing">6. User Accounts — Holding and
 Doing</h2>
 <p>Every person or organisation on the network has a <strong>user
-account</strong>. An account can hold any mix of tokens (native coin,
-stablecoins, equity, bonds, etc.) and carry a personal data attachment
-that can grow to include digital collectibles and self-executing
-contracts.</p>
+account</strong>. Account identities are separate from cryptographic
+keys: users can rotate keys and switch algorithms without changing their
+account, enabling a path to post-quantum security. An account can hold
+any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and
+carry a personal data attachment that can grow to include digital
+collectibles and self-executing contracts.</p>
 <figure>
 <img src="print/user-account.png" style="width:50.0%"
 alt="User Account" />
