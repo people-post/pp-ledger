@@ -1,6 +1,6 @@
 # Printable design doc assets
 
-This folder contains pre-rendered Mermaid diagrams as PNGs and the source `.mmd` files, used by `design-printable.md` for printing.
+This folder contains pre-rendered Mermaid diagrams as PNGs and the source `.mmd` files, used by `design.md` for printing.
 
 ## Generating PDF or printable output
 
@@ -9,7 +9,7 @@ From the **docs** directory (parent of `print/`):
 **Option A — PDF (investor-friendly layout and fonts)**  
 ```bash
 cd docs
-pandoc design-printable.md -o design-printable.pdf \
+pandoc design.md -o design.pdf \
   --pdf-engine=xelatex \
   --include-in-header=print/latex-header.tex \
   -V mainfont="DejaVu Serif" \
@@ -22,7 +22,7 @@ Uses serif body text and sans-serif headings, generous margins, 1.25 line spacin
 **Chinese (简体中文) PDF**  
 ```bash
 cd docs
-pandoc design-printable-zh.md -o design-printable-zh.pdf \
+pandoc design-zh.md -o design-zh.pdf \
   --pdf-engine=xelatex \
   --include-in-header=print/latex-header.tex \
   --include-in-header=print/latex-header-zh.tex \
@@ -36,19 +36,12 @@ Same layout as the English PDF; reuses the same diagram images. Requires Noto CJ
 **Chinese (简体中文) PDF with pdfLaTeX + ctex**  
 ```bash
 cd docs
-pandoc design-printable-zh.md -o design-printable-zh-pdflatex.pdf \
+pandoc design-zh.md -o design-zh-pdflatex.pdf \
   --pdf-engine=pdflatex \
   --include-in-header=print/latex-header.tex \
   --include-in-header=print/latex-header-zh-ctex.tex
 ```
 This uses the `ctex` package to manage Chinese fonts and line breaking under pdfLaTeX. Requires `texlive-lang-chinese` (or an equivalent TeX Live Chinese language collection).
-
-**Option B — HTML then print to PDF (no extra deps)**  
-```bash
-cd docs
-pandoc design-printable.md -o design-printable.html --standalone --metadata title="Time Chain Design"
-```
-Open `docs/design-printable.html` in a browser and use **Print → Save as PDF** to get a PDF with all diagrams.
 
 To re-render the diagram images (requires Node and `@mermaid-js/mermaid-cli`):
 

@@ -1,22 +1,14 @@
-# Time Chain
+---
+title: "Block Chain"
+author: "Technical design overview"
+date: ""
+---
 
 ## 1. The Chain: Time, Blocks, and Rounds
 
-The Time Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
+The Block Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "titleFontSize": "12px"}}}%%
-timeline
-    title Slots and rounds (time →)
-    section Round 1 (~7 days)
-        Early slots : Some slots have blocks
-        Middle slots : Many slots (some with blocks, some idle)
-        Late slots : Final slots of round 1
-    section Round 2 (~7 days)
-        Early slots : First slots of round 2
-        Middle slots : Many slots (some with blocks, some idle)
-        Late slots : Final slots of round 2
-```
+![Slots and rounds (time)](print/slots-and-rounds.png)
 
 | Concept | Plain meaning |
 |---------|---------------|
@@ -30,16 +22,7 @@ timeline
 
 Each block is a tamper-proof envelope. Once added to the chain it cannot be changed.
 
-```mermaid
-flowchart TD
-    B["Block<br>────────────<br>Number · Timestamp<br>Producer · Link to previous block"]
-    T1["Transfer<br>Alice → Bob · 50 tokens"]
-    T2["Transfer<br>Carol → Dave · 200 tokens"]
-    T3["New account<br>Eve joins the network"]
-    B --> T1
-    B --> T2
-    B --> T3
-```
+![Block contents](print/block-contents.png)
 
 **Types of activity a block can record**
 
@@ -58,35 +41,13 @@ flowchart TD
 
 Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain. In the rare event that the original Beacon is permanently lost, a Relay that already holds the full chain can be promoted to become the new Beacon, preserving continuity.
 
-```mermaid
-flowchart TD
-    B(["Beacon<br>(single trusted authority)"])
-
-    subgraph Relays["Relays  (trusted intermediaries)"]
-        R1["Relay 1"]
-        R2["Relay 2"]
-    end
-
-    subgraph Miners["Miners  (block producers)"]
-        M1["Miner A"]
-        M2["Miner B"]
-        M3["Miner C"]
-        M4["Miner D"]
-    end
-
-    R1 -- receives & stores chain --> B
-    R2 -- receives & stores chain --> B
-    M1 -- submits new blocks --> R1
-    M2 -- submits new blocks --> R1
-    M3 -- submits new blocks --> R2
-    M4 -- submits new blocks --> R2
-```
+![Beacon, Relays, and Miners](print/beacon-relays-miners.png)
 
 | Role | What they do | Adds blocks? | Sees full history? |
 |------|-------------|:---:|:---:|
-| **Beacon** | Single authoritative record-keeper; validates everything | ✗ | ✓ |
-| **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | ✗ | ✓ |
-| **Miner** | Elected participant who packages and adds new blocks; earns fees | ✓ | partial |
+| **Beacon** | Single authoritative record-keeper; validates everything | No | Yes |
+| **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | No | Yes |
+| **Miner** | Elected participant who packages and adds new blocks; earns fees | Yes | partial |
 
 > **Why this matters:** Miners compete fairly — only the randomly elected miner for a given tick may add a block, and their election odds are proportional to how much they have staked. This makes the network both decentralised and predictable.
 
@@ -99,23 +60,7 @@ As the chain grows over months and years, storing every block from the very begi
 The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks.
 New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "24px", "titleFontSize": "12px"}}}%%
-timeline
-    title How checkpoints work (time →)
-    section Network launches
-        Day 1 : Network launches (first checkpoint; genesis block)
-    section Chain grows
-        Months later : Thousands of blocks accumulate
-    section Checkpoint 1
-        Checkpoint marked : All account data is known to appear somewhere between this mark and the previous one; older history can be archived
-    section More growth
-        More blocks : Chain continues as normal
-    section Checkpoint 2
-        New checkpoint : Previous checkpoint becomes the safe join-point for new miners
-    section New miner joins
-        Uses previous checkpoint : Starts from the safe join-point — no need to replay all history
-```
+![How checkpoints work (time)](print/checkpoints.png)
 
 | Term | Meaning |
 |------|---------|
@@ -128,22 +73,7 @@ timeline
 
 The network reserves a range of special accounts for issuing and managing tokens. These accounts are allowed to show negative balances as an accounting device (similar to a central bank's balance sheet) and can create new token types.
 
-```mermaid
-mindmap
-  root((Reserved<br>Accounts))
-    Native Coin
-      The network's built-in currency
-    Currency Tokens
-      Stablecoins e.g. USD, EUR
-    Stock Tokens
-      Equity in companies
-    Bond Tokens
-      Government or corporate bonds
-    Real-World Asset Tokens
-      Real estate, commodities
-    Other
-      Any additional token class
-```
+![Reserved Accounts](print/reserved-accounts.png)
 
 | Account | Purpose |
 |---------|---------|
@@ -161,23 +91,13 @@ mindmap
 
 Every person or organisation on the network has a **user account**. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
 
-```mermaid
-flowchart LR
-    A["User Account"]
-    B["Balances<br>─────────────<br>Native coin<br>Stablecoins<br>Stock tokens<br>Bond tokens<br>…"]
-    C["Security<br>─────────────<br>One or more keys<br>Requires M-of-N signatures<br>to authorise spending"]
-    D["Data Attachment<br>─────────────<br>Profile info<br>Digital collectibles · NFTs (planned)<br>Self-executing rules · Smart contracts (planned)"]
-
-    A --> B
-    A --> C
-    A --> D
-```
+![User Account](print/user-account.png){width=50%}
 
 | Capability | Available today |
 |------------|:---:|
-| Hold multiple token types | ✓ |
-| Require more than one key to spend (multi-sig) | ✓ |
-| Attach profile or custom data | ✓ |
+| Hold multiple token types | Yes |
+| Require more than one key to spend (multi-sig) | Yes |
+| Attach profile or custom data | Yes |
 | Own digital collectibles (NFTs) | Planned |
 | Self-executing rules (smart contracts) | Planned |
 
@@ -189,21 +109,21 @@ flowchart LR
 
 | Capability | Status |
 |------------|--------|
-| Predictable, time-based block production | ✅ Live |
-| Stake-weighted, tamper-proof leader election | ✅ Live |
-| Immutable transaction records | ✅ Live |
-| Multi-token balances | ✅ Live |
-| Small, usage-based fees | ✅ Live |
-| Periodic checkpoints to keep storage lean | ✅ Live |
+| Predictable, time-based block production | Live |
+| Stake-weighted, tamper-proof leader election | Live |
+| Immutable transaction records | Live |
+| Multi-token balances | Live |
+| Small, usage-based fees | Live |
+| Periodic checkpoints to keep storage lean | Live |
 
 ### Network
 
 | Capability | Status |
 |------------|--------|
-| Beacon — authoritative record-keeper | ✅ Live |
-| Relays — scalable miner gateway | ✅ Live |
-| Miners — decentralised block production | ✅ Live |
-| Miner fast-join via snapshots | ✅ Live |
+| Beacon — authoritative record-keeper | Live |
+| Relays — scalable miner gateway | Live |
+| Miners — decentralised block production | Live |
+| Miner fast-join via snapshots | Live |
 
 > **Security note:** The current network stack focuses on correctness and basic robustness.
 > Advanced protections against large-scale abusive behaviour (such as massive connection floods or automated probing)
@@ -213,21 +133,21 @@ flowchart LR
 
 | Capability | Status |
 |------------|--------|
-| Native coin | ✅ Live |
-| Custom token issuance (by reserved accounts) | ✅ Live |
-| User account registration | ✅ Live |
-| Account upkeep and closure | ✅ Live |
-| Digital collectibles (NFTs) | ⬜ Planned |
-| Self-executing rules (smart contracts) | ⬜ Planned |
-| Dedicated currency / stock / bond / RWA token classes | ⬜ Planned |
+| Native coin | Live |
+| Custom token issuance (by reserved accounts) | Live |
+| User account registration | Live |
+| Account upkeep and closure | Live |
+| Digital collectibles (NFTs) | Planned |
+| Self-executing rules (smart contracts) | Planned |
+| Dedicated currency / stock / bond / RWA token classes | Planned |
 
 ### Interfaces
 
 | Capability | Status |
 |------------|--------|
-| Command-line tool | ✅ Live |
-| REST (HTTP) API | ✅ Live |
-| JavaScript / Node.js library | ✅ Live |
-| MCP (Model Context Protocol) server | ✅ Live |
-| Real-time streaming API | ⬜ Planned |
-| Web explorer / dashboard | ⬜ Planned |
+| Command-line tool | Live |
+| REST (HTTP) API | Live |
+| JavaScript / Node.js library | Live |
+| MCP (Model Context Protocol) server | Live |
+| Real-time streaming API | Planned |
+| Web explorer / dashboard | Planned |
