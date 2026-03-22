@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 320" width="640" height="320" role="img" aria-labelledby="title desc">
+  <title id="title">Internet as layers</title>
+  <desc id="desc">Stack from overlays at top through access, exchange, backbone, to long-haul at bottom.</desc>
+  <defs>
+    <style type="text/css"><![CDATA[
+      .box { fill: #f7f7f7; stroke: #333; stroke-width: 1.5; }
+      .box-accent { fill: #e8f0f8; stroke: #1a4d80; stroke-width: 1.5; }
+      text { font-family: DejaVu Sans, Helvetica Neue, Arial, sans-serif; font-size: 13px; fill: #111; }
+      .small { font-size: 11px; fill: #333; }
+      .diagram-title { font-weight: bold; font-size: 15px; fill: #111; }
+      .arrow { stroke: #555; stroke-width: 1.5; fill: none; marker-end: url(#m); }
+    ]]></style>
+    <marker id="m" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#555"/>
+    </marker>
+  </defs>
+  <!-- Title only in top margin (no box drawn on top of it) -->
+  <text x="320" y="22" text-anchor="middle" class="diagram-title">Public Internet — conceptual layers</text>
+  <!-- Top of stack: overlays -->
+  <rect class="box" x="200" y="38" width="240" height="28" rx="4"/>
+  <text x="320" y="56" text-anchor="middle" class="small">Overlays: DNS, TLS PKI, CDNs, cloud APIs</text>
+  <line class="arrow" x1="320" y1="66" x2="320" y2="76"/>
+  <!-- Access -->
+  <rect class="box" x="80" y="76" width="480" height="42" rx="4"/>
+  <text x="320" y="94" text-anchor="middle">Access &amp; last mile</text>
+  <text x="320" y="110" text-anchor="middle" class="small">fiber, cable, wireless, mobile</text>
+  <line class="arrow" x1="320" y1="118" x2="320" y2="128"/>
+  <!-- IXP -->
+  <rect class="box-accent" x="80" y="128" width="480" height="42" rx="4"/>
+  <text x="320" y="146" text-anchor="middle">IXP / meet-me (carrier-neutral facility)</text>
+  <text x="320" y="162" text-anchor="middle" class="small">peering fabric, often route servers</text>
+  <line class="arrow" x1="320" y1="170" x2="320" y2="180"/>
+  <!-- Backbone -->
+  <rect class="box" x="80" y="180" width="480" height="42" rx="4"/>
+  <text x="320" y="198" text-anchor="middle">National &amp; regional backbones (large carriers / ISPs)</text>
+  <text x="320" y="214" text-anchor="middle" class="small">BGP between Autonomous Systems (ASes)</text>
+  <line class="arrow" x1="320" y1="222" x2="320" y2="232"/>
+  <!-- Long haul (bottom) -->
+  <rect class="box" x="80" y="232" width="480" height="44" rx="4"/>
+  <text x="320" y="250" text-anchor="middle">Submarine &amp; terrestrial long-haul</text>
+  <text x="320" y="266" text-anchor="middle" class="small">intercontinental / inter-regional capacity</text>
+</svg>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh" xml:lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="hand-authored" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="基础设施与连通性研究" />
+  <meta name="description" content="第一部分（互联网结构、IXP、底层网络）支撑第二部分：在连通性可视为可靠前提时如何建设服务。法律提示与运营商视角相平衡；假定依法合规运营。" />
+  <title>全球互联网基础设施与韧性运营</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    .note{border-left: 4px solid #444; padding-left: 1em; margin: 1em 0; color: #333;}
+    .part{font-family: DejaVu Sans, Helvetica Neue, Helvetica, Arial, sans-serif; font-size: 0.95rem; color: #444; margin-top: 0.25em;}
+  </style>
+  <link rel="stylesheet" href="print/design-print.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">全球互联网基础设施与韧性运营</h1>
+<p class="author">基础设施与连通性研究</p>
+</header>
+
+<hr />
+
+<h2 id="how-this-document-is-organised">1. 本文结构</h2>
+
+<p class="part"><strong>第一部分 — 连通性基础</strong></p>
+<p>第 2–6 节说明全球互联网、IXP/NAP、法律考量、如何建设合规的运营商底层网络，以及多区域参考拓扑。它们在此的作用是<strong>为第二部分打底</strong>：让读者明白「可靠连通」之下是什么、即便报文按预期流动时仍有哪些依赖。技术章节用于建立心智模型；法律材料面向<strong>实际</strong>跨境建设（须咨询专业律师）提供方向，而非给仅需第二部分服务设计视角的读者增加负担。</p>
+
+<p class="part"><strong>第二部分 — 接入可靠时的服务建设</strong></p>
+<p>第 7 节改变工作假设：<strong>主要接入路径、IXP 与转接（transit）在规划期内按设计工作</strong>。问题转为在该底层之上的<strong>软件架构、容量、一致性、安全与运维</strong>——而非争论报文能否出楼。</p>
+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 88%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>§</th>
+<th>主题</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>2</td>
+<td>全球互联网是什么（AS 联邦、分层）</td>
+</tr>
+<tr class="even">
+<td>3</td>
+<td>IXP 与 NAP（对等互联、交换结构、治理）</td>
+</tr>
+<tr class="odd">
+<td>4</td>
+<td>法律与合规考量</td>
+</tr>
+<tr class="even">
+<td>5</td>
+<td>建设运营商底层网络</td>
+</tr>
+<tr class="odd">
+<td>6</td>
+<td>多区域参考拓扑</td>
+</tr>
+<tr class="even">
+<td>7</td>
+<td>假定连通可靠时的服务建设</td>
+</tr>
+<tr class="odd">
+<td>8–9</td>
+<td>诚实边界；延伸阅读</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>目标（第一部分）。</strong> 理解全球连通分层；理解 IXP 与历史上的 NAP 如何运作；推理第三方依赖；勾勒<strong>可靠、合法的运营商基础设施</strong>的参考做法。</p>
+
+<p><strong>威胁模型（第一部分）。</strong> 对手可能类似在供应商（转接、托管、DNS、TLS、云、支付）上拥有经济与法律杠杆的大国。本文<strong>排除</strong>军事打击摧毁站点，并<strong>假定</strong>机房电力稳定；<strong>不</strong>假定可免于法院命令、制裁或许可要求。</p>
+
+<hr />
+
+<h2 id="what-the-global-internet-is">2. 全球互联网是什么</h2>
+
+<p>公网并非单一网络，而是<strong>自主运营网络的联邦</strong>（自治系统，AS），通过 BGP（边界网关协议）、共用编号（IPv4/IPv6）以及通用应用约定（如 DNS、TLS）交换流量。</p>
+
+<figure>
+<img src="print/internet-layers.svg" alt="示意图：从长途链路经骨干、IXP、接入到叠加层的概念栈" width="640" height="320" />
+<figcaption>图 1 — 概念分层：长途链路与骨干支撑交换点与接入；DNS、PKI 与 CDN 等作为叠加层位于其上。</figcaption>
+</figure>
+
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 72%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>分层</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>海缆与陆缆长途</td>
+<td>大洲与区域之间的大容量链路；常由运营商与大型机构自有或长期租用。</td>
+</tr>
+<tr class="even">
+<td>国家与区域骨干</td>
+<td>大型 ISP 与运营商汇聚企业与接入流量。</td>
+</tr>
+<tr class="odd">
+<td>互联网交换点（IXP）</td>
+<td>多网互联的物理汇聚点，常通过互不结算或双边对等互联，降低相互流量的转接成本。</td>
+</tr>
+<tr class="even">
+<td>接入与最后一公里</td>
+<td>光纤、电缆、无线、移动 RAN 等。</td>
+</tr>
+<tr class="odd">
+<td>叠加服务</td>
+<td>DNS、CDN、云、电子邮件——建于上述分层之上。</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>运维要点。</strong> 端到端可靠性通常来自<strong>路径多样性</strong>、<strong>合同冗余</strong>、<strong>成熟运维</strong>（监控、变更控制、事件响应）以及对<strong>关键依赖</strong>的理解：路由、命名、证书、时间与软件供应链。</p>
+
+<hr />
+
+<h2 id="ixps-and-naps">3. IXP 与 NAP</h2>
+
+<p><strong>NAP</strong>（网络接入点）主要是 1990 年代互联网商业化时期美国的<strong>历史术语</strong>。现代对应物通常是 <strong>IXP</strong> 或<strong>运营商中立的 meet-me 设施</strong>，供各网络互联。</p>
+
+<figure>
+<img src="print/ixp-topology.svg" alt="示意图：三个自治系统的路由器交叉接入共享 IXP 交换结构" width="640" height="360" />
+<figcaption>图 2 — 多网将<strong>路由器端口</strong>接到共享<strong>IXP 交换结构</strong>；<strong>路由服务器（route server）</strong>可简化多边对等。结构外的<strong>转接（transit）</strong>仍可达互联网其余部分。</figcaption>
+</figure>
+
+<h3 id="economic-models">3.1 经济模式</h3>
+
+<ul>
+<li><strong>在 IXP 对等互联。</strong> 两个或多个网络交换发往对方客户（或下游）的流量；当流量与策略匹配时，常不按兆比特结算（「互不结算对等」）。</li>
+<li><strong>转接（Transit）。</strong> 客户向上游付费以获得大范围或全网可达性；较小网络与许多企业依赖转接实现全球可达。</li>
+<li><strong>路由服务器。</strong> 许多 IXP 托管路由服务器以简化多边对等；各参与方仍自行应用入/出向策略。</li>
+</ul>
+
+<h3 id="physical-and-governance">3.2 物理部署与治理</h3>
+
+<ul>
+<li>IXP 通常位于<strong>运营商中立数据中心</strong>，具备交叉连接、meet-me 机房与共享交换结构（以太网 VLAN 或更复杂的 L2/L3 VPN 设计，视交换点而定）。</li>
+<li><strong>治理</strong>可为非营利（会员协会）或商业形态；规则涵盖配额、过滤预期、滥用处理与技术最低要求。</li>
+<li>公网上的<strong>路由安全</strong>是社区共建：IRR 记录、<strong>RPKI</strong> ROA、前缀过滤以及 <strong>MANRS</strong>（路由安全共同规范）等倡议描述运营商最佳实践——须始终符合当地法规与对等协议。</li>
+</ul>
+
+<p><strong>IXP 不能消除什么。</strong> 它们降低符合条件流量的成本与延迟；并不能消除对<strong>转接</strong>以实现全球可达、对许多应用所依赖的<strong>DNS 与证书生态</strong>、以及对各地设施所有者与监管机构的<strong>法律与商业关系</strong>的依赖。</p>
+
+<hr />
+
+<h2 id="legal-and-compliance-considerations">4. 法律与合规考量</h2>
+
+<p>本节在<strong>实际运营</strong>跨境网络或设施容量时最相关。若读第一部分主要为理解第二部分，可将下表视为<strong>运营商为何不能把底层当作法外之地</strong>的说明——而非你必须亲自执行的清单。</p>
+
+<p>跨境扩展基础设施时，应明确规划：</p>
+
+<table>
+<colgroup>
+<col style="width: 32%" />
+<col style="width: 68%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>领域</th>
+<th>常见义务（示例性，非法律意见）</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>许可与电信规则</td>
+<td>提供网络服务、使用频谱或运营特定设备可能需要许可或登记。</td>
+</tr>
+<tr class="even">
+<td>数据保护与留存</td>
+<td>客户与流量元数据可能受隐私法、留存限制与合法调取制度约束。</td>
+</tr>
+<tr class="odd">
+<td>制裁与出口管制</td>
+<td>硬件、软件、密码学与服务可能因来源、目的地或最终用户类别受限。</td>
+</tr>
+<tr class="even">
+<td>合法请求</td>
+<td>传票、法院命令与国家安全框架可能要求披露或采取行动；应在专业律师指导下形成书面政策。</td>
+</tr>
+<tr class="odd">
+<td>内容与接入政策</td>
+<td>屏蔽、过滤或承载特定流量在各地可能被要求或禁止；产品设计应与律师对齐。</td>
+</tr>
+</tbody>
+</table>
+
+<p>技术韧性与法律合规相辅相成：<strong>司法辖区多样性</strong>的实体与合同可降低关联失效，但各实体仍须在其所在地合法运营。</p>
+
+<hr />
+
+<h2 id="operator-underlay">5. 建设运营商底层网络</h2>
+
+<p>从<strong>依赖类别</strong>与<strong>合法替代方案</strong>思考：在供应商承压或失败时，哪些可以多样化、自有或迁移？本节即第二部分假定对应用层工程决策「足够好」的<strong>底层（underlay）</strong>。</p>
+
+<h3 id="routing-and-connectivity">5.1 路由与连通性</h3>
+
+<ul>
+<li>通过 <strong>RIR</strong> 政策取得并妥善记录 <strong>ASN 与地址空间</strong>；在已部署处发布一致的 <strong>RPKI</strong> ROA。</li>
+<li>在合同与法规允许时使用<strong>多家独立转接商</strong>与多样化物理路径（海缆系统、国家）。</li>
+<li>在能降本降延且不致形成单一不可替代瓶颈处考虑 <strong>IXP 对等</strong>。</li>
+<li>多区域服务可考虑 <strong>anycast</strong> 或地理感知 DNS，同时理解 BGP 仍是愿意对等各方之间的策略驱动系统。</li>
+</ul>
+
+<h3 id="naming-and-trust">5.2 命名与信任锚</h3>
+
+<ul>
+<li>在你可控的基础设施上运行<strong>权威 DNS</strong>；注册商与顶级域策略须与法律及业务连续性计划一致。</li>
+<li>公共 WebPKI 依赖<strong>浏览器与 CA 政策</strong>；企业或客户托管客户端在适当且合法时可使用<strong>私有 PKI</strong>。设计应兼顾透明度与密钥连续性，并经安全评审。</li>
+</ul>
+
+<h3 id="self-contained-services">5.3 「自包含」软件与运维</h3>
+
+<ul>
+<li>明确界定在<strong>分区或失去全球互联网</strong>时的行为（什么降级、什么仍可用）。</li>
+<li>提供<strong>多个引导端点</strong>与有文档的更新通道；按威胁模型与法律义务对制品签名并校验完整性。</li>
+<li>尽量减少协议或 API 关键路径上不必要的第三方依赖。</li>
+</ul>
+
+<h3 id="non-terrestrial-paths">5.4 非地面路径</h3>
+
+<p>低轨卫星可在地面链路脆弱处增加<strong>路径多样性</strong>。约束包括容量、延迟、天气、终端成本、<strong>出口管制</strong>，以及与仍受法律压力的第三方运营商之间的商业条款。</p>
+
+<hr />
+
+<h2 id="multi-region-topology">6. 多区域参考拓扑</h2>
+
+<p>运营商级服务的实用模式：<strong>至少两个区域</strong>，每区有<strong>多座设施</strong>与<strong>多条转接关系</strong>，在明显有利于成本与延迟处有 <strong>IXP 接入</strong>，在可负担时有区域间<strong>优选私有路径</strong>，以及面向客户的<strong>边缘 PoP</strong>（anycast、DNS 或二者兼有）。可观测性应覆盖前缀的 BGP 可见性、RPKI/IRR 一致性以及 DNS 健康。</p>
+
+<figure>
+<img src="print/multi-region-arch.svg" alt="示意图：两区域、双核心数据中心、边缘 PoP、区域间私有骨干与客户侧" width="640" height="380" />
+<figcaption>图 3 — 多区域核心（转接 + IXP）、面向客户的边缘，以及区域间<strong>私有骨干</strong>，公网作为备份。</figcaption>
+</figure>
+
+<hr />
+
+<h2 id="services-reliable-connectivity">7. 假定连通可靠时的服务建设</h2>
+
+<p><strong>工作假设。</strong> 针对本节产品与平台决策，将<strong>最后一公里、IXP、转接以及你自身的 BGP/DNS 配置</strong>视为在规划窗口内<strong>足够可靠</strong>：中断<strong>短暂</strong>、<strong>有界</strong>，并由现有供应商 SLA 与冗余处理——而非长期结构性故障。你仍须为<strong>区域或可用区损失</strong>（机房火灾、误配置、厂商缺陷）设计，但不必把主要精力放在「报文能否到达 IXP？」上。</p>
+
+<figure>
+<img src="print/service-platform-stack.svg" alt="示意图：从客户端经边缘、应用层、数据面到平台与治理的纵向栈" width="640" height="340" />
+<figcaption>图 4 — 第二部分焦点：客户端、入口、应用与数据层，以及（假定稳定的）网络底层之下的平台/治理。</figcaption>
+</figure>
+
+<h3 id="capacity-and-ingress">7.1 容量与入口</h3>
+
+<ul>
+<li><strong>流量与连接规划：</strong> 建模峰值 RPS、并发连接、上下行不对称与大负载端点（如证明、快照）。据此确定负载均衡与 WAF 规模；保留<strong>突发余量</strong>。</li>
+<li><strong>边缘合同：</strong> DDoS 缓解与 CDN 多为商业服务——为供应商事故编写 runbook，在法规与预算允许时保留<strong>备用厂商路径</strong>。</li>
+<li><strong>API 设计：</strong> 在边缘尽量采用<strong>无状态</strong>请求处理；仅在数据模型需要时使用会话亲和。</li>
+</ul>
+
+<h3 id="application-tier">7.2 应用层</h3>
+
+<ul>
+<li><strong>水平扩展：</strong> 将应用实例作为经健康检查的池后的<strong>牲畜（cattle）</strong>运行；按 CPU、延迟与队列深度扩展——不仅看平均负载。</li>
+<li><strong>异步工作：</strong> 将长任务卸载到<strong>队列</strong>与工作进程；定义<strong>超时、幂等键</strong>与死信处理，使部分失败不致破坏账本或计费状态。</li>
+<li><strong>配置：</strong> 集中管理<strong>功能开关</strong>与配置并保留审计变更历史；将二进制<strong>发布</strong>与行为<strong> rollout</strong>分离。</li>
+</ul>
+
+<h3 id="data-consistency">7.3 数据面与一致性</h3>
+
+<ul>
+<li><strong>按用例选择一致性：</strong> 金融或共识关键状态用强一致；仅在产品明确容忍滞后与对账处使用<strong>最终一致</strong>模型。</li>
+<li><strong>复制：</strong> 区域内用<strong>多可用区</strong>（或等价方案）提高可用；为灾备增加<strong>跨区</strong>复制或备份，并文档化 <strong>RPO/RTO</strong>。</li>
+<li><strong>备份与恢复：</strong> 定期演练恢复；加密备份并按隐私与合法调取政策限制访问。</li>
+</ul>
+
+<h3 id="security-identity">7.4 安全与身份</h3>
+
+<ul>
+<li><strong>认证与授权：</strong> 短生命周期凭证、轮换与人机与服务账户的最小权限；审计高风险操作。</li>
+<li><strong>密钥：</strong> 使用托管密钥库；镜像或配置库中不放长期密钥。</li>
+<li><strong>供应链：</strong> 签名构建、依赖固定版本，漏洞响应 SLA 与客户面向 SLO 对齐。</li>
+</ul>
+
+<h3 id="observability-sre">7.5 可观测性与 SRE 实践</h3>
+
+<ul>
+<li><strong>黄金信号：</strong> 延迟、流量、错误、饱和度——按服务与按依赖分解。</li>
+<li><strong>SLO 与错误预算：</strong> 将发布节奏与变更风险与实测可靠性挂钩；对<strong>影响用户</strong>的症状告警，而非仅基础设施 ping。</li>
+<li><strong>事件管理：</strong> 明确严重级别、沟通模板与带跟踪行动项的事后复盘。</li>
+</ul>
+
+<h3 id="blockchain-adjacent">7.6 区块链相关工作负载的说明</h3>
+
+<p>对镜像链上状态的验证者、中继或 API 节点等系统：</p>
+
+<ul>
+<li>将<strong>共识关键</strong>路径与<strong>读多 API</strong>路径分离，避免 API 负载饿死区块传播。</li>
+<li>文档化<strong>分区下的行为</strong>：哪些 API 返回错误、哪些降级为只读缓存数据，以及客户端应如何重试。</li>
+<li>将<strong>对等发现与引导</strong>与 §5.3 的自包含原则对齐，同时遵守网络使用的法律约束。</li>
+</ul>
+
+<hr />
+
+<h2 id="honest-limits">8. 诚实边界</h2>
+
+<ul>
+<li>若<strong>客户侧</strong> ISP 或<strong>其所在</strong>政府屏蔽或劣化你的服务，你无法保证触达每一位客户。</li>
+<li>公网路由是<strong>愿意参与的各方之间的共识</strong>；强大对手可在特定地点使对等或托管在经济或法律上不可行，而无需攻击你的供电。</li>
+<li><strong>支付、应用商店、身份提供商</strong>等相邻行业构成纯「互联网管道」之外的额外依赖链。</li>
+<li>第二部分对<strong>可靠接入</strong>的假设是<strong>设计上的便利</strong>；进入新市场、重大供应商变更或地缘风险显著变化时应重读第一部分。</li>
+</ul>
+
+<hr />
+
+<h2 id="related-reading">9. 延伸阅读（标准与社区资源）</h2>
+
+<ul>
+<li><a href="https://www.manrs.org/">MANRS</a> — 面向网络运营商的路由安全规范。</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc4271">RFC 4271</a> — BGP-4 规范（域间路由设计意图的背景）。</li>
+<li>区域互联网注册机构（AFRINIC、APNIC、ARIN、LACNIC、RIPE NCC）— 号码资源与 RPKI 政策。</li>
+</ul>
+
+<p>任何具体落地建设均应由具备资质的<strong>法律顾问</strong>与<strong>持证电信或频谱顾问</strong>在各目标司法辖区审阅。</p>
+
+</body>
+</html>

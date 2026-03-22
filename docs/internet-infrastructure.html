@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="hand-authored" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Infrastructure and connectivity study" />
+  <meta name="description" content="Part I (Internet structure, IXPs, underlay) supports Part II: building services when connectivity is a reliable given. Legal cautions counterbalance operator-level exposition; lawful operation assumed." />
+  <title>Global Internet Infrastructure and Resilient Operations</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    .note{border-left: 4px solid #444; padding-left: 1em; margin: 1em 0; color: #333;}
+    .part{font-family: DejaVu Sans, Helvetica Neue, Helvetica, Arial, sans-serif; font-size: 0.95rem; color: #444; margin-top: 0.25em;}
+  </style>
+  <link rel="stylesheet" href="print/design-print.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Global Internet Infrastructure and Resilient Operations</h1>
+<p class="author">Infrastructure and connectivity study</p>
+</header>
+
+<hr />
+
+<h2 id="how-this-document-is-organised">1. How this document is organised</h2>
+
+<p class="part"><strong>Part I — Connectivity foundation</strong></p>
+<p>Sections 2–6 explain the global Internet, IXPs/NAPs, legal considerations, how to
+build a compliant operator underlay, and a multi-region reference topology. Their
+role here is to <strong>ground Part II</strong>: you know what sits beneath “reliable
+connectivity” and which dependencies remain even when packets flow as expected. Use
+the technical sections for that mental model; use the legal material as orientation
+for <em>actual</em> cross-border builds (with qualified counsel), not as extra burden
+on readers who only need the Part II service-design lens.</p>
+
+<p class="part"><strong>Part II — Services when access is reliable</strong></p>
+<p>Section 7 shifts the working assumption: <strong>major access paths, IXPs, and
+transit behave as designed</strong> for your planning horizon. The problem becomes
+<strong>software architecture, capacity, consistency, security, and operations</strong>
+on top of that underlay—not debating whether packets leave the building.</p>
+
+<table>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 88%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>§</th>
+<th>Topic</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>2</td>
+<td>What the global Internet is (federation of ASes, layers)</td>
+</tr>
+<tr class="even">
+<td>3</td>
+<td>IXPs and NAPs (peering, fabric, governance)</td>
+</tr>
+<tr class="odd">
+<td>4</td>
+<td>Legal and compliance considerations</td>
+</tr>
+<tr class="even">
+<td>5</td>
+<td>Building the operator underlay</td>
+</tr>
+<tr class="odd">
+<td>6</td>
+<td>Multi-region reference topology</td>
+</tr>
+<tr class="even">
+<td>7</td>
+<td>Building services assuming reliable connectivity</td>
+</tr>
+<tr class="odd">
+<td>8–9</td>
+<td>Honest limits; related reading</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>Goals (Part I).</strong> Understand global connectivity layers; understand how
+IXPs and historical NAPs function; reason about third-party dependencies; outline a
+reference approach to <strong>reliable, lawful operator infrastructure</strong>.</p>
+
+<p><strong>Threat model (Part I).</strong> Adversaries may resemble large states in
+economic and legal leverage over providers (transit, colo, DNS, TLS, cloud, payments).
+This document <strong>excludes</strong> destruction of your sites by military action
+and <strong>assumes</strong> stable power at your facilities. It does
+<strong>not</strong> assume immunity from court orders, sanctions, or licensing.</p>
+
+<hr />
+
+<h2 id="what-the-global-internet-is">2. What the global Internet is</h2>
+
+<p>The public Internet is not a single network. It is a <strong>federation of
+autonomously operated networks</strong> (Autonomous Systems, ASes) that exchange
+traffic using BGP (Border Gateway Protocol), shared numbering (IPv4/IPv6), and common
+application conventions (e.g. DNS, TLS).</p>
+
+<figure>
+<img src="print/internet-layers.svg" alt="Diagram: conceptual stack from long-haul links up through backbone, IXP, access, to overlays" width="640" height="320" />
+<figcaption>Figure 1 — Conceptual layers: long-haul and backbones support exchange
+points and access; DNS, PKI, and CDNs sit above as overlays.</figcaption>
+</figure>
+
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 72%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Layer</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Submarine and terrestrial long-haul</td>
+<td>High-capacity links between continents and regions; often owned or long-term leased
+by carriers and large operators.</td>
+</tr>
+<tr class="even">
+<td>National and regional backbones</td>
+<td>Large ISPs and carriers aggregate enterprise and access traffic.</td>
+</tr>
+<tr class="odd">
+<td>Internet Exchange Points (IXPs)</td>
+<td>Physical meet points where many networks interconnect, often via
+settlement-free or bilateral peering, reducing transit cost for mutual traffic.</td>
+</tr>
+<tr class="even">
+<td>Access and last mile</td>
+<td>Fiber, cable, wireless, mobile RAN, etc.</td>
+</tr>
+<tr class="odd">
+<td>Overlay services</td>
+<td>DNS, CDNs, cloud, email—implemented on top of the layers above.</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>Operational takeaway.</strong> End-to-end reliability is usually a product
+of <strong>path diversity</strong>, <strong>contractual redundancy</strong>,
+<strong>mature operations</strong> (monitoring, change control, incident response), and
+<strong>understanding critical dependencies</strong>: routing, naming, certificates,
+time, and software supply chain.</p>
+
+<hr />
+
+<h2 id="ixps-and-naps">3. IXPs and NAPs</h2>
+
+<p><strong>NAP</strong> (Network Access Point) is largely a <strong>historical US
+term</strong> from the commercialisation of the Internet in the 1990s. The modern
+parallel is usually an <strong>IXP</strong> or a <strong>carrier-neutral meet-me
+facility</strong> where networks interconnect.</p>
+
+<figure>
+<img src="print/ixp-topology.svg" alt="Diagram: three autonomous systems with routers cross-connected into a shared IXP fabric" width="640" height="360" />
+<figcaption>Figure 2 — Many networks attach <strong>router ports</strong> to a shared
+<strong>IXP fabric</strong>; a <strong>route server</strong> may simplify multilateral
+peering. Off-fabric <strong>transit</strong> still reaches the rest of the Internet.</figcaption>
+</figure>
+
+<h3 id="economic-models">3.1 Economic models</h3>
+
+<ul>
+<li><strong>Peering at an IXP.</strong> Two or more networks exchange traffic destined
+for each other’s customers (or downstreams), often without per-megabit settlement when
+volumes and policies align (“settlement-free peering”).</li>
+<li><strong>Transit.</strong> A customer pays an upstream for reachability to a large
+fraction of or the full Internet; smaller networks and many enterprises rely on
+transit for global reach.</li>
+<li><strong>Route servers.</strong> Many IXPs host route servers to simplify multilateral
+peering; each participant still applies its own import/export policy.</li>
+</ul>
+
+<h3 id="physical-and-governance">3.2 Physical setup and governance</h3>
+
+<ul>
+<li>IXPs typically live in <strong>carrier-neutral data centres</strong> with cross-connects,
+meet-me rooms, and a shared fabric (Ethernet VLANs or more advanced L2/L3 VPN
+designs, depending on the exchange).</li>
+<li><strong>Governance</strong> may be nonprofit (member association) or commercial;
+rules cover quotas, filtering expectations, abuse handling, and technical minimums.</li>
+<li><strong>Routing security</strong> on the public Internet is a community effort:
+IRR records, <strong>RPKI</strong> ROAs, prefix filters, and initiatives such as
+<strong>MANRS</strong> (Mutually Agreed Norms for Routing Security) describe
+best practices for operators—always implemented in compliance with local regulation
+and your peering agreements.</li>
+</ul>
+
+<p><strong>What IXPs do not remove.</strong> They lower cost and latency for eligible
+traffic; they do not eliminate dependence on <strong>transit</strong> for full global
+reach, on <strong>DNS and certificate ecosystems</strong> for many applications, or on
+<strong>legal and commercial relationships</strong> with facility owners and
+regulators in each jurisdiction.</p>
+
+<hr />
+
+<h2 id="legal-and-compliance-considerations">4. Legal and compliance considerations</h2>
+
+<p>This section is most relevant when you <strong>actually operate</strong> network or
+facility capacity across borders. If you are reading Part I mainly to understand Part
+II, treat the table as <strong>why operators cannot treat the underlay as a law-free
+zone</strong>—not as a checklist you must execute yourself.</p>
+
+<p>When expanding infrastructure across jurisdictions, explicitly plan for:</p>
+
+<table>
+<colgroup>
+<col style="width: 32%" />
+<col style="width: 68%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Area</th>
+<th>Typical obligations (illustrative, not legal advice)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Licensing and telecom rules</td>
+<td>Provision of network services, use of spectrum, or operation of certain equipment
+may require licences or registrations.</td>
+</tr>
+<tr class="even">
+<td>Data protection and retention</td>
+<td>Customer and traffic metadata may be subject to privacy law, retention limits, and
+lawful access regimes.</td>
+</tr>
+<tr class="odd">
+<td>Sanctions and export controls</td>
+<td>Hardware, software, cryptography, and services may be restricted by origin,
+destination, or end-user category.</td>
+</tr>
+<tr class="even">
+<td>Lawful requests</td>
+<td>Subpoenas, court orders, and national security frameworks may compel disclosure or
+action; policies should be documented with qualified counsel.</td>
+</tr>
+<tr class="odd">
+<td>Content and access policy</td>
+<td>Blocking, filtering, or carrying certain traffic may be mandated or prohibited
+depending on locale; align product design with counsel.</td>
+</tr>
+</tbody>
+</table>
+
+<p>Technical resilience and legal compliance work together: <strong>jurisdictional
+diversity</strong> of entities and contracts can reduce correlated failure, but each
+entity must still operate lawfully in its own territory.</p>
+
+<hr />
+
+<h2 id="operator-underlay">5. Building the operator underlay</h2>
+
+<p>Think in terms of <strong>dependency classes</strong> and <strong>lawful
+substitution</strong>: what can you diversify, own, or re-home if a provider is
+pressured or fails? This section is the <strong>underlay</strong> that Part II assumes
+is “good enough” for engineering decisions at the application layer.</p>
+
+<h3 id="routing-and-connectivity">5.1 Routing and connectivity</h3>
+
+<ul>
+<li>Obtain and properly document <strong>ASN and address space</strong> through
+<strong>RIR</strong> policy; publish consistent <strong>RPKI</strong> ROAs where
+deployed.</li>
+<li>Use <strong>multiple independent transit providers</strong> and diverse physical
+paths (cable systems, countries) where contracts and regulation allow.</li>
+<li>Consider <strong>IXP peering</strong> where it reduces cost and latency without
+creating a single irreplaceable chokepoint.</li>
+<li>For multi-region services, consider <strong>anycast</strong> or geo-aware DNS,
+understanding that BGP remains a policy-driven system among willing peers.</li>
+</ul>
+
+<h3 id="naming-and-trust">5.2 Naming and trust anchors</h3>
+
+<ul>
+<li>Run <strong>authoritative DNS</strong> on infrastructure you control; use
+registrar and TLD strategies that match your legal and business continuity plans.</li>
+<li>Public WebPKI depends on <strong>browser and CA policy</strong>; enterprise or
+customer-managed clients may use <strong>private PKI</strong> where appropriate and
+lawful. Design for transparency and key continuity with security review.</li>
+</ul>
+
+<h3 id="self-contained-services">5.3 “Self-contained” software and operations</h3>
+
+<ul>
+<li>Define clear behaviour under <strong>partition or loss of global Internet</strong>
+(what degrades, what still works).</li>
+<li>Provide <strong>multiple bootstrap endpoints</strong> and documented update
+channels; sign artifacts and verify integrity using processes that meet your threat
+model and legal obligations.</li>
+<li>Minimise unnecessary third-party dependencies for the critical path of your
+protocol or API.</li>
+</ul>
+
+<h3 id="non-terrestrial-paths">5.4 Non-terrestrial paths</h3>
+
+<p>LEO satellite services can add <strong>path diversity</strong> where terrestrial
+links are fragile. Constraints include capacity, latency, weather, terminal cost,
+<strong>export control</strong>, and commercial terms with operators who remain
+third parties subject to legal pressure.</p>
+
+<hr />
+
+<h2 id="multi-region-topology">6. Multi-region reference topology</h2>
+
+<p>A practical pattern for operator-scale services: <strong>at least two regions</strong>,
+each with <strong>multiple facilities</strong> and <strong>multiple transit
+relationships</strong>, <strong>IXP presence</strong> where it clearly helps cost and
+latency, a <strong>preferred private path</strong> between regions where affordable,
+and <strong>edge PoPs</strong> toward customers (anycast, DNS, or both). Observability
+should cover BGP visibility for your prefixes, RPKI/IRR consistency, and DNS health.</p>
+
+<figure>
+<img src="print/multi-region-arch.svg" alt="Diagram: two regions with dual core data centres, edge PoPs, private backbone between regions, and customers below" width="640" height="380" />
+<figcaption>Figure 3 — Multi-region cores (transit + IXP), edge toward customers, and a
+<strong>private backbone</strong> between regions with the public Internet as backup.</figcaption>
+</figure>
+
+<hr />
+
+<h2 id="services-reliable-connectivity">7. Building services assuming reliable connectivity</h2>
+
+<p><strong>Working assumption.</strong> For the product and platform decisions in this
+section, treat <strong>last mile, IXPs, transit, and your own BGP/DNS setup</strong> as
+<strong>sufficiently reliable</strong> for the planning window: outages are
+<strong>short</strong>, <strong>bounded</strong>, and handled by your existing
+provider SLAs and redundancy—not chronic structural failure. You still design for
+<strong>region or zone loss</strong> (facility fire, misconfiguration, vendor bug),
+but you do not spend primary effort on “will packets reach the IXP?”</p>
+
+<figure>
+<img src="print/service-platform-stack.svg" alt="Diagram: vertical stack from clients through edge, application tier, data plane, to platform and governance" width="640" height="340" />
+<figcaption>Figure 4 — Part II focus: clients, ingress, application and data tiers, and
+platform/governance beneath the (assumed stable) network underlay.</figcaption>
+</figure>
+
+<h3 id="capacity-and-ingress">7.1 Capacity and ingress</h3>
+
+<ul>
+<li><strong>Traffic and connection planning:</strong> model peak RPS, concurrent
+connections, upload/download asymmetry, and large-payload endpoints (e.g. proofs,
+snapshots). Size load balancers and WAFs accordingly; keep <strong>burst headroom</strong>.</li>
+<li><strong>Edge contracts:</strong> DDoS mitigation and CDN are usually commercial
+services—document runbooks for provider incidents and maintain a <strong>secondary
+vendor path</strong> where regulation and budget allow.</li>
+<li><strong>API design:</strong> prefer <strong>stateless</strong> request handling at
+the edge where possible; push session affinity only where the data model requires it.</li>
+</ul>
+
+<h3 id="application-tier">7.2 Application tier</h3>
+
+<ul>
+<li><strong>Horizontal scale:</strong> run application instances as
+<strong>cattle</strong> behind health-checked pools; scale on CPU, latency, and queue
+depth—not only on average load.</li>
+<li><strong>Async work:</strong> offload long tasks to <strong>queues</strong> and workers;
+define <strong>timeouts, idempotency keys,</strong> and dead-letter handling so
+partial failures do not corrupt ledger or billing state.</li>
+<li><strong>Configuration:</strong> centralise <strong>feature flags</strong> and config
+with audited change history; separate <strong>release</strong> of binaries from
+<strong>rollout</strong> of behaviour.</li>
+</ul>
+
+<h3 id="data-consistency">7.3 Data plane and consistency</h3>
+
+<ul>
+<li><strong>Choose consistency per use case:</strong> strong consistency for financial
+or consensus-critical state; <strong>eventual</strong> models only where the product
+explicitly tolerates lag and reconciliation.</li>
+<li><strong>Replication:</strong> use <strong>multi-AZ</strong> (or equivalent) within a
+region for availability; add <strong>cross-region</strong> replication or backup for
+disaster recovery, with a documented <strong>RPO/RTO</strong>.</li>
+<li><strong>Backups and restores:</strong> test restores regularly; encrypt backups and
+restrict access consistent with privacy and lawful-access policies.</li>
+</ul>
+
+<h3 id="security-identity">7.4 Security and identity</h3>
+
+<ul>
+<li><strong>Authentication and authorisation:</strong> short-lived credentials,
+rotation, and least privilege for humans and service accounts; audit high-risk
+operations.</li>
+<li><strong>Secrets:</strong> use a managed secrets store; no long-lived secrets in
+images or config repos.</li>
+<li><strong>Supply chain:</strong> signed builds, dependency pinning, and vulnerability
+response SLAs aligned with your customer-facing SLOs.</li>
+</ul>
+
+<h3 id="observability-sre">7.5 Observability and SRE practice</h3>
+
+<ul>
+<li><strong>Golden signals:</strong> latency, traffic, errors, saturation—per service
+and per dependency.</li>
+<li><strong>SLOs and error budgets:</strong> tie release velocity and change risk to
+measured reliability; page on <strong>user-impacting</strong> symptoms, not only
+infrastructure pings.</li>
+<li><strong>Incident management:</strong> clear severity levels, communications templates,
+and post-incident reviews with tracked action items.</li>
+</ul>
+
+<h3 id="blockchain-adjacent">7.6 Notes for blockchain-adjacent workloads</h3>
+
+<p>For systems like validator, relay, or API nodes that mirror chain state:</p>
+
+<ul>
+<li>Separate <strong>consensus-critical</strong> paths from <strong>read-heavy
+API</strong> paths so API load cannot starve block propagation.</li>
+<li>Document <strong>behaviour under partition</strong>: which APIs return errors,
+which degrade to cached read-only data, and how clients should retry.</li>
+<li>Align <strong>peer discovery and bootstrap</strong> with the self-contained
+principles in §5.3 while staying within legal constraints on network use.</li>
+</ul>
+
+<hr />
+
+<h2 id="honest-limits">8. Honest limits</h2>
+
+<ul>
+<li>You cannot guarantee reachability to every customer if <strong>their</strong> ISP or
+<strong>their</strong> government blocks or degrades your service.</li>
+<li>Public Internet routing is a <strong>consensus among willing participants</strong>;
+large adversaries can make peering or hosting uneconomic or legally impossible in
+specific places without attacking your power supply.</li>
+<li><strong>Payments, app stores, identity providers,</strong> and other adjacent
+industries form additional dependency chains outside pure “Internet plumbing.”</li>
+<li>Part II’s assumption of <strong>reliable access</strong> is a <strong>design
+convenience</strong>; revisit Part I when entering new markets, during major provider
+changes, or when geopolitical risk materially shifts.</li>
+</ul>
+
+<hr />
+
+<h2 id="related-reading">9. Related reading (standards and community resources)</h2>
+
+<ul>
+<li><a href="https://www.manrs.org/">MANRS</a> — routing security norms for network
+operators.</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc4271">RFC 4271</a> — BGP-4 specification
+(background on how inter-domain routing is intended to work).</li>
+<li>Regional Internet Registries (AFRINIC, APNIC, ARIN, LACNIC, RIPE NCC) — policy for
+number resources and RPKI.</li>
+</ul>
+
+<p>Qualified <strong>legal counsel</strong> and <strong>licensed telecom or spectrum
+advisers</strong> should review any concrete build-out in each target jurisdiction.</p>
+
+</body>
+</html>

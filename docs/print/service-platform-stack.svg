@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 340" width="640" height="340" role="img" aria-labelledby="title desc">
+  <title id="title">Service platform when connectivity is reliable</title>
+  <desc id="desc">Logical stack from clients through edge, application, data, and shared platform services.</desc>
+  <defs>
+    <style type="text/css"><![CDATA[
+      .layer { fill: #f7f7f7; stroke: #333; stroke-width: 1.3; }
+      .layer-app { fill: #e8f0f8; stroke: #1a4d80; stroke-width: 1.3; }
+      .layer-data { fill: #f0f8f0; stroke: #2d662d; stroke-width: 1.3; }
+      text { font-family: DejaVu Sans, Helvetica Neue, Arial, sans-serif; font-size: 12px; fill: #111; }
+      .title { font-weight: bold; font-size: 14px; }
+      .sub { font-size: 10px; fill: #444; }
+      .arrow { stroke: #666; stroke-width: 1.2; fill: none; marker-end: url(#mk); }
+    ]]></style>
+    <marker id="mk" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#666"/>
+    </marker>
+  </defs>
+  <text x="320" y="24" text-anchor="middle" class="title">Part II — service build (connectivity treated as reliable)</text>
+  <text x="320" y="42" text-anchor="middle" class="sub">Focus shifts to software, capacity, consistency, and operations on top of stable access</text>
+  <!-- clients -->
+  <rect class="layer" x="80" y="56" width="480" height="36" rx="4"/>
+  <text x="320" y="72" text-anchor="middle" font-weight="bold">Clients &amp; integrators</text>
+  <text x="320" y="86" text-anchor="middle" class="sub">browsers, mobile apps, partner APIs — TLS, auth tokens</text>
+  <line class="arrow" x1="320" y1="92" x2="320" y2="108"/>
+  <!-- edge -->
+  <rect class="layer" x="80" y="108" width="480" height="40" rx="4"/>
+  <text x="320" y="126" text-anchor="middle" font-weight="bold">Edge &amp; ingress</text>
+  <text x="320" y="140" text-anchor="middle" class="sub">load balancing, WAF, rate limits, DDoS mitigation (already contracted)</text>
+  <line class="arrow" x1="320" y1="148" x2="320" y2="164"/>
+  <!-- app -->
+  <rect class="layer-app" x="80" y="164" width="480" height="44" rx="4"/>
+  <text x="320" y="184" text-anchor="middle" font-weight="bold">Application &amp; API tier</text>
+  <text x="320" y="200" text-anchor="middle" class="sub">stateless services, workers, queue consumers — horizontal scale per region</text>
+  <line class="arrow" x1="320" y1="208" x2="320" y2="224"/>
+  <!-- data -->
+  <rect class="layer-data" x="80" y="224" width="480" height="44" rx="4"/>
+  <text x="320" y="244" text-anchor="middle" font-weight="bold">Data plane</text>
+  <text x="320" y="260" text-anchor="middle" class="sub">transactional DB, caches, search, object store — backups &amp; replication across zones</text>
+  <line class="arrow" x1="320" y1="268" x2="320" y2="284"/>
+  <!-- platform -->
+  <rect class="layer" x="80" y="284" width="480" height="40" rx="4"/>
+  <text x="320" y="302" text-anchor="middle" font-weight="bold">Platform &amp; governance</text>
+  <text x="320" y="316" text-anchor="middle" class="sub">CI/CD, secrets, config, observability, SLOs, incident response, compliance evidence</text>
+</svg>
