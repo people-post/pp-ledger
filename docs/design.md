@@ -183,3 +183,21 @@ In short: our design separates **who keeps the truth** (Beacon), **who distribut
 | **Multi-token and issuance** | Native **multi-token** balances per account; each token type is issued from a **dedicated reserved account** (4+), giving issuance a clear on-chain home. | Multi-token is usually via contracts or side tables; issuance is not always tied to a fixed reserved-account model. |
 
 In short: our design treats **checkpoints as bounded chain ranges** that define state reconstruction and lean sync, and **accounts** as first-class objects with lifecycle, upkeep, and reserved-account-based token issuance, rather than only "address + balance" or contract-only issuance.
+
+---
+
+## 9. Off-Chain Settlement — Small Transactions and Periodic Sync
+
+The main chain commits at a fixed slot cadence and carries global security and auditability. That is ideal for **large or infrequent** movements of value, but it is a poor fit for **many small, rapid** payments (retail, games, payroll batches, IoT). A practical way to improve throughput and user experience is to **offload high-frequency activity** to a separate system that only **writes back to the chain on a schedule**.
+
+Such a system goes by several names depending on context — **layer-2 operator**, **settlement hub**, **digital bank** (when regulated and custodial), or **private chain** (when it is its own replicated ledger among a known set of parties). The pattern is the same: users do not post every transfer on the main chain; they **lock** (deposit or escrow) a balance with the entity, which then **handles transfers internally** on its own ledger. Only **aggregated or net results** are anchored on the main chain at **fixed intervals** (for example hourly, daily, or per epoch).
+
+| Term | Plain meaning |
+|------|---------------|
+| **Lock / deposit** | User moves tokens on-chain into custody of the operator (or a contract that represents that custody). Those tokens back the user's balance on the internal system. |
+| **Internal ledger** | The operator's fast path: a database, a permissioned chain, or another network where transfers are cheap and immediate. |
+| **Periodic sync** | At agreed times, the operator submits **batch settlements** to the main chain: withdrawals, net transfers, fraud proofs, or checkpoint commitments — not one main-chain transaction per coffee purchase. |
+
+**Trade-offs (explicit):** Users who opt in accept **counterparty and operational risk** on the locked balance until it is withdrawn or settled on-chain. The main chain gains **scalability** and lower per-payment cost; **trust** in the operator (or its rules and cryptography) replaces per-tx main-chain inclusion for that slice of activity.
+
+> **Why this belongs in the design story:** Checkpoints already express the idea that **not every state change must be visible in every block** — only **ranges** must be recoverable and agreed. Off-chain settlement extends that idea: **most** small steps happen off-chain; the chain records **openings, closures, and periodic truth** about who owes whom, which is the right split for performance without giving up a single authoritative ledger for final settlement.

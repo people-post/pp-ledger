@@ -580,5 +580,74 @@ ranges</strong> that define state reconstruction and lean sync, and
 <strong>accounts</strong> as first-class objects with lifecycle, upkeep,
 and reserved-account-based token issuance, rather than only “address +
 balance” or contract-only issuance.</p>
+<hr />
+<h2 id="off-chain-settlement-small-transactions-and-periodic-sync">9.
+Off-Chain Settlement — Small Transactions and Periodic Sync</h2>
+<p>The main chain commits at a fixed slot cadence and carries global
+security and auditability. That is ideal for <strong>large or
+infrequent</strong> movements of value, but it is a poor fit for
+<strong>many small, rapid</strong> payments (retail, games, payroll
+batches, IoT). A practical way to improve throughput and user experience
+is to <strong>offload high-frequency activity</strong> to a separate
+system that only <strong>writes back to the chain on a schedule</strong>.</p>
+<p>Such a system goes by several names depending on context —
+<strong>layer-2 operator</strong>, <strong>settlement hub</strong>,
+<strong>digital bank</strong> (when regulated and custodial), or
+<strong>private chain</strong> (when it is its own replicated ledger
+among a known set of parties). The pattern is the same: users do not
+post every transfer on the main chain; they <strong>lock</strong>
+(deposit or escrow) a balance with the entity, which then
+<strong>handles transfers internally</strong> on its own ledger. Only
+<strong>aggregated or net results</strong> are anchored on the main chain
+at <strong>fixed intervals</strong> (for example hourly, daily, or per
+epoch).</p>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 78%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Term</th>
+<th>Plain meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Lock / deposit</strong></td>
+<td>User moves tokens on-chain into custody of the operator (or a
+contract that represents that custody). Those tokens back the user’s
+balance on the internal system.</td>
+</tr>
+<tr class="even">
+<td><strong>Internal ledger</strong></td>
+<td>The operator’s fast path: a database, a permissioned chain, or
+another network where transfers are cheap and immediate.</td>
+</tr>
+<tr class="odd">
+<td><strong>Periodic sync</strong></td>
+<td>At agreed times, the operator submits <strong>batch settlements</strong>
+to the main chain: withdrawals, net transfers, fraud proofs, or
+checkpoint commitments — not one main-chain transaction per coffee
+purchase.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Trade-offs (explicit):</strong> Users who opt in accept
+<strong>counterparty and operational risk</strong> on the locked balance
+until it is withdrawn or settled on-chain. The main chain gains
+<strong>scalability</strong> and lower per-payment cost;
+<strong>trust</strong> in the operator (or its rules and cryptography)
+replaces per-tx main-chain inclusion for that slice of activity.</p>
+<blockquote>
+<p><strong>Why this belongs in the design story:</strong> Checkpoints
+already express the idea that <strong>not every state change must be
+visible in every block</strong> — only <strong>ranges</strong> must be
+recoverable and agreed. Off-chain settlement extends that idea:
+<strong>most</strong> small steps happen off-chain; the chain records
+<strong>openings, closures, and periodic truth</strong> about who owes
+whom, which is the right split for performance without giving up a
+single authoritative ledger for final settlement.</p>
+</blockquote>
 </body>
 </html>

@@ -506,5 +506,39 @@ VRF 记账者选举（类 Ouroboros）。</td>
 <strong>存档点视为有界的链区间</strong>，用于定义状态重建与轻量同步；<strong>账户</strong>
 为一等对象，具备生命周期、维护费及基于预留账户的代币发行，而非仅「地址 +
 余额」或仅靠合约发行。</p>
+<hr />
+<h2 id="链下结算小额交易与定期同步">9. 链下结算 — 小额交易与定期同步</h2>
+<p>主链按固定时隙节奏提交，承担全局安全与可审计性，适合<strong>大额或低频</strong>的价值转移，却不适合<strong>大量小额、高频</strong>的支付（零售、游戏、批量发薪、物联网等）。提升吞吐与体验的可行路径是将<strong>高频活动</strong>卸载到另一套系统，由该系统<strong>按既定周期</strong>再写回主链。</p>
+<p>这类系统依场景有不同称呼 —— <strong>二层（Layer 2）运营方</strong>、<strong>结算枢纽</strong>、受监管且托管意义上的<strong>数字银行</strong>，或在已知参与方之间运行的<strong>私有链</strong>。模式相同：用户不必每笔转账都上主链，而是向实体<strong>锁定</strong>（存入或托管）余额，由其在自有账本上<strong>在内部处理转账</strong>；仅在<strong>固定间隔</strong>将<strong>汇总或净额结果</strong>锚定到主链（例如按小时、按天或按 epoch）。</p>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 78%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>术语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>锁定 / 存入</strong></td>
+<td>用户将代币在链上转入运营方托管（或代表该托管的合约），这些代币支撑其在内部系统中的余额。</td>
+</tr>
+<tr class="even">
+<td><strong>内部账本</strong></td>
+<td>运营方的快速路径：数据库、许可链或其他网络，其中转账成本低、可即时完成。</td>
+</tr>
+<tr class="odd">
+<td><strong>定期同步</strong></td>
+<td>在约定时间，运营方向主链提交<strong>批量结算</strong>：提现、净额划转、欺诈证明或检查点承诺等 —— 而非「买一杯咖啡就上一笔主链交易」。</td>
+</tr>
+</tbody>
+</table>
+<p><strong>权衡（需明示）：</strong>选择参与的用户在余额提现或链上结算完成前，承担锁定余额上的<strong>交易对手与运营风险</strong>。主链获得<strong>可扩展性</strong>与更低的单笔支付成本；对该部分活动而言，对运营方（或其规则与密码学）的<strong>信任</strong>替代了「每笔都上主链」。</p>
+<blockquote>
+<p><strong>为何写入本设计叙事：</strong>存档点已表达「<strong>并非每次状态变化都必须在每个区块中可见</strong>」——只需<strong>区间</strong>可恢复且达成一致。链下结算延伸该思路：<strong>多数</strong>微小步骤在链下完成；主链记录<strong>开立、关闭与周期性真相</strong>（谁欠谁），在性能与「仍由单一权威账本做最终结算」之间取得合理分工。</p>
+</blockquote>
 </body>
 </html>
