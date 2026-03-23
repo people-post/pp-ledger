@@ -1,0 +1,187 @@
+Block Chain — Technical design overview
+========================================
+(Plain-text version for email; figures omitted.)
+
+
+1. THE CHAIN: TIME, BLOCKS, AND ROUNDS
+--------------------------------------
+
+The Block Chain organises activity into a fixed heartbeat. Every 5 seconds one "tick" (called a slot) passes. During each tick, one elected participant may add a bundle of activity (a block) to the chain. A fixed number of ticks (currently about 7 days of slots) forms a round (called an epoch) at the end of which participants for the next round are elected.
+
+Concepts:
+  Tick (slot)     — 5-second window. At most one block is added per tick.
+  Round (epoch)   — 7 days. Block producers for the next round are chosen at the end of each round, weighted by their stake.
+  Block           — A sealed package of activity: transfers, account changes, and other records — linked to the block before it.
+
+
+2. WHAT IS INSIDE A BLOCK
+-------------------------
+
+Each block is a tamper-proof envelope. Once added to the chain it cannot be changed.
+
+Types of activity a block can record:
+
+  Launch         — Sets up the network for the first time
+  New account    — Registers and funds a new participant
+  Transfer       — Moves tokens between accounts
+  Update account — Participant updates their own profile
+  Renew account  — Network keeps an account active
+  Close account  — Network closes an account that can no longer pay its upkeep
+
+
+3. NETWORK PARTICIPANTS: BEACON, RELAYS, AND MINERS
+---------------------------------------------------
+
+Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain. In the rare event that the original Beacon is permanently lost, a Relay that already holds the full chain can be promoted to become the new Beacon, preserving continuity.
+
+  Role     What they do                                              Adds blocks?  Sees full history?
+  Beacon   Single authoritative record-keeper; validates everything      No            Yes
+  Relay    Trusted gateway — distributes the chain to miners, shields the Beacon  No     Yes
+  Miner    Elected participant who packages and adds new blocks; earns fees  Yes    partial
+
+Why this matters: Miners compete fairly — only the randomly elected miner for a given tick may add a block, and their election odds are proportional to how much they have staked. This makes the network both decentralised and predictable.
+
+Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.
+
+
+4. CHECKPOINTS — KEEPING THE NETWORK LEAN
+-----------------------------------------
+
+As the chain grows over months and years, storing every block from the very beginning becomes expensive. Checkpoints solve this: starting from launch day, the network marks confirmed ranges of blocks whose combined contents fully determine the current state of every account. The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks. New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
+
+  Snapshot (checkpoint) — A marker in the chain that guarantees every account's latest state can be reconstructed from the blocks between this mark and the previous one (states are not required to sit in a single block)
+  Safe join-point       — The checkpoint before the latest one — proven stable and widely agreed upon
+
+
+5. RESERVED ACCOUNTS — ISSUING TOKENS
+-------------------------------------
+
+The network reserves a range of special accounts for issuing and managing tokens. These accounts are allowed to show negative balances as an accounting device (similar to a central bank's balance sheet) and can create new token types.
+
+  Genesis (account 0)   — Issues the network's native coin; sets initial supply
+  Fee collector (1)     — Receives small upkeep fees paid by all accounts
+  Reserve (account 2)   — Holds unallocated supply
+  Recycle (account 3)   — Receives balances from closed accounts
+  Accounts 4 and above — Available for currency, stock, bond, RWA, and other token classes
+
+Each token type is issued from its own dedicated reserved account, giving issuance a clear, auditable home on-chain.
+
+
+6. USER ACCOUNTS — HOLDING AND DOING
+------------------------------------
+
+Every person or organisation on the network has a user account. Account identities are separate from cryptographic keys: users can rotate keys and switch algorithms without changing their account, enabling a path to post-quantum security. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
+
+Capability                              Available today
+  Hold multiple token types                    Yes
+  Require more than one key to spend (multi-sig)  Yes
+  Attach profile or custom data                Yes
+  Own digital collectibles (NFTs)              Planned
+  Self-executing rules (smart contracts)       Planned
+
+
+7. WHAT IS BUILT AND WHAT IS NEXT
+-----------------------------------
+
+Core Chain
+  Predictable, time-based block production              Live
+  Stake-weighted, tamper-proof leader election        Live
+  Immutable transaction records                       Live
+  Multi-token balances                                Live
+  Small, usage-based fees                             Live
+  Periodic checkpoints to keep storage lean           Live
+
+Network
+  Beacon — authoritative record-keeper                Live
+  Relays — scalable miner gateway                     Live
+  Miners — decentralised block production               Live
+  Miner fast-join via snapshots                       Live
+
+Security note: The current network stack focuses on correctness and basic robustness. Advanced protections against large-scale abusive behaviour (such as massive connection floods or automated probing) are not yet implemented and should be assumed to require additional hardening before internet-wide deployment.
+
+Tokens & Accounts
+  Native coin                                         Live
+  Custom token issuance (by reserved accounts)        Live
+  User account registration                           Live
+  Account upkeep and closure                          Live
+  Digital collectibles (NFTs)                         Planned
+  Self-executing rules (smart contracts)              Planned
+  Dedicated currency / stock / bond / RWA token classes Planned
+
+Interfaces
+  Command-line tool                                   Live
+  REST (HTTP) API                                     Live
+  JavaScript / Node.js library                        Live
+  MCP (Model Context Protocol) server                 Live
+  Real-time streaming API                             Planned
+  Web explorer / dashboard                            Planned
+
+
+8. KEY DIFFERENCES VS OTHER CHAIN DESIGNS
+-----------------------------------------
+
+This section summarises how our design differs from many other blockchain systems in two areas: consensus/network and accounts/checkpoints.
+
+8.1 Consensus and Network
+
+Authority model
+  Our design: Single Beacon as authoritative record-keeper; Relays as trusted gateways; Miners only produce blocks. No single role can alter the chain alone.
+  Typical: Often all full nodes are equal (e.g. Bitcoin) or validators both propose and validate (e.g. many PoS chains).
+
+Block production
+  Our design: Only Miners add blocks; Beacon and Relays never produce blocks. Miners are elected per slot and connect via Relays (or optionally to Beacon).
+  Typical: Validators or miners usually talk to each other in a flat or mesh topology; no dedicated "authority + gateway" split.
+
+Visibility
+  Our design: Miners see only a partial history (needed for proposing blocks); full chain lives at Beacon and Relays.
+  Typical: Full nodes and validators typically store and validate the full chain.
+
+Recovery
+  Our design: A Relay that holds the full chain can be promoted to Beacon if the original Beacon is lost, preserving continuity without changing the protocol.
+  Typical: Failover is usually handled by out-of-band replacement or social consensus, not a defined "next Beacon" role.
+
+Time and slots
+  Our design: Fixed 5-second slots and at most one block per slot; stake-weighted, VRF-based leader election (Ouroboros-style).
+  Typical: Variable block times or multiple blocks per "round" are common; leader selection varies by chain.
+
+In short: our design separates who keeps the truth (Beacon), who distributes it (Relays), and who extends it (Miners), instead of merging these into one validator set.
+
+8.2 Account and Checkpoint
+
+Checkpoints / sync
+  Our design: Checkpoints mark confirmed ranges; new participants join from a checkpoint and only process blocks between that checkpoint and the previous one. No need to replay from genesis.
+  Typical: New nodes often sync from genesis or from a recent "snapshot" that may be a full state dump rather than a chain-range guarantee.
+
+State and history
+  Our design: Checkpoints guarantee that account state can be reconstructed from the blocks in the range between two consecutive checkpoints; state is not required to live in a single block.
+  Typical: State is usually derived from applying all blocks (or from a state DB); "checkpoint = chain range" is not always explicit.
+
+Reserved accounts
+  Our design: Fixed reserved accounts (Genesis, Fee collector, Reserve, Recycle, then token issuers) with defined roles; some may have negative balances as an accounting device.
+  Typical: Often a single "system" or treasury address, or no formal reserved range; token issuance is contract- or protocol-specific.
+
+Account lifecycle
+  Our design: Explicit registration, upkeep (fees), renewal, and closure; closed-account balances go to Recycle. Accounts can be closed by the network when they cannot pay upkeep.
+  Typical: Accounts are often "create once, use forever" or closed only by user action; no built-in upkeep or network-initiated closure.
+
+Multi-token and issuance
+  Our design: Native multi-token balances per account; each token type is issued from a dedicated reserved account (4+), giving issuance a clear on-chain home.
+  Typical: Multi-token is usually via contracts or side tables; issuance is not always tied to a fixed reserved-account model.
+
+In short: our design treats checkpoints as bounded chain ranges that define state reconstruction and lean sync, and accounts as first-class objects with lifecycle, upkeep, and reserved-account-based token issuance, rather than only "address + balance" or contract-only issuance.
+
+
+9. OFF-CHAIN SETTLEMENT — SMALL TRANSACTIONS AND PERIODIC SYNC
+----------------------------------------------------------------
+
+The main chain commits at a fixed slot cadence and carries global security and auditability. That is ideal for large or infrequent movements of value, but it is a poor fit for many small, rapid payments (retail, games, payroll batches, IoT). A practical way to improve throughput and user experience is to offload high-frequency activity to a separate system that only writes back to the chain on a schedule.
+
+Such a system goes by several names depending on context — layer-2 operator, settlement hub, digital bank (when regulated and custodial), or private chain (when it is its own replicated ledger among a known set of parties). The pattern is the same: users do not post every transfer on the main chain; they lock (deposit or escrow) a balance with the entity, which then handles transfers internally on its own ledger. Only aggregated or net results are anchored on the main chain at fixed intervals (for example hourly, daily, or per epoch).
+
+  Lock / deposit    — User moves tokens on-chain into custody of the operator (or a contract that represents that custody). Those tokens back the user's balance on the internal system.
+  Internal ledger   — The operator's fast path: a database, a permissioned chain, or another network where transfers are cheap and immediate.
+  Periodic sync     — At agreed times, the operator submits batch settlements to the main chain: withdrawals, net transfers, fraud proofs, or checkpoint commitments — not one main-chain transaction per coffee purchase.
+
+Trade-offs (explicit): Users who opt in accept counterparty and operational risk on the locked balance until it is withdrawn or settled on-chain. The main chain gains scalability and lower per-payment cost; trust in the operator (or its rules and cryptography) replaces per-tx main-chain inclusion for that slice of activity.
+
+Why this belongs in the design story: Checkpoints already express the idea that not every state change must be visible in every block — only ranges must be recoverable and agreed. Off-chain settlement extends that idea: most small steps happen off-chain; the chain records openings, closures, and periodic truth about who owes whom, which is the right split for performance without giving up a single authoritative ledger for final settlement.
