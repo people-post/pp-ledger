@@ -9,10 +9,10 @@
 #include "lib/common/Crypto.h"
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
-#include "ChainErrorCodes.h"
-#include "ChainTransactionContext.h"
-#include "ChainTxError.h"
-#include "ChainTypes.h"
+#include "ErrorCodes.h"
+#include "TransactionContext.h"
+#include "TxError.h"
+#include "Types.h"
 #include "ITransactionHandler.h"
 
 #include <array>

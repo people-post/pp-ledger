@@ -1,5 +1,5 @@
-#include "ChainTxFees.h"
-#include "ChainErrorCodes.h"
+#include "TxFees.h"
+#include "ErrorCodes.h"
 #include "AccountBuffer.h"
 #include "../client/Client.h"
 

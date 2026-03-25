@@ -1,4 +1,4 @@
-#include "ChainTypes.h"
+#include "Types.h"
 #include "lib/common/Utilities.h"
 
 #include <sstream>

@@ -1,7 +1,7 @@
-#ifndef PP_LEDGER_CHAIN_TX_SIGNATURES_H
-#define PP_LEDGER_CHAIN_TX_SIGNATURES_H
+#ifndef PP_LEDGER_TX_SIGNATURES_H
+#define PP_LEDGER_TX_SIGNATURES_H
 
-#include "ChainTxError.h"
+#include "TxError.h"
 #include "AccountBuffer.h"
 #include "lib/common/Crypto.h"
 #include "lib/common/Logger.h"

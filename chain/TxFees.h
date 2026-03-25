@@ -1,8 +1,8 @@
-#ifndef PP_LEDGER_CHAIN_TX_FEES_H
-#define PP_LEDGER_CHAIN_TX_FEES_H
+#ifndef PP_LEDGER_TX_FEES_H
+#define PP_LEDGER_TX_FEES_H
 
-#include "ChainTxError.h"
-#include "ChainTypes.h"
+#include "TxError.h"
+#include "Types.h"
 #include "../ledger/Ledger.h"
 
 #include <cstddef>

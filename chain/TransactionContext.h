@@ -1,7 +1,7 @@
-#ifndef PP_LEDGER_CHAIN_TRANSACTION_CONTEXT_H
-#define PP_LEDGER_CHAIN_TRANSACTION_CONTEXT_H
+#ifndef PP_LEDGER_TRANSACTION_CONTEXT_H
+#define PP_LEDGER_TRANSACTION_CONTEXT_H
 
-#include "ChainTypes.h"
+#include "Types.h"
 #include "AccountBuffer.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"

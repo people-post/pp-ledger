@@ -1,8 +1,8 @@
-#ifndef PP_LEDGER_CHAIN_TX_LEDGER_META_H
-#define PP_LEDGER_CHAIN_TX_LEDGER_META_H
+#ifndef PP_LEDGER_TX_LEDGER_META_H
+#define PP_LEDGER_TX_LEDGER_META_H
 
-#include "ChainTxError.h"
-#include "ChainTypes.h"
+#include "TxError.h"
+#include "Types.h"
 #include "AccountBuffer.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"

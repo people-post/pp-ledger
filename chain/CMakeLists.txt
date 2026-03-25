@@ -4,19 +4,19 @@ add_library(pp_chain STATIC
     AccountBuffer.h
     Chain.cpp
     Chain.h
-    ChainTypes.cpp
-    ChainTypes.h
-    ChainErrorCodes.h
-    ChainTransactionContext.h
-    ChainTxError.h
-    ChainTxFees.cpp
-    ChainTxFees.h
-    ChainTxSignatures.cpp
-    ChainTxSignatures.h
-    ChainTxIdempotency.cpp
-    ChainTxIdempotency.h
-    ChainTxLedgerMeta.cpp
-    ChainTxLedgerMeta.h
+    Types.cpp
+    Types.h
+    ErrorCodes.h
+    TransactionContext.h
+    TxError.h
+    TxFees.cpp
+    TxFees.h
+    TxSignatures.cpp
+    TxSignatures.h
+    TxIdempotency.cpp
+    TxIdempotency.h
+    TxLedgerMeta.cpp
+    TxLedgerMeta.h
     ITransactionHandler.h
 )
 
@@ -38,4 +38,3 @@ message(STATUS "Chain library configured")
 if(BUILD_TESTING)
   add_subdirectory(test)
 endif()
-
