@@ -7,7 +7,7 @@ namespace pp {
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
     const Ledger::Transaction &tx, ChainTxContext &ctx) {
-  ctx.logger.info << "Processing system initialization transaction";
+  log().info << "Processing system initialization transaction";
 
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
       tx.toWalletId != AccountBuffer::ID_GENESIS) {
@@ -58,10 +58,10 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
             roeAddGenesis.error().message);
   }
 
-  ctx.logger.info << "System initialized";
-  ctx.logger.info << "  Version: " << gm.VERSION;
-  ctx.logger.info << "  Config: " << ctx.optChainConfig.value();
-  ctx.logger.info << "  Genesis: " << gm.genesis;
+  log().info << "System initialized";
+  log().info << "  Version: " << gm.VERSION;
+  log().info << "  Config: " << ctx.optChainConfig.value();
+  log().info << "  Genesis: " << gm.genesis;
 
   return {};
 }

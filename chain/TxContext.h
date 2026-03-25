@@ -6,7 +6,6 @@
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/Crypto.h"
-#include "lib/common/Logger.h"
 
 #include <optional>
 
@@ -19,7 +18,6 @@ struct ChainTxContext {
   consensus::Ouroboros &consensus;
   Crypto &crypto;
   Checkpoint &checkpoint;
-  logging::Logger &logger;
 };
 
 /** Read-only subsystem view; safe to build from `const Chain` (e.g. const buffer paths). */
@@ -30,7 +28,6 @@ struct ChainTxContextConst {
   const consensus::Ouroboros &consensus;
   const Crypto &crypto;
   const Checkpoint &checkpoint;
-  logging::Logger &logger;
 };
 
 } // namespace pp

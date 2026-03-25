@@ -59,33 +59,40 @@ Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
 }
 
 ChainTxContext Chain::transactionContext() {
-  return {ledger_,       bank_,           optChainConfig_, consensus_,
-          crypto_,       checkpoint_,     log()};
+  return {ledger_, bank_, optChainConfig_, consensus_, crypto_, checkpoint_};
 }
 
 ChainTxContextConst Chain::transactionContext() const {
-  return {ledger_,       bank_,           optChainConfig_, consensus_,
-          crypto_,       checkpoint_,     log()};
+  return {ledger_, bank_, optChainConfig_, consensus_, crypto_, checkpoint_};
 }
 
 Chain::Chain() {
   redirectLogger("Chain");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
   consensus_.redirectLogger(log().getFullName() + ".Obo");
-  transactionHandlers_[Ledger::Transaction::T_GENESIS] =
-      std::make_unique<GenesisTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_CONFIG] =
-      std::make_unique<ConfigTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_NEW_USER] =
-      std::make_unique<NewUserTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_USER] =
-      std::make_unique<UserTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_DEFAULT] =
-      std::make_unique<DefaultTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_RENEWAL] =
-      std::make_unique<GenesisRenewalTxHandler>();
-  transactionHandlers_[Ledger::Transaction::T_END_USER] =
-      std::make_unique<EndUserTxHandler>();
+
+  auto installHandler = [this](std::size_t type,
+                                std::unique_ptr<ITxHandler> handler,
+                                const char *suffix) {
+    handler->redirectLogger(log().getFullName() + "." + suffix);
+    transactionHandlers_[type] = std::move(handler);
+  };
+
+  installHandler(Ledger::Transaction::T_GENESIS,
+                 std::make_unique<GenesisTxHandler>(), "GenesisTxHandler");
+  installHandler(Ledger::Transaction::T_CONFIG,
+                 std::make_unique<ConfigTxHandler>(), "ConfigTxHandler");
+  installHandler(Ledger::Transaction::T_NEW_USER,
+                 std::make_unique<NewUserTxHandler>(), "NewUserTxHandler");
+  installHandler(Ledger::Transaction::T_USER, std::make_unique<UserTxHandler>(),
+                 "UserTxHandler");
+  installHandler(Ledger::Transaction::T_DEFAULT,
+                 std::make_unique<DefaultTxHandler>(), "DefaultTxHandler");
+  installHandler(Ledger::Transaction::T_RENEWAL,
+                 std::make_unique<GenesisRenewalTxHandler>(),
+                 "GenesisRenewalTxHandler");
+  installHandler(Ledger::Transaction::T_END_USER,
+                 std::make_unique<EndUserTxHandler>(), "EndUserTxHandler");
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,

@@ -6,6 +6,7 @@
 #include "TxContext.h"
 #include "TxError.h"
 #include "../ledger/Ledger.h"
+#include "lib/common/Module.h"
 
 namespace pp {
 
@@ -13,10 +14,11 @@ namespace pp {
  * Per-transaction-type handler (validation + application).
  * Virtuals are added per type; defaults return errors so only the matching
  * handler for a dispatch path needs overrides.
+ * Inherits Module so each handler owns its logger (redirect from Chain ctor).
  */
-class ITxHandler {
+class ITxHandler : public Module {
 public:
-  virtual ~ITxHandler() = default;
+  ~ITxHandler() override = default;
 
   /** T_GENESIS checkpoint tx after signature validation (genesis block only). */
   virtual chain_tx::Roe<void>
