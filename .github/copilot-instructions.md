@@ -17,7 +17,7 @@ pp-ledger/
 ├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
 ├── server/       # Beacon + Relay + Miner server logic and AccountBuffer
 ├── client/       # TCP client library
-├── http/         # HTTP API server (pp-http), built with -DBUILD_HTTP=ON
+├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DBUILD_HTTP=ON
 ├── node-addon/   # Node.js native addon
 ├── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts

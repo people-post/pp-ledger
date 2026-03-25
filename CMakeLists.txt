@@ -61,7 +61,7 @@ add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(server)
 if(BUILD_HTTP)
-  add_subdirectory(http)
+  add_subdirectory(lib/http)
 endif()
 add_subdirectory(app)
 

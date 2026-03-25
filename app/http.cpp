@@ -8,8 +8,7 @@
 #include "lib/common/Crypto.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
-
-#include "../http/httplib.h"
+#include "lib/http/httplib.h"
 
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>

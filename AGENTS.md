@@ -42,7 +42,7 @@ clang-tidy -p build lib/*.cpp consensus/*.cpp ledger/*.cpp network/*.cpp \
   server/*.cpp client/*.cpp app/*.cpp
 ```
 
-The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`http/httplib.h`) is excluded via the header filter.
+The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`lib/http/httplib.h`) is excluded via the header filter.
 
 ### Tests
 
