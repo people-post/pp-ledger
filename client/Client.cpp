@@ -1,8 +1,8 @@
 #include "Client.h"
-#include "../lib/Logger.h"
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Serialize.hpp"
-#include "../lib/Utilities.h"
+#include "lib/common/Logger.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Serialize.hpp"
+#include "lib/common/Utilities.h"
 
 #include <nlohmann/json.hpp>
 #include <sstream>

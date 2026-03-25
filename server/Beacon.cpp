@@ -1,9 +1,9 @@
 #include "Beacon.h"
 #include "../client/Client.h"
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Crypto.h"
-#include "../lib/Logger.h"
-#include "../lib/Utilities.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Crypto.h"
+#include "lib/common/Logger.h"
+#include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ResultOrError.hpp"
+#include "lib/common/ResultOrError.hpp"
 #include "TcpConnection.h"
 #include "Types.hpp"
 

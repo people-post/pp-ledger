@@ -30,7 +30,7 @@ add_library(pp_consensus STATIC ${CONSENSUS_SOURCES} ${CONSENSUS_HEADERS})
 target_include_directories(pp_consensus
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/lib
+        ${CMAKE_SOURCE_DIR}
 )
 
 # Link with lib (for Module, Logger, ResultOrError)

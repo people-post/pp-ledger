@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Module.h"
-#include "ResultOrError.hpp"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
 #include "Types.hpp"
 #include <cstdint>
 #include <map>

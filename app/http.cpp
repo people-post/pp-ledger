@@ -4,10 +4,10 @@
  * Also exposes a Model Context Protocol (MCP) server via SSE transport.
  */
 #include "Client.h"
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Crypto.h"
-#include "../lib/Logger.h"
-#include "../lib/Utilities.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Crypto.h"
+#include "lib/common/Logger.h"
+#include "lib/common/Utilities.h"
 
 #include "../http/httplib.h"
 

@@ -3,8 +3,8 @@
 
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
-#include "../lib/Module.h"
-#include "../lib/ResultOrError.hpp"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
 #include "../network/Types.hpp"
 #include "Chain.h"
 

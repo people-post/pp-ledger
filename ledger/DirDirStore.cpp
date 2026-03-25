@@ -1,8 +1,8 @@
 #include "DirDirStore.h"
 #include "FileDirStore.h"
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Serialize.hpp"
-#include "Logger.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Serialize.hpp"
+#include "lib/common/Logger.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>

@@ -3,7 +3,7 @@
 
 #include "DirStore.h"
 #include "FileStore.h"
-#include "../lib/BinaryPack.hpp"
+#include "lib/common/BinaryPack.hpp"
 #include <cstdint>
 #include <fstream>
 #include <memory>

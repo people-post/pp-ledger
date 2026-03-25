@@ -1,7 +1,7 @@
 #include "ClientWrapper.h"
 
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Utilities.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Utilities.h"
 #include <chrono>
 #include <cctype>
 #include <random>

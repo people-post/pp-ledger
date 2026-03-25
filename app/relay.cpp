@@ -1,4 +1,4 @@
-#include "../lib/Logger.h"
+#include "lib/common/Logger.h"
 #include "../server/RelayServer.h"
 
 #include <CLI/CLI.hpp>

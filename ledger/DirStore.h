@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_DIR_STORE_H
 #define PP_LEDGER_DIR_STORE_H
 
-#include "Module.h"
-#include "ResultOrError.hpp"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
 #include <cstdint>
 #include <string>
 

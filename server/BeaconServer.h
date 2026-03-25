@@ -7,7 +7,7 @@
 #include "../network/DhtRunner.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"
-#include "../lib/ResultOrError.hpp"
+#include "lib/common/ResultOrError.hpp"
 #include <map>
 #include <mutex>
 #include <string>

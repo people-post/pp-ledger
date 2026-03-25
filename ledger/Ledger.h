@@ -1,9 +1,9 @@
 #pragma once
 
 #include "DirDirStore.h"
-#include "Module.h"
-#include "ResultOrError.hpp"
-#include "Utilities.h"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Utilities.h"
 
 #include <vector>
 #include <cstdint>

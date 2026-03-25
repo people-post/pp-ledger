@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ResultOrError.hpp"
-#include "Service.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Service.h"
 
 #include <chrono>
 #include <cstddef>

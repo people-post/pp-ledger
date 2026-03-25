@@ -1,6 +1,6 @@
 #include "Chain.h"
-#include "../lib/Logger.h"
-#include "../lib/Utilities.h"
+#include "lib/common/Logger.h"
+#include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>

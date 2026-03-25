@@ -2,8 +2,8 @@
 #define PP_LEDGER_SERVER_H
 
 #include "../client/Client.h"
-#include "../lib/Service.h"
-#include "../lib/ThreadSafeQueue.hpp"
+#include "lib/common/Service.h"
+#include "lib/common/ThreadSafeQueue.hpp"
 #include "../network/FetchServer.h"
 #include <cstdint>
 #include <string>

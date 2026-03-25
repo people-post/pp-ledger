@@ -35,7 +35,7 @@ add_library(pp_network STATIC ${NETWORK_SOURCES} ${NETWORK_HEADERS})
 target_include_directories(pp_network
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/lib
+        ${CMAKE_SOURCE_DIR}
 )
 
 # Link with lib (uses ResultOrError from lib) and DHT (optional peer discovery)

@@ -4,10 +4,10 @@
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
-#include "../lib/Module.h"
-#include "../lib/ResultOrError.hpp"
-#include "../lib/Crypto.h"
-#include "../lib/Utilities.h"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Crypto.h"
+#include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 
 #include <cstdint>

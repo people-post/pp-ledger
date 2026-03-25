@@ -5,9 +5,9 @@
 
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
-#include "../lib/Module.h"
-#include "../lib/ResultOrError.hpp"
-#include "../lib/Utilities.h"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Utilities.h"
 #include "../network/Types.hpp"
 
 #include <cstdint>

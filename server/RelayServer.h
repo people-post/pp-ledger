@@ -2,7 +2,7 @@
 #define PP_LEDGER_RELAY_SERVER_H
 
 #include "../client/Client.h"
-#include "../lib/ResultOrError.hpp"
+#include "lib/common/ResultOrError.hpp"
 #include "../network/DhtRunner.h"
 #include "../network/TcpConnection.h"
 #include "../network/Types.hpp"

@@ -1,6 +1,6 @@
-#include "../../lib/BinaryPack.hpp"
-#include "../../lib/Crypto.h"
-#include "../../lib/Utilities.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Crypto.h"
+#include "lib/common/Utilities.h"
 #include "../AccountBuffer.h"
 #include "../Chain.h"
 

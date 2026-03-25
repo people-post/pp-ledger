@@ -1,10 +1,10 @@
 #include "Client.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
-#include "../lib/BinaryPack.hpp"
-#include "../lib/Crypto.h"
-#include "../lib/Logger.h"
-#include "../lib/Utilities.h"
+#include "lib/common/BinaryPack.hpp"
+#include "lib/common/Crypto.h"
+#include "lib/common/Logger.h"
+#include "lib/common/Utilities.h"
 
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>

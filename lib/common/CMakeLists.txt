@@ -18,6 +18,7 @@ add_library(pp_lib STATIC
 # Public include directories - automatically propagated to dependents
 target_include_directories(pp_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
     ${nlohmann_json_SOURCE_DIR}/include
 )
 

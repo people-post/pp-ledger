@@ -115,7 +115,7 @@ consensus/
 ## Logging
 
 ### Using Logger
-- Import: `#include "Logger.h"`
+- Import: `#include "lib/common/Logger.h"`
 - Get logger: `auto& logger = pp::logging::getLogger("component_name");`
 - Use hierarchical names: `pp::logging::getLogger("app.module.submodule")`
 - Set levels: `logger.setLevel(pp::logging::Level::INFO);`
@@ -132,14 +132,14 @@ consensus/
 
 ### Headers
 - Include guards: `#ifndef PP_LEDGER_<COMPONENT>_H` format
-- Use quotes for project headers: `#include "Logger.h"`
+- Use quotes for project headers: `#include "lib/common/Logger.h"`
 - Use angle brackets for system headers: `#include <string>`
 
 ### Include/Import Order
 Follow this ordering for all #include directives:
 
 1. **Project headers** (quotes) - from higher level to lower level
-   - Own header first (in .cpp files): `#include "Logger.h"`
+   - Own header first (in .cpp files): `#include "lib/common/Logger.h"`
    - Same-level component headers: `#include "Server.h"`, `#include "Client.h"`
    - Lower-level dependencies: `#include "Lib.h"` (from lib/)
 
@@ -153,7 +153,7 @@ Follow this ordering for all #include directives:
 // In server/Server.cpp
 #include "Server.h"     // Own header first
 #include "Ledger.h"     // Same level (server/)
-#include "Logger.h"     // Lower level (lib/)
+#include "lib/common/Logger.h"     // Lower level (lib/common/)
 #include "Lib.h"        // Lower level (lib/)
 
 #include <string>
@@ -178,7 +178,7 @@ Follow this ordering for all #include directives:
 `ResultOrError<T, E = std::string>` is a template class for handling operations that may fail:
 
 ```cpp
-#include "ResultOrError.hpp"
+#include "lib/common/ResultOrError.hpp"
 
 // Function returning result or error
 pp::ResultOrError<int> divide(int a, int b) {

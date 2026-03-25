@@ -1,8 +1,8 @@
 #pragma once
 
 #include "BulkWriter.h"
-#include "ResultOrError.hpp"
-#include "Service.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Service.h"
 #include "TcpServer.h"
 #include "TcpConnection.h"
 #include "Types.hpp"

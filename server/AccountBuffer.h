@@ -3,7 +3,7 @@
 
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
-#include "../lib/ResultOrError.hpp"
+#include "lib/common/ResultOrError.hpp"
 
 #include <cstdint>
 #include <map>

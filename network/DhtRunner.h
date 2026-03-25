@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Types.hpp"
-#include "Module.h"
-#include "ResultOrError.hpp"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
 #include <array>
 #include <atomic>
 #include <mutex>

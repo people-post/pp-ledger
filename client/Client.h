@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_CLIENT_H
 #define PP_LEDGER_CLIENT_H
 
-#include "../lib/Module.h"
-#include "../lib/ResultOrError.hpp"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
 #include "../ledger/Ledger.h"
 #include "../network/FetchClient.h"
 #include "../network/Types.hpp"

@@ -1,7 +1,7 @@
 #include "../server/BeaconServer.h"
 #include "../server/Beacon.h"
-#include "../lib/Logger.h"
-#include "../lib/Utilities.h"
+#include "lib/common/Logger.h"
+#include "lib/common/Utilities.h"
 
 #include <CLI/CLI.hpp>
 
