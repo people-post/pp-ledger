@@ -1,6 +1,7 @@
 #include "TxFees.h"
 #include "ErrorCodes.h"
 #include "AccountBuffer.h"
+#include "TxLedgerMeta.h"
 #include "../client/Client.h"
 
 #include <limits>
@@ -110,6 +111,55 @@ Roe<uint64_t> calculateMinimumFeeForTransaction(
   }
   return calculateMinimumFeeFromNonFreeMetaSize(
       config, nonFreeMetaSizeResult.value());
+}
+
+Roe<uint64_t> calculateMinimumFeeForAccountMeta(
+    const Ledger &ledger, const BlockChainConfig &config,
+    const AccountBuffer &bank, uint64_t accountId) {
+  auto accountResult = bank.getAccount(accountId);
+  if (!accountResult) {
+    return TxError(chain_err::E_ACCOUNT_NOT_FOUND,
+                   "User account not found: " + std::to_string(accountId));
+  }
+
+  auto blockResult = ledger.readBlock(accountResult.value().blockId);
+  if (!blockResult) {
+    return TxError(chain_err::E_BLOCK_NOT_FOUND,
+                   "Block not found: " +
+                       std::to_string(accountResult.value().blockId));
+  }
+
+  size_t metaSize = 0;
+
+  if (accountId == AccountBuffer::ID_GENESIS) {
+    auto metaResult =
+        getGenesisAccountMetaFromBlock(blockResult.value().block);
+    if (!metaResult) {
+      return metaResult.error();
+    }
+    metaSize = metaResult.value().genesis.meta.size();
+  } else {
+    auto userMetaResult =
+        getUserAccountMetaFromBlock(blockResult.value().block, accountId);
+    if (!userMetaResult) {
+      return userMetaResult.error();
+    }
+    metaSize = userMetaResult.value().meta.size();
+  }
+
+  if (metaSize > config.maxCustomMetaSize) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Custom metadata exceeds maxCustomMetaSize: " +
+                       std::to_string(metaSize) + " > " +
+                       std::to_string(config.maxCustomMetaSize));
+  }
+
+  const uint64_t nonFreeMetaSize =
+      metaSize > config.freeCustomMetaSize
+          ? static_cast<uint64_t>(metaSize) - config.freeCustomMetaSize
+          : 0ULL;
+
+  return calculateMinimumFeeFromNonFreeMetaSize(config, nonFreeMetaSize);
 }
 
 } // namespace pp::chain_tx

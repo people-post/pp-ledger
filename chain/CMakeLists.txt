@@ -22,6 +22,12 @@ add_library(pp_chain STATIC
     GenesisTxHandler.h
     ConfigTxHandler.cpp
     ConfigTxHandler.h
+    DefaultTxHandler.cpp
+    DefaultTxHandler.h
+    EndUserTxHandler.cpp
+    EndUserTxHandler.h
+    GenesisRenewalTxHandler.cpp
+    GenesisRenewalTxHandler.h
     NewUserTxHandler.cpp
     NewUserTxHandler.h
     UserTxHandler.cpp

@@ -1,5 +1,8 @@
 #include "Chain.h"
 #include "ConfigTxHandler.h"
+#include "DefaultTxHandler.h"
+#include "EndUserTxHandler.h"
+#include "GenesisRenewalTxHandler.h"
 #include "GenesisTxHandler.h"
 #include "NewUserTxHandler.h"
 #include "UserTxHandler.h"
@@ -77,6 +80,12 @@ Chain::Chain() {
       std::make_unique<NewUserTxHandler>();
   transactionHandlers_[Ledger::Transaction::T_USER] =
       std::make_unique<UserTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_DEFAULT] =
+      std::make_unique<DefaultTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_RENEWAL] =
+      std::make_unique<GenesisRenewalTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_END_USER] =
+      std::make_unique<EndUserTxHandler>();
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -1255,107 +1264,17 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
       h->applyConfigUpdate(tx, ctx, bank_, blockId, isStrictMode, true));
 }
 
-Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
-                                                  const Ledger::Transaction &tx,
-                                                  uint64_t blockId,
-                                                  bool isBufferMode,
-                                                  bool isStrictMode) const {
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(
-        E_TX_VALIDATION,
-        "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
-  }
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis renewal must use genesis token (ID_GENESIS)");
-  }
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis renewal transaction must have amount 0");
-  }
-
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize genesis renewal meta: " +
-                     std::to_string(tx.meta.size()) + " bytes");
-  }
-
-  if (gm.genesis.wallet.publicKeys.size() < 3) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 3 public keys");
-  }
-  if (gm.genesis.wallet.minSignatures < 2) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 2 signatures");
-  }
-
-  if (isStrictMode) {
-    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
-    if (!minimumFeeResult) {
-      return minimumFeeResult.error();
-    }
-    const uint64_t minFeePerTransaction = minimumFeeResult.value();
-    if (tx.fee < minFeePerTransaction) {
-      return Error(E_TX_FEE, "Genesis renewal fee below minimum: " +
-                                 std::to_string(tx.fee));
-    }
-  }
-
-  auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
-  if (!genesisAccountResult) {
-    if (isStrictMode) {
-      return Error(E_ACCOUNT_NOT_FOUND,
-                   "Genesis account not found for renewal");
-    }
-    return {};
-  }
-
-  if (isBufferMode && tx.fee > 0) {
-    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-    if (!feeRoe) {
-      return feeRoe;
-    }
-  }
-
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
-                          gm.genesis.wallet.mBalances)) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account balance mismatch in renewal");
-  }
-
-  bank.remove(AccountBuffer::ID_GENESIS);
-
-  AccountBuffer::Account account;
-  account.id = AccountBuffer::ID_GENESIS;
-  account.blockId = blockId;
-  account.wallet = gm.genesis.wallet;
-  auto addResult = bank.add(account);
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add renewed genesis account: " +
-                                        addResult.error().message);
-  }
-
-  if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
-    auto depositResult = bank.depositBalance(
-        AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
-        static_cast<int64_t>(tx.fee));
-    if (!depositResult) {
-      return Error(E_TX_TRANSFER,
-                   "Failed to credit fee to fee account: " +
-                       depositResult.error().message);
-    }
-  }
-
-  return {};
-}
-
 Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
                                               uint64_t blockId,
                                               bool isStrictMode) {
   log().info << "Processing genesis renewal transaction";
-  auto result = processGenesisRenewalImpl(bank_, tx, blockId, false, isStrictMode);
+  auto &h = transactionHandlers_[Ledger::Transaction::T_RENEWAL];
+  if (!h) {
+    return Error(E_INTERNAL, "Genesis renewal transaction handler not registered");
+  }
+  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  auto result = mapTxVoid(
+      h->applyGenesisRenewal(tx, ctx, bank_, blockId, false, isStrictMode));
   if (!result) {
     return result.error();
   }
@@ -1394,50 +1313,12 @@ Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
 Chain::Roe<uint64_t>
 Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                          uint64_t accountId) const {
-  auto accountResult = bank.getAccount(accountId);
-  if (!accountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "User account not found: " + std::to_string(accountId));
+  if (!optChainConfig_.has_value()) {
+    return Error(E_INTERNAL,
+                 "Chain config required for minimum fee from account meta");
   }
-
-  auto blockResult = ledger_.readBlock(accountResult.value().blockId);
-  if (!blockResult) {
-    return Error(E_BLOCK_NOT_FOUND,
-                 "Block not found: " +
-                     std::to_string(accountResult.value().blockId));
-  }
-
-  size_t metaSize = 0;
-
-  if (accountId == AccountBuffer::ID_GENESIS) {
-    auto metaResult = getGenesisAccountMetaFromBlock(blockResult.value().block);
-    if (!metaResult) {
-      return metaResult.error();
-    }
-
-    metaSize = metaResult.value().genesis.meta.size();
-  } else {
-    auto userMetaResult =
-        getUserAccountMetaFromBlock(blockResult.value().block, accountId);
-    if (!userMetaResult) {
-      return userMetaResult.error();
-    }
-    metaSize = userMetaResult.value().meta.size();
-  }
-
-  if (metaSize > optChainConfig_.value().maxCustomMetaSize) {
-    return Error(E_TX_VALIDATION,
-                 "Custom metadata exceeds maxCustomMetaSize: " +
-                     std::to_string(metaSize) + " > " +
-                     std::to_string(optChainConfig_.value().maxCustomMetaSize));
-  }
-
-  const uint64_t nonFreeMetaSize =
-      metaSize > optChainConfig_.value().freeCustomMetaSize
-          ? static_cast<uint64_t>(metaSize) - optChainConfig_.value().freeCustomMetaSize
-          : 0ULL;
-
-  return calculateMinimumFeeFromNonFreeMetaSize(optChainConfig_.value(), nonFreeMetaSize);
+  return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
+      ledger_, optChainConfig_.value(), bank, accountId));
 }
 
 Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
@@ -1458,69 +1339,17 @@ Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserEndImpl(AccountBuffer &bank,
-                                           const Ledger::Transaction &tx,
-                                           bool isBufferMode) const {
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION,
-                 "User end transaction must use genesis token (ID_GENESIS)");
-  }
-
-  if (tx.fromWalletId != tx.toWalletId) {
-    return Error(E_TX_VALIDATION,
-                 "User end transaction must use same from and to wallet IDs");
-  }
-
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION, "User end transaction must have amount 0");
-  }
-
-  if (tx.fee != 0) {
-    return Error(E_TX_VALIDATION, "User end transaction must have fee 0");
-  }
-
-  if (isBufferMode) {
-    auto accountRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-    if (!accountRoe) {
-      return accountRoe;
-    }
-    auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
-    if (!recycleRoe) {
-      return recycleRoe;
-    }
-  }
-
-  if (!bank.hasAccount(tx.fromWalletId)) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "User account not found: " + std::to_string(tx.fromWalletId));
-  }
-
-  auto minimumFeeResult =
-      calculateMinimumFeeForAccountMeta(bank, tx.fromWalletId);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (bank.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
-      static_cast<int64_t>(minFeePerTransaction)) {
-    return Error(E_TX_VALIDATION, "User account must have less than " +
-                                      std::to_string(minFeePerTransaction) +
-                                      " balance in ID_GENESIS token");
-  }
-
-  auto writeOffResult = bank.writeOff(tx.fromWalletId);
-  if (!writeOffResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to write off user account: " +
-                                        writeOffResult.error().message);
-  }
-
-  return {};
-}
-
 Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
                                        uint64_t blockId, bool isStrictMode) {
+  (void)blockId;
+  (void)isStrictMode;
   log().info << "Processing user end transaction";
-  auto result = processUserEndImpl(bank_, tx, false);
+  auto &h = transactionHandlers_[Ledger::Transaction::T_END_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "End-user transaction handler not registered");
+  }
+  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  auto result = mapTxVoid(h->applyEndUser(tx, ctx, bank_, false));
   if (!result) {
     return result.error();
   }
@@ -1568,7 +1397,12 @@ Chain::processBufferTransaction(AccountBuffer &bank,
       return feeRoe;
     }
   }
-  return strictProcessTransaction(bank, tx);
+  auto &h = transactionHandlers_[Ledger::Transaction::T_DEFAULT];
+  if (!h) {
+    return Error(E_INTERNAL, "Default transaction handler not registered");
+  }
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(h->applyDefaultTransferStrict(tx, ctx, bank));
 }
 
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
@@ -1632,113 +1466,54 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
   if (!genesisRoe) {
     return genesisRoe;
   }
-  return processGenesisRenewalImpl(bank, tx, blockId, true, true);
+  if (tx.fee > 0) {
+    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+    if (!feeRoe) {
+      return feeRoe;
+    }
+  }
+  auto &h = transactionHandlers_[Ledger::Transaction::T_RENEWAL];
+  if (!h) {
+    return Error(E_INTERNAL, "Genesis renewal transaction handler not registered");
+  }
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(h->applyGenesisRenewal(tx, ctx, bank, blockId, true, true));
 }
 
 Chain::Roe<void>
 Chain::processBufferUserEnd(AccountBuffer &bank,
                             const Ledger::Transaction &tx) const {
-  return processUserEndImpl(bank, tx, true);
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
+  }
+  auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
+  if (!recycleRoe) {
+    return recycleRoe;
+  }
+  auto &h = transactionHandlers_[Ledger::Transaction::T_END_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "End-user transaction handler not registered");
+  }
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(h->applyEndUser(tx, ctx, bank, true));
 }
 
 Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
                                            uint64_t blockId,
                                            bool isStrictMode) {
+  (void)blockId;
   log().info << "Processing user transaction";
 
+  auto &h = transactionHandlers_[Ledger::Transaction::T_DEFAULT];
+  if (!h) {
+    return Error(E_INTERNAL, "Default transaction handler not registered");
+  }
+  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
   if (isStrictMode) {
-    return strictProcessTransaction(bank_, tx);
-  } else {
-    return looseProcessTransaction(tx);
+    return mapTxVoid(h->applyDefaultTransferStrict(tx, ctx, bank_));
   }
-}
-
-Chain::Roe<void>
-Chain::strictProcessTransaction(AccountBuffer &bank,
-                                const Ledger::Transaction &tx) const {
-  auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (tx.fee < minFeePerTransaction) {
-    return Error(E_TX_FEE,
-                 "Transaction fee below minimum: " + std::to_string(tx.fee));
-  }
-
-  auto transferResult = bank.transferBalance(tx.fromWalletId, tx.toWalletId,
-                                             tx.tokenId, tx.amount, tx.fee);
-  if (!transferResult) {
-    return Error(E_TX_TRANSFER,
-                 "Transaction failed: " + transferResult.error().message);
-  }
-
-  return {};
-}
-
-Chain::Roe<void> Chain::looseProcessTransaction(const Ledger::Transaction &tx) {
-  // Existing wallets are created by user checkpoints, they have correct
-  // balances.
-  if (bank_.hasAccount(tx.fromWalletId)) {
-    if (bank_.hasAccount(tx.toWalletId)) {
-      auto transferResult = bank_.transferBalance(
-          tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
-      if (!transferResult) {
-        return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
-                                        transferResult.error().message);
-      }
-    } else {
-      // To unknown wallet: deduct amount and fee from sender, credit fee to
-      // ID_FEE
-      if (tx.tokenId == AccountBuffer::ID_GENESIS) {
-        auto withdrawResult = bank_.withdrawBalance(
-            tx.fromWalletId, tx.tokenId,
-            static_cast<int64_t>(tx.amount) + static_cast<int64_t>(tx.fee));
-        if (!withdrawResult) {
-          return Error(E_TX_TRANSFER, "Failed to withdraw balance: " +
-                                          withdrawResult.error().message);
-        }
-      } else {
-        auto withdrawAmountResult = bank_.withdrawBalance(
-            tx.fromWalletId, tx.tokenId, static_cast<int64_t>(tx.amount));
-        if (!withdrawAmountResult) {
-          return Error(E_TX_TRANSFER, "Failed to withdraw balance: " +
-                                          withdrawAmountResult.error().message);
-        }
-        if (tx.fee > 0) {
-          auto withdrawFeeResult =
-              bank_.withdrawBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS,
-                                    static_cast<int64_t>(tx.fee));
-          if (!withdrawFeeResult) {
-            return Error(E_TX_TRANSFER, "Failed to withdraw fee: " +
-                                            withdrawFeeResult.error().message);
-          }
-        }
-      }
-      if (tx.fee > 0 && bank_.hasAccount(AccountBuffer::ID_FEE)) {
-        auto depositFeeResult = bank_.depositBalance(
-            AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
-            static_cast<int64_t>(tx.fee));
-        if (!depositFeeResult) {
-          return Error(E_TX_TRANSFER, "Failed to credit fee: " +
-                                          depositFeeResult.error().message);
-        }
-      }
-    }
-  } else {
-    // From unknown wallet
-    if (bank_.hasAccount(tx.toWalletId)) {
-      auto depositResult = bank_.depositBalance(
-          tx.toWalletId, tx.tokenId, static_cast<int64_t>(tx.amount));
-      if (!depositResult) {
-        return Error(E_TX_TRANSFER, "Failed to deposit balance: " +
-                                        depositResult.error().message);
-      }
-    } else {
-      // From and to unknown wallets, ignore
-    }
-  }
-  return {};
+  return mapTxVoid(h->applyDefaultTransferLoose(tx, ctx, bank_));
 }
 
 } // namespace pp

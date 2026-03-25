@@ -268,10 +268,6 @@ private:
                                bool isStrictMode);
   Roe<void> processGenesisRenewal(const Ledger::Transaction &tx,
                                   uint64_t blockId, bool isStrictMode);
-  Roe<void> processGenesisRenewalImpl(AccountBuffer &bank,
-                                      const Ledger::Transaction &tx,
-                                      uint64_t blockId, bool isBufferMode,
-                                      bool isStrictMode) const;
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
                                            const Ledger::Transaction &tx,
                                            uint64_t blockId) const;
@@ -282,9 +278,6 @@ private:
   Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                                   uint64_t accountId) const;
 
-  Roe<void> processUserEndImpl(AccountBuffer &bank,
-                               const Ledger::Transaction &tx,
-                               bool isBufferMode) const;
   Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
                            bool isStrictMode);
   Roe<void> processBufferUserEnd(AccountBuffer &bank,
@@ -294,9 +287,6 @@ private:
                                      const Ledger::Transaction &signedTx) const;
   Roe<void> processTransaction(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
-  Roe<void> strictProcessTransaction(AccountBuffer &bank,
-                                     const Ledger::Transaction &tx) const;
-  Roe<void> looseProcessTransaction(const Ledger::Transaction &tx);
 
   Crypto crypto_;
   consensus::Ouroboros consensus_;
@@ -305,7 +295,7 @@ private:
   std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
   Checkpoint checkpoint_{};
 
-  /** One slot per Ledger::Transaction type (0..6); nullptr = not migrated yet. */
+  /** One slot per Ledger::Transaction type (0..6). */
   std::array<std::unique_ptr<ITxHandler>, 7> transactionHandlers_{};
 };
 

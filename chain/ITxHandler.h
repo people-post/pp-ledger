@@ -104,6 +104,60 @@ public:
         chain_err::E_INTERNAL,
         "applyUserAccountUpsert not implemented for this handler");
   }
+
+  /** T_DEFAULT strict path: min fee from config, then transfer. */
+  virtual chain_tx::Roe<void>
+  applyDefaultTransferStrict(const Ledger::Transaction &tx,
+                             ChainTxContextConst &ctx, AccountBuffer &bank) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "applyDefaultTransferStrict not implemented for this handler");
+  }
+
+  /** T_DEFAULT loose path: tolerates missing from/to accounts. */
+  virtual chain_tx::Roe<void>
+  applyDefaultTransferLoose(const Ledger::Transaction &tx,
+                            ChainTxContextConst &ctx, AccountBuffer &bank) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "applyDefaultTransferLoose not implemented for this handler");
+  }
+
+  /**
+   * T_RENEWAL for genesis only (ID_GENESIS -> ID_GENESIS). User renewals use
+   * applyUserAccountUpsert via T_USER handler from Chain.
+   */
+  virtual chain_tx::Roe<void>
+  applyGenesisRenewal(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+                      AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
+                      bool isStrictMode) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    (void)blockId;
+    (void)isBufferMode;
+    (void)isStrictMode;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyGenesisRenewal not implemented for this handler");
+  }
+
+  /** T_END_USER: write-off when balance below min fee for current meta. */
+  virtual chain_tx::Roe<void>
+  applyEndUser(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+               AccountBuffer &bank, bool isBufferMode) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    (void)isBufferMode;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyEndUser not implemented for this handler");
+  }
 };
 
 } // namespace pp
