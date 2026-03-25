@@ -158,6 +158,8 @@ public:
 
   /** Non-owning view of chain subsystems for transaction handlers (Phase 2). */
   ChainTxContext transactionContext();
+  /** Const overload: const refs only (logger stays non-const for output). */
+  ChainTxContextConst transactionContext() const;
 
 protected:
   // Validation helpers

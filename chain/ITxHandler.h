@@ -29,28 +29,39 @@ public:
   }
 
   /**
-   * T_CONFIG: genesis-signed system config / genesis account update.
-   * @param chainConfigBaseline Current chain config for strict-mode checks (may be empty).
-   * @param bank Account buffer to mutate (chain `bank_` or a scratch buffer).
-   * @param commitOptChainConfig When true, write meta config to *commitTarget (non-null).
+   * T_CONFIG: scratch-buffer path (e.g. addBufferTransaction). Const chain view;
+   * does not commit `optChainConfig`.
    */
   virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, logging::Logger &logger,
-                    const std::optional<BlockChainConfig> &chainConfigBaseline,
-                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
-                    bool commitOptChainConfig,
-                    std::optional<BlockChainConfig> *commitTarget) {
+  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode) {
     (void)tx;
-    (void)logger;
-    (void)chainConfigBaseline;
+    (void)ctx;
+    (void)bank;
+    (void)blockId;
+    (void)isStrictMode;
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "applyConfigUpdate(ChainTxContextConst&) not implemented for this handler");
+  }
+
+  /**
+   * T_CONFIG: chain `bank_` path. When commitOptChainConfig, writes meta config
+   * into ctx.optChainConfig.
+   */
+  virtual chain_tx::Roe<void>
+  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContext &ctx,
+                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
+                    bool commitOptChainConfig) {
+    (void)tx;
+    (void)ctx;
     (void)bank;
     (void)blockId;
     (void)isStrictMode;
     (void)commitOptChainConfig;
-    (void)commitTarget;
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
-        "applyConfigUpdate not implemented for this handler");
+        "applyConfigUpdate(ChainTxContext&) not implemented for this handler");
   }
 };
 

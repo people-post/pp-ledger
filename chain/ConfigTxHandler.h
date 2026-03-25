@@ -8,11 +8,14 @@ namespace pp {
 class ConfigTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, logging::Logger &logger,
-                    const std::optional<BlockChainConfig> &chainConfigBaseline,
+  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+                    AccountBuffer &bank, uint64_t blockId,
+                    bool isStrictMode) override;
+
+  chain_tx::Roe<void>
+  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
-                    bool commitOptChainConfig,
-                    std::optional<BlockChainConfig> *commitTarget) override;
+                    bool commitOptChainConfig) override;
 };
 
 } // namespace pp

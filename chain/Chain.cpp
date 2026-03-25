@@ -58,6 +58,11 @@ ChainTxContext Chain::transactionContext() {
           crypto_,       checkpoint_,     log()};
 }
 
+ChainTxContextConst Chain::transactionContext() const {
+  return {ledger_,       bank_,           optChainConfig_, consensus_,
+          crypto_,       checkpoint_,     log()};
+}
+
 Chain::Chain() {
   redirectLogger("Chain");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
@@ -1239,9 +1244,9 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  return mapTxVoid(h->applyConfigUpdate(tx, log(), optChainConfig_, bank_,
-                                        blockId, isStrictMode, true,
-                                        &optChainConfig_));
+  ChainTxContext ctx = transactionContext();
+  return mapTxVoid(
+      h->applyConfigUpdate(tx, ctx, bank_, blockId, isStrictMode, true));
 }
 
 Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
@@ -1773,8 +1778,8 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  return mapTxVoid(h->applyConfigUpdate(tx, log(), optChainConfig_, bank,
-                                        blockId, true, false, nullptr));
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(h->applyConfigUpdate(tx, ctx, bank, blockId, true));
 }
 
 Chain::Roe<void>

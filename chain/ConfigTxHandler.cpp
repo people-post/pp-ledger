@@ -5,7 +5,9 @@
 
 namespace pp {
 
-chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
+namespace {
+
+chain_tx::Roe<void> applyConfigUpdateCore(
     const Ledger::Transaction &tx, logging::Logger &logger,
     const std::optional<BlockChainConfig> &chainConfigBaseline,
     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
@@ -100,6 +102,25 @@ chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
   }
 
   return {};
+}
+
+} // namespace
+
+chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
+    const Ledger::Transaction &tx, ChainTxContextConst &ctx, AccountBuffer &bank,
+    uint64_t blockId, bool isStrictMode) {
+  return applyConfigUpdateCore(tx, ctx.logger, ctx.optChainConfig, bank,
+                               blockId, isStrictMode, false, nullptr);
+}
+
+chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
+    const Ledger::Transaction &tx, ChainTxContext &ctx, AccountBuffer &bank,
+    uint64_t blockId, bool isStrictMode, bool commitOptChainConfig) {
+  std::optional<BlockChainConfig> *commitTarget =
+      commitOptChainConfig ? &ctx.optChainConfig : nullptr;
+  return applyConfigUpdateCore(tx, ctx.logger, ctx.optChainConfig, bank,
+                               blockId, isStrictMode, commitOptChainConfig,
+                               commitTarget);
 }
 
 } // namespace pp

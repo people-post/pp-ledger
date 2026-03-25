@@ -22,6 +22,17 @@ struct ChainTxContext {
   logging::Logger &logger;
 };
 
+/** Read-only subsystem view; safe to build from `const Chain` (e.g. const buffer paths). */
+struct ChainTxContextConst {
+  const Ledger &ledger;
+  const AccountBuffer &bank;
+  const std::optional<BlockChainConfig> &optChainConfig;
+  const consensus::Ouroboros &consensus;
+  const Crypto &crypto;
+  const Checkpoint &checkpoint;
+  logging::Logger &logger;
+};
+
 } // namespace pp
 
 #endif
