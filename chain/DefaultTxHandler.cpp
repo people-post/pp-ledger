@@ -6,7 +6,7 @@
 namespace pp {
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
-    const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+    const Ledger::Transaction &tx, const TxContext &ctx,
     AccountBuffer &bank) {
   if (!ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(
@@ -36,7 +36,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
 }
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
-    const Ledger::Transaction &tx, [[maybe_unused]] ChainTxContextConst &ctx,
+    const Ledger::Transaction &tx, [[maybe_unused]] const TxContext &ctx,
     AccountBuffer &bank) {
   if (bank.hasAccount(tx.fromWalletId)) {
     if (bank.hasAccount(tx.toWalletId)) {

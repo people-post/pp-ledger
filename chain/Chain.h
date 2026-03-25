@@ -156,10 +156,9 @@ public:
   /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
   void refreshStakeholders(uint64_t blockSlot);
 
-  /** Non-owning view of chain subsystems for transaction handlers (Phase 2). */
-  ChainTxContext transactionContext();
-  /** Const overload: const subsystem refs only. */
-  ChainTxContextConst transactionContext() const;
+  /** Subsystem bundle for transaction handlers (mutable vs const Chain). */
+  TxContext &transactionContext();
+  const TxContext &transactionContext() const;
 
 protected:
   // Validation helpers
@@ -212,7 +211,7 @@ private:
                                  const std::vector<std::string> &signatures,
                                  const AccountBuffer::Account &account) const;
 
-  /** Ensure account exists in buffer, seeding from bank_ on demand. */
+  /** Ensure account exists in buffer, seeding from txContext_.bank on demand. */
   Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
                                   uint64_t accountId) const;
 
@@ -288,12 +287,7 @@ private:
   Roe<void> processTransaction(const Ledger::Transaction &tx, uint64_t blockId,
                                bool isStrictMode);
 
-  Crypto crypto_;
-  consensus::Ouroboros consensus_;
-  Ledger ledger_;
-  AccountBuffer bank_;
-  std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
-  Checkpoint checkpoint_{};
+  TxContext txContext_{};
 
   /** One slot per Ledger::Transaction type (0..6). */
   std::array<std::unique_ptr<ITxHandler>, 7> transactionHandlers_{};

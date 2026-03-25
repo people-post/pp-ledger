@@ -23,7 +23,7 @@ public:
   /** T_GENESIS checkpoint tx after signature validation (genesis block only). */
   virtual chain_tx::Roe<void>
   applyGenesisInit(const Ledger::Transaction &tx,
-                   ChainTxContext &ctx) {
+                   TxContext &ctx) {
     (void)tx;
     (void)ctx;
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -35,7 +35,7 @@ public:
    * does not commit `optChainConfig`.
    */
   virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+  applyConfigUpdate(const Ledger::Transaction &tx, const TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode) {
     (void)tx;
     (void)ctx;
@@ -44,15 +44,16 @@ public:
     (void)isStrictMode;
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
-        "applyConfigUpdate(ChainTxContextConst&) not implemented for this handler");
+        "applyConfigUpdate(const TxContext&) not implemented for this handler");
   }
 
   /**
-   * T_CONFIG: chain `bank_` path. When commitOptChainConfig, writes meta config
+   * T_CONFIG: committed chain bank (Chain's TxContext::bank). When
+   * commitOptChainConfig, writes meta config
    * into ctx.optChainConfig.
    */
   virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, ChainTxContext &ctx,
+  applyConfigUpdate(const Ledger::Transaction &tx, TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
                     bool commitOptChainConfig) {
     (void)tx;
@@ -63,7 +64,7 @@ public:
     (void)commitOptChainConfig;
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
-        "applyConfigUpdate(ChainTxContext&) not implemented for this handler");
+        "applyConfigUpdate(TxContext&) not implemented for this handler");
   }
 
   /**
@@ -73,7 +74,7 @@ public:
    * (e.g. via ensureAccountInBuffer).
    */
   virtual chain_tx::Roe<void>
-  applyNewUser(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+  applyNewUser(const Ledger::Transaction &tx, const TxContext &ctx,
                AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                bool isStrictMode) {
     (void)tx;
@@ -93,7 +94,7 @@ public:
    */
   virtual chain_tx::Roe<void>
   applyUserAccountUpsert(const Ledger::Transaction &tx,
-                         ChainTxContextConst &ctx, AccountBuffer &bank,
+                         const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
                          bool isStrictMode) {
     (void)tx;
@@ -110,7 +111,7 @@ public:
   /** T_DEFAULT strict path: min fee from config, then transfer. */
   virtual chain_tx::Roe<void>
   applyDefaultTransferStrict(const Ledger::Transaction &tx,
-                             ChainTxContextConst &ctx, AccountBuffer &bank) {
+                             const TxContext &ctx, AccountBuffer &bank) {
     (void)tx;
     (void)ctx;
     (void)bank;
@@ -122,7 +123,7 @@ public:
   /** T_DEFAULT loose path: tolerates missing from/to accounts. */
   virtual chain_tx::Roe<void>
   applyDefaultTransferLoose(const Ledger::Transaction &tx,
-                            ChainTxContextConst &ctx, AccountBuffer &bank) {
+                            const TxContext &ctx, AccountBuffer &bank) {
     (void)tx;
     (void)ctx;
     (void)bank;
@@ -136,7 +137,7 @@ public:
    * applyUserAccountUpsert via T_USER handler from Chain.
    */
   virtual chain_tx::Roe<void>
-  applyGenesisRenewal(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+  applyGenesisRenewal(const Ledger::Transaction &tx, const TxContext &ctx,
                       AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                       bool isStrictMode) {
     (void)tx;
@@ -151,7 +152,7 @@ public:
 
   /** T_END_USER: write-off when balance below min fee for current meta. */
   virtual chain_tx::Roe<void>
-  applyEndUser(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+  applyEndUser(const Ledger::Transaction &tx, const TxContext &ctx,
                AccountBuffer &bank, bool isBufferMode) {
     (void)tx;
     (void)ctx;

@@ -9,7 +9,7 @@ class GenesisTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
   applyGenesisInit(const Ledger::Transaction &tx,
-                   ChainTxContext &ctx) override;
+                   TxContext &ctx) override;
 };
 
 } // namespace pp

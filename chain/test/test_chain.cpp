@@ -827,7 +827,7 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
 
-  // loadFromLedger(5): empty ledger, processes nothing, optChainConfig_ stays unset
+  // loadFromLedger(5): empty ledger, processes nothing, txContext_.optChainConfig stays unset
   auto loadResult = validator.loadFromLedger(5);
   ASSERT_TRUE(loadResult.isOk());
   EXPECT_EQ(loadResult.value(), 5u);

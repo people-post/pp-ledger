@@ -9,12 +9,12 @@ class DefaultTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
   applyDefaultTransferStrict(const Ledger::Transaction &tx,
-                             ChainTxContextConst &ctx,
+                             const TxContext &ctx,
                              AccountBuffer &bank) override;
 
   chain_tx::Roe<void>
   applyDefaultTransferLoose(const Ledger::Transaction &tx,
-                            ChainTxContextConst &ctx,
+                            const TxContext &ctx,
                             AccountBuffer &bank) override;
 };
 

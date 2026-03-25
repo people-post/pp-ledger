@@ -58,18 +58,14 @@ Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
   return mapTx(chain_tx::calculateMinimumFeeForTransaction(config, tx));
 }
 
-ChainTxContext Chain::transactionContext() {
-  return {ledger_, bank_, optChainConfig_, consensus_, crypto_, checkpoint_};
-}
+TxContext &Chain::transactionContext() { return txContext_; }
 
-ChainTxContextConst Chain::transactionContext() const {
-  return {ledger_, bank_, optChainConfig_, consensus_, crypto_, checkpoint_};
-}
+const TxContext &Chain::transactionContext() const { return txContext_; }
 
 Chain::Chain() {
   redirectLogger("Chain");
-  ledger_.redirectLogger(log().getFullName() + ".Ledger");
-  consensus_.redirectLogger(log().getFullName() + ".Obo");
+  txContext_.ledger.redirectLogger(log().getFullName() + ".Ledger");
+  txContext_.consensus.redirectLogger(log().getFullName() + ".Obo");
 
   auto installHandler = [this](std::size_t type,
                                 std::unique_ptr<ITxHandler> handler,
@@ -97,20 +93,20 @@ Chain::Chain() {
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
                                     uint64_t slot) const {
-  return consensus_.isSlotLeader(slot, stakeholderId);
+  return txContext_.consensus.isSlotLeader(slot, stakeholderId);
 }
 
 bool Chain::isSlotBlockProductionTime(uint64_t slot) const {
-  return consensus_.isSlotBlockProductionTime(slot);
+  return txContext_.consensus.isSlotBlockProductionTime(slot);
 }
 
 bool Chain::isValidSlotLeader(const Ledger::ChainNode &block) const {
-  return consensus_.isSlotLeader(block.block.slot, block.block.slotLeader);
+  return txContext_.consensus.isSlotLeader(block.block.slot, block.block.slotLeader);
 }
 
 bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
-  int64_t slotStartTime = consensus_.getSlotStartTime(block.block.slot);
-  int64_t slotEndTime = consensus_.getSlotEndTime(block.block.slot);
+  int64_t slotStartTime = txContext_.consensus.getSlotStartTime(block.block.slot);
+  int64_t slotEndTime = txContext_.consensus.getSlotEndTime(block.block.slot);
 
   int64_t blockTime = block.block.timestamp;
 
@@ -122,33 +118,33 @@ bool Chain::isValidTimestamp(const Ledger::ChainNode &block) const {
   return true;
 }
 
-bool Chain::isChainConfigReady() const { return optChainConfig_.has_value(); }
+bool Chain::isChainConfigReady() const { return txContext_.optChainConfig.has_value(); }
 
 bool Chain::shouldUseStrictMode(uint64_t blockIndex) const {
-  if (checkpoint_.currentId == 0) {
+  if (txContext_.checkpoint.currentId == 0) {
     return true;
   }
-  if (checkpoint_.currentId == checkpoint_.lastId) {
+  if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
     // Not fully initialized yet
     return false;
   }
-  return blockIndex >= checkpoint_.currentId;
+  return blockIndex >= txContext_.checkpoint.currentId;
 }
 
 Chain::Roe<void> Chain::validateBlockSequence(const Ledger::ChainNode &block) const {
-  const uint64_t startingBlockId = ledger_.getStartingBlockId();
+  const uint64_t startingBlockId = txContext_.ledger.getStartingBlockId();
   if (block.block.index < startingBlockId) {
     return Error(E_BLOCK_INDEX, "Invalid block index: expected >= " + std::to_string(startingBlockId) + " got " + std::to_string(block.block.index));
   }
 
-  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
   if (block.block.index > nextBlockId) {
     return Error(E_BLOCK_INDEX, "Invalid block index: expected <= " + std::to_string(nextBlockId) + " got " + std::to_string(block.block.index));
   }
 
   // For the first block in this ledger range, there is no previous block.
   if (block.block.index > startingBlockId) {
-    auto prevBlockResult = ledger_.readBlock(block.block.index - 1);
+    auto prevBlockResult = txContext_.ledger.readBlock(block.block.index - 1);
     if (!prevBlockResult) {
       return Error(E_BLOCK_NOT_FOUND, "Latest block not found: " + std::to_string(block.block.index - 1));
     }
@@ -179,12 +175,12 @@ bool Chain::needsCheckpoint(const BlockChainConfig &config) const {
   // strict mode. This is a conservative safety margin.
   uint64_t margin = config.slotsPerEpoch;
 
-  const uint64_t requiredBlocks = checkpoint_.currentId + config.checkpoint.minBlocks + margin;
+  const uint64_t requiredBlocks = txContext_.checkpoint.currentId + config.checkpoint.minBlocks + margin;
 
   if (getNextBlockId() < requiredBlocks) {
     return false;
   }
-  if (getBlockAgeSeconds(checkpoint_.currentId) <
+  if (getBlockAgeSeconds(txContext_.checkpoint.currentId) <
       config.checkpoint.minAgeSeconds) {
     return false;
   }
@@ -192,37 +188,37 @@ bool Chain::needsCheckpoint(const BlockChainConfig &config) const {
 }
 
 Chain::Checkpoint Chain::getCheckpoint() const {
-  return checkpoint_;
+  return txContext_.checkpoint;
 }
 
-uint64_t Chain::getNextBlockId() const { return ledger_.getNextBlockId(); }
+uint64_t Chain::getNextBlockId() const { return txContext_.ledger.getNextBlockId(); }
 
 int64_t Chain::getConsensusTimestamp() const {
-  return consensus_.getTimestamp();
+  return txContext_.consensus.getTimestamp();
 }
 
 int64_t Chain::getSlotStartTime(uint64_t slot) const {
-  return consensus_.getSlotStartTime(slot);
+  return txContext_.consensus.getSlotStartTime(slot);
 }
 
-uint64_t Chain::getSlotDuration() const { return optChainConfig_.has_value() ? optChainConfig_.value().slotDuration : 0; }
+uint64_t Chain::getSlotDuration() const { return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().slotDuration : 0; }
 
-uint64_t Chain::getCurrentSlot() const { return consensus_.getCurrentSlot(); }
+uint64_t Chain::getCurrentSlot() const { return txContext_.consensus.getCurrentSlot(); }
 
-uint64_t Chain::getCurrentEpoch() const { return consensus_.getCurrentEpoch(); }
+uint64_t Chain::getCurrentEpoch() const { return txContext_.consensus.getCurrentEpoch(); }
 
-uint64_t Chain::getTotalStake() const { return consensus_.getTotalStake(); }
+uint64_t Chain::getTotalStake() const { return txContext_.consensus.getTotalStake(); }
 
 uint64_t Chain::getStakeholderStake(uint64_t stakeholderId) const {
-  return consensus_.getStake(stakeholderId);
+  return txContext_.consensus.getStake(stakeholderId);
 }
 
 uint64_t Chain::getMaxTransactionsPerBlock() const {
-  return optChainConfig_.has_value() ? optChainConfig_.value().maxTransactionsPerBlock : 0;
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().maxTransactionsPerBlock : 0;
 }
 
 Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
-  auto result = consensus_.getSlotLeader(slot);
+  auto result = txContext_.consensus.getSlotLeader(slot);
   if (!result) {
     return Error(E_CONSENSUS_QUERY,
                  "Failed to get slot leader: " + result.error().message);
@@ -231,11 +227,11 @@ Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
 }
 
 std::vector<consensus::Stakeholder> Chain::getStakeholders() const {
-  return consensus_.getStakeholders();
+  return txContext_.consensus.getStakeholders();
 }
 
 Chain::Roe<Ledger::ChainNode> Chain::readBlock(uint64_t blockId) const {
-  auto result = ledger_.readBlock(blockId);
+  auto result = txContext_.ledger.readBlock(blockId);
   if (!result) {
     return Error(E_BLOCK_NOT_FOUND,
                  "Block not found: " + std::to_string(blockId));
@@ -244,7 +240,7 @@ Chain::Roe<Ledger::ChainNode> Chain::readBlock(uint64_t blockId) const {
 }
 
 Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
-  auto roeAccount = bank_.getAccount(accountId);
+  auto roeAccount = txContext_.bank.getAccount(accountId);
   if (!roeAccount) {
     return Error(E_ACCOUNT_NOT_FOUND,
                  "Account not found: " + std::to_string(accountId));
@@ -256,13 +252,13 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
 }
 
 uint64_t Chain::getBlockAgeSeconds(uint64_t blockId) const {
-  auto blockResult = ledger_.readBlock(blockId);
+  auto blockResult = txContext_.ledger.readBlock(blockId);
   if (!blockResult) {
     return 0;
   }
   auto block = blockResult.value();
 
-  auto currentTime = consensus_.getTimestamp();
+  auto currentTime = txContext_.consensus.getTimestamp();
   int64_t blockTime = block.block.timestamp;
 
   if (currentTime > blockTime) {
@@ -292,7 +288,7 @@ Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
 
 Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
 Chain::createRenewalTransaction(uint64_t accountId) const {
-  auto accountResult = bank_.getAccount(accountId);
+  auto accountResult = txContext_.bank.getAccount(accountId);
   if (!accountResult) {
     return Error(E_ACCOUNT_NOT_FOUND,
                  "Account not found: " + std::to_string(accountId));
@@ -310,7 +306,7 @@ Chain::createRenewalTransaction(uint64_t accountId) const {
   tx.validationTsMax = 0;
 
   // Compute minimum fee from current account metadata state.
-  auto minimumFeeResult = calculateMinimumFeeForAccountMeta(bank_, accountId);
+  auto minimumFeeResult = calculateMinimumFeeForAccountMeta(txContext_.bank, accountId);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
@@ -318,7 +314,7 @@ Chain::createRenewalTransaction(uint64_t accountId) const {
 
   if (accountId != AccountBuffer::ID_GENESIS &&
       accountId != AccountBuffer::ID_FEE) {
-    auto balance = bank_.getBalance(accountId, AccountBuffer::ID_GENESIS);
+    auto balance = txContext_.bank.getBalance(accountId, AccountBuffer::ID_GENESIS);
     if (balance < minimumFee) {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
@@ -330,7 +326,7 @@ Chain::createRenewalTransaction(uint64_t accountId) const {
 
   if (tx.type == Ledger::Transaction::T_RENEWAL) {
     // Get account metadata from previous block
-    auto blockResult = ledger_.readBlock(account.blockId);
+    auto blockResult = txContext_.ledger.readBlock(account.blockId);
     if (!blockResult) {
       return Error(E_BLOCK_NOT_FOUND,
                    "Block not found: " + std::to_string(account.blockId));
@@ -364,7 +360,7 @@ Chain::validateAccountRenewals(const Ledger::ChainNode &block) const {
   std::set<uint64_t> accountsNeedingRenewal;
   if (maxBlockIdForRenewal > 0) {
     for (uint64_t accountId :
-         bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+         txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
       accountsNeedingRenewal.insert(accountId);
     }
   }
@@ -382,7 +378,7 @@ Chain::validateAccountRenewals(const Ledger::ChainNode &block) const {
       uint64_t accountId = tx.fromWalletId;
 
       // Get the account's current blockId
-      auto accountResult = bank_.getAccount(accountId);
+      auto accountResult = txContext_.bank.getAccount(accountId);
       if (!accountResult) {
         return Error(E_ACCOUNT_RENEWAL,
                      "Account not found in renewal transaction: " +
@@ -424,15 +420,15 @@ Chain::validateAccountRenewals(const Ledger::ChainNode &block) const {
 
 Chain::Roe<uint64_t>
 Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
-  if (!optChainConfig_.has_value()) {
-    if (checkpoint_.currentId > checkpoint_.lastId) {
+  if (!txContext_.optChainConfig.has_value()) {
+    if (txContext_.checkpoint.currentId > txContext_.checkpoint.lastId) {
       return Error(E_INTERNAL,
                    "Chain config not initialized; expected config when "
                    "checkpoint.currentId > checkpoint.lastId");
     }
     return 0;  // No renewals while still syncing
   }
-  const BlockChainConfig &config = optChainConfig_.value();
+  const BlockChainConfig &config = txContext_.optChainConfig.value();
   const uint64_t minBlocks = config.checkpoint.minBlocks;
   if (atBlockId < minBlocks) {
     return 0;
@@ -445,7 +441,7 @@ Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
   if (minAgeSeconds > 0 && atBlockId > 0) {
     const int64_t cutoffTimestamp =
         getConsensusTimestamp() - static_cast<int64_t>(minAgeSeconds);
-    auto roeBlock = ledger_.findBlockByTimestamp(cutoffTimestamp);
+    auto roeBlock = txContext_.ledger.findBlockByTimestamp(cutoffTimestamp);
     if (roeBlock) {
       maxBlockIdFromTime = roeBlock.value().block.index;
     }
@@ -463,7 +459,7 @@ Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
 Chain::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
 Chain::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
-  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(nextBlockId);
   if (!maxBlockIdResult) {
@@ -475,7 +471,7 @@ Chain::collectRenewals(uint64_t slot) const {
   }
 
   for (uint64_t accountId :
-       bank_.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+       txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
     auto renewalResult = createRenewalTransaction(accountId);
     if (!renewalResult) {
       return renewalResult.error();
@@ -487,7 +483,7 @@ Chain::collectRenewals(uint64_t slot) const {
 }
 
 Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
-  auto result = ledger_.readLastBlock();
+  auto result = txContext_.ledger.readLastBlock();
   if (!result) {
     return Error(E_LEDGER_READ,
                  "Failed to read last block: " + result.error().message);
@@ -503,7 +499,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   // tip); we substitute getNextBlockId() so that scanning runs.
 
   std::vector<Ledger::SignedData<Ledger::Transaction>> out;
-  uint64_t nextId = ledger_.getNextBlockId();
+  uint64_t nextId = txContext_.ledger.getNextBlockId();
   if (ioBlockId == 0) {
     ioBlockId = nextId;
   }
@@ -517,7 +513,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   while (currentBlockId > 0 &&
          nBlocksScanned < MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
     --currentBlockId;
-    auto blockRoe = ledger_.readBlock(currentBlockId);
+    auto blockRoe = txContext_.ledger.readBlock(currentBlockId);
     if (!blockRoe) {
       return Error(E_BLOCK_NOT_FOUND,
                    "Block not found: " + std::to_string(currentBlockId));
@@ -540,13 +536,13 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
 
 Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
 Chain::findTransactionByIndex(uint64_t txIndex) const {
-  const uint64_t firstBlockId = ledger_.getStartingBlockId();
-  const uint64_t nextBlockId = ledger_.getNextBlockId();
+  const uint64_t firstBlockId = txContext_.ledger.getStartingBlockId();
+  const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
   if (nextBlockId <= firstBlockId) {
     return Error(E_LEDGER_READ, "No blocks in ledger");
   }
 
-  auto lastBlockRoe = ledger_.readLastBlock();
+  auto lastBlockRoe = txContext_.ledger.readLastBlock();
   if (!lastBlockRoe) {
     return Error(E_LEDGER_READ,
                  "Failed to read last block: " + lastBlockRoe.error().message);
@@ -568,7 +564,7 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
 
   while (low <= high) {
     const uint64_t mid = low + (high - low) / 2;
-    auto blockRoe = ledger_.readBlock(mid);
+    auto blockRoe = txContext_.ledger.readBlock(mid);
     if (!blockRoe) {
       return Error(
           E_LEDGER_READ,
@@ -615,26 +611,26 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
 }
 
 void Chain::refreshStakeholders() {
-  if (consensus_.isStakeUpdateNeeded()) {
-    auto stakeholders = bank_.getStakeholders();
-    consensus_.setStakeholders(stakeholders);
+  if (txContext_.consensus.isStakeUpdateNeeded()) {
+    auto stakeholders = txContext_.bank.getStakeholders();
+    txContext_.consensus.setStakeholders(stakeholders);
   }
 }
 
 void Chain::refreshStakeholders(uint64_t blockSlot) {
-  uint64_t epoch = consensus_.getEpochFromSlot(blockSlot);
-  if (consensus_.isStakeUpdateNeeded(epoch)) {
-    auto stakeholders = bank_.getStakeholders();
-    consensus_.setStakeholders(stakeholders, epoch);
+  uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
+  if (txContext_.consensus.isStakeUpdateNeeded(epoch)) {
+    auto stakeholders = txContext_.bank.getStakeholders();
+    txContext_.consensus.setStakeholders(stakeholders, epoch);
   }
 }
 
 void Chain::initConsensus(const consensus::Ouroboros::Config &config) {
-  consensus_.init(config);
+  txContext_.consensus.init(config);
 }
 
 Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
-  auto result = ledger_.init(config);
+  auto result = txContext_.ledger.init(config);
   if (!result) {
     return Error(E_STATE_INIT,
                  "Failed to initialize ledger: " + result.error().message);
@@ -643,7 +639,7 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
 }
 
 Chain::Roe<void> Chain::mountLedger(const std::string &workDir) {
-  auto result = ledger_.mount(workDir);
+  auto result = txContext_.ledger.mount(workDir);
   if (!result) {
     return Error(E_STATE_MOUNT,
                  "Failed to mount ledger: " + result.error().message);
@@ -655,18 +651,18 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Loading from ledger starting at block ID " << startingBlockId;
 
   log().info << "Resetting account buffer";
-  bank_.reset();
+  txContext_.bank.reset();
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
-  checkpoint_.lastId = startingBlockId;
-  checkpoint_.currentId = startingBlockId;
+  txContext_.checkpoint.lastId = startingBlockId;
+  txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
   // Strict validatation if we are loading from the beginning
   bool isStrictMode = startingBlockId == 0;
   while (true) {
-    auto blockResult = ledger_.readBlock(blockId);
+    auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
       // No more blocks to read
       break;
@@ -892,12 +888,12 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
     // Strict mode only checks
     uint64_t slot = block.block.slot;
     uint64_t slotLeader = block.block.slotLeader;
-    if (!consensus_.validateSlotLeader(slotLeader, slot)) {
+    if (!txContext_.consensus.validateSlotLeader(slotLeader, slot)) {
       return Error(E_CONSENSUS_SLOT_LEADER,
                    "Invalid slot leader for block at slot " +
                        std::to_string(slot));
     }
-    if (!consensus_.validateBlockTiming(block.block.timestamp, slot)) {
+    if (!txContext_.consensus.validateBlockTiming(block.block.timestamp, slot)) {
       return Error(E_CONSENSUS_TIMING,
                    "Block timestamp outside valid slot range");
     }
@@ -919,11 +915,11 @@ Chain::validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) co
     }
 
     // Validate max transactions per block: if total > max, all must be renewals
-    if (!optChainConfig_.has_value()) {
+    if (!txContext_.optChainConfig.has_value()) {
       return Error(E_INTERNAL,
                    "Chain config not initialized; expected config in strict mode");
     }
-    const uint64_t maxTx = optChainConfig_.value().maxTransactionsPerBlock;
+    const uint64_t maxTx = txContext_.optChainConfig.value().maxTransactionsPerBlock;
     if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
       for (const auto &signedTx : block.block.signedTxes) {
         if (signedTx.obj.type != Ledger::Transaction::T_RENEWAL) {
@@ -986,7 +982,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
                  "Failed to process block: " + processResult.error().message);
   }
 
-  auto ledgerResult = ledger_.addBlock(block);
+  auto ledgerResult = txContext_.ledger.addBlock(block);
   if (!ledgerResult) {
     return Error(E_LEDGER_WRITE,
                  "Failed to persist block: " + ledgerResult.error().message);
@@ -1049,12 +1045,12 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
     }
   }
 
-  if (optChainConfig_.has_value() && needsCheckpoint(optChainConfig_.value()) &&
-      block.block.index > checkpoint_.currentId) {
-    checkpoint_.lastId = checkpoint_.currentId;
-    checkpoint_.currentId = block.block.index;
-    log().info << "Checkpoint rotated: last=" << checkpoint_.lastId
-               << ", current=" << checkpoint_.currentId;
+  if (txContext_.optChainConfig.has_value() && needsCheckpoint(txContext_.optChainConfig.value()) &&
+      block.block.index > txContext_.checkpoint.currentId) {
+    txContext_.checkpoint.lastId = txContext_.checkpoint.currentId;
+    txContext_.checkpoint.currentId = block.block.index;
+    log().info << "Checkpoint rotated: last=" << txContext_.checkpoint.lastId
+               << ", current=" << txContext_.checkpoint.currentId;
   }
 
   return {};
@@ -1136,7 +1132,7 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
     if (!h) {
       return Error(E_INTERNAL, "Genesis transaction handler not registered");
     }
-    ChainTxContext ctx = transactionContext();
+    TxContext &ctx = transactionContext();
     return mapTxVoid(h->applyGenesisInit(tx, ctx));
   }
   case Ledger::Transaction::T_NEW_USER:
@@ -1203,7 +1199,7 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
     const Ledger::Transaction &tx, const std::vector<std::string> &signatures,
     const AccountBuffer::Account &account) const {
   return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(
-      tx, signatures, account, crypto_, log()));
+      tx, signatures, account, txContext_.crypto, log()));
 }
 
 Chain::Roe<void> Chain::validateTxSignatures(
@@ -1225,10 +1221,10 @@ Chain::Roe<void> Chain::validateTxSignatures(
     signerAccountId = slotLeaderId;
   }
 
-  auto accountResult = bank_.getAccount(signerAccountId);
+  auto accountResult = txContext_.bank.getAccount(signerAccountId);
   if (!accountResult) {
     if (isStrictMode) {
-      if (bank_.isEmpty() && signerAccountId == AccountBuffer::ID_GENESIS) {
+      if (txContext_.bank.isEmpty() && signerAccountId == AccountBuffer::ID_GENESIS) {
         // Genesis account is created by the system checkpoint, this is not very
         // good way of handling Should avoid using this generic handlers for
         // specific case
@@ -1249,14 +1245,14 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId,
                                          uint64_t fromWalletId,
                                          uint64_t slotMin,
                                          uint64_t slotMax) const {
-  return mapTxVoid(chain_tx::checkIdempotency(ledger_, consensus_, idempotentId,
+  return mapTxVoid(chain_tx::checkIdempotency(txContext_.ledger, txContext_.consensus, idempotentId,
                                               fromWalletId, slotMin, slotMax));
 }
 
 Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
                                                  uint64_t effectiveSlot, bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
-      ledger_, consensus_, optChainConfig_, tx, effectiveSlot, isStrictMode));
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx, effectiveSlot, isStrictMode));
 }
 
 Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
@@ -1266,9 +1262,9 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  ChainTxContext ctx = transactionContext();
+  TxContext &ctx = transactionContext();
   return mapTxVoid(
-      h->applyConfigUpdate(tx, ctx, bank_, blockId, isStrictMode, true));
+      h->applyConfigUpdate(tx, ctx, txContext_.bank, blockId, isStrictMode, true));
 }
 
 Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
@@ -1279,9 +1275,9 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "Genesis renewal transaction handler not registered");
   }
-  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  const TxContext &ctx = std::as_const(*this).transactionContext();
   auto result = mapTxVoid(
-      h->applyGenesisRenewal(tx, ctx, bank_, blockId, false, isStrictMode));
+      h->applyGenesisRenewal(tx, ctx, txContext_.bank, blockId, false, isStrictMode));
   if (!result) {
     return result.error();
   }
@@ -1296,9 +1292,9 @@ Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "New user transaction handler not registered");
   }
-  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  const TxContext &ctx = std::as_const(*this).transactionContext();
   auto result =
-      mapTxVoid(h->applyNewUser(tx, ctx, bank_, blockId, false, isStrictMode));
+      mapTxVoid(h->applyNewUser(tx, ctx, txContext_.bank, blockId, false, isStrictMode));
   if (!result) {
     return result.error();
   }
@@ -1320,12 +1316,12 @@ Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
 Chain::Roe<uint64_t>
 Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                          uint64_t accountId) const {
-  if (!optChainConfig_.has_value()) {
+  if (!txContext_.optChainConfig.has_value()) {
     return Error(E_INTERNAL,
                  "Chain config required for minimum fee from account meta");
   }
   return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
-      ledger_, optChainConfig_.value(), bank, accountId));
+      txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
 }
 
 Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
@@ -1336,8 +1332,8 @@ Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }
-  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
-  auto result = mapTxVoid(h->applyUserAccountUpsert(tx, ctx, bank_, blockId,
+  const TxContext &ctx = std::as_const(*this).transactionContext();
+  auto result = mapTxVoid(h->applyUserAccountUpsert(tx, ctx, txContext_.bank, blockId,
                                                     false, isStrictMode));
   if (!result) {
     return result.error();
@@ -1355,8 +1351,8 @@ Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "End-user transaction handler not registered");
   }
-  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
-  auto result = mapTxVoid(h->applyEndUser(tx, ctx, bank_, false));
+  const TxContext &ctx = std::as_const(*this).transactionContext();
+  auto result = mapTxVoid(h->applyEndUser(tx, ctx, txContext_.bank, false));
   if (!result) {
     return result.error();
   }
@@ -1369,11 +1365,11 @@ Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
   if (bank.hasAccount(accountId)) {
     return {};
   }
-  if (!bank_.hasAccount(accountId)) {
+  if (!txContext_.bank.hasAccount(accountId)) {
     return Error(E_ACCOUNT_NOT_FOUND,
                  "Account not found: " + std::to_string(accountId));
   }
-  auto accountResult = bank_.getAccount(accountId);
+  auto accountResult = txContext_.bank.getAccount(accountId);
   if (!accountResult) {
     return Error(E_ACCOUNT_NOT_FOUND, "Failed to get account from bank: " +
                                           accountResult.error().message);
@@ -1389,7 +1385,7 @@ Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
 Chain::Roe<void>
 Chain::processBufferTransaction(AccountBuffer &bank,
                                 const Ledger::Transaction &tx) const {
-  // All transactions happen in bank; accounts sourced from bank_ on demand
+  // All transactions happen in bank; accounts sourced from txContext_.bank on demand
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
     return fromRoe;
@@ -1408,7 +1404,7 @@ Chain::processBufferTransaction(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "Default transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(h->applyDefaultTransferStrict(tx, ctx, bank));
 }
 
@@ -1423,7 +1419,7 @@ Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "New user transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(h->applyNewUser(tx, ctx, bank, blockId, true, true));
 }
 
@@ -1438,7 +1434,7 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(h->applyConfigUpdate(tx, ctx, bank, blockId, true));
 }
 
@@ -1460,7 +1456,7 @@ Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(
       h->applyUserAccountUpsert(tx, ctx, bank, blockId, true, true));
 }
@@ -1483,7 +1479,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "Genesis renewal transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(h->applyGenesisRenewal(tx, ctx, bank, blockId, true, true));
 }
 
@@ -1502,7 +1498,7 @@ Chain::processBufferUserEnd(AccountBuffer &bank,
   if (!h) {
     return Error(E_INTERNAL, "End-user transaction handler not registered");
   }
-  ChainTxContextConst ctx = transactionContext();
+  const TxContext &ctx = transactionContext();
   return mapTxVoid(h->applyEndUser(tx, ctx, bank, true));
 }
 
@@ -1516,11 +1512,11 @@ Chain::Roe<void> Chain::processTransaction(const Ledger::Transaction &tx,
   if (!h) {
     return Error(E_INTERNAL, "Default transaction handler not registered");
   }
-  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  const TxContext &ctx = std::as_const(*this).transactionContext();
   if (isStrictMode) {
-    return mapTxVoid(h->applyDefaultTransferStrict(tx, ctx, bank_));
+    return mapTxVoid(h->applyDefaultTransferStrict(tx, ctx, txContext_.bank));
   }
-  return mapTxVoid(h->applyDefaultTransferLoose(tx, ctx, bank_));
+  return mapTxVoid(h->applyDefaultTransferLoose(tx, ctx, txContext_.bank));
 }
 
 } // namespace pp

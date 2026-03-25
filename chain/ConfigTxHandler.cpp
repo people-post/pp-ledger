@@ -107,14 +107,14 @@ chain_tx::Roe<void> applyConfigUpdateCore(
 } // namespace
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
-    const Ledger::Transaction &tx, ChainTxContextConst &ctx, AccountBuffer &bank,
+    const Ledger::Transaction &tx, const TxContext &ctx, AccountBuffer &bank,
     uint64_t blockId, bool isStrictMode) {
   return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
                                isStrictMode, false, nullptr);
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
-    const Ledger::Transaction &tx, ChainTxContext &ctx, AccountBuffer &bank,
+    const Ledger::Transaction &tx, TxContext &ctx, AccountBuffer &bank,
     uint64_t blockId, bool isStrictMode, bool commitOptChainConfig) {
   std::optional<BlockChainConfig> *commitTarget =
       commitOptChainConfig ? &ctx.optChainConfig : nullptr;

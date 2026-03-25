@@ -6,7 +6,7 @@
 namespace pp {
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
-    const Ledger::Transaction &tx, ChainTxContext &ctx) {
+    const Ledger::Transaction &tx, TxContext &ctx) {
   log().info << "Processing system initialization transaction";
 
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||

@@ -11,23 +11,18 @@
 
 namespace pp {
 
-struct ChainTxContext {
-  Ledger &ledger;
-  AccountBuffer &bank;
-  std::optional<BlockChainConfig> &optChainConfig;
-  consensus::Ouroboros &consensus;
-  Crypto &crypto;
-  Checkpoint &checkpoint;
-};
-
-/** Read-only subsystem view; safe to build from `const Chain` (e.g. const buffer paths). */
-struct ChainTxContextConst {
-  const Ledger &ledger;
-  const AccountBuffer &bank;
-  const std::optional<BlockChainConfig> &optChainConfig;
-  const consensus::Ouroboros &consensus;
-  const Crypto &crypto;
-  const Checkpoint &checkpoint;
+/**
+ * Chain subsystem bundle passed to transaction handlers.
+ * Chain owns a single TxContext member; handlers take TxContext & or
+ * const TxContext & depending on whether they may mutate chain state.
+ */
+struct TxContext {
+  Crypto crypto;
+  consensus::Ouroboros consensus;
+  Ledger ledger;
+  AccountBuffer bank;
+  std::optional<BlockChainConfig> optChainConfig{std::nullopt};
+  Checkpoint checkpoint{};
 };
 
 } // namespace pp
