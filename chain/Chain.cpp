@@ -1,4 +1,5 @@
 #include "Chain.h"
+#include "ConfigTxHandler.h"
 #include "GenesisTxHandler.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
@@ -63,6 +64,8 @@ Chain::Chain() {
   consensus_.redirectLogger(log().getFullName() + ".Obo");
   transactionHandlers_[Ledger::Transaction::T_GENESIS] =
       std::make_unique<GenesisTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_CONFIG] =
+      std::make_unique<ConfigTxHandler>();
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -1229,86 +1232,16 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
       ledger_, consensus_, optChainConfig_, tx, effectiveSlot, isStrictMode));
 }
 
-Chain::Roe<Chain::GenesisAccountMeta>
-Chain::processSystemUpdateImpl(AccountBuffer &bank,
-                               const Ledger::Transaction &tx,
-                               uint64_t blockId, bool isStrictMode) const {
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION, "System update transaction must use genesis "
-                                  "wallet (ID_GENESIS -> ID_GENESIS)");
-  }
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION,
-                 "System update transaction must have amount 0");
-  }
-  if (tx.fee != 0) {
-    return Error(E_TX_VALIDATION, "System update transaction must have fee 0");
-  }
-
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize checkpoint config: " + tx.meta);
-  }
-
-  if (gm.genesis.wallet.publicKeys.size() < 3) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 3 public keys");
-  }
-
-  if (gm.genesis.wallet.minSignatures < 2) {
-    return Error(E_TX_VALIDATION,
-                 "Genesis account must have at least 2 signatures");
-  }
-
-  if (isStrictMode) {
-    if (gm.config.genesisTime != optChainConfig_.value().genesisTime) {
-      return Error(E_TX_VALIDATION, "Genesis time mismatch");
-    }
-
-    if (gm.config.slotDuration > optChainConfig_.value().slotDuration) {
-      return Error(E_TX_VALIDATION, "Slot duration cannot be increased");
-    }
-
-    if (gm.config.slotsPerEpoch < optChainConfig_.value().slotsPerEpoch) {
-      return Error(E_TX_VALIDATION, "Slots per epoch cannot be decreased");
-    }
-  }
-
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
-                          gm.genesis.wallet.mBalances)) {
-    return Error(E_TX_VALIDATION, "Genesis account balance mismatch");
-  }
-
-  bank.remove(AccountBuffer::ID_GENESIS);
-
-  AccountBuffer::Account account;
-  account.id = AccountBuffer::ID_GENESIS;
-  account.blockId = blockId;
-  account.wallet = gm.genesis.wallet;
-  auto addResult = bank.add(account);
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add updated genesis account: " +
-                                        addResult.error().message);
-  }
-
-  return gm;
-}
-
 Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
-  log().info << "Processing system update transaction";
-  auto result = processSystemUpdateImpl(bank_, tx, blockId, isStrictMode);
-  if (!result) {
-    return result.error();
+  auto &h = transactionHandlers_[Ledger::Transaction::T_CONFIG];
+  if (!h) {
+    return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  optChainConfig_ = result.value().config;
-  log().info << "System updated";
-  log().info << "  Version: " << GenesisAccountMeta::VERSION;
-  log().info << "  Config: " << optChainConfig_.value();
-  return {};
+  return mapTxVoid(h->applyConfigUpdate(tx, log(), optChainConfig_, bank_,
+                                        blockId, isStrictMode, true,
+                                        &optChainConfig_));
 }
 
 Chain::Roe<void> Chain::processGenesisRenewalImpl(AccountBuffer &bank,
@@ -1836,11 +1769,12 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
   if (!genesisRoe) {
     return genesisRoe;
   }
-  auto configResult = processSystemUpdateImpl(bank, tx, blockId, true);
-  if (!configResult) {
-    return configResult.error();
+  auto &h = transactionHandlers_[Ledger::Transaction::T_CONFIG];
+  if (!h) {
+    return Error(E_INTERNAL, "Config transaction handler not registered");
   }
-  return {};
+  return mapTxVoid(h->applyConfigUpdate(tx, log(), optChainConfig_, bank,
+                                        blockId, true, false, nullptr));
 }
 
 Chain::Roe<void>

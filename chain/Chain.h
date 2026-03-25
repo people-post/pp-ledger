@@ -246,9 +246,6 @@ private:
                                      uint64_t effectiveSlot, bool isStrictMode) const;
 
   // System
-  Roe<GenesisAccountMeta> processSystemUpdateImpl(AccountBuffer &bank,
-                                                  const Ledger::Transaction &tx,
-                                                  uint64_t blockId, bool isStrictMode) const;
   Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                                 bool isStrictMode);
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
