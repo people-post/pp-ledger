@@ -255,11 +255,6 @@ private:
                                       uint64_t blockId) const;
 
   // User
-  /** Shared impl: operates on bank. When isBufferMode, seeds accounts from
-   * bank_ and checks existence in both. */
-  Roe<void> processUserInitImpl(AccountBuffer &bank,
-                                const Ledger::Transaction &tx, uint64_t blockId,
-                                bool isBufferMode, bool isStrictMode) const;
   Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId, bool isStrictMode);
   Roe<void> processBufferUserInit(AccountBuffer &bank,
                                   const Ledger::Transaction &tx,

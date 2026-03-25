@@ -22,6 +22,8 @@ add_library(pp_chain STATIC
     GenesisTxHandler.h
     ConfigTxHandler.cpp
     ConfigTxHandler.h
+    NewUserTxHandler.cpp
+    NewUserTxHandler.h
 )
 
 target_include_directories(pp_chain PUBLIC

@@ -63,6 +63,26 @@ public:
         chain_err::E_INTERNAL,
         "applyConfigUpdate(ChainTxContext&) not implemented for this handler");
   }
+
+  /**
+   * T_NEW_USER: fund and register a new account. `bank` is the working
+   * buffer; `ctx.bank` is committed chain state (for buffer-mode existence).
+   * When isBufferMode, `fromWalletId` must already be present in `bank`
+   * (e.g. via ensureAccountInBuffer).
+   */
+  virtual chain_tx::Roe<void>
+  applyNewUser(const Ledger::Transaction &tx, ChainTxContextConst &ctx,
+               AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
+               bool isStrictMode) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    (void)blockId;
+    (void)isBufferMode;
+    (void)isStrictMode;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyNewUser not implemented for this handler");
+  }
 };
 
 } // namespace pp

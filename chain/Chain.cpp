@@ -1,6 +1,7 @@
 #include "Chain.h"
 #include "ConfigTxHandler.h"
 #include "GenesisTxHandler.h"
+#include "NewUserTxHandler.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "TxLedgerMeta.h"
@@ -71,6 +72,8 @@ Chain::Chain() {
       std::make_unique<GenesisTxHandler>();
   transactionHandlers_[Ledger::Transaction::T_CONFIG] =
       std::make_unique<ConfigTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_NEW_USER] =
+      std::make_unique<NewUserTxHandler>();
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -1357,111 +1360,16 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserInitImpl(AccountBuffer &bank,
-                                            const Ledger::Transaction &tx,
-                                            uint64_t blockId,
-                                            bool isBufferMode, bool isStrictMode) const {
-  if (isStrictMode) {
-    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
-    if (!minimumFeeResult) {
-      return minimumFeeResult.error();
-    }
-    const uint64_t minFeePerTransaction = minimumFeeResult.value();
-    if (tx.fee < minFeePerTransaction) {
-      return Error(E_TX_FEE, "New user transaction fee below minimum: " +
-                                 std::to_string(tx.fee));
-    }
-  }
-
-  bool toWalletExists = bank.hasAccount(tx.toWalletId) ||
-                        (isBufferMode && bank_.hasAccount(tx.toWalletId));
-  if (toWalletExists) {
-    return Error(E_ACCOUNT_EXISTS,
-                 "Account already exists: " + std::to_string(tx.toWalletId));
-  }
-
-  if (isBufferMode) {
-    auto roe = ensureAccountInBuffer(bank, tx.fromWalletId);
-    if (!roe) {
-      return roe;
-    }
-  }
-
-  auto spendingResult = bank.verifySpendingPower(
-      tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-  if (!spendingResult) {
-    return Error(E_ACCOUNT_BALANCE,
-                 "Source account must have sufficient balance: " +
-                     spendingResult.error().message);
-  }
-
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS &&
-      tx.toWalletId < AccountBuffer::ID_FIRST_USER) {
-    return Error(E_TX_VALIDATION,
-                 "New user account id must be larger than: " +
-                     std::to_string(AccountBuffer::ID_FIRST_USER));
-  }
-
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize user account: " + tx.meta);
-  }
-
-  if (!crypto_.isSupported(userAccount.wallet.keyType)) {
-    return Error(E_TX_VALIDATION,
-                 "Unsupported key type: " +
-                     std::to_string(int(userAccount.wallet.keyType)));
-  }
-  if (userAccount.wallet.publicKeys.empty()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have at least one public key");
-  }
-  if (userAccount.wallet.minSignatures < 1) {
-    return Error(E_TX_VALIDATION,
-                 "User account must require at least one signature");
-  }
-  if (userAccount.wallet.mBalances.size() != 1) {
-    return Error(E_TX_VALIDATION, "User account must have exactly one balance");
-  }
-  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-  if (it == userAccount.wallet.mBalances.end()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have balance in ID_GENESIS token");
-  }
-  if (it->second != tx.amount) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have balance in ID_GENESIS token: " +
-                     std::to_string(it->second));
-  }
-
-  AccountBuffer::Account account;
-  account.id = tx.toWalletId;
-  account.blockId = blockId;
-  account.wallet = userAccount.wallet;
-  account.wallet.mBalances.clear();
-
-  auto addResult = bank.add(account);
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
-                                        addResult.error().message);
-  }
-
-  auto transferResult =
-      bank.transferBalance(tx.fromWalletId, tx.toWalletId,
-                           AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-  if (!transferResult) {
-    return Error(E_TX_TRANSFER, "Failed to transfer balance: " +
-                                    transferResult.error().message);
-  }
-
-  return {};
-}
-
 Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
                                         uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user initialization transaction";
-  auto result = processUserInitImpl(bank_, tx, blockId, false, isStrictMode);
+  auto &h = transactionHandlers_[Ledger::Transaction::T_NEW_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "New user transaction handler not registered");
+  }
+  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  auto result =
+      mapTxVoid(h->applyNewUser(tx, ctx, bank_, blockId, false, isStrictMode));
   if (!result) {
     return result.error();
   }
@@ -1764,7 +1672,16 @@ Chain::processBufferTransaction(AccountBuffer &bank,
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
                                               const Ledger::Transaction &tx,
                                               uint64_t blockId) const {
-  return processUserInitImpl(bank, tx, blockId, true, true);
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
+  }
+  auto &h = transactionHandlers_[Ledger::Transaction::T_NEW_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "New user transaction handler not registered");
+  }
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(h->applyNewUser(tx, ctx, bank, blockId, true, true));
 }
 
 Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
