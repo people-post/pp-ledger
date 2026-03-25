@@ -2,6 +2,7 @@
 #include "ConfigTxHandler.h"
 #include "GenesisTxHandler.h"
 #include "NewUserTxHandler.h"
+#include "UserTxHandler.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "TxLedgerMeta.h"
@@ -74,6 +75,8 @@ Chain::Chain() {
       std::make_unique<ConfigTxHandler>();
   transactionHandlers_[Ledger::Transaction::T_NEW_USER] =
       std::make_unique<NewUserTxHandler>();
+  transactionHandlers_[Ledger::Transaction::T_USER] =
+      std::make_unique<UserTxHandler>();
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -1437,118 +1440,17 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
   return calculateMinimumFeeFromNonFreeMetaSize(optChainConfig_.value(), nonFreeMetaSize);
 }
 
-Chain::Roe<void> Chain::processUserAccountUpsertImpl(
-    AccountBuffer &bank, const Ledger::Transaction &tx, uint64_t blockId,
-    bool isBufferMode, bool isStrictMode) const {
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION,
-                 "User update transaction must use genesis token (ID_GENESIS)");
-  }
-
-  if (tx.fromWalletId != tx.toWalletId) {
-    return Error(
-        E_TX_VALIDATION,
-        "User update transaction must use same from and to wallet IDs");
-  }
-
-  if (isStrictMode) {
-    auto minimumFeeResult = calculateMinimumFeeForTransaction(optChainConfig_.value(), tx);
-    if (!minimumFeeResult) {
-      return minimumFeeResult.error();
-    }
-    const uint64_t minFeePerTransaction = minimumFeeResult.value();
-    if (tx.fee < minFeePerTransaction) {
-      return Error(E_TX_FEE, "User update transaction fee below minimum: " +
-                                 std::to_string(tx.fee));
-    }
-  }
-
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION, "User update transaction must have amount 0");
-  }
-
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize user meta for account " +
-                     std::to_string(tx.fromWalletId) + ": " +
-                     std::to_string(tx.meta.size()) + " bytes");
-  }
-
-  if (!crypto_.isSupported(userAccount.wallet.keyType)) {
-    return Error(E_TX_VALIDATION,
-                 "Unsupported key type: " +
-                     std::to_string(int(userAccount.wallet.keyType)));
-  }
-  if (userAccount.wallet.publicKeys.empty()) {
-    return Error(E_TX_VALIDATION,
-                 "User account must have at least one public key");
-  }
-
-  if (userAccount.wallet.minSignatures < 1) {
-    return Error(E_TX_VALIDATION,
-                 "User account must require at least one signature");
-  }
-
-  if (isBufferMode) {
-    auto roe = ensureAccountInBuffer(bank, tx.fromWalletId);
-    if (!roe) {
-      return roe;
-    }
-    if (tx.fee > 0 && tx.fromWalletId != AccountBuffer::ID_FEE) {
-      auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-      if (!feeRoe) {
-        return feeRoe;
-      }
-    }
-  }
-
-  auto bufferAccountResult = bank.getAccount(tx.fromWalletId);
-  if (!bufferAccountResult) {
-    if (isStrictMode) {
-      return Error(E_ACCOUNT_NOT_FOUND, "User account not found in buffer: " +
-                                            std::to_string(tx.fromWalletId));
-    }
-  } else {
-    auto balanceVerifyResult = bank.verifyBalance(tx.fromWalletId, 0, tx.fee,
-                                                  userAccount.wallet.mBalances);
-    if (!balanceVerifyResult) {
-      return Error(E_TX_VALIDATION, balanceVerifyResult.error().message);
-    }
-  }
-
-  bank.remove(tx.fromWalletId);
-
-  AccountBuffer::Account account;
-  account.id = tx.fromWalletId;
-  account.blockId = blockId;
-  account.wallet = userAccount.wallet;
-  auto addResult = bank.add(account);
-  if (!addResult) {
-    return Error(E_INTERNAL_BUFFER, "Failed to add user account to buffer: " +
-                                        addResult.error().message);
-  }
-
-  if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
-    auto depositResult = bank.depositBalance(
-        AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
-        static_cast<int64_t>(tx.fee));
-    if (!depositResult) {
-      return Error(E_TX_TRANSFER,
-                   "Failed to credit fee to fee account: " +
-                       depositResult.error().message);
-    }
-  }
-
-  return {};
-}
-
 Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
                                                  uint64_t blockId,
                                                  bool isStrictMode) {
   log().info << "Processing user update/renewal transaction";
-  auto result =
-      processUserAccountUpsertImpl(bank_, tx, blockId, false, isStrictMode);
+  auto &h = transactionHandlers_[Ledger::Transaction::T_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "User transaction handler not registered");
+  }
+  ChainTxContextConst ctx = std::as_const(*this).transactionContext();
+  auto result = mapTxVoid(h->applyUserAccountUpsert(tx, ctx, bank_, blockId,
+                                                    false, isStrictMode));
   if (!result) {
     return result.error();
   }
@@ -1703,7 +1605,23 @@ Chain::Roe<void>
 Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
                                       const Ledger::Transaction &tx,
                                       uint64_t blockId) const {
-  return processUserAccountUpsertImpl(bank, tx, blockId, true, true);
+  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  if (!fromRoe) {
+    return fromRoe;
+  }
+  if (tx.fee > 0 && tx.fromWalletId != AccountBuffer::ID_FEE) {
+    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+    if (!feeRoe) {
+      return feeRoe;
+    }
+  }
+  auto &h = transactionHandlers_[Ledger::Transaction::T_USER];
+  if (!h) {
+    return Error(E_INTERNAL, "User transaction handler not registered");
+  }
+  ChainTxContextConst ctx = transactionContext();
+  return mapTxVoid(
+      h->applyUserAccountUpsert(tx, ctx, bank, blockId, true, true));
 }
 
 Chain::Roe<void>

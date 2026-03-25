@@ -260,11 +260,6 @@ private:
                                   const Ledger::Transaction &tx,
                                   uint64_t blockId) const;
 
-  Roe<void> processUserAccountUpsertImpl(AccountBuffer &bank,
-                                         const Ledger::Transaction &tx,
-                                         uint64_t blockId, bool isBufferMode,
-                                         bool isStrictMode) const;
-
   Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
                                      uint64_t blockId, bool isStrictMode);
   Roe<void> processUserUpdate(const Ledger::Transaction &tx, uint64_t blockId,

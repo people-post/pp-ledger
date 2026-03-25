@@ -83,6 +83,27 @@ public:
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyNewUser not implemented for this handler");
   }
+
+  /**
+   * T_USER: replace account meta (and pay fee). Same semantics as
+   * applyNewUser for `bank` / `ctx.bank` / isBufferMode (caller ensures
+   * fromWalletId and fee account in buffer when isBufferMode).
+   */
+  virtual chain_tx::Roe<void>
+  applyUserAccountUpsert(const Ledger::Transaction &tx,
+                         ChainTxContextConst &ctx, AccountBuffer &bank,
+                         uint64_t blockId, bool isBufferMode,
+                         bool isStrictMode) {
+    (void)tx;
+    (void)ctx;
+    (void)bank;
+    (void)blockId;
+    (void)isBufferMode;
+    (void)isStrictMode;
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "applyUserAccountUpsert not implemented for this handler");
+  }
 };
 
 } // namespace pp
