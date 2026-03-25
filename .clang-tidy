@@ -13,6 +13,7 @@ Checks: >
 
 WarningsAsErrors: ''
 
-HeaderFilterRegex: '^.*/(?:lib|consensus|ledger|network|server|client|app)/.*'
+# Lint project code under lib/* except vendored CLI11 headers (lib/cli/include).
+HeaderFilterRegex: '^.*/(?:lib/(?!cli/include(?:/|$))|consensus|ledger|network|server|client|app)/.*'
 
 FormatStyle: none

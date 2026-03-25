@@ -8,7 +8,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 #include <vector>
 
 namespace pp {

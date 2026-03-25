@@ -15,7 +15,7 @@
 #include <thread>
 #include <atomic>
 #include <memory>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 namespace pp {
 

@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 namespace pp {
 

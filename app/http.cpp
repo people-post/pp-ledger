@@ -10,8 +10,8 @@
 #include "lib/common/Utilities.h"
 #include "lib/http/httplib.h"
 
-#include <CLI/CLI.hpp>
-#include <nlohmann/json.hpp>
+#include <cli11.hpp>
+#include <json.hpp>
 
 #include <cctype>
 #include <chrono>

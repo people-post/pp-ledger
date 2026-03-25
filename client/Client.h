@@ -9,7 +9,7 @@
 #include "../consensus/Types.hpp"
 
 #include <chrono>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 #include <cstdint>
 #include <string>

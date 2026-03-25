@@ -12,7 +12,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 namespace pp {
 

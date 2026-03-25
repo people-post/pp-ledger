@@ -1,7 +1,7 @@
 #include "lib/common/Logger.h"
 #include "../server/RelayServer.h"
 
-#include <CLI/CLI.hpp>
+#include <cli11.hpp>
 
 #include <csignal>
 #include <iostream>

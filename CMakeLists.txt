@@ -24,8 +24,8 @@ pkg_check_modules(SODIUM REQUIRED libsodium)
 # Test build option (default OFF) - gtest only fetched when enabled
 option(BUILD_TESTING "Build the testing tree" OFF)
 
-include(FetchContent)
 if(BUILD_TESTING)
+  include(FetchContent)
   FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
@@ -36,22 +36,6 @@ if(BUILD_TESTING)
   FetchContent_MakeAvailable(googletest)
   enable_testing()
 endif()
-
-# Fetch nlohmann/json
-FetchContent_Declare(
-  json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3
-)
-FetchContent_MakeAvailable(json)
-
-# Fetch CLI11
-FetchContent_Declare(
-  cli11
-  GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-  GIT_TAG v2.4.2
-)
-FetchContent_MakeAvailable(cli11)
 
 # Add subdirectories for each component
 add_subdirectory(lib)

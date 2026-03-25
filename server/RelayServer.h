@@ -12,7 +12,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 #include <chrono>
 #include <string>
 #include <thread>

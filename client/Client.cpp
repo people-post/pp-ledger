@@ -4,7 +4,7 @@
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 #include <sstream>
 
 namespace pp {

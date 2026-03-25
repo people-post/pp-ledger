@@ -6,8 +6,8 @@
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 
-#include <CLI/CLI.hpp>
-#include <nlohmann/json.hpp>
+#include <cli11.hpp>
+#include <json.hpp>
 
 #include <chrono>
 #include <fstream>

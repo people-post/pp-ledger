@@ -19,7 +19,6 @@ add_library(pp_lib STATIC
 target_include_directories(pp_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
-    ${nlohmann_json_SOURCE_DIR}/include
 )
 
 # Find Libsodium (required for cryptographic operations in Utilities.cpp)
@@ -30,9 +29,9 @@ pkg_check_modules(SODIUM REQUIRED libsodium)
 # This ensures any target linking to pp_lib automatically gets:
 # - pp_lib headers (via include directories)
 # - Libsodium library and headers
-# - nlohmann/json headers (via include directories)
 target_link_libraries(pp_lib PUBLIC
     ${SODIUM_LIBRARIES}
+    nlohmann_json::nlohmann_json
 )
 
 # Add Libsodium include directories
