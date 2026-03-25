@@ -2,8 +2,6 @@
 add_library(pp_server STATIC
     Server.cpp
     Server.h
-    Chain.cpp
-    Chain.h
     BeaconServer.cpp
     BeaconServer.h
     Beacon.cpp
@@ -16,8 +14,6 @@ add_library(pp_server STATIC
     RelayServer.h
     Relay.cpp
     Relay.h
-    AccountBuffer.cpp
-    AccountBuffer.h
 )
 
 target_include_directories(pp_server PUBLIC
@@ -25,8 +21,8 @@ target_include_directories(pp_server PUBLIC
     ${CMAKE_SOURCE_DIR}/network
 )
 
-# Server requires network library
 target_link_libraries(pp_server PUBLIC
+    pp_chain
     pp_lib
     pp_ledger
     pp_client
@@ -35,8 +31,3 @@ target_link_libraries(pp_server PUBLIC
 )
 
 message(STATUS "Server configured with TCP network support")
-
-# Add tests subdirectory if testing is enabled
-if(BUILD_TESTING)
-    add_subdirectory(test)
-endif()

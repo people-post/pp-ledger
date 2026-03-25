@@ -5,6 +5,6 @@
         "ctest": true,
         "/workspaces/pp-ledger/build/app/pp-beacon": true,
         "cmake": true,
-        "./server/test/test_account_buffer": true
+        "build/chain/test/test_account_buffer": true
     }
 }

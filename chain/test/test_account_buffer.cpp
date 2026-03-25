@@ -1,6 +1,5 @@
 #include "lib/common/Crypto.h"
-#include "../AccountBuffer.h"
-#include "../Chain.h"
+#include "AccountBuffer.h"
 #include <gtest/gtest.h>
 #include <cstdint>
 

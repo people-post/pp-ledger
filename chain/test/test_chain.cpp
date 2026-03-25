@@ -1,8 +1,8 @@
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "lib/common/Utilities.h"
-#include "../AccountBuffer.h"
-#include "../Chain.h"
+#include "AccountBuffer.h"
+#include "Chain.h"
 
 #include <gtest/gtest.h>
 

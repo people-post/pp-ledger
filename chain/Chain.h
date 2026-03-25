@@ -9,9 +9,16 @@
 #include "lib/common/Crypto.h"
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
+#include "ChainErrorCodes.h"
+#include "ChainTransactionContext.h"
+#include "ChainTxError.h"
+#include "ChainTypes.h"
+#include "ITransactionHandler.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -29,125 +36,61 @@ namespace pp {
  */
 class Chain : public Module {
 public:
-  struct Checkpoint {
-    uint64_t lastId{0};
-    uint64_t currentId{0};
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &lastId &currentId;
-    }
-  };
-
-  struct CheckpointConfig {
-    uint64_t minBlocks{0}; // minimum number of blocks to trigger a checkpoint
-    uint64_t minAgeSeconds{
-        0}; // minimum age of the blocks to trigger a checkpoint
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &minBlocks &minAgeSeconds;
-    }
-  };
-
-  // BlockChainConfig - Configuration for the block chain
-  // This is used to restore the block chain from a checkpoint transaction
-  struct BlockChainConfig {
-    int64_t genesisTime{0};   // In seconds
-    uint64_t slotDuration{0}; // In seconds
-    uint64_t slotsPerEpoch{0};
-    uint64_t maxCustomMetaSize{0}; // In bytes
-    uint64_t maxTransactionsPerBlock{0};
-    std::vector<uint16_t>
-        minFeeCoefficients; // a + b * sizeInNonFreeKiB + c * sizeInNonFreeKiB^2
-    uint32_t freeCustomMetaSize{0}; // In bytes
-    CheckpointConfig checkpoint;
-    uint64_t maxValidationTimespanSeconds{
-        0}; // Max allowed (validationTsMax - validationTsMin); must be > 0 at
-            // init
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
-          &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
-              &checkpoint &maxValidationTimespanSeconds;
-    }
-  };
-
-  struct GenesisAccountMeta {
-    constexpr static const uint32_t VERSION = 1;
-
-    BlockChainConfig config;
-    Client::UserAccount genesis;
-
-    template <typename Archive> void serialize(Archive &ar) {
-      ar &config &genesis;
-    }
-
-    std::string ltsToString() const;
-    bool ltsFromString(const std::string &str);
-  };
+  using Checkpoint = ::pp::Checkpoint;
+  using CheckpointConfig = ::pp::CheckpointConfig;
+  using BlockChainConfig = ::pp::BlockChainConfig;
+  using GenesisAccountMeta = ::pp::GenesisAccountMeta;
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
+    Error(const chain_tx::TxError &e) : RoeErrorBase(e.code, e.message) {}
   };
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   // Error code groups
-  // State and initialization errors (1-9)
-  constexpr static int32_t E_STATE_INIT = 1;  // Ledger initialization failed
-  constexpr static int32_t E_STATE_MOUNT = 2; // Ledger mount failed
-  constexpr static int32_t E_INVALID_ARGUMENT = 3; // Invalid argument
+  constexpr static int32_t E_STATE_INIT = chain_err::E_STATE_INIT;
+  constexpr static int32_t E_STATE_MOUNT = chain_err::E_STATE_MOUNT;
+  constexpr static int32_t E_INVALID_ARGUMENT = chain_err::E_INVALID_ARGUMENT;
 
-  // Block validation errors (10-29)
-  constexpr static int32_t E_BLOCK_NOT_FOUND = 10; // Block not found
-  constexpr static int32_t E_BLOCK_SEQUENCE = 11;  // Invalid block sequence
-  constexpr static int32_t E_BLOCK_HASH = 12;  // Block hash validation failed
-  constexpr static int32_t E_BLOCK_INDEX = 13; // Block index mismatch
-  constexpr static int32_t E_BLOCK_CHAIN = 14; // Block previous hash mismatch
-  constexpr static int32_t E_BLOCK_VALIDATION =
-      15; // General block validation failed
-  constexpr static int32_t E_BLOCK_GENESIS =
-      16; // Genesis block validation failed
+  constexpr static int32_t E_BLOCK_NOT_FOUND = chain_err::E_BLOCK_NOT_FOUND;
+  constexpr static int32_t E_BLOCK_SEQUENCE = chain_err::E_BLOCK_SEQUENCE;
+  constexpr static int32_t E_BLOCK_HASH = chain_err::E_BLOCK_HASH;
+  constexpr static int32_t E_BLOCK_INDEX = chain_err::E_BLOCK_INDEX;
+  constexpr static int32_t E_BLOCK_CHAIN = chain_err::E_BLOCK_CHAIN;
+  constexpr static int32_t E_BLOCK_VALIDATION = chain_err::E_BLOCK_VALIDATION;
+  constexpr static int32_t E_BLOCK_GENESIS = chain_err::E_BLOCK_GENESIS;
 
-  // Consensus errors (30-39)
-  constexpr static int32_t E_CONSENSUS_SLOT_LEADER = 30; // Invalid slot leader
-  constexpr static int32_t E_CONSENSUS_TIMING =
-      31; // Block timestamp outside valid range
-  constexpr static int32_t E_CONSENSUS_QUERY =
-      32; // Failed to query consensus data
+  constexpr static int32_t E_CONSENSUS_SLOT_LEADER =
+      chain_err::E_CONSENSUS_SLOT_LEADER;
+  constexpr static int32_t E_CONSENSUS_TIMING = chain_err::E_CONSENSUS_TIMING;
+  constexpr static int32_t E_CONSENSUS_QUERY = chain_err::E_CONSENSUS_QUERY;
 
-  // Account errors (40-59)
-  constexpr static int32_t E_ACCOUNT_NOT_FOUND = 40; // Account not found
-  constexpr static int32_t E_ACCOUNT_EXISTS = 41;    // Account already exists
-  constexpr static int32_t E_ACCOUNT_BALANCE = 42;   // Insufficient balance
-  constexpr static int32_t E_ACCOUNT_BUFFER =
-      43; // Failed to add account to buffer
-  constexpr static int32_t E_ACCOUNT_RENEWAL =
-      44; // Account renewal validation failed
+  constexpr static int32_t E_ACCOUNT_NOT_FOUND = chain_err::E_ACCOUNT_NOT_FOUND;
+  constexpr static int32_t E_ACCOUNT_EXISTS = chain_err::E_ACCOUNT_EXISTS;
+  constexpr static int32_t E_ACCOUNT_BALANCE = chain_err::E_ACCOUNT_BALANCE;
+  constexpr static int32_t E_ACCOUNT_BUFFER = chain_err::E_ACCOUNT_BUFFER;
+  constexpr static int32_t E_ACCOUNT_RENEWAL = chain_err::E_ACCOUNT_RENEWAL;
 
-  // Transaction validation errors (60-79)
-  constexpr static int32_t E_TX_VALIDATION =
-      60;                                       // Transaction validation failed
-  constexpr static int32_t E_TX_SIGNATURE = 61; // Invalid transaction signature
-  constexpr static int32_t E_TX_FEE = 62;       // Transaction fee below minimum
-  constexpr static int32_t E_TX_AMOUNT = 63;    // Invalid transaction amount
-  constexpr static int32_t E_TX_TYPE = 64;      // Unknown transaction type
-  constexpr static int32_t E_TX_TRANSFER = 65;  // Transaction transfer failed
-  constexpr static int32_t E_TX_IDEMPOTENCY = 66; // Duplicate idempotent id
+  constexpr static int32_t E_TX_VALIDATION = chain_err::E_TX_VALIDATION;
+  constexpr static int32_t E_TX_SIGNATURE = chain_err::E_TX_SIGNATURE;
+  constexpr static int32_t E_TX_FEE = chain_err::E_TX_FEE;
+  constexpr static int32_t E_TX_AMOUNT = chain_err::E_TX_AMOUNT;
+  constexpr static int32_t E_TX_TYPE = chain_err::E_TX_TYPE;
+  constexpr static int32_t E_TX_TRANSFER = chain_err::E_TX_TRANSFER;
+  constexpr static int32_t E_TX_IDEMPOTENCY = chain_err::E_TX_IDEMPOTENCY;
   constexpr static int32_t E_TX_VALIDATION_TIMESPAN =
-      67; // Validation window exceeds max timespan
+      chain_err::E_TX_VALIDATION_TIMESPAN;
   constexpr static int32_t E_TX_TIME_OUTSIDE_WINDOW =
-      68; // Current time outside validation window
+      chain_err::E_TX_TIME_OUTSIDE_WINDOW;
 
-  // Ledger operation errors (80-89)
-  constexpr static int32_t E_LEDGER_WRITE = 80; // Failed to persist to ledger
-  constexpr static int32_t E_LEDGER_READ = 81;  // Failed to read from ledger
+  constexpr static int32_t E_LEDGER_WRITE = chain_err::E_LEDGER_WRITE;
+  constexpr static int32_t E_LEDGER_READ = chain_err::E_LEDGER_READ;
 
-  // Internal errors (90-99)
   constexpr static int32_t E_INTERNAL_DESERIALIZE =
-      90; // Deserialization failed
-  constexpr static int32_t E_INTERNAL_BUFFER =
-      91;                                   // Internal buffer operation failed
-  constexpr static int32_t E_INTERNAL = 99; // Other internal error
+      chain_err::E_INTERNAL_DESERIALIZE;
+  constexpr static int32_t E_INTERNAL_BUFFER = chain_err::E_INTERNAL_BUFFER;
+  constexpr static int32_t E_INTERNAL = chain_err::E_INTERNAL;
 
   Chain();
   ~Chain() override = default;
@@ -212,6 +155,9 @@ public:
   void refreshStakeholders();
   /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
   void refreshStakeholders(uint64_t blockSlot);
+
+  /** Non-owning view of chain subsystems for transaction handlers (Phase 2). */
+  ChainTransactionContext transactionContext();
 
 protected:
   // Validation helpers
@@ -370,12 +316,13 @@ private:
   AccountBuffer bank_;
   std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
   Checkpoint checkpoint_{};
+
+  /** Reserved for Phase 2 — one slot per Ledger::Transaction type (0..6). */
+  std::array<std::unique_ptr<ITransactionHandler>, 7> transactionHandlers_{};
 };
 
-std::ostream &operator<<(std::ostream &os,
-                         const Chain::CheckpointConfig &config);
-std::ostream &operator<<(std::ostream &os,
-                         const Chain::BlockChainConfig &config);
+std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
+std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config);
 
 } // namespace pp
 

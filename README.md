@@ -129,7 +129,8 @@ pp-ledger/
 ├── lib/              # Core utilities (logging, serialization, binary packing)
 ├── consensus/        # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
 ├── ledger/           # Blockchain storage and management
-├── server/           # Beacon and Miner server implementations
+├── chain/            # Chain, AccountBuffer, and transaction helper modules
+├── server/           # Beacon, Relay, and Miner server implementations
 ├── client/           # TCP client library
 ├── network/          # Low-level TCP networking
 ├── app/              # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
@@ -145,6 +146,7 @@ pp-ledger/
 | **lib** | Core utilities, logging, serialization | ✅ Working |
 | **consensus** | Ouroboros PoS consensus implementation | ✅ Working |
 | **ledger** | Blockchain storage, ledger, wallet management | ✅ Working |
+| **chain** | Chain orchestration, AccountBuffer, tx validation helpers | ✅ Working |
 | **server** | Beacon, Relay, and Miner server implementations | ✅ Working |
 | **client** | Client library for server communication | ✅ Working |
 | **network** | TCP networking (FetchClient/Server, TcpClient/Server) | ✅ Working |

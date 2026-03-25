@@ -1,4 +1,8 @@
 #include "Chain.h"
+#include "ChainTxFees.h"
+#include "ChainTxIdempotency.h"
+#include "ChainTxLedgerMeta.h"
+#include "ChainTxSignatures.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
@@ -6,157 +10,50 @@
 #include <filesystem>
 #include <limits>
 #include <set>
+#include <utility>
 
 namespace pp {
 
 namespace {
 
-constexpr uint64_t BYTES_PER_KIB = 1024ULL;
+template <typename T> Chain::Roe<T> mapTx(chain_tx::Roe<T> r) {
+  if (!r) {
+    return Chain::Error(r.error());
+  }
+  return std::move(r.value());
+}
 
-uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
-                           size_t index) {
-  return index < coefficients.size()
-             ? static_cast<uint64_t>(coefficients[index])
-             : 0ULL;
+Chain::Roe<void> mapTxVoid(chain_tx::Roe<void> r) {
+  if (!r) {
+    return Chain::Error(r.error());
+  }
+  return {};
 }
 
 } // namespace
 
-std::ostream &operator<<(std::ostream &os,
-                         const Chain::CheckpointConfig &config) {
-  os << "CheckpointConfig{minBlocks: " << config.minBlocks
-     << ", minAgeSeconds: " << config.minAgeSeconds << "}";
-  return os;
-}
-
-std::ostream &operator<<(std::ostream &os,
-                         const Chain::BlockChainConfig &config) {
-  os << "BlockChainConfig{genesisTime: " << config.genesisTime << ", "
-     << "slotDuration: " << config.slotDuration << ", "
-     << "slotsPerEpoch: " << config.slotsPerEpoch << ", "
-     << "maxCustomMetaSize: " << config.maxCustomMetaSize << ", "
-     << "maxTransactionsPerBlock: " << config.maxTransactionsPerBlock << ", "
-     << "minFeeCoefficients: [" << utl::join(config.minFeeCoefficients, ", ")
-     << "], "
-     << "freeCustomMetaSize: " << config.freeCustomMetaSize << ", "
-     << "checkpoint: " << config.checkpoint << ", "
-     << "maxValidationTimespanSeconds: " << config.maxValidationTimespanSeconds
-     << "}";
-  return os;
-}
-
-std::string Chain::GenesisAccountMeta::ltsToString() const {
-  std::ostringstream oss(std::ios::binary);
-  OutputArchive ar(oss);
-  ar &VERSION &*this;
-  return oss.str();
-}
-
-bool Chain::GenesisAccountMeta::ltsFromString(const std::string &str) {
-  std::istringstream iss(str, std::ios::binary);
-  InputArchive ar(iss);
-  uint32_t version = 0;
-  ar &version;
-  if (version != VERSION) {
-    return false;
-  }
-  ar &*this;
-  if (ar.failed()) {
-    return false;
-  }
-  return true;
-}
-
 Chain::Roe<uint64_t> Chain::calculateMinimumFeeFromNonFreeMetaSize(
     const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes) const {
-  if (config.minFeeCoefficients.empty()) {
-    return Error(E_TX_VALIDATION, "minFeeCoefficients must not be empty");
-  }
-  const uint64_t nonFreeSizeKiB =
-      nonFreeCustomMetaSizeBytes == 0
-          ? 0ULL
-          : (nonFreeCustomMetaSizeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
-
-  const unsigned __int128 a = getFeeCoefficient(config.minFeeCoefficients, 0);
-  const unsigned __int128 b = getFeeCoefficient(config.minFeeCoefficients, 1);
-  const unsigned __int128 c = getFeeCoefficient(config.minFeeCoefficients, 2);
-  const unsigned __int128 x = nonFreeSizeKiB;
-  const unsigned __int128 minimumFee = a + b * x + c * x * x;
-
-  if (minimumFee >
-      static_cast<unsigned __int128>(std::numeric_limits<int64_t>::max())) {
-    return Error(E_TX_VALIDATION,
-                 "Calculated minimum fee exceeds int64_t range");
-  }
-
-  return static_cast<uint64_t>(minimumFee);
+  return mapTx(chain_tx::calculateMinimumFeeFromNonFreeMetaSize(
+      config, nonFreeCustomMetaSizeBytes));
 }
 
 Chain::Roe<size_t>
 Chain::extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
                                           const Ledger::Transaction &tx) const {
-  auto toNonFree = [&](size_t customMetaSizeBytes) -> Roe<size_t> {
-    if (customMetaSizeBytes > config.maxCustomMetaSize) {
-      return Error(E_TX_VALIDATION,
-                   "Custom metadata exceeds maxCustomMetaSize: " +
-                       std::to_string(customMetaSizeBytes) + " > " +
-                       std::to_string(config.maxCustomMetaSize));
-    }
-    if (customMetaSizeBytes <= config.freeCustomMetaSize) {
-      return 0;
-    }
-    return customMetaSizeBytes - config.freeCustomMetaSize;
-  };
-
-  if (tx.meta.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-
-  switch (tx.type) {
-  case Ledger::Transaction::T_NEW_USER:
-  case Ledger::Transaction::T_USER: {
-    Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(tx.meta)) {
-      return Error(
-          E_INTERNAL_DESERIALIZE,
-          "Failed to deserialize user account metadata for fee calculation");
-    }
-    return toNonFree(userAccount.meta.size());
-  }
-  case Ledger::Transaction::T_RENEWAL: {
-    if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
-        tx.toWalletId == AccountBuffer::ID_GENESIS) {
-      GenesisAccountMeta gm;
-      if (!gm.ltsFromString(tx.meta)) {
-        return Error(
-            E_INTERNAL_DESERIALIZE,
-            "Failed to deserialize genesis metadata for fee calculation");
-      }
-      return toNonFree(gm.genesis.meta.size());
-    }
-
-    Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(tx.meta)) {
-      return Error(
-          E_INTERNAL_DESERIALIZE,
-          "Failed to deserialize renewal metadata for fee calculation");
-    }
-    return toNonFree(userAccount.meta.size());
-  }
-  default:
-    return toNonFree(tx.meta.size());
-  }
+  return mapTx(
+      chain_tx::extractNonFreeCustomMetaSizeForFee(config, tx));
 }
 
 Chain::Roe<uint64_t>
 Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
                                          const Ledger::Transaction &tx) const {
-  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
-  if (!nonFreeMetaSizeResult) {
-    return nonFreeMetaSizeResult.error();
-  }
-  return calculateMinimumFeeFromNonFreeMetaSize(config,
-                                                nonFreeMetaSizeResult.value());
+  return mapTx(chain_tx::calculateMinimumFeeForTransaction(config, tx));
+}
+
+ChainTransactionContext Chain::transactionContext() {
+  return {ledger_,       bank_,           optChainConfig_, consensus_,
+          crypto_,       checkpoint_,     log()};
 }
 
 Chain::Chain() {
@@ -345,126 +242,19 @@ uint64_t Chain::getBlockAgeSeconds(uint64_t blockId) const {
 Chain::Roe<Client::UserAccount>
 Chain::getUserAccountMetaFromBlock(const Ledger::Block &block,
                                    uint64_t accountId) const {
-  auto matchesUserAccount = [&](const Ledger::Transaction &tx) -> bool {
-    switch (tx.type) {
-    case Ledger::Transaction::T_NEW_USER:
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.toWalletId == accountId;
-    case Ledger::Transaction::T_USER:
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.fromWalletId == accountId && tx.toWalletId == accountId;
-    case Ledger::Transaction::T_RENEWAL:
-      return tx.fromWalletId == accountId &&
-             accountId != AccountBuffer::ID_GENESIS;
-    default:
-      return false;
-    }
-  };
-
-  for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend();
-       ++it) {
-    const auto &tx = it->obj;
-    if (!matchesUserAccount(tx)) {
-      continue;
-    }
-    Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(tx.meta)) {
-      return Error(E_INTERNAL_DESERIALIZE,
-                   "Failed to deserialize account info: " +
-                       std::to_string(tx.meta.size()) + " bytes");
-    }
-    return userAccount;
-  }
-
-  return Error(E_INTERNAL, "No prior user/renewal from this account in block");
+  return mapTx(chain_tx::getUserAccountMetaFromBlock(block, accountId));
 }
 
 Chain::Roe<Chain::GenesisAccountMeta>
 Chain::getGenesisAccountMetaFromBlock(const Ledger::Block &block) const {
-  auto matchesAccount = [&](const Ledger::Transaction &tx) -> bool {
-    switch (tx.type) {
-    case Ledger::Transaction::T_GENESIS:
-      // GENESIS record only happens at first block.
-      return tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
-    case Ledger::Transaction::T_CONFIG:
-    case Ledger::Transaction::T_RENEWAL:
-      return tx.fromWalletId == AccountBuffer::ID_GENESIS;
-    default:
-      return false;
-    }
-  };
-
-  for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend();
-       ++it) {
-    const auto &tx = it->obj;
-    if (!matchesAccount(tx)) {
-      continue;
-    }
-
-    GenesisAccountMeta gm;
-    if (!gm.ltsFromString(tx.meta)) {
-      return Error(E_INTERNAL_DESERIALIZE,
-                   "Failed to deserialize checkpoint: " +
-                       std::to_string(tx.meta.size()) + " bytes");
-    }
-    return gm;
-  }
-
-  return Error(E_INTERNAL,
-               "No prior checkpoint/user/renewal from this account in block");
+  return mapTx(chain_tx::getGenesisAccountMetaFromBlock(block));
 }
 
 Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee) const {
-  if (account.id == AccountBuffer::ID_GENESIS) {
-    auto metaResult = getGenesisAccountMetaFromBlock(block);
-    if (!metaResult) {
-      return metaResult.error();
-    }
-    auto gm = metaResult.value();
-    gm.genesis.wallet = account.wallet;
-
-    auto it = gm.genesis.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-    if (it != gm.genesis.wallet.mBalances.end()) {
-      const int64_t fee = static_cast<int64_t>(minFee);
-      if (it->second < std::numeric_limits<int64_t>::min() + fee) {
-        return Error(E_TX_VALIDATION,
-                     "Genesis balance underflow while applying renewal fee");
-      }
-      it->second -= fee;
-    }
-
-    return gm.ltsToString();
-  }
-
-  auto userAccountRoe = getUserAccountMetaFromBlock(block, account.id);
-  if (!userAccountRoe) {
-    return userAccountRoe.error();
-  }
-  Client::UserAccount userAccount = std::move(userAccountRoe.value());
-  userAccount.wallet = account.wallet;
-
-  // verifyBalance expects "expected" = post-renewal balance (current - fee)
-  auto it = userAccount.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-  if (it != userAccount.wallet.mBalances.end()) {
-    const int64_t fee = static_cast<int64_t>(minFee);
-    if (account.id == AccountBuffer::ID_FEE) {
-      // Fee account renewing itself: fee is paid to self, so balance may go
-      // negative temporarily; check for underflow only.
-      if (it->second < std::numeric_limits<int64_t>::min() + fee) {
-        return Error(E_TX_VALIDATION,
-                     "Fee account balance underflow while applying renewal fee");
-      }
-    } else {
-      if (it->second < fee) {
-        return Error(E_ACCOUNT_BALANCE,
-                     "Insufficient genesis balance for renewal fee");
-      }
-      it->second -= fee;
-    }
-  }
-  return userAccount.ltsToString();
+  return mapTx(chain_tx::getUpdatedAccountMetadataForRenewal(block, account,
+                                                             minFee));
 }
 
 Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
@@ -1373,48 +1163,8 @@ Chain::Roe<void> Chain::processNormalTxRecord(
 Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
     const Ledger::Transaction &tx, const std::vector<std::string> &signatures,
     const AccountBuffer::Account &account) const {
-  if (signatures.size() < account.wallet.minSignatures) {
-    return Error(
-        E_TX_SIGNATURE,
-        "Account " + std::to_string(account.id) + " must have at least " +
-            std::to_string(int(account.wallet.minSignatures)) +
-            " signatures, but has " + std::to_string(signatures.size()));
-  }
-  auto message = utl::binaryPack(tx);
-  std::vector<bool> keyUsed(account.wallet.publicKeys.size(), false);
-  for (const auto &signature : signatures) {
-    bool matched = false;
-    for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
-      if (keyUsed[i])
-        continue;
-      const auto &publicKey = account.wallet.publicKeys[i];
-      if (crypto_.verify(account.wallet.keyType, publicKey, message,
-                         signature)) {
-        keyUsed[i] = true;
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      log().error << "Invalid signature for account " +
-                         std::to_string(account.id) + ": " +
-                         utl::toJsonSafeString(signature);
-      log().error << "Expected signatures: "
-                  << int(account.wallet.minSignatures);
-      for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
-        log().error << "Public key " << i << ": "
-                    << utl::toJsonSafeString(account.wallet.publicKeys[i]);
-        log().error << "Key used: " << keyUsed[i];
-      }
-      for (const auto &sig : signatures) {
-        log().error << "Signature: " << utl::toJsonSafeString(sig);
-      }
-      return Error(E_TX_SIGNATURE,
-                   "Invalid or duplicate signature for account " +
-                       std::to_string(account.id));
-    }
-  }
-  return {};
+  return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(
+      tx, signatures, account, crypto_, log()));
 }
 
 Chain::Roe<void> Chain::validateTxSignatures(
@@ -1460,90 +1210,14 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId,
                                          uint64_t fromWalletId,
                                          uint64_t slotMin,
                                          uint64_t slotMax) const {
-  if (idempotentId == 0) {
-    return {};
-  }
-  const int64_t tsStart = consensus_.getSlotStartTime(slotMin);
-  auto startBlockRoe = ledger_.findBlockByTimestamp(tsStart);
-  if (!startBlockRoe) {
-    // No blocks at or after window start -> no duplicate
-    return {};
-  }
-  const uint64_t nextBlockId = ledger_.getNextBlockId();
-  for (uint64_t blockId = startBlockRoe.value().block.index;
-       blockId < nextBlockId; ++blockId) {
-    auto blockRoe = ledger_.readBlock(blockId);
-    if (!blockRoe) {
-      break;
-    }
-    const auto &block = blockRoe.value().block;
-    if (block.slot > slotMax) {
-      break;
-    }
-    if (block.slot < slotMin) {
-      continue;
-    }
-    for (const auto &signedTx : block.signedTxes) {
-      if (signedTx.obj.idempotentId == idempotentId &&
-          signedTx.obj.fromWalletId == fromWalletId) {
-        return Error(
-            E_TX_IDEMPOTENCY,
-            "Duplicate idempotent id: " + std::to_string(idempotentId) +
-                " for wallet: " + std::to_string(fromWalletId));
-      }
-    }
-  }
-  return {};
+  return mapTxVoid(chain_tx::checkIdempotency(ledger_, consensus_, idempotentId,
+                                              fromWalletId, slotMin, slotMax));
 }
 
 Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
                                                  uint64_t effectiveSlot, bool isStrictMode) const {
-  if (!isStrictMode) {
-    return {};
-  }
-  if (tx.idempotentId == 0) {
-    // Special value to skip idempotency check, this is dangerous, use it with caution
-    return {};
-  }
-  if (tx.validationTsMax < tx.validationTsMin) {
-    return Error(
-        E_TX_VALIDATION,
-        "Validation window invalid: validationTsMax < validationTsMin");
-  }
-  if (!optChainConfig_.has_value()) {
-    return Error(E_TX_VALIDATION,
-                 "Chain config not initialized; expected config in strict mode");
-  }
-  const uint64_t spanSeconds =
-      static_cast<uint64_t>(tx.validationTsMax - tx.validationTsMin);
-  const auto &config = optChainConfig_.value();
-
-  if (spanSeconds > config.maxValidationTimespanSeconds) {
-    return Error(E_TX_VALIDATION_TIMESPAN,
-                 "Validation window exceeds max timespan: " +
-                     std::to_string(spanSeconds) + " > " +
-                     std::to_string(config.maxValidationTimespanSeconds));
-  }
-  const uint64_t slotMin = consensus_.getSlotFromTimestamp(tx.validationTsMin);
-  const uint64_t slotMax = consensus_.getSlotFromTimestamp(tx.validationTsMax);
-  if (effectiveSlot < slotMin || effectiveSlot > slotMax) {
-    return Error(E_TX_TIME_OUTSIDE_WINDOW,
-                 "Current time (slot " + std::to_string(effectiveSlot) +
-                     ") outside validation window [slot " +
-                     std::to_string(slotMin) + ", " + std::to_string(slotMax) +
-                     "]");
-  }
-  // Only enforce idempotency against transactions that occurred strictly
-  // before the current effective slot (submit time or block slot), so that
-  // we do not treat the transaction being validated (or other txs in the same
-  // block) as duplicates.
-  if (effectiveSlot == 0 || effectiveSlot <= slotMin) {
-    // No earlier slots within the validation window to check.
-    return {};
-  }
-  const uint64_t slotMaxIdempotency = effectiveSlot - 1;
-  return checkIdempotency(tx.idempotentId, tx.fromWalletId, slotMin,
-                          slotMaxIdempotency);
+  return mapTxVoid(chain_tx::validateIdempotencyRules(
+      ledger_, consensus_, optChainConfig_, tx, effectiveSlot, isStrictMode));
 }
 
 Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
