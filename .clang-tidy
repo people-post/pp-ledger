@@ -13,7 +13,7 @@ Checks: >
 
 WarningsAsErrors: ''
 
-# Lint project code under lib/* except vendored CLI11 headers (lib/cli/include).
-HeaderFilterRegex: '^.*/(?:lib/(?!cli/include(?:/|$))|consensus|ledger|network|server|client|app)/.*'
+# Lint project code under lib/* except vendored CLI11 (lib/cli/include) and nlohmann/json (lib/json/include).
+HeaderFilterRegex: '^.*/(?:lib/(?!(?:cli|json)/include(?:/|$))|consensus|ledger|network|server|client|app)/.*'
 
 FormatStyle: none
