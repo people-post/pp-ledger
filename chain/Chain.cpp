@@ -1,4 +1,5 @@
 #include "Chain.h"
+#include "GenesisTxHandler.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "TxLedgerMeta.h"
@@ -51,7 +52,7 @@ Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
   return mapTx(chain_tx::calculateMinimumFeeForTransaction(config, tx));
 }
 
-ChainTransactionContext Chain::transactionContext() {
+ChainTxContext Chain::transactionContext() {
   return {ledger_,       bank_,           optChainConfig_, consensus_,
           crypto_,       checkpoint_,     log()};
 }
@@ -60,6 +61,8 @@ Chain::Chain() {
   redirectLogger("Chain");
   ledger_.redirectLogger(log().getFullName() + ".Ledger");
   consensus_.redirectLogger(log().getFullName() + ".Obo");
+  transactionHandlers_[Ledger::Transaction::T_GENESIS] =
+      std::make_unique<GenesisTxHandler>();
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -1098,8 +1101,14 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
 
   auto const &tx = signedTx.obj;
   switch (tx.type) {
-  case Ledger::Transaction::T_GENESIS:
-    return processSystemInit(tx);
+  case Ledger::Transaction::T_GENESIS: {
+    auto &h = transactionHandlers_[Ledger::Transaction::T_GENESIS];
+    if (!h) {
+      return Error(E_INTERNAL, "Genesis transaction handler not registered");
+    }
+    ChainTxContext ctx = transactionContext();
+    return mapTxVoid(h->applyGenesisInit(tx, ctx));
+  }
   case Ledger::Transaction::T_NEW_USER:
     return processUserInit(tx, 0, true);
   default:
@@ -1218,62 +1227,6 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
                                                  uint64_t effectiveSlot, bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
       ledger_, consensus_, optChainConfig_, tx, effectiveSlot, isStrictMode));
-}
-
-Chain::Roe<void> Chain::processSystemInit(const Ledger::Transaction &tx) {
-  log().info << "Processing system initialization transaction";
-
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return Error(E_TX_VALIDATION, "System init transaction must use genesis "
-                                  "wallet (ID_GENESIS -> ID_GENESIS)");
-  }
-  if (tx.amount != 0) {
-    return Error(E_TX_VALIDATION, "System init transaction must have amount 0");
-  }
-  if (tx.fee != 0) {
-    return Error(E_TX_VALIDATION, "System init transaction must have fee 0");
-  }
-
-  // Deserialize BlockChainConfig from transaction metadata
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(tx.meta)) {
-    return Error(E_INTERNAL_DESERIALIZE,
-                 "Failed to deserialize checkpoint config: " + tx.meta);
-  }
-
-  // Reset chain configuration
-  optChainConfig_ = gm.config;
-
-  // Reset consensus parameters
-  auto config = consensus_.getConfig();
-
-  if (config.genesisTime == 0) {
-    config.genesisTime = optChainConfig_.value().genesisTime;
-  } else if (optChainConfig_.value().genesisTime != config.genesisTime) {
-    return Error(E_TX_VALIDATION, "Genesis time mismatch");
-  }
-  config.slotDuration = optChainConfig_.value().slotDuration;
-  config.slotsPerEpoch = optChainConfig_.value().slotsPerEpoch;
-  consensus_.init(config);
-
-  AccountBuffer::Account genesisAccount;
-  genesisAccount.id = AccountBuffer::ID_GENESIS;
-  genesisAccount.blockId = 0;
-  genesisAccount.wallet = gm.genesis.wallet;
-  auto roeAddGenesis = bank_.add(genesisAccount);
-  if (!roeAddGenesis) {
-    return Error(E_INTERNAL_BUFFER,
-                 "Failed to add genesis account to buffer: " +
-                     roeAddGenesis.error().message);
-  }
-
-  log().info << "System initialized";
-  log().info << "  Version: " << gm.VERSION;
-  log().info << "  Config: " << optChainConfig_.value();
-  log().info << "  Genesis: " << gm.genesis;
-
-  return {};
 }
 
 Chain::Roe<Chain::GenesisAccountMeta>

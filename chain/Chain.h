@@ -10,10 +10,10 @@
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
-#include "TransactionContext.h"
+#include "TxContext.h"
 #include "TxError.h"
 #include "Types.h"
-#include "ITransactionHandler.h"
+#include "ITxHandler.h"
 
 #include <array>
 #include <cstdint>
@@ -157,7 +157,7 @@ public:
   void refreshStakeholders(uint64_t blockSlot);
 
   /** Non-owning view of chain subsystems for transaction handlers (Phase 2). */
-  ChainTransactionContext transactionContext();
+  ChainTxContext transactionContext();
 
 protected:
   // Validation helpers
@@ -246,7 +246,6 @@ private:
                                      uint64_t effectiveSlot, bool isStrictMode) const;
 
   // System
-  Roe<void> processSystemInit(const Ledger::Transaction &tx);
   Roe<GenesisAccountMeta> processSystemUpdateImpl(AccountBuffer &bank,
                                                   const Ledger::Transaction &tx,
                                                   uint64_t blockId, bool isStrictMode) const;
@@ -317,8 +316,8 @@ private:
   std::optional<BlockChainConfig> optChainConfig_{std::nullopt};
   Checkpoint checkpoint_{};
 
-  /** Reserved for Phase 2 — one slot per Ledger::Transaction type (0..6). */
-  std::array<std::unique_ptr<ITransactionHandler>, 7> transactionHandlers_{};
+  /** One slot per Ledger::Transaction type (0..6); nullptr = not migrated yet. */
+  std::array<std::unique_ptr<ITxHandler>, 7> transactionHandlers_{};
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);

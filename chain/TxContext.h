@@ -1,5 +1,5 @@
-#ifndef PP_LEDGER_TRANSACTION_CONTEXT_H
-#define PP_LEDGER_TRANSACTION_CONTEXT_H
+#ifndef PP_LEDGER_TX_CONTEXT_H
+#define PP_LEDGER_TX_CONTEXT_H
 
 #include "Types.h"
 #include "AccountBuffer.h"
@@ -12,7 +12,7 @@
 
 namespace pp {
 
-struct ChainTransactionContext {
+struct ChainTxContext {
   Ledger &ledger;
   AccountBuffer &bank;
   std::optional<BlockChainConfig> &optChainConfig;

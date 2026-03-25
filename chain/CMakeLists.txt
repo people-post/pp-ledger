@@ -7,7 +7,7 @@ add_library(pp_chain STATIC
     Types.cpp
     Types.h
     ErrorCodes.h
-    TransactionContext.h
+    TxContext.h
     TxError.h
     TxFees.cpp
     TxFees.h
@@ -17,7 +17,9 @@ add_library(pp_chain STATIC
     TxIdempotency.h
     TxLedgerMeta.cpp
     TxLedgerMeta.h
-    ITransactionHandler.h
+    ITxHandler.h
+    GenesisTxHandler.cpp
+    GenesisTxHandler.h
 )
 
 target_include_directories(pp_chain PUBLIC
