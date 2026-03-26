@@ -148,9 +148,7 @@ public:
   void refreshStakeholders(uint64_t blockSlot);
 
 protected:
-  // Validation helpers
   bool needsCheckpoint(const BlockChainConfig &config) const;
-  uint64_t getBlockAgeSeconds(uint64_t blockId) const;
 
 private:
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
@@ -158,8 +156,6 @@ private:
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
-  bool isValidSlotLeader(const Ledger::ChainNode &block) const;
-  bool isValidTimestamp(const Ledger::ChainNode &block) const;
   bool shouldUseStrictMode(uint64_t blockIndex) const;
 
   /** Find matching tx in block, update meta with current account state, return
@@ -181,9 +177,6 @@ private:
                                       const AccountBuffer::Account &account,
                                       uint64_t minFee) const;
 
-  Roe<void> validateBlockSequence(const Ledger::ChainNode &block) const;
-  Roe<void> validateAccountRenewals(const Ledger::ChainNode &block) const;
-  Roe<void> validateIntraBlockIdempotency(const Ledger::ChainNode &block) const;
   /** Validate idempotency rules (timespan, slot in window, duplicate id).
    * effectiveSlot is current slot (submit) or block.slot (replay). */
   Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
@@ -214,9 +207,6 @@ private:
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                bool isStrictMode);
-  Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) const;
-  Roe<void> validateNormalBlock(const Ledger::ChainNode &block,
-                                bool isStrictMode) const;
 
   Roe<void> processGenesisTxRecord(
       const Ledger::SignedData<Ledger::Transaction> &signedTx);

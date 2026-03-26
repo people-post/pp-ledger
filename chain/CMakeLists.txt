@@ -2,6 +2,8 @@
 add_library(pp_chain STATIC
     AccountBuffer.cpp
     AccountBuffer.h
+    BlockValidation.cpp
+    BlockValidation.h
     Chain.cpp
     Chain.h
     Types.cpp
