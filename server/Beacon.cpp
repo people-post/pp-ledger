@@ -1,4 +1,5 @@
 #include "Beacon.h"
+#include "../chain/TxFees.h"
 #include "../client/Client.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
@@ -312,7 +313,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   signedTx.obj.toWalletId = AccountBuffer::ID_FEE;
   signedTx.obj.amount = 0;
   signedTx.obj.meta = feeAccount.ltsToString();
-  auto feeWalletFeeResult = chain_.calculateMinimumFeeForTransaction(config, signedTx.obj);
+  auto feeWalletFeeResult =
+      chain_tx::calculateMinimumFeeForTransaction(config, signedTx.obj);
   if (!feeWalletFeeResult) {
     return Error(2, "Failed to calculate fee-wallet transaction fee: " +
                         feeWalletFeeResult.error().message);
@@ -339,11 +341,11 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
                : 0ULL;
   };
 
-    auto recycleFeeResult = chain_.calculateMinimumFeeFromNonFreeMetaSize(
+  auto recycleFeeResult = chain_tx::calculateMinimumFeeFromNonFreeMetaSize(
       config, getNonFreeMetaSize(recycleAccount.meta.size()));
   if (!recycleFeeResult) {
-      return Error(2, "Failed to calculate recycle fee: " +
-                          recycleFeeResult.error().message);
+    return Error(2, "Failed to calculate recycle fee: " +
+                      recycleFeeResult.error().message);
   }
   const int64_t recycleFee = static_cast<int64_t>(recycleFeeResult.value());
 
@@ -352,8 +354,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   int64_t reserveFee = 0;
   for (int i = 0; i < 2; ++i) {
     reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
-    auto reserveFeeResult = chain_.calculateMinimumFeeFromNonFreeMetaSize(
-      config, getNonFreeMetaSize(reserveAccount.meta.size()));
+    auto reserveFeeResult = chain_tx::calculateMinimumFeeFromNonFreeMetaSize(
+        config, getNonFreeMetaSize(reserveAccount.meta.size()));
     if (!reserveFeeResult) {
       return Error(2, "Failed to calculate reserve fee: " +
                           reserveFeeResult.error().message);

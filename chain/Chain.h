@@ -4,16 +4,16 @@
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
-#include "lib/common/Module.h"
-#include "lib/common/ResultOrError.hpp"
-#include "lib/common/Crypto.h"
-#include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
+#include "ITxHandler.h"
 #include "TxContext.h"
 #include "TxError.h"
 #include "Types.h"
-#include "ITxHandler.h"
+#include "lib/common/Crypto.h"
+#include "lib/common/Module.h"
+#include "lib/common/ResultOrError.hpp"
+#include "lib/common/Utilities.h"
 
 #include <array>
 #include <cstdint>
@@ -121,15 +121,6 @@ public:
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
-  Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
-      const BlockChainConfig &config,
-      uint64_t nonFreeCustomMetaSizeBytes) const;
-  Roe<size_t>
-  extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                     const Ledger::Transaction &tx) const;
-  Roe<uint64_t>
-  calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                    const Ledger::Transaction &tx) const;
   Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
   collectRenewals(uint64_t slot) const;
 
@@ -156,10 +147,6 @@ public:
   /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
   void refreshStakeholders(uint64_t blockSlot);
 
-  /** Subsystem bundle for transaction handlers (mutable vs const Chain). */
-  TxContext &transactionContext();
-  const TxContext &transactionContext() const;
-
 protected:
   // Validation helpers
   bool needsCheckpoint(const BlockChainConfig &config) const;
@@ -174,13 +161,6 @@ private:
   bool isValidSlotLeader(const Ledger::ChainNode &block) const;
   bool isValidTimestamp(const Ledger::ChainNode &block) const;
   bool shouldUseStrictMode(uint64_t blockIndex) const;
-
-  /** Calculate the maximum blockId for account renewals at a given block. */
-  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
-
-  /** Create a renewal or end-user transaction for a given account. */
-  Roe<Ledger::SignedData<Ledger::Transaction>>
-  createRenewalTransaction(uint64_t accountId) const;
 
   /** Find matching tx in block, update meta with current account state, return
    * serialized meta. Name reflects that meta is updated, not merely found. */
@@ -203,28 +183,40 @@ private:
 
   Roe<void> validateBlockSequence(const Ledger::ChainNode &block) const;
   Roe<void> validateAccountRenewals(const Ledger::ChainNode &block) const;
+  Roe<void> validateIntraBlockIdempotency(const Ledger::ChainNode &block) const;
+  /** Validate idempotency rules (timespan, slot in window, duplicate id).
+   * effectiveSlot is current slot (submit) or block.slot (replay). */
+  Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
+                                     uint64_t effectiveSlot,
+                                     bool isStrictMode) const;
 
-  /** Verify that signatures validly sign the transaction using the account's
-   * public keys. */
   Roe<void>
   verifySignaturesAgainstAccount(const Ledger::Transaction &tx,
                                  const std::vector<std::string> &signatures,
                                  const AccountBuffer::Account &account) const;
 
-  /** Ensure account exists in buffer, seeding from txContext_.bank on demand. */
+  /** Calculate the maximum blockId for account renewals at a given block. */
+  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
+
+  Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
+                                                  uint64_t accountId) const;
+
+  /** Ensure account exists in buffer, seeding from txContext_.bank on demand.
+   */
   Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
                                   uint64_t accountId) const;
+
+  /** Create a renewal or end-user transaction for a given account. */
+  Roe<Ledger::SignedData<Ledger::Transaction>>
+  createRenewalTx(uint64_t accountId) const;
 
   Roe<void> processBlock(const Ledger::ChainNode &block, bool isStrictMode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                bool isStrictMode);
   Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) const;
-  Roe<void> validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode) const;
-
-  /** Validate that within a single block there is at most one transaction per
-   * (fromWalletId, idempotentId) pair for idempotent-aware transaction types. */
-  Roe<void> validateIntraBlockIdempotency(const Ledger::ChainNode &block) const;
+  Roe<void> validateNormalBlock(const Ledger::ChainNode &block,
+                                bool isStrictMode) const;
 
   Roe<void> processGenesisTxRecord(
       const Ledger::SignedData<Ledger::Transaction> &signedTx);
@@ -241,56 +233,50 @@ private:
   Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId,
                              uint64_t slotMin, uint64_t slotMax) const;
 
-  /** Validate idempotency rules (timespan, slot in window, duplicate id).
-   * effectiveSlot is current slot (submit) or block.slot (replay). */
-  Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
-                                     uint64_t effectiveSlot, bool isStrictMode) const;
-
-  // System
-  Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
-                                bool isStrictMode);
+  // Tx processing
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
                                       const Ledger::Transaction &tx,
                                       uint64_t blockId) const;
+  Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
+                                bool isStrictMode);
 
   // User
-  Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId, bool isStrictMode);
   Roe<void> processBufferUserInit(AccountBuffer &bank,
                                   const Ledger::Transaction &tx,
                                   uint64_t blockId) const;
+  Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId,
+                            bool isStrictMode);
 
-  Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
-                                     uint64_t blockId, bool isStrictMode);
   Roe<void> processUserUpdate(const Ledger::Transaction &tx, uint64_t blockId,
                               bool isStrictMode);
-  Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
-                               bool isStrictMode);
-  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx,
-                                  uint64_t blockId, bool isStrictMode);
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
                                            const Ledger::Transaction &tx,
                                            uint64_t blockId) const;
+  Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
+                                     uint64_t blockId, bool isStrictMode);
+  Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
+                               bool isStrictMode);
+
   Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
                                         const Ledger::Transaction &tx,
                                         uint64_t blockId) const;
+  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx,
+                                  uint64_t blockId, bool isStrictMode);
 
-  Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
-                                                  uint64_t accountId) const;
-
-  Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
-                           bool isStrictMode);
   Roe<void> processBufferUserEnd(AccountBuffer &bank,
                                  const Ledger::Transaction &tx) const;
+  Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
+                           bool isStrictMode);
 
-  Roe<void> processBufferTransaction(AccountBuffer &bank,
-                                     const Ledger::Transaction &signedTx) const;
-  Roe<void> processTransaction(const Ledger::Transaction &tx, uint64_t blockId,
-                               bool isStrictMode);
+  Roe<void> processBufferTx(AccountBuffer &bank,
+                            const Ledger::Transaction &signedTx) const;
+  Roe<void> processTx(const Ledger::Transaction &tx, uint64_t blockId,
+                      bool isStrictMode);
 
   TxContext txContext_{};
 
   /** One slot per Ledger::Transaction type (0..6). */
-  std::array<std::unique_ptr<ITxHandler>, 7> transactionHandlers_{};
+  std::array<std::unique_ptr<ITxHandler>, 7> txHandlers_{};
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
