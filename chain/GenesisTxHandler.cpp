@@ -21,7 +21,7 @@ GenesisTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
                                                   AccountBuffer & /*bank*/,
-                                                  const BufferApplyContext &c) {
+                                                  const BufferApplyContext &c) const {
   (void)tx;
   (void)c;
   return chain_tx::TxError(
@@ -31,16 +31,25 @@ chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
 
 chain_tx::Roe<void> GenesisTxHandler::applyBlock(const TypedTx &tx,
                                                  AccountBuffer & /*bank*/,
-                                                 const BlockApplyContext &c) {
-  (void)tx;
-  (void)c;
-  return chain_tx::TxError(
-      chain_err::E_TX_TYPE,
-      "Genesis transaction type not allowed in normal block");
+                                                 const BlockApplyContext &c) const {
+  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxGenesis");
+  }
+
+  // The genesis init transaction lives in the genesis block (blockId=0) and
+  // seeds chain config + consensus + genesis account.
+  if (c.blockId != 0 || c.slotLeaderId != 0) {
+    return chain_tx::TxError(chain_err::E_TX_TYPE,
+                             "Genesis transaction type not allowed in normal block");
+  }
+
+  return applyGenesisInit(*p, c.ctx);
 }
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
-    const Ledger::TxGenesis &tx, TxContext &ctx) {
+    const Ledger::TxGenesis &tx, TxContext &ctx) const {
   log().info << "Processing system initialization transaction";
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,

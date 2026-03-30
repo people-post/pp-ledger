@@ -39,7 +39,7 @@ public:
   /** Scratch-buffer / mempool path after signature validation. */
   virtual chain_tx::Roe<void>
   applyBuffer(const TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) {
+              const BufferApplyContext &c) const {
     (void)tx;
     (void)bank;
     (void)c;
@@ -50,42 +50,12 @@ public:
   /** Committed-chain (block replay) path after signature validation. */
   virtual chain_tx::Roe<void>
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) {
+             const BlockApplyContext &c) const {
     (void)tx;
     (void)bank;
     (void)c;
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock not implemented for this handler");
-  }
-
-  /** T_GENESIS checkpoint tx after signature validation (genesis block only). */
-  virtual chain_tx::Roe<void>
-  applyGenesisInit(const Ledger::TxGenesis &tx,
-                   TxContext &ctx) {
-    (void)tx;
-    (void)ctx;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyGenesisInit not implemented for this handler");
-  }
-
-  /**
-   * T_NEW_USER: fund and register a new account. `bank` is the working
-   * buffer; `ctx.bank` is committed chain state (for buffer-mode existence).
-   * When isBufferMode, `fromWalletId` must already be present in `bank`
-   * (e.g. via AccountBuffer::seedFromCommittedIfMissing from committed ctx.bank).
-   */
-  virtual chain_tx::Roe<void>
-  applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,
-               AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-               bool isStrictMode) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)blockId;
-    (void)isBufferMode;
-    (void)isStrictMode;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyNewUser not implemented for this handler");
   }
 };
 

@@ -23,7 +23,7 @@ DefaultTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const TypedTx &tx,
                                                 AccountBuffer &bank,
-                                                const BufferApplyContext &c) {
+                                                const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxDefault>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -55,7 +55,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const TypedTx &tx,
 
 chain_tx::Roe<void> DefaultTxHandler::applyBlock(const TypedTx &tx,
                                                 AccountBuffer &bank,
-                                                const BlockApplyContext &c) {
+                                                const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxDefault>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -76,7 +76,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const TypedTx &tx,
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
-    AccountBuffer &bank) {
+    AccountBuffer &bank) const {
   if (!ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
@@ -107,7 +107,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
     const Ledger::TxDefault &tx, [[maybe_unused]] const TxContext &ctx,
-    AccountBuffer &bank) {
+    AccountBuffer &bank) const {
   if (bank.hasAccount(tx.fromWalletId)) {
     if (bank.hasAccount(tx.toWalletId)) {
       auto transferResult = bank.transferBalance(

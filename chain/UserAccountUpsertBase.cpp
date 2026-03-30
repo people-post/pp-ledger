@@ -15,7 +15,7 @@ chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx,
     AccountBuffer &bank,
-    const BlockApplyContext &c) {
+    const BlockApplyContext &c) const {
   if (auto idem = chain_tx::validateIdempotencyRules(
           c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, tx.idempotentId,
           tx.walletId, tx.validationTsMin, tx.validationTsMax, c.blockSlot,
@@ -30,7 +30,7 @@ chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const Ledger::TxUserUpdate &tx,
     AccountBuffer &bank,
-    const BufferApplyContext &c) {
+    const BufferApplyContext &c) const {
   if (auto idem = chain_tx::validateIdempotencyRules(
           c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, tx.idempotentId,
           tx.walletId, tx.validationTsMin, tx.validationTsMax, c.effectiveSlot,
@@ -57,7 +57,7 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
 chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     const Ledger::TxUserUpdate &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-    bool isStrictMode) {
+    bool isStrictMode) const {
   (void)isBufferMode;
 
   if (isStrictMode) {

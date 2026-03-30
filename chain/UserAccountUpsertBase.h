@@ -17,18 +17,18 @@ protected:
   chain_tx::Roe<void>
   applyUserUpdateBufferCommon(const Ledger::TxUserUpdate &tx,
                               AccountBuffer &bank,
-                              const BufferApplyContext &c);
+                              const BufferApplyContext &c) const;
 
   chain_tx::Roe<void>
   applyUserUpdateBlockCommon(const Ledger::TxUserUpdate &tx,
                              AccountBuffer &bank,
-                             const BlockApplyContext &c);
+                             const BlockApplyContext &c) const;
 
   chain_tx::Roe<void>
   applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
-                         bool isStrictMode);
+                         bool isStrictMode) const;
 };
 
 } // namespace pp

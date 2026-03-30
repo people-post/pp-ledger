@@ -12,15 +12,15 @@ public:
 
   chain_tx::Roe<void>
   applyBuffer(const TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) override;
+              const BufferApplyContext &c) const override;
 
   chain_tx::Roe<void>
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) override;
+             const BlockApplyContext &c) const override;
 
-  chain_tx::Roe<void>
-  applyGenesisInit(const Ledger::TxGenesis &tx,
-                   TxContext &ctx) override;
+private:
+  chain_tx::Roe<void> applyGenesisInit(const Ledger::TxGenesis &tx,
+                                      TxContext &ctx) const;
 };
 
 } // namespace pp

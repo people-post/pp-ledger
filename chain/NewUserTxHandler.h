@@ -12,16 +12,18 @@ public:
 
   chain_tx::Roe<void>
   applyBuffer(const TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) override;
+              const BufferApplyContext &c) const override;
 
   chain_tx::Roe<void>
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) override;
+             const BlockApplyContext &c) const override;
 
-  chain_tx::Roe<void>
-  applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,
-               AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-               bool isStrictMode) override;
+private:
+  chain_tx::Roe<void> applyNewUser(const Ledger::TxNewUser &tx,
+                                  const TxContext &ctx,
+                                  AccountBuffer &bank, uint64_t blockId,
+                                  bool isBufferMode,
+                                  bool isStrictMode) const;
 };
 
 } // namespace pp

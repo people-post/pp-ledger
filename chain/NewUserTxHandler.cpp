@@ -25,7 +25,7 @@ NewUserTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
                                                  AccountBuffer &bank,
-                                                 const BlockApplyContext &c) {
+                                                 const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -43,7 +43,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
 
 chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const TypedTx &tx,
                                                   AccountBuffer &bank,
-                                                  const BufferApplyContext &c) {
+                                                  const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -73,7 +73,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const TypedTx &tx,
 chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     const Ledger::TxNewUser &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-    bool isStrictMode) {
+    bool isStrictMode) const {
   if (isStrictMode) {
     if (!ctx.optChainConfig.has_value()) {
       return chain_tx::TxError(

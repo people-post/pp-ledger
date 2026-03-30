@@ -700,32 +700,16 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
                      typedRoe.error().message);
   }
 
-  switch (record.type) {
-  case Ledger::T_GENESIS: {
-    auto &h = txHandlers_[Ledger::T_GENESIS];
-    if (!h) {
-      return Error(E_INTERNAL, "Genesis transaction handler not registered");
-    }
-    const auto *tx = std::get_if<Ledger::TxGenesis>(&typedRoe.value());
-    if (!tx) {
-      return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
-                                  std::to_string(record.type));
-    }
-    return mapTxVoid(h->applyGenesisInit(*tx, txContext_));
+  auto &handler = txHandlers_[record.type];
+  if (!handler) {
+    return Error(E_INTERNAL, "Transaction handler not registered for type " +
+                                 std::to_string(record.type));
   }
-  case Ledger::T_NEW_USER:
-  {
-    const auto *tx = std::get_if<Ledger::TxNewUser>(&typedRoe.value());
-    if (!tx) {
-      return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
-                                  std::to_string(record.type));
-    }
-    return processUserInit(*tx, 0, true);
-  }
-  default:
-    return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
-                                std::to_string(record.type));
-  }
+
+  // Genesis records are applied as if they are in the genesis block (blockId=0).
+  // Slot leader is not applicable for genesis init.
+  BlockApplyContext ctx{ txContext_, 0, 0, 0, true };
+  return mapTxVoid(handler->applyBlock(typedRoe.value(), txContext_.bank, ctx));
 }
 
 Chain::Roe<void> Chain::processNormalTxRecord(
@@ -815,22 +799,6 @@ Chain::Roe<void> Chain::validateTxSignatures(
   }
   return verifySignaturesAgainstAccount(record.data, record.signatures,
                                         accountResult.value());
-}
-
-Chain::Roe<void> Chain::processUserInit(const Ledger::TxNewUser &tx,
-                                        uint64_t blockId, bool isStrictMode) {
-  log().info << "Processing user initialization transaction";
-  auto &h = txHandlers_[Ledger::T_NEW_USER];
-  if (!h) {
-    return Error(E_INTERNAL, "New user transaction handler not registered");
-  }
-  auto result = mapTxVoid(h->applyNewUser(tx, txContext_, txContext_.bank,
-                                          blockId, false, isStrictMode));
-  if (!result) {
-    return result.error();
-  }
-  log().info << "Added new user " << tx.toWalletId;
-  return {};
 }
 
 Chain::Roe<uint64_t>

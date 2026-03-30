@@ -23,7 +23,7 @@ GenesisRenewalTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
                                                          AccountBuffer &bank,
-                                                         const BufferApplyContext &c) {
+                                                         const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -50,7 +50,7 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyBlock(const TypedTx &tx,
                                                        AccountBuffer &bank,
-                                                       const BlockApplyContext &c) {
+                                                       const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -67,7 +67,7 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyBlock(const TypedTx &tx,
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
     const Ledger::TxRenewal &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
-    bool isStrictMode) {
+    bool isStrictMode) const {
   if (tx.walletId != AccountBuffer::ID_GENESIS) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,

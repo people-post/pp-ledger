@@ -21,7 +21,7 @@ EndUserTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
                                                   AccountBuffer &bank,
-                                                  const BufferApplyContext &c) {
+                                                  const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -40,7 +40,7 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
 
 chain_tx::Roe<void> EndUserTxHandler::applyBlock(const TypedTx &tx,
                                                  AccountBuffer &bank,
-                                                 const BlockApplyContext &c) {
+                                                 const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -51,7 +51,7 @@ chain_tx::Roe<void> EndUserTxHandler::applyBlock(const TypedTx &tx,
 
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
     const Ledger::TxEndUser &tx, const TxContext &ctx,
-    AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) {
+    AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) const {
   (void)ctx;
 
   if (tx.fee != 0) {

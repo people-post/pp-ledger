@@ -207,10 +207,6 @@ private:
   validateTxSignatures(const Ledger::Record &record,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
-  // User
-  Roe<void> processUserInit(const Ledger::TxNewUser &tx, uint64_t blockId,
-                            bool isStrictMode);
-
   TxContext txContext_{};
 
   /** One slot per Ledger tx type (0..6). */

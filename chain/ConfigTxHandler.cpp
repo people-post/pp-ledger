@@ -114,7 +114,7 @@ chain_tx::Roe<void> applyConfigUpdateCore(
 
 chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
                                                  AccountBuffer &bank,
-                                                 const BufferApplyContext &c) {
+                                                 const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxConfig>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -137,7 +137,7 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
 
 chain_tx::Roe<void> ConfigTxHandler::applyBlock(const TypedTx &tx,
                                                 AccountBuffer &bank,
-                                                const BlockApplyContext &c) {
+                                                const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxConfig>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -156,14 +156,14 @@ chain_tx::Roe<void> ConfigTxHandler::applyBlock(const TypedTx &tx,
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isStrictMode) {
+    uint64_t blockId, bool isStrictMode) const {
   return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
                                isStrictMode, false, nullptr);
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isStrictMode, bool commitOptChainConfig) {
+    uint64_t blockId, bool isStrictMode, bool commitOptChainConfig) const {
   std::optional<BlockChainConfig> *commitTarget =
       commitOptChainConfig ? &ctx.optChainConfig : nullptr;
   return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,

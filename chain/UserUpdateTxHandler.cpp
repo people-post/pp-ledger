@@ -20,7 +20,7 @@ UserUpdateTxHandler::getSignerAccountId(const TypedTx &tx,
 
 chain_tx::Roe<void> UserUpdateTxHandler::applyBlock(const TypedTx &tx,
                                                     AccountBuffer &bank,
-                                                    const BlockApplyContext &c) {
+                                                    const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -31,7 +31,7 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyBlock(const TypedTx &tx,
 
 chain_tx::Roe<void> UserUpdateTxHandler::applyBuffer(const TypedTx &tx,
                                                      AccountBuffer &bank,
-                                                     const BufferApplyContext &c) {
+                                                     const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
