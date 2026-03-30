@@ -104,7 +104,9 @@ nlohmann::json Ledger::TxConfig::toJson() const {
 }
 
 nlohmann::json Ledger::TxUserUpdate::toJson() const {
-  return txToJsonWithWalletIds(*this);
+  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
+  j["walletId"] = walletId;
+  return j;
 }
 
 nlohmann::json Ledger::TxRenewal::toJson() const {

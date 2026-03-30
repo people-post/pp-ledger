@@ -39,6 +39,20 @@ TxView makeTxView(const TxT &tx) {
   };
 }
 
+inline TxView makeTxView(const Ledger::TxUserUpdate &tx) {
+  return TxView{
+      .tokenId = tx.tokenId,
+      .amount = tx.amount,
+      .fee = tx.fee,
+      .meta = tx.meta,
+      .idempotentId = tx.idempotentId,
+      .validationTsMin = tx.validationTsMin,
+      .validationTsMax = tx.validationTsMax,
+      .fromWalletId = tx.walletId,
+      .toWalletId = tx.walletId,
+  };
+}
+
 Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
     const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes);
 

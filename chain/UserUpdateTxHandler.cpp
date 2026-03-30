@@ -20,12 +20,6 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
         "User update transaction must use genesis token (ID_GENESIS)");
   }
 
-  if (tx.fromWalletId != tx.toWalletId) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User update transaction must use same from and to wallet IDs");
-  }
-
   if (isStrictMode) {
     if (!ctx.optChainConfig.has_value()) {
       return chain_tx::TxError(
@@ -57,7 +51,7 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
     return chain_tx::TxError(
         chain_err::E_INTERNAL_DESERIALIZE,
         "Failed to deserialize user meta for account " +
-            std::to_string(tx.fromWalletId) + ": " +
+            std::to_string(tx.walletId) + ": " +
             std::to_string(tx.meta.size()) + " bytes");
   }
 
@@ -78,16 +72,16 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
         "User account must require at least one signature");
   }
 
-  auto bufferAccountResult = bank.getAccount(tx.fromWalletId);
+  auto bufferAccountResult = bank.getAccount(tx.walletId);
   if (!bufferAccountResult) {
     if (isStrictMode) {
       return chain_tx::TxError(
           chain_err::E_ACCOUNT_NOT_FOUND,
           "User account not found in buffer: " +
-              std::to_string(tx.fromWalletId));
+              std::to_string(tx.walletId));
     }
   } else {
-    auto balanceVerifyResult = bank.verifyBalance(tx.fromWalletId, 0, tx.fee,
+    auto balanceVerifyResult = bank.verifyBalance(tx.walletId, 0, tx.fee,
                                                     userAccount.wallet.mBalances);
     if (!balanceVerifyResult) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -95,10 +89,10 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
     }
   }
 
-  bank.remove(tx.fromWalletId);
+  bank.remove(tx.walletId);
 
   AccountBuffer::Account account;
-  account.id = tx.fromWalletId;
+  account.id = tx.walletId;
   account.blockId = blockId;
   account.wallet = userAccount.wallet;
   auto addResult = bank.add(account);

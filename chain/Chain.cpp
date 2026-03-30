@@ -382,7 +382,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
         auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(it->data);
         if (txRoe) {
           const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+          matches = (tx.walletId == walletId);
         }
         break;
       }
@@ -751,8 +751,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
     // User renewals are processed as a T_USER_UPDATE-style upsert.
     Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
-    userTx.fromWalletId = tx.fromWalletId;
-    userTx.toWalletId = tx.toWalletId;
+    userTx.walletId = tx.fromWalletId;
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
@@ -874,8 +873,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     }
     Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
-    userTx.fromWalletId = tx.fromWalletId;
-    userTx.toWalletId = tx.toWalletId;
+    userTx.walletId = tx.fromWalletId;
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
@@ -962,7 +960,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
-    signerAccountId = txRoe.value().fromWalletId;
+    signerAccountId = txRoe.value().walletId;
     break;
   }
   case Ledger::T_RENEWAL: {
@@ -1149,7 +1147,7 @@ Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxUserUpdate &tx,
   if (!result) {
     return result.error();
   }
-  log().info << "User account " << tx.fromWalletId << " updated";
+  log().info << "User account " << tx.walletId << " updated";
   return {};
 }
 
@@ -1225,11 +1223,11 @@ Chain::Roe<void>
 Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
                                       const Ledger::TxUserUpdate &tx,
                                       uint64_t blockId) const {
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  auto fromRoe = ensureAccountInBuffer(bank, tx.walletId);
   if (!fromRoe) {
     return fromRoe;
   }
-  if (tx.fee > 0 && tx.fromWalletId != AccountBuffer::ID_FEE) {
+  if (tx.fee > 0 && tx.walletId != AccountBuffer::ID_FEE) {
     auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
     if (!feeRoe) {
       return feeRoe;

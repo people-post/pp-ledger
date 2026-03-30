@@ -27,7 +27,7 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
       if (txRoe) {
         const auto &tx = txRoe.value();
         matches = accountId != AccountBuffer::ID_GENESIS &&
-                  tx.fromWalletId == accountId && tx.toWalletId == accountId;
+                  tx.walletId == accountId;
         meta = tx.meta;
       }
       break;

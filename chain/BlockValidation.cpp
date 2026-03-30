@@ -297,17 +297,17 @@ chain_tx::Roe<void>
 validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
   std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
   for (const auto &rec : block.block.records) {
-    auto handle = [&](const auto &txAny) -> chain_tx::Roe<void> {
-      if (txAny.idempotentId == 0) {
+    auto handle = [&](uint64_t txWalletId, uint64_t txIdempotentId) -> chain_tx::Roe<void> {
+      if (txIdempotentId == 0) {
         return {};
       }
-      auto key = std::make_pair(txAny.fromWalletId, txAny.idempotentId);
+      auto key = std::make_pair(txWalletId, txIdempotentId);
       if (!seenIdempotentPairs.insert(key).second) {
         return chain_tx::TxError(
             chain_err::E_TX_IDEMPOTENCY,
             "Duplicate idempotent id within block: " +
-                std::to_string(txAny.idempotentId) +
-                " for wallet: " + std::to_string(txAny.fromWalletId));
+                std::to_string(txIdempotentId) +
+                " for wallet: " + std::to_string(txWalletId));
       }
       return {};
     };
@@ -315,22 +315,22 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
     switch (rec.type) {
     case Ledger::T_DEFAULT: {
       auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
-      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
       break;
     }
     case Ledger::T_NEW_USER: {
       auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
-      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
       break;
     }
     case Ledger::T_CONFIG: {
       auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
       break;
     }
     case Ledger::T_USER_UPDATE: {
       auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
-      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      if (txRoe) { auto r = handle(txRoe->walletId, txRoe->idempotentId); if (!r) return r; }
       break;
     }
     default:

@@ -426,8 +426,7 @@ TEST(ChainTest,
       auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     case Ledger::T_RENEWAL: {
@@ -535,8 +534,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
       auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     case Ledger::T_RENEWAL: {
@@ -793,7 +791,7 @@ TEST(ChainTest,
         auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
         EXPECT_TRUE(txRoe.isOk());
         if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+        return {txRoe.value().walletId, txRoe.value().walletId};
       }
       case Ledger::T_RENEWAL: {
         auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);

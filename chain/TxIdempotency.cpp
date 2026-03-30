@@ -30,9 +30,8 @@ Roe<void> checkIdempotency(const Ledger &ledger,
       continue;
     }
     for (const auto &rec : block.records) {
-      auto check = [&](const auto &txAny) -> Roe<void> {
-        if (txAny.idempotentId == idempotentId &&
-            txAny.fromWalletId == fromWalletId) {
+      auto check = [&](uint64_t txWalletId, uint64_t txIdempotentId) -> Roe<void> {
+        if (txIdempotentId == idempotentId && txWalletId == fromWalletId) {
           return TxError(
               chain_err::E_TX_IDEMPOTENCY,
               "Duplicate idempotent id: " + std::to_string(idempotentId) +
@@ -43,22 +42,22 @@ Roe<void> checkIdempotency(const Ledger &ledger,
       switch (rec.type) {
       case Ledger::T_DEFAULT: {
         auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
-        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
         break;
       }
       case Ledger::T_NEW_USER: {
         auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
-        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
         break;
       }
       case Ledger::T_CONFIG: {
         auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
         break;
       }
       case Ledger::T_USER_UPDATE: {
         auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
-        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        if (txRoe) { auto r = check(txRoe->walletId, txRoe->idempotentId); if (!r) return r; }
         break;
       }
       default:

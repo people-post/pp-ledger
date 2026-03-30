@@ -538,16 +538,27 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 400, "Invalid JSON in request body");
     return;
   }
-  if (!body.contains("fromWalletId") || !body.contains("toWalletId") || !body.contains("amount")) {
-    setJsonError(res, 400, "fromWalletId, toWalletId, and amount are required");
-    return;
-  }
 
   const uint16_t type =
       static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::T_DEFAULT));
 
-  const uint64_t fromWalletId = jsonToUint64(body, "fromWalletId", 0);
-  const uint64_t toWalletId = jsonToUint64(body, "toWalletId", 0);
+  uint64_t fromWalletId = 0;
+  uint64_t toWalletId = 0;
+  uint64_t walletId = 0;
+  if (type == pp::Ledger::T_USER_UPDATE) {
+    if (!body.contains("walletId")) {
+      setJsonError(res, 400, "walletId is required for user_update");
+      return;
+    }
+    walletId = jsonToUint64(body, "walletId", 0);
+  } else {
+    if (!body.contains("fromWalletId") || !body.contains("toWalletId") || !body.contains("amount")) {
+      setJsonError(res, 400, "fromWalletId, toWalletId, and amount are required");
+      return;
+    }
+    fromWalletId = jsonToUint64(body, "fromWalletId", 0);
+    toWalletId = jsonToUint64(body, "toWalletId", 0);
+  }
 
   pp::Ledger::TxCommon common;
   common.tokenId = jsonToUint64(body, "tokenId", 0);
@@ -587,31 +598,35 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
       x.idempotentId = common.idempotentId;
       x.validationTsMin = common.validationTsMin;
       x.validationTsMax = common.validationTsMax;
-      x.fromWalletId = fromWalletId;
-      x.toWalletId = toWalletId;
     };
     switch (t) {
     case pp::Ledger::T_GENESIS: {
-      pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxGenesis x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_NEW_USER: {
-      pp::Ledger::TxNewUser x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_CONFIG: {
-      pp::Ledger::TxConfig x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxConfig x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_USER_UPDATE: {
-      pp::Ledger::TxUserUpdate x; fillCommon(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxUserUpdate x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_RENEWAL: {
-      pp::Ledger::TxRenewal x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxRenewal x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_END_USER: {
-      pp::Ledger::TxEndUser x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxEndUser x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_DEFAULT:
     default: {
-      pp::Ledger::TxDefault x; fillCommon(x); return pp::utl::binaryPack(x);
+      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
     }
     }
   };

@@ -88,12 +88,11 @@ public:
     nlohmann::json toJson() const;
   };
   struct TxUserUpdate : TxCommon {
-    uint64_t fromWalletId{ 0 }; // Source wallet ID
-    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t walletId{ 0 }; // Wallet ID being updated
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
-          idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & walletId & amount & fee & meta & idempotentId &
+          validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;
