@@ -30,8 +30,8 @@ add_library(pp_chain STATIC
     DefaultTxHandler.h
     EndUserTxHandler.cpp
     EndUserTxHandler.h
-    GenesisRenewalTxHandler.cpp
-    GenesisRenewalTxHandler.h
+    RenewalTxHandler.cpp
+    RenewalTxHandler.h
     NewUserTxHandler.cpp
     NewUserTxHandler.h
     UserUpdateTxHandler.cpp

@@ -1,12 +1,12 @@
-#ifndef PP_LEDGER_GENESIS_RENEWAL_TX_HANDLER_H
-#define PP_LEDGER_GENESIS_RENEWAL_TX_HANDLER_H
+#ifndef PP_LEDGER_RENEWAL_TX_HANDLER_H
+#define PP_LEDGER_RENEWAL_TX_HANDLER_H
 
 #include "UserAccountUpsertBase.h"
 
 namespace pp {
 
 /** T_RENEWAL when renewing the genesis account (miner-signed). */
-class GenesisRenewalTxHandler final : public UserAccountUpsertBase {
+class RenewalTxHandler final : public UserAccountUpsertBase {
 public:
   chain_tx::Roe<uint64_t>
   getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const override;
@@ -21,9 +21,9 @@ public:
 
 private:
   chain_tx::Roe<void>
-  applyGenesisRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
-                      AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-                      bool isStrictMode) const;
+  applyRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
+               AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
+               bool isStrictMode) const;
 };
 
 } // namespace pp

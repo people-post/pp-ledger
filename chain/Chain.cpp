@@ -3,14 +3,13 @@
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
 #include "EndUserTxHandler.h"
-#include "GenesisRenewalTxHandler.h"
+#include "RenewalTxHandler.h"
 #include "GenesisTxHandler.h"
 #include "NewUserTxHandler.h"
 #include "TxFees.h"
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
 #include "UserUpdateTxHandler.h"
-#include "RenewalUtil.h"
 #include "../ledger/TypedTx.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
@@ -64,8 +63,7 @@ Chain::Chain() {
   installHandler(Ledger::T_DEFAULT,
                  std::make_unique<DefaultTxHandler>(), "DefaultTxHandler");
   installHandler(Ledger::T_RENEWAL,
-                 std::make_unique<GenesisRenewalTxHandler>(),
-                 "GenesisRenewalTxHandler");
+                 std::make_unique<RenewalTxHandler>(), "RenewalTxHandler");
   installHandler(Ledger::T_END_USER,
                  std::make_unique<EndUserTxHandler>(), "EndUserTxHandler");
 }
