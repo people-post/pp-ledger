@@ -8,6 +8,17 @@
 
 namespace pp {
 
+chain_tx::Roe<uint64_t>
+EndUserTxHandler::getSignerAccountId(const TypedTx &tx,
+                                     uint64_t slotLeaderId) const {
+  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId: expected TxEndUser");
+  }
+  return slotLeaderId != 0 ? slotLeaderId : p->walletId;
+}
+
 chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) {

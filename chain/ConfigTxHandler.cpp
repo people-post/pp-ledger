@@ -8,6 +8,19 @@
 
 namespace pp {
 
+chain_tx::Roe<uint64_t>
+ConfigTxHandler::getSignerAccountId(const TypedTx &tx,
+                                    uint64_t slotLeaderId) const {
+  (void)slotLeaderId;
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId: expected TxConfig");
+  }
+  (void)p;
+  return AccountBuffer::ID_GENESIS;
+}
+
 namespace {
 
 chain_tx::Roe<void> applyConfigUpdateCore(

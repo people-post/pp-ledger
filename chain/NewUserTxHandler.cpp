@@ -10,6 +10,18 @@
 
 namespace pp {
 
+chain_tx::Roe<uint64_t>
+NewUserTxHandler::getSignerAccountId(const TypedTx &tx,
+                                     uint64_t slotLeaderId) const {
+  (void)slotLeaderId;
+  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId: expected TxNewUser");
+  }
+  return p->fromWalletId;
+}
+
 chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) {

@@ -39,11 +39,6 @@ Chain::Roe<void> mapTxVoid(chain_tx::Roe<void> r) {
   return {};
 }
 
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
-
 } // namespace
 
 Chain::Chain() {
@@ -789,23 +784,20 @@ Chain::Roe<void> Chain::validateTxSignatures(
                      typedRoe.error().message);
   }
 
-  const uint64_t signerAccountId = std::visit(
-      Overloaded{
-          [&](const Ledger::TxDefault &tx) { return tx.fromWalletId; },
-          [&](const Ledger::TxNewUser &tx) { return tx.fromWalletId; },
-          [&](const Ledger::TxConfig &) { return AccountBuffer::ID_GENESIS; },
-          [&](const Ledger::TxUserUpdate &tx) { return tx.walletId; },
-          // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not
-          // by walletId, when slotLeaderId is present.
-          [&](const Ledger::TxRenewal &tx) {
-            return slotLeaderId != 0 ? slotLeaderId : tx.walletId;
-          },
-          [&](const Ledger::TxEndUser &tx) {
-            return slotLeaderId != 0 ? slotLeaderId : tx.walletId;
-          },
-          [&](const Ledger::TxGenesis &) { return AccountBuffer::ID_GENESIS; },
-      },
-      typedRoe.value());
+  auto &handler = txHandlers_[record.type];
+  if (!handler) {
+    return Error(E_INTERNAL, "Transaction handler not registered for type " +
+                                 std::to_string(record.type));
+  }
+
+  auto signerAccountIdRoe =
+      handler->getSignerAccountId(typedRoe.value(), slotLeaderId);
+  if (!signerAccountIdRoe) {
+    return Error(E_TX_SIGNATURE,
+                 "Failed to resolve signer account id: " +
+                     signerAccountIdRoe.error().message);
+  }
+  const uint64_t signerAccountId = signerAccountIdRoe.value();
 
   auto accountResult = txContext_.bank.getAccount(signerAccountId);
   if (!accountResult) {

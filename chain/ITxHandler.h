@@ -23,6 +23,21 @@ class ITxHandler : public Module {
 public:
   ~ITxHandler() override = default;
 
+  /**
+   * Return the account id whose wallet must have signed this tx.
+   * Used by Chain signature validation to avoid hard-coding per-type policies.
+   *
+   * slotLeaderId is non-zero when validating txs in a normal block.
+   * Some tx types (e.g. T_RENEWAL/T_END_USER) may be miner-signed in that case.
+   */
+  virtual chain_tx::Roe<uint64_t>
+  getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const {
+    (void)tx;
+    (void)slotLeaderId;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId not implemented for this handler");
+  }
+
   /** Scratch-buffer / mempool path after signature validation. */
   virtual chain_tx::Roe<void>
   applyBuffer(const TypedTx &tx, AccountBuffer &bank,

@@ -6,6 +6,19 @@
 
 namespace pp {
 
+chain_tx::Roe<uint64_t>
+GenesisTxHandler::getSignerAccountId(const TypedTx &tx,
+                                     uint64_t slotLeaderId) const {
+  (void)slotLeaderId;
+  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId: expected TxGenesis");
+  }
+  (void)p;
+  return AccountBuffer::ID_GENESIS;
+}
+
 chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
                                                   AccountBuffer & /*bank*/,
                                                   const BufferApplyContext &c) {

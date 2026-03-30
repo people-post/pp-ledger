@@ -10,6 +10,17 @@
 
 namespace pp {
 
+chain_tx::Roe<uint64_t>
+GenesisRenewalTxHandler::getSignerAccountId(const TypedTx &tx,
+                                            uint64_t slotLeaderId) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getSignerAccountId: expected TxRenewal");
+  }
+  return slotLeaderId != 0 ? slotLeaderId : p->walletId;
+}
+
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
                                                          AccountBuffer &bank,
                                                          const BufferApplyContext &c) {

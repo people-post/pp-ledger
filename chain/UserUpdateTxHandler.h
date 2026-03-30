@@ -7,6 +7,9 @@ namespace pp {
 
 class UserUpdateTxHandler final : public ITxHandler {
 public:
+  chain_tx::Roe<uint64_t>
+  getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const override;
+
   chain_tx::Roe<void>
   applyBuffer(const TypedTx &tx, AccountBuffer &bank,
               const BufferApplyContext &c) override;
