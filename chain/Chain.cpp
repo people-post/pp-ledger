@@ -1035,7 +1035,8 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxDefault &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
+      tx.idempotentId, tx.fromWalletId, tx.validationTsMin, tx.validationTsMax,
       effectiveSlot, isStrictMode));
 }
 
@@ -1043,7 +1044,8 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxNewUser &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
+      tx.idempotentId, tx.fromWalletId, tx.validationTsMin, tx.validationTsMax,
       effectiveSlot, isStrictMode));
 }
 
@@ -1051,15 +1053,17 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxConfig &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
-      effectiveSlot, isStrictMode));
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
+      tx.idempotentId, AccountBuffer::ID_GENESIS, tx.validationTsMin,
+      tx.validationTsMax, effectiveSlot, isStrictMode));
 }
 
 Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
+      tx.idempotentId, tx.walletId, tx.validationTsMin, tx.validationTsMax,
       effectiveSlot, isStrictMode));
 }
 

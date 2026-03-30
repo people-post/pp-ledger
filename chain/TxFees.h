@@ -12,126 +12,18 @@
 
 namespace pp::chain_tx {
 
-struct TxView {
-  uint64_t tokenId{0};
-  uint64_t amount{0};
-  uint64_t fee{0};
-  std::string_view meta{};
-  uint64_t idempotentId{0};
-  int64_t validationTsMin{0};
-  int64_t validationTsMax{0};
-  uint64_t fromWalletId{0};
-  uint64_t toWalletId{0};
-};
-
-template <typename TxT>
-TxView makeTxView(const TxT &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = tx.fromWalletId,
-      .toWalletId = tx.toWalletId,
-  };
-}
-
-inline TxView makeTxView(const Ledger::TxConfig &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = AccountBuffer::ID_GENESIS,
-      .toWalletId = AccountBuffer::ID_GENESIS,
-  };
-}
-
-inline TxView makeTxView(const Ledger::TxGenesis &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = AccountBuffer::ID_GENESIS,
-      .toWalletId = AccountBuffer::ID_GENESIS,
-  };
-}
-
-inline TxView makeTxView(const Ledger::TxUserUpdate &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = tx.walletId,
-      .toWalletId = tx.walletId,
-  };
-}
-
-inline TxView makeTxView(const Ledger::TxRenewal &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = tx.walletId,
-      .toWalletId = tx.walletId,
-  };
-}
-
-inline TxView makeTxView(const Ledger::TxEndUser &tx) {
-  return TxView{
-      .tokenId = tx.tokenId,
-      .amount = tx.amount,
-      .fee = tx.fee,
-      .meta = tx.meta,
-      .idempotentId = tx.idempotentId,
-      .validationTsMin = tx.validationTsMin,
-      .validationTsMax = tx.validationTsMax,
-      .fromWalletId = tx.walletId,
-      .toWalletId = tx.walletId,
-  };
-}
-
 Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
     const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes);
 
 Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
                                                uint16_t type,
-                                               const TxView &tx);
-
-template <typename TxT>
-Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               uint16_t type,
-                                               const TxT &tx) {
-  return extractNonFreeCustomMetaSizeForFee(config, type, makeTxView(tx));
-}
+                                               std::string_view meta,
+                                               uint64_t fromWalletId);
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
                                                 uint16_t type,
-                                                const TxView &tx);
-
-template <typename TxT>
-Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                                uint16_t type, const TxT &tx) {
-  return calculateMinimumFeeForTransaction(config, type, makeTxView(tx));
-}
+                                                std::string_view meta,
+                                                uint64_t fromWalletId);
 
 /** Minimum renewal fee from serialized account meta at the account's block. */
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

@@ -19,7 +19,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
           "Chain config required for strict new-user fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), Ledger::T_NEW_USER, tx);
+        ctx.optChainConfig.value(), Ledger::T_NEW_USER, tx.meta, tx.fromWalletId);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

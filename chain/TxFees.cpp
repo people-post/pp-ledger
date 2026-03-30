@@ -49,7 +49,8 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
 }
 
 Roe<size_t> extractNonFreeCustomMetaSizeForFee(
-    const BlockChainConfig &config, uint16_t type, const TxView &tx) {
+    const BlockChainConfig &config, uint16_t type, std::string_view meta,
+    uint64_t fromWalletId) {
   auto toNonFree = [&](size_t customMetaSizeBytes) -> Roe<size_t> {
     if (customMetaSizeBytes > config.maxCustomMetaSize) {
       return TxError(chain_err::E_TX_VALIDATION,
@@ -63,7 +64,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     return customMetaSizeBytes - config.freeCustomMetaSize;
   };
 
-  if (tx.meta.size() <= config.freeCustomMetaSize) {
+  if (meta.size() <= config.freeCustomMetaSize) {
     return 0;
   }
 
@@ -71,7 +72,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
   case Ledger::T_NEW_USER:
   case Ledger::T_USER_UPDATE: {
     Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(std::string(tx.meta))) {
+    if (!userAccount.ltsFromString(std::string(meta))) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                      "Failed to deserialize user account metadata for fee "
                      "calculation");
@@ -79,9 +80,9 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     return toNonFree(userAccount.meta.size());
   }
   case Ledger::T_RENEWAL: {
-    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+    if (fromWalletId == AccountBuffer::ID_GENESIS) {
       GenesisAccountMeta gm;
-      if (!gm.ltsFromString(std::string(tx.meta))) {
+      if (!gm.ltsFromString(std::string(meta))) {
         return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                        "Failed to deserialize genesis metadata for fee "
                        "calculation");
@@ -90,7 +91,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     }
 
     Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(std::string(tx.meta))) {
+    if (!userAccount.ltsFromString(std::string(meta))) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                      "Failed to deserialize renewal metadata for fee "
                      "calculation");
@@ -98,13 +99,15 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     return toNonFree(userAccount.meta.size());
   }
   default:
-    return toNonFree(tx.meta.size());
+    return toNonFree(meta.size());
   }
 }
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(
-    const BlockChainConfig &config, uint16_t type, const TxView &tx) {
-  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, type, tx);
+    const BlockChainConfig &config, uint16_t type, std::string_view meta,
+    uint64_t fromWalletId) {
+  auto nonFreeMetaSizeResult =
+      extractNonFreeCustomMetaSizeForFee(config, type, meta, fromWalletId);
   if (!nonFreeMetaSizeResult) {
     return nonFreeMetaSizeResult.error();
   }

@@ -20,16 +20,8 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const TxView &tx, uint64_t effectiveSlot, bool isStrictMode);
-
-template <typename TxT>
-Roe<void> validateIdempotencyRules(
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
-    const std::optional<BlockChainConfig> &optChainConfig, const TxT &tx,
-    uint64_t effectiveSlot, bool isStrictMode) {
-  return validateIdempotencyRules(ledger, consensus, optChainConfig, makeTxView(tx),
-                                  effectiveSlot, isStrictMode);
-}
+    uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
+    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode);
 
 } // namespace pp::chain_tx
 

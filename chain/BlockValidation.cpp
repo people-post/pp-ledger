@@ -111,7 +111,8 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         "Genesis fee account creation transaction must have amount 0");
   }
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, feeTx);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
+                                                  feeTx.meta, feeTx.fromWalletId);
   if (!feeWalletFeeResult) {
     return chain_tx::Roe<void>(feeWalletFeeResult.error());
   }
@@ -147,7 +148,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
                              "from genesis to new user wallet");
   }
   auto reserveFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, minerTx);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
+                                                  minerTx.meta,
+                                                  minerTx.fromWalletId);
   if (!reserveFeeResult) {
     return chain_tx::Roe<void>(reserveFeeResult.error());
   }
@@ -172,7 +175,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
   }
   const auto &recycleTx = recycleTxRoe.value();
   auto recycleFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, recycleTx);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
+                                                  recycleTx.meta,
+                                                  recycleTx.fromWalletId);
   if (!recycleFeeResult) {
     return chain_tx::Roe<void>(recycleFeeResult.error());
   }

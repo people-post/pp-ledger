@@ -72,14 +72,15 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const TxView &tx, uint64_t effectiveSlot, bool isStrictMode) {
+    uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
+    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode) {
   if (!isStrictMode) {
     return {};
   }
-  if (tx.idempotentId == 0) {
+  if (idempotentId == 0) {
     return {};
   }
-  if (tx.validationTsMax < tx.validationTsMin) {
+  if (validationTsMax < validationTsMin) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Validation window invalid: validationTsMax < validationTsMin");
   }
@@ -88,7 +89,7 @@ Roe<void> validateIdempotencyRules(
                    "Chain config not initialized; expected config in strict mode");
   }
   const uint64_t spanSeconds =
-      static_cast<uint64_t>(tx.validationTsMax - tx.validationTsMin);
+      static_cast<uint64_t>(validationTsMax - validationTsMin);
   const auto &config = optChainConfig.value();
 
   if (spanSeconds > config.maxValidationTimespanSeconds) {
@@ -97,8 +98,8 @@ Roe<void> validateIdempotencyRules(
                        std::to_string(spanSeconds) + " > " +
                        std::to_string(config.maxValidationTimespanSeconds));
   }
-  const uint64_t slotMin = consensus.getSlotFromTimestamp(tx.validationTsMin);
-  const uint64_t slotMax = consensus.getSlotFromTimestamp(tx.validationTsMax);
+  const uint64_t slotMin = consensus.getSlotFromTimestamp(validationTsMin);
+  const uint64_t slotMax = consensus.getSlotFromTimestamp(validationTsMax);
   if (effectiveSlot < slotMin || effectiveSlot > slotMax) {
     return TxError(chain_err::E_TX_TIME_OUTSIDE_WINDOW,
                    "Current time (slot " + std::to_string(effectiveSlot) +
@@ -110,7 +111,7 @@ Roe<void> validateIdempotencyRules(
     return {};
   }
   const uint64_t slotMaxIdempotency = effectiveSlot - 1;
-  return checkIdempotency(ledger, consensus, tx.idempotentId, tx.fromWalletId,
+  return checkIdempotency(ledger, consensus, idempotentId, fromWalletId,
                           slotMin, slotMaxIdempotency);
 }
 

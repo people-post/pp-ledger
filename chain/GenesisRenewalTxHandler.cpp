@@ -50,7 +50,7 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
           "Chain config required for strict genesis renewal fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), Ledger::T_RENEWAL, tx);
+        ctx.optChainConfig.value(), Ledger::T_RENEWAL, tx.meta, tx.walletId);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

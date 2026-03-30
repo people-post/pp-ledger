@@ -316,7 +316,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   txFee.amount = 0;
   txFee.meta = feeAccount.ltsToString();
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(config, Ledger::T_NEW_USER, txFee);
+      chain_tx::calculateMinimumFeeForTransaction(config, Ledger::T_NEW_USER,
+                                                  txFee.meta, txFee.fromWalletId);
   if (!feeWalletFeeResult) {
     return Error(2, "Failed to calculate fee-wallet transaction fee: " +
                         feeWalletFeeResult.error().message);
