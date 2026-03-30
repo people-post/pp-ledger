@@ -36,7 +36,7 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
       auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
       if (txRoe) {
         const auto &tx = txRoe.value();
-        matches = tx.fromWalletId == accountId &&
+        matches = tx.walletId == accountId &&
                   accountId != AccountBuffer::ID_GENESIS;
         meta = tx.meta;
       }
@@ -88,7 +88,7 @@ getGenesisAccountMetaFromBlock(const Ledger::Block &block) {
       auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
       if (txRoe) {
         const auto &tx = txRoe.value();
-        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS;
+        matches = tx.walletId == AccountBuffer::ID_GENESIS;
         meta = tx.meta;
       }
       break;

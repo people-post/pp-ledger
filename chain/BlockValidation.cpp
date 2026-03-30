@@ -440,14 +440,14 @@ chain_tx::Roe<void> validateAccountRenewals(
           return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
                                    "Failed to deserialize renewal tx payload");
         }
-        accountId = txRoe.value().fromWalletId;
+        accountId = txRoe.value().walletId;
       } else {
         auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(rec.data);
         if (!txRoe) {
           return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
                                    "Failed to deserialize end-user tx payload");
         }
-        accountId = txRoe.value().fromWalletId;
+        accountId = txRoe.value().walletId;
       }
 
       auto accountResult = bank.getAccount(accountId);

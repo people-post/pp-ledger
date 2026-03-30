@@ -92,23 +92,21 @@ public:
     nlohmann::json toJson() const;
   };
   struct TxRenewal : TxCommon {
-    uint64_t fromWalletId{ 0 }; // Source wallet ID
-    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t walletId{ 0 }; // Wallet ID being renewed
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
-          idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & walletId & amount & fee & meta & idempotentId &
+          validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;
   };
   struct TxEndUser : TxCommon {
-    uint64_t fromWalletId{ 0 }; // Source wallet ID
-    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t walletId{ 0 }; // Wallet ID being ended
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
-          idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & walletId & amount & fee & meta & idempotentId &
+          validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;

@@ -545,9 +545,11 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   uint64_t fromWalletId = 0;
   uint64_t toWalletId = 0;
   uint64_t walletId = 0;
-  if (type == pp::Ledger::T_USER_UPDATE) {
+  if (type == pp::Ledger::T_USER_UPDATE ||
+      type == pp::Ledger::T_RENEWAL ||
+      type == pp::Ledger::T_END_USER) {
     if (!body.contains("walletId")) {
-      setJsonError(res, 400, "walletId is required for user_update");
+      setJsonError(res, 400, "walletId is required for this transaction type");
       return;
     }
     walletId = jsonToUint64(body, "walletId", 0);
@@ -616,12 +618,10 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
       pp::Ledger::TxUserUpdate x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_RENEWAL: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
-      pp::Ledger::TxRenewal x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxRenewal x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_END_USER: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
-      pp::Ledger::TxEndUser x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxEndUser x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_DEFAULT:
     default: {

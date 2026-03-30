@@ -10,8 +10,7 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
     const Ledger::TxRenewal &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
     bool isStrictMode) {
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
+  if (tx.walletId != AccountBuffer::ID_GENESIS) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
         "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");

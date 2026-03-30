@@ -427,16 +427,14 @@ TEST(ChainTest,
       auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     case Ledger::T_END_USER: {
       auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     default:
@@ -531,16 +529,14 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
       auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     case Ledger::T_END_USER: {
       auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
-      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
-                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      matches = (tx.walletId == AccountBuffer::ID_GENESIS);
       break;
     }
     default:
@@ -787,13 +783,13 @@ TEST(ChainTest,
         auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
         EXPECT_TRUE(txRoe.isOk());
         if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+        return {txRoe.value().walletId, txRoe.value().walletId};
       }
       case Ledger::T_END_USER: {
         auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
         EXPECT_TRUE(txRoe.isOk());
         if (!txRoe.isOk()) return {0, 0};
-        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+        return {txRoe.value().walletId, txRoe.value().walletId};
       }
       default:
         return {0, 0};

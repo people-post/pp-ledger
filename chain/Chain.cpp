@@ -205,8 +205,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
   auto const &account = accountResult.value();
   Ledger::TxRenewal tx;
   tx.tokenId = AccountBuffer::ID_GENESIS;
-  tx.fromWalletId = accountId;
-  tx.toWalletId = accountId;
+  tx.walletId = accountId;
   tx.amount = 0;
   tx.idempotentId = 0;
   tx.validationTsMin = 0;
@@ -257,8 +256,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
   if (type == Ledger::T_END_USER) {
     Ledger::TxEndUser endTx;
     endTx.tokenId = tx.tokenId;
-    endTx.fromWalletId = tx.fromWalletId;
-    endTx.toWalletId = tx.toWalletId;
+    endTx.walletId = tx.walletId;
     endTx.amount = tx.amount;
     endTx.fee = tx.fee;
     endTx.meta = tx.meta;
@@ -388,7 +386,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
         auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
         if (txRoe) {
           const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+          matches = (tx.walletId == walletId);
         }
         break;
       }
@@ -396,7 +394,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
         auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(it->data);
         if (txRoe) {
           const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+          matches = (tx.walletId == walletId);
         }
         break;
       }
@@ -743,13 +741,13 @@ Chain::Roe<void> Chain::addBufferTransaction(
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
     const auto &tx = txRoe.value();
-    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+    if (tx.walletId == AccountBuffer::ID_GENESIS) {
       return processBufferGenesisRenewal(bank, tx, blockId);
     }
     // User renewals are processed as a T_USER_UPDATE-style upsert.
     Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
-    userTx.walletId = tx.fromWalletId;
+    userTx.walletId = tx.walletId;
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
@@ -866,12 +864,12 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
     const auto &tx = txRoe.value();
-    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+    if (tx.walletId == AccountBuffer::ID_GENESIS) {
       return processGenesisRenewal(tx, blockId, isStrictMode);
     }
     Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
-    userTx.walletId = tx.fromWalletId;
+    userTx.walletId = tx.walletId;
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
@@ -967,7 +965,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
-    signerAccountId = txRoe.value().fromWalletId;
+    signerAccountId = txRoe.value().walletId;
     break;
   }
   case Ledger::T_END_USER: {
@@ -976,7 +974,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
-    signerAccountId = txRoe.value().fromWalletId;
+    signerAccountId = txRoe.value().walletId;
     break;
   }
   case Ledger::T_GENESIS: {
@@ -1163,7 +1161,7 @@ Chain::Roe<void> Chain::processUserEnd(const Ledger::TxEndUser &tx,
   if (!result) {
     return result.error();
   }
-  log().info << "User account " << tx.fromWalletId << " ended";
+  log().info << "User account " << tx.walletId << " ended";
   return {};
 }
 
@@ -1265,7 +1263,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
 Chain::Roe<void>
 Chain::processBufferUserEnd(AccountBuffer &bank,
                             const Ledger::TxEndUser &tx) const {
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
+  auto fromRoe = ensureAccountInBuffer(bank, tx.walletId);
   if (!fromRoe) {
     return fromRoe;
   }

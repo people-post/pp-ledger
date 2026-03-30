@@ -16,12 +16,6 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
         "User end transaction must use genesis token (ID_GENESIS)");
   }
 
-  if (tx.fromWalletId != tx.toWalletId) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User end transaction must use same from and to wallet IDs");
-  }
-
   if (tx.amount != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User end transaction must have amount 0");
@@ -38,19 +32,19 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
         "Chain config required for end-user minimum fee check");
   }
 
-  if (!bank.hasAccount(tx.fromWalletId)) {
+  if (!bank.hasAccount(tx.walletId)) {
     return chain_tx::TxError(
         chain_err::E_ACCOUNT_NOT_FOUND,
-        "User account not found: " + std::to_string(tx.fromWalletId));
+        "User account not found: " + std::to_string(tx.walletId));
   }
 
   auto minimumFeeResult = chain_tx::calculateMinimumFeeForAccountMeta(
-      ctx.ledger, ctx.optChainConfig.value(), bank, tx.fromWalletId);
+      ctx.ledger, ctx.optChainConfig.value(), bank, tx.walletId);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
   const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (bank.getBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS) >=
+  if (bank.getBalance(tx.walletId, AccountBuffer::ID_GENESIS) >=
       static_cast<int64_t>(minFeePerTransaction)) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
@@ -59,7 +53,7 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
             " balance in ID_GENESIS token");
   }
 
-  auto writeOffResult = bank.writeOff(tx.fromWalletId);
+  auto writeOffResult = bank.writeOff(tx.walletId);
   if (!writeOffResult) {
     return chain_tx::TxError(
         chain_err::E_INTERNAL_BUFFER,

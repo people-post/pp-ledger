@@ -79,8 +79,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     return toNonFree(userAccount.meta.size());
   }
   case Ledger::T_RENEWAL: {
-    if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
-        tx.toWalletId == AccountBuffer::ID_GENESIS) {
+    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       GenesisAccountMeta gm;
       if (!gm.ltsFromString(std::string(tx.meta))) {
         return TxError(chain_err::E_INTERNAL_DESERIALIZE,
