@@ -8,14 +8,6 @@ namespace pp {
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
     const Ledger::TxGenesis &tx, TxContext &ctx) {
   log().info << "Processing system initialization transaction";
-
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "System init transaction must use genesis wallet (ID_GENESIS -> "
-        "ID_GENESIS)");
-  }
   if (tx.amount != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "System init transaction must have amount 0");

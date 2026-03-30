@@ -1,5 +1,6 @@
 #include "TxIdempotency.h"
 #include "ErrorCodes.h"
+#include "AccountBuffer.h"
 
 namespace pp::chain_tx {
 
@@ -52,7 +53,7 @@ Roe<void> checkIdempotency(const Ledger &ledger,
       }
       case Ledger::T_CONFIG: {
         auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
+        if (txRoe) { auto r = check(AccountBuffer::ID_GENESIS, txRoe->idempotentId); if (!r) return r; }
         break;
       }
       case Ledger::T_USER_UPDATE: {

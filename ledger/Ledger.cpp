@@ -92,7 +92,7 @@ nlohmann::json Ledger::TxDefault::toJson() const {
 }
 
 nlohmann::json Ledger::TxGenesis::toJson() const {
-  return txToJsonWithWalletIds(*this);
+  return static_cast<const Ledger::TxCommon&>(*this).toJson();
 }
 
 nlohmann::json Ledger::TxNewUser::toJson() const {
@@ -100,7 +100,7 @@ nlohmann::json Ledger::TxNewUser::toJson() const {
 }
 
 nlohmann::json Ledger::TxConfig::toJson() const {
-  return txToJsonWithWalletIds(*this);
+  return static_cast<const Ledger::TxCommon&>(*this).toJson();
 }
 
 nlohmann::json Ledger::TxUserUpdate::toJson() const {

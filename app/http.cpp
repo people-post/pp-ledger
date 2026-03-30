@@ -551,6 +551,8 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
       return;
     }
     walletId = jsonToUint64(body, "walletId", 0);
+  } else if (type == pp::Ledger::T_GENESIS || type == pp::Ledger::T_CONFIG) {
+    // Genesis-only transactions: no wallet identifiers in payload.
   } else {
     if (!body.contains("fromWalletId") || !body.contains("toWalletId") || !body.contains("amount")) {
       setJsonError(res, 400, "fromWalletId, toWalletId, and amount are required");
@@ -601,16 +603,14 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     };
     switch (t) {
     case pp::Ledger::T_GENESIS: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
-      pp::Ledger::TxGenesis x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_NEW_USER: {
       auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
       pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_CONFIG: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
-      pp::Ledger::TxConfig x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxConfig x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_USER_UPDATE: {
       pp::Ledger::TxUserUpdate x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);

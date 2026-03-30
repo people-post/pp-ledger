@@ -55,12 +55,9 @@ public:
     nlohmann::json toJson() const;
   };
   struct TxGenesis : TxCommon {
-    uint64_t fromWalletId{ 0 }; // Source wallet ID
-    uint64_t toWalletId{ 0 };   // Destination wallet ID
-
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
-          idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & amount & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
     }
 
     nlohmann::json toJson() const;
@@ -77,12 +74,9 @@ public:
     nlohmann::json toJson() const;
   };
   struct TxConfig : TxCommon {
-    uint64_t fromWalletId{ 0 }; // Source wallet ID
-    uint64_t toWalletId{ 0 };   // Destination wallet ID
-
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
-          idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & amount & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
     }
 
     nlohmann::json toJson() const;

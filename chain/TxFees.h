@@ -39,6 +39,34 @@ TxView makeTxView(const TxT &tx) {
   };
 }
 
+inline TxView makeTxView(const Ledger::TxConfig &tx) {
+  return TxView{
+      .tokenId = tx.tokenId,
+      .amount = tx.amount,
+      .fee = tx.fee,
+      .meta = tx.meta,
+      .idempotentId = tx.idempotentId,
+      .validationTsMin = tx.validationTsMin,
+      .validationTsMax = tx.validationTsMax,
+      .fromWalletId = AccountBuffer::ID_GENESIS,
+      .toWalletId = AccountBuffer::ID_GENESIS,
+  };
+}
+
+inline TxView makeTxView(const Ledger::TxGenesis &tx) {
+  return TxView{
+      .tokenId = tx.tokenId,
+      .amount = tx.amount,
+      .fee = tx.fee,
+      .meta = tx.meta,
+      .idempotentId = tx.idempotentId,
+      .validationTsMin = tx.validationTsMin,
+      .validationTsMax = tx.validationTsMax,
+      .fromWalletId = AccountBuffer::ID_GENESIS,
+      .toWalletId = AccountBuffer::ID_GENESIS,
+  };
+}
+
 inline TxView makeTxView(const Ledger::TxUserUpdate &tx) {
   return TxView{
       .tokenId = tx.tokenId,

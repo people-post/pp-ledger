@@ -287,8 +287,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   // First transaction: GenesisAccountMeta
   Ledger::TxGenesis txGenesis;
   txGenesis.tokenId = AccountBuffer::ID_GENESIS;
-  txGenesis.fromWalletId = AccountBuffer::ID_GENESIS;
-  txGenesis.toWalletId = AccountBuffer::ID_GENESIS;
   txGenesis.amount = 0;
   txGenesis.fee = 0;
   txGenesis.meta = gm.ltsToString();

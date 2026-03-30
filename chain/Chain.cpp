@@ -357,8 +357,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
       case Ledger::T_GENESIS: {
         auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(it->data);
         if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+          matches = (walletId == AccountBuffer::ID_GENESIS);
         }
         break;
       }
@@ -373,8 +372,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
       case Ledger::T_CONFIG: {
         auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(it->data);
         if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+          matches = (walletId == AccountBuffer::ID_GENESIS);
         }
         break;
       }
@@ -951,7 +949,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
-    signerAccountId = txRoe.value().fromWalletId;
+    signerAccountId = AccountBuffer::ID_GENESIS;
     break;
   }
   case Ledger::T_USER_UPDATE: {
@@ -987,7 +985,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
     }
-    signerAccountId = txRoe.value().fromWalletId;
+    signerAccountId = AccountBuffer::ID_GENESIS;
     break;
   }
   default:

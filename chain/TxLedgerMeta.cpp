@@ -71,18 +71,16 @@ getGenesisAccountMetaFromBlock(const Ledger::Block &block) {
     case Ledger::T_GENESIS: {
       auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(it->data);
       if (txRoe) {
-        const auto &tx = txRoe.value();
-        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
-        meta = tx.meta;
+        matches = (block.index == 0);
+        meta = txRoe->meta;
       }
       break;
     }
     case Ledger::T_CONFIG: {
       auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(it->data);
       if (txRoe) {
-        const auto &tx = txRoe.value();
-        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS;
-        meta = tx.meta;
+        matches = true;
+        meta = txRoe->meta;
       }
       break;
     }

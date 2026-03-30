@@ -325,7 +325,7 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
     }
     case Ledger::T_CONFIG: {
       auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
+      if (txRoe) { auto r = handle(AccountBuffer::ID_GENESIS, txRoe->idempotentId); if (!r) return r; }
       break;
     }
     case Ledger::T_USER_UPDATE: {

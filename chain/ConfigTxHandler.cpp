@@ -21,13 +21,6 @@ chain_tx::Roe<void> applyConfigUpdateCore(
     logger.info << "Processing system update transaction";
   }
 
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      tx.toWalletId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "System update transaction must use genesis wallet (ID_GENESIS -> "
-        "ID_GENESIS)");
-  }
   if (tx.amount != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "System update transaction must have amount 0");
