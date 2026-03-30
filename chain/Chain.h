@@ -6,7 +6,7 @@
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
-#include "ITxHandler.h"
+#include "RecordHandler.h"
 #include "TxContext.h"
 #include "TxError.h"
 #include "Types.h"
@@ -209,8 +209,7 @@ private:
 
   TxContext txContext_{};
 
-  /** One slot per Ledger tx type (0..6). */
-  std::array<std::unique_ptr<ITxHandler>, 7> txHandlers_{};
+  RecordHandler recordHandler_{};
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);

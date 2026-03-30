@@ -110,7 +110,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have amount 0");
   }
-  const pp::TypedTx feeTypedTx(feeTx);
+  const Ledger::TypedTx feeTypedTx(feeTx);
   auto feeWalletFeeResult =
       chain_tx::calculateMinimumFeeForTransaction(gm.config, feeTypedTx);
   if (!feeWalletFeeResult) {
@@ -147,7 +147,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
                              "Genesis miner transaction must transfer "
                              "from genesis to new user wallet");
   }
-  const pp::TypedTx minerTypedTx(minerTx);
+  const Ledger::TypedTx minerTypedTx(minerTx);
   auto reserveFeeResult =
       chain_tx::calculateMinimumFeeForTransaction(gm.config, minerTypedTx);
   if (!reserveFeeResult) {
@@ -173,7 +173,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
                              "Failed to deserialize recycle tx payload");
   }
   const auto &recycleTx = recycleTxRoe.value();
-  const pp::TypedTx recycleTypedTx(recycleTx);
+  const Ledger::TypedTx recycleTypedTx(recycleTx);
   auto recycleFeeResult =
       chain_tx::calculateMinimumFeeForTransaction(gm.config, recycleTypedTx);
   if (!recycleFeeResult) {
@@ -297,47 +297,36 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
 }
 
 chain_tx::Roe<void>
-validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
+validateIntraBlockIdempotency(const Ledger::ChainNode &block,
+                               const RecordHandler &recordHandler) {
   std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
   for (const auto &rec : block.block.records) {
-    auto handle = [&](uint64_t txWalletId, uint64_t txIdempotentId) -> chain_tx::Roe<void> {
-      if (txIdempotentId == 0) {
-        return {};
-      }
-      auto key = std::make_pair(txWalletId, txIdempotentId);
-      if (!seenIdempotentPairs.insert(key).second) {
-        return chain_tx::TxError(
-            chain_err::E_TX_IDEMPOTENCY,
-            "Duplicate idempotent id within block: " +
-                std::to_string(txIdempotentId) +
-                " for wallet: " + std::to_string(txWalletId));
-      }
-      return {};
-    };
-
-    switch (rec.type) {
-    case Ledger::T_DEFAULT: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
-      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
-      break;
+    auto typedRoe = pp::Ledger::decodeRecord(rec);
+    if (!typedRoe) {
+      continue;
     }
-    case Ledger::T_NEW_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
-      if (txRoe) { auto r = handle(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
-      break;
+    if (rec.type >= RecordHandler::kNumTxTypes) {
+      continue;
     }
-    case Ledger::T_CONFIG: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-      if (txRoe) { auto r = handle(AccountBuffer::ID_GENESIS, txRoe->idempotentId); if (!r) return r; }
-      break;
+    const ITxHandler *handler = recordHandler.get(rec.type);
+    if (!handler) {
+      continue;
     }
-    case Ledger::T_USER_UPDATE: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
-      if (txRoe) { auto r = handle(txRoe->walletId, txRoe->idempotentId); if (!r) return r; }
-      break;
+    auto keyRoe = handler->getIdempotencyKey(typedRoe.value());
+    if (!keyRoe) {
+      return keyRoe.error();
     }
-    default:
-      break;
+    const auto &optKey = keyRoe.value();
+    if (!optKey.has_value()) {
+      continue;
+    }
+    auto key = optKey.value();
+    if (!seenIdempotentPairs.insert(key).second) {
+      return chain_tx::TxError(
+          chain_err::E_TX_IDEMPOTENCY,
+          "Duplicate idempotent id within block: " +
+              std::to_string(key.second) +
+              " for wallet: " + std::to_string(key.first));
     }
   }
   return {};
@@ -416,7 +405,7 @@ chain_tx::Roe<void> validateAccountRenewals(
     const Ledger::ChainNode &block, const AccountBuffer &bank,
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Checkpoint &checkpoint) {
+    const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(
       ledger, consensus, optChainConfig, checkpoint, block.block.index);
   if (!maxBlockIdResult) {
@@ -435,44 +424,49 @@ chain_tx::Roe<void> validateAccountRenewals(
   std::set<uint64_t> accountsRenewedInBlock;
 
   for (const auto &rec : block.block.records) {
-    if (rec.type == Ledger::T_RENEWAL || rec.type == Ledger::T_END_USER) {
-      uint64_t accountId = 0;
-      if (rec.type == Ledger::T_RENEWAL) {
-        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(rec.data);
-        if (!txRoe) {
-          return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
-                                   "Failed to deserialize renewal tx payload");
-        }
-        accountId = txRoe.value().walletId;
-      } else {
-        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(rec.data);
-        if (!txRoe) {
-          return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
-                                   "Failed to deserialize end-user tx payload");
-        }
-        accountId = txRoe.value().walletId;
-      }
-
-      auto accountResult = bank.getAccount(accountId);
-      if (!accountResult) {
-        return chain_tx::TxError(
-            chain_err::E_ACCOUNT_RENEWAL,
-            "Account not found in renewal transaction: " +
-                std::to_string(accountId));
-      }
-      const auto &account = accountResult.value();
-
-      if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal) {
-        return chain_tx::TxError(
-            chain_err::E_ACCOUNT_RENEWAL,
-            "Account renewal too early: account " + std::to_string(accountId) +
-                " has blockId " + std::to_string(account.blockId) +
-                " but deadline is at blockId " +
-                std::to_string(maxBlockIdForRenewal));
-      }
-
-      accountsRenewedInBlock.insert(accountId);
+    if (rec.type >= RecordHandler::kNumTxTypes) {
+      continue;
     }
+    const ITxHandler *handler = recordHandler.get(rec.type);
+    if (!handler) {
+      continue;
+    }
+    auto typedRoe = pp::Ledger::decodeRecord(rec);
+    if (!typedRoe) {
+      if (handler->participatesInAccountRenewalValidation()) {
+        return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                                 "Failed to deserialize renewal-related tx payload");
+      }
+      continue;
+    }
+    auto accountIdRoe = handler->getRenewalAccountIdIfAny(typedRoe.value());
+    if (!accountIdRoe) {
+      return accountIdRoe.error();
+    }
+    if (!accountIdRoe.value().has_value()) {
+      continue;
+    }
+    const uint64_t accountId = accountIdRoe.value().value();
+
+    auto accountResult = bank.getAccount(accountId);
+    if (!accountResult) {
+      return chain_tx::TxError(
+          chain_err::E_ACCOUNT_RENEWAL,
+          "Account not found in renewal transaction: " +
+              std::to_string(accountId));
+    }
+    const auto &account = accountResult.value();
+
+    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal) {
+      return chain_tx::TxError(
+          chain_err::E_ACCOUNT_RENEWAL,
+          "Account renewal too early: account " + std::to_string(accountId) +
+              " has blockId " + std::to_string(account.blockId) +
+              " but deadline is at blockId " +
+              std::to_string(maxBlockIdForRenewal));
+    }
+
+    accountsRenewedInBlock.insert(accountId);
   }
 
   for (uint64_t accountId : accountsNeedingRenewal) {
@@ -494,7 +488,8 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                      const Ledger &ledger, const consensus::Ouroboros &consensus,
                      const AccountBuffer &bank,
                      const std::optional<BlockChainConfig> &optChainConfig,
-                     const Checkpoint &checkpoint) {
+                     const Checkpoint &checkpoint,
+                     const RecordHandler &recordHandler) {
   std::string calculatedHash = calculateBlockHash(block.block);
   if (calculatedHash != block.hash) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
@@ -530,7 +525,8 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
     }
 
     auto renewalValidation = validateAccountRenewals(
-        block, bank, ledger, consensus, optChainConfig, checkpoint);
+        block, bank, ledger, consensus, optChainConfig, checkpoint,
+        recordHandler);
     if (!renewalValidation) {
       return renewalValidation;
     }
@@ -544,7 +540,11 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
         optChainConfig.value().maxTransactionsPerBlock;
     if (maxTx > 0 && block.block.records.size() > maxTx) {
       for (const auto &rec : block.block.records) {
-        if (rec.type != Ledger::T_RENEWAL) {
+        const ITxHandler *h =
+            rec.type < RecordHandler::kNumTxTypes
+                ? recordHandler.get(rec.type)
+                : nullptr;
+        if (h == nullptr || !h->isRenewalTx()) {
           return chain_tx::TxError(
               chain_err::E_BLOCK_VALIDATION,
               "Block has more than max transactions per block (" +
@@ -554,7 +554,7 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
         }
       }
     }
-    auto intraBlockIdem = validateIntraBlockIdempotency(block);
+    auto intraBlockIdem = validateIntraBlockIdempotency(block, recordHandler);
     if (!intraBlockIdem) {
       return intraBlockIdem;
     }

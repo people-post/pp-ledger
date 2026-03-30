@@ -8,14 +8,22 @@ namespace pp {
 class EndUserTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<uint64_t>
-  getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const override;
+  getSignerAccountId(const Ledger::TypedTx &tx, uint64_t slotLeaderId) const override;
+
+  bool participatesInAccountRenewalValidation() const override { return true; }
+
+  chain_tx::Roe<bool>
+  matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const override;
+
+  chain_tx::Roe<std::optional<uint64_t>>
+  getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const override;
 
   chain_tx::Roe<void>
-  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
               const BufferApplyContext &c) const override;
 
   chain_tx::Roe<void>
-  applyBlock(const TypedTx &tx, AccountBuffer &bank,
+  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) const override;
 
 private:

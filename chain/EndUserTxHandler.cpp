@@ -2,14 +2,13 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "../ledger/TypedTx.h"
 
 #include <variant>
 
 namespace pp {
 
 chain_tx::Roe<uint64_t>
-EndUserTxHandler::getSignerAccountId(const TypedTx &tx,
+EndUserTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
   if (!p) {
@@ -19,7 +18,28 @@ EndUserTxHandler::getSignerAccountId(const TypedTx &tx,
   return slotLeaderId != 0 ? slotLeaderId : p->walletId;
 }
 
-chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
+chain_tx::Roe<bool>
+EndUserTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
+                                        uint64_t walletId) const {
+  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "matchesWalletForIndex: expected TxEndUser");
+  }
+  return p->walletId == walletId;
+}
+
+chain_tx::Roe<std::optional<uint64_t>>
+EndUserTxHandler::getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getRenewalAccountIdIfAny: expected TxEndUser");
+  }
+  return std::optional<uint64_t>(p->walletId);
+}
+
+chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
@@ -38,7 +58,7 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
   return applyEndUser(*p, c.ctx, bank, true);
 }
 
-chain_tx::Roe<void> EndUserTxHandler::applyBlock(const TypedTx &tx,
+chain_tx::Roe<void> EndUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxEndUser>(&tx);

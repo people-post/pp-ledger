@@ -3,7 +3,6 @@
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "Types.h"
-#include "../ledger/TypedTx.h"
 
 #include <variant>
 
@@ -22,7 +21,7 @@ Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
 }
 
 chain_tx::Roe<uint64_t>
-RenewalTxHandler::getSignerAccountId(const TypedTx &tx,
+RenewalTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
@@ -32,7 +31,28 @@ RenewalTxHandler::getSignerAccountId(const TypedTx &tx,
   return slotLeaderId != 0 ? slotLeaderId : p->walletId;
 }
 
-chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const TypedTx &tx,
+chain_tx::Roe<bool>
+RenewalTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
+                                        uint64_t walletId) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "matchesWalletForIndex: expected TxRenewal");
+  }
+  return p->walletId == walletId;
+}
+
+chain_tx::Roe<std::optional<uint64_t>>
+RenewalTxHandler::getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getRenewalAccountIdIfAny: expected TxRenewal");
+  }
+  return std::optional<uint64_t>(p->walletId);
+}
+
+chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
@@ -59,7 +79,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const TypedTx &tx,
   return applyUserUpdateBufferCommon(userUpsert, bank, c);
 }
 
-chain_tx::Roe<void> RenewalTxHandler::applyBlock(const TypedTx &tx,
+chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
@@ -107,7 +127,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
           chain_err::E_INTERNAL,
           "Chain config required for strict genesis renewal fee validation");
     }
-    const pp::TypedTx typedTx(tx);
+    const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
         ctx.optChainConfig.value(), typedTx);
     if (!minimumFeeResult) {

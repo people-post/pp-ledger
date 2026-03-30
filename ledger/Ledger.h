@@ -10,6 +10,7 @@
 #include <string>
 #include <memory>
 #include <optional>
+#include <variant>
 #include <json.hpp>
 
 namespace pp {
@@ -116,6 +117,10 @@ public:
     nlohmann::json toJson() const;
   };
 
+  /** In-memory typed transaction payload for centralized dispatch. */
+  using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
+                               TxUserUpdate, TxRenewal, TxEndUser>;
+
   struct Record {
     uint16_t type{T_DEFAULT};
     std::string data; // Packed typed transaction payload (binaryPack(TxX))
@@ -183,6 +188,9 @@ public:
   };
 
   template <typename T> using Roe = ResultOrError<T, Error>;
+
+  /** Decode a Record's packed payload into TypedTx. */
+  static Roe<TypedTx> decodeRecord(const Record &rec);
 
   Ledger();
   ~Ledger() override = default;

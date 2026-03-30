@@ -6,6 +6,8 @@ add_library(pp_chain STATIC
     BlockValidation.h
     Chain.cpp
     Chain.h
+    RecordHandler.cpp
+    RecordHandler.h
     Types.cpp
     Types.h
     ErrorCodes.h

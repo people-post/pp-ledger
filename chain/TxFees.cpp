@@ -102,7 +102,7 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
 }
 
 Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const pp::TypedTx &tx) {
+                                               const Ledger::TypedTx &tx) {
   return std::visit(
       Overloaded{
           [&](const Ledger::TxNewUser &t) -> Roe<size_t> {
@@ -125,7 +125,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
 }
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                                const pp::TypedTx &tx) {
+                                                const Ledger::TypedTx &tx) {
   auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
   if (!nonFreeMetaSizeResult) {
     return nonFreeMetaSizeResult.error();

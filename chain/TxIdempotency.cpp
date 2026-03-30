@@ -1,8 +1,6 @@
 #include "TxIdempotency.h"
 #include "ErrorCodes.h"
 #include "AccountBuffer.h"
-#include "../ledger/TypedTx.h"
-
 #include <variant>
 
 namespace pp::chain_tx {
@@ -50,7 +48,7 @@ Roe<void> checkIdempotency(const Ledger &ledger,
         }
         return {};
       };
-      auto typedRoe = pp::decodeRecordToTypedTx(rec);
+      auto typedRoe = Ledger::decodeRecord(rec);
       if (!typedRoe) {
         continue;
       }

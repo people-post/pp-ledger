@@ -6,6 +6,7 @@
 #include "Types.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
+#include "RecordHandler.h"
 
 #include <cstdint>
 #include <optional>
@@ -21,7 +22,8 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block);
 chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
                                           const Ledger::ChainNode &block);
 
-chain_tx::Roe<void> validateIntraBlockIdempotency(const Ledger::ChainNode &block);
+chain_tx::Roe<void> validateIntraBlockIdempotency(
+    const Ledger::ChainNode &block, const RecordHandler &recordHandler);
 
 uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
                             const consensus::Ouroboros &consensus);
@@ -39,14 +41,15 @@ chain_tx::Roe<void> validateAccountRenewals(
     const Ledger::ChainNode &block, const AccountBuffer &bank,
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Checkpoint &checkpoint);
+    const Checkpoint &checkpoint, const RecordHandler &recordHandler);
 
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                     const Ledger &ledger, const consensus::Ouroboros &consensus,
                     const AccountBuffer &bank,
                     const std::optional<BlockChainConfig> &optChainConfig,
-                    const Checkpoint &checkpoint);
+                    const Checkpoint &checkpoint,
+                    const RecordHandler &recordHandler);
 
 } // namespace pp::chain_block
 

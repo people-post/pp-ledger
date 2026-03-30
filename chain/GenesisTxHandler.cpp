@@ -2,12 +2,11 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "Types.h"
-#include "../ledger/TypedTx.h"
 
 namespace pp {
 
 chain_tx::Roe<uint64_t>
-GenesisTxHandler::getSignerAccountId(const TypedTx &tx,
+GenesisTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   (void)slotLeaderId;
   const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
@@ -19,7 +18,19 @@ GenesisTxHandler::getSignerAccountId(const TypedTx &tx,
   return AccountBuffer::ID_GENESIS;
 }
 
-chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
+chain_tx::Roe<bool>
+GenesisTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
+                                        uint64_t walletId) const {
+  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "matchesWalletForIndex: expected TxGenesis");
+  }
+  (void)p;
+  return walletId == AccountBuffer::ID_GENESIS;
+}
+
+chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer & /*bank*/,
                                                   const BufferApplyContext &c) const {
   (void)tx;
@@ -29,7 +40,7 @@ chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
       "Genesis transaction not allowed in buffer mode");
 }
 
-chain_tx::Roe<void> GenesisTxHandler::applyBlock(const TypedTx &tx,
+chain_tx::Roe<void> GenesisTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer & /*bank*/,
                                                  const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxGenesis>(&tx);

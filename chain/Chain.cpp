@@ -1,16 +1,9 @@
 #include "Chain.h"
 #include "BlockValidation.h"
-#include "ConfigTxHandler.h"
-#include "DefaultTxHandler.h"
-#include "EndUserTxHandler.h"
-#include "RenewalTxHandler.h"
-#include "GenesisTxHandler.h"
-#include "NewUserTxHandler.h"
+#include "RecordHandler.h"
 #include "TxFees.h"
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
-#include "UserUpdateTxHandler.h"
-#include "../ledger/TypedTx.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
@@ -43,29 +36,7 @@ Chain::Chain() {
   redirectLogger("Chain");
   txContext_.ledger.redirectLogger(log().getFullName() + ".Ledger");
   txContext_.consensus.redirectLogger(log().getFullName() + ".Obo");
-
-  auto installHandler = [this](std::size_t type,
-                               std::unique_ptr<ITxHandler> handler,
-                               const char *suffix) {
-    handler->redirectLogger(log().getFullName() + "." + suffix);
-    txHandlers_[type] = std::move(handler);
-  };
-
-  installHandler(Ledger::T_GENESIS,
-                 std::make_unique<GenesisTxHandler>(), "GenesisTxHandler");
-  installHandler(Ledger::T_CONFIG,
-                 std::make_unique<ConfigTxHandler>(), "ConfigTxHandler");
-  installHandler(Ledger::T_NEW_USER,
-                 std::make_unique<NewUserTxHandler>(), "NewUserTxHandler");
-  installHandler(Ledger::T_USER_UPDATE,
-                 std::make_unique<UserUpdateTxHandler>(),
-                 "UserUpdateTxHandler");
-  installHandler(Ledger::T_DEFAULT,
-                 std::make_unique<DefaultTxHandler>(), "DefaultTxHandler");
-  installHandler(Ledger::T_RENEWAL,
-                 std::make_unique<RenewalTxHandler>(), "RenewalTxHandler");
-  installHandler(Ledger::T_END_USER,
-                 std::make_unique<EndUserTxHandler>(), "EndUserTxHandler");
+  recordHandler_.redirectLoggers(log().getFullName());
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -333,63 +304,15 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
     auto const &recs = blockRoe.value().block.records;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
       bool matches = false;
-      switch (it->type) {
-      case Ledger::T_DEFAULT: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(it->data);
-        if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+      auto typedRoe = Ledger::decodeRecord(*it);
+      if (typedRoe) {
+        auto *handler = recordHandler_.get(it->type);
+        if (handler) {
+          auto matchRoe = handler->matchesWalletForIndex(typedRoe.value(), walletId);
+          if (matchRoe) {
+            matches = matchRoe.value();
+          }
         }
-        break;
-      }
-      case Ledger::T_GENESIS: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(it->data);
-        if (txRoe) {
-          matches = (walletId == AccountBuffer::ID_GENESIS);
-        }
-        break;
-      }
-      case Ledger::T_NEW_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(it->data);
-        if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
-        }
-        break;
-      }
-      case Ledger::T_CONFIG: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(it->data);
-        if (txRoe) {
-          matches = (walletId == AccountBuffer::ID_GENESIS);
-        }
-        break;
-      }
-      case Ledger::T_USER_UPDATE: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(it->data);
-        if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.walletId == walletId);
-        }
-        break;
-      }
-      case Ledger::T_RENEWAL: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
-        if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.walletId == walletId);
-        }
-        break;
-      }
-      case Ledger::T_END_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(it->data);
-        if (txRoe) {
-          const auto &tx = txRoe.value();
-          matches = (tx.walletId == walletId);
-        }
-        break;
-      }
-      default:
-        break;
       }
       if (matches) {
         out.push_back(*it);
@@ -624,7 +547,8 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
                                            bool isStrictMode) {
   auto roe = mapTxVoid(chain_block::validateNormalBlock(
       block, isStrictMode, txContext_.ledger, txContext_.consensus,
-      txContext_.bank, txContext_.optChainConfig, txContext_.checkpoint));
+      txContext_.bank, txContext_.optChainConfig, txContext_.checkpoint,
+      recordHandler_));
   if (!roe) {
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +
@@ -664,14 +588,14 @@ Chain::Roe<void> Chain::addBufferTransaction(
 
   auto blockId = getNextBlockId();
   const uint64_t currentSlot = getCurrentSlot();
-  auto typedRoe = decodeRecordToTypedTx(record);
+  auto typedRoe = Ledger::decodeRecord(record);
   if (!typedRoe) {
     return Error(E_INVALID_ARGUMENT,
                  "Invalid packed transaction payload: " +
                      typedRoe.error().message);
   }
 
-  auto &handler = txHandlers_[record.type];
+  auto *handler = recordHandler_.get(record.type);
   if (!handler) {
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                 std::to_string(record.type));
@@ -691,14 +615,14 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto typedRoe = decodeRecordToTypedTx(record);
+  auto typedRoe = Ledger::decodeRecord(record);
   if (!typedRoe) {
     return Error(E_INVALID_ARGUMENT,
                  "Invalid packed transaction payload: " +
                      typedRoe.error().message);
   }
 
-  auto &handler = txHandlers_[record.type];
+  auto *handler = recordHandler_.get(record.type);
   if (!handler) {
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                  std::to_string(record.type));
@@ -719,14 +643,14 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto typedRoe = decodeRecordToTypedTx(record);
+  auto typedRoe = Ledger::decodeRecord(record);
   if (!typedRoe) {
     return Error(E_INVALID_ARGUMENT,
                  "Invalid packed transaction payload: " +
                      typedRoe.error().message);
   }
 
-  auto &handler = txHandlers_[record.type];
+  auto *handler = recordHandler_.get(record.type);
   if (!handler) {
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                  std::to_string(record.type));
@@ -754,14 +678,14 @@ Chain::Roe<void> Chain::validateTxSignatures(
                  "Transaction must have at least one signature");
   }
 
-  auto typedRoe = decodeRecordToTypedTx(record);
+  auto typedRoe = Ledger::decodeRecord(record);
   if (!typedRoe) {
     return Error(E_INVALID_ARGUMENT,
                  "Invalid packed transaction payload: " +
                      typedRoe.error().message);
   }
 
-  auto &handler = txHandlers_[record.type];
+  auto *handler = recordHandler_.get(record.type);
   if (!handler) {
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                  std::to_string(record.type));

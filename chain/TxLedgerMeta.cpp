@@ -1,9 +1,8 @@
 #include "TxLedgerMeta.h"
 #include "ErrorCodes.h"
-#include "../ledger/TypedTx.h"
+#include "ledger/Ledger.h"
 
 #include <limits>
-#include <variant>
 
 namespace pp::chain_tx {
 
@@ -18,7 +17,7 @@ Roe<Client::UserAccount>
 getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto typedRoe = pp::decodeRecordToTypedTx(*it);
+    auto typedRoe = Ledger::decodeRecord(*it);
     if (!typedRoe) {
       continue;
     }
@@ -64,7 +63,7 @@ Roe<GenesisAccountMeta>
 getGenesisAccountMetaFromBlock(const Ledger::Block &block) {
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto typedRoe = pp::decodeRecordToTypedTx(*it);
+    auto typedRoe = Ledger::decodeRecord(*it);
     if (!typedRoe) {
       continue;
     }

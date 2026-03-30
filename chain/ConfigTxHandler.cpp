@@ -3,14 +3,13 @@
 #include "ErrorCodes.h"
 #include "TxIdempotency.h"
 #include "Types.h"
-#include "../ledger/TypedTx.h"
 
 #include <variant>
 
 namespace pp {
 
 chain_tx::Roe<uint64_t>
-ConfigTxHandler::getSignerAccountId(const TypedTx &tx,
+ConfigTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                     uint64_t slotLeaderId) const {
   (void)slotLeaderId;
   const auto *p = std::get_if<Ledger::TxConfig>(&tx);
@@ -20,6 +19,32 @@ ConfigTxHandler::getSignerAccountId(const TypedTx &tx,
   }
   (void)p;
   return AccountBuffer::ID_GENESIS;
+}
+
+chain_tx::Roe<bool>
+ConfigTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
+                                       uint64_t walletId) const {
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "matchesWalletForIndex: expected TxConfig");
+  }
+  (void)p;
+  return walletId == AccountBuffer::ID_GENESIS;
+}
+
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+ConfigTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getIdempotencyKey: expected TxConfig");
+  }
+  if (p->idempotentId == 0) {
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+  return std::optional<std::pair<uint64_t, uint64_t>>(
+      std::make_pair(AccountBuffer::ID_GENESIS, p->idempotentId));
 }
 
 namespace {
@@ -112,7 +137,7 @@ chain_tx::Roe<void> applyConfigUpdateCore(
 
 } // namespace
 
-chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
+chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxConfig>(&tx);
@@ -135,7 +160,7 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
   return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
 }
 
-chain_tx::Roe<void> ConfigTxHandler::applyBlock(const TypedTx &tx,
+chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                 AccountBuffer &bank,
                                                 const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxConfig>(&tx);

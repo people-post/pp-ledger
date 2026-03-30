@@ -1,5 +1,4 @@
 #include "Ledger.h"
-#include "TypedTx.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
@@ -8,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <sstream>
+#include <string>
 
 namespace pp {
 
@@ -25,11 +25,6 @@ std::string transactionTypeToHumanString(uint16_t type) {
     default: return "unknown_" + std::to_string(type);
   }
 }
-
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
 
 } // namespace
 
@@ -161,12 +156,73 @@ nlohmann::json Ledger::Record::toJson() const {
 
   // Unpack the typed transaction payload into structured JSON.
   // If unpack fails (corrupt/unknown payload), fall back to JSON-safe string.
-  auto typedRoe = decodeRecordToTypedTx(*this);
-  if (typedRoe) {
-    j["data"] = std::visit(
-        Overloaded{[&](const auto &tx) { return tx.toJson(); }}, typedRoe.value());
-  } else {
+  switch (type) {
+  case Ledger::T_DEFAULT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_GENESIS: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_NEW_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_CONFIG: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_USER_UPDATE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_RENEWAL: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  case Ledger::T_END_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
+    if (txRoe) {
+      j["data"] = txRoe.value().toJson();
+    } else {
+      j["data"] = utl::toJsonSafeString(data);
+    }
+    break;
+  }
+  default:
     j["data"] = utl::toJsonSafeString(data);
+    break;
   }
 
   nlohmann::json sigArray = nlohmann::json::array();
@@ -175,6 +231,71 @@ nlohmann::json Ledger::Record::toJson() const {
   }
   j["signatures"] = sigArray;
   return j;
+}
+
+Ledger::Roe<Ledger::TypedTx>
+Ledger::decodeRecord(const Ledger::Record &rec) {
+  switch (rec.type) {
+  case Ledger::T_DEFAULT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxDefault payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_GENESIS: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxGenesis payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_NEW_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxNewUser payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_CONFIG: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxConfig payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_USER_UPDATE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxUserUpdate payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_RENEWAL: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxRenewal payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_END_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(rec.data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxEndUser payload: " +
+                                  txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  default:
+    return Ledger::Error(1, "Unknown transaction type: " +
+                                std::to_string(rec.type));
+  }
 }
 
 nlohmann::json Ledger::Block::toJson() const {

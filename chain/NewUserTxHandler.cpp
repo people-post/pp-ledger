@@ -4,7 +4,6 @@
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "../client/Client.h"
-#include "../ledger/TypedTx.h"
 
 #include <string>
 #include <variant>
@@ -12,7 +11,7 @@
 namespace pp {
 
 chain_tx::Roe<uint64_t>
-NewUserTxHandler::getSignerAccountId(const TypedTx &tx,
+NewUserTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   (void)slotLeaderId;
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
@@ -23,7 +22,32 @@ NewUserTxHandler::getSignerAccountId(const TypedTx &tx,
   return p->fromWalletId;
 }
 
-chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
+chain_tx::Roe<bool>
+NewUserTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
+                                        uint64_t walletId) const {
+  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "matchesWalletForIndex: expected TxNewUser");
+  }
+  return p->fromWalletId == walletId || p->toWalletId == walletId;
+}
+
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+NewUserTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "getIdempotencyKey: expected TxNewUser");
+  }
+  if (p->idempotentId == 0) {
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+  return std::optional<std::pair<uint64_t, uint64_t>>(
+      std::make_pair(p->fromWalletId, p->idempotentId));
+}
+
+chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
@@ -41,7 +65,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
   return applyNewUser(*p, c.ctx, bank, c.blockId, false, c.isStrictMode);
 }
 
-chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const TypedTx &tx,
+chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
@@ -80,7 +104,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
           chain_err::E_INTERNAL,
           "Chain config required for strict new-user fee validation");
     }
-    const pp::TypedTx typedTx(tx);
+    const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
         ctx.optChainConfig.value(), typedTx);
     if (!minimumFeeResult) {

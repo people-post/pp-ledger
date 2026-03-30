@@ -5,7 +5,6 @@
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "../client/Client.h"
-#include "../ledger/TypedTx.h"
 
 #include <string>
 
@@ -66,7 +65,7 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
           chain_err::E_INTERNAL,
           "Chain config required for strict user-update fee validation");
     }
-    const pp::TypedTx typedTx(tx);
+  const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
         ctx.optChainConfig.value(), typedTx);
     if (!minimumFeeResult) {

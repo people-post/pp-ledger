@@ -6,8 +6,10 @@
 #include "TxContext.h"
 #include "TxError.h"
 #include "../ledger/Ledger.h"
-#include "../ledger/TypedTx.h"
 #include "lib/common/Module.h"
+
+#include <optional>
+#include <utility>
 
 namespace pp {
 
@@ -22,6 +24,46 @@ public:
   ~ITxHandler() override = default;
 
   /**
+   * Whether this tx should be included when blocks are restricted to renewals
+   * only (e.g. checkpoint-driven renewal blocks).
+   */
+  virtual bool isRenewalTx() const { return false; }
+
+  /** True for tx types that must be validated by validateAccountRenewals(). */
+  virtual bool participatesInAccountRenewalValidation() const { return false; }
+
+  /**
+   * Wallet-indexing predicate used by Chain history queries.
+   * Default is false: the tx does not belong to an arbitrary wallet query.
+   */
+  virtual chain_tx::Roe<bool>
+  matchesWalletForIndex(const Ledger::TypedTx &tx, uint64_t walletId) const {
+    (void)tx;
+    (void)walletId;
+    return false;
+  }
+
+  /**
+   * If a tx participates in idempotency rules, return a (walletId,idempotentId)
+   * key. Otherwise return nullopt.
+   */
+  virtual chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+  getIdempotencyKey(const Ledger::TypedTx &tx) const {
+    (void)tx;
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+
+  /**
+   * If a tx renews (or terminates) an account as part of the renewal system,
+   * return the affected account id. Otherwise return nullopt.
+   */
+  virtual chain_tx::Roe<std::optional<uint64_t>>
+  getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const {
+    (void)tx;
+    return std::optional<uint64_t>{};
+  }
+
+  /**
    * Return the account id whose wallet must have signed this tx.
    * Used by Chain signature validation to avoid hard-coding per-type policies.
    *
@@ -29,7 +71,7 @@ public:
    * Some tx types (e.g. T_RENEWAL/T_END_USER) may be miner-signed in that case.
    */
   virtual chain_tx::Roe<uint64_t>
-  getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const {
+  getSignerAccountId(const Ledger::TypedTx &tx, uint64_t slotLeaderId) const {
     (void)tx;
     (void)slotLeaderId;
     return chain_tx::TxError(chain_err::E_INTERNAL,
@@ -38,7 +80,7 @@ public:
 
   /** Scratch-buffer / mempool path after signature validation. */
   virtual chain_tx::Roe<void>
-  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
               const BufferApplyContext &c) const {
     (void)tx;
     (void)bank;
@@ -49,7 +91,7 @@ public:
 
   /** Committed-chain (block replay) path after signature validation. */
   virtual chain_tx::Roe<void>
-  applyBlock(const TypedTx &tx, AccountBuffer &bank,
+  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) const {
     (void)tx;
     (void)bank;
