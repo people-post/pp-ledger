@@ -11,11 +11,13 @@
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
 #include "UserUpdateTxHandler.h"
+#include "../ledger/TypedTx.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <type_traits>
 #include <utility>
 
 namespace pp {
@@ -34,6 +36,22 @@ Chain::Roe<void> mapTxVoid(chain_tx::Roe<void> r) {
     return Chain::Error(r.error());
   }
   return {};
+}
+
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
+
+Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
+  Ledger::TxUserUpdate userTx;
+  userTx.walletId = tx.walletId;
+  userTx.fee = tx.fee;
+  userTx.meta = tx.meta;
+  userTx.idempotentId = 0;
+  userTx.validationTsMin = 0;
+  userTx.validationTsMax = 0;
+  return userTx;
 }
 
 } // namespace
@@ -664,99 +682,66 @@ Chain::Roe<void> Chain::addBufferTransaction(
 
   auto blockId = getNextBlockId();
   const uint64_t currentSlot = getCurrentSlot();
-  switch (record.type) {
-  case Ledger::T_DEFAULT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processBufferTx(bank, tx);
+  auto typedRoe = decodeRecordToTypedTx(record);
+  if (!typedRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " +
+                     typedRoe.error().message);
   }
-  case Ledger::T_NEW_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    if (tx.fee > 0) {
-      auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-      if (!feeRoe) {
-        return feeRoe;
-      }
-    }
-    return processBufferUserInit(bank, tx, blockId);
-  }
-  case Ledger::T_CONFIG: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processBufferSystemUpdate(bank, tx, blockId);
-  }
-  case Ledger::T_USER_UPDATE: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processBufferUserAccountUpsert(bank, tx, blockId);
-  }
-  case Ledger::T_RENEWAL:
-  {
-    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    if (tx.walletId == AccountBuffer::ID_GENESIS) {
-      return processBufferGenesisRenewal(bank, tx, blockId);
-    }
-    // User renewals are processed as a T_USER_UPDATE-style upsert.
-    Ledger::TxUserUpdate userTx;
-    userTx.walletId = tx.walletId;
-    userTx.fee = tx.fee;
-    userTx.meta = tx.meta;
-    userTx.idempotentId = 0;
-    userTx.validationTsMin = 0;
-    userTx.validationTsMax = 0;
-    return processBufferUserAccountUpsert(bank, userTx, blockId);
-  }
-  case Ledger::T_END_USER:
-  {
-    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    return processBufferUserEnd(bank, txRoe.value());
-  }
-  default:
-    return Error(E_TX_TYPE,
-                 "Unknown transaction type: " + std::to_string(record.type));
-  }
+
+  return std::visit(
+      Overloaded{
+          [&](const Ledger::TxDefault &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processBufferTx(bank, tx);
+          },
+          [&](const Ledger::TxNewUser &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            if (tx.fee > 0) {
+              auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
+              if (!feeRoe) {
+                return feeRoe;
+              }
+            }
+            return processBufferUserInit(bank, tx, blockId);
+          },
+          [&](const Ledger::TxConfig &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processBufferSystemUpdate(bank, tx, blockId);
+          },
+          [&](const Ledger::TxUserUpdate &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processBufferUserAccountUpsert(bank, tx, blockId);
+          },
+          [&](const Ledger::TxRenewal &tx) -> Roe<void> {
+            if (tx.walletId == AccountBuffer::ID_GENESIS) {
+              return processBufferGenesisRenewal(bank, tx, blockId);
+            }
+            // User renewals are processed as a T_USER_UPDATE-style upsert.
+            return processBufferUserAccountUpsert(bank, renewalToUserUpsert(tx),
+                                                  blockId);
+          },
+          [&](const Ledger::TxEndUser &tx) -> Roe<void> {
+            return processBufferUserEnd(bank, tx);
+          },
+          [&](const Ledger::TxGenesis &) -> Roe<void> {
+            return Error(E_TX_TYPE,
+                         "Genesis transaction not allowed in buffer mode");
+          },
+      },
+      typedRoe.value());
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
@@ -773,21 +758,45 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
     if (!h) {
       return Error(E_INTERNAL, "Genesis transaction handler not registered");
     }
-    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(record.data);
-    if (!txRoe) {
+    auto typedRoe = decodeRecordToTypedTx(record);
+    if (!typedRoe) {
       return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
+                   "Invalid packed transaction payload: " +
+                       typedRoe.error().message);
     }
-    return mapTxVoid(h->applyGenesisInit(txRoe.value(), txContext_));
+    return std::visit(
+        Overloaded{
+            [&](const Ledger::TxGenesis &tx) -> Roe<void> {
+              return mapTxVoid(h->applyGenesisInit(tx, txContext_));
+            },
+            [&](const auto &) -> Roe<void> {
+              return Error(E_TX_TYPE,
+                           "Unknown transaction type in genesis block: " +
+                               std::to_string(record.type));
+            },
+        },
+        typedRoe.value());
   }
   case Ledger::T_NEW_USER:
   {
-    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
-    if (!txRoe) {
+    auto typedRoe = decodeRecordToTypedTx(record);
+    if (!typedRoe) {
       return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
+                   "Invalid packed transaction payload: " +
+                       typedRoe.error().message);
     }
-    return processUserInit(txRoe.value(), 0, true);
+    return std::visit(
+        Overloaded{
+            [&](const Ledger::TxNewUser &tx) -> Roe<void> {
+              return processUserInit(tx, 0, true);
+            },
+            [&](const auto &) -> Roe<void> {
+              return Error(E_TX_TYPE,
+                           "Unknown transaction type in genesis block: " +
+                               std::to_string(record.type));
+            },
+        },
+        typedRoe.value());
   }
   default:
     return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
@@ -804,92 +813,60 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  switch (record.type) {
-  case Ledger::T_NEW_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processUserInit(tx, blockId, isStrictMode);
+  auto typedRoe = decodeRecordToTypedTx(record);
+  if (!typedRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " +
+                     typedRoe.error().message);
   }
-  case Ledger::T_CONFIG: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processSystemUpdate(tx, blockId, isStrictMode);
-  }
-  case Ledger::T_USER_UPDATE: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processUserUpdate(tx, blockId, isStrictMode);
-  }
-  case Ledger::T_RENEWAL:
-  {
-    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    if (tx.walletId == AccountBuffer::ID_GENESIS) {
-      return processGenesisRenewal(tx, blockId, isStrictMode);
-    }
-    Ledger::TxUserUpdate userTx;
-    userTx.walletId = tx.walletId;
-    userTx.fee = tx.fee;
-    userTx.meta = tx.meta;
-    userTx.idempotentId = 0;
-    userTx.validationTsMin = 0;
-    userTx.validationTsMax = 0;
-    return processUserRenewal(userTx, blockId, isStrictMode);
-  }
-  case Ledger::T_END_USER:
-  {
-    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    return processUserEnd(txRoe.value(), blockId, isStrictMode);
-  }
-  case Ledger::T_DEFAULT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    const auto &tx = txRoe.value();
-    auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
-    if (!idemRoe) {
-      return idemRoe.error();
-    }
-    return processTx(tx, blockId, isStrictMode);
-  }
-  default:
-    return Error(E_TX_TYPE,
-                 "Unknown transaction type: " + std::to_string(record.type));
-  }
+
+  return std::visit(
+      Overloaded{
+          [&](const Ledger::TxNewUser &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processUserInit(tx, blockId, isStrictMode);
+          },
+          [&](const Ledger::TxConfig &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processSystemUpdate(tx, blockId, isStrictMode);
+          },
+          [&](const Ledger::TxUserUpdate &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processUserUpdate(tx, blockId, isStrictMode);
+          },
+          [&](const Ledger::TxRenewal &tx) -> Roe<void> {
+            if (tx.walletId == AccountBuffer::ID_GENESIS) {
+              return processGenesisRenewal(tx, blockId, isStrictMode);
+            }
+            return processUserRenewal(renewalToUserUpsert(tx), blockId,
+                                      isStrictMode);
+          },
+          [&](const Ledger::TxEndUser &tx) -> Roe<void> {
+            return processUserEnd(tx, blockId, isStrictMode);
+          },
+          [&](const Ledger::TxDefault &tx) -> Roe<void> {
+            auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
+            if (!idemRoe) {
+              return idemRoe.error();
+            }
+            return processTx(tx, blockId, isStrictMode);
+          },
+          [&](const Ledger::TxGenesis &) -> Roe<void> {
+            return Error(E_TX_TYPE,
+                         "Genesis transaction type not allowed in normal block: " +
+                             std::to_string(record.type));
+          },
+      },
+      typedRoe.value());
 }
 
 Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
@@ -907,83 +884,30 @@ Chain::Roe<void> Chain::validateTxSignatures(
                  "Transaction must have at least one signature");
   }
 
-  uint64_t signerAccountId = 0;
-  switch (record.type) {
-  case Ledger::T_DEFAULT: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = txRoe.value().fromWalletId;
-    break;
-  }
-  case Ledger::T_NEW_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = txRoe.value().fromWalletId;
-    break;
-  }
-  case Ledger::T_CONFIG: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = AccountBuffer::ID_GENESIS;
-    break;
-  }
-  case Ledger::T_USER_UPDATE: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = txRoe.value().walletId;
-    break;
-  }
-  case Ledger::T_RENEWAL: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = txRoe.value().walletId;
-    break;
-  }
-  case Ledger::T_END_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = txRoe.value().walletId;
-    break;
-  }
-  case Ledger::T_GENESIS: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(record.data);
-    if (!txRoe) {
-      return Error(E_INVALID_ARGUMENT,
-                   "Invalid packed transaction payload: " + txRoe.error().message);
-    }
-    signerAccountId = AccountBuffer::ID_GENESIS;
-    break;
-  }
-  default:
-    return Error(E_TX_TYPE,
-                 "Unknown transaction type: " + std::to_string(record.type));
+  auto typedRoe = decodeRecordToTypedTx(record);
+  if (!typedRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " +
+                     typedRoe.error().message);
   }
 
-  // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not by
-  // fromWalletId
-  if ((record.type == Ledger::T_RENEWAL ||
-       record.type == Ledger::T_END_USER) &&
-      slotLeaderId != 0) {
-    signerAccountId = slotLeaderId;
-  }
+  const uint64_t signerAccountId = std::visit(
+      Overloaded{
+          [&](const Ledger::TxDefault &tx) { return tx.fromWalletId; },
+          [&](const Ledger::TxNewUser &tx) { return tx.fromWalletId; },
+          [&](const Ledger::TxConfig &) { return AccountBuffer::ID_GENESIS; },
+          [&](const Ledger::TxUserUpdate &tx) { return tx.walletId; },
+          // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not
+          // by walletId, when slotLeaderId is present.
+          [&](const Ledger::TxRenewal &tx) {
+            return slotLeaderId != 0 ? slotLeaderId : tx.walletId;
+          },
+          [&](const Ledger::TxEndUser &tx) {
+            return slotLeaderId != 0 ? slotLeaderId : tx.walletId;
+          },
+          [&](const Ledger::TxGenesis &) { return AccountBuffer::ID_GENESIS; },
+      },
+      typedRoe.value());
 
   auto accountResult = txContext_.bank.getAccount(signerAccountId);
   if (!accountResult) {

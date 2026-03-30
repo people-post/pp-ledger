@@ -20,8 +20,9 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
           chain_err::E_INTERNAL,
           "Chain config required for strict user-update fee validation");
     }
+    const pp::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), Ledger::T_USER_UPDATE, tx.meta, tx.walletId);
+        ctx.optChainConfig.value(), typedTx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

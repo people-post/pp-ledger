@@ -20,6 +20,59 @@ uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
              : 0ULL;
 }
 
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
+
+/** Fee uses "non-free" custom meta bytes: max bound, then free tier, then remainder. */
+Roe<size_t> toNonFree(const BlockChainConfig &config,
+                      size_t customMetaSizeBytes) {
+  if (customMetaSizeBytes > config.maxCustomMetaSize) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Custom metadata exceeds maxCustomMetaSize: " +
+                       std::to_string(customMetaSizeBytes) + " > " +
+                       std::to_string(config.maxCustomMetaSize));
+  }
+  if (customMetaSizeBytes <= config.freeCustomMetaSize) {
+    return 0;
+  }
+  return customMetaSizeBytes - config.freeCustomMetaSize;
+}
+
+/**
+ * Serialized `Client::UserAccount` in tx.meta: if the whole blob is within the
+ * free tier, fee meta is zero; else bill on embedded `userAccount.meta` size.
+ */
+Roe<size_t>
+nonFreeFromSerializedUserAccountMeta(const BlockChainConfig &config,
+                                     const std::string &serializedUserAccount) {
+  if (serializedUserAccount.size() <= config.freeCustomMetaSize) {
+    return 0;
+  }
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(serializedUserAccount)) {
+    return TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                   "Failed to deserialize user account metadata for fee "
+                   "calculation");
+  }
+  return toNonFree(config, userAccount.meta.size());
+}
+
+Roe<size_t>
+nonFreeFromSerializedGenesisAccountMeta(const BlockChainConfig &config,
+                                        const std::string &serializedGm) {
+  if (serializedGm.size() <= config.freeCustomMetaSize) {
+    return 0;
+  }
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(serializedGm)) {
+    return TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                   "Failed to deserialize genesis metadata for fee calculation");
+  }
+  return toNonFree(config, gm.genesis.meta.size());
+}
+
 } // namespace
 
 Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
@@ -48,66 +101,32 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
   return static_cast<uint64_t>(minimumFee);
 }
 
-Roe<size_t> extractNonFreeCustomMetaSizeForFee(
-    const BlockChainConfig &config, uint16_t type, std::string_view meta,
-    uint64_t fromWalletId) {
-  auto toNonFree = [&](size_t customMetaSizeBytes) -> Roe<size_t> {
-    if (customMetaSizeBytes > config.maxCustomMetaSize) {
-      return TxError(chain_err::E_TX_VALIDATION,
-                     "Custom metadata exceeds maxCustomMetaSize: " +
-                         std::to_string(customMetaSizeBytes) + " > " +
-                         std::to_string(config.maxCustomMetaSize));
-    }
-    if (customMetaSizeBytes <= config.freeCustomMetaSize) {
-      return 0;
-    }
-    return customMetaSizeBytes - config.freeCustomMetaSize;
-  };
-
-  if (meta.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-
-  switch (type) {
-  case Ledger::T_NEW_USER:
-  case Ledger::T_USER_UPDATE: {
-    Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(std::string(meta))) {
-      return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                     "Failed to deserialize user account metadata for fee "
-                     "calculation");
-    }
-    return toNonFree(userAccount.meta.size());
-  }
-  case Ledger::T_RENEWAL: {
-    if (fromWalletId == AccountBuffer::ID_GENESIS) {
-      GenesisAccountMeta gm;
-      if (!gm.ltsFromString(std::string(meta))) {
-        return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                       "Failed to deserialize genesis metadata for fee "
-                       "calculation");
-      }
-      return toNonFree(gm.genesis.meta.size());
-    }
-
-    Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(std::string(meta))) {
-      return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                     "Failed to deserialize renewal metadata for fee "
-                     "calculation");
-    }
-    return toNonFree(userAccount.meta.size());
-  }
-  default:
-    return toNonFree(meta.size());
-  }
+Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
+                                               const pp::TypedTx &tx) {
+  return std::visit(
+      Overloaded{
+          [&](const Ledger::TxNewUser &t) -> Roe<size_t> {
+            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
+          },
+          [&](const Ledger::TxUserUpdate &t) -> Roe<size_t> {
+            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
+          },
+          [&](const Ledger::TxRenewal &t) -> Roe<size_t> {
+            if (t.walletId == AccountBuffer::ID_GENESIS) {
+              return nonFreeFromSerializedGenesisAccountMeta(config, t.meta);
+            }
+            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
+          },
+          [&](const auto &t) -> Roe<size_t> {
+            return toNonFree(config, t.meta.size());
+          },
+      },
+      tx);
 }
 
-Roe<uint64_t> calculateMinimumFeeForTransaction(
-    const BlockChainConfig &config, uint16_t type, std::string_view meta,
-    uint64_t fromWalletId) {
-  auto nonFreeMetaSizeResult =
-      extractNonFreeCustomMetaSizeForFee(config, type, meta, fromWalletId);
+Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
+                                                const pp::TypedTx &tx) {
+  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
   if (!nonFreeMetaSizeResult) {
     return nonFreeMetaSizeResult.error();
   }

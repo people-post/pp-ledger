@@ -1,4 +1,5 @@
 #include "Ledger.h"
+#include "TypedTx.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
@@ -24,6 +25,11 @@ std::string transactionTypeToHumanString(uint16_t type) {
     default: return "unknown_" + std::to_string(type);
   }
 }
+
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
 
 } // namespace
 
@@ -155,50 +161,10 @@ nlohmann::json Ledger::Record::toJson() const {
 
   // Unpack the typed transaction payload into structured JSON.
   // If unpack fails (corrupt/unknown payload), fall back to JSON-safe string.
-  nlohmann::json dataJson;
-  bool unpackOk = false;
-  switch (type) {
-    case Ledger::T_DEFAULT: {
-      auto tx = utl::binaryUnpack<Ledger::TxDefault>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_GENESIS: {
-      auto tx = utl::binaryUnpack<Ledger::TxGenesis>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_NEW_USER: {
-      auto tx = utl::binaryUnpack<Ledger::TxNewUser>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_CONFIG: {
-      auto tx = utl::binaryUnpack<Ledger::TxConfig>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_USER_UPDATE: {
-      auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_RENEWAL: {
-      auto tx = utl::binaryUnpack<Ledger::TxRenewal>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    case Ledger::T_END_USER: {
-      auto tx = utl::binaryUnpack<Ledger::TxEndUser>(data);
-      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
-      break;
-    }
-    default:
-      break;
-  }
-
-  if (unpackOk) {
-    j["data"] = dataJson;
+  auto typedRoe = decodeRecordToTypedTx(*this);
+  if (typedRoe) {
+    j["data"] = std::visit(
+        Overloaded{[&](const auto &tx) { return tx.toJson(); }}, typedRoe.value());
   } else {
     j["data"] = utl::toJsonSafeString(data);
   }

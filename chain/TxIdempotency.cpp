@@ -1,8 +1,18 @@
 #include "TxIdempotency.h"
 #include "ErrorCodes.h"
 #include "AccountBuffer.h"
+#include "../ledger/TypedTx.h"
+
+#include <variant>
 
 namespace pp::chain_tx {
+
+namespace {
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
+} // namespace
 
 Roe<void> checkIdempotency(const Ledger &ledger,
                            const consensus::Ouroboros &consensus,
@@ -40,29 +50,21 @@ Roe<void> checkIdempotency(const Ledger &ledger,
         }
         return {};
       };
-      switch (rec.type) {
-      case Ledger::T_DEFAULT: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
-        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
-        break;
+      auto typedRoe = pp::decodeRecordToTypedTx(rec);
+      if (!typedRoe) {
+        continue;
       }
-      case Ledger::T_NEW_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
-        if (txRoe) { auto r = check(txRoe->fromWalletId, txRoe->idempotentId); if (!r) return r; }
-        break;
-      }
-      case Ledger::T_CONFIG: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
-        if (txRoe) { auto r = check(AccountBuffer::ID_GENESIS, txRoe->idempotentId); if (!r) return r; }
-        break;
-      }
-      case Ledger::T_USER_UPDATE: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
-        if (txRoe) { auto r = check(txRoe->walletId, txRoe->idempotentId); if (!r) return r; }
-        break;
-      }
-      default:
-        break;
+      auto r = std::visit(
+          Overloaded{
+              [&](const Ledger::TxDefault &tx) { return check(tx.fromWalletId, tx.idempotentId); },
+              [&](const Ledger::TxNewUser &tx) { return check(tx.fromWalletId, tx.idempotentId); },
+              [&](const Ledger::TxConfig &tx) { return check(AccountBuffer::ID_GENESIS, tx.idempotentId); },
+              [&](const Ledger::TxUserUpdate &tx) { return check(tx.walletId, tx.idempotentId); },
+              [&](const auto &) { return Roe<void>{}; },
+          },
+          typedRoe.value());
+      if (!r) {
+        return r;
       }
     }
   }

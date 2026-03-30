@@ -39,8 +39,9 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
           chain_err::E_INTERNAL,
           "Chain config required for strict genesis renewal fee validation");
     }
+    const pp::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), Ledger::T_RENEWAL, tx.meta, tx.walletId);
+        ctx.optChainConfig.value(), typedTx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

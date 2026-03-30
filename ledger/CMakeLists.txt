@@ -2,6 +2,8 @@
 add_library(pp_ledger STATIC
     Ledger.cpp
     Ledger.h
+    TypedTx.cpp
+    TypedTx.h
     DirStore.cpp
     DirStore.h
     FileStore.cpp

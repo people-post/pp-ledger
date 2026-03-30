@@ -110,9 +110,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have amount 0");
   }
+  const pp::TypedTx feeTypedTx(feeTx);
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
-                                                  feeTx.meta, feeTx.fromWalletId);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, feeTypedTx);
   if (!feeWalletFeeResult) {
     return chain_tx::Roe<void>(feeWalletFeeResult.error());
   }
@@ -147,10 +147,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
                              "Genesis miner transaction must transfer "
                              "from genesis to new user wallet");
   }
+  const pp::TypedTx minerTypedTx(minerTx);
   auto reserveFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
-                                                  minerTx.meta,
-                                                  minerTx.fromWalletId);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, minerTypedTx);
   if (!reserveFeeResult) {
     return chain_tx::Roe<void>(reserveFeeResult.error());
   }
@@ -174,10 +173,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
                              "Failed to deserialize recycle tx payload");
   }
   const auto &recycleTx = recycleTxRoe.value();
+  const pp::TypedTx recycleTypedTx(recycleTx);
   auto recycleFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER,
-                                                  recycleTx.meta,
-                                                  recycleTx.fromWalletId);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, recycleTypedTx);
   if (!recycleFeeResult) {
     return chain_tx::Roe<void>(recycleFeeResult.error());
   }

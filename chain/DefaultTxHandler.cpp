@@ -13,8 +13,9 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
         chain_err::E_INTERNAL,
         "Chain config required for strict default transfer fee validation");
   }
+  const pp::TypedTx typedTx(tx);
   auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-      ctx.optChainConfig.value(), Ledger::T_DEFAULT, tx.meta, tx.fromWalletId);
+      ctx.optChainConfig.value(), typedTx);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
