@@ -56,8 +56,8 @@ Roe<void> checkIdempotency(const Ledger &ledger,
         if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
         break;
       }
-      case Ledger::T_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(rec.data);
+      case Ledger::T_USER_UPDATE: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(rec.data);
         if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
         break;
       }

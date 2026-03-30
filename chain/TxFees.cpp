@@ -69,7 +69,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
 
   switch (type) {
   case Ledger::T_NEW_USER:
-  case Ledger::T_USER: {
+  case Ledger::T_USER_UPDATE: {
     Client::UserAccount userAccount;
     if (!userAccount.ltsFromString(std::string(tx.meta))) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,

@@ -10,7 +10,7 @@
 #include "TxIdempotency.h"
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
-#include "UserTxHandler.h"
+#include "UserUpdateTxHandler.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
@@ -56,8 +56,9 @@ Chain::Chain() {
                  std::make_unique<ConfigTxHandler>(), "ConfigTxHandler");
   installHandler(Ledger::T_NEW_USER,
                  std::make_unique<NewUserTxHandler>(), "NewUserTxHandler");
-  installHandler(Ledger::T_USER, std::make_unique<UserTxHandler>(),
-                 "UserTxHandler");
+  installHandler(Ledger::T_USER_UPDATE,
+                 std::make_unique<UserUpdateTxHandler>(),
+                 "UserUpdateTxHandler");
   installHandler(Ledger::T_DEFAULT,
                  std::make_unique<DefaultTxHandler>(), "DefaultTxHandler");
   installHandler(Ledger::T_RENEWAL,
@@ -377,8 +378,8 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
         }
         break;
       }
-      case Ledger::T_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(it->data);
+      case Ledger::T_USER_UPDATE: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(it->data);
         if (txRoe) {
           const auto &tx = txRoe.value();
           matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
@@ -723,8 +724,8 @@ Chain::Roe<void> Chain::addBufferTransaction(
     }
     return processBufferSystemUpdate(bank, tx, blockId);
   }
-  case Ledger::T_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+  case Ledger::T_USER_UPDATE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
     if (!txRoe) {
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
@@ -747,8 +748,8 @@ Chain::Roe<void> Chain::addBufferTransaction(
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processBufferGenesisRenewal(bank, tx, blockId);
     }
-    // User renewals are processed as a T_USER-style upsert.
-    Ledger::TxUser userTx;
+    // User renewals are processed as a T_USER_UPDATE-style upsert.
+    Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
     userTx.fromWalletId = tx.fromWalletId;
     userTx.toWalletId = tx.toWalletId;
@@ -847,8 +848,8 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     }
     return processSystemUpdate(tx, blockId, isStrictMode);
   }
-  case Ledger::T_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+  case Ledger::T_USER_UPDATE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
     if (!txRoe) {
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
@@ -871,7 +872,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processGenesisRenewal(tx, blockId, isStrictMode);
     }
-    Ledger::TxUser userTx;
+    Ledger::TxUserUpdate userTx;
     userTx.tokenId = tx.tokenId;
     userTx.fromWalletId = tx.fromWalletId;
     userTx.toWalletId = tx.toWalletId;
@@ -955,8 +956,8 @@ Chain::Roe<void> Chain::validateTxSignatures(
     signerAccountId = txRoe.value().fromWalletId;
     break;
   }
-  case Ledger::T_USER: {
-    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+  case Ledger::T_USER_UPDATE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
     if (!txRoe) {
       return Error(E_INVALID_ARGUMENT,
                    "Invalid packed transaction payload: " + txRoe.error().message);
@@ -1060,7 +1061,7 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxConfig &tx,
       effectiveSlot, isStrictMode));
 }
 
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUser &tx,
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
@@ -1113,12 +1114,12 @@ Chain::Roe<void> Chain::processUserInit(const Ledger::TxNewUser &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserUpdate(const Ledger::TxUser &tx,
+Chain::Roe<void> Chain::processUserUpdate(const Ledger::TxUserUpdate &tx,
                                           uint64_t blockId, bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
 }
 
-Chain::Roe<void> Chain::processUserRenewal(const Ledger::TxUser &tx,
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::TxUserUpdate &tx,
                                            uint64_t blockId,
                                            bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
@@ -1135,11 +1136,11 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
       txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
 }
 
-Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxUser &tx,
+Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                                                  uint64_t blockId,
                                                  bool isStrictMode) {
   log().info << "Processing user update/renewal transaction";
-  auto &h = txHandlers_[Ledger::T_USER];
+  auto &h = txHandlers_[Ledger::T_USER_UPDATE];
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }
@@ -1222,7 +1223,7 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
-                                      const Ledger::TxUser &tx,
+                                      const Ledger::TxUserUpdate &tx,
                                       uint64_t blockId) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
@@ -1234,7 +1235,7 @@ Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
       return feeRoe;
     }
   }
-  auto &h = txHandlers_[Ledger::T_USER];
+  auto &h = txHandlers_[Ledger::T_USER_UPDATE];
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }

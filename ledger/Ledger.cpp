@@ -18,7 +18,7 @@ std::string transactionTypeToHumanString(uint16_t type) {
     case Ledger::T_GENESIS:   return "genesis";
     case Ledger::T_NEW_USER: return "new_user";
     case Ledger::T_CONFIG:   return "config";
-    case Ledger::T_USER:     return "user";
+    case Ledger::T_USER_UPDATE:     return "user_update";
     case Ledger::T_RENEWAL:  return "renewal";
     case Ledger::T_END_USER: return "end_user";
     default: return "unknown_" + std::to_string(type);
@@ -103,7 +103,7 @@ nlohmann::json Ledger::TxConfig::toJson() const {
   return txToJsonWithWalletIds(*this);
 }
 
-nlohmann::json Ledger::TxUser::toJson() const {
+nlohmann::json Ledger::TxUserUpdate::toJson() const {
   return txToJsonWithWalletIds(*this);
 }
 
@@ -145,8 +145,8 @@ nlohmann::json Ledger::Record::toJson() const {
       if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
       break;
     }
-    case Ledger::T_USER: {
-      auto tx = utl::binaryUnpack<Ledger::TxUser>(data);
+    case Ledger::T_USER_UPDATE: {
+      auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
       if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
       break;
     }

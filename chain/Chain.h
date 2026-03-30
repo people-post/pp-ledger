@@ -188,7 +188,7 @@ private:
   Roe<void> validateIdempotencyRules(const Ledger::TxConfig &tx,
                                      uint64_t effectiveSlot,
                                      bool isStrictMode) const;
-  Roe<void> validateIdempotencyRules(const Ledger::TxUser &tx,
+  Roe<void> validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
                                      uint64_t effectiveSlot,
                                      bool isStrictMode) const;
 
@@ -246,14 +246,14 @@ private:
   Roe<void> processUserInit(const Ledger::TxNewUser &tx, uint64_t blockId,
                             bool isStrictMode);
 
-  Roe<void> processUserUpdate(const Ledger::TxUser &tx, uint64_t blockId,
+  Roe<void> processUserUpdate(const Ledger::TxUserUpdate &tx, uint64_t blockId,
                               bool isStrictMode);
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
-                                           const Ledger::TxUser &tx,
+                                           const Ledger::TxUserUpdate &tx,
                                            uint64_t blockId) const;
-  Roe<void> processUserAccountUpsert(const Ledger::TxUser &tx,
+  Roe<void> processUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                                      uint64_t blockId, bool isStrictMode);
-  Roe<void> processUserRenewal(const Ledger::TxUser &tx, uint64_t blockId,
+  Roe<void> processUserRenewal(const Ledger::TxUserUpdate &tx, uint64_t blockId,
                                bool isStrictMode);
 
   Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,

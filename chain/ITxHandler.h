@@ -88,12 +88,12 @@ public:
   }
 
   /**
-   * T_USER: replace account meta (and pay fee). Same semantics as
+   * T_USER_UPDATE: replace account meta (and pay fee). Same semantics as
    * applyNewUser for `bank` / `ctx.bank` / isBufferMode (caller ensures
    * fromWalletId and fee account in buffer when isBufferMode).
    */
   virtual chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::TxUser &tx,
+  applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
                          bool isStrictMode) {
@@ -134,7 +134,7 @@ public:
 
   /**
    * T_RENEWAL for genesis only (ID_GENESIS -> ID_GENESIS). User renewals use
-   * applyUserAccountUpsert via T_USER handler from Chain.
+   * applyUserAccountUpsert via T_USER_UPDATE handler from Chain.
    */
   virtual chain_tx::Roe<void>
   applyGenesisRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,

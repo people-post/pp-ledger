@@ -32,8 +32,8 @@ add_library(pp_chain STATIC
     GenesisRenewalTxHandler.h
     NewUserTxHandler.cpp
     NewUserTxHandler.h
-    UserTxHandler.cpp
-    UserTxHandler.h
+    UserUpdateTxHandler.cpp
+    UserUpdateTxHandler.h
 )
 
 target_include_directories(pp_chain PUBLIC

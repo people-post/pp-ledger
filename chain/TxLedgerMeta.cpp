@@ -22,8 +22,8 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
       }
       break;
     }
-    case Ledger::T_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(it->data);
+    case Ledger::T_USER_UPDATE: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(it->data);
       if (txRoe) {
         const auto &tx = txRoe.value();
         matches = accountId != AccountBuffer::ID_GENESIS &&

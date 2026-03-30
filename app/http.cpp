@@ -600,8 +600,8 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     case pp::Ledger::T_CONFIG: {
       pp::Ledger::TxConfig x; fillCommon(x); return pp::utl::binaryPack(x);
     }
-    case pp::Ledger::T_USER: {
-      pp::Ledger::TxUser x; fillCommon(x); return pp::utl::binaryPack(x);
+    case pp::Ledger::T_USER_UPDATE: {
+      pp::Ledger::TxUserUpdate x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_RENEWAL: {
       pp::Ledger::TxRenewal x; fillCommon(x); return pp::utl::binaryPack(x);

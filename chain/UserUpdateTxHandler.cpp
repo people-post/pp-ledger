@@ -1,4 +1,4 @@
-#include "UserTxHandler.h"
+#include "UserUpdateTxHandler.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
@@ -8,8 +8,8 @@
 
 namespace pp {
 
-chain_tx::Roe<void> UserTxHandler::applyUserAccountUpsert(
-    const Ledger::TxUser &tx, const TxContext &ctx,
+chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
+    const Ledger::TxUserUpdate &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) {
   (void)isBufferMode;
@@ -33,7 +33,7 @@ chain_tx::Roe<void> UserTxHandler::applyUserAccountUpsert(
           "Chain config required for strict user-update fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), Ledger::T_USER, tx);
+        ctx.optChainConfig.value(), Ledger::T_USER_UPDATE, tx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

@@ -422,8 +422,8 @@ TEST(ChainTest,
                  tx.toWalletId == AccountBuffer::ID_GENESIS);
       break;
     }
-    case Ledger::T_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(st.data);
+    case Ledger::T_USER_UPDATE: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
       matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
@@ -531,8 +531,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
                  tx.toWalletId == AccountBuffer::ID_GENESIS);
       break;
     }
-    case Ledger::T_USER: {
-      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(st.data);
+    case Ledger::T_USER_UPDATE: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(st.data);
       ASSERT_TRUE(txRoe.isOk());
       const auto &tx = txRoe.value();
       matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
@@ -789,8 +789,8 @@ TEST(ChainTest,
         if (!txRoe.isOk()) return {0, 0};
         return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
       }
-      case Ledger::T_USER: {
-        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(data);
+      case Ledger::T_USER_UPDATE: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUserUpdate>(data);
         EXPECT_TRUE(txRoe.isOk());
         if (!txRoe.isOk()) return {0, 0};
         return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
