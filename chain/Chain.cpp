@@ -147,17 +147,6 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
   return userAccount;
 }
 
-Chain::Roe<Client::UserAccount>
-Chain::getUserAccountMetaFromBlock(const Ledger::Block &block,
-                                   uint64_t accountId) const {
-  return mapTx(chain_tx::getUserAccountMetaFromBlock(block, accountId));
-}
-
-Chain::Roe<Chain::GenesisAccountMeta>
-Chain::getGenesisAccountMetaFromBlock(const Ledger::Block &block) const {
-  return mapTx(chain_tx::getGenesisAccountMetaFromBlock(block));
-}
-
 Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee) const {

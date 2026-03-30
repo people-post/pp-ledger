@@ -158,17 +158,6 @@ private:
 
   bool shouldUseStrictMode(uint64_t blockIndex) const;
 
-  /** Find matching tx in block, update meta with current account state, return
-   * serialized meta. Name reflects that meta is updated, not merely found. */
-  Roe<GenesisAccountMeta>
-  getGenesisAccountMetaFromBlock(const Ledger::Block &block) const;
-
-  /** Get user account meta as struct (no serialize); used to avoid double
-   * deserialize when caller needs to modify before serializing. */
-  Roe<Client::UserAccount>
-  getUserAccountMetaFromBlock(const Ledger::Block &block,
-                              uint64_t accountId) const;
-
   /** Account metadata for renewal: user accounts get genesis balance adjusted
    * to post-renewal (current - fee) since verifyBalance expects that. Single
    * serialize at end by using getUserAccountMetaFromBlock. */
