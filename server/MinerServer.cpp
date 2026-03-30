@@ -729,17 +729,15 @@ MinerServer::hTxAdd(const Client::Request &request) {
   if (!miner_.isConfigReady()) {
     return Error(E_REQUEST, "Miner syncing, please retry later");
   }
-  auto signedTxResult =
-      utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(
-          request.payload);
-  if (!signedTxResult) {
+  auto recResult = utl::binaryUnpack<Ledger::Record>(request.payload);
+  if (!recResult) {
     return Error(E_REQUEST, "Failed to deserialize transaction: " +
-                                signedTxResult.error().message);
+                                recResult.error().message);
   }
 
-  const auto &signedTx = signedTxResult.value();
+  const auto &record = recResult.value();
   if (miner_.isSlotLeader()) {
-    auto result = miner_.addTransaction(signedTx);
+    auto result = miner_.addTransaction(record);
     if (!result) {
       return Error(E_REQUEST, result.error().message);
     }
@@ -753,7 +751,7 @@ MinerServer::hTxAdd(const Client::Request &request) {
   uint64_t slotLeaderId = slotLeaderIdResult.value();
   std::string leaderAddr = findTxSubmitAddress(slotLeaderId);
   if (leaderAddr.empty()) {
-    miner_.addToForwardCache(signedTx);
+    miner_.addToForwardCache(record);
     log().info << "Slot leader " << slotLeaderId
                << " address unknown, transaction cached for retry in next slot";
     return {"Transaction cached for retry in next slot"};
@@ -762,7 +760,7 @@ MinerServer::hTxAdd(const Client::Request &request) {
     return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
   }
 
-  auto result = client_.addTransaction(signedTx);
+  auto result = client_.addTransaction(record);
   if (!result) {
     return Error(E_REQUEST, result.error().message);
   }
@@ -865,7 +863,7 @@ void MinerServer::handleSlotLeaderRole() {
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block.block.index;
   log().info << "  Slot: " << block.block.slot;
-  log().info << "  Transactions: " << block.block.signedTxes.size();
+  log().info << "  Transactions: " << block.block.records.size();
   log().info << "  Hash: " << block.hash;
 }
 

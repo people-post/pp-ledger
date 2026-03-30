@@ -80,7 +80,7 @@ std::string Beacon::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
-Beacon::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Beacon::Roe<std::vector<Ledger::Record>>
 Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
   if (!result) {
@@ -89,7 +89,7 @@ Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const
   return result.value();
 }
 
-Beacon::Roe<Ledger::SignedData<Ledger::Transaction>>
+Beacon::Roe<Ledger::Record>
 Beacon::findTransactionByIndex(uint64_t txIndex) const {
   auto result = chain_.findTransactionByIndex(txIndex);
   if (!result) {
@@ -248,17 +248,17 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
 // Private helper methods
 
 Beacon::Roe<void>
-Beacon::signWithGenesisKeys(Ledger::SignedData<Ledger::Transaction> &signedTx,
+Beacon::signWithGenesisKeys(Ledger::Record &record,
                             const std::vector<utl::Ed25519KeyPair> &genesisKeys,
                             const std::string &errorContext) const {
-  std::string message = utl::binaryPack(signedTx.obj);
+  const std::string &message = record.data;
   for (const auto &kp : genesisKeys) {
     auto result = utl::ed25519Sign(kp.privateKey, message);
     if (!result) {
       return Error(18, "Failed to sign " + errorContext + ": " +
                            result.error().message);
     }
-    signedTx.signatures.push_back(*result);
+    record.signatures.push_back(*result);
   }
   return {};
 }
@@ -285,48 +285,57 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
       makeUserAccountFromKeys(key.genesis, 0, "Native token genesis wallet");
 
   // First transaction: GenesisAccountMeta
-  Ledger::SignedData<Ledger::Transaction> signedTx;
-  signedTx.obj.type = Ledger::Transaction::T_GENESIS;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.toWalletId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.amount = 0;
-  signedTx.obj.fee = 0;
-  signedTx.obj.meta = gm.ltsToString();
-  signedTx.obj.idempotentId = 0;
-  signedTx.obj.validationTsMin = 0;
-  signedTx.obj.validationTsMax = 0;
+  Ledger::TxGenesis txGenesis;
+  txGenesis.tokenId = AccountBuffer::ID_GENESIS;
+  txGenesis.fromWalletId = AccountBuffer::ID_GENESIS;
+  txGenesis.toWalletId = AccountBuffer::ID_GENESIS;
+  txGenesis.amount = 0;
+  txGenesis.fee = 0;
+  txGenesis.meta = gm.ltsToString();
+  txGenesis.idempotentId = 0;
+  txGenesis.validationTsMin = 0;
+  txGenesis.validationTsMax = 0;
+
+  Ledger::Record rec;
+  rec.type = Ledger::T_GENESIS;
+  rec.data = utl::binaryPack(txGenesis);
+  rec.signatures = {};
   auto roeGenesis =
-      signWithGenesisKeys(signedTx, key.genesis, "checkpoint transaction");
+      signWithGenesisKeys(rec, key.genesis, "checkpoint transaction");
   if (!roeGenesis) {
     return roeGenesis.error();
   }
-  genesisBlock.block.signedTxes.push_back(signedTx);
+  genesisBlock.block.records.push_back(rec);
 
   // Second transaction: Create fee wallet
   auto feeAccount =
       makeUserAccountFromKeys(key.fee, 0, "Wallet for transaction fees");
-  signedTx = {};
-  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.toWalletId = AccountBuffer::ID_FEE;
-  signedTx.obj.amount = 0;
-  signedTx.obj.meta = feeAccount.ltsToString();
+
+  Ledger::TxNewUser txFee;
+  txFee.tokenId = AccountBuffer::ID_GENESIS;
+  txFee.fromWalletId = AccountBuffer::ID_GENESIS;
+  txFee.toWalletId = AccountBuffer::ID_FEE;
+  txFee.amount = 0;
+  txFee.meta = feeAccount.ltsToString();
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(config, signedTx.obj);
+      chain_tx::calculateMinimumFeeForTransaction(config, Ledger::T_NEW_USER, txFee);
   if (!feeWalletFeeResult) {
     return Error(2, "Failed to calculate fee-wallet transaction fee: " +
                         feeWalletFeeResult.error().message);
   }
   const int64_t feeWalletFee =
       static_cast<int64_t>(feeWalletFeeResult.value());
-  signedTx.obj.fee = feeWalletFee;
-  auto roeFee = signWithGenesisKeys(signedTx, key.genesis, "fee transaction");
+  txFee.fee = feeWalletFee;
+
+  rec = {};
+  rec.type = Ledger::T_NEW_USER;
+  rec.data = utl::binaryPack(txFee);
+  rec.signatures = {};
+  auto roeFee = signWithGenesisKeys(rec, key.genesis, "fee transaction");
   if (!roeFee) {
     return roeFee.error();
   }
-  genesisBlock.block.signedTxes.push_back(signedTx);
+  genesisBlock.block.records.push_back(rec);
 
   // Third transaction: Create reserve wallet with initial stake
   auto reserveAccount =
@@ -375,36 +384,44 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   }
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
-  signedTx = {};
-  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.toWalletId = AccountBuffer::ID_RESERVE;
-  signedTx.obj.amount = reserveAmount;
-  signedTx.obj.fee = reserveFee;
-  signedTx.obj.meta = reserveAccount.ltsToString();
+  Ledger::TxNewUser txReserve;
+  txReserve.tokenId = AccountBuffer::ID_GENESIS;
+  txReserve.fromWalletId = AccountBuffer::ID_GENESIS;
+  txReserve.toWalletId = AccountBuffer::ID_RESERVE;
+  txReserve.amount = static_cast<uint64_t>(reserveAmount);
+  txReserve.fee = static_cast<uint64_t>(reserveFee);
+  txReserve.meta = reserveAccount.ltsToString();
+
+  rec = {};
+  rec.type = Ledger::T_NEW_USER;
+  rec.data = utl::binaryPack(txReserve);
+  rec.signatures = {};
   auto roeReserve =
-      signWithGenesisKeys(signedTx, key.genesis, "reserve transaction");
+      signWithGenesisKeys(rec, key.genesis, "reserve transaction");
   if (!roeReserve) {
     return roeReserve.error();
   }
-  genesisBlock.block.signedTxes.push_back(signedTx);
+  genesisBlock.block.records.push_back(rec);
 
   // Fourth transaction: Create recycle account (sink for write-off balances)
-  signedTx = {};
-  signedTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  signedTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
-  signedTx.obj.amount = 0;
-  signedTx.obj.fee = recycleFee;
-  signedTx.obj.meta = recycleAccount.ltsToString();
+  Ledger::TxNewUser txRecycle;
+  txRecycle.tokenId = AccountBuffer::ID_GENESIS;
+  txRecycle.fromWalletId = AccountBuffer::ID_GENESIS;
+  txRecycle.toWalletId = AccountBuffer::ID_RECYCLE;
+  txRecycle.amount = 0;
+  txRecycle.fee = static_cast<uint64_t>(recycleFee);
+  txRecycle.meta = recycleAccount.ltsToString();
+
+  rec = {};
+  rec.type = Ledger::T_NEW_USER;
+  rec.data = utl::binaryPack(txRecycle);
+  rec.signatures = {};
   auto roeRecycle =
-      signWithGenesisKeys(signedTx, key.genesis, "recycle transaction");
+      signWithGenesisKeys(rec, key.genesis, "recycle transaction");
   if (!roeRecycle) {
     return roeRecycle.error();
   }
-  genesisBlock.block.signedTxes.push_back(signedTx);
+  genesisBlock.block.records.push_back(rec);
 
   genesisBlock.hash = calculateHash(genesisBlock.block);
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;

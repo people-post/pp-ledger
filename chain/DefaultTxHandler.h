@@ -8,12 +8,12 @@ namespace pp {
 class DefaultTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyDefaultTransferStrict(const Ledger::Transaction &tx,
+  applyDefaultTransferStrict(const Ledger::TxCommon &tx,
                              const TxContext &ctx,
                              AccountBuffer &bank) override;
 
   chain_tx::Roe<void>
-  applyDefaultTransferLoose(const Ledger::Transaction &tx,
+  applyDefaultTransferLoose(const Ledger::TxCommon &tx,
                             const TxContext &ctx,
                             AccountBuffer &bank) override;
 };

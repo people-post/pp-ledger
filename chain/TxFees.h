@@ -15,10 +15,12 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
     const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes);
 
 Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const Ledger::Transaction &tx);
+                                               uint16_t type,
+                                               const Ledger::TxCommon &tx);
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                                const Ledger::Transaction &tx);
+                                                uint16_t type,
+                                                const Ledger::TxCommon &tx);
 
 /** Minimum renewal fee from serialized account meta at the account's block. */
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

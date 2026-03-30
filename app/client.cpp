@@ -50,7 +50,7 @@ static uint64_t randomAccountId() {
 }
 
 /** Set idempotency and validation window on a user transaction (T_DEFAULT, T_NEW_USER, etc.). */
-static void setValidationWindow(pp::Ledger::Transaction& tx) {
+static void setValidationWindow(pp::Ledger::TxCommon& tx) {
   const int64_t now = static_cast<int64_t>(
       std::chrono::duration_cast<std::chrono::seconds>(
           std::chrono::system_clock::now().time_since_epoch()).count());
@@ -77,21 +77,23 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
     std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
     return 1;
   }
-  pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
-  signedTx.obj.type = pp::Ledger::Transaction::T_DEFAULT;
-  signedTx.obj.fromWalletId = fromWalletId;
-  signedTx.obj.toWalletId = toWalletId;
-  signedTx.obj.amount = amount;
-  signedTx.obj.fee = fee;
-  setValidationWindow(signedTx.obj);
-  std::string message = pp::utl::binaryPack(signedTx.obj);
+  pp::Ledger::TxDefault tx;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  tx.fee = fee;
+  setValidationWindow(tx);
+  std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
   }
-  signedTx.signatures = {*sigResult};
-  auto result = client.addTransaction(signedTx);
+  pp::Ledger::Record rec;
+  rec.type = pp::Ledger::T_DEFAULT;
+  rec.data = std::move(message);
+  rec.signatures = {*sigResult};
+  auto result = client.addTransaction(rec);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -100,7 +102,7 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   return 0;
 }
 
-using SignedTx = pp::Ledger::SignedData<pp::Ledger::Transaction>;
+using TxRecord = pp::Ledger::Record;
 
 static pp::Roe<std::string> readFileContent(const std::string& path) {
   std::ifstream f(path, std::ios::binary);
@@ -114,14 +116,16 @@ static pp::Roe<std::string> readFileContent(const std::string& path) {
 
 static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
                    const std::string& outputPath) {
-  SignedTx signedTx;
-  signedTx.obj.type = pp::Ledger::Transaction::T_DEFAULT;
-  signedTx.obj.fromWalletId = fromWalletId;
-  signedTx.obj.toWalletId = toWalletId;
-  signedTx.obj.amount = amount;
-  setValidationWindow(signedTx.obj);
-  signedTx.signatures = {};
-  std::string packed = pp::utl::binaryPack(signedTx);
+  pp::Ledger::TxDefault tx;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  setValidationWindow(tx);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_DEFAULT;
+  rec.data = pp::utl::binaryPack(tx);
+  rec.signatures = {};
+  std::string packed = pp::utl::binaryPack(rec);
   auto result = pp::utl::writeToNewFile(outputPath, packed);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
@@ -159,17 +163,19 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
-  SignedTx signedTx;
-  signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = ID_GENESIS;
-  signedTx.obj.fromWalletId = fromWalletId;
-  signedTx.obj.toWalletId = toWalletId;
-  signedTx.obj.amount = amount;
-  signedTx.obj.fee = fee;
-  signedTx.obj.meta = userAccount.ltsToString();
-  setValidationWindow(signedTx.obj);
-  signedTx.signatures = {};
-  std::string packed = pp::utl::binaryPack(signedTx);
+  pp::Ledger::TxNewUser tx;
+  tx.tokenId = ID_GENESIS;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  tx.fee = fee;
+  tx.meta = userAccount.ltsToString();
+  setValidationWindow(tx);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_NEW_USER;
+  rec.data = pp::utl::binaryPack(tx);
+  rec.signatures = {};
+  std::string packed = pp::utl::binaryPack(rec);
   auto result = pp::utl::writeToNewFile(outputPath, packed);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
@@ -223,23 +229,25 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
     std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
     return 1;
   }
-  SignedTx signedTx;
-  signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = ID_GENESIS;
-  signedTx.obj.fromWalletId = fromWalletId;
-  signedTx.obj.toWalletId = toWalletId;
-  signedTx.obj.amount = amount;
-  signedTx.obj.fee = fee;
-  signedTx.obj.meta = userAccount.ltsToString();
-  setValidationWindow(signedTx.obj);
-  std::string message = pp::utl::binaryPack(signedTx.obj);
+  pp::Ledger::TxNewUser tx;
+  tx.tokenId = ID_GENESIS;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  tx.fee = fee;
+  tx.meta = userAccount.ltsToString();
+  setValidationWindow(tx);
+  std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
   }
-  signedTx.signatures = {*sigResult};
-  auto result = client.addTransaction(signedTx);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_NEW_USER;
+  rec.data = std::move(message);
+  rec.signatures = {*sigResult};
+  auto result = client.addTransaction(rec);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -262,12 +270,12 @@ static int runSignTx(const std::string& filePath, const std::string& key) {
     std::cerr << "Error: " << content.error().message << "\n";
     return 1;
   }
-  auto signedTxResult = pp::utl::binaryUnpack<SignedTx>(*content);
-  if (!signedTxResult) {
-    std::cerr << "Error: Invalid signed tx file: " << signedTxResult.error().message << "\n";
+  auto recResult = pp::utl::binaryUnpack<TxRecord>(*content);
+  if (!recResult) {
+    std::cerr << "Error: Invalid tx record file: " << recResult.error().message << "\n";
     return 1;
   }
-  SignedTx signedTx = *signedTxResult;
+  TxRecord rec = *recResult;
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
@@ -276,14 +284,14 @@ static int runSignTx(const std::string& filePath, const std::string& key) {
     std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
     return 1;
   }
-  std::string message = pp::utl::binaryPack(signedTx.obj);
+  std::string message = rec.data;
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
   }
-  signedTx.signatures.push_back(*sigResult);
-  std::string packed = pp::utl::binaryPack(signedTx);
+  rec.signatures.push_back(*sigResult);
+  std::string packed = pp::utl::binaryPack(rec);
   std::ofstream f(filePath, std::ios::binary | std::ios::trunc);
   if (!f) {
     std::cerr << "Error: Cannot write file: " << filePath << "\n";
@@ -294,7 +302,7 @@ static int runSignTx(const std::string& filePath, const std::string& key) {
     std::cerr << "Error: Failed to write file: " << filePath << "\n";
     return 1;
   }
-  std::cout << "Added signature (" << signedTx.signatures.size() << " total).\n";
+  std::cout << "Added signature (" << rec.signatures.size() << " total).\n";
   return 0;
 }
 
@@ -304,12 +312,12 @@ static int runSubmitTx(pp::Client& client, const std::string& filePath) {
     std::cerr << "Error: " << content.error().message << "\n";
     return 1;
   }
-  auto signedTxResult = pp::utl::binaryUnpack<SignedTx>(*content);
-  if (!signedTxResult) {
-    std::cerr << "Error: Invalid signed tx file: " << signedTxResult.error().message << "\n";
+  auto recResult = pp::utl::binaryUnpack<TxRecord>(*content);
+  if (!recResult) {
+    std::cerr << "Error: Invalid tx record file: " << recResult.error().message << "\n";
     return 1;
   }
-  auto result = client.addTransaction(*signedTxResult);
+  auto result = client.addTransaction(*recResult);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;

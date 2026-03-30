@@ -7,15 +7,15 @@ namespace pp::chain_tx {
 
 Roe<Client::UserAccount>
 getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
-  auto matchesUserAccount = [&](const Ledger::Transaction &tx) -> bool {
-    switch (tx.type) {
-    case Ledger::Transaction::T_NEW_USER:
+  auto matchesUserAccount = [&](uint16_t type, const Ledger::TxCommon &tx) -> bool {
+    switch (type) {
+    case Ledger::T_NEW_USER:
       return accountId != AccountBuffer::ID_GENESIS &&
              tx.toWalletId == accountId;
-    case Ledger::Transaction::T_USER:
+    case Ledger::T_USER:
       return accountId != AccountBuffer::ID_GENESIS &&
              tx.fromWalletId == accountId && tx.toWalletId == accountId;
-    case Ledger::Transaction::T_RENEWAL:
+    case Ledger::T_RENEWAL:
       return tx.fromWalletId == accountId &&
              accountId != AccountBuffer::ID_GENESIS;
     default:
@@ -23,10 +23,14 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
     }
   };
 
-  for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend();
+  for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    const auto &tx = it->obj;
-    if (!matchesUserAccount(tx)) {
+    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
+    if (!txRoe) {
+      continue;
+    }
+    const auto &tx = txRoe.value();
+    if (!matchesUserAccount(it->type, tx)) {
       continue;
     }
     Client::UserAccount userAccount;
@@ -44,22 +48,26 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
 
 Roe<GenesisAccountMeta>
 getGenesisAccountMetaFromBlock(const Ledger::Block &block) {
-  auto matchesAccount = [&](const Ledger::Transaction &tx) -> bool {
-    switch (tx.type) {
-    case Ledger::Transaction::T_GENESIS:
+  auto matchesAccount = [&](uint16_t type, const Ledger::TxCommon &tx) -> bool {
+    switch (type) {
+    case Ledger::T_GENESIS:
       return tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
-    case Ledger::Transaction::T_CONFIG:
-    case Ledger::Transaction::T_RENEWAL:
+    case Ledger::T_CONFIG:
+    case Ledger::T_RENEWAL:
       return tx.fromWalletId == AccountBuffer::ID_GENESIS;
     default:
       return false;
     }
   };
 
-  for (auto it = block.signedTxes.rbegin(); it != block.signedTxes.rend();
+  for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    const auto &tx = it->obj;
-    if (!matchesAccount(tx)) {
+    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
+    if (!txRoe) {
+      continue;
+    }
+    const auto &tx = txRoe.value();
+    if (!matchesAccount(it->type, tx)) {
       continue;
     }
 

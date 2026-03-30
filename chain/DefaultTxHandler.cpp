@@ -6,7 +6,7 @@
 namespace pp {
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
-    const Ledger::Transaction &tx, const TxContext &ctx,
+    const Ledger::TxCommon &tx, const TxContext &ctx,
     AccountBuffer &bank) {
   if (!ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(
@@ -14,7 +14,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
         "Chain config required for strict default transfer fee validation");
   }
   auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-      ctx.optChainConfig.value(), tx);
+      ctx.optChainConfig.value(), Ledger::T_DEFAULT, tx);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
@@ -36,7 +36,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
 }
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
-    const Ledger::Transaction &tx, [[maybe_unused]] const TxContext &ctx,
+    const Ledger::TxCommon &tx, [[maybe_unused]] const TxContext &ctx,
     AccountBuffer &bank) {
   if (bank.hasAccount(tx.fromWalletId)) {
     if (bank.hasAccount(tx.toWalletId)) {

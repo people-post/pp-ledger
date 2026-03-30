@@ -7,7 +7,7 @@
 namespace pp {
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
-    const Ledger::Transaction &tx, const TxContext &ctx,
+    const Ledger::TxCommon &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
     bool isStrictMode) {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
@@ -51,7 +51,7 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
           "Chain config required for strict genesis renewal fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), tx);
+        ctx.optChainConfig.value(), Ledger::T_RENEWAL, tx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

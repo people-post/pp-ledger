@@ -121,20 +121,20 @@ public:
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
-  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  Roe<std::vector<Ledger::Record>>
   collectRenewals(uint64_t slot) const;
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   Roe<Ledger::ChainNode> readLastBlock() const;
 
-  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
-  Roe<Ledger::SignedData<Ledger::Transaction>>
+  Roe<Ledger::Record>
   findTransactionByIndex(uint64_t txIndex) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,
-                       const Ledger::SignedData<Ledger::Transaction> &signedTx,
+                       const Ledger::Record &record,
                        uint64_t slotLeaderId) const;
 
   void initConsensus(const consensus::Ouroboros::Config &config);
@@ -179,12 +179,12 @@ private:
 
   /** Validate idempotency rules (timespan, slot in window, duplicate id).
    * effectiveSlot is current slot (submit) or block.slot (replay). */
-  Roe<void> validateIdempotencyRules(const Ledger::Transaction &tx,
+  Roe<void> validateIdempotencyRules(const Ledger::TxCommon &tx,
                                      uint64_t effectiveSlot,
                                      bool isStrictMode) const;
 
   Roe<void>
-  verifySignaturesAgainstAccount(const Ledger::Transaction &tx,
+  verifySignaturesAgainstAccount(const std::string &message,
                                  const std::vector<std::string> &signatures,
                                  const AccountBuffer::Account &account) const;
 
@@ -200,7 +200,7 @@ private:
                                   uint64_t accountId) const;
 
   /** Create a renewal or end-user transaction for a given account. */
-  Roe<Ledger::SignedData<Ledger::Transaction>>
+  Roe<Ledger::Record>
   createRenewalTx(uint64_t accountId) const;
 
   Roe<void> processBlock(const Ledger::ChainNode &block, bool isStrictMode);
@@ -209,13 +209,13 @@ private:
                                bool isStrictMode);
 
   Roe<void> processGenesisTxRecord(
-      const Ledger::SignedData<Ledger::Transaction> &signedTx);
+      const Ledger::Record &record);
   Roe<void>
-  processNormalTxRecord(const Ledger::SignedData<Ledger::Transaction> &signedTx,
+  processNormalTxRecord(const Ledger::Record &record,
                         uint64_t blockId, uint64_t blockSlot,
                         uint64_t slotLeaderId, bool isStrictMode);
   Roe<void>
-  validateTxSignatures(const Ledger::SignedData<Ledger::Transaction> &signedTx,
+  validateTxSignatures(const Ledger::Record &record,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
   /** Check that no block with slot in [slotMin, slotMax] already contains a tx
@@ -225,47 +225,47 @@ private:
 
   // Tx processing
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
-                                      const Ledger::Transaction &tx,
+                                      const Ledger::TxCommon &tx,
                                       uint64_t blockId) const;
-  Roe<void> processSystemUpdate(const Ledger::Transaction &tx, uint64_t blockId,
+  Roe<void> processSystemUpdate(const Ledger::TxCommon &tx, uint64_t blockId,
                                 bool isStrictMode);
 
   // User
   Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::Transaction &tx,
+                                  const Ledger::TxCommon &tx,
                                   uint64_t blockId) const;
-  Roe<void> processUserInit(const Ledger::Transaction &tx, uint64_t blockId,
+  Roe<void> processUserInit(const Ledger::TxCommon &tx, uint64_t blockId,
                             bool isStrictMode);
 
-  Roe<void> processUserUpdate(const Ledger::Transaction &tx, uint64_t blockId,
+  Roe<void> processUserUpdate(const Ledger::TxCommon &tx, uint64_t blockId,
                               bool isStrictMode);
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
-                                           const Ledger::Transaction &tx,
+                                           const Ledger::TxCommon &tx,
                                            uint64_t blockId) const;
-  Roe<void> processUserAccountUpsert(const Ledger::Transaction &tx,
+  Roe<void> processUserAccountUpsert(const Ledger::TxCommon &tx,
                                      uint64_t blockId, bool isStrictMode);
-  Roe<void> processUserRenewal(const Ledger::Transaction &tx, uint64_t blockId,
+  Roe<void> processUserRenewal(const Ledger::TxCommon &tx, uint64_t blockId,
                                bool isStrictMode);
 
   Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
-                                        const Ledger::Transaction &tx,
+                                        const Ledger::TxCommon &tx,
                                         uint64_t blockId) const;
-  Roe<void> processGenesisRenewal(const Ledger::Transaction &tx,
+  Roe<void> processGenesisRenewal(const Ledger::TxCommon &tx,
                                   uint64_t blockId, bool isStrictMode);
 
   Roe<void> processBufferUserEnd(AccountBuffer &bank,
-                                 const Ledger::Transaction &tx) const;
-  Roe<void> processUserEnd(const Ledger::Transaction &tx, uint64_t blockId,
+                                 const Ledger::TxCommon &tx) const;
+  Roe<void> processUserEnd(const Ledger::TxCommon &tx, uint64_t blockId,
                            bool isStrictMode);
 
   Roe<void> processBufferTx(AccountBuffer &bank,
-                            const Ledger::Transaction &signedTx) const;
-  Roe<void> processTx(const Ledger::Transaction &tx, uint64_t blockId,
+                            const Ledger::TxCommon &signedTx) const;
+  Roe<void> processTx(const Ledger::TxCommon &tx, uint64_t blockId,
                       bool isStrictMode);
 
   TxContext txContext_{};
 
-  /** One slot per Ledger::Transaction type (0..6). */
+  /** One slot per Ledger tx type (0..6). */
   std::array<std::unique_ptr<ITxHandler>, 7> txHandlers_{};
 };
 

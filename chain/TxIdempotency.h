@@ -19,7 +19,7 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Ledger::Transaction &tx, uint64_t effectiveSlot, bool isStrictMode);
+    const Ledger::TxCommon &tx, uint64_t effectiveSlot, bool isStrictMode);
 
 } // namespace pp::chain_tx
 

@@ -61,113 +61,142 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have txIndex 0");
   }
-  if (block.block.signedTxes.size() != 4) {
+  if (block.block.records.size() != 4) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis block must have exactly four transactions");
   }
 
-  const auto &checkpointTx = block.block.signedTxes[0];
-  if (checkpointTx.obj.type != Ledger::Transaction::T_GENESIS) {
+  const auto &checkpointRec = block.block.records[0];
+  if (checkpointRec.type != Ledger::T_GENESIS) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "First genesis transaction must be genesis transaction");
   }
+  auto checkpointTxRoe = utl::binaryUnpack<Ledger::TxCommon>(checkpointRec.data);
+  if (!checkpointTxRoe) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Failed to deserialize genesis tx payload");
+  }
+  const auto &checkpointTx = checkpointTxRoe.value();
   GenesisAccountMeta gm;
-  if (!gm.ltsFromString(checkpointTx.obj.meta)) {
+  if (!gm.ltsFromString(checkpointTx.meta)) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Failed to deserialize genesis checkpoint meta");
   }
 
-  const auto &feeTx = block.block.signedTxes[1];
-  if (feeTx.obj.type != Ledger::Transaction::T_NEW_USER) {
+  const auto &feeRec = block.block.records[1];
+  if (feeRec.type != Ledger::T_NEW_USER) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Second genesis transaction must be new user transaction");
   }
-  if (feeTx.obj.fromWalletId != AccountBuffer::ID_GENESIS ||
-      feeTx.obj.toWalletId != AccountBuffer::ID_FEE) {
+  auto feeTxRoe = utl::binaryUnpack<Ledger::TxCommon>(feeRec.data);
+  if (!feeTxRoe) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Failed to deserialize fee tx payload");
+  }
+  const auto &feeTx = feeTxRoe.value();
+  if (feeTx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      feeTx.toWalletId != AccountBuffer::ID_FEE) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction "
         "must transfer from genesis to fee wallet");
   }
-  if (feeTx.obj.amount != 0) {
+  if (feeTx.amount != 0) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have amount 0");
   }
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, feeTx.obj);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, feeTx);
   if (!feeWalletFeeResult) {
     return chain_tx::Roe<void>(feeWalletFeeResult.error());
   }
   const uint64_t expectedFeeWalletFee = feeWalletFeeResult.value();
-  if (feeTx.obj.fee != expectedFeeWalletFee) {
+  if (feeTx.fee != expectedFeeWalletFee) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have fee: " +
             std::to_string(expectedFeeWalletFee));
   }
-  if (feeTx.obj.meta.empty()) {
+  if (feeTx.meta.empty()) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have meta");
   }
 
-  const auto &minerTx = block.block.signedTxes[2];
-  if (minerTx.obj.type != Ledger::Transaction::T_NEW_USER) {
+  const auto &minerRec = block.block.records[2];
+  if (minerRec.type != Ledger::T_NEW_USER) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Third genesis transaction must be new user transaction");
   }
-  if (minerTx.obj.fromWalletId != AccountBuffer::ID_GENESIS ||
-      minerTx.obj.toWalletId != AccountBuffer::ID_RESERVE) {
+  auto minerTxRoe = utl::binaryUnpack<Ledger::TxCommon>(minerRec.data);
+  if (!minerTxRoe) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Failed to deserialize reserve tx payload");
+  }
+  const auto &minerTx = minerTxRoe.value();
+  if (minerTx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      minerTx.toWalletId != AccountBuffer::ID_RESERVE) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis miner transaction must transfer "
                              "from genesis to new user wallet");
   }
   auto reserveFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, minerTx.obj);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, minerTx);
   if (!reserveFeeResult) {
     return chain_tx::Roe<void>(reserveFeeResult.error());
   }
   const uint64_t expectedReserveFee = reserveFeeResult.value();
-  if (minerTx.obj.fee != expectedReserveFee) {
+  if (minerTx.fee != expectedReserveFee) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis reserve transaction must have fee: " +
             std::to_string(expectedReserveFee));
   }
 
-  const auto &recycleTx = block.block.signedTxes[3];
+  const auto &recycleRec = block.block.records[3];
+  if (recycleRec.type != Ledger::T_NEW_USER) {
+    return chain_tx::TxError(
+        chain_err::E_BLOCK_GENESIS,
+        "Fourth genesis transaction must be new user transaction");
+  }
+  auto recycleTxRoe = utl::binaryUnpack<Ledger::TxCommon>(recycleRec.data);
+  if (!recycleTxRoe) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Failed to deserialize recycle tx payload");
+  }
+  const auto &recycleTx = recycleTxRoe.value();
   auto recycleFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, recycleTx.obj);
+      chain_tx::calculateMinimumFeeForTransaction(gm.config, Ledger::T_NEW_USER, recycleTx);
   if (!recycleFeeResult) {
     return chain_tx::Roe<void>(recycleFeeResult.error());
   }
   const uint64_t expectedRecycleFee = recycleFeeResult.value();
 
-  if (minerTx.obj.fee >
+  if (minerTx.fee >
           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
-      recycleTx.obj.fee >
+      recycleTx.fee >
           static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis transaction fee exceeds int64_t range");
   }
-  const int64_t minerFeeSigned = static_cast<int64_t>(minerTx.obj.fee);
-  const int64_t recycleFeeSigned = static_cast<int64_t>(recycleTx.obj.fee);
+  const int64_t minerFeeSigned = static_cast<int64_t>(minerTx.fee);
+  const int64_t recycleFeeSigned = static_cast<int64_t>(recycleTx.fee);
 
-  if (feeTx.obj.fee >
+  if (feeTx.fee >
       static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee-wallet transaction fee exceeds int64_t range");
   }
-  const int64_t feeWalletFeeSigned = static_cast<int64_t>(feeTx.obj.fee);
+  const int64_t feeWalletFeeSigned = static_cast<int64_t>(feeTx.fee);
 
-  if (minerTx.obj.amount + feeWalletFeeSigned + minerFeeSigned +
+  if (minerTx.amount + feeWalletFeeSigned + minerFeeSigned +
           recycleFeeSigned !=
       AccountBuffer::INITIAL_TOKEN_SUPPLY) {
     return chain_tx::TxError(
@@ -177,30 +206,25 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
             std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
   }
 
-  if (recycleTx.obj.type != Ledger::Transaction::T_NEW_USER) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Fourth genesis transaction must be new user transaction");
-  }
-  if (recycleTx.obj.fromWalletId != AccountBuffer::ID_GENESIS ||
-      recycleTx.obj.toWalletId != AccountBuffer::ID_RECYCLE) {
+  if (recycleTx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      recycleTx.toWalletId != AccountBuffer::ID_RECYCLE) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must transfer "
         "from genesis to recycle wallet");
   }
-  if (recycleTx.obj.amount != 0) {
+  if (recycleTx.amount != 0) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have amount 0");
   }
-  if (recycleTx.obj.fee != expectedRecycleFee) {
+  if (recycleTx.fee != expectedRecycleFee) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have fee: " +
             std::to_string(expectedRecycleFee));
   }
-  if (recycleTx.obj.meta.empty()) {
+  if (recycleTx.meta.empty()) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have meta");
@@ -257,7 +281,7 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
     }
 
     const uint64_t expectedTxIndex =
-        prevBlock.block.txIndex + prevBlock.block.signedTxes.size();
+        prevBlock.block.txIndex + prevBlock.block.records.size();
     if (block.block.txIndex != expectedTxIndex) {
       return chain_tx::TxError(
           chain_err::E_BLOCK_INDEX,
@@ -272,16 +296,20 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
 chain_tx::Roe<void>
 validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
   std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
-  for (const auto &signedTx : block.block.signedTxes) {
-    const auto &tx = signedTx.obj;
+  for (const auto &rec : block.block.records) {
+    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
+    if (!txRoe) {
+      continue;
+    }
+    const auto &tx = txRoe.value();
     if (tx.idempotentId == 0) {
       continue;
     }
-    switch (tx.type) {
-    case Ledger::Transaction::T_DEFAULT:
-    case Ledger::Transaction::T_NEW_USER:
-    case Ledger::Transaction::T_CONFIG:
-    case Ledger::Transaction::T_USER: {
+    switch (rec.type) {
+    case Ledger::T_DEFAULT:
+    case Ledger::T_NEW_USER:
+    case Ledger::T_CONFIG:
+    case Ledger::T_USER: {
       auto key = std::make_pair(tx.fromWalletId, tx.idempotentId);
       if (!seenIdempotentPairs.insert(key).second) {
         return chain_tx::TxError(
@@ -390,11 +418,14 @@ chain_tx::Roe<void> validateAccountRenewals(
 
   std::set<uint64_t> accountsRenewedInBlock;
 
-  for (const auto &signedTx : block.block.signedTxes) {
-    const auto &tx = signedTx.obj;
-
-    if (tx.type == Ledger::Transaction::T_RENEWAL ||
-        tx.type == Ledger::Transaction::T_END_USER) {
+  for (const auto &rec : block.block.records) {
+    if (rec.type == Ledger::T_RENEWAL || rec.type == Ledger::T_END_USER) {
+      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
+      if (!txRoe) {
+        return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                                 "Failed to deserialize renewal tx payload");
+      }
+      const auto &tx = txRoe.value();
       uint64_t accountId = tx.fromWalletId;
 
       auto accountResult = bank.getAccount(accountId);
@@ -486,13 +517,13 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
     }
     const uint64_t maxTx =
         optChainConfig.value().maxTransactionsPerBlock;
-    if (maxTx > 0 && block.block.signedTxes.size() > maxTx) {
-      for (const auto &signedTx : block.block.signedTxes) {
-        if (signedTx.obj.type != Ledger::Transaction::T_RENEWAL) {
+    if (maxTx > 0 && block.block.records.size() > maxTx) {
+      for (const auto &rec : block.block.records) {
+        if (rec.type != Ledger::T_RENEWAL) {
           return chain_tx::TxError(
               chain_err::E_BLOCK_VALIDATION,
               "Block has more than max transactions per block (" +
-                  std::to_string(block.block.signedTxes.size()) + " > " +
+                  std::to_string(block.block.records.size()) + " > " +
                   std::to_string(maxTx) +
                   ") but contains non-renewal transaction");
         }

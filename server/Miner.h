@@ -79,10 +79,10 @@ public:
 
   std::string calculateHash(const Ledger::Block &block) const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
-  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   /** Find transaction by global chain index (0-based). */
-  Roe<Ledger::SignedData<Ledger::Transaction>>
+  Roe<Ledger::Record>
   findTransactionByIndex(uint64_t txIndex) const;
 
   // ----------------- methods -------------------------------------
@@ -90,13 +90,13 @@ public:
   void refresh();
 
   Roe<void>
-  addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
+  addTransaction(const Ledger::Record &record);
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
   /** Cache a transaction for forwarding retry when slot leader address is unknown. */
-  void addToForwardCache(const Ledger::SignedData<Ledger::Transaction> &signedTx);
+  void addToForwardCache(const Ledger::Record &record);
   /** Take all cached transactions for retry; returns and clears the cache. */
-  std::vector<Ledger::SignedData<Ledger::Transaction>> drainForwardCache();
+  std::vector<Ledger::Record> drainForwardCache();
 
   Roe<bool> produceBlock(Ledger::ChainNode &block);
   void markBlockProduction(const Ledger::ChainNode &block);
@@ -115,12 +115,12 @@ private:
   struct SlotCache {
     uint64_t slot{0};
     bool isLeader{false};
-    std::vector<Ledger::SignedData<Ledger::Transaction>> txRenewals;
+    std::vector<Ledger::Record> txRenewals;
   };
 
   /** Transactions for the next block and count of pending included (for trimmed). */
   struct BlockTxSet {
-    std::vector<Ledger::SignedData<Ledger::Transaction>> signedTxes;
+    std::vector<Ledger::Record> records;
     size_t nPendingIncluded{0};
   };
 
@@ -129,13 +129,13 @@ private:
   Roe<void> initSlotCache(uint64_t slot);
   Roe<Ledger::ChainNode> createBlock(
       uint64_t slot,
-      const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes);
+      const std::vector<Ledger::Record> &records);
 
   Chain chain_;
   Config config_;
   AccountBuffer bufferBank_;
-  std::vector<Ledger::SignedData<Ledger::Transaction>> pendingTxes_;
-  std::vector<Ledger::SignedData<Ledger::Transaction>> forwardCache_;
+  std::vector<Ledger::Record> pendingTxes_;
+  std::vector<Ledger::Record> forwardCache_;
 
   uint64_t lastProducedBlockId_{0};
   // slot last produced block in (at most one per slot)

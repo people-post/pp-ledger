@@ -69,15 +69,23 @@ Client::UserAccount makeUserAccount(const std::string &publicKey,
   return account;
 }
 
-std::string signTx(const utl::Ed25519KeyPair &keyPair,
-                   const Ledger::Transaction &tx) {
-  auto message = utl::binaryPack(tx);
+std::string signMessage(const utl::Ed25519KeyPair &keyPair,
+                        const std::string &message) {
   auto result = utl::ed25519Sign(keyPair.privateKey, message);
   EXPECT_TRUE(result.isOk());
   if (!result.isOk()) {
     return {};
   }
   return result.value();
+}
+
+Ledger::Record makeRecord(uint16_t type, const Ledger::TxCommon &tx,
+                          const utl::Ed25519KeyPair &signer) {
+  Ledger::Record rec;
+  rec.type = type;
+  rec.data = utl::binaryPack(tx);
+  rec.signatures = {signMessage(signer, rec.data)};
+  return rec;
 }
 
 Ledger::ChainNode makeGenesisBlock(Chain &validator,
@@ -102,24 +110,22 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.slot = 0;
   genesis.block.slotLeader = 0;
 
-  Ledger::SignedData<Ledger::Transaction> checkpointTx;
-  checkpointTx.obj.type = Ledger::Transaction::T_GENESIS;
-  checkpointTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  checkpointTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  checkpointTx.obj.toWalletId = AccountBuffer::ID_GENESIS;
-  checkpointTx.obj.amount = 0;
-  checkpointTx.obj.fee = 0;
-  checkpointTx.obj.meta = gm.ltsToString();
-  checkpointTx.signatures.push_back(signTx(genesisKey, checkpointTx.obj));
-  genesis.block.signedTxes.push_back(checkpointTx);
+  Ledger::TxCommon checkpointTx;
+  checkpointTx.tokenId = AccountBuffer::ID_GENESIS;
+  checkpointTx.fromWalletId = AccountBuffer::ID_GENESIS;
+  checkpointTx.toWalletId = AccountBuffer::ID_GENESIS;
+  checkpointTx.amount = 0;
+  checkpointTx.fee = 0;
+  checkpointTx.meta = gm.ltsToString();
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey));
 
   Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
-  Ledger::SignedData<Ledger::Transaction> feeTx;
-  feeTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  feeTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  feeTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  feeTx.obj.toWalletId = AccountBuffer::ID_FEE;
-  feeTx.obj.amount = 0;
+  Ledger::TxCommon feeTx;
+  feeTx.tokenId = AccountBuffer::ID_GENESIS;
+  feeTx.fromWalletId = AccountBuffer::ID_GENESIS;
+  feeTx.toWalletId = AccountBuffer::ID_FEE;
+  feeTx.amount = 0;
   const uint64_t feeNonFreeBytes =
       feeAccount.meta.size() > chainConfig.freeCustomMetaSize
           ? static_cast<uint64_t>(feeAccount.meta.size()) -
@@ -127,10 +133,9 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
           : 0ULL;
   const int64_t feeWalletFee = static_cast<int64_t>(
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
-  feeTx.obj.fee = feeWalletFee;
-  feeTx.obj.meta = feeAccount.ltsToString();
-  feeTx.signatures.push_back(signTx(genesisKey, feeTx.obj));
-  genesis.block.signedTxes.push_back(feeTx);
+  feeTx.fee = static_cast<uint64_t>(feeWalletFee);
+  feeTx.meta = feeAccount.ltsToString();
+  genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey));
 
   Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
   Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
@@ -161,27 +166,25 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   }
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
-  Ledger::SignedData<Ledger::Transaction> reserveTx;
-  reserveTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  reserveTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  reserveTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  reserveTx.obj.toWalletId = AccountBuffer::ID_RESERVE;
-  reserveTx.obj.amount = reserveAmount;
-  reserveTx.obj.fee = reserveFee;
-  reserveTx.obj.meta = reserveAccount.ltsToString();
-  reserveTx.signatures.push_back(signTx(genesisKey, reserveTx.obj));
-  genesis.block.signedTxes.push_back(reserveTx);
+  Ledger::TxCommon reserveTx;
+  reserveTx.tokenId = AccountBuffer::ID_GENESIS;
+  reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;
+  reserveTx.toWalletId = AccountBuffer::ID_RESERVE;
+  reserveTx.amount = static_cast<uint64_t>(reserveAmount);
+  reserveTx.fee = static_cast<uint64_t>(reserveFee);
+  reserveTx.meta = reserveAccount.ltsToString();
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey));
 
-  Ledger::SignedData<Ledger::Transaction> recycleTx;
-  recycleTx.obj.type = Ledger::Transaction::T_NEW_USER;
-  recycleTx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  recycleTx.obj.fromWalletId = AccountBuffer::ID_GENESIS;
-  recycleTx.obj.toWalletId = AccountBuffer::ID_RECYCLE;
-  recycleTx.obj.amount = 0;
-  recycleTx.obj.fee = recycleFee;
-  recycleTx.obj.meta = recycleAccount.ltsToString();
-  recycleTx.signatures.push_back(signTx(genesisKey, recycleTx.obj));
-  genesis.block.signedTxes.push_back(recycleTx);
+  Ledger::TxCommon recycleTx;
+  recycleTx.tokenId = AccountBuffer::ID_GENESIS;
+  recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
+  recycleTx.toWalletId = AccountBuffer::ID_RECYCLE;
+  recycleTx.amount = 0;
+  recycleTx.fee = static_cast<uint64_t>(recycleFee);
+  recycleTx.meta = recycleAccount.ltsToString();
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey));
 
   genesis.hash = validator.calculateHash(genesis.block);
   return genesis;
@@ -189,7 +192,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
 
 Ledger::ChainNode makeNextBlock(
     Chain &validator, const Ledger::ChainNode &previous,
-    const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes) {
+    const std::vector<Ledger::Record> &records) {
   Ledger::ChainNode block;
   block.block.index = previous.block.index + 1;
   block.block.previousHash = previous.hash;
@@ -200,8 +203,8 @@ Ledger::ChainNode makeNextBlock(
   EXPECT_TRUE(leaderResult.isOk());
   block.block.slotLeader = leaderResult.isOk() ? leaderResult.value() : 0;
   block.block.txIndex =
-      previous.block.txIndex + previous.block.signedTxes.size();
-  block.block.signedTxes = signedTxes;
+      previous.block.txIndex + previous.block.records.size();
+  block.block.records = records;
   block.hash = validator.calculateHash(block.block);
   return block;
 }
@@ -384,8 +387,10 @@ TEST(ChainTest,
   EXPECT_FALSE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
   for (const auto &st : result.value()) {
-    EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
-                st.obj.toWalletId == AccountBuffer::ID_GENESIS);
+    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(st.data);
+    ASSERT_TRUE(txRoe.isOk());
+    EXPECT_TRUE(txRoe.value().fromWalletId == AccountBuffer::ID_GENESIS ||
+                txRoe.value().toWalletId == AccountBuffer::ID_GENESIS);
   }
 
   std::filesystem::remove_all(tempDir, ec);
@@ -433,8 +438,10 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   const auto &txes = result.value();
   EXPECT_FALSE(txes.empty());
   for (const auto &st : txes) {
-    EXPECT_TRUE(st.obj.fromWalletId == AccountBuffer::ID_GENESIS ||
-                st.obj.toWalletId == AccountBuffer::ID_GENESIS);
+    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(st.data);
+    ASSERT_TRUE(txRoe.isOk());
+    EXPECT_TRUE(txRoe.value().fromWalletId == AccountBuffer::ID_GENESIS ||
+                txRoe.value().toWalletId == AccountBuffer::ID_GENESIS);
   }
   EXPECT_EQ(blockId, 0u);
 }
@@ -633,14 +640,16 @@ TEST(ChainTest,
   ASSERT_TRUE(addResult.isOk());
 
   // Genesis block has 4 transactions at indices 0..3.
-  for (size_t i = 0; i < genesis.block.signedTxes.size(); ++i) {
+  for (size_t i = 0; i < genesis.block.records.size(); ++i) {
     auto result = validator.findTransactionByIndex(static_cast<uint64_t>(i));
     ASSERT_TRUE(result.isOk()) << "findTransactionByIndex(" << i << ") failed";
-    EXPECT_EQ(result.value().obj.type, genesis.block.signedTxes[i].obj.type);
-    EXPECT_EQ(result.value().obj.fromWalletId,
-              genesis.block.signedTxes[i].obj.fromWalletId);
-    EXPECT_EQ(result.value().obj.toWalletId,
-              genesis.block.signedTxes[i].obj.toWalletId);
+    auto gotTxRoe = utl::binaryUnpack<Ledger::TxCommon>(result.value().data);
+    auto expTxRoe = utl::binaryUnpack<Ledger::TxCommon>(genesis.block.records[i].data);
+    ASSERT_TRUE(gotTxRoe.isOk());
+    ASSERT_TRUE(expTxRoe.isOk());
+    EXPECT_EQ(result.value().type, genesis.block.records[i].type);
+    EXPECT_EQ(gotTxRoe.value().fromWalletId, expTxRoe.value().fromWalletId);
+    EXPECT_EQ(gotTxRoe.value().toWalletId, expTxRoe.value().toWalletId);
   }
 
   std::filesystem::remove_all(tempDir, ec);
@@ -761,21 +770,20 @@ TEST(ChainTest,
   ASSERT_TRUE(addGenesisResult.isOk());
 
   // Create a normal block with a single idempotent transaction from RESERVE to FEE.
-  Ledger::SignedData<Ledger::Transaction> tx;
-  tx.obj.type = Ledger::Transaction::T_DEFAULT;
-  tx.obj.tokenId = AccountBuffer::ID_GENESIS;
-  tx.obj.fromWalletId = AccountBuffer::ID_RESERVE;
-  tx.obj.toWalletId = AccountBuffer::ID_FEE;
-  tx.obj.amount = 0;
-  tx.obj.fee = 1; // Small non-zero fee; reserve account has ample balance.
-  tx.obj.idempotentId = 42;
-  tx.obj.validationTsMin = chainConfig.genesisTime;
-  tx.obj.validationTsMax = chainConfig.genesisTime + 3600;
-  tx.obj.meta.clear();
-  tx.signatures.push_back(signTx(reserveKey, tx.obj));
+  Ledger::TxCommon tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 0;
+  tx.fee = 1; // Small non-zero fee; reserve account has ample balance.
+  tx.idempotentId = 42;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  tx.meta.clear();
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
 
   validator.refreshStakeholders();
-  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {tx});
+  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {rec});
   auto addBlock1Result = validator.addBlock(block1);
   ASSERT_TRUE(addBlock1Result.isOk());
 

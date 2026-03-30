@@ -50,20 +50,20 @@ Chain::Chain() {
     txHandlers_[type] = std::move(handler);
   };
 
-  installHandler(Ledger::Transaction::T_GENESIS,
+  installHandler(Ledger::T_GENESIS,
                  std::make_unique<GenesisTxHandler>(), "GenesisTxHandler");
-  installHandler(Ledger::Transaction::T_CONFIG,
+  installHandler(Ledger::T_CONFIG,
                  std::make_unique<ConfigTxHandler>(), "ConfigTxHandler");
-  installHandler(Ledger::Transaction::T_NEW_USER,
+  installHandler(Ledger::T_NEW_USER,
                  std::make_unique<NewUserTxHandler>(), "NewUserTxHandler");
-  installHandler(Ledger::Transaction::T_USER, std::make_unique<UserTxHandler>(),
+  installHandler(Ledger::T_USER, std::make_unique<UserTxHandler>(),
                  "UserTxHandler");
-  installHandler(Ledger::Transaction::T_DEFAULT,
+  installHandler(Ledger::T_DEFAULT,
                  std::make_unique<DefaultTxHandler>(), "DefaultTxHandler");
-  installHandler(Ledger::Transaction::T_RENEWAL,
+  installHandler(Ledger::T_RENEWAL,
                  std::make_unique<GenesisRenewalTxHandler>(),
                  "GenesisRenewalTxHandler");
-  installHandler(Ledger::Transaction::T_END_USER,
+  installHandler(Ledger::T_END_USER,
                  std::make_unique<EndUserTxHandler>(), "EndUserTxHandler");
 }
 
@@ -193,7 +193,7 @@ Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
       chain_tx::getUpdatedAccountMetadataForRenewal(block, account, minFee));
 }
 
-Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
+Chain::Roe<Ledger::Record>
 Chain::createRenewalTx(uint64_t accountId) const {
   auto accountResult = txContext_.bank.getAccount(accountId);
   if (!accountResult) {
@@ -202,8 +202,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
   }
 
   auto const &account = accountResult.value();
-  Ledger::Transaction tx;
-  tx.type = Ledger::Transaction::T_RENEWAL;
+  Ledger::TxRenewal tx;
   tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.fromWalletId = accountId;
   tx.toWalletId = accountId;
@@ -211,6 +210,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
   tx.idempotentId = 0;
   tx.validationTsMin = 0;
   tx.validationTsMax = 0;
+  uint16_t type = Ledger::T_RENEWAL;
 
   // Compute minimum fee from current account metadata state.
   auto minimumFeeResult =
@@ -228,12 +228,12 @@ Chain::createRenewalTx(uint64_t accountId) const {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
       // to recycle account. Never terminate fee account (it pays fee to self).
-      tx.type = Ledger::Transaction::T_END_USER;
+      type = Ledger::T_END_USER;
       tx.fee = 0;
     }
   }
 
-  if (tx.type == Ledger::Transaction::T_RENEWAL) {
+  if (type == Ledger::T_RENEWAL) {
     // Get account metadata from previous block
     auto blockResult = txContext_.ledger.readBlock(account.blockId);
     if (!blockResult) {
@@ -251,9 +251,25 @@ Chain::createRenewalTx(uint64_t accountId) const {
   }
   // T_END_USER does not need metadata update
 
-  Ledger::SignedData<Ledger::Transaction> signedTx;
-  signedTx.obj = tx;
-  return signedTx;
+  Ledger::Record rec;
+  rec.type = type;
+  if (type == Ledger::T_END_USER) {
+    Ledger::TxEndUser endTx;
+    endTx.tokenId = tx.tokenId;
+    endTx.fromWalletId = tx.fromWalletId;
+    endTx.toWalletId = tx.toWalletId;
+    endTx.amount = tx.amount;
+    endTx.fee = tx.fee;
+    endTx.meta = tx.meta;
+    endTx.idempotentId = tx.idempotentId;
+    endTx.validationTsMin = tx.validationTsMin;
+    endTx.validationTsMax = tx.validationTsMax;
+    rec.data = utl::binaryPack(endTx);
+  } else {
+    rec.data = utl::binaryPack(tx);
+  }
+  rec.signatures = {};
+  return rec;
 }
 
 Chain::Roe<uint64_t>
@@ -263,9 +279,9 @@ Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
       txContext_.checkpoint, atBlockId));
 }
 
-Chain::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Chain::Roe<std::vector<Ledger::Record>>
 Chain::collectRenewals(uint64_t slot) const {
-  std::vector<Ledger::SignedData<Ledger::Transaction>> renewals;
+  std::vector<Ledger::Record> renewals;
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(nextBlockId);
@@ -298,14 +314,14 @@ Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
   return result.value();
 }
 
-Chain::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Chain::Roe<std::vector<Ledger::Record>>
 Chain::findTransactionsByWalletId(uint64_t walletId,
                                   uint64_t &ioBlockId) const {
   // ioBlockId is the block ID to start scanning from (exclusive). It is updated
   // to the last scanned block ID. Client sends 0 to mean "latest" (scan from
   // tip); we substitute getNextBlockId() so that scanning runs.
 
-  std::vector<Ledger::SignedData<Ledger::Transaction>> out;
+  std::vector<Ledger::Record> out;
   uint64_t nextId = txContext_.ledger.getNextBlockId();
   if (ioBlockId == 0) {
     ioBlockId = nextId;
@@ -325,9 +341,13 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
       return Error(E_BLOCK_NOT_FOUND,
                    "Block not found: " + std::to_string(currentBlockId));
     }
-    auto const &txes = blockRoe.value().block.signedTxes;
-    for (auto it = txes.rbegin(); it != txes.rend(); ++it) {
-      const Ledger::Transaction &tx = it->obj;
+    auto const &recs = blockRoe.value().block.records;
+    for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
+      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
+      if (!txRoe) {
+        continue;
+      }
+      const auto &tx = txRoe.value();
       if (tx.fromWalletId == walletId || tx.toWalletId == walletId) {
         out.push_back(*it);
       }
@@ -341,7 +361,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   return out;
 }
 
-Chain::Roe<Ledger::SignedData<Ledger::Transaction>>
+Chain::Roe<Ledger::Record>
 Chain::findTransactionByIndex(uint64_t txIndex) const {
   const uint64_t firstBlockId = txContext_.ledger.getStartingBlockId();
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
@@ -357,7 +377,7 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
 
   const auto &lastBlock = lastBlockRoe.value().block;
   const uint64_t lastBlockTxCount =
-      static_cast<uint64_t>(lastBlock.signedTxes.size());
+      static_cast<uint64_t>(lastBlock.records.size());
   const uint64_t totalTxCount = lastBlock.txIndex + lastBlockTxCount;
 
   if (txIndex >= totalTxCount) {
@@ -382,7 +402,7 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
     const auto &block = blockRoe.value().block;
     const uint64_t blockStart = block.txIndex;
     const uint64_t blockTxCount =
-        static_cast<uint64_t>(block.signedTxes.size());
+        static_cast<uint64_t>(block.records.size());
 
     if (txIndex < blockStart) {
       if (mid == firstBlockId) {
@@ -404,7 +424,7 @@ Chain::findTransactionByIndex(uint64_t txIndex) const {
     }
 
     const uint64_t localIndex = txIndex - blockStart;
-    return block.signedTxes[static_cast<size_t>(localIndex)];
+    return block.records[static_cast<size_t>(localIndex)];
   }
 
   return Error(E_LEDGER_READ, "Transaction index " + std::to_string(txIndex) +
@@ -546,9 +566,8 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
                                          ": " + roe.error().message);
   }
 
-  // Process checkpoint transactions to restore BlockChainConfig
-  for (const auto &signedTx : block.block.signedTxes) {
-    auto result = processGenesisTxRecord(signedTx);
+  for (const auto &rec : block.block.records) {
+    auto result = processGenesisTxRecord(rec);
     if (!result) {
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
@@ -569,11 +588,9 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
                                          ": " + roe.error().message);
   }
 
-  // Process checkpoint transactions to restore BlockChainConfig
-  for (const auto &signedTx : block.block.signedTxes) {
-    auto result =
-        processNormalTxRecord(signedTx, block.block.index, block.block.slot,
-                              block.block.slotLeader, isStrictMode);
+  for (const auto &rec : block.block.records) {
+    auto result = processNormalTxRecord(rec, block.block.index, block.block.slot,
+                                        block.block.slotLeader, isStrictMode);
     if (!result) {
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
@@ -594,26 +611,31 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
 
 Chain::Roe<void> Chain::addBufferTransaction(
     AccountBuffer &bank,
-    const Ledger::SignedData<Ledger::Transaction> &signedTx,
+    const Ledger::Record &record,
     uint64_t slotLeaderId) const {
-  auto roe = validateTxSignatures(signedTx, slotLeaderId, true);
+  auto roe = validateTxSignatures(record, slotLeaderId, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
                                      roe.error().message);
   }
 
   auto blockId = getNextBlockId();
-  const auto &tx = signedTx.obj;
+  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
+  if (!txRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " + txRoe.error().message);
+  }
+  const auto &tx = txRoe.value();
   const uint64_t currentSlot = getCurrentSlot();
-  switch (tx.type) {
-  case Ledger::Transaction::T_DEFAULT: {
+  switch (record.type) {
+  case Ledger::T_DEFAULT: {
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processBufferTx(bank, tx);
   }
-  case Ledger::Transaction::T_NEW_USER: {
+  case Ledger::T_NEW_USER: {
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
@@ -626,98 +648,108 @@ Chain::Roe<void> Chain::addBufferTransaction(
     }
     return processBufferUserInit(bank, tx, blockId);
   }
-  case Ledger::Transaction::T_CONFIG: {
+  case Ledger::T_CONFIG: {
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processBufferSystemUpdate(bank, tx, blockId);
   }
-  case Ledger::Transaction::T_USER: {
+  case Ledger::T_USER: {
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processBufferUserAccountUpsert(bank, tx, blockId);
   }
-  case Ledger::Transaction::T_RENEWAL:
+  case Ledger::T_RENEWAL:
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processBufferGenesisRenewal(bank, tx, blockId);
     }
     return processBufferUserAccountUpsert(bank, tx, blockId);
-  case Ledger::Transaction::T_END_USER:
+  case Ledger::T_END_USER:
     return processBufferUserEnd(bank, tx);
   default:
     return Error(E_TX_TYPE,
-                 "Unknown transaction type: " + std::to_string(tx.type));
+                 "Unknown transaction type: " + std::to_string(record.type));
   }
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
-    const Ledger::SignedData<Ledger::Transaction> &signedTx) {
-  auto roe = validateTxSignatures(signedTx, 0, true);
+    const Ledger::Record &record) {
+  auto roe = validateTxSignatures(record, 0, true);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto const &tx = signedTx.obj;
-  switch (tx.type) {
-  case Ledger::Transaction::T_GENESIS: {
-    auto &h = txHandlers_[Ledger::Transaction::T_GENESIS];
+  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
+  if (!txRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " + txRoe.error().message);
+  }
+  auto const &tx = txRoe.value();
+  switch (record.type) {
+  case Ledger::T_GENESIS: {
+    auto &h = txHandlers_[Ledger::T_GENESIS];
     if (!h) {
       return Error(E_INTERNAL, "Genesis transaction handler not registered");
     }
     return mapTxVoid(h->applyGenesisInit(tx, txContext_));
   }
-  case Ledger::Transaction::T_NEW_USER:
+  case Ledger::T_NEW_USER:
     return processUserInit(tx, 0, true);
   default:
     return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
-                                std::to_string(tx.type));
+                                std::to_string(record.type));
   }
 }
 
 Chain::Roe<void> Chain::processNormalTxRecord(
-    const Ledger::SignedData<Ledger::Transaction> &signedTx, uint64_t blockId,
+    const Ledger::Record &record, uint64_t blockId,
     uint64_t blockSlot, uint64_t slotLeaderId, bool isStrictMode) {
-  auto roe = validateTxSignatures(signedTx, slotLeaderId, isStrictMode);
+  auto roe = validateTxSignatures(record, slotLeaderId, isStrictMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto const &tx = signedTx.obj;
-  switch (tx.type) {
-  case Ledger::Transaction::T_NEW_USER: {
+  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
+  if (!txRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " + txRoe.error().message);
+  }
+  auto const &tx = txRoe.value();
+  switch (record.type) {
+  case Ledger::T_NEW_USER: {
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processUserInit(tx, blockId, isStrictMode);
   }
-  case Ledger::Transaction::T_CONFIG: {
+  case Ledger::T_CONFIG: {
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processSystemUpdate(tx, blockId, isStrictMode);
   }
-  case Ledger::Transaction::T_USER: {
+  case Ledger::T_USER: {
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
     }
     return processUserUpdate(tx, blockId, isStrictMode);
   }
-  case Ledger::Transaction::T_RENEWAL:
+  case Ledger::T_RENEWAL:
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processGenesisRenewal(tx, blockId, isStrictMode);
     }
     return processUserRenewal(tx, blockId, isStrictMode);
-  case Ledger::Transaction::T_END_USER:
+  case Ledger::T_END_USER:
     return processUserEnd(tx, blockId, isStrictMode);
-  case Ledger::Transaction::T_DEFAULT: {
+  case Ledger::T_DEFAULT: {
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
@@ -726,32 +758,37 @@ Chain::Roe<void> Chain::processNormalTxRecord(
   }
   default:
     return Error(E_TX_TYPE,
-                 "Unknown transaction type: " + std::to_string(tx.type));
+                 "Unknown transaction type: " + std::to_string(record.type));
   }
 }
 
 Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
-    const Ledger::Transaction &tx, const std::vector<std::string> &signatures,
+    const std::string &message, const std::vector<std::string> &signatures,
     const AccountBuffer::Account &account) const {
   return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(
-      tx, signatures, account, txContext_.crypto, log()));
+      message, signatures, account, txContext_.crypto, log()));
 }
 
 Chain::Roe<void> Chain::validateTxSignatures(
-    const Ledger::SignedData<Ledger::Transaction> &signedTx,
+    const Ledger::Record &record,
     uint64_t slotLeaderId, bool isStrictMode) const {
-  if (signedTx.signatures.size() < 1) {
+  if (record.signatures.size() < 1) {
     return Error(E_TX_SIGNATURE,
                  "Transaction must have at least one signature");
   }
 
-  const auto &tx = signedTx.obj;
+  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
+  if (!txRoe) {
+    return Error(E_INVALID_ARGUMENT,
+                 "Invalid packed transaction payload: " + txRoe.error().message);
+  }
+  const auto &tx = txRoe.value();
   uint64_t signerAccountId = tx.fromWalletId;
 
   // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not by
   // fromWalletId
-  if ((tx.type == Ledger::Transaction::T_RENEWAL ||
-       tx.type == Ledger::Transaction::T_END_USER) &&
+  if ((record.type == Ledger::T_RENEWAL ||
+       record.type == Ledger::T_END_USER) &&
       slotLeaderId != 0) {
     signerAccountId = slotLeaderId;
   }
@@ -775,7 +812,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return {};
     }
   }
-  return verifySignaturesAgainstAccount(tx, signedTx.signatures,
+  return verifySignaturesAgainstAccount(record.data, record.signatures,
                                         accountResult.value());
 }
 
@@ -788,7 +825,7 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId,
                                  idempotentId, fromWalletId, slotMin, slotMax));
 }
 
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxCommon &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
@@ -796,10 +833,10 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::Transaction &tx,
       effectiveSlot, isStrictMode));
 }
 
-Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processSystemUpdate(const Ledger::TxCommon &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
-  auto &h = txHandlers_[Ledger::Transaction::T_CONFIG];
+  auto &h = txHandlers_[Ledger::T_CONFIG];
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
@@ -807,11 +844,11 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::Transaction &tx,
                                         blockId, isStrictMode, true));
 }
 
-Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::TxCommon &tx,
                                               uint64_t blockId,
                                               bool isStrictMode) {
   log().info << "Processing genesis renewal transaction";
-  auto &h = txHandlers_[Ledger::Transaction::T_RENEWAL];
+  auto &h = txHandlers_[Ledger::T_RENEWAL];
   if (!h) {
     return Error(E_INTERNAL,
                  "Genesis renewal transaction handler not registered");
@@ -825,10 +862,10 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::Transaction &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processUserInit(const Ledger::TxCommon &tx,
                                         uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user initialization transaction";
-  auto &h = txHandlers_[Ledger::Transaction::T_NEW_USER];
+  auto &h = txHandlers_[Ledger::T_NEW_USER];
   if (!h) {
     return Error(E_INTERNAL, "New user transaction handler not registered");
   }
@@ -841,12 +878,12 @@ Chain::Roe<void> Chain::processUserInit(const Ledger::Transaction &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserUpdate(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processUserUpdate(const Ledger::TxCommon &tx,
                                           uint64_t blockId, bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
 }
 
-Chain::Roe<void> Chain::processUserRenewal(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::TxCommon &tx,
                                            uint64_t blockId,
                                            bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
@@ -863,11 +900,11 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
       txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
 }
 
-Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxCommon &tx,
                                                  uint64_t blockId,
                                                  bool isStrictMode) {
   log().info << "Processing user update/renewal transaction";
-  auto &h = txHandlers_[Ledger::Transaction::T_USER];
+  auto &h = txHandlers_[Ledger::T_USER];
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }
@@ -880,12 +917,12 @@ Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::Transaction &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserEnd(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processUserEnd(const Ledger::TxCommon &tx,
                                        uint64_t blockId, bool isStrictMode) {
   (void)blockId;
   (void)isStrictMode;
   log().info << "Processing user end transaction";
-  auto &h = txHandlers_[Ledger::Transaction::T_END_USER];
+  auto &h = txHandlers_[Ledger::T_END_USER];
   if (!h) {
     return Error(E_INTERNAL, "End-user transaction handler not registered");
   }
@@ -921,13 +958,13 @@ Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
-                                              const Ledger::Transaction &tx,
+                                              const Ledger::TxCommon &tx,
                                               uint64_t blockId) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
     return fromRoe;
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_NEW_USER];
+  auto &h = txHandlers_[Ledger::T_NEW_USER];
   if (!h) {
     return Error(E_INTERNAL, "New user transaction handler not registered");
   }
@@ -935,13 +972,13 @@ Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
-                                                  const Ledger::Transaction &tx,
+                                                  const Ledger::TxCommon &tx,
                                                   uint64_t blockId) const {
   auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
   if (!genesisRoe) {
     return genesisRoe;
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_CONFIG];
+  auto &h = txHandlers_[Ledger::T_CONFIG];
   if (!h) {
     return Error(E_INTERNAL, "Config transaction handler not registered");
   }
@@ -950,7 +987,7 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
-                                      const Ledger::Transaction &tx,
+                                      const Ledger::TxCommon &tx,
                                       uint64_t blockId) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
@@ -962,7 +999,7 @@ Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
       return feeRoe;
     }
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_USER];
+  auto &h = txHandlers_[Ledger::T_USER];
   if (!h) {
     return Error(E_INTERNAL, "User transaction handler not registered");
   }
@@ -972,7 +1009,7 @@ Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferGenesisRenewal(AccountBuffer &bank,
-                                   const Ledger::Transaction &tx,
+                                   const Ledger::TxCommon &tx,
                                    uint64_t blockId) const {
   auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
   if (!genesisRoe) {
@@ -984,7 +1021,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
       return feeRoe;
     }
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_RENEWAL];
+  auto &h = txHandlers_[Ledger::T_RENEWAL];
   if (!h) {
     return Error(E_INTERNAL,
                  "Genesis renewal transaction handler not registered");
@@ -995,7 +1032,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferUserEnd(AccountBuffer &bank,
-                            const Ledger::Transaction &tx) const {
+                            const Ledger::TxCommon &tx) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
     return fromRoe;
@@ -1004,7 +1041,7 @@ Chain::processBufferUserEnd(AccountBuffer &bank,
   if (!recycleRoe) {
     return recycleRoe;
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_END_USER];
+  auto &h = txHandlers_[Ledger::T_END_USER];
   if (!h) {
     return Error(E_INTERNAL, "End-user transaction handler not registered");
   }
@@ -1012,7 +1049,7 @@ Chain::processBufferUserEnd(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferTx(AccountBuffer &bank,
-                                        const Ledger::Transaction &tx) const {
+                                        const Ledger::TxCommon &tx) const {
   // All transactions happen in bank; accounts sourced from txContext_.bank on
   // demand
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
@@ -1029,19 +1066,19 @@ Chain::Roe<void> Chain::processBufferTx(AccountBuffer &bank,
       return feeRoe;
     }
   }
-  auto &h = txHandlers_[Ledger::Transaction::T_DEFAULT];
+  auto &h = txHandlers_[Ledger::T_DEFAULT];
   if (!h) {
     return Error(E_INTERNAL, "Default transaction handler not registered");
   }
   return mapTxVoid(h->applyDefaultTransferStrict(tx, txContext_, bank));
 }
 
-Chain::Roe<void> Chain::processTx(const Ledger::Transaction &tx,
+Chain::Roe<void> Chain::processTx(const Ledger::TxCommon &tx,
                                   uint64_t blockId, bool isStrictMode) {
   (void)blockId;
   log().info << "Processing user transaction";
 
-  auto &h = txHandlers_[Ledger::Transaction::T_DEFAULT];
+  auto &h = txHandlers_[Ledger::T_DEFAULT];
   if (!h) {
     return Error(E_INTERNAL, "Default transaction handler not registered");
   }

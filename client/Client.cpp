@@ -411,7 +411,7 @@ Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(con
   return responseResult.value();
 }
 
-Client::Roe<Ledger::SignedData<Ledger::Transaction>>
+Client::Roe<Ledger::Record>
 Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
   log().debug << "Requesting transaction by index: " << request.txIndex;
 
@@ -422,7 +422,7 @@ Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
     return Error(result.error().code, result.error().message);
   }
 
-  auto responseResult = utl::binaryUnpack<Ledger::SignedData<Ledger::Transaction>>(result.value());
+  auto responseResult = utl::binaryUnpack<Ledger::Record>(result.value());
   if (!responseResult) {
     return Error(E_INVALID_RESPONSE, "Failed to unpack transaction by index response: " + responseResult.error().message);
   }
@@ -442,10 +442,10 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
 
 // MinerServer API - Transaction operations
 
-Client::Roe<void> Client::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
+Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   log().debug << "Adding transaction";
 
-  std::string payload = utl::binaryPack(signedTx);
+  std::string payload = utl::binaryPack(record);
   auto result = sendRequest(T_REQ_TX_ADD, payload, TIMEOUT_DATA);
   if (!result) {
     return result.error();

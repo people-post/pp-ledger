@@ -41,7 +41,7 @@ static uint64_t randomAccountId() {
   return dist(gen);
 }
 
-static void setValidationWindow(pp::Ledger::Transaction& tx) {
+static void setValidationWindow(pp::Ledger::TxCommon& tx) {
   const int64_t now = static_cast<int64_t>(
       std::chrono::duration_cast<std::chrono::seconds>(
           std::chrono::system_clock::now().time_since_epoch()).count());
@@ -415,24 +415,26 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
     return;
   }
 
-  pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
-  signedTx.obj.type = pp::Ledger::Transaction::T_NEW_USER;
-  signedTx.obj.tokenId = ID_GENESIS;
-  signedTx.obj.fromWalletId = fromWalletId;
-  signedTx.obj.toWalletId = toWalletId;
-  signedTx.obj.amount = amount;
-  signedTx.obj.fee = fee;
-  signedTx.obj.meta = userAccount.ltsToString();
-  setValidationWindow(signedTx.obj);
-  std::string message = pp::utl::binaryPack(signedTx.obj);
+  pp::Ledger::TxNewUser tx;
+  tx.tokenId = ID_GENESIS;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  tx.fee = fee;
+  tx.meta = userAccount.ltsToString();
+  setValidationWindow(tx);
+  std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
     setJsonError(res, 500, std::string("Sign failed: ") + sigResult.error().message);
     return;
   }
-  signedTx.signatures = {*sigResult};
+  pp::Ledger::Record rec;
+  rec.type = pp::Ledger::T_NEW_USER;
+  rec.data = std::move(message);
+  rec.signatures = {*sigResult};
 
-  auto r = minerClient.addTransaction(signedTx);
+  auto r = minerClient.addTransaction(rec);
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;
@@ -541,8 +543,10 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     return;
   }
 
-  pp::Ledger::Transaction tx;
-  tx.type = static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::Transaction::T_DEFAULT));
+  const uint16_t type =
+      static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::T_DEFAULT));
+
+  pp::Ledger::TxCommon tx;
   tx.tokenId = jsonToUint64(body, "tokenId", 0);
   tx.fromWalletId = jsonToUint64(body, "fromWalletId", 0);
   tx.toWalletId = jsonToUint64(body, "toWalletId", 0);
@@ -573,8 +577,46 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     setValidationWindow(tx);
   }
 
-  std::string unsignedTxPayload = pp::utl::binaryPack(tx);
-  json resp = {{"transactionHex", pp::utl::hexEncode(unsignedTxPayload)}};
+  auto packTyped = [&](uint16_t t, const pp::Ledger::TxCommon& c) -> std::string {
+    auto fill = [&](auto& x) {
+      x.tokenId = c.tokenId;
+      x.fromWalletId = c.fromWalletId;
+      x.toWalletId = c.toWalletId;
+      x.amount = c.amount;
+      x.fee = c.fee;
+      x.meta = c.meta;
+      x.idempotentId = c.idempotentId;
+      x.validationTsMin = c.validationTsMin;
+      x.validationTsMax = c.validationTsMax;
+    };
+    switch (t) {
+    case pp::Ledger::T_GENESIS: {
+      pp::Ledger::TxGenesis x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_NEW_USER: {
+      pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_CONFIG: {
+      pp::Ledger::TxConfig x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_USER: {
+      pp::Ledger::TxUser x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_RENEWAL: {
+      pp::Ledger::TxRenewal x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_END_USER: {
+      pp::Ledger::TxEndUser x; fill(x); return pp::utl::binaryPack(x);
+    }
+    case pp::Ledger::T_DEFAULT:
+    default: {
+      pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
+    }
+    }
+  };
+
+  std::string unsignedTxPayload = packTyped(type, tx);
+  json resp = {{"type", type}, {"transactionHex", pp::utl::hexEncode(unsignedTxPayload)}};
   res.set_content(resp.dump(), "application/json");
 }
 
@@ -587,6 +629,10 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 400, "Invalid JSON in request body");
     return;
   }
+  if (!body.contains("type")) {
+    setJsonError(res, 400, "type is required");
+    return;
+  }
   if (!body.contains("transactionHex") || !body["transactionHex"].is_string()) {
     setJsonError(res, 400, "transactionHex is required and must be a string");
     return;
@@ -596,6 +642,7 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
     return;
   }
 
+  const uint16_t type = static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::T_DEFAULT));
   std::string transactionHex = body["transactionHex"].get<std::string>();
   if (!isHexStringStrict(transactionHex)) {
     setJsonError(res, 400, "transactionHex must be a non-empty even-length hex string without 0x prefix");
@@ -607,14 +654,9 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
     return;
   }
 
-  auto txUnpacked = pp::utl::binaryUnpack<pp::Ledger::Transaction>(transactionPayload);
-  if (!txUnpacked) {
-    setJsonError(res, 400, std::string("Invalid packed transactionHex: ") + txUnpacked.error().message);
-    return;
-  }
-
-  pp::Ledger::SignedData<pp::Ledger::Transaction> signedTx;
-  signedTx.obj = txUnpacked.value();
+  pp::Ledger::Record rec;
+  rec.type = type;
+  rec.data = std::move(transactionPayload);
 
   const auto& sigsArr = body["signaturesHex"];
   if (sigsArr.empty()) {
@@ -636,10 +678,10 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
       setJsonError(res, 400, "signature hex failed to decode to 64 bytes");
       return;
     }
-    signedTx.signatures.push_back(std::move(sig));
+    rec.signatures.push_back(std::move(sig));
   }
 
-  auto r = minerClient.addTransaction(signedTx);
+  auto r = minerClient.addTransaction(rec);
   if (!r) {
     setJsonError(res, 502, r.error().message);
     return;

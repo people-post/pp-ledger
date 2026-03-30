@@ -177,7 +177,7 @@ public:
   };
 
   struct TxGetByWalletResponse {
-    std::vector<Ledger::SignedData<Ledger::Transaction>> transactions;
+    std::vector<Ledger::Record> transactions;
     uint64_t nextBlockId{ 0 };
 
     template <typename Archive>
@@ -224,9 +224,9 @@ public:
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
-  Roe<Ledger::SignedData<Ledger::Transaction>> fetchTransactionByIndex(const TxGetByIndexRequest &request);
+  Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);
 
-  Roe<void> addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx);
+  Roe<void> addTransaction(const Ledger::Record &record);
   Roe<bool> addBlock(const Ledger::ChainNode& block);
 
 private:

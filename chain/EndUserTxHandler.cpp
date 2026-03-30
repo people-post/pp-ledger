@@ -6,7 +6,7 @@
 namespace pp {
 
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
-    const Ledger::Transaction &tx, const TxContext &ctx,
+    const Ledger::TxCommon &tx, const TxContext &ctx,
     AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) {
   (void)ctx;
 

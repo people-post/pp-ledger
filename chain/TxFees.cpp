@@ -49,7 +49,7 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
 }
 
 Roe<size_t> extractNonFreeCustomMetaSizeForFee(
-    const BlockChainConfig &config, const Ledger::Transaction &tx) {
+    const BlockChainConfig &config, uint16_t type, const Ledger::TxCommon &tx) {
   auto toNonFree = [&](size_t customMetaSizeBytes) -> Roe<size_t> {
     if (customMetaSizeBytes > config.maxCustomMetaSize) {
       return TxError(chain_err::E_TX_VALIDATION,
@@ -67,9 +67,9 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     return 0;
   }
 
-  switch (tx.type) {
-  case Ledger::Transaction::T_NEW_USER:
-  case Ledger::Transaction::T_USER: {
+  switch (type) {
+  case Ledger::T_NEW_USER:
+  case Ledger::T_USER: {
     Client::UserAccount userAccount;
     if (!userAccount.ltsFromString(tx.meta)) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
@@ -78,7 +78,7 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
     }
     return toNonFree(userAccount.meta.size());
   }
-  case Ledger::Transaction::T_RENEWAL: {
+  case Ledger::T_RENEWAL: {
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
         tx.toWalletId == AccountBuffer::ID_GENESIS) {
       GenesisAccountMeta gm;
@@ -104,8 +104,8 @@ Roe<size_t> extractNonFreeCustomMetaSizeForFee(
 }
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(
-    const BlockChainConfig &config, const Ledger::Transaction &tx) {
-  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
+    const BlockChainConfig &config, uint16_t type, const Ledger::TxCommon &tx) {
+  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, type, tx);
   if (!nonFreeMetaSizeResult) {
     return nonFreeMetaSizeResult.error();
   }

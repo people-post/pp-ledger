@@ -16,16 +16,15 @@ namespace pp {
 
 class Ledger : public Module {
 public:
-  struct Transaction {
-    constexpr static uint16_t T_DEFAULT = 0;
-    constexpr static uint16_t T_GENESIS = 1;    // By genesis account to initialize the system
-    constexpr static uint16_t T_NEW_USER = 2;   // By any account to fund initialize a new user
-    constexpr static uint16_t T_CONFIG = 3;     // By genesis account to update the system config
-    constexpr static uint16_t T_USER = 4;       // By user accounts to update their account info
-    constexpr static uint16_t T_RENEWAL = 5;    // By miner to renew user/genesis account with latest account info
-    constexpr static uint16_t T_END_USER = 6;   // By miner to terminate user account due to insufficient fee.
+  constexpr static uint16_t T_DEFAULT = 0;
+  constexpr static uint16_t T_GENESIS = 1;    // By genesis account to initialize the system
+  constexpr static uint16_t T_NEW_USER = 2;   // By any account to fund initialize a new user
+  constexpr static uint16_t T_CONFIG = 3;     // By genesis account to update the system config
+  constexpr static uint16_t T_USER = 4;       // By user accounts to update their account info
+  constexpr static uint16_t T_RENEWAL = 5;    // By miner to renew user/genesis account with latest account info
+  constexpr static uint16_t T_END_USER = 6;   // By miner to terminate user account due to insufficient fee.
 
-    uint16_t type{ T_DEFAULT };
+  struct TxCommon {
     uint64_t tokenId{ 0 };      // Token ID (0 = native token)
     uint64_t fromWalletId{ 0 }; // Source wallet ID
     uint64_t toWalletId{ 0 };   // Destination wallet ID
@@ -37,25 +36,48 @@ public:
     int64_t validationTsMax{ 0 };  // Validation window end (Unix seconds)
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & type & tokenId& fromWalletId & toWalletId & amount & fee & meta
-        & idempotentId & validationTsMin & validationTsMax;
+      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
+          idempotentId & validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;
   };
 
-  template <typename T>
-  struct SignedData {
-    T obj;
+  struct TxDefault : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxGenesis : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxNewUser : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxConfig : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxUser : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxRenewal : TxCommon {
+    using TxCommon::TxCommon;
+  };
+  struct TxEndUser : TxCommon {
+    using TxCommon::TxCommon;
+  };
+
+  struct Record {
+    uint16_t type{T_DEFAULT};
+    std::string data; // Packed typed transaction payload (binaryPack(TxX))
     std::vector<std::string> signatures;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & obj & signatures;
+      ar & type & data & signatures;
     }
 
     nlohmann::json toJson() const {
       nlohmann::json j;
-      j["object"] = obj.toJson();
+      j["type"] = type;
+      j["data"] = utl::toJsonSafeString(data);
       // Convert binary signatures to JSON-safe hex strings
       nlohmann::json sigArray = nlohmann::json::array();
       for (const auto& sig : signatures) {
@@ -74,7 +96,7 @@ public:
 
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
-    std::vector<SignedData<Transaction>> signedTxes;
+    std::vector<Record> records;
     std::string previousHash;
     uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
@@ -83,7 +105,7 @@ public:
     uint64_t txIndex{ 0 };
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & signedTxes & previousHash & nonce & slot & slotLeader & txIndex;
+      ar & index & timestamp & records & previousHash & nonce & slot & slotLeader & txIndex;
     }
 
     std::string ltsToString() const;

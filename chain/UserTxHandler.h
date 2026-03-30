@@ -8,7 +8,7 @@ namespace pp {
 class UserTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::Transaction &tx,
+  applyUserAccountUpsert(const Ledger::TxCommon &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
                          bool isStrictMode) override;

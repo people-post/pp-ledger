@@ -22,7 +22,7 @@ public:
 
   /** T_GENESIS checkpoint tx after signature validation (genesis block only). */
   virtual chain_tx::Roe<void>
-  applyGenesisInit(const Ledger::Transaction &tx,
+  applyGenesisInit(const Ledger::TxCommon &tx,
                    TxContext &ctx) {
     (void)tx;
     (void)ctx;
@@ -35,7 +35,7 @@ public:
    * does not commit `optChainConfig`.
    */
   virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, const TxContext &ctx,
+  applyConfigUpdate(const Ledger::TxCommon &tx, const TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode) {
     (void)tx;
     (void)ctx;
@@ -53,7 +53,7 @@ public:
    * into ctx.optChainConfig.
    */
   virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::Transaction &tx, TxContext &ctx,
+  applyConfigUpdate(const Ledger::TxCommon &tx, TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
                     bool commitOptChainConfig) {
     (void)tx;
@@ -74,7 +74,7 @@ public:
    * (e.g. via ensureAccountInBuffer).
    */
   virtual chain_tx::Roe<void>
-  applyNewUser(const Ledger::Transaction &tx, const TxContext &ctx,
+  applyNewUser(const Ledger::TxCommon &tx, const TxContext &ctx,
                AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                bool isStrictMode) {
     (void)tx;
@@ -93,7 +93,7 @@ public:
    * fromWalletId and fee account in buffer when isBufferMode).
    */
   virtual chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::Transaction &tx,
+  applyUserAccountUpsert(const Ledger::TxCommon &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
                          bool isStrictMode) {
@@ -110,7 +110,7 @@ public:
 
   /** T_DEFAULT strict path: min fee from config, then transfer. */
   virtual chain_tx::Roe<void>
-  applyDefaultTransferStrict(const Ledger::Transaction &tx,
+  applyDefaultTransferStrict(const Ledger::TxCommon &tx,
                              const TxContext &ctx, AccountBuffer &bank) {
     (void)tx;
     (void)ctx;
@@ -122,7 +122,7 @@ public:
 
   /** T_DEFAULT loose path: tolerates missing from/to accounts. */
   virtual chain_tx::Roe<void>
-  applyDefaultTransferLoose(const Ledger::Transaction &tx,
+  applyDefaultTransferLoose(const Ledger::TxCommon &tx,
                             const TxContext &ctx, AccountBuffer &bank) {
     (void)tx;
     (void)ctx;
@@ -137,7 +137,7 @@ public:
    * applyUserAccountUpsert via T_USER handler from Chain.
    */
   virtual chain_tx::Roe<void>
-  applyGenesisRenewal(const Ledger::Transaction &tx, const TxContext &ctx,
+  applyGenesisRenewal(const Ledger::TxCommon &tx, const TxContext &ctx,
                       AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                       bool isStrictMode) {
     (void)tx;
@@ -152,7 +152,7 @@ public:
 
   /** T_END_USER: write-off when balance below min fee for current meta. */
   virtual chain_tx::Roe<void>
-  applyEndUser(const Ledger::Transaction &tx, const TxContext &ctx,
+  applyEndUser(const Ledger::TxCommon &tx, const TxContext &ctx,
                AccountBuffer &bank, bool isBufferMode) {
     (void)tx;
     (void)ctx;

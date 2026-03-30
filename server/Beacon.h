@@ -77,10 +77,10 @@ public:
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
-  Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+  Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   /** Find transaction by global chain index (0-based). */
-  Roe<Ledger::SignedData<Ledger::Transaction>>
+  Roe<Ledger::Record>
   findTransactionByIndex(uint64_t txIndex) const;
 
   // ----------------- methods -------------------------------------
@@ -104,7 +104,7 @@ private:
   /** Signs transaction with genesis keys and adds signatures. Returns error on
    * sign failure. */
   Roe<void>
-  signWithGenesisKeys(Ledger::SignedData<Ledger::Transaction> &signedTx,
+  signWithGenesisKeys(Ledger::Record &record,
                       const std::vector<utl::Ed25519KeyPair> &genesisKeys,
                       const std::string &errorContext) const;
 

@@ -57,7 +57,7 @@ std::string Relay::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
-Relay::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Relay::Roe<std::vector<Ledger::Record>>
 Relay::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
   if (!result) {
@@ -66,7 +66,7 @@ Relay::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const 
   return result.value();
 }
 
-Relay::Roe<Ledger::SignedData<Ledger::Transaction>>
+Relay::Roe<Ledger::Record>
 Relay::findTransactionByIndex(uint64_t txIndex) const {
   auto result = chain_.findTransactionByIndex(txIndex);
   if (!result) {

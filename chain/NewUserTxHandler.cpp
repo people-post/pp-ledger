@@ -9,7 +9,7 @@
 namespace pp {
 
 chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
-    const Ledger::Transaction &tx, const TxContext &ctx,
+    const Ledger::TxCommon &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) {
   if (isStrictMode) {
@@ -19,7 +19,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
           "Chain config required for strict new-user fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), tx);
+        ctx.optChainConfig.value(), Ledger::T_NEW_USER, tx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

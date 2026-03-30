@@ -79,7 +79,7 @@ std::string Miner::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
-Miner::Roe<std::vector<Ledger::SignedData<Ledger::Transaction>>>
+Miner::Roe<std::vector<Ledger::Record>>
 Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
   if (!result) {
@@ -88,7 +88,7 @@ Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const 
   return result.value();
 }
 
-Miner::Roe<Ledger::SignedData<Ledger::Transaction>>
+Miner::Roe<Ledger::Record>
 Miner::findTransactionByIndex(uint64_t txIndex) const {
   auto result = chain_.findTransactionByIndex(txIndex);
   if (!result) {
@@ -182,18 +182,18 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       return Error(12, renewalsResult.error().message);
     }
     slotCache_.txRenewals = renewalsResult.value();
-    for (auto &signedTx : slotCache_.txRenewals) {
-      auto message = utl::binaryPack(signedTx.obj);
+    for (auto &rec : slotCache_.txRenewals) {
+      const auto &message = rec.data;
       for (const auto &privateKey : config_.privateKeys) {
         auto result = utl::ed25519Sign(privateKey, message);
         if (!result) {
           slotCache_ = {};
           return Error(12, result.error().message);
         }
-        signedTx.signatures.push_back(*result);
+        rec.signatures.push_back(*result);
       }
       auto addResult =
-          chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
+          chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
       if (!addResult) {
         slotCache_ = {};
         return Error(12, "Failed to add renewal transaction: " +
@@ -201,9 +201,8 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       }
     }
     // Re-apply pending txes so buffer matches block order (renewals then pending)
-    for (const auto &signedTx : pendingTxes_) {
-      auto addResult =
-          chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
+    for (const auto &rec : pendingTxes_) {
+      auto addResult = chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
       if (!addResult) {
         slotCache_ = {};
         return Error(12, "Failed to add pending transaction: " +
@@ -240,7 +239,7 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   log().info << "Producing block for slot " << slot;
 
   Miner::BlockTxSet txSet = getBlockTransactionSet();
-  auto createResult = createBlock(slot, txSet.signedTxes);
+  auto createResult = createBlock(slot, txSet.records);
   if (!createResult) {
     return Error(7, "Failed to create block: " + createResult.error().message);
   }
@@ -262,26 +261,24 @@ void Miner::markBlockProduction(const Ledger::ChainNode &block) {
 }
 
 Miner::Roe<void>
-Miner::addTransaction(const Ledger::SignedData<Ledger::Transaction> &signedTx) {
+Miner::addTransaction(const Ledger::Record &record) {
   auto result =
-      chain_.addBufferTransaction(bufferBank_, signedTx, config_.minerId);
+      chain_.addBufferTransaction(bufferBank_, record, config_.minerId);
   if (!result) {
     return Error(9, result.error().message);
   }
 
-  pendingTxes_.push_back(signedTx);
+  pendingTxes_.push_back(record);
 
   return {};
 }
 
-void Miner::addToForwardCache(
-    const Ledger::SignedData<Ledger::Transaction> &signedTx) {
-  forwardCache_.push_back(signedTx);
+void Miner::addToForwardCache(const Ledger::Record &record) {
+  forwardCache_.push_back(record);
 }
 
-std::vector<Ledger::SignedData<Ledger::Transaction>>
-Miner::drainForwardCache() {
-  std::vector<Ledger::SignedData<Ledger::Transaction>> result;
+std::vector<Ledger::Record> Miner::drainForwardCache() {
+  std::vector<Ledger::Record> result;
   result.swap(forwardCache_);
   return result;
 }
@@ -301,25 +298,25 @@ Miner::BlockTxSet Miner::getBlockTransactionSet() const {
   Miner::BlockTxSet out;
   const size_t renewalsCount = slotCache_.txRenewals.size();
   const uint64_t maxTx = chain_.getMaxTransactionsPerBlock();
-  out.signedTxes = slotCache_.txRenewals;
+  out.records = slotCache_.txRenewals;
   if (maxTx == 0) {
     out.nPendingIncluded = pendingTxes_.size();
-    out.signedTxes.insert(out.signedTxes.end(), pendingTxes_.begin(),
+    out.records.insert(out.records.end(), pendingTxes_.begin(),
                           pendingTxes_.end());
   } else {
     const size_t pendingCap =
         (maxTx > renewalsCount) ? static_cast<size_t>(maxTx - renewalsCount)
                                : 0;
     out.nPendingIncluded = std::min(pendingTxes_.size(), pendingCap);
-    out.signedTxes.insert(out.signedTxes.end(), pendingTxes_.begin(),
-                          pendingTxes_.begin() + static_cast<std::ptrdiff_t>(out.nPendingIncluded));
+    out.records.insert(out.records.end(), pendingTxes_.begin(),
+                       pendingTxes_.begin() + static_cast<std::ptrdiff_t>(out.nPendingIncluded));
   }
   return out;
 }
 
 Miner::Roe<Ledger::ChainNode> Miner::createBlock(
     uint64_t slot,
-    const std::vector<Ledger::SignedData<Ledger::Transaction>> &signedTxes) {
+    const std::vector<Ledger::Record> &records) {
   auto timestamp = chain_.getConsensusTimestamp();
 
   auto latestBlockResult = chain_.readLastBlock();
@@ -337,12 +334,12 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
   block.block.slot = slot;
   block.block.slotLeader = config_.minerId;
   block.block.txIndex =
-      latestBlock.block.txIndex + latestBlock.block.signedTxes.size();
-  block.block.signedTxes = signedTxes;
+      latestBlock.block.txIndex + latestBlock.block.records.size();
+  block.block.records = records;
   block.hash = calculateHash(block.block);
 
   log().debug << "Created block " << blockIndex << " with "
-              << block.block.signedTxes.size() << " transactions";
+              << block.block.records.size() << " transactions";
 
   return block;
 }

@@ -29,9 +29,13 @@ Roe<void> checkIdempotency(const Ledger &ledger,
     if (block.slot < slotMin) {
       continue;
     }
-    for (const auto &signedTx : block.signedTxes) {
-      if (signedTx.obj.idempotentId == idempotentId &&
-          signedTx.obj.fromWalletId == fromWalletId) {
+    for (const auto &rec : block.records) {
+      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
+      if (!txRoe) {
+        continue;
+      }
+      const auto &tx = txRoe.value();
+      if (tx.idempotentId == idempotentId && tx.fromWalletId == fromWalletId) {
         return TxError(
             chain_err::E_TX_IDEMPOTENCY,
             "Duplicate idempotent id: " + std::to_string(idempotentId) +
@@ -45,7 +49,7 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Ledger::Transaction &tx, uint64_t effectiveSlot, bool isStrictMode) {
+    const Ledger::TxCommon &tx, uint64_t effectiveSlot, bool isStrictMode) {
   if (!isStrictMode) {
     return {};
   }

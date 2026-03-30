@@ -13,7 +13,7 @@
 namespace pp::chain_tx {
 
 Roe<void> verifySignaturesAgainstAccount(
-    const Ledger::Transaction &tx, const std::vector<std::string> &signatures,
+    const std::string &message, const std::vector<std::string> &signatures,
     const AccountBuffer::Account &account, const Crypto &crypto,
     logging::Logger &logger);
 

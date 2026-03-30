@@ -14,13 +14,13 @@ namespace {
 
 std::string transactionTypeToHumanString(uint16_t type) {
   switch (type) {
-    case Ledger::Transaction::T_DEFAULT:   return "default";
-    case Ledger::Transaction::T_GENESIS:   return "genesis";
-    case Ledger::Transaction::T_NEW_USER: return "new_user";
-    case Ledger::Transaction::T_CONFIG:   return "config";
-    case Ledger::Transaction::T_USER:     return "user";
-    case Ledger::Transaction::T_RENEWAL:  return "renewal";
-    case Ledger::Transaction::T_END_USER: return "end_user";
+    case Ledger::T_DEFAULT:   return "default";
+    case Ledger::T_GENESIS:   return "genesis";
+    case Ledger::T_NEW_USER: return "new_user";
+    case Ledger::T_CONFIG:   return "config";
+    case Ledger::T_USER:     return "user";
+    case Ledger::T_RENEWAL:  return "renewal";
+    case Ledger::T_END_USER: return "end_user";
     default: return "unknown_" + std::to_string(type);
   }
 }
@@ -65,9 +65,8 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   return true;
 }
 
-nlohmann::json Ledger::Transaction::toJson() const {
+nlohmann::json Ledger::TxCommon::toJson() const {
   nlohmann::json j;
-  j["type"] = transactionTypeToHumanString(type);
   j["tokenId"] = tokenId;
   j["fromWalletId"] = fromWalletId;
   j["toWalletId"] = toWalletId;
@@ -90,20 +89,19 @@ nlohmann::json Ledger::Block::toJson() const {
   j["slotLeader"] = slotLeader;
   j["startingTxIndex"] = txIndex;
 
-  // Convert signed transactions to JSON array
-  nlohmann::json txArray = nlohmann::json::array();
-  for (const auto& signedTx : signedTxes) {
-    nlohmann::json txJson;
-    txJson["transaction"] = signedTx.obj.toJson();
-    // Convert binary signatures to JSON-safe hex strings
+  nlohmann::json recArray = nlohmann::json::array();
+  for (const auto& rec : records) {
+    nlohmann::json recJson;
+    recJson["type"] = transactionTypeToHumanString(rec.type);
+    recJson["data"] = utl::toJsonSafeString(rec.data);
     nlohmann::json sigArray = nlohmann::json::array();
-    for (const auto& sig : signedTx.signatures) {
+    for (const auto& sig : rec.signatures) {
       sigArray.push_back(utl::toJsonSafeString(sig));
     }
-    txJson["signatures"] = sigArray;
-    txArray.push_back(txJson);
+    recJson["signatures"] = sigArray;
+    recArray.push_back(recJson);
   }
-  j["signedTransactions"] = txArray;
+  j["records"] = recArray;
   
   return j;
 }

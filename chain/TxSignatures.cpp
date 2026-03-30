@@ -5,7 +5,7 @@
 namespace pp::chain_tx {
 
 Roe<void> verifySignaturesAgainstAccount(
-    const Ledger::Transaction &tx, const std::vector<std::string> &signatures,
+    const std::string &message, const std::vector<std::string> &signatures,
     const AccountBuffer::Account &account, const Crypto &crypto,
     logging::Logger &logger) {
   if (signatures.size() < account.wallet.minSignatures) {
@@ -15,7 +15,6 @@ Roe<void> verifySignaturesAgainstAccount(
             std::to_string(int(account.wallet.minSignatures)) +
             " signatures, but has " + std::to_string(signatures.size()));
   }
-  auto message = utl::binaryPack(tx);
   std::vector<bool> keyUsed(account.wallet.publicKeys.size(), false);
   for (const auto &signature : signatures) {
     bool matched = false;

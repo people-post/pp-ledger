@@ -9,7 +9,7 @@
 namespace pp {
 
 chain_tx::Roe<void> UserTxHandler::applyUserAccountUpsert(
-    const Ledger::Transaction &tx, const TxContext &ctx,
+    const Ledger::TxCommon &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) {
   (void)isBufferMode;
@@ -33,7 +33,7 @@ chain_tx::Roe<void> UserTxHandler::applyUserAccountUpsert(
           "Chain config required for strict user-update fee validation");
     }
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), tx);
+        ctx.optChainConfig.value(), Ledger::T_USER, tx);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }
