@@ -79,7 +79,8 @@ std::string signMessage(const utl::Ed25519KeyPair &keyPair,
   return result.value();
 }
 
-Ledger::Record makeRecord(uint16_t type, const Ledger::TxCommon &tx,
+template <typename TxT>
+Ledger::Record makeRecord(uint16_t type, const TxT &tx,
                           const utl::Ed25519KeyPair &signer) {
   Ledger::Record rec;
   rec.type = type;
@@ -110,7 +111,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.slot = 0;
   genesis.block.slotLeader = 0;
 
-  Ledger::TxCommon checkpointTx;
+  Ledger::TxGenesis checkpointTx;
   checkpointTx.tokenId = AccountBuffer::ID_GENESIS;
   checkpointTx.fromWalletId = AccountBuffer::ID_GENESIS;
   checkpointTx.toWalletId = AccountBuffer::ID_GENESIS;
@@ -121,7 +122,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey));
 
   Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
-  Ledger::TxCommon feeTx;
+  Ledger::TxNewUser feeTx;
   feeTx.tokenId = AccountBuffer::ID_GENESIS;
   feeTx.fromWalletId = AccountBuffer::ID_GENESIS;
   feeTx.toWalletId = AccountBuffer::ID_FEE;
@@ -166,7 +167,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   }
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
-  Ledger::TxCommon reserveTx;
+  Ledger::TxNewUser reserveTx;
   reserveTx.tokenId = AccountBuffer::ID_GENESIS;
   reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;
   reserveTx.toWalletId = AccountBuffer::ID_RESERVE;
@@ -176,7 +177,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.records.push_back(
       makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey));
 
-  Ledger::TxCommon recycleTx;
+  Ledger::TxNewUser recycleTx;
   recycleTx.tokenId = AccountBuffer::ID_GENESIS;
   recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
   recycleTx.toWalletId = AccountBuffer::ID_RECYCLE;
@@ -387,10 +388,68 @@ TEST(ChainTest,
   EXPECT_FALSE(result.value().empty());
   EXPECT_EQ(blockId, 0u);
   for (const auto &st : result.value()) {
-    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(st.data);
-    ASSERT_TRUE(txRoe.isOk());
-    EXPECT_TRUE(txRoe.value().fromWalletId == AccountBuffer::ID_GENESIS ||
-                txRoe.value().toWalletId == AccountBuffer::ID_GENESIS);
+    bool matches = false;
+    switch (st.type) {
+    case Ledger::T_DEFAULT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_GENESIS: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_NEW_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_CONFIG: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_RENEWAL: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_END_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    default:
+      break;
+    }
+    EXPECT_TRUE(matches);
   }
 
   std::filesystem::remove_all(tempDir, ec);
@@ -438,10 +497,68 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   const auto &txes = result.value();
   EXPECT_FALSE(txes.empty());
   for (const auto &st : txes) {
-    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(st.data);
-    ASSERT_TRUE(txRoe.isOk());
-    EXPECT_TRUE(txRoe.value().fromWalletId == AccountBuffer::ID_GENESIS ||
-                txRoe.value().toWalletId == AccountBuffer::ID_GENESIS);
+    bool matches = false;
+    switch (st.type) {
+    case Ledger::T_DEFAULT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_GENESIS: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_NEW_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_CONFIG: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_RENEWAL: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    case Ledger::T_END_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(st.data);
+      ASSERT_TRUE(txRoe.isOk());
+      const auto &tx = txRoe.value();
+      matches = (tx.fromWalletId == AccountBuffer::ID_GENESIS ||
+                 tx.toWalletId == AccountBuffer::ID_GENESIS);
+      break;
+    }
+    default:
+      break;
+    }
+    EXPECT_TRUE(matches);
   }
   EXPECT_EQ(blockId, 0u);
 }
@@ -643,13 +760,62 @@ TEST(ChainTest,
   for (size_t i = 0; i < genesis.block.records.size(); ++i) {
     auto result = validator.findTransactionByIndex(static_cast<uint64_t>(i));
     ASSERT_TRUE(result.isOk()) << "findTransactionByIndex(" << i << ") failed";
-    auto gotTxRoe = utl::binaryUnpack<Ledger::TxCommon>(result.value().data);
-    auto expTxRoe = utl::binaryUnpack<Ledger::TxCommon>(genesis.block.records[i].data);
-    ASSERT_TRUE(gotTxRoe.isOk());
-    ASSERT_TRUE(expTxRoe.isOk());
     EXPECT_EQ(result.value().type, genesis.block.records[i].type);
-    EXPECT_EQ(gotTxRoe.value().fromWalletId, expTxRoe.value().fromWalletId);
-    EXPECT_EQ(gotTxRoe.value().toWalletId, expTxRoe.value().toWalletId);
+
+    auto unpackWallets = [&](uint16_t type, const std::string &data)
+        -> std::pair<uint64_t, uint64_t> {
+      switch (type) {
+      case Ledger::T_DEFAULT: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_GENESIS: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_NEW_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_CONFIG: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_RENEWAL: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      case Ledger::T_END_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(data);
+        EXPECT_TRUE(txRoe.isOk());
+        if (!txRoe.isOk()) return {0, 0};
+        return {txRoe.value().fromWalletId, txRoe.value().toWalletId};
+      }
+      default:
+        return {0, 0};
+      }
+    };
+
+    const auto [gotFrom, gotTo] = unpackWallets(result.value().type, result.value().data);
+    const auto [expFrom, expTo] = unpackWallets(genesis.block.records[i].type, genesis.block.records[i].data);
+    EXPECT_EQ(gotFrom, expFrom);
+    EXPECT_EQ(gotTo, expTo);
   }
 
   std::filesystem::remove_all(tempDir, ec);
@@ -770,7 +936,7 @@ TEST(ChainTest,
   ASSERT_TRUE(addGenesisResult.isOk());
 
   // Create a normal block with a single idempotent transaction from RESERVE to FEE.
-  Ledger::TxCommon tx;
+  Ledger::TxDefault tx;
   tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.fromWalletId = AccountBuffer::ID_RESERVE;
   tx.toWalletId = AccountBuffer::ID_FEE;

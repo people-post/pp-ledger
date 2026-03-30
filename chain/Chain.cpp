@@ -343,12 +343,68 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
     }
     auto const &recs = blockRoe.value().block.records;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
-      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
-      if (!txRoe) {
-        continue;
+      bool matches = false;
+      switch (it->type) {
+      case Ledger::T_DEFAULT: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
       }
-      const auto &tx = txRoe.value();
-      if (tx.fromWalletId == walletId || tx.toWalletId == walletId) {
+      case Ledger::T_GENESIS: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      case Ledger::T_NEW_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      case Ledger::T_CONFIG: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      case Ledger::T_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      case Ledger::T_RENEWAL: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      case Ledger::T_END_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(it->data);
+        if (txRoe) {
+          const auto &tx = txRoe.value();
+          matches = (tx.fromWalletId == walletId || tx.toWalletId == walletId);
+        }
+        break;
+      }
+      default:
+        break;
+      }
+      if (matches) {
         out.push_back(*it);
       }
     }
@@ -620,15 +676,15 @@ Chain::Roe<void> Chain::addBufferTransaction(
   }
 
   auto blockId = getNextBlockId();
-  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
-  if (!txRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " + txRoe.error().message);
-  }
-  const auto &tx = txRoe.value();
   const uint64_t currentSlot = getCurrentSlot();
   switch (record.type) {
   case Ledger::T_DEFAULT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
@@ -636,6 +692,12 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return processBufferTx(bank, tx);
   }
   case Ledger::T_NEW_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
@@ -649,6 +711,12 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return processBufferUserInit(bank, tx, blockId);
   }
   case Ledger::T_CONFIG: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
@@ -656,6 +724,12 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return processBufferSystemUpdate(bank, tx, blockId);
   }
   case Ledger::T_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
     if (!idemRoe) {
       return idemRoe.error();
@@ -663,12 +737,38 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return processBufferUserAccountUpsert(bank, tx, blockId);
   }
   case Ledger::T_RENEWAL:
+  {
+    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processBufferGenesisRenewal(bank, tx, blockId);
     }
-    return processBufferUserAccountUpsert(bank, tx, blockId);
+    // User renewals are processed as a T_USER-style upsert.
+    Ledger::TxUser userTx;
+    userTx.tokenId = tx.tokenId;
+    userTx.fromWalletId = tx.fromWalletId;
+    userTx.toWalletId = tx.toWalletId;
+    userTx.amount = tx.amount;
+    userTx.fee = tx.fee;
+    userTx.meta = tx.meta;
+    userTx.idempotentId = tx.idempotentId;
+    userTx.validationTsMin = tx.validationTsMin;
+    userTx.validationTsMax = tx.validationTsMax;
+    return processBufferUserAccountUpsert(bank, userTx, blockId);
+  }
   case Ledger::T_END_USER:
-    return processBufferUserEnd(bank, tx);
+  {
+    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    return processBufferUserEnd(bank, txRoe.value());
+  }
   default:
     return Error(E_TX_TYPE,
                  "Unknown transaction type: " + std::to_string(record.type));
@@ -683,22 +783,28 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
-  if (!txRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " + txRoe.error().message);
-  }
-  auto const &tx = txRoe.value();
   switch (record.type) {
   case Ledger::T_GENESIS: {
     auto &h = txHandlers_[Ledger::T_GENESIS];
     if (!h) {
       return Error(E_INTERNAL, "Genesis transaction handler not registered");
     }
-    return mapTxVoid(h->applyGenesisInit(tx, txContext_));
+    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    return mapTxVoid(h->applyGenesisInit(txRoe.value(), txContext_));
   }
   case Ledger::T_NEW_USER:
-    return processUserInit(tx, 0, true);
+  {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    return processUserInit(txRoe.value(), 0, true);
+  }
   default:
     return Error(E_TX_TYPE, "Unknown transaction type in genesis block: " +
                                 std::to_string(record.type));
@@ -714,14 +820,14 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
-  if (!txRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " + txRoe.error().message);
-  }
-  auto const &tx = txRoe.value();
   switch (record.type) {
   case Ledger::T_NEW_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
@@ -729,6 +835,12 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     return processUserInit(tx, blockId, isStrictMode);
   }
   case Ledger::T_CONFIG: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
@@ -736,6 +848,12 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     return processSystemUpdate(tx, blockId, isStrictMode);
   }
   case Ledger::T_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
@@ -743,13 +861,44 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     return processUserUpdate(tx, blockId, isStrictMode);
   }
   case Ledger::T_RENEWAL:
+  {
+    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
       return processGenesisRenewal(tx, blockId, isStrictMode);
     }
-    return processUserRenewal(tx, blockId, isStrictMode);
+    Ledger::TxUser userTx;
+    userTx.tokenId = tx.tokenId;
+    userTx.fromWalletId = tx.fromWalletId;
+    userTx.toWalletId = tx.toWalletId;
+    userTx.amount = tx.amount;
+    userTx.fee = tx.fee;
+    userTx.meta = tx.meta;
+    userTx.idempotentId = tx.idempotentId;
+    userTx.validationTsMin = tx.validationTsMin;
+    userTx.validationTsMax = tx.validationTsMax;
+    return processUserRenewal(userTx, blockId, isStrictMode);
+  }
   case Ledger::T_END_USER:
-    return processUserEnd(tx, blockId, isStrictMode);
+  {
+    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    return processUserEnd(txRoe.value(), blockId, isStrictMode);
+  }
   case Ledger::T_DEFAULT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    const auto &tx = txRoe.value();
     auto idemRoe = validateIdempotencyRules(tx, blockSlot, isStrictMode);
     if (!idemRoe) {
       return idemRoe.error();
@@ -777,13 +926,75 @@ Chain::Roe<void> Chain::validateTxSignatures(
                  "Transaction must have at least one signature");
   }
 
-  auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(record.data);
-  if (!txRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " + txRoe.error().message);
+  uint64_t signerAccountId = 0;
+  switch (record.type) {
+  case Ledger::T_DEFAULT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
   }
-  const auto &tx = txRoe.value();
-  uint64_t signerAccountId = tx.fromWalletId;
+  case Ledger::T_NEW_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  case Ledger::T_CONFIG: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  case Ledger::T_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  case Ledger::T_RENEWAL: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  case Ledger::T_END_USER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  case Ledger::T_GENESIS: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(record.data);
+    if (!txRoe) {
+      return Error(E_INVALID_ARGUMENT,
+                   "Invalid packed transaction payload: " + txRoe.error().message);
+    }
+    signerAccountId = txRoe.value().fromWalletId;
+    break;
+  }
+  default:
+    return Error(E_TX_TYPE,
+                 "Unknown transaction type: " + std::to_string(record.type));
+  }
 
   // T_RENEWAL and T_END_USER are signed by the slot leader (miner), not by
   // fromWalletId
@@ -825,7 +1036,7 @@ Chain::Roe<void> Chain::checkIdempotency(uint64_t idempotentId,
                                  idempotentId, fromWalletId, slotMin, slotMax));
 }
 
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxDefault &tx,
                                                  uint64_t effectiveSlot,
                                                  bool isStrictMode) const {
   return mapTxVoid(chain_tx::validateIdempotencyRules(
@@ -833,7 +1044,31 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxCommon &tx,
       effectiveSlot, isStrictMode));
 }
 
-Chain::Roe<void> Chain::processSystemUpdate(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxNewUser &tx,
+                                                 uint64_t effectiveSlot,
+                                                 bool isStrictMode) const {
+  return mapTxVoid(chain_tx::validateIdempotencyRules(
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      effectiveSlot, isStrictMode));
+}
+
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxConfig &tx,
+                                                 uint64_t effectiveSlot,
+                                                 bool isStrictMode) const {
+  return mapTxVoid(chain_tx::validateIdempotencyRules(
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      effectiveSlot, isStrictMode));
+}
+
+Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUser &tx,
+                                                 uint64_t effectiveSlot,
+                                                 bool isStrictMode) const {
+  return mapTxVoid(chain_tx::validateIdempotencyRules(
+      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig, tx,
+      effectiveSlot, isStrictMode));
+}
+
+Chain::Roe<void> Chain::processSystemUpdate(const Ledger::TxConfig &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
   auto &h = txHandlers_[Ledger::T_CONFIG];
@@ -844,7 +1079,7 @@ Chain::Roe<void> Chain::processSystemUpdate(const Ledger::TxCommon &tx,
                                         blockId, isStrictMode, true));
 }
 
-Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::TxRenewal &tx,
                                               uint64_t blockId,
                                               bool isStrictMode) {
   log().info << "Processing genesis renewal transaction";
@@ -862,7 +1097,7 @@ Chain::Roe<void> Chain::processGenesisRenewal(const Ledger::TxCommon &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserInit(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processUserInit(const Ledger::TxNewUser &tx,
                                         uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user initialization transaction";
   auto &h = txHandlers_[Ledger::T_NEW_USER];
@@ -878,12 +1113,12 @@ Chain::Roe<void> Chain::processUserInit(const Ledger::TxCommon &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserUpdate(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processUserUpdate(const Ledger::TxUser &tx,
                                           uint64_t blockId, bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
 }
 
-Chain::Roe<void> Chain::processUserRenewal(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processUserRenewal(const Ledger::TxUser &tx,
                                            uint64_t blockId,
                                            bool isStrictMode) {
   return processUserAccountUpsert(tx, blockId, isStrictMode);
@@ -900,7 +1135,7 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
       txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
 }
 
-Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxUser &tx,
                                                  uint64_t blockId,
                                                  bool isStrictMode) {
   log().info << "Processing user update/renewal transaction";
@@ -917,7 +1152,7 @@ Chain::Roe<void> Chain::processUserAccountUpsert(const Ledger::TxCommon &tx,
   return {};
 }
 
-Chain::Roe<void> Chain::processUserEnd(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processUserEnd(const Ledger::TxEndUser &tx,
                                        uint64_t blockId, bool isStrictMode) {
   (void)blockId;
   (void)isStrictMode;
@@ -958,7 +1193,7 @@ Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
-                                              const Ledger::TxCommon &tx,
+                                              const Ledger::TxNewUser &tx,
                                               uint64_t blockId) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
@@ -972,7 +1207,7 @@ Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
-                                                  const Ledger::TxCommon &tx,
+                                                  const Ledger::TxConfig &tx,
                                                   uint64_t blockId) const {
   auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
   if (!genesisRoe) {
@@ -987,7 +1222,7 @@ Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
-                                      const Ledger::TxCommon &tx,
+                                      const Ledger::TxUser &tx,
                                       uint64_t blockId) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
@@ -1009,7 +1244,7 @@ Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferGenesisRenewal(AccountBuffer &bank,
-                                   const Ledger::TxCommon &tx,
+                                   const Ledger::TxRenewal &tx,
                                    uint64_t blockId) const {
   auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
   if (!genesisRoe) {
@@ -1032,7 +1267,7 @@ Chain::processBufferGenesisRenewal(AccountBuffer &bank,
 
 Chain::Roe<void>
 Chain::processBufferUserEnd(AccountBuffer &bank,
-                            const Ledger::TxCommon &tx) const {
+                            const Ledger::TxEndUser &tx) const {
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
   if (!fromRoe) {
     return fromRoe;
@@ -1049,7 +1284,7 @@ Chain::processBufferUserEnd(AccountBuffer &bank,
 }
 
 Chain::Roe<void> Chain::processBufferTx(AccountBuffer &bank,
-                                        const Ledger::TxCommon &tx) const {
+                                        const Ledger::TxDefault &tx) const {
   // All transactions happen in bank; accounts sourced from txContext_.bank on
   // demand
   auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
@@ -1073,7 +1308,7 @@ Chain::Roe<void> Chain::processBufferTx(AccountBuffer &bank,
   return mapTxVoid(h->applyDefaultTransferStrict(tx, txContext_, bank));
 }
 
-Chain::Roe<void> Chain::processTx(const Ledger::TxCommon &tx,
+Chain::Roe<void> Chain::processTx(const Ledger::TxDefault &tx,
                                   uint64_t blockId, bool isStrictMode) {
   (void)blockId;
   log().info << "Processing user transaction";

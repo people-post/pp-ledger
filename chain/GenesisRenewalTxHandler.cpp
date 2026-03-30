@@ -7,7 +7,7 @@
 namespace pp {
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
-    const Ledger::TxCommon &tx, const TxContext &ctx,
+    const Ledger::TxRenewal &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
     bool isStrictMode) {
   if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||

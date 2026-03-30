@@ -546,12 +546,13 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   const uint16_t type =
       static_cast<uint16_t>(jsonToUint64(body, "type", pp::Ledger::T_DEFAULT));
 
-  pp::Ledger::TxCommon tx;
-  tx.tokenId = jsonToUint64(body, "tokenId", 0);
-  tx.fromWalletId = jsonToUint64(body, "fromWalletId", 0);
-  tx.toWalletId = jsonToUint64(body, "toWalletId", 0);
-  tx.amount = jsonToUint64(body, "amount", 0);
-  tx.fee = jsonToUint64(body, "fee", 0);
+  const uint64_t fromWalletId = jsonToUint64(body, "fromWalletId", 0);
+  const uint64_t toWalletId = jsonToUint64(body, "toWalletId", 0);
+
+  pp::Ledger::TxCommon common;
+  common.tokenId = jsonToUint64(body, "tokenId", 0);
+  common.amount = jsonToUint64(body, "amount", 0);
+  common.fee = jsonToUint64(body, "fee", 0);
 
   if (body.contains("metaHex") && body["metaHex"].is_string()) {
     std::string metaHex = body["metaHex"].get<std::string>();
@@ -560,62 +561,62 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
         setJsonError(res, 400, "metaHex must be an even-length hex string without 0x prefix");
         return;
       }
-      tx.meta = pp::utl::hexDecode(metaHex);
+      common.meta = pp::utl::hexDecode(metaHex);
     }
   }
 
   if (body.contains("idempotentId")) {
-    tx.idempotentId = jsonToUint64(body, "idempotentId", 0);
+    common.idempotentId = jsonToUint64(body, "idempotentId", 0);
   }
   if (body.contains("validationTsMin")) {
-    tx.validationTsMin = static_cast<int64_t>(jsonToUint64(body, "validationTsMin", 0));
+    common.validationTsMin = static_cast<int64_t>(jsonToUint64(body, "validationTsMin", 0));
   }
   if (body.contains("validationTsMax")) {
-    tx.validationTsMax = static_cast<int64_t>(jsonToUint64(body, "validationTsMax", 0));
+    common.validationTsMax = static_cast<int64_t>(jsonToUint64(body, "validationTsMax", 0));
   }
   if (!body.contains("validationTsMin") && !body.contains("validationTsMax")) {
-    setValidationWindow(tx);
+    setValidationWindow(common);
   }
 
-  auto packTyped = [&](uint16_t t, const pp::Ledger::TxCommon& c) -> std::string {
-    auto fill = [&](auto& x) {
-      x.tokenId = c.tokenId;
-      x.fromWalletId = c.fromWalletId;
-      x.toWalletId = c.toWalletId;
-      x.amount = c.amount;
-      x.fee = c.fee;
-      x.meta = c.meta;
-      x.idempotentId = c.idempotentId;
-      x.validationTsMin = c.validationTsMin;
-      x.validationTsMax = c.validationTsMax;
+  auto packTyped = [&](uint16_t t) -> std::string {
+    auto fillCommon = [&](auto &x) {
+      x.tokenId = common.tokenId;
+      x.amount = common.amount;
+      x.fee = common.fee;
+      x.meta = common.meta;
+      x.idempotentId = common.idempotentId;
+      x.validationTsMin = common.validationTsMin;
+      x.validationTsMax = common.validationTsMax;
+      x.fromWalletId = fromWalletId;
+      x.toWalletId = toWalletId;
     };
     switch (t) {
     case pp::Ledger::T_GENESIS: {
-      pp::Ledger::TxGenesis x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_NEW_USER: {
-      pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxNewUser x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_CONFIG: {
-      pp::Ledger::TxConfig x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxConfig x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_USER: {
-      pp::Ledger::TxUser x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxUser x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_RENEWAL: {
-      pp::Ledger::TxRenewal x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxRenewal x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_END_USER: {
-      pp::Ledger::TxEndUser x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxEndUser x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_DEFAULT:
     default: {
-      pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxDefault x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     }
   };
 
-  std::string unsignedTxPayload = packTyped(type, tx);
+  std::string unsignedTxPayload = packTyped(type);
   json resp = {{"type", type}, {"transactionHex", pp::utl::hexEncode(unsignedTxPayload)}};
   res.set_content(resp.dump(), "application/json");
 }

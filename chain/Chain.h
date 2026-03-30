@@ -179,7 +179,16 @@ private:
 
   /** Validate idempotency rules (timespan, slot in window, duplicate id).
    * effectiveSlot is current slot (submit) or block.slot (replay). */
-  Roe<void> validateIdempotencyRules(const Ledger::TxCommon &tx,
+  Roe<void> validateIdempotencyRules(const Ledger::TxDefault &tx,
+                                     uint64_t effectiveSlot,
+                                     bool isStrictMode) const;
+  Roe<void> validateIdempotencyRules(const Ledger::TxNewUser &tx,
+                                     uint64_t effectiveSlot,
+                                     bool isStrictMode) const;
+  Roe<void> validateIdempotencyRules(const Ledger::TxConfig &tx,
+                                     uint64_t effectiveSlot,
+                                     bool isStrictMode) const;
+  Roe<void> validateIdempotencyRules(const Ledger::TxUser &tx,
                                      uint64_t effectiveSlot,
                                      bool isStrictMode) const;
 
@@ -225,42 +234,42 @@ private:
 
   // Tx processing
   Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
-                                      const Ledger::TxCommon &tx,
+                                      const Ledger::TxConfig &tx,
                                       uint64_t blockId) const;
-  Roe<void> processSystemUpdate(const Ledger::TxCommon &tx, uint64_t blockId,
+  Roe<void> processSystemUpdate(const Ledger::TxConfig &tx, uint64_t blockId,
                                 bool isStrictMode);
 
   // User
   Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::TxCommon &tx,
+                                  const Ledger::TxNewUser &tx,
                                   uint64_t blockId) const;
-  Roe<void> processUserInit(const Ledger::TxCommon &tx, uint64_t blockId,
+  Roe<void> processUserInit(const Ledger::TxNewUser &tx, uint64_t blockId,
                             bool isStrictMode);
 
-  Roe<void> processUserUpdate(const Ledger::TxCommon &tx, uint64_t blockId,
+  Roe<void> processUserUpdate(const Ledger::TxUser &tx, uint64_t blockId,
                               bool isStrictMode);
   Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
-                                           const Ledger::TxCommon &tx,
+                                           const Ledger::TxUser &tx,
                                            uint64_t blockId) const;
-  Roe<void> processUserAccountUpsert(const Ledger::TxCommon &tx,
+  Roe<void> processUserAccountUpsert(const Ledger::TxUser &tx,
                                      uint64_t blockId, bool isStrictMode);
-  Roe<void> processUserRenewal(const Ledger::TxCommon &tx, uint64_t blockId,
+  Roe<void> processUserRenewal(const Ledger::TxUser &tx, uint64_t blockId,
                                bool isStrictMode);
 
   Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
-                                        const Ledger::TxCommon &tx,
+                                        const Ledger::TxRenewal &tx,
                                         uint64_t blockId) const;
-  Roe<void> processGenesisRenewal(const Ledger::TxCommon &tx,
+  Roe<void> processGenesisRenewal(const Ledger::TxRenewal &tx,
                                   uint64_t blockId, bool isStrictMode);
 
   Roe<void> processBufferUserEnd(AccountBuffer &bank,
-                                 const Ledger::TxCommon &tx) const;
-  Roe<void> processUserEnd(const Ledger::TxCommon &tx, uint64_t blockId,
+                                 const Ledger::TxEndUser &tx) const;
+  Roe<void> processUserEnd(const Ledger::TxEndUser &tx, uint64_t blockId,
                            bool isStrictMode);
 
   Roe<void> processBufferTx(AccountBuffer &bank,
-                            const Ledger::TxCommon &signedTx) const;
-  Roe<void> processTx(const Ledger::TxCommon &tx, uint64_t blockId,
+                            const Ledger::TxDefault &signedTx) const;
+  Roe<void> processTx(const Ledger::TxDefault &tx, uint64_t blockId,
                       bool isStrictMode);
 
   TxContext txContext_{};

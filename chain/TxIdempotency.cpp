@@ -30,16 +30,39 @@ Roe<void> checkIdempotency(const Ledger &ledger,
       continue;
     }
     for (const auto &rec : block.records) {
-      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
-      if (!txRoe) {
-        continue;
+      auto check = [&](const auto &txAny) -> Roe<void> {
+        if (txAny.idempotentId == idempotentId &&
+            txAny.fromWalletId == fromWalletId) {
+          return TxError(
+              chain_err::E_TX_IDEMPOTENCY,
+              "Duplicate idempotent id: " + std::to_string(idempotentId) +
+                  " for wallet: " + std::to_string(fromWalletId));
+        }
+        return {};
+      };
+      switch (rec.type) {
+      case Ledger::T_DEFAULT: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
+        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        break;
       }
-      const auto &tx = txRoe.value();
-      if (tx.idempotentId == idempotentId && tx.fromWalletId == fromWalletId) {
-        return TxError(
-            chain_err::E_TX_IDEMPOTENCY,
-            "Duplicate idempotent id: " + std::to_string(idempotentId) +
-                " for wallet: " + std::to_string(fromWalletId));
+      case Ledger::T_NEW_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
+        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        break;
+      }
+      case Ledger::T_CONFIG: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
+        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        break;
+      }
+      case Ledger::T_USER: {
+        auto txRoe = utl::binaryUnpack<Ledger::TxUser>(rec.data);
+        if (txRoe) { auto r = check(txRoe.value()); if (!r) return r; }
+        break;
+      }
+      default:
+        break;
       }
     }
   }
@@ -49,7 +72,7 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Ledger::TxCommon &tx, uint64_t effectiveSlot, bool isStrictMode) {
+    const TxView &tx, uint64_t effectiveSlot, bool isStrictMode) {
   if (!isStrictMode) {
     return {};
   }

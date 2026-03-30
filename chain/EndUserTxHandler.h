@@ -8,7 +8,7 @@ namespace pp {
 class EndUserTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyEndUser(const Ledger::TxCommon &tx, const TxContext &ctx,
+  applyEndUser(const Ledger::TxEndUser &tx, const TxContext &ctx,
                AccountBuffer &bank, bool isBufferMode) override;
 };
 

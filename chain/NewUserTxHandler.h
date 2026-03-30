@@ -8,7 +8,7 @@ namespace pp {
 class NewUserTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyNewUser(const Ledger::TxCommon &tx, const TxContext &ctx,
+  applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,
                AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                bool isStrictMode) override;
 };

@@ -9,7 +9,7 @@
 namespace pp {
 
 chain_tx::Roe<void> UserTxHandler::applyUserAccountUpsert(
-    const Ledger::TxCommon &tx, const TxContext &ctx,
+    const Ledger::TxUser &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) {
   (void)isBufferMode;

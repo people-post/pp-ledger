@@ -5,6 +5,7 @@
 #include "Types.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
+#include "TxFees.h"
 
 #include <cstdint>
 #include <optional>
@@ -19,7 +20,16 @@ Roe<void> checkIdempotency(const Ledger &ledger,
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Ledger::TxCommon &tx, uint64_t effectiveSlot, bool isStrictMode);
+    const TxView &tx, uint64_t effectiveSlot, bool isStrictMode);
+
+template <typename TxT>
+Roe<void> validateIdempotencyRules(
+    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const std::optional<BlockChainConfig> &optChainConfig, const TxT &tx,
+    uint64_t effectiveSlot, bool isStrictMode) {
+  return validateIdempotencyRules(ledger, consensus, optChainConfig, makeTxView(tx),
+                                  effectiveSlot, isStrictMode);
+}
 
 } // namespace pp::chain_tx
 

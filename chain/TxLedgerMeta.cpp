@@ -7,37 +7,52 @@ namespace pp::chain_tx {
 
 Roe<Client::UserAccount>
 getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
-  auto matchesUserAccount = [&](uint16_t type, const Ledger::TxCommon &tx) -> bool {
-    switch (type) {
-    case Ledger::T_NEW_USER:
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.toWalletId == accountId;
-    case Ledger::T_USER:
-      return accountId != AccountBuffer::ID_GENESIS &&
-             tx.fromWalletId == accountId && tx.toWalletId == accountId;
-    case Ledger::T_RENEWAL:
-      return tx.fromWalletId == accountId &&
-             accountId != AccountBuffer::ID_GENESIS;
-    default:
-      return false;
-    }
-  };
-
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
-    if (!txRoe) {
-      continue;
+    std::string meta;
+    bool matches = false;
+    switch (it->type) {
+    case Ledger::T_NEW_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = accountId != AccountBuffer::ID_GENESIS &&
+                  tx.toWalletId == accountId;
+        meta = tx.meta;
+      }
+      break;
     }
-    const auto &tx = txRoe.value();
-    if (!matchesUserAccount(it->type, tx)) {
+    case Ledger::T_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = accountId != AccountBuffer::ID_GENESIS &&
+                  tx.fromWalletId == accountId && tx.toWalletId == accountId;
+        meta = tx.meta;
+      }
+      break;
+    }
+    case Ledger::T_RENEWAL: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = tx.fromWalletId == accountId &&
+                  accountId != AccountBuffer::ID_GENESIS;
+        meta = tx.meta;
+      }
+      break;
+    }
+    default:
+      break;
+    }
+    if (!matches) {
       continue;
     }
     Client::UserAccount userAccount;
-    if (!userAccount.ltsFromString(tx.meta)) {
+    if (!userAccount.ltsFromString(meta)) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                      "Failed to deserialize account info: " +
-                         std::to_string(tx.meta.size()) + " bytes");
+                         std::to_string(meta.size()) + " bytes");
     }
     return userAccount;
   }
@@ -48,34 +63,50 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId) {
 
 Roe<GenesisAccountMeta>
 getGenesisAccountMetaFromBlock(const Ledger::Block &block) {
-  auto matchesAccount = [&](uint16_t type, const Ledger::TxCommon &tx) -> bool {
-    switch (type) {
-    case Ledger::T_GENESIS:
-      return tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
-    case Ledger::T_CONFIG:
-    case Ledger::T_RENEWAL:
-      return tx.fromWalletId == AccountBuffer::ID_GENESIS;
-    default:
-      return false;
-    }
-  };
-
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(it->data);
-    if (!txRoe) {
-      continue;
+    std::string meta;
+    bool matches = false;
+    switch (it->type) {
+    case Ledger::T_GENESIS: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxGenesis>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS && block.index == 0;
+        meta = tx.meta;
+      }
+      break;
     }
-    const auto &tx = txRoe.value();
-    if (!matchesAccount(it->type, tx)) {
+    case Ledger::T_CONFIG: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS;
+        meta = tx.meta;
+      }
+      break;
+    }
+    case Ledger::T_RENEWAL: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(it->data);
+      if (txRoe) {
+        const auto &tx = txRoe.value();
+        matches = tx.fromWalletId == AccountBuffer::ID_GENESIS;
+        meta = tx.meta;
+      }
+      break;
+    }
+    default:
+      break;
+    }
+    if (!matches) {
       continue;
     }
 
     GenesisAccountMeta gm;
-    if (!gm.ltsFromString(tx.meta)) {
+    if (!gm.ltsFromString(meta)) {
       return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                      "Failed to deserialize checkpoint: " +
-                         std::to_string(tx.meta.size()) + " bytes");
+                         std::to_string(meta.size()) + " bytes");
     }
     return gm;
   }

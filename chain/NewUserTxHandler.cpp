@@ -9,7 +9,7 @@
 namespace pp {
 
 chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
-    const Ledger::TxCommon &tx, const TxContext &ctx,
+    const Ledger::TxNewUser &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) {
   if (isStrictMode) {

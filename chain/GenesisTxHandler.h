@@ -8,7 +8,7 @@ namespace pp {
 class GenesisTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyGenesisInit(const Ledger::TxCommon &tx,
+  applyGenesisInit(const Ledger::TxGenesis &tx,
                    TxContext &ctx) override;
 };
 

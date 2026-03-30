@@ -8,12 +8,12 @@ namespace pp {
 class ConfigTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::TxCommon &tx, const TxContext &ctx,
+  applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId,
                     bool isStrictMode) override;
 
   chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::TxCommon &tx, TxContext &ctx,
+  applyConfigUpdate(const Ledger::TxConfig &tx, TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
                     bool commitOptChainConfig) override;
 };

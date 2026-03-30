@@ -73,7 +73,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "First genesis transaction must be genesis transaction");
   }
-  auto checkpointTxRoe = utl::binaryUnpack<Ledger::TxCommon>(checkpointRec.data);
+  auto checkpointTxRoe = utl::binaryUnpack<Ledger::TxGenesis>(checkpointRec.data);
   if (!checkpointTxRoe) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Failed to deserialize genesis tx payload");
@@ -92,7 +92,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "Second genesis transaction must be new user transaction");
   }
-  auto feeTxRoe = utl::binaryUnpack<Ledger::TxCommon>(feeRec.data);
+  auto feeTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(feeRec.data);
   if (!feeTxRoe) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Failed to deserialize fee tx payload");
@@ -134,7 +134,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "Third genesis transaction must be new user transaction");
   }
-  auto minerTxRoe = utl::binaryUnpack<Ledger::TxCommon>(minerRec.data);
+  auto minerTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(minerRec.data);
   if (!minerTxRoe) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Failed to deserialize reserve tx payload");
@@ -165,7 +165,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         chain_err::E_BLOCK_GENESIS,
         "Fourth genesis transaction must be new user transaction");
   }
-  auto recycleTxRoe = utl::binaryUnpack<Ledger::TxCommon>(recycleRec.data);
+  auto recycleTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(recycleRec.data);
   if (!recycleTxRoe) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Failed to deserialize recycle tx payload");
@@ -297,27 +297,40 @@ chain_tx::Roe<void>
 validateIntraBlockIdempotency(const Ledger::ChainNode &block) {
   std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
   for (const auto &rec : block.block.records) {
-    auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
-    if (!txRoe) {
-      continue;
-    }
-    const auto &tx = txRoe.value();
-    if (tx.idempotentId == 0) {
-      continue;
-    }
-    switch (rec.type) {
-    case Ledger::T_DEFAULT:
-    case Ledger::T_NEW_USER:
-    case Ledger::T_CONFIG:
-    case Ledger::T_USER: {
-      auto key = std::make_pair(tx.fromWalletId, tx.idempotentId);
+    auto handle = [&](const auto &txAny) -> chain_tx::Roe<void> {
+      if (txAny.idempotentId == 0) {
+        return {};
+      }
+      auto key = std::make_pair(txAny.fromWalletId, txAny.idempotentId);
       if (!seenIdempotentPairs.insert(key).second) {
         return chain_tx::TxError(
             chain_err::E_TX_IDEMPOTENCY,
             "Duplicate idempotent id within block: " +
-                std::to_string(tx.idempotentId) +
-                " for wallet: " + std::to_string(tx.fromWalletId));
+                std::to_string(txAny.idempotentId) +
+                " for wallet: " + std::to_string(txAny.fromWalletId));
       }
+      return {};
+    };
+
+    switch (rec.type) {
+    case Ledger::T_DEFAULT: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
+      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      break;
+    }
+    case Ledger::T_NEW_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
+      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      break;
+    }
+    case Ledger::T_CONFIG: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxConfig>(rec.data);
+      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
+      break;
+    }
+    case Ledger::T_USER: {
+      auto txRoe = utl::binaryUnpack<Ledger::TxUser>(rec.data);
+      if (txRoe) { auto r = handle(txRoe.value()); if (!r) return r; }
       break;
     }
     default:
@@ -420,13 +433,22 @@ chain_tx::Roe<void> validateAccountRenewals(
 
   for (const auto &rec : block.block.records) {
     if (rec.type == Ledger::T_RENEWAL || rec.type == Ledger::T_END_USER) {
-      auto txRoe = utl::binaryUnpack<Ledger::TxCommon>(rec.data);
-      if (!txRoe) {
-        return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
-                                 "Failed to deserialize renewal tx payload");
+      uint64_t accountId = 0;
+      if (rec.type == Ledger::T_RENEWAL) {
+        auto txRoe = utl::binaryUnpack<Ledger::TxRenewal>(rec.data);
+        if (!txRoe) {
+          return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                                   "Failed to deserialize renewal tx payload");
+        }
+        accountId = txRoe.value().fromWalletId;
+      } else {
+        auto txRoe = utl::binaryUnpack<Ledger::TxEndUser>(rec.data);
+        if (!txRoe) {
+          return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                                   "Failed to deserialize end-user tx payload");
+        }
+        accountId = txRoe.value().fromWalletId;
       }
-      const auto &tx = txRoe.value();
-      uint64_t accountId = tx.fromWalletId;
 
       auto accountResult = bank.getAccount(accountId);
       if (!accountResult) {

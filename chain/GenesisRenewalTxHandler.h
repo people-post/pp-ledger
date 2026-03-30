@@ -9,7 +9,7 @@ namespace pp {
 class GenesisRenewalTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
-  applyGenesisRenewal(const Ledger::TxCommon &tx, const TxContext &ctx,
+  applyGenesisRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
                       AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                       bool isStrictMode) override;
 };
