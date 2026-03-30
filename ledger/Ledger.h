@@ -74,18 +74,7 @@ public:
       ar & type & data & signatures;
     }
 
-    nlohmann::json toJson() const {
-      nlohmann::json j;
-      j["type"] = type;
-      j["data"] = utl::toJsonSafeString(data);
-      // Convert binary signatures to JSON-safe hex strings
-      nlohmann::json sigArray = nlohmann::json::array();
-      for (const auto& sig : signatures) {
-        sigArray.push_back(utl::toJsonSafeString(sig));
-      }
-      j["signatures"] = sigArray;
-      return j;
-    }
+    nlohmann::json toJson() const;
   };
 
   /**

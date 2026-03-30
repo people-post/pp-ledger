@@ -79,6 +79,69 @@ nlohmann::json Ledger::TxCommon::toJson() const {
   return j;
 }
 
+nlohmann::json Ledger::Record::toJson() const {
+  nlohmann::json j;
+  j["type"] = transactionTypeToHumanString(type);
+  j["typeId"] = type;
+
+  // Unpack the typed transaction payload into structured JSON.
+  // If unpack fails (corrupt/unknown payload), fall back to JSON-safe string.
+  nlohmann::json dataJson;
+  bool unpackOk = false;
+  switch (type) {
+    case Ledger::T_DEFAULT: {
+      auto tx = utl::binaryUnpack<Ledger::TxDefault>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_GENESIS: {
+      auto tx = utl::binaryUnpack<Ledger::TxGenesis>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_NEW_USER: {
+      auto tx = utl::binaryUnpack<Ledger::TxNewUser>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_CONFIG: {
+      auto tx = utl::binaryUnpack<Ledger::TxConfig>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_USER: {
+      auto tx = utl::binaryUnpack<Ledger::TxUser>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_RENEWAL: {
+      auto tx = utl::binaryUnpack<Ledger::TxRenewal>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    case Ledger::T_END_USER: {
+      auto tx = utl::binaryUnpack<Ledger::TxEndUser>(data);
+      if (tx.isOk()) { dataJson = tx.value().toJson(); unpackOk = true; }
+      break;
+    }
+    default:
+      break;
+  }
+
+  if (unpackOk) {
+    j["data"] = dataJson;
+  } else {
+    j["data"] = utl::toJsonSafeString(data);
+  }
+
+  nlohmann::json sigArray = nlohmann::json::array();
+  for (const auto& sig : signatures) {
+    sigArray.push_back(utl::toJsonSafeString(sig));
+  }
+  j["signatures"] = sigArray;
+  return j;
+}
+
 nlohmann::json Ledger::Block::toJson() const {
   nlohmann::json j;
   j["index"] = index;
@@ -91,15 +154,7 @@ nlohmann::json Ledger::Block::toJson() const {
 
   nlohmann::json recArray = nlohmann::json::array();
   for (const auto& rec : records) {
-    nlohmann::json recJson;
-    recJson["type"] = transactionTypeToHumanString(rec.type);
-    recJson["data"] = utl::toJsonSafeString(rec.data);
-    nlohmann::json sigArray = nlohmann::json::array();
-    for (const auto& sig : rec.signatures) {
-      sigArray.push_back(utl::toJsonSafeString(sig));
-    }
-    recJson["signatures"] = sigArray;
-    recArray.push_back(recJson);
+    recArray.push_back(rec.toJson());
   }
   j["records"] = recArray;
   
