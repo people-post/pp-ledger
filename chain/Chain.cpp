@@ -11,6 +11,7 @@
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
 #include "UserUpdateTxHandler.h"
+#include "RenewalUtil.h"
 #include "../ledger/TypedTx.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
@@ -42,17 +43,6 @@ template <class... Ts> struct Overloaded : Ts... {
   using Ts::operator()...;
 };
 template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
-
-Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
-  Ledger::TxUserUpdate userTx;
-  userTx.walletId = tx.walletId;
-  userTx.fee = tx.fee;
-  userTx.meta = tx.meta;
-  userTx.idempotentId = 0;
-  userTx.validationTsMin = 0;
-  userTx.validationTsMax = 0;
-  return userTx;
-}
 
 } // namespace
 
@@ -689,59 +679,18 @@ Chain::Roe<void> Chain::addBufferTransaction(
                      typedRoe.error().message);
   }
 
-  return std::visit(
-      Overloaded{
-          [&](const Ledger::TxDefault &tx) -> Roe<void> {
-            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-            if (!idemRoe) {
-              return idemRoe.error();
-            }
-            return processBufferTx(bank, tx);
-          },
-          [&](const Ledger::TxNewUser &tx) -> Roe<void> {
-            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-            if (!idemRoe) {
-              return idemRoe.error();
-            }
-            if (tx.fee > 0) {
-              auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-              if (!feeRoe) {
-                return feeRoe;
-              }
-            }
-            return processBufferUserInit(bank, tx, blockId);
-          },
-          [&](const Ledger::TxConfig &tx) -> Roe<void> {
-            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-            if (!idemRoe) {
-              return idemRoe.error();
-            }
-            return processBufferSystemUpdate(bank, tx, blockId);
-          },
-          [&](const Ledger::TxUserUpdate &tx) -> Roe<void> {
-            auto idemRoe = validateIdempotencyRules(tx, currentSlot, true);
-            if (!idemRoe) {
-              return idemRoe.error();
-            }
-            return processBufferUserAccountUpsert(bank, tx, blockId);
-          },
-          [&](const Ledger::TxRenewal &tx) -> Roe<void> {
-            if (tx.walletId == AccountBuffer::ID_GENESIS) {
-              return processBufferGenesisRenewal(bank, tx, blockId);
-            }
-            // User renewals are processed as a T_USER_UPDATE-style upsert.
-            return processBufferUserAccountUpsert(bank, renewalToUserUpsert(tx),
-                                                  blockId);
-          },
-          [&](const Ledger::TxEndUser &tx) -> Roe<void> {
-            return processBufferUserEnd(bank, tx);
-          },
-          [&](const Ledger::TxGenesis &) -> Roe<void> {
-            return Error(E_TX_TYPE,
-                         "Genesis transaction not allowed in buffer mode");
-          },
-      },
-      typedRoe.value());
+  auto &handler = txHandlers_[record.type];
+  if (!handler) {
+    return Error(E_INTERNAL, "Transaction handler not registered for type " +
+                                std::to_string(record.type));
+  }
+  BufferApplyContext ctx{ *this,
+                          txContext_,
+                          txHandlers_[Ledger::T_USER_UPDATE].get(),
+                          blockId,
+                          currentSlot,
+                          true };
+  return mapTxVoid(handler->applyBuffer(typedRoe.value(), bank, ctx));
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
@@ -977,6 +926,55 @@ Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
       effectiveSlot, isStrictMode));
 }
 
+chain_tx::Roe<void>
+Chain::validateIdempotency(const Ledger::TxDefault &tx,
+                           uint64_t effectiveSlot, bool isStrictMode) const {
+  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
+  if (!r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<void>
+Chain::validateIdempotency(const Ledger::TxNewUser &tx, uint64_t effectiveSlot,
+                           bool isStrictMode) const {
+  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
+  if (!r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<void>
+Chain::validateIdempotency(const Ledger::TxConfig &tx, uint64_t effectiveSlot,
+                           bool isStrictMode) const {
+  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
+  if (!r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<void>
+Chain::validateIdempotency(const Ledger::TxUserUpdate &tx,
+                           uint64_t effectiveSlot, bool isStrictMode) const {
+  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
+  if (!r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<void> Chain::seedAccountIntoBuffer(AccountBuffer &bank,
+                                                 uint64_t accountId) const {
+  auto r = ensureAccountInBuffer(bank, accountId);
+  if (!r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
+  }
+  return {};
+}
+
 Chain::Roe<void> Chain::processSystemUpdate(const Ledger::TxConfig &tx,
                                             uint64_t blockId,
                                             bool isStrictMode) {
@@ -1099,122 +1097,6 @@ Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
                                        addResult.error().message);
   }
   return {};
-}
-
-Chain::Roe<void> Chain::processBufferUserInit(AccountBuffer &bank,
-                                              const Ledger::TxNewUser &tx,
-                                              uint64_t blockId) const {
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-  auto &h = txHandlers_[Ledger::T_NEW_USER];
-  if (!h) {
-    return Error(E_INTERNAL, "New user transaction handler not registered");
-  }
-  return mapTxVoid(h->applyNewUser(tx, txContext_, bank, blockId, true, true));
-}
-
-Chain::Roe<void> Chain::processBufferSystemUpdate(AccountBuffer &bank,
-                                                  const Ledger::TxConfig &tx,
-                                                  uint64_t blockId) const {
-  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
-  if (!genesisRoe) {
-    return genesisRoe;
-  }
-  auto &h = txHandlers_[Ledger::T_CONFIG];
-  if (!h) {
-    return Error(E_INTERNAL, "Config transaction handler not registered");
-  }
-  return mapTxVoid(h->applyConfigUpdate(tx, txContext_, bank, blockId, true));
-}
-
-Chain::Roe<void>
-Chain::processBufferUserAccountUpsert(AccountBuffer &bank,
-                                      const Ledger::TxUserUpdate &tx,
-                                      uint64_t blockId) const {
-  auto fromRoe = ensureAccountInBuffer(bank, tx.walletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-  if (tx.fee > 0 && tx.walletId != AccountBuffer::ID_FEE) {
-    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-    if (!feeRoe) {
-      return feeRoe;
-    }
-  }
-  auto &h = txHandlers_[Ledger::T_USER_UPDATE];
-  if (!h) {
-    return Error(E_INTERNAL, "User transaction handler not registered");
-  }
-  return mapTxVoid(
-      h->applyUserAccountUpsert(tx, txContext_, bank, blockId, true, true));
-}
-
-Chain::Roe<void>
-Chain::processBufferGenesisRenewal(AccountBuffer &bank,
-                                   const Ledger::TxRenewal &tx,
-                                   uint64_t blockId) const {
-  auto genesisRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_GENESIS);
-  if (!genesisRoe) {
-    return genesisRoe;
-  }
-  if (tx.fee > 0) {
-    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-    if (!feeRoe) {
-      return feeRoe;
-    }
-  }
-  auto &h = txHandlers_[Ledger::T_RENEWAL];
-  if (!h) {
-    return Error(E_INTERNAL,
-                 "Genesis renewal transaction handler not registered");
-  }
-  return mapTxVoid(
-      h->applyGenesisRenewal(tx, txContext_, bank, blockId, true, true));
-}
-
-Chain::Roe<void>
-Chain::processBufferUserEnd(AccountBuffer &bank,
-                            const Ledger::TxEndUser &tx) const {
-  auto fromRoe = ensureAccountInBuffer(bank, tx.walletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-  auto recycleRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_RECYCLE);
-  if (!recycleRoe) {
-    return recycleRoe;
-  }
-  auto &h = txHandlers_[Ledger::T_END_USER];
-  if (!h) {
-    return Error(E_INTERNAL, "End-user transaction handler not registered");
-  }
-  return mapTxVoid(h->applyEndUser(tx, txContext_, bank, true));
-}
-
-Chain::Roe<void> Chain::processBufferTx(AccountBuffer &bank,
-                                        const Ledger::TxDefault &tx) const {
-  // All transactions happen in bank; accounts sourced from txContext_.bank on
-  // demand
-  auto fromRoe = ensureAccountInBuffer(bank, tx.fromWalletId);
-  if (!fromRoe) {
-    return fromRoe;
-  }
-  auto toRoe = ensureAccountInBuffer(bank, tx.toWalletId);
-  if (!toRoe) {
-    return toRoe;
-  }
-  if (tx.fee > 0) {
-    auto feeRoe = ensureAccountInBuffer(bank, AccountBuffer::ID_FEE);
-    if (!feeRoe) {
-      return feeRoe;
-    }
-  }
-  auto &h = txHandlers_[Ledger::T_DEFAULT];
-  if (!h) {
-    return Error(E_INTERNAL, "Default transaction handler not registered");
-  }
-  return mapTxVoid(h->applyDefaultTransferStrict(tx, txContext_, bank));
 }
 
 Chain::Roe<void> Chain::processTx(const Ledger::TxDefault &tx,

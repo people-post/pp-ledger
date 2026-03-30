@@ -2,8 +2,39 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "../ledger/TypedTx.h"
+
+#include <variant>
 
 namespace pp {
+
+chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const TypedTx &tx,
+                                                AccountBuffer &bank,
+                                                const BufferApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer: expected TxDefault");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, p->fromWalletId); !r) {
+    return r;
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, p->toWalletId); !r) {
+    return r;
+  }
+  if (p->fee > 0) {
+    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+        !r) {
+      return r;
+    }
+  }
+  return applyDefaultTransferStrict(*p, c.ctx, bank);
+}
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,

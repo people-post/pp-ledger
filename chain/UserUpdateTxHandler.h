@@ -8,6 +8,10 @@ namespace pp {
 class UserUpdateTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
+  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,

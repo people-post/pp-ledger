@@ -8,6 +8,10 @@ namespace pp {
 class DefaultTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
+  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyDefaultTransferStrict(const Ledger::TxDefault &tx,
                              const TxContext &ctx,
                              AccountBuffer &bank) override;

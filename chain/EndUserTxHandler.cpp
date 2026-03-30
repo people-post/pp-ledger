@@ -2,8 +2,29 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "../ledger/TypedTx.h"
+
+#include <variant>
 
 namespace pp {
+
+chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
+                                                  AccountBuffer &bank,
+                                                  const BufferApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer: expected TxEndUser");
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, p->walletId); !r) {
+    return r;
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_RECYCLE);
+      !r) {
+    return r;
+  }
+  return applyEndUser(*p, c.ctx, bank, true);
+}
 
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
     const Ledger::TxEndUser &tx, const TxContext &ctx,

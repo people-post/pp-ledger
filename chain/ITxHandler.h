@@ -2,10 +2,12 @@
 #define PP_LEDGER_I_TX_HANDLER_H
 
 #include "AccountBuffer.h"
+#include "BufferApplyHost.h"
 #include "ErrorCodes.h"
 #include "TxContext.h"
 #include "TxError.h"
 #include "../ledger/Ledger.h"
+#include "../ledger/TypedTx.h"
 #include "lib/common/Module.h"
 
 namespace pp {
@@ -19,6 +21,17 @@ namespace pp {
 class ITxHandler : public Module {
 public:
   ~ITxHandler() override = default;
+
+  /** Scratch-buffer / mempool path after signature validation. */
+  virtual chain_tx::Roe<void>
+  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) {
+    (void)tx;
+    (void)bank;
+    (void)c;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer not implemented for this handler");
+  }
 
   /** T_GENESIS checkpoint tx after signature validation (genesis block only). */
   virtual chain_tx::Roe<void>
@@ -71,7 +84,7 @@ public:
    * T_NEW_USER: fund and register a new account. `bank` is the working
    * buffer; `ctx.bank` is committed chain state (for buffer-mode existence).
    * When isBufferMode, `fromWalletId` must already be present in `bank`
-   * (e.g. via ensureAccountInBuffer).
+   * (e.g. via IBufferApplyHost::seedAccountIntoBuffer).
    */
   virtual chain_tx::Roe<void>
   applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,

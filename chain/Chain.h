@@ -5,6 +5,7 @@
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
+#include "BufferApplyHost.h"
 #include "ErrorCodes.h"
 #include "ITxHandler.h"
 #include "TxContext.h"
@@ -34,7 +35,7 @@ namespace pp {
  * - Consensus integration
  * - Ledger operations
  */
-class Chain : public Module {
+class Chain : public Module, public IBufferApplyHost {
 public:
   using Checkpoint = ::pp::Checkpoint;
   using CheckpointConfig = ::pp::CheckpointConfig;
@@ -192,6 +193,22 @@ private:
                                      uint64_t effectiveSlot,
                                      bool isStrictMode) const;
 
+  // IBufferApplyHost
+  chain_tx::Roe<void>
+  validateIdempotency(const Ledger::TxDefault &tx, uint64_t effectiveSlot,
+                      bool isStrictMode) const override;
+  chain_tx::Roe<void>
+  validateIdempotency(const Ledger::TxNewUser &tx, uint64_t effectiveSlot,
+                      bool isStrictMode) const override;
+  chain_tx::Roe<void>
+  validateIdempotency(const Ledger::TxConfig &tx, uint64_t effectiveSlot,
+                      bool isStrictMode) const override;
+  chain_tx::Roe<void>
+  validateIdempotency(const Ledger::TxUserUpdate &tx, uint64_t effectiveSlot,
+                      bool isStrictMode) const override;
+  chain_tx::Roe<void>
+  seedAccountIntoBuffer(AccountBuffer &bank, uint64_t accountId) const override;
+
   Roe<void>
   verifySignaturesAgainstAccount(const std::string &message,
                                  const std::vector<std::string> &signatures,
@@ -233,42 +250,26 @@ private:
                              uint64_t slotMin, uint64_t slotMax) const;
 
   // Tx processing
-  Roe<void> processBufferSystemUpdate(AccountBuffer &bank,
-                                      const Ledger::TxConfig &tx,
-                                      uint64_t blockId) const;
   Roe<void> processSystemUpdate(const Ledger::TxConfig &tx, uint64_t blockId,
                                 bool isStrictMode);
 
   // User
-  Roe<void> processBufferUserInit(AccountBuffer &bank,
-                                  const Ledger::TxNewUser &tx,
-                                  uint64_t blockId) const;
   Roe<void> processUserInit(const Ledger::TxNewUser &tx, uint64_t blockId,
                             bool isStrictMode);
 
   Roe<void> processUserUpdate(const Ledger::TxUserUpdate &tx, uint64_t blockId,
                               bool isStrictMode);
-  Roe<void> processBufferUserAccountUpsert(AccountBuffer &bank,
-                                           const Ledger::TxUserUpdate &tx,
-                                           uint64_t blockId) const;
   Roe<void> processUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                                      uint64_t blockId, bool isStrictMode);
   Roe<void> processUserRenewal(const Ledger::TxUserUpdate &tx, uint64_t blockId,
                                bool isStrictMode);
 
-  Roe<void> processBufferGenesisRenewal(AccountBuffer &bank,
-                                        const Ledger::TxRenewal &tx,
-                                        uint64_t blockId) const;
   Roe<void> processGenesisRenewal(const Ledger::TxRenewal &tx,
                                   uint64_t blockId, bool isStrictMode);
 
-  Roe<void> processBufferUserEnd(AccountBuffer &bank,
-                                 const Ledger::TxEndUser &tx) const;
   Roe<void> processUserEnd(const Ledger::TxEndUser &tx, uint64_t blockId,
                            bool isStrictMode);
 
-  Roe<void> processBufferTx(AccountBuffer &bank,
-                            const Ledger::TxDefault &signedTx) const;
   Roe<void> processTx(const Ledger::TxDefault &tx, uint64_t blockId,
                       bool isStrictMode);
 

@@ -8,6 +8,10 @@ namespace pp {
 class EndUserTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
+  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyEndUser(const Ledger::TxEndUser &tx, const TxContext &ctx,
                AccountBuffer &bank, bool isBufferMode) override;
 };

@@ -2,8 +2,19 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "Types.h"
+#include "../ledger/TypedTx.h"
 
 namespace pp {
+
+chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
+                                                  AccountBuffer & /*bank*/,
+                                                  const BufferApplyContext &c) {
+  (void)tx;
+  (void)c;
+  return chain_tx::TxError(
+      chain_err::E_TX_TYPE,
+      "Genesis transaction not allowed in buffer mode");
+}
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
     const Ledger::TxGenesis &tx, TxContext &ctx) {

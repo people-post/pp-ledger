@@ -2,6 +2,9 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "Types.h"
+#include "../ledger/TypedTx.h"
+
+#include <variant>
 
 namespace pp {
 
@@ -94,6 +97,26 @@ chain_tx::Roe<void> applyConfigUpdateCore(
 }
 
 } // namespace
+
+chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
+                                                 AccountBuffer &bank,
+                                                 const BufferApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer: expected TxConfig");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_GENESIS);
+      !r) {
+    return r;
+  }
+  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
+}
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,

@@ -1,10 +1,43 @@
 #include "GenesisRenewalTxHandler.h"
+#include "RenewalUtil.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "Types.h"
+#include "../ledger/TypedTx.h"
+
+#include <variant>
 
 namespace pp {
+
+chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
+                                                         AccountBuffer &bank,
+                                                         const BufferApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer: expected TxRenewal");
+  }
+  if (p->walletId == AccountBuffer::ID_GENESIS) {
+    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_GENESIS);
+        !r) {
+      return r;
+    }
+    if (p->fee > 0) {
+      if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+          !r) {
+        return r;
+      }
+    }
+    return applyGenesisRenewal(*p, c.ctx, bank, c.blockId, true, true);
+  }
+  if (c.userUpdateHandler == nullptr) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                           "applyBuffer: user-update handler required");
+  }
+  TypedTx asUserUpdate = renewalToUserUpsert(*p);
+  return c.userUpdateHandler->applyBuffer(asUserUpdate, bank, c);
+}
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
     const Ledger::TxRenewal &tx, const TxContext &ctx,

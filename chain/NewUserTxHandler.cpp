@@ -3,10 +3,37 @@
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "../client/Client.h"
+#include "../ledger/TypedTx.h"
 
 #include <string>
+#include <variant>
 
 namespace pp {
+
+chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const TypedTx &tx,
+                                                  AccountBuffer &bank,
+                                                  const BufferApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer: expected TxNewUser");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  if (p->fee > 0) {
+    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+        !r) {
+      return r;
+    }
+  }
+  if (auto r = c.host.seedAccountIntoBuffer(bank, p->fromWalletId); !r) {
+    return r;
+  }
+  return applyNewUser(*p, c.ctx, bank, c.blockId, true, true);
+}
 
 chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     const Ledger::TxNewUser &tx, const TxContext &ctx,

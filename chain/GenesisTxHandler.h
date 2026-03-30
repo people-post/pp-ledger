@@ -8,6 +8,10 @@ namespace pp {
 class GenesisTxHandler final : public ITxHandler {
 public:
   chain_tx::Roe<void>
+  applyBuffer(const TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyGenesisInit(const Ledger::TxGenesis &tx,
                    TxContext &ctx) override;
 };
