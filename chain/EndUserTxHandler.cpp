@@ -10,17 +10,6 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
     AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) {
   (void)ctx;
 
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User end transaction must use genesis token (ID_GENESIS)");
-  }
-
-  if (tx.amount != 0) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "User end transaction must have amount 0");
-  }
-
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User end transaction must have fee 0");

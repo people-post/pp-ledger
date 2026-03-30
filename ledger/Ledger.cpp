@@ -67,8 +67,6 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
 
 nlohmann::json Ledger::TxCommon::toJson() const {
   nlohmann::json j;
-  j["tokenId"] = tokenId;
-  j["amount"] = amount;
   j["fee"] = fee;
   j["meta"] = utl::toJsonSafeString(meta);
   return j;
@@ -103,7 +101,13 @@ nlohmann::json txToJsonWithWalletIds(const TxT& tx) {
 } // namespace
 
 nlohmann::json Ledger::TxDefault::toJson() const {
-  return txToJsonWithWalletIds(*this);
+  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
+  appendIdempotencyJson(j, *this);
+  j["tokenId"] = tokenId;
+  j["amount"] = amount;
+  j["fromWalletId"] = fromWalletId;
+  j["toWalletId"] = toWalletId;
+  return j;
 }
 
 nlohmann::json Ledger::TxGenesis::toJson() const {
@@ -111,7 +115,12 @@ nlohmann::json Ledger::TxGenesis::toJson() const {
 }
 
 nlohmann::json Ledger::TxNewUser::toJson() const {
-  return txToJsonWithWalletIds(*this);
+  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
+  appendIdempotencyJson(j, *this);
+  j["amount"] = amount;
+  j["fromWalletId"] = fromWalletId;
+  j["toWalletId"] = toWalletId;
+  return j;
 }
 
 nlohmann::json Ledger::TxConfig::toJson() const {

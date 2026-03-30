@@ -25,13 +25,11 @@ public:
   constexpr static uint16_t T_END_USER = 6;    // Miner to terminate user account due to insufficient fee.
 
   struct TxCommon {
-    uint64_t tokenId{ 0 };      // Token ID (0 = native token)
-    uint64_t amount{ 0 };       // Transfer amount
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
     std::string meta;           // Transaction metadata
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & amount & fee & meta;
+      ar & fee & meta;
     }
 
     nlohmann::json toJson() const;
@@ -51,12 +49,12 @@ public:
   };
 
   struct TxDefault : TxCommon, TxIdempotencyWindow {
+    uint64_t tokenId{ 0 };      // Token ID (0 = native token)
     uint64_t fromWalletId{ 0 }; // Source wallet ID
     uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t amount{ 0 };       // Transfer amount
 
     template <typename Archive> void serialize(Archive &ar) {
-      // Keep field order compatible with historical packing:
-      // tokenId, fromWalletId, toWalletId, amount, fee, meta, idempotentId, validationTsMin, validationTsMax
       ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
           idempotentId & validationTsMin & validationTsMax;
     }
@@ -65,7 +63,7 @@ public:
   };
   struct TxGenesis : TxCommon {
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & amount & fee & meta;
+      ar & fee & meta;
     }
 
     nlohmann::json toJson() const;
@@ -73,9 +71,10 @@ public:
   struct TxNewUser : TxCommon, TxIdempotencyWindow {
     uint64_t fromWalletId{ 0 }; // Source wallet ID
     uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t amount{ 0 };       // Initial funding amount (in genesis/native token)
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
+      ar & fromWalletId & toWalletId & amount & fee & meta &
           idempotentId & validationTsMin & validationTsMax;
     }
 
@@ -83,8 +82,7 @@ public:
   };
   struct TxConfig : TxCommon, TxIdempotencyWindow {
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & amount & fee & meta & idempotentId & validationTsMin &
-          validationTsMax;
+      ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
     }
 
     nlohmann::json toJson() const;
@@ -93,8 +91,8 @@ public:
     uint64_t walletId{ 0 }; // Wallet ID being updated
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & walletId & amount & fee & meta & idempotentId &
-          validationTsMin & validationTsMax;
+      ar & walletId & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
     }
 
     nlohmann::json toJson() const;
@@ -103,7 +101,7 @@ public:
     uint64_t walletId{ 0 }; // Wallet ID being renewed
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & walletId & amount & fee & meta;
+      ar & walletId & fee & meta;
     }
 
     nlohmann::json toJson() const;
@@ -112,7 +110,7 @@ public:
     uint64_t walletId{ 0 }; // Wallet ID being ended
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & tokenId & walletId & amount & fee & meta;
+      ar & walletId & fee & meta;
     }
 
     nlohmann::json toJson() const;

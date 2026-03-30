@@ -15,16 +15,6 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
         chain_err::E_TX_VALIDATION,
         "Genesis renewal must use genesis wallet (ID_GENESIS -> ID_GENESIS)");
   }
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Genesis renewal must use genesis token (ID_GENESIS)");
-  }
-  if (tx.amount != 0) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Genesis renewal transaction must have amount 0");
-  }
 
   GenesisAccountMeta gm;
   if (!gm.ltsFromString(tx.meta)) {

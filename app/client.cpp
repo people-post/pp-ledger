@@ -165,7 +165,6 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   pp::Ledger::TxNewUser tx;
-  tx.tokenId = ID_GENESIS;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;
@@ -231,7 +230,6 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
     return 1;
   }
   pp::Ledger::TxNewUser tx;
-  tx.tokenId = ID_GENESIS;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;

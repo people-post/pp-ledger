@@ -112,8 +112,6 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.slotLeader = 0;
 
   Ledger::TxGenesis checkpointTx;
-  checkpointTx.tokenId = AccountBuffer::ID_GENESIS;
-  checkpointTx.amount = 0;
   checkpointTx.fee = 0;
   checkpointTx.meta = gm.ltsToString();
   genesis.block.records.push_back(
@@ -121,7 +119,6 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
 
   Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
   Ledger::TxNewUser feeTx;
-  feeTx.tokenId = AccountBuffer::ID_GENESIS;
   feeTx.fromWalletId = AccountBuffer::ID_GENESIS;
   feeTx.toWalletId = AccountBuffer::ID_FEE;
   feeTx.amount = 0;
@@ -166,7 +163,6 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
   Ledger::TxNewUser reserveTx;
-  reserveTx.tokenId = AccountBuffer::ID_GENESIS;
   reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;
   reserveTx.toWalletId = AccountBuffer::ID_RESERVE;
   reserveTx.amount = static_cast<uint64_t>(reserveAmount);
@@ -176,7 +172,6 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey));
 
   Ledger::TxNewUser recycleTx;
-  recycleTx.tokenId = AccountBuffer::ID_GENESIS;
   recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
   recycleTx.toWalletId = AccountBuffer::ID_RECYCLE;
   recycleTx.amount = 0;

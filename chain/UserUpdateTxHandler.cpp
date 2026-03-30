@@ -14,12 +14,6 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
     bool isStrictMode) {
   (void)isBufferMode;
 
-  if (tx.tokenId != AccountBuffer::ID_GENESIS) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User update transaction must use genesis token (ID_GENESIS)");
-  }
-
   if (isStrictMode) {
     if (!ctx.optChainConfig.has_value()) {
       return chain_tx::TxError(
@@ -38,12 +32,6 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyUserAccountUpsert(
           "User update transaction fee below minimum: " +
               std::to_string(tx.fee));
     }
-  }
-
-  if (tx.amount != 0) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User update transaction must have amount 0");
   }
 
   Client::UserAccount userAccount;

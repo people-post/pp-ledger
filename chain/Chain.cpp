@@ -204,9 +204,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
 
   auto const &account = accountResult.value();
   Ledger::TxRenewal tx;
-  tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.walletId = accountId;
-  tx.amount = 0;
   uint16_t type = Ledger::T_RENEWAL;
 
   // Compute minimum fee from current account metadata state.
@@ -252,9 +250,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
   rec.type = type;
   if (type == Ledger::T_END_USER) {
     Ledger::TxEndUser endTx;
-    endTx.tokenId = tx.tokenId;
     endTx.walletId = tx.walletId;
-    endTx.amount = tx.amount;
     endTx.fee = tx.fee;
     endTx.meta = tx.meta;
     rec.data = utl::binaryPack(endTx);
@@ -740,9 +736,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
     }
     // User renewals are processed as a T_USER_UPDATE-style upsert.
     Ledger::TxUserUpdate userTx;
-    userTx.tokenId = tx.tokenId;
     userTx.walletId = tx.walletId;
-    userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
     userTx.idempotentId = 0;
@@ -862,9 +856,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
       return processGenesisRenewal(tx, blockId, isStrictMode);
     }
     Ledger::TxUserUpdate userTx;
-    userTx.tokenId = tx.tokenId;
     userTx.walletId = tx.walletId;
-    userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
     userTx.idempotentId = 0;

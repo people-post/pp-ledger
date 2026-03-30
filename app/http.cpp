@@ -417,7 +417,6 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   }
 
   pp::Ledger::TxNewUser tx;
-  tx.tokenId = ID_GENESIS;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;
@@ -546,6 +545,8 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   uint64_t fromWalletId = 0;
   uint64_t toWalletId = 0;
   uint64_t walletId = 0;
+  uint64_t tokenId = 0;
+  uint64_t amount = 0;
   if (type == pp::Ledger::T_USER_UPDATE ||
       type == pp::Ledger::T_RENEWAL ||
       type == pp::Ledger::T_END_USER) {
@@ -563,11 +564,13 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     }
     fromWalletId = jsonToUint64(body, "fromWalletId", 0);
     toWalletId = jsonToUint64(body, "toWalletId", 0);
+    amount = jsonToUint64(body, "amount", 0);
+    if (type == pp::Ledger::T_DEFAULT) {
+      tokenId = jsonToUint64(body, "tokenId", 0);
+    }
   }
 
   pp::Ledger::TxCommon common;
-  common.tokenId = jsonToUint64(body, "tokenId", 0);
-  common.amount = jsonToUint64(body, "amount", 0);
   common.fee = jsonToUint64(body, "fee", 0);
 
   if (body.contains("metaHex") && body["metaHex"].is_string()) {
@@ -601,8 +604,6 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
 
   auto packTyped = [&](uint16_t t) -> std::string {
     auto fillCommon = [&](auto &x) {
-      x.tokenId = common.tokenId;
-      x.amount = common.amount;
       x.fee = common.fee;
       x.meta = common.meta;
     };
@@ -616,7 +617,13 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
       pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_NEW_USER: {
-      auto fill = [&](auto &x) { fillCommon(x); fillIdempotency(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      auto fill = [&](auto &x) {
+        fillCommon(x);
+        fillIdempotency(x);
+        x.fromWalletId = fromWalletId;
+        x.toWalletId = toWalletId;
+        x.amount = amount;
+      };
       pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_CONFIG: {
@@ -633,7 +640,14 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     }
     case pp::Ledger::T_DEFAULT:
     default: {
-      auto fill = [&](auto &x) { fillCommon(x); fillIdempotency(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      auto fill = [&](auto &x) {
+        fillCommon(x);
+        fillIdempotency(x);
+        x.tokenId = tokenId;
+        x.fromWalletId = fromWalletId;
+        x.toWalletId = toWalletId;
+        x.amount = amount;
+      };
       pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
     }
     }

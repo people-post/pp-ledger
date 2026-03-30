@@ -286,8 +286,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
 
   // First transaction: GenesisAccountMeta
   Ledger::TxGenesis txGenesis;
-  txGenesis.tokenId = AccountBuffer::ID_GENESIS;
-  txGenesis.amount = 0;
   txGenesis.fee = 0;
   txGenesis.meta = gm.ltsToString();
 
@@ -307,7 +305,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
       makeUserAccountFromKeys(key.fee, 0, "Wallet for transaction fees");
 
   Ledger::TxNewUser txFee;
-  txFee.tokenId = AccountBuffer::ID_GENESIS;
   txFee.fromWalletId = AccountBuffer::ID_GENESIS;
   txFee.toWalletId = AccountBuffer::ID_FEE;
   txFee.amount = 0;
@@ -381,7 +378,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
   Ledger::TxNewUser txReserve;
-  txReserve.tokenId = AccountBuffer::ID_GENESIS;
   txReserve.fromWalletId = AccountBuffer::ID_GENESIS;
   txReserve.toWalletId = AccountBuffer::ID_RESERVE;
   txReserve.amount = static_cast<uint64_t>(reserveAmount);
@@ -401,7 +397,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
 
   // Fourth transaction: Create recycle account (sink for write-off balances)
   Ledger::TxNewUser txRecycle;
-  txRecycle.tokenId = AccountBuffer::ID_GENESIS;
   txRecycle.fromWalletId = AccountBuffer::ID_GENESIS;
   txRecycle.toWalletId = AccountBuffer::ID_RECYCLE;
   txRecycle.amount = 0;

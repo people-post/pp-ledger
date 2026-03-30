@@ -21,10 +21,6 @@ chain_tx::Roe<void> applyConfigUpdateCore(
     logger.info << "Processing system update transaction";
   }
 
-  if (tx.amount != 0) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "System update transaction must have amount 0");
-  }
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "System update transaction must have fee 0");
