@@ -118,6 +118,23 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
   return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
 }
 
+chain_tx::Roe<void> ConfigTxHandler::applyBlock(const TypedTx &tx,
+                                                AccountBuffer &bank,
+                                                const BlockApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxConfig");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.isStrictMode,
+                           true);
+}
+
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,
     uint64_t blockId, bool isStrictMode) {

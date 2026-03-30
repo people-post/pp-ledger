@@ -12,6 +12,10 @@ public:
               const BufferApplyContext &c) override;
 
   chain_tx::Roe<void>
+  applyBlock(const TypedTx &tx, AccountBuffer &bank,
+             const BlockApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyGenesisInit(const Ledger::TxGenesis &tx,
                    TxContext &ctx) override;
 };

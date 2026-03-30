@@ -26,6 +26,17 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
   return applyEndUser(*p, c.ctx, bank, true);
 }
 
+chain_tx::Roe<void> EndUserTxHandler::applyBlock(const TypedTx &tx,
+                                                 AccountBuffer &bank,
+                                                 const BlockApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxEndUser");
+  }
+  return applyEndUser(*p, c.ctx, bank, false);
+}
+
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
     const Ledger::TxEndUser &tx, const TxContext &ctx,
     AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) {

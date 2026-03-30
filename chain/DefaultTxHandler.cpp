@@ -36,6 +36,25 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const TypedTx &tx,
   return applyDefaultTransferStrict(*p, c.ctx, bank);
 }
 
+chain_tx::Roe<void> DefaultTxHandler::applyBlock(const TypedTx &tx,
+                                                AccountBuffer &bank,
+                                                const BlockApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxDefault");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  if (c.isStrictMode) {
+    return applyDefaultTransferStrict(*p, c.ctx, bank);
+  }
+  return applyDefaultTransferLoose(*p, c.ctx, bank);
+}
+
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
     AccountBuffer &bank) {

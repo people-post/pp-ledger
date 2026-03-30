@@ -10,6 +10,23 @@
 
 namespace pp {
 
+chain_tx::Roe<void> UserUpdateTxHandler::applyBlock(const TypedTx &tx,
+                                                    AccountBuffer &bank,
+                                                    const BlockApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxUserUpdate");
+  }
+  auto idem =
+      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
+  if (!idem) {
+    return idem;
+  }
+  return applyUserAccountUpsert(*p, c.ctx, bank, c.blockId, false,
+                                c.isStrictMode);
+}
+
 chain_tx::Roe<void> UserUpdateTxHandler::applyBuffer(const TypedTx &tx,
                                                      AccountBuffer &bank,
                                                      const BufferApplyContext &c) {

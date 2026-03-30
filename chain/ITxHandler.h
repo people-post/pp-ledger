@@ -3,6 +3,7 @@
 
 #include "AccountBuffer.h"
 #include "BufferApplyHost.h"
+#include "BlockApplyHost.h"
 #include "ErrorCodes.h"
 #include "TxContext.h"
 #include "TxError.h"
@@ -31,6 +32,17 @@ public:
     (void)c;
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer not implemented for this handler");
+  }
+
+  /** Committed-chain (block replay) path after signature validation. */
+  virtual chain_tx::Roe<void>
+  applyBlock(const TypedTx &tx, AccountBuffer &bank,
+             const BlockApplyContext &c) {
+    (void)tx;
+    (void)bank;
+    (void)c;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock not implemented for this handler");
   }
 
   /** T_GENESIS checkpoint tx after signature validation (genesis block only). */

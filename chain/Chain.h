@@ -6,6 +6,7 @@
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
 #include "BufferApplyHost.h"
+#include "BlockApplyHost.h"
 #include "ErrorCodes.h"
 #include "ITxHandler.h"
 #include "TxContext.h"
@@ -35,7 +36,7 @@ namespace pp {
  * - Consensus integration
  * - Ledger operations
  */
-class Chain : public Module, public IBufferApplyHost {
+class Chain : public Module, public IBufferApplyHost, public IBlockApplyHost {
 public:
   using Checkpoint = ::pp::Checkpoint;
   using CheckpointConfig = ::pp::CheckpointConfig;
@@ -244,34 +245,9 @@ private:
   validateTxSignatures(const Ledger::Record &record,
                        uint64_t slotLeaderId, bool isStrictMode) const;
 
-  /** Check that no block with slot in [slotMin, slotMax] already contains a tx
-   * with the same idempotentId and fromWalletId (idempotency is per wallet). */
-  Roe<void> checkIdempotency(uint64_t idempotentId, uint64_t fromWalletId,
-                             uint64_t slotMin, uint64_t slotMax) const;
-
-  // Tx processing
-  Roe<void> processSystemUpdate(const Ledger::TxConfig &tx, uint64_t blockId,
-                                bool isStrictMode);
-
   // User
   Roe<void> processUserInit(const Ledger::TxNewUser &tx, uint64_t blockId,
                             bool isStrictMode);
-
-  Roe<void> processUserUpdate(const Ledger::TxUserUpdate &tx, uint64_t blockId,
-                              bool isStrictMode);
-  Roe<void> processUserAccountUpsert(const Ledger::TxUserUpdate &tx,
-                                     uint64_t blockId, bool isStrictMode);
-  Roe<void> processUserRenewal(const Ledger::TxUserUpdate &tx, uint64_t blockId,
-                               bool isStrictMode);
-
-  Roe<void> processGenesisRenewal(const Ledger::TxRenewal &tx,
-                                  uint64_t blockId, bool isStrictMode);
-
-  Roe<void> processUserEnd(const Ledger::TxEndUser &tx, uint64_t blockId,
-                           bool isStrictMode);
-
-  Roe<void> processTx(const Ledger::TxDefault &tx, uint64_t blockId,
-                      bool isStrictMode);
 
   TxContext txContext_{};
 

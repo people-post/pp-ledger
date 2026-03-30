@@ -12,6 +12,10 @@ public:
               const BufferApplyContext &c) override;
 
   chain_tx::Roe<void>
+  applyBlock(const TypedTx &tx, AccountBuffer &bank,
+             const BlockApplyContext &c) override;
+
+  chain_tx::Roe<void>
   applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,
                AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
                bool isStrictMode) override;

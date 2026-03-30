@@ -39,6 +39,26 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
   return c.userUpdateHandler->applyBuffer(asUserUpdate, bank, c);
 }
 
+chain_tx::Roe<void> GenesisRenewalTxHandler::applyBlock(const TypedTx &tx,
+                                                       AccountBuffer &bank,
+                                                       const BlockApplyContext &c) {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: expected TxRenewal");
+  }
+  if (p->walletId == AccountBuffer::ID_GENESIS) {
+    return applyGenesisRenewal(*p, c.ctx, bank, c.blockId, false,
+                               c.isStrictMode);
+  }
+  if (c.userUpdateHandler == nullptr) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock: user-update handler required");
+  }
+  TypedTx asUserUpdate = renewalToUserUpsert(*p);
+  return c.userUpdateHandler->applyBlock(asUserUpdate, bank, c);
+}
+
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(
     const Ledger::TxRenewal &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,

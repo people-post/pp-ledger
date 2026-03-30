@@ -16,6 +16,16 @@ chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const TypedTx &tx,
       "Genesis transaction not allowed in buffer mode");
 }
 
+chain_tx::Roe<void> GenesisTxHandler::applyBlock(const TypedTx &tx,
+                                                 AccountBuffer & /*bank*/,
+                                                 const BlockApplyContext &c) {
+  (void)tx;
+  (void)c;
+  return chain_tx::TxError(
+      chain_err::E_TX_TYPE,
+      "Genesis transaction type not allowed in normal block");
+}
+
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
     const Ledger::TxGenesis &tx, TxContext &ctx) {
   log().info << "Processing system initialization transaction";
