@@ -1,5 +1,6 @@
 #include "RecordHandler.h"
 
+#include "ErrorCodes.h"
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
 #include "EndUserTxHandler.h"
@@ -44,6 +45,44 @@ bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
   }
   auto matchRoe = handler->matchesWalletForIndex(typedRoe.value(), walletId);
   return matchRoe && matchRoe.value();
+}
+
+chain_tx::Roe<void>
+RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
+                           const BufferApplyContext &ctx) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return chain_tx::TxError(
+        chain_err::E_INVALID_ARGUMENT,
+        "Invalid packed transaction payload: " + typedRoe.error().message);
+  }
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "Transaction handler not registered for type " +
+            std::to_string(rec.type));
+  }
+  return handler->applyBuffer(typedRoe.value(), bank, ctx);
+}
+
+chain_tx::Roe<void>
+RecordHandler::applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
+                          const BlockApplyContext &ctx) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return chain_tx::TxError(
+        chain_err::E_INVALID_ARGUMENT,
+        "Invalid packed transaction payload: " + typedRoe.error().message);
+  }
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "Transaction handler not registered for type " +
+            std::to_string(rec.type));
+  }
+  return handler->applyBlock(typedRoe.value(), bank, ctx);
 }
 
 void RecordHandler::redirectLoggers(const std::string &baseName) {

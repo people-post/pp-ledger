@@ -35,6 +35,20 @@ public:
   bool matchesWalletForIndex(const Ledger::Record &rec,
                              uint64_t walletId) const;
 
+  /**
+   * Decode `rec`, dispatch to its handler, and run applyBuffer. Mirrors
+   * Chain's decode / handler-not-registered errors.
+   */
+  chain_tx::Roe<void> applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
+                                  const BufferApplyContext &ctx) const;
+
+  /**
+   * Decode `rec`, dispatch to its handler, and run applyBlock. Same error
+   * mapping as applyBuffer.
+   */
+  chain_tx::Roe<void> applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
+                                 const BlockApplyContext &ctx) const;
+
   /** Set per-handler logger names (optional). */
   void redirectLoggers(const std::string &baseName);
 

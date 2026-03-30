@@ -566,23 +566,11 @@ Chain::Roe<void> Chain::addBufferTransaction(
 
   auto blockId = getNextBlockId();
   const uint64_t currentSlot = getCurrentSlot();
-  auto typedRoe = Ledger::decodeRecord(record);
-  if (!typedRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " +
-                     typedRoe.error().message);
-  }
-
-  auto *handler = recordHandler_.get(record.type);
-  if (!handler) {
-    return Error(E_INTERNAL, "Transaction handler not registered for type " +
-                                std::to_string(record.type));
-  }
   BufferApplyContext ctx{ txContext_,
                           blockId,
                           currentSlot,
                           true };
-  return mapTxVoid(handler->applyBuffer(typedRoe.value(), bank, ctx));
+  return mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
@@ -593,23 +581,10 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto typedRoe = Ledger::decodeRecord(record);
-  if (!typedRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " +
-                     typedRoe.error().message);
-  }
-
-  auto *handler = recordHandler_.get(record.type);
-  if (!handler) {
-    return Error(E_INTERNAL, "Transaction handler not registered for type " +
-                                 std::to_string(record.type));
-  }
-
   // Genesis records are applied as if they are in the genesis block (blockId=0).
   // Slot leader is not applicable for genesis init.
   BlockApplyContext ctx{ txContext_, 0, 0, 0, true };
-  return mapTxVoid(handler->applyBlock(typedRoe.value(), txContext_.bank, ctx));
+  return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
 Chain::Roe<void> Chain::processNormalTxRecord(
