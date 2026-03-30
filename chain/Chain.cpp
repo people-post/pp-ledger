@@ -292,18 +292,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
     }
     auto const &recs = blockRoe.value().block.records;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
-      bool matches = false;
-      auto typedRoe = Ledger::decodeRecord(*it);
-      if (typedRoe) {
-        auto *handler = recordHandler_.get(it->type);
-        if (handler) {
-          auto matchRoe = handler->matchesWalletForIndex(typedRoe.value(), walletId);
-          if (matchRoe) {
-            matches = matchRoe.value();
-          }
-        }
-      }
-      if (matches) {
+      if (recordHandler_.matchesWalletForIndex(*it, walletId)) {
         out.push_back(*it);
       }
     }

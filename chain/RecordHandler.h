@@ -27,6 +27,14 @@ public:
   ITxHandler *get(std::size_t type);
   const ITxHandler *get(std::size_t type) const;
 
+  /**
+   * Decode `rec`, dispatch to its tx handler, and return whether the tx is
+   * indexed for `walletId`. Decode failure, unknown type, handler errors, or
+   * a negative match all yield false.
+   */
+  bool matchesWalletForIndex(const Ledger::Record &rec,
+                             uint64_t walletId) const;
+
   /** Set per-handler logger names (optional). */
   void redirectLoggers(const std::string &baseName);
 

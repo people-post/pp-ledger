@@ -32,6 +32,20 @@ const ITxHandler *RecordHandler::get(std::size_t type) const {
   return type < handlers_.size() ? handlers_[type].get() : nullptr;
 }
 
+bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
+                                          uint64_t walletId) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return false;
+  }
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return false;
+  }
+  auto matchRoe = handler->matchesWalletForIndex(typedRoe.value(), walletId);
+  return matchRoe && matchRoe.value();
+}
+
 void RecordHandler::redirectLoggers(const std::string &baseName) {
   for (std::size_t i = 0; i < handlers_.size(); ++i) {
     if (!handlers_[i]) {
