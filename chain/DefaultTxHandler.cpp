@@ -2,6 +2,7 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "TxIdempotency.h"
 #include "../ledger/TypedTx.h"
 
 #include <variant>
@@ -28,21 +29,25 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer: expected TxDefault");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.effectiveSlot,
+          c.isStrictMode);
+      !idem) {
     return idem;
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, p->fromWalletId); !r) {
-    return r;
+  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->fromWalletId);
+      !r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, p->toWalletId); !r) {
-    return r;
+  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->toWalletId); !r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
   if (p->fee > 0) {
-    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+    if (auto r =
+            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
         !r) {
-      return r;
+      return chain_tx::TxError(r.error().code, r.error().message);
     }
   }
   return applyDefaultTransferStrict(*p, c.ctx, bank);
@@ -56,9 +61,11 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock: expected TxDefault");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.blockSlot,
+          c.isStrictMode);
+      !idem) {
     return idem;
   }
   if (c.isStrictMode) {

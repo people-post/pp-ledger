@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_USER_UPDATE_TX_HANDLER_H
 #define PP_LEDGER_USER_UPDATE_TX_HANDLER_H
 
-#include "ITxHandler.h"
+#include "UserAccountUpsertBase.h"
 
 namespace pp {
 
-class UserUpdateTxHandler final : public ITxHandler {
+class UserUpdateTxHandler final : public UserAccountUpsertBase {
 public:
   chain_tx::Roe<uint64_t>
   getSignerAccountId(const TypedTx &tx, uint64_t slotLeaderId) const override;
@@ -17,12 +17,6 @@ public:
   chain_tx::Roe<void>
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) override;
-
-  chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
-                         const TxContext &ctx, AccountBuffer &bank,
-                         uint64_t blockId, bool isBufferMode,
-                         bool isStrictMode) override;
 };
 
 } // namespace pp

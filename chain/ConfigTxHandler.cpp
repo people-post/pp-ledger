@@ -1,6 +1,7 @@
 #include "ConfigTxHandler.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
+#include "TxIdempotency.h"
 #include "Types.h"
 #include "../ledger/TypedTx.h"
 
@@ -119,14 +120,17 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer: expected TxConfig");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          AccountBuffer::ID_GENESIS, p->validationTsMin, p->validationTsMax,
+          c.effectiveSlot, c.isStrictMode);
+      !idem) {
     return idem;
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_GENESIS);
+  if (auto r =
+          bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_GENESIS);
       !r) {
-    return r;
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
   return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
 }
@@ -139,9 +143,11 @@ chain_tx::Roe<void> ConfigTxHandler::applyBlock(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock: expected TxConfig");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          AccountBuffer::ID_GENESIS, p->validationTsMin, p->validationTsMax,
+          c.blockSlot, c.isStrictMode);
+      !idem) {
     return idem;
   }
   return applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.isStrictMode,

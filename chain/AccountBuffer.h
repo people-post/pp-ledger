@@ -77,6 +77,12 @@ public:
 
   Roe<void> update(const AccountBuffer &other);
 
+  /** Ensure `accountId` exists in this buffer by copying it from `committed`
+   * when missing. Returns TxError if the account is missing from committed or
+   * cannot be inserted into this buffer. */
+  Roe<void> seedFromCommittedIfMissing(const AccountBuffer &committed,
+                                       uint64_t accountId);
+
   // Token-specific balance operations (tokenId: ID_GENESIS = native token,
   // custom tokens use their genesis wallet IDs)
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId,

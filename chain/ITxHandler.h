@@ -2,8 +2,6 @@
 #define PP_LEDGER_I_TX_HANDLER_H
 
 #include "AccountBuffer.h"
-#include "BufferApplyHost.h"
-#include "BlockApplyHost.h"
 #include "ErrorCodes.h"
 #include "TxContext.h"
 #include "TxError.h"
@@ -111,7 +109,7 @@ public:
    * T_NEW_USER: fund and register a new account. `bank` is the working
    * buffer; `ctx.bank` is committed chain state (for buffer-mode existence).
    * When isBufferMode, `fromWalletId` must already be present in `bank`
-   * (e.g. via IBufferApplyHost::seedAccountIntoBuffer).
+   * (e.g. via AccountBuffer::seedFromCommittedIfMissing from committed ctx.bank).
    */
   virtual chain_tx::Roe<void>
   applyNewUser(const Ledger::TxNewUser &tx, const TxContext &ctx,

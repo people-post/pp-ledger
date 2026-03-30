@@ -30,24 +30,22 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyBuffer(const TypedTx &tx,
                              "applyBuffer: expected TxRenewal");
   }
   if (p->walletId == AccountBuffer::ID_GENESIS) {
-    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_GENESIS);
+    if (auto r =
+            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_GENESIS);
         !r) {
-      return r;
+      return chain_tx::TxError(r.error().code, r.error().message);
     }
     if (p->fee > 0) {
-      if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+      if (auto r =
+              bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
           !r) {
-        return r;
+        return chain_tx::TxError(r.error().code, r.error().message);
       }
     }
     return applyGenesisRenewal(*p, c.ctx, bank, c.blockId, true, true);
   }
-  if (c.userUpdateHandler == nullptr) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                           "applyBuffer: user-update handler required");
-  }
-  TypedTx asUserUpdate = renewalToUserUpsert(*p);
-  return c.userUpdateHandler->applyBuffer(asUserUpdate, bank, c);
+  const auto userUpsert = renewalToUserUpsert(*p);
+  return applyUserUpdateBufferCommon(userUpsert, bank, c);
 }
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyBlock(const TypedTx &tx,
@@ -62,12 +60,8 @@ chain_tx::Roe<void> GenesisRenewalTxHandler::applyBlock(const TypedTx &tx,
     return applyGenesisRenewal(*p, c.ctx, bank, c.blockId, false,
                                c.isStrictMode);
   }
-  if (c.userUpdateHandler == nullptr) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: user-update handler required");
-  }
-  TypedTx asUserUpdate = renewalToUserUpsert(*p);
-  return c.userUpdateHandler->applyBlock(asUserUpdate, bank, c);
+  const auto userUpsert = renewalToUserUpsert(*p);
+  return applyUserUpdateBlockCommon(userUpsert, bank, c);
 }
 
 chain_tx::Roe<void> GenesisRenewalTxHandler::applyGenesisRenewal(

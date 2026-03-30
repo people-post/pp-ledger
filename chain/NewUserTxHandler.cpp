@@ -2,6 +2,7 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "TxIdempotency.h"
 #include "../client/Client.h"
 #include "../ledger/TypedTx.h"
 
@@ -30,9 +31,11 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock: expected TxNewUser");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.blockSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.blockSlot,
+          c.isStrictMode);
+      !idem) {
     return idem;
   }
   return applyNewUser(*p, c.ctx, bank, c.blockId, false, c.isStrictMode);
@@ -46,19 +49,23 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer: expected TxNewUser");
   }
-  auto idem =
-      c.host.validateIdempotency(*p, c.effectiveSlot, c.isStrictMode);
-  if (!idem) {
+  if (auto idem = chain_tx::validateIdempotencyRules(
+          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
+          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.effectiveSlot,
+          c.isStrictMode);
+      !idem) {
     return idem;
   }
   if (p->fee > 0) {
-    if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_FEE);
+    if (auto r =
+            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
         !r) {
-      return r;
+      return chain_tx::TxError(r.error().code, r.error().message);
     }
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, p->fromWalletId); !r) {
-    return r;
+  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->fromWalletId);
+      !r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
   return applyNewUser(*p, c.ctx, bank, c.blockId, true, true);
 }

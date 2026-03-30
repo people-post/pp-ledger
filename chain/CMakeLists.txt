@@ -20,6 +20,8 @@ add_library(pp_chain STATIC
     TxLedgerMeta.cpp
     TxLedgerMeta.h
     ITxHandler.h
+    UserAccountUpsertBase.cpp
+    UserAccountUpsertBase.h
     GenesisTxHandler.cpp
     GenesisTxHandler.h
     ConfigTxHandler.cpp

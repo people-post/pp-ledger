@@ -5,8 +5,6 @@
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
-#include "BufferApplyHost.h"
-#include "BlockApplyHost.h"
 #include "ErrorCodes.h"
 #include "ITxHandler.h"
 #include "TxContext.h"
@@ -36,7 +34,7 @@ namespace pp {
  * - Consensus integration
  * - Ledger operations
  */
-class Chain : public Module, public IBufferApplyHost, public IBlockApplyHost {
+class Chain : public Module {
 public:
   using Checkpoint = ::pp::Checkpoint;
   using CheckpointConfig = ::pp::CheckpointConfig;
@@ -179,37 +177,6 @@ private:
                                       const AccountBuffer::Account &account,
                                       uint64_t minFee) const;
 
-  /** Validate idempotency rules (timespan, slot in window, duplicate id).
-   * effectiveSlot is current slot (submit) or block.slot (replay). */
-  Roe<void> validateIdempotencyRules(const Ledger::TxDefault &tx,
-                                     uint64_t effectiveSlot,
-                                     bool isStrictMode) const;
-  Roe<void> validateIdempotencyRules(const Ledger::TxNewUser &tx,
-                                     uint64_t effectiveSlot,
-                                     bool isStrictMode) const;
-  Roe<void> validateIdempotencyRules(const Ledger::TxConfig &tx,
-                                     uint64_t effectiveSlot,
-                                     bool isStrictMode) const;
-  Roe<void> validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
-                                     uint64_t effectiveSlot,
-                                     bool isStrictMode) const;
-
-  // IBufferApplyHost
-  chain_tx::Roe<void>
-  validateIdempotency(const Ledger::TxDefault &tx, uint64_t effectiveSlot,
-                      bool isStrictMode) const override;
-  chain_tx::Roe<void>
-  validateIdempotency(const Ledger::TxNewUser &tx, uint64_t effectiveSlot,
-                      bool isStrictMode) const override;
-  chain_tx::Roe<void>
-  validateIdempotency(const Ledger::TxConfig &tx, uint64_t effectiveSlot,
-                      bool isStrictMode) const override;
-  chain_tx::Roe<void>
-  validateIdempotency(const Ledger::TxUserUpdate &tx, uint64_t effectiveSlot,
-                      bool isStrictMode) const override;
-  chain_tx::Roe<void>
-  seedAccountIntoBuffer(AccountBuffer &bank, uint64_t accountId) const override;
-
   Roe<void>
   verifySignaturesAgainstAccount(const std::string &message,
                                  const std::vector<std::string> &signatures,
@@ -220,11 +187,6 @@ private:
 
   Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                                   uint64_t accountId) const;
-
-  /** Ensure account exists in buffer, seeding from txContext_.bank on demand.
-   */
-  Roe<void> ensureAccountInBuffer(AccountBuffer &bank,
-                                  uint64_t accountId) const;
 
   /** Create a renewal or end-user transaction for a given account. */
   Roe<Ledger::Record>

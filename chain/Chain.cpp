@@ -7,7 +7,6 @@
 #include "GenesisTxHandler.h"
 #include "NewUserTxHandler.h"
 #include "TxFees.h"
-#include "TxIdempotency.h"
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
 #include "UserUpdateTxHandler.h"
@@ -679,9 +678,7 @@ Chain::Roe<void> Chain::addBufferTransaction(
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                 std::to_string(record.type));
   }
-  BufferApplyContext ctx{ *this,
-                          txContext_,
-                          txHandlers_[Ledger::T_USER_UPDATE].get(),
+  BufferApplyContext ctx{ txContext_,
                           blockId,
                           currentSlot,
                           true };
@@ -752,9 +749,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     return Error(E_INTERNAL, "Transaction handler not registered for type " +
                                  std::to_string(record.type));
   }
-  BlockApplyContext ctx{ *this,
-                         txContext_,
-                         txHandlers_[Ledger::T_USER_UPDATE].get(),
+  BlockApplyContext ctx{ txContext_,
                          blockId,
                          blockSlot,
                          slotLeaderId,
@@ -822,91 +817,6 @@ Chain::Roe<void> Chain::validateTxSignatures(
                                         accountResult.value());
 }
 
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxDefault &tx,
-                                                 uint64_t effectiveSlot,
-                                                 bool isStrictMode) const {
-  return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      tx.idempotentId, tx.fromWalletId, tx.validationTsMin, tx.validationTsMax,
-      effectiveSlot, isStrictMode));
-}
-
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxNewUser &tx,
-                                                 uint64_t effectiveSlot,
-                                                 bool isStrictMode) const {
-  return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      tx.idempotentId, tx.fromWalletId, tx.validationTsMin, tx.validationTsMax,
-      effectiveSlot, isStrictMode));
-}
-
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxConfig &tx,
-                                                 uint64_t effectiveSlot,
-                                                 bool isStrictMode) const {
-  return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      tx.idempotentId, AccountBuffer::ID_GENESIS, tx.validationTsMin,
-      tx.validationTsMax, effectiveSlot, isStrictMode));
-}
-
-Chain::Roe<void> Chain::validateIdempotencyRules(const Ledger::TxUserUpdate &tx,
-                                                 uint64_t effectiveSlot,
-                                                 bool isStrictMode) const {
-  return mapTxVoid(chain_tx::validateIdempotencyRules(
-      txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      tx.idempotentId, tx.walletId, tx.validationTsMin, tx.validationTsMax,
-      effectiveSlot, isStrictMode));
-}
-
-chain_tx::Roe<void>
-Chain::validateIdempotency(const Ledger::TxDefault &tx,
-                           uint64_t effectiveSlot, bool isStrictMode) const {
-  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
-  if (!r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
-  }
-  return {};
-}
-
-chain_tx::Roe<void>
-Chain::validateIdempotency(const Ledger::TxNewUser &tx, uint64_t effectiveSlot,
-                           bool isStrictMode) const {
-  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
-  if (!r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
-  }
-  return {};
-}
-
-chain_tx::Roe<void>
-Chain::validateIdempotency(const Ledger::TxConfig &tx, uint64_t effectiveSlot,
-                           bool isStrictMode) const {
-  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
-  if (!r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
-  }
-  return {};
-}
-
-chain_tx::Roe<void>
-Chain::validateIdempotency(const Ledger::TxUserUpdate &tx,
-                           uint64_t effectiveSlot, bool isStrictMode) const {
-  auto r = validateIdempotencyRules(tx, effectiveSlot, isStrictMode);
-  if (!r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
-  }
-  return {};
-}
-
-chain_tx::Roe<void> Chain::seedAccountIntoBuffer(AccountBuffer &bank,
-                                                 uint64_t accountId) const {
-  auto r = ensureAccountInBuffer(bank, accountId);
-  if (!r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
-  }
-  return {};
-}
-
 Chain::Roe<void> Chain::processUserInit(const Ledger::TxNewUser &tx,
                                         uint64_t blockId, bool isStrictMode) {
   log().info << "Processing user initialization transaction";
@@ -932,28 +842,6 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
   }
   return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
       txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
-}
-
-Chain::Roe<void> Chain::ensureAccountInBuffer(AccountBuffer &bank,
-                                              uint64_t accountId) const {
-  if (bank.hasAccount(accountId)) {
-    return {};
-  }
-  if (!txContext_.bank.hasAccount(accountId)) {
-    return Error(E_ACCOUNT_NOT_FOUND,
-                 "Account not found: " + std::to_string(accountId));
-  }
-  auto accountResult = txContext_.bank.getAccount(accountId);
-  if (!accountResult) {
-    return Error(E_ACCOUNT_NOT_FOUND, "Failed to get account from bank: " +
-                                          accountResult.error().message);
-  }
-  auto addResult = bank.add(accountResult.value());
-  if (!addResult) {
-    return Error(E_ACCOUNT_BUFFER, "Failed to add account to buffer: " +
-                                       addResult.error().message);
-  }
-  return {};
 }
 
 } // namespace pp

@@ -1,5 +1,7 @@
 #include "AccountBuffer.h"
+
 #include <limits>
+#include <string>
 
 namespace pp {
 
@@ -81,6 +83,30 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
     }
     mAccounts_[id] = account;
   }
+  return {};
+}
+
+AccountBuffer::Roe<void> AccountBuffer::seedFromCommittedIfMissing(
+    const AccountBuffer &committed, uint64_t accountId) {
+  if (hasAccount(accountId)) {
+    return {};
+  }
+  if (!committed.hasAccount(accountId)) {
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
+  }
+
+  auto accRoe = committed.getAccount(accountId);
+  if (!accRoe) {
+    return Error(accRoe.error().code,
+                 "Failed to get account: " + accRoe.error().message);
+  }
+
+  auto addRoe = add(accRoe.value());
+  if (!addRoe) {
+    return Error(addRoe.error().code,
+                 "Failed to add account to buffer: " + addRoe.error().message);
+  }
+
   return {};
 }
 

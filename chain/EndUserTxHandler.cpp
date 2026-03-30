@@ -27,12 +27,13 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer: expected TxEndUser");
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, p->walletId); !r) {
-    return r;
+  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->walletId); !r) {
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
-  if (auto r = c.host.seedAccountIntoBuffer(bank, AccountBuffer::ID_RECYCLE);
+  if (auto r =
+          bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_RECYCLE);
       !r) {
-    return r;
+    return chain_tx::TxError(r.error().code, r.error().message);
   }
   return applyEndUser(*p, c.ctx, bank, true);
 }
