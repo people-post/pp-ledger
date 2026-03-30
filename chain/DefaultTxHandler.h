@@ -18,15 +18,16 @@ public:
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) override;
 
+private:
   chain_tx::Roe<void>
   applyDefaultTransferStrict(const Ledger::TxDefault &tx,
                              const TxContext &ctx,
-                             AccountBuffer &bank) override;
+                             AccountBuffer &bank);
 
   chain_tx::Roe<void>
   applyDefaultTransferLoose(const Ledger::TxDefault &tx,
                             const TxContext &ctx,
-                            AccountBuffer &bank) override;
+                            AccountBuffer &bank);
 };
 
 } // namespace pp

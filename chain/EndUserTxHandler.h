@@ -18,9 +18,10 @@ public:
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) override;
 
+private:
   chain_tx::Roe<void>
   applyEndUser(const Ledger::TxEndUser &tx, const TxContext &ctx,
-               AccountBuffer &bank, bool isBufferMode) override;
+               AccountBuffer &bank, bool isBufferMode);
 };
 
 } // namespace pp

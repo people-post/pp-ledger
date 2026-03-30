@@ -69,43 +69,6 @@ public:
   }
 
   /**
-   * T_CONFIG: scratch-buffer path (e.g. addBufferTransaction). Const chain view;
-   * does not commit `optChainConfig`.
-   */
-  virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,
-                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)blockId;
-    (void)isStrictMode;
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "applyConfigUpdate(const TxContext&) not implemented for this handler");
-  }
-
-  /**
-   * T_CONFIG: committed chain bank (Chain's TxContext::bank). When
-   * commitOptChainConfig, writes meta config
-   * into ctx.optChainConfig.
-   */
-  virtual chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::TxConfig &tx, TxContext &ctx,
-                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
-                    bool commitOptChainConfig) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)blockId;
-    (void)isStrictMode;
-    (void)commitOptChainConfig;
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "applyConfigUpdate(TxContext&) not implemented for this handler");
-  }
-
-  /**
    * T_NEW_USER: fund and register a new account. `bank` is the working
    * buffer; `ctx.bank` is committed chain state (for buffer-mode existence).
    * When isBufferMode, `fromWalletId` must already be present in `bank`
@@ -123,81 +86,6 @@ public:
     (void)isStrictMode;
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyNewUser not implemented for this handler");
-  }
-
-  /**
-   * T_USER_UPDATE: replace account meta (and pay fee). Same semantics as
-   * applyNewUser for `bank` / `ctx.bank` / isBufferMode (caller ensures
-   * fromWalletId and fee account in buffer when isBufferMode).
-   */
-  virtual chain_tx::Roe<void>
-  applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
-                         const TxContext &ctx, AccountBuffer &bank,
-                         uint64_t blockId, bool isBufferMode,
-                         bool isStrictMode) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)blockId;
-    (void)isBufferMode;
-    (void)isStrictMode;
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "applyUserAccountUpsert not implemented for this handler");
-  }
-
-  /** T_DEFAULT strict path: min fee from config, then transfer. */
-  virtual chain_tx::Roe<void>
-  applyDefaultTransferStrict(const Ledger::TxDefault &tx,
-                             const TxContext &ctx, AccountBuffer &bank) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "applyDefaultTransferStrict not implemented for this handler");
-  }
-
-  /** T_DEFAULT loose path: tolerates missing from/to accounts. */
-  virtual chain_tx::Roe<void>
-  applyDefaultTransferLoose(const Ledger::TxDefault &tx,
-                            const TxContext &ctx, AccountBuffer &bank) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "applyDefaultTransferLoose not implemented for this handler");
-  }
-
-  /**
-   * T_RENEWAL for genesis only (ID_GENESIS -> ID_GENESIS). User renewals use
-   * applyUserAccountUpsert via T_USER_UPDATE handler from Chain.
-   */
-  virtual chain_tx::Roe<void>
-  applyGenesisRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
-                      AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-                      bool isStrictMode) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)blockId;
-    (void)isBufferMode;
-    (void)isStrictMode;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyGenesisRenewal not implemented for this handler");
-  }
-
-  /** T_END_USER: write-off when balance below min fee for current meta. */
-  virtual chain_tx::Roe<void>
-  applyEndUser(const Ledger::TxEndUser &tx, const TxContext &ctx,
-               AccountBuffer &bank, bool isBufferMode) {
-    (void)tx;
-    (void)ctx;
-    (void)bank;
-    (void)isBufferMode;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyEndUser not implemented for this handler");
   }
 };
 

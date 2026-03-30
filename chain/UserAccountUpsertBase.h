@@ -28,7 +28,7 @@ protected:
   applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
-                         bool isStrictMode) override;
+                         bool isStrictMode);
 };
 
 } // namespace pp

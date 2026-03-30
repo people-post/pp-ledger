@@ -18,15 +18,16 @@ public:
   applyBlock(const TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) override;
 
+private:
   chain_tx::Roe<void>
   applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId,
-                    bool isStrictMode) override;
+                    bool isStrictMode);
 
   chain_tx::Roe<void>
   applyConfigUpdate(const Ledger::TxConfig &tx, TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
-                    bool commitOptChainConfig) override;
+                    bool commitOptChainConfig);
 };
 
 } // namespace pp
