@@ -596,24 +596,12 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                  "Failed to validate transaction: " + roe.error().message);
   }
 
-  auto typedRoe = Ledger::decodeRecord(record);
-  if (!typedRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " +
-                     typedRoe.error().message);
-  }
-
-  auto *handler = recordHandler_.get(record.type);
-  if (!handler) {
-    return Error(E_INTERNAL, "Transaction handler not registered for type " +
-                                 std::to_string(record.type));
-  }
   BlockApplyContext ctx{ txContext_,
                          blockId,
                          blockSlot,
                          slotLeaderId,
                          isStrictMode };
-  return mapTxVoid(handler->applyBlock(typedRoe.value(), txContext_.bank, ctx));
+  return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
 Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
@@ -631,25 +619,10 @@ Chain::Roe<void> Chain::validateTxSignatures(
                  "Transaction must have at least one signature");
   }
 
-  auto typedRoe = Ledger::decodeRecord(record);
-  if (!typedRoe) {
-    return Error(E_INVALID_ARGUMENT,
-                 "Invalid packed transaction payload: " +
-                     typedRoe.error().message);
-  }
-
-  auto *handler = recordHandler_.get(record.type);
-  if (!handler) {
-    return Error(E_INTERNAL, "Transaction handler not registered for type " +
-                                 std::to_string(record.type));
-  }
-
   auto signerAccountIdRoe =
-      handler->getSignerAccountId(typedRoe.value(), slotLeaderId);
+      recordHandler_.getSignerAccountId(record, slotLeaderId);
   if (!signerAccountIdRoe) {
-    return Error(E_TX_SIGNATURE,
-                 "Failed to resolve signer account id: " +
-                     signerAccountIdRoe.error().message);
+    return Error(signerAccountIdRoe.error());
   }
   const uint64_t signerAccountId = signerAccountIdRoe.value();
 

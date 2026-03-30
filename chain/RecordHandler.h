@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -34,6 +35,15 @@ public:
    */
   bool matchesWalletForIndex(const Ledger::Record &rec,
                              uint64_t walletId) const;
+
+  /**
+   * Decode `rec`, dispatch to its handler, and return getSignerAccountId.
+   * Decode / missing-handler use the same codes as applyBuffer. Handler
+   * failures are reported as E_TX_SIGNATURE with the same message prefix as
+   * Chain::validateTxSignatures.
+   */
+  chain_tx::Roe<uint64_t>
+  getSignerAccountId(const Ledger::Record &rec, uint64_t slotLeaderId) const;
 
   /**
    * Decode `rec`, dispatch to its handler, and run applyBuffer. Mirrors

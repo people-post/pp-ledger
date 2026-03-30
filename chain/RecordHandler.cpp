@@ -47,6 +47,31 @@ bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
   return matchRoe && matchRoe.value();
 }
 
+chain_tx::Roe<uint64_t>
+RecordHandler::getSignerAccountId(const Ledger::Record &rec,
+                                  uint64_t slotLeaderId) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return chain_tx::TxError(
+        chain_err::E_INVALID_ARGUMENT,
+        "Invalid packed transaction payload: " + typedRoe.error().message);
+  }
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "Transaction handler not registered for type " +
+            std::to_string(rec.type));
+  }
+  auto signerRoe = handler->getSignerAccountId(typedRoe.value(), slotLeaderId);
+  if (!signerRoe) {
+    return chain_tx::TxError(
+        chain_err::E_TX_SIGNATURE,
+        "Failed to resolve signer account id: " + signerRoe.error().message);
+  }
+  return signerRoe.value();
+}
+
 chain_tx::Roe<void>
 RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
                            const BufferApplyContext &ctx) const {
