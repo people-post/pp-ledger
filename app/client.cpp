@@ -50,14 +50,15 @@ static uint64_t randomAccountId() {
 }
 
 /** Set idempotency and validation window on a user transaction (T_DEFAULT, T_NEW_USER, etc.). */
-static void setValidationWindow(pp::Ledger::TxCommon& tx) {
+static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin,
+                                int64_t& validationTsMax) {
   const int64_t now = static_cast<int64_t>(
       std::chrono::duration_cast<std::chrono::seconds>(
           std::chrono::system_clock::now().time_since_epoch()).count());
-  tx.idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
-  if (tx.idempotentId == 0) tx.idempotentId = 1;
-  tx.validationTsMin = now - 60;
-  tx.validationTsMax = now + 3600;
+  idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
+  if (idempotentId == 0) idempotentId = 1;
+  validationTsMin = now - 60;
+  validationTsMax = now + 3600;
 }
 
 using json = nlohmann::json;
@@ -82,7 +83,7 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   tx.toWalletId = toWalletId;
   tx.amount = amount;
   tx.fee = fee;
-  setValidationWindow(tx);
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
@@ -120,7 +121,7 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;
-  setValidationWindow(tx);
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   TxRecord rec;
   rec.type = pp::Ledger::T_DEFAULT;
   rec.data = pp::utl::binaryPack(tx);
@@ -170,7 +171,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   tx.amount = amount;
   tx.fee = fee;
   tx.meta = userAccount.ltsToString();
-  setValidationWindow(tx);
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   TxRecord rec;
   rec.type = pp::Ledger::T_NEW_USER;
   rec.data = pp::utl::binaryPack(tx);
@@ -236,7 +237,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   tx.amount = amount;
   tx.fee = fee;
   tx.meta = userAccount.ltsToString();
-  setValidationWindow(tx);
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {

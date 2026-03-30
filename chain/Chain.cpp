@@ -207,9 +207,6 @@ Chain::createRenewalTx(uint64_t accountId) const {
   tx.tokenId = AccountBuffer::ID_GENESIS;
   tx.walletId = accountId;
   tx.amount = 0;
-  tx.idempotentId = 0;
-  tx.validationTsMin = 0;
-  tx.validationTsMax = 0;
   uint16_t type = Ledger::T_RENEWAL;
 
   // Compute minimum fee from current account metadata state.
@@ -260,9 +257,6 @@ Chain::createRenewalTx(uint64_t accountId) const {
     endTx.amount = tx.amount;
     endTx.fee = tx.fee;
     endTx.meta = tx.meta;
-    endTx.idempotentId = tx.idempotentId;
-    endTx.validationTsMin = tx.validationTsMin;
-    endTx.validationTsMax = tx.validationTsMax;
     rec.data = utl::binaryPack(endTx);
   } else {
     rec.data = utl::binaryPack(tx);
@@ -751,9 +745,9 @@ Chain::Roe<void> Chain::addBufferTransaction(
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
-    userTx.idempotentId = tx.idempotentId;
-    userTx.validationTsMin = tx.validationTsMin;
-    userTx.validationTsMax = tx.validationTsMax;
+    userTx.idempotentId = 0;
+    userTx.validationTsMin = 0;
+    userTx.validationTsMax = 0;
     return processBufferUserAccountUpsert(bank, userTx, blockId);
   }
   case Ledger::T_END_USER:
@@ -873,9 +867,9 @@ Chain::Roe<void> Chain::processNormalTxRecord(
     userTx.amount = tx.amount;
     userTx.fee = tx.fee;
     userTx.meta = tx.meta;
-    userTx.idempotentId = tx.idempotentId;
-    userTx.validationTsMin = tx.validationTsMin;
-    userTx.validationTsMax = tx.validationTsMax;
+    userTx.idempotentId = 0;
+    userTx.validationTsMin = 0;
+    userTx.validationTsMax = 0;
     return processUserRenewal(userTx, blockId, isStrictMode);
   }
   case Ledger::T_END_USER:

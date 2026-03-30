@@ -290,9 +290,6 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   txGenesis.amount = 0;
   txGenesis.fee = 0;
   txGenesis.meta = gm.ltsToString();
-  txGenesis.idempotentId = 0;
-  txGenesis.validationTsMin = 0;
-  txGenesis.validationTsMax = 0;
 
   Ledger::Record rec;
   rec.type = Ledger::T_GENESIS;

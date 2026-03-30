@@ -71,6 +71,20 @@ nlohmann::json Ledger::TxCommon::toJson() const {
   j["amount"] = amount;
   j["fee"] = fee;
   j["meta"] = utl::toJsonSafeString(meta);
+  return j;
+}
+
+namespace {
+template <typename TxT>
+void appendIdempotencyJson(nlohmann::json& j, const TxT& tx) {
+  j["idempotentId"] = tx.idempotentId;
+  j["validationTsMin"] = tx.validationTsMin;
+  j["validationTsMax"] = tx.validationTsMax;
+}
+} // namespace
+
+nlohmann::json Ledger::TxIdempotencyWindow::toJson() const {
+  nlohmann::json j;
   j["idempotentId"] = idempotentId;
   j["validationTsMin"] = validationTsMin;
   j["validationTsMax"] = validationTsMax;
@@ -81,6 +95,7 @@ namespace {
 template <typename TxT>
 nlohmann::json txToJsonWithWalletIds(const TxT& tx) {
   nlohmann::json j = static_cast<const Ledger::TxCommon&>(tx).toJson();
+  appendIdempotencyJson(j, tx);
   j["fromWalletId"] = tx.fromWalletId;
   j["toWalletId"] = tx.toWalletId;
   return j;
@@ -100,11 +115,14 @@ nlohmann::json Ledger::TxNewUser::toJson() const {
 }
 
 nlohmann::json Ledger::TxConfig::toJson() const {
-  return static_cast<const Ledger::TxCommon&>(*this).toJson();
+  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
+  appendIdempotencyJson(j, *this);
+  return j;
 }
 
 nlohmann::json Ledger::TxUserUpdate::toJson() const {
   nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
+  appendIdempotencyJson(j, *this);
   j["walletId"] = walletId;
   return j;
 }

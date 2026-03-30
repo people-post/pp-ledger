@@ -41,14 +41,15 @@ static uint64_t randomAccountId() {
   return dist(gen);
 }
 
-static void setValidationWindow(pp::Ledger::TxCommon& tx) {
+static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin,
+                                int64_t& validationTsMax) {
   const int64_t now = static_cast<int64_t>(
       std::chrono::duration_cast<std::chrono::seconds>(
           std::chrono::system_clock::now().time_since_epoch()).count());
-  tx.idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
-  if (tx.idempotentId == 0) tx.idempotentId = 1;
-  tx.validationTsMin = now - 60;
-  tx.validationTsMax = now + 3600;
+  idempotentId = static_cast<uint64_t>(now) ^ (randomAccountId() & 0xFFFFULL);
+  if (idempotentId == 0) idempotentId = 1;
+  validationTsMin = now - 60;
+  validationTsMax = now + 3600;
 }
 
 using json = nlohmann::json;
@@ -422,7 +423,7 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   tx.amount = amount;
   tx.fee = fee;
   tx.meta = userAccount.ltsToString();
-  setValidationWindow(tx);
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
   auto sigResult = pp::utl::ed25519Sign(privateKey, message);
   if (!sigResult) {
@@ -580,17 +581,22 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     }
   }
 
+  uint64_t idempotentId = 0;
+  int64_t validationTsMin = 0;
+  int64_t validationTsMax = 0;
+
   if (body.contains("idempotentId")) {
-    common.idempotentId = jsonToUint64(body, "idempotentId", 0);
+    idempotentId = jsonToUint64(body, "idempotentId", 0);
   }
   if (body.contains("validationTsMin")) {
-    common.validationTsMin = static_cast<int64_t>(jsonToUint64(body, "validationTsMin", 0));
+    validationTsMin = static_cast<int64_t>(jsonToUint64(body, "validationTsMin", 0));
   }
   if (body.contains("validationTsMax")) {
-    common.validationTsMax = static_cast<int64_t>(jsonToUint64(body, "validationTsMax", 0));
+    validationTsMax = static_cast<int64_t>(jsonToUint64(body, "validationTsMax", 0));
   }
   if (!body.contains("validationTsMin") && !body.contains("validationTsMax")) {
-    setValidationWindow(common);
+    // Only apply a default window for tx types that support it.
+    setValidationWindow(idempotentId, validationTsMin, validationTsMax);
   }
 
   auto packTyped = [&](uint16_t t) -> std::string {
@@ -599,23 +605,25 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
       x.amount = common.amount;
       x.fee = common.fee;
       x.meta = common.meta;
-      x.idempotentId = common.idempotentId;
-      x.validationTsMin = common.validationTsMin;
-      x.validationTsMax = common.validationTsMax;
+    };
+    auto fillIdempotency = [&](auto &x) {
+      x.idempotentId = idempotentId;
+      x.validationTsMin = validationTsMin;
+      x.validationTsMax = validationTsMax;
     };
     switch (t) {
     case pp::Ledger::T_GENESIS: {
       pp::Ledger::TxGenesis x; fillCommon(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_NEW_USER: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      auto fill = [&](auto &x) { fillCommon(x); fillIdempotency(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
       pp::Ledger::TxNewUser x; fill(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_CONFIG: {
-      pp::Ledger::TxConfig x; fillCommon(x); return pp::utl::binaryPack(x);
+      pp::Ledger::TxConfig x; fillCommon(x); fillIdempotency(x); return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_USER_UPDATE: {
-      pp::Ledger::TxUserUpdate x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
+      pp::Ledger::TxUserUpdate x; fillCommon(x); fillIdempotency(x); x.walletId = walletId; return pp::utl::binaryPack(x);
     }
     case pp::Ledger::T_RENEWAL: {
       pp::Ledger::TxRenewal x; fillCommon(x); x.walletId = walletId; return pp::utl::binaryPack(x);
@@ -625,7 +633,7 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
     }
     case pp::Ledger::T_DEFAULT:
     default: {
-      auto fill = [&](auto &x) { fillCommon(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
+      auto fill = [&](auto &x) { fillCommon(x); fillIdempotency(x); x.fromWalletId = fromWalletId; x.toWalletId = toWalletId; };
       pp::Ledger::TxDefault x; fill(x); return pp::utl::binaryPack(x);
     }
     }
