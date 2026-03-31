@@ -317,7 +317,7 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block,
                                const RecordHandler &recordHandler) {
   std::set<std::pair<uint64_t, uint64_t>> seenIdempotentPairs;
   for (const auto &rec : block.block.records) {
-    auto typedRoe = pp::Ledger::decodeRecord(rec);
+    auto typedRoe = rec.decode();
     if (!typedRoe) {
       continue;
     }
@@ -447,7 +447,7 @@ chain_tx::Roe<void> validateAccountRenewals(
     if (!handler) {
       continue;
     }
-    auto typedRoe = pp::Ledger::decodeRecord(rec);
+    auto typedRoe = rec.decode();
     if (!typedRoe) {
       if (handler->participatesInAccountRenewalValidation()) {
         return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,

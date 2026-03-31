@@ -35,7 +35,7 @@ const ITxHandler *RecordHandler::get(std::size_t type) const {
 
 bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
                                           uint64_t walletId) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return false;
   }
@@ -50,7 +50,7 @@ bool RecordHandler::matchesWalletForIndex(const Ledger::Record &rec,
 chain_tx::Roe<uint64_t>
 RecordHandler::getSignerAccountId(const Ledger::Record &rec,
                                   uint64_t slotLeaderId) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return chain_tx::TxError(
         chain_err::E_INVALID_ARGUMENT,
@@ -75,7 +75,7 @@ RecordHandler::getSignerAccountId(const Ledger::Record &rec,
 chain_tx::Roe<void>
 RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
                            const BufferApplyContext &ctx) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return chain_tx::TxError(
         chain_err::E_INVALID_ARGUMENT,
@@ -94,7 +94,7 @@ RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
 chain_tx::Roe<void>
 RecordHandler::applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
                           const BlockApplyContext &ctx) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return chain_tx::TxError(
         chain_err::E_INVALID_ARGUMENT,
@@ -122,7 +122,7 @@ void RecordHandler::redirectLoggers(const std::string &baseName) {
 std::optional<std::string>
 RecordHandler::getUserAccountMeta(const Ledger::Record &rec,
                                   uint64_t accountId) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::nullopt;
   }
@@ -135,7 +135,7 @@ RecordHandler::getUserAccountMeta(const Ledger::Record &rec,
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
 RecordHandler::getIdempotencyKey(const Ledger::Record &rec) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
@@ -152,7 +152,7 @@ RecordHandler::getIdempotencyKey(const Ledger::Record &rec) const {
 std::optional<std::string>
 RecordHandler::getGenesisAccountMeta(const Ledger::Record &rec,
                                      const Ledger::Block &block) const {
-  auto typedRoe = Ledger::decodeRecord(rec);
+  auto typedRoe = rec.decode();
   if (!typedRoe) {
     return std::nullopt;
   }

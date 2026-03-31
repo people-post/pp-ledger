@@ -121,6 +121,12 @@ public:
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
                                TxUserUpdate, TxRenewal, TxEndUser>;
 
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
+
+  template <typename T> using Roe = ResultOrError<T, Error>;
+
   struct Record {
     uint16_t type{T_DEFAULT};
     std::string data; // Packed typed transaction payload (binaryPack(TxX))
@@ -129,6 +135,9 @@ public:
     template <typename Archive> void serialize(Archive &ar) {
       ar & type & data & signatures;
     }
+
+    /** Decode this Record's packed payload into TypedTx. */
+    Roe<TypedTx> decode() const;
 
     nlohmann::json toJson() const;
   };
@@ -182,15 +191,6 @@ public:
 
     nlohmann::json toJson() const;
   };
-
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
-  /** Decode a Record's packed payload into TypedTx. */
-  static Roe<TypedTx> decodeRecord(const Record &rec);
 
   Ledger();
   ~Ledger() override = default;
