@@ -716,9 +716,15 @@ BeaconServer::hAccountGet(const Client::Request &request) {
 
 BeaconServer::Roe<std::string>
 BeaconServer::hRegister(const Client::Request &request) {
+  auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
+  if (!unpacked) {
+    return Error(E_REQUEST,
+                 "Failed to unpack miner info Meta: " + unpacked.error().message);
+  }
   Client::MinerInfo minerInfo;
-  if (!minerInfo.ltsFromJson(nlohmann::json::parse(request.payload))) {
-    return Error(E_REQUEST, "Failed to parse miner info: " + request.payload);
+  auto parsed = minerInfo.ltsFromMeta(unpacked.value());
+  if (!parsed) {
+    return Error(E_REQUEST, parsed.error().message);
   }
   registerServer(minerInfo);
   return utl::binaryPack(buildStateResponse().ltsToMeta());
@@ -741,11 +747,12 @@ BeaconServer::hCalibration(const Client::Request &request) {
 
 BeaconServer::Roe<std::string>
 BeaconServer::hMinerList(const Client::Request &request) {
-  nlohmann::json j = nlohmann::json::array();
+  std::vector<pp::common::Meta> list;
+  list.reserve(mMiners_.size());
   for (const auto &[id, info] : mMiners_) {
-    j.push_back(info.ltsToJson());
+    list.push_back(info.ltsToMeta());
   }
-  return j.dump();
+  return utl::binaryPack(list);
 }
 
 BeaconServer::Roe<std::string>

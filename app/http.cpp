@@ -321,8 +321,10 @@ static void handleBeaconMiners(const httplib::Request&, httplib::Response& res,
     return;
   }
   json arr = json::array();
-  for (const auto& m : r.value())
-    arr.push_back(m.ltsToJson());
+  for (const auto& m : r.value()) {
+    arr.push_back(
+        json::parse(pp::common::io::metaToJsonString(m.ltsToMeta())));
+  }
   res.set_content(arr.dump(), "application/json");
 }
 
@@ -333,7 +335,8 @@ static void handleMinerStatus(const httplib::Request&, httplib::Response& res,
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().ltsToJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleBlockGet(const httplib::Request& req, httplib::Response& res,
@@ -945,7 +948,10 @@ int main(int argc, char** argv) {
       auto r = beacon.fetchMinerList();
       if (!r) return mcpErr(r.error().message);
       json arr = json::array();
-      for (const auto& m : r.value()) arr.push_back(m.ltsToJson());
+      for (const auto& m : r.value()) {
+        arr.push_back(
+            json::parse(pp::common::io::metaToJsonString(m.ltsToMeta())));
+      }
       return mcpOk(arr.dump(2));
     }
   });
@@ -959,7 +965,9 @@ int main(int argc, char** argv) {
     {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}},
     [](const json&, pp::Client&, pp::Client& miner) {
       auto r = miner.fetchMinerStatus();
-      return r ? mcpOk(r.value().ltsToJson().dump(2)) : mcpErr(r.error().message);
+      return r ? mcpOk(json::parse(pp::common::io::metaToJsonString(r.value().ltsToMeta()))
+                        .dump(2))
+               : mcpErr(r.error().message);
     }
   });
   registerMcpResource({
@@ -971,7 +979,9 @@ int main(int argc, char** argv) {
       auto r = miner.fetchMinerStatus();
       if (!r) return json{{"error", r.error().message}};
       return json{{"contents", json::array({{{"uri", "miner://status"}, {"mimeType", "application/json"},
-                                            {"text", r.value().ltsToJson().dump(2)}}})}};
+                                            {"text", json::parse(pp::common::io::metaToJsonString(
+                                                                 r.value().ltsToMeta()))
+                                                         .dump(2)}}})}};
     }
   });
 

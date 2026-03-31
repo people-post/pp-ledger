@@ -788,7 +788,7 @@ MinerServer::hStatus(const Client::Request &request) {
     status.isSlotLeader = miner_.isSlotLeader();
   }
 
-  return status.ltsToJson().dump();
+  return utl::binaryPack(status.ltsToMeta());
 }
 
 MinerServer::Roe<std::string>

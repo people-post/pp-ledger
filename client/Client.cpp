@@ -86,75 +86,44 @@ nlohmann::json Client::UserAccount::toJson() const {
   return j;
 }
 
-nlohmann::json Client::MinerInfo::ltsToJson() const {
-  nlohmann::json j;
-  j["id"] = id;
-  j["tLastMessage"] = tLastMessage;
-  j["endpoint"] = endpoint;
-  return j;
+pp::common::Meta Client::MinerInfo::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("id", id);
+  m.set("tLastMessage", tLastMessage);
+  m.set("endpoint", endpoint);
+  return m;
 }
 
-Client::Roe<bool> Client::MinerInfo::ltsFromJson(const nlohmann::json& json) {
-  try {
-    if (!json.is_object()) {
-      return Error(E_PARSE_ERROR, "MinerInfo JSON must be an object");
-    }
-
-    if (!json.contains("id")) {
-      return Error(E_PARSE_ERROR, "Field 'id' is required");
-    }
-    if (!json["id"].is_number_unsigned()) {
-      return Error(E_PARSE_ERROR, "Field 'id' must be a non-negative number");
-    }
-    id = json["id"].get<uint64_t>();
-    if (json.contains("tLastMessage")) {
-      if (json["tLastMessage"].is_number_integer()) {
-        tLastMessage = json["tLastMessage"].get<int64_t>();
-      }
-    }
-    if (json.contains("endpoint")) {
-      if (json["endpoint"].is_string()) {
-        endpoint = json["endpoint"].get<std::string>();
-      }
-    }
-    return true;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerInfo JSON: ") + e.what());
-  }
+Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
+  id = meta.getOrDefault("id", uint64_t{0});
+  tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
+  endpoint = meta.getOrDefault("endpoint", std::string{});
+  return true;
 }
 
-nlohmann::json Client::MinerStatus::ltsToJson() const {
-  nlohmann::json j;
-  j["minerId"] = minerId;
-  j["stake"] = stake;
-  j["nextBlockId"] = nextBlockId;
-  j["currentSlot"] = currentSlot;
-  j["currentEpoch"] = currentEpoch;
-  j["pendingTransactions"] = pendingTransactions;
-  j["nStakeholders"] = nStakeholders;
-  j["isSlotLeader"] = isSlotLeader;
-  return j;
+pp::common::Meta Client::MinerStatus::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("minerId", minerId);
+  m.set("stake", stake);
+  m.set("nextBlockId", nextBlockId);
+  m.set("currentSlot", currentSlot);
+  m.set("currentEpoch", currentEpoch);
+  m.set("pendingTransactions", pendingTransactions);
+  m.set("nStakeholders", nStakeholders);
+  m.set("isSlotLeader", isSlotLeader);
+  return m;
 }
 
-Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
-  try {
-    if (!json.is_object()) {
-      return Error(E_PARSE_ERROR, "MinerStatus JSON must be an object");
-    }
-
-    minerId = json.value("minerId", uint64_t(0));
-    stake = json.value("stake", uint64_t(0));
-    nextBlockId = json.value("nextBlockId", uint64_t(0));
-    currentSlot = json.value("currentSlot", uint64_t(0));
-    currentEpoch = json.value("currentEpoch", uint64_t(0));
-    pendingTransactions = json.value("pendingTransactions", uint64_t(0));
-    nStakeholders = json.value("nStakeholders", uint64_t(0));
-    isSlotLeader = json.value("isSlotLeader", false);
-
-    return true;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
-  }
+Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta &meta) {
+  minerId = meta.getOrDefault("minerId", uint64_t{0});
+  stake = meta.getOrDefault("stake", uint64_t{0});
+  nextBlockId = meta.getOrDefault("nextBlockId", uint64_t{0});
+  currentSlot = meta.getOrDefault("currentSlot", uint64_t{0});
+  currentEpoch = meta.getOrDefault("currentEpoch", uint64_t{0});
+  pendingTransactions = meta.getOrDefault("pendingTransactions", uint64_t{0});
+  nStakeholders = meta.getOrDefault("nStakeholders", uint64_t{0});
+  isSlotLeader = meta.getOrDefault("isSlotLeader", false);
+  return true;
 }
 
 pp::common::Meta Client::BeaconState::ltsToMeta() const {
@@ -301,7 +270,7 @@ Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t account
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &minerInfo) {
   log().debug << "Registering miner server: " << minerInfo.id << " " << minerInfo.endpoint;
 
-  std::string payload = minerInfo.ltsToJson().dump();
+  std::string payload = utl::binaryPack(minerInfo.ltsToMeta());
   auto result = sendRequest(T_REQ_REGISTER, payload, TIMEOUT_FAST);
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -364,25 +333,23 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
     return Error(result.error().code, result.error().message);
   }
 
-  try {
-    nlohmann::json response = nlohmann::json::parse(result.value());
-    if (!response.is_array()) {
-      return Error(E_PARSE_ERROR, "Miner list must be a JSON array");
-    }
-    std::vector<MinerInfo> miners;
-    for (const auto &item : response) {
-      MinerInfo info;
-      auto parseResult = info.ltsFromJson(item);
-      if (!parseResult) {
-        return Error(parseResult.error().code, parseResult.error().message);
-      }
-      miners.push_back(std::move(info));
-    }
-    return miners;
-  } catch (const std::exception &e) {
-    return Error(E_PARSE_ERROR,
-                 std::string("Failed to parse miner list JSON: ") + e.what());
+  auto listResult =
+      utl::binaryUnpack<std::vector<pp::common::Meta>>(result.value());
+  if (!listResult) {
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack miner list: " + listResult.error().message);
   }
+  std::vector<MinerInfo> miners;
+  miners.reserve(listResult.value().size());
+  for (const auto &meta : listResult.value()) {
+    MinerInfo info;
+    auto parseResult = info.ltsFromMeta(meta);
+    if (!parseResult) {
+      return Error(parseResult.error().code, parseResult.error().message);
+    }
+    miners.push_back(std::move(info));
+  }
+  return miners;
 }
 
 Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(const TxGetByWalletRequest &request) {
@@ -455,17 +422,18 @@ Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
     return Error(result.error().code, result.error().message);
   }
 
-  try {
-    nlohmann::json response = nlohmann::json::parse(result.value());
-    MinerStatus status;
-    auto parseResult = status.ltsFromJson(response);
-    if (!parseResult) {
-      return Error(parseResult.error().code, parseResult.error().message);
-    }
-    return status;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse MinerStatus JSON: ") + e.what());
+  auto metaResult = utl::binaryUnpack<pp::common::Meta>(result.value());
+  if (!metaResult) {
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack miner status Meta: " +
+                     metaResult.error().message);
   }
+  MinerStatus status;
+  auto parseResult = status.ltsFromMeta(metaResult.value());
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
+  return status;
 }
 
 } // namespace pp

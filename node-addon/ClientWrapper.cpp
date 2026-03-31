@@ -3,6 +3,7 @@
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/io/Json.h"
 #include "lib/common/Utilities.h"
+#include <json.hpp>
 #include <chrono>
 #include <cctype>
 #include <random>
@@ -178,7 +179,8 @@ Napi::Value ClientWrapper::FetchMinerList(const Napi::CallbackInfo& info) {
 
     nlohmann::json miners = nlohmann::json::array();
     for (const auto& miner : result.value()) {
-      miners.push_back(miner.ltsToJson());
+      miners.push_back(nlohmann::json::parse(
+          pp::common::io::metaToJsonString(miner.ltsToMeta())));
     }
     outJson = miners.dump();
     return true;
@@ -193,7 +195,7 @@ Napi::Value ClientWrapper::FetchMinerStatus(const Napi::CallbackInfo& info) {
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().ltsToJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }

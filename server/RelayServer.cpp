@@ -556,17 +556,15 @@ RelayServer::hTxGetByIndex(const Client::Request &request) {
 
 RelayServer::Roe<std::string>
 RelayServer::hRegister(const Client::Request &request) {
-  Client::MinerInfo minerInfo;
-  nlohmann::json j;
-  try {
-    j = nlohmann::json::parse(request.payload);
-  } catch (const std::exception &e) {
+  auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
+  if (!unpacked) {
     return Error(E_REQUEST,
-                 "Failed to parse miner info: " + std::string(e.what()));
+                 "Failed to unpack miner info Meta: " + unpacked.error().message);
   }
-  auto parseResult = minerInfo.ltsFromJson(j);
-  if (!parseResult) {
-    return Error(E_REQUEST, parseResult.error().message);
+  Client::MinerInfo minerInfo;
+  auto parsed = minerInfo.ltsFromMeta(unpacked.value());
+  if (!parsed) {
+    return Error(E_REQUEST, parsed.error().message);
   }
   registerServer(minerInfo);
   return utl::binaryPack(buildStateResponse().ltsToMeta());
@@ -631,11 +629,12 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 
 RelayServer::Roe<std::string>
 RelayServer::hMinerList(const Client::Request &request) {
-  nlohmann::json j = nlohmann::json::array();
+  std::vector<pp::common::Meta> list;
+  list.reserve(mMiners_.size());
   for (const auto &[id, info] : mMiners_) {
-    j.push_back(info.ltsToJson());
+    list.push_back(info.ltsToMeta());
   }
-  return j.dump();
+  return utl::binaryPack(list);
 }
 
 RelayServer::Roe<std::string>

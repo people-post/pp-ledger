@@ -136,8 +136,8 @@ public:
     int64_t tLastMessage{ 0 };
     std::string endpoint;
 
-    nlohmann::json ltsToJson() const;
-    Roe<bool> ltsFromJson(const nlohmann::json& json);
+    pp::common::Meta ltsToMeta() const;
+    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
   };
 
   struct MinerStatus {
@@ -150,8 +150,8 @@ public:
     uint64_t nStakeholders{ 0 };
     bool isSlotLeader{ false };
 
-    nlohmann::json ltsToJson() const;
-    Roe<bool> ltsFromJson(const nlohmann::json &json);
+    pp::common::Meta ltsToMeta() const;
+    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
   };
 
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */

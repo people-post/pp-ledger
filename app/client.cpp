@@ -554,7 +554,8 @@ int main(int argc, char *argv[]) {
   else if (beacon_status->parsed() && connectToMiner) {
     auto result = client.fetchMinerStatus();
     if (result) {
-      std::cout << result.value().ltsToJson().dump(2) << "\n";
+      std::cout << json::parse(pp::common::io::metaToJsonString(result.value().ltsToMeta())).dump(2)
+                << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
