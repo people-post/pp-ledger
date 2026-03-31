@@ -163,5 +163,19 @@ RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
   return handler->genesisAccountMetaForTx(typedRoe.value(), block);
 }
 
+chain_tx::Roe<size_t>
+RecordHandler::billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                            const Ledger::TypedTx &tx) const {
+  // TypedTx variant order matches Ledger::T_* constants.
+  const auto type = static_cast<std::size_t>(tx.index());
+  const ITxHandler *handler = get(type);
+  if (!handler) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "Transaction handler not registered for type " +
+                                 std::to_string(type));
+  }
+  return handler->billableCustomMetaSizeForFee(config, tx);
+}
+
 } // namespace pp
 

@@ -48,6 +48,10 @@ Chain::Chain() {
       [this](const Ledger::Record &rec) {
         return recordHandler_.idempotencyKeyForRecord(rec);
       };
+  txContext_.billableCustomMetaSizeForFee =
+      [this](const BlockChainConfig &config, const Ledger::TypedTx &tx) {
+        return recordHandler_.billableCustomMetaSizeForFee(config, tx);
+      };
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,

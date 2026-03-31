@@ -3,6 +3,7 @@
 
 #include "Types.h"
 #include "AccountBuffer.h"
+#include "TxFees.h"
 #include "TxIdempotency.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
@@ -39,6 +40,8 @@ struct TxContext {
   std::optional<AccountMetaForRecordFns> accountMetaForRecord{std::nullopt};
   std::optional<chain_tx::IdempotencyKeyForRecordFn> idempotencyKeyForRecord{
       std::nullopt};
+  std::optional<chain_tx::BillableCustomMetaSizeForFeeFn>
+      billableCustomMetaSizeForFee{std::nullopt};
 };
 
 /** Scratch-buffer / mempool path after signature validation. */

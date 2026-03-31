@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 namespace pp::chain_tx {
@@ -16,11 +17,20 @@ namespace pp::chain_tx {
 Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
     const BlockChainConfig &config, uint64_t nonFreeCustomMetaSizeBytes);
 
-Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const Ledger::TypedTx &tx);
+/**
+ * Inject tx-dependent logic for fee meta billing.
+ *
+ * The function returns the *billable* (pre-free-tier) custom-meta size in bytes
+ * for fee purposes. `TxFees` applies max bound and free tier.
+ *
+ * Returning 0 means "no fee meta to bill".
+ */
+using BillableCustomMetaSizeForFeeFn =
+    std::function<Roe<size_t>(const BlockChainConfig &, const Ledger::TypedTx &)>;
 
-Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                                const Ledger::TypedTx &tx);
+Roe<uint64_t> calculateMinimumFeeForTransaction(
+    const BlockChainConfig &config, const Ledger::TypedTx &tx,
+    const BillableCustomMetaSizeForFeeFn &billableCustomMetaSizeForFee);
 
 /** Minimum renewal fee from serialized account meta at the account's block. */
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

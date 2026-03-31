@@ -111,8 +111,14 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         "Genesis fee account creation transaction must have amount 0");
   }
   const Ledger::TypedTx feeTypedTx(feeTx);
+  const RecordHandler recordHandler;
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, feeTypedTx);
+      chain_tx::calculateMinimumFeeForTransaction(
+          gm.config, feeTypedTx,
+          [&recordHandler](const BlockChainConfig &config,
+                           const Ledger::TypedTx &tx) {
+            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+          });
   if (!feeWalletFeeResult) {
     return chain_tx::Roe<void>(feeWalletFeeResult.error());
   }
@@ -149,7 +155,12 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
   }
   const Ledger::TypedTx minerTypedTx(minerTx);
   auto reserveFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, minerTypedTx);
+      chain_tx::calculateMinimumFeeForTransaction(
+          gm.config, minerTypedTx,
+          [&recordHandler](const BlockChainConfig &config,
+                           const Ledger::TypedTx &tx) {
+            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+          });
   if (!reserveFeeResult) {
     return chain_tx::Roe<void>(reserveFeeResult.error());
   }
@@ -175,7 +186,12 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
   const auto &recycleTx = recycleTxRoe.value();
   const Ledger::TypedTx recycleTypedTx(recycleTx);
   auto recycleFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(gm.config, recycleTypedTx);
+      chain_tx::calculateMinimumFeeForTransaction(
+          gm.config, recycleTypedTx,
+          [&recordHandler](const BlockChainConfig &config,
+                           const Ledger::TypedTx &tx) {
+            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+          });
   if (!recycleFeeResult) {
     return chain_tx::Roe<void>(recycleFeeResult.error());
   }

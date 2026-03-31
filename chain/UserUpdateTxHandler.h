@@ -27,6 +27,10 @@ public:
   std::optional<std::string>
   userAccountMetaForTx(const Ledger::TypedTx &tx,
                        uint64_t accountId) const override;
+
+  chain_tx::Roe<size_t>
+  billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                               const Ledger::TypedTx &tx) const override;
 };
 
 } // namespace pp

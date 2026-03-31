@@ -1,6 +1,8 @@
 #pragma once
 
 #include "ITxHandler.h"
+#include "TxError.h"
+#include "Types.h"
 #include "../ledger/Ledger.h"
 
 #include <array>
@@ -87,6 +89,15 @@ public:
    */
   chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
   idempotencyKeyForRecord(const Ledger::Record &rec) const;
+
+  /**
+   * Billable (pre-free-tier) custom-meta size for fee calculation.
+   *
+   * This is tx-type aware (e.g. serialized user account meta in tx.meta).
+   */
+  chain_tx::Roe<size_t>
+  billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                               const Ledger::TypedTx &tx) const;
 
 private:
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};

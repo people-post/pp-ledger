@@ -28,6 +28,10 @@ public:
   userAccountMetaForTx(const Ledger::TypedTx &tx,
                        uint64_t accountId) const override;
 
+  chain_tx::Roe<size_t>
+  billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                               const Ledger::TypedTx &tx) const override;
+
 private:
   chain_tx::Roe<void> applyNewUser(const Ledger::TxNewUser &tx,
                                   const TxContext &ctx,

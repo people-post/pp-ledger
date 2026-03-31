@@ -125,6 +125,38 @@ public:
     return std::nullopt;
   }
 
+  /**
+   * Billable (pre-free-tier) custom-meta size in bytes for fee calculation.
+   *
+   * The returned size is before applying the chain's free tier / max bound.
+   * Default: use the tx's raw `meta.size()`.
+   */
+  virtual chain_tx::Roe<size_t>
+  billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                               const Ledger::TypedTx &tx) const {
+    (void)config;
+    // TypedTx variant order matches Ledger::T_* constants.
+    switch (tx.index()) {
+    case Ledger::T_DEFAULT:
+      return std::get<Ledger::TxDefault>(tx).meta.size();
+    case Ledger::T_GENESIS:
+      return std::get<Ledger::TxGenesis>(tx).meta.size();
+    case Ledger::T_NEW_USER:
+      return std::get<Ledger::TxNewUser>(tx).meta.size();
+    case Ledger::T_CONFIG:
+      return std::get<Ledger::TxConfig>(tx).meta.size();
+    case Ledger::T_USER_UPDATE:
+      return std::get<Ledger::TxUserUpdate>(tx).meta.size();
+    case Ledger::T_RENEWAL:
+      return std::get<Ledger::TxRenewal>(tx).meta.size();
+    case Ledger::T_END_USER:
+      return std::get<Ledger::TxEndUser>(tx).meta.size();
+    default:
+      return chain_tx::TxError(chain_err::E_INTERNAL,
+                               "Unknown typed transaction variant");
+    }
+  }
+
 protected:
   /**
    * Cross-block idempotency check using `ctx.idempotencyKeyForRecord` (wired by

@@ -3,10 +3,40 @@
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "Types.h"
+#include "../client/Client.h"
 
 #include <variant>
 
 namespace pp {
+
+chain_tx::Roe<size_t>
+RenewalTxHandler::billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                               const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "billableCustomMetaSizeForFee: expected TxRenewal");
+  }
+  if (p->meta.size() <= config.freeCustomMetaSize) {
+    return 0;
+  }
+  if (p->walletId == AccountBuffer::ID_GENESIS) {
+    GenesisAccountMeta gm;
+    if (!gm.ltsFromString(p->meta)) {
+      return chain_tx::TxError(
+          chain_err::E_INTERNAL_DESERIALIZE,
+          "Failed to deserialize genesis metadata for fee calculation");
+    }
+    return gm.genesis.meta.size();
+  }
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(p->meta)) {
+    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                             "Failed to deserialize user account metadata for fee "
+                             "calculation");
+  }
+  return userAccount.meta.size();
+}
 
 /** Map miner-signed user renewal payload to user-update upsert semantics. */
 Ledger::TxUserUpdate renewalToUserUpsert(const Ledger::TxRenewal &tx) {
@@ -127,9 +157,14 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
           chain_err::E_INTERNAL,
           "Chain config required for strict genesis renewal fee validation");
     }
+    if (!ctx.billableCustomMetaSizeForFee.has_value()) {
+      return chain_tx::TxError(
+          chain_err::E_INTERNAL,
+          "Fee-meta size extractor not configured on TxContext");
+    }
     const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), typedTx);
+        ctx.optChainConfig.value(), typedTx, *ctx.billableCustomMetaSizeForFee);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

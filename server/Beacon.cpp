@@ -1,5 +1,6 @@
 #include "Beacon.h"
 #include "../chain/TxFees.h"
+#include "../chain/RecordHandler.h"
 #include "../client/Client.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
@@ -310,8 +311,14 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   txFee.amount = 0;
   txFee.meta = feeAccount.ltsToString();
   const Ledger::TypedTx feeTypedTx(txFee);
+  const RecordHandler recordHandler;
   auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(config, feeTypedTx);
+      chain_tx::calculateMinimumFeeForTransaction(
+          config, feeTypedTx,
+          [&recordHandler](const Chain::BlockChainConfig &cfg,
+                           const Ledger::TypedTx &tx) {
+            return recordHandler.billableCustomMetaSizeForFee(cfg, tx);
+          });
   if (!feeWalletFeeResult) {
     return Error(2, "Failed to calculate fee-wallet transaction fee: " +
                         feeWalletFeeResult.error().message);

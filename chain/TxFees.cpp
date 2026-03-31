@@ -1,8 +1,6 @@
 #include "TxFees.h"
 #include "ErrorCodes.h"
-#include "AccountBuffer.h"
 #include "TxLedgerMeta.h"
-#include "../client/Client.h"
 
 #include <limits>
 #include <vector>
@@ -20,11 +18,6 @@ uint64_t getFeeCoefficient(const std::vector<uint16_t> &coefficients,
              : 0ULL;
 }
 
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
-
 /** Fee uses "non-free" custom meta bytes: max bound, then free tier, then remainder. */
 Roe<size_t> toNonFree(const BlockChainConfig &config,
                       size_t customMetaSizeBytes) {
@@ -38,39 +31,6 @@ Roe<size_t> toNonFree(const BlockChainConfig &config,
     return 0;
   }
   return customMetaSizeBytes - config.freeCustomMetaSize;
-}
-
-/**
- * Serialized `Client::UserAccount` in tx.meta: if the whole blob is within the
- * free tier, fee meta is zero; else bill on embedded `userAccount.meta` size.
- */
-Roe<size_t>
-nonFreeFromSerializedUserAccountMeta(const BlockChainConfig &config,
-                                     const std::string &serializedUserAccount) {
-  if (serializedUserAccount.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(serializedUserAccount)) {
-    return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                   "Failed to deserialize user account metadata for fee "
-                   "calculation");
-  }
-  return toNonFree(config, userAccount.meta.size());
-}
-
-Roe<size_t>
-nonFreeFromSerializedGenesisAccountMeta(const BlockChainConfig &config,
-                                        const std::string &serializedGm) {
-  if (serializedGm.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(serializedGm)) {
-    return TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                   "Failed to deserialize genesis metadata for fee calculation");
-  }
-  return toNonFree(config, gm.genesis.meta.size());
 }
 
 } // namespace
@@ -101,37 +61,25 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
   return static_cast<uint64_t>(minimumFee);
 }
 
-Roe<size_t> extractNonFreeCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const Ledger::TypedTx &tx) {
-  return std::visit(
-      Overloaded{
-          [&](const Ledger::TxNewUser &t) -> Roe<size_t> {
-            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
-          },
-          [&](const Ledger::TxUserUpdate &t) -> Roe<size_t> {
-            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
-          },
-          [&](const Ledger::TxRenewal &t) -> Roe<size_t> {
-            if (t.walletId == AccountBuffer::ID_GENESIS) {
-              return nonFreeFromSerializedGenesisAccountMeta(config, t.meta);
-            }
-            return nonFreeFromSerializedUserAccountMeta(config, t.meta);
-          },
-          [&](const auto &t) -> Roe<size_t> {
-            return toNonFree(config, t.meta.size());
-          },
-      },
-      tx);
-}
-
-Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
-                                                const Ledger::TypedTx &tx) {
-  auto nonFreeMetaSizeResult = extractNonFreeCustomMetaSizeForFee(config, tx);
-  if (!nonFreeMetaSizeResult) {
-    return nonFreeMetaSizeResult.error();
+Roe<uint64_t> calculateMinimumFeeForTransaction(
+    const BlockChainConfig &config, const Ledger::TypedTx &tx,
+    const BillableCustomMetaSizeForFeeFn &billableCustomMetaSizeForFee) {
+  if (!billableCustomMetaSizeForFee) {
+    return TxError(chain_err::E_INTERNAL,
+                   "billableCustomMetaSizeForFee must be provided");
   }
+  auto billableSizeResult = billableCustomMetaSizeForFee(config, tx);
+  if (!billableSizeResult) {
+    return billableSizeResult.error();
+  }
+
+  auto nonFreeResult = toNonFree(config, billableSizeResult.value());
+  if (!nonFreeResult) {
+    return nonFreeResult.error();
+  }
+
   return calculateMinimumFeeFromNonFreeMetaSize(
-      config, nonFreeMetaSizeResult.value());
+      config, static_cast<uint64_t>(nonFreeResult.value()));
 }
 
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

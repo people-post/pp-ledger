@@ -36,6 +36,10 @@ public:
   genesisAccountMetaForTx(const Ledger::TypedTx &tx,
                           const Ledger::Block &block) const override;
 
+  chain_tx::Roe<size_t>
+  billableCustomMetaSizeForFee(const BlockChainConfig &config,
+                               const Ledger::TypedTx &tx) const override;
+
 private:
   chain_tx::Roe<void>
   applyRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,

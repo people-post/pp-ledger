@@ -1,10 +1,33 @@
 #include "UserUpdateTxHandler.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
+#include "Types.h"
+#include "../client/Client.h"
 
 #include <variant>
 
 namespace pp {
+
+chain_tx::Roe<size_t>
+UserUpdateTxHandler::billableCustomMetaSizeForFee(
+    const BlockChainConfig &config, const Ledger::TypedTx &tx) const {
+  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
+  if (!p) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "billableCustomMetaSizeForFee: expected TxUserUpdate");
+  }
+  if (p->meta.size() <= config.freeCustomMetaSize) {
+    return 0;
+  }
+  Client::UserAccount userAccount;
+  if (!userAccount.ltsFromString(p->meta)) {
+    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                             "Failed to deserialize user account metadata for fee "
+                             "calculation");
+  }
+  return userAccount.meta.size();
+}
 
 chain_tx::Roe<uint64_t>
 UserUpdateTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
