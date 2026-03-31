@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <netdb.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -32,30 +33,37 @@ TcpClient::Roe<void> TcpClient::connect(const IpEndpoint &endpoint) {
     return Error("Already connected");
   }
 
-  // Create socket
-  int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (socket_fd < 0) {
-    return Error("Failed to create socket");
-  }
+  // Resolve hostname (thread-safe).
+  struct addrinfo hints;
+  std::memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_protocol = IPPROTO_TCP;
 
-  // Resolve hostname
-  struct hostent *server = gethostbyname(endpoint.address.c_str());
-  if (server == nullptr) {
-    ::close(socket_fd);
+  struct addrinfo *result = nullptr;
+  int gai = getaddrinfo(endpoint.address.c_str(),
+                        std::to_string(endpoint.port).c_str(),
+                        &hints, &result);
+  if (gai != 0 || result == nullptr) {
     return Error("Failed to resolve hostname: " + endpoint.address);
   }
 
-  // Setup address structure
-  struct sockaddr_in server_addr;
-  std::memset(&server_addr, 0, sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  std::memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
-  server_addr.sin_port = htons(endpoint.port);
-
-  // Connect to server
-  if (::connect(socket_fd, (struct sockaddr *)&server_addr,
-                sizeof(server_addr)) < 0) {
+  int socket_fd = -1;
+  for (struct addrinfo *rp = result; rp != nullptr; rp = rp->ai_next) {
+    socket_fd = ::socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+    if (socket_fd < 0) {
+      continue;
+    }
+    if (::connect(socket_fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+      break; // connected
+    }
     ::close(socket_fd);
+    socket_fd = -1;
+  }
+
+  freeaddrinfo(result);
+
+  if (socket_fd < 0) {
     return Error("Failed to connect to " + endpoint.address + ":" +
                  std::to_string(endpoint.port));
   }
