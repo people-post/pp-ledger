@@ -1,21 +1,12 @@
 #include "TxIdempotency.h"
 #include "ErrorCodes.h"
-#include "AccountBuffer.h"
-#include <variant>
 
 namespace pp::chain_tx {
 
-namespace {
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
-} // namespace
-
-Roe<void> checkIdempotency(const Ledger &ledger,
-                           const consensus::Ouroboros &consensus,
-                           uint64_t idempotentId, uint64_t fromWalletId,
-                           uint64_t slotMin, uint64_t slotMax) {
+Roe<void> checkIdempotency(
+    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
+    uint64_t slotMax, const IdempotencyKeyForRecordFn &idempotencyKeyForRecord) {
   if (idempotentId == 0) {
     return {};
   }
@@ -39,30 +30,20 @@ Roe<void> checkIdempotency(const Ledger &ledger,
       continue;
     }
     for (const auto &rec : block.records) {
-      auto check = [&](uint64_t txWalletId, uint64_t txIdempotentId) -> Roe<void> {
-        if (txIdempotentId == idempotentId && txWalletId == fromWalletId) {
-          return TxError(
-              chain_err::E_TX_IDEMPOTENCY,
-              "Duplicate idempotent id: " + std::to_string(idempotentId) +
-                  " for wallet: " + std::to_string(fromWalletId));
-        }
-        return {};
-      };
-      auto typedRoe = Ledger::decodeRecord(rec);
-      if (!typedRoe) {
+      auto keyRoe = idempotencyKeyForRecord(rec);
+      if (!keyRoe) {
+        return keyRoe.error();
+      }
+      const auto &optKey = keyRoe.value();
+      if (!optKey.has_value()) {
         continue;
       }
-      auto r = std::visit(
-          Overloaded{
-              [&](const Ledger::TxDefault &tx) { return check(tx.fromWalletId, tx.idempotentId); },
-              [&](const Ledger::TxNewUser &tx) { return check(tx.fromWalletId, tx.idempotentId); },
-              [&](const Ledger::TxConfig &tx) { return check(AccountBuffer::ID_GENESIS, tx.idempotentId); },
-              [&](const Ledger::TxUserUpdate &tx) { return check(tx.walletId, tx.idempotentId); },
-              [&](const auto &) { return Roe<void>{}; },
-          },
-          typedRoe.value());
-      if (!r) {
-        return r;
+      const auto &key = optKey.value();
+      if (key.second == idempotentId && key.first == fromWalletId) {
+        return TxError(
+            chain_err::E_TX_IDEMPOTENCY,
+            "Duplicate idempotent id: " + std::to_string(idempotentId) +
+                " for wallet: " + std::to_string(fromWalletId));
       }
     }
   }
@@ -73,7 +54,8 @@ Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
-    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode) {
+    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,
+    const IdempotencyKeyForRecordFn &idempotencyKeyForRecord) {
   if (!isStrictMode) {
     return {};
   }
@@ -112,7 +94,7 @@ Roe<void> validateIdempotencyRules(
   }
   const uint64_t slotMaxIdempotency = effectiveSlot - 1;
   return checkIdempotency(ledger, consensus, idempotentId, fromWalletId,
-                          slotMin, slotMaxIdempotency);
+                          slotMin, slotMaxIdempotency, idempotencyKeyForRecord);
 }
 
 } // namespace pp::chain_tx

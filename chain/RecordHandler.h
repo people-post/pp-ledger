@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace pp {
 
@@ -78,6 +79,14 @@ public:
   std::optional<std::string>
   genesisAccountMetaForRecord(const Ledger::Record &rec,
                               const Ledger::Block &block) const;
+
+  /**
+   * If this record participates in idempotency rules, return (walletId,
+   * idempotentId). Decode failure or non-participating types yield nullopt
+   * without error (scan skips the record).
+   */
+  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+  idempotencyKeyForRecord(const Ledger::Record &rec) const;
 
 private:
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};

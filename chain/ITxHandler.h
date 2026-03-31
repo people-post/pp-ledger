@@ -3,6 +3,7 @@
 
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
+#include "TxIdempotency.h"
 #include "TxContext.h"
 #include "TxError.h"
 #include "../ledger/Ledger.h"
@@ -98,6 +99,29 @@ public:
     (void)c;
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock not implemented for this handler");
+  }
+
+protected:
+  /**
+   * Cross-block idempotency check using `ctx.idempotencyKeyForRecord` (wired by
+   * Chain). Forwards to chain_tx::validateIdempotencyRules.
+   */
+  chain_tx::Roe<void>
+  validateIdempotencyUsingContext(const TxContext &ctx, uint64_t idempotentId,
+                                  uint64_t walletIdForIdempotency,
+                                  int64_t validationTsMin,
+                                  int64_t validationTsMax,
+                                  uint64_t effectiveSlot,
+                                  bool isStrictMode) const {
+    if (!ctx.idempotencyKeyForRecord.has_value()) {
+      return chain_tx::TxError(
+          chain_err::E_INTERNAL,
+          "Idempotency key extractor not configured on TxContext");
+    }
+    return chain_tx::validateIdempotencyRules(
+        ctx.ledger, ctx.consensus, ctx.optChainConfig, idempotentId,
+        walletIdForIdempotency, validationTsMin, validationTsMax, effectiveSlot,
+        isStrictMode, *ctx.idempotencyKeyForRecord);
   }
 };
 

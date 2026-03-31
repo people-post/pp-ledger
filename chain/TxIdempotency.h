@@ -5,23 +5,30 @@
 #include "Types.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
-#include "TxFees.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <utility>
 
 namespace pp::chain_tx {
 
-Roe<void> checkIdempotency(const Ledger &ledger,
-                           const consensus::Ouroboros &consensus,
-                           uint64_t idempotentId, uint64_t fromWalletId,
-                           uint64_t slotMin, uint64_t slotMax);
+/** Per-record (walletId, idempotentId) for cross-block idempotency scan. */
+using IdempotencyKeyForRecordFn =
+    std::function<Roe<std::optional<std::pair<uint64_t, uint64_t>>>(
+        const Ledger::Record &)>;
+
+Roe<void> checkIdempotency(
+    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
+    uint64_t slotMax, const IdempotencyKeyForRecordFn &idempotencyKeyForRecord);
 
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
-    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode);
+    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,
+    const IdempotencyKeyForRecordFn &idempotencyKeyForRecord);
 
 } // namespace pp::chain_tx
 

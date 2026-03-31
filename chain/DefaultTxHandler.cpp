@@ -2,7 +2,6 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "TxIdempotency.h"
 
 #include <variant>
 
@@ -53,10 +52,9 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBuffer: expected TxDefault");
   }
-  if (auto idem = chain_tx::validateIdempotencyRules(
-          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
-          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.effectiveSlot,
-          c.isStrictMode);
+  if (auto idem = validateIdempotencyUsingContext(
+          c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
+          p->validationTsMax, c.effectiveSlot, c.isStrictMode);
       !idem) {
     return idem;
   }
@@ -85,10 +83,9 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock: expected TxDefault");
   }
-  if (auto idem = chain_tx::validateIdempotencyRules(
-          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, p->idempotentId,
-          p->fromWalletId, p->validationTsMin, p->validationTsMax, c.blockSlot,
-          c.isStrictMode);
+  if (auto idem = validateIdempotencyUsingContext(
+          c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
+          p->validationTsMax, c.blockSlot, c.isStrictMode);
       !idem) {
     return idem;
   }

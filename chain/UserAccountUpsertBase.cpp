@@ -3,7 +3,6 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "TxIdempotency.h"
 #include "../client/Client.h"
 
 #include <string>
@@ -15,10 +14,9 @@ UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx,
     AccountBuffer &bank,
     const BlockApplyContext &c) const {
-  if (auto idem = chain_tx::validateIdempotencyRules(
-          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, tx.idempotentId,
-          tx.walletId, tx.validationTsMin, tx.validationTsMax, c.blockSlot,
-          c.isStrictMode);
+  if (auto idem = validateIdempotencyUsingContext(
+          c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
+          tx.validationTsMax, c.blockSlot, c.isStrictMode);
       !idem) {
     return idem;
   }
@@ -30,10 +28,9 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const Ledger::TxUserUpdate &tx,
     AccountBuffer &bank,
     const BufferApplyContext &c) const {
-  if (auto idem = chain_tx::validateIdempotencyRules(
-          c.ctx.ledger, c.ctx.consensus, c.ctx.optChainConfig, tx.idempotentId,
-          tx.walletId, tx.validationTsMin, tx.validationTsMax, c.effectiveSlot,
-          c.isStrictMode);
+  if (auto idem = validateIdempotencyUsingContext(
+          c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
+          tx.validationTsMax, c.effectiveSlot, c.isStrictMode);
       !idem) {
     return idem;
   }

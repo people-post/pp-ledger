@@ -3,6 +3,7 @@
 
 #include "Types.h"
 #include "AccountBuffer.h"
+#include "TxIdempotency.h"
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/Crypto.h"
@@ -36,6 +37,8 @@ struct TxContext {
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};
   Checkpoint checkpoint{};
   std::optional<AccountMetaForRecordFns> accountMetaForRecord{std::nullopt};
+  std::optional<chain_tx::IdempotencyKeyForRecordFn> idempotencyKeyForRecord{
+      std::nullopt};
 };
 
 /** Scratch-buffer / mempool path after signature validation. */

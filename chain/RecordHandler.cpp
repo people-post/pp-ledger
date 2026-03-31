@@ -168,6 +168,22 @@ RecordHandler::userAccountMetaForRecord(const Ledger::Record &rec,
       typed);
 }
 
+chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+RecordHandler::idempotencyKeyForRecord(const Ledger::Record &rec) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+  if (rec.type >= kNumTxTypes) {
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return std::optional<std::pair<uint64_t, uint64_t>>{};
+  }
+  return handler->getIdempotencyKey(typedRoe.value());
+}
+
 std::optional<std::string>
 RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
                                            const Ledger::Block &block) const {

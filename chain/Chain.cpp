@@ -44,6 +44,10 @@ Chain::Chain() {
       [this](const Ledger::Record &rec, const Ledger::Block &block) {
         return recordHandler_.genesisAccountMetaForRecord(rec, block);
       }};
+  txContext_.idempotencyKeyForRecord =
+      [this](const Ledger::Record &rec) {
+        return recordHandler_.idempotencyKeyForRecord(rec);
+      };
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
