@@ -1,6 +1,7 @@
 #include "Client.h"
 #include "lib/common/Logger.h"
 #include "lib/common/BinaryPack.hpp"
+#include "lib/common/io/Json.h"
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 
@@ -157,34 +158,32 @@ Client::Roe<bool> Client::MinerStatus::ltsFromJson(const nlohmann::json& json) {
   }
 }
 
-nlohmann::json Client::BeaconState::ltsToJson() const {
-  nlohmann::json j;
-  j["currentTimestamp"] = currentTimestamp;
-  j["checkpointId"] = checkpointId;
-  j["nextBlockId"] = nextBlockId;
-  j["currentSlot"] = currentSlot;
-  j["currentEpoch"] = currentEpoch;
-  j["nStakeholders"] = nStakeholders;
-  return j;
+pp::common::Meta Client::BeaconState::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("currentTimestamp", currentTimestamp);
+  m.set("checkpointId", checkpointId);
+  m.set("nextBlockId", nextBlockId);
+  m.set("currentSlot", currentSlot);
+  m.set("currentEpoch", currentEpoch);
+  m.set("nStakeholders", nStakeholders);
+  return m;
 }
 
-Client::Roe<bool> Client::BeaconState::ltsFromJson(const nlohmann::json& json) {
-  try {
-    if (!json.is_object()) {
-      return Error(E_PARSE_ERROR, "BeaconState JSON must be an object");
-    }
-
-    currentTimestamp = json.value("currentTimestamp", int64_t(0));
-    checkpointId = json.value("checkpointId", uint64_t(0));
-    nextBlockId = json.value("nextBlockId", uint64_t(0));
-    currentSlot = json.value("currentSlot", uint64_t(0));
-    currentEpoch = json.value("currentEpoch", uint64_t(0));
-    nStakeholders = json.value("nStakeholders", uint64_t(0));
-
-    return true;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta) {
+  // JSON numbers ≥0 decode as uint64_t; negatives stay int64_t.
+  if (auto v = meta.getIf<int64_t>("currentTimestamp")) {
+    currentTimestamp = *v;
+  } else if (auto v = meta.getIf<uint64_t>("currentTimestamp")) {
+    currentTimestamp = static_cast<int64_t>(*v);
+  } else {
+    currentTimestamp = 0;
   }
+  checkpointId = meta.getOrDefault("checkpointId", uint64_t{0});
+  nextBlockId = meta.getOrDefault("nextBlockId", uint64_t{0});
+  currentSlot = meta.getOrDefault("currentSlot", uint64_t{0});
+  currentEpoch = meta.getOrDefault("currentEpoch", uint64_t{0});
+  nStakeholders = meta.getOrDefault("nStakeholders", uint64_t{0});
+  return true;
 }
 
 nlohmann::json Client::TxGetByWalletResponse::toJson() const {
@@ -316,17 +315,16 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
     return Error(result.error().code, result.error().message);
   }
 
-  try {
-    nlohmann::json response = nlohmann::json::parse(result.value());
-    BeaconState state;
-    auto parseResult = state.ltsFromJson(response);
-    if (!parseResult) {
-      return Error(parseResult.error().code, parseResult.error().message);
-    }
-    return state;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+  pp::common::Meta meta;
+  if (!pp::common::io::metaFromJsonString(meta, result.value())) {
+    return Error(E_PARSE_ERROR, "Failed to parse BeaconState JSON");
   }
+  BeaconState state;
+  auto parseResult = state.ltsFromMeta(meta);
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
+  return state;
 }
 
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
@@ -337,17 +335,16 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
     return Error(result.error().code, result.error().message);
   }
 
-  try {
-    nlohmann::json response = nlohmann::json::parse(result.value());
-    BeaconState state;
-    auto parseResult = state.ltsFromJson(response);
-    if (!parseResult) {
-      return Error(parseResult.error().code, parseResult.error().message);
-    }
-    return state;
-  } catch (const std::exception& e) {
-    return Error(E_PARSE_ERROR, std::string("Failed to parse BeaconState JSON: ") + e.what());
+  pp::common::Meta meta;
+  if (!pp::common::io::metaFromJsonString(meta, result.value())) {
+    return Error(E_PARSE_ERROR, "Failed to parse BeaconState JSON");
   }
+  BeaconState state;
+  auto parseResult = state.ltsFromMeta(meta);
+  if (!parseResult) {
+    return Error(parseResult.error().code, parseResult.error().message);
+  }
+  return state;
 }
 
 Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {

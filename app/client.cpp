@@ -5,6 +5,7 @@
 #include "lib/common/Crypto.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
+#include "lib/common/io/Json.h"
 
 #include <cli11.hpp>
 #include <json.hpp>
@@ -65,7 +66,7 @@ using json = nlohmann::json;
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Current Timestamp: " << pp::utl::formatTimestampLocal(status.currentTimestamp) << "\n";
-  std::cout << status.ltsToJson().dump(2) << "\n";
+  std::cout << json::parse(pp::common::io::metaToJsonString(status.ltsToMeta())).dump(2) << "\n";
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,

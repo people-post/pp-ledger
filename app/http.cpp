@@ -8,6 +8,7 @@
 #include "lib/common/Crypto.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
+#include "lib/common/io/Json.h"
 #include "lib/http/httplib.h"
 
 #include <cli11.hpp>
@@ -298,7 +299,8 @@ static void handleBeaconState(const httplib::Request&, httplib::Response& res,
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().ltsToJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleBeaconCalibration(const httplib::Request&, httplib::Response& res,
@@ -911,7 +913,8 @@ int main(int argc, char** argv) {
     {{"type", "object"}, {"properties", json::object()}, {"required", json::array()}},
     [](const json&, pp::Client& beacon, pp::Client&) {
       auto r = beacon.fetchBeaconState();
-      return r ? mcpOk(r.value().ltsToJson().dump(2)) : mcpErr(r.error().message);
+      return r ? mcpOk(json::parse(pp::common::io::metaToJsonString(r.value().ltsToMeta())).dump(2))
+               : mcpErr(r.error().message);
     }
   });
   registerMcpResource({
@@ -923,7 +926,7 @@ int main(int argc, char** argv) {
       auto r = beacon.fetchBeaconState();
       if (!r) return json{{"error", r.error().message}};
       return json{{"contents", json::array({{{"uri", "beacon://state"}, {"mimeType", "application/json"},
-                                           {"text", r.value().ltsToJson().dump(2)}}})}};
+                                           {"text", json::parse(pp::common::io::metaToJsonString(r.value().ltsToMeta())).dump(2)}}})}};
     }
   });
 

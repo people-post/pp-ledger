@@ -162,3 +162,38 @@ TEST(MetaTest, Json_RoundTrip_NullMetaPtr) {
   EXPECT_EQ(parsed, m);
 }
 
+TEST(MetaTest, GetOrDefault_Int64) {
+  Meta m;
+  EXPECT_EQ(m.getOrDefault("a", int64_t{-1}), -1);
+  m.set("a", int64_t{42});
+  EXPECT_EQ(m.getOrDefault("a", int64_t{0}), 42);
+  m.set("b", uint64_t{7});
+  EXPECT_EQ(m.getOrDefault("b", int64_t{0}), 0);
+  m.set("c", std::string("x"));
+  EXPECT_EQ(m.getOrDefault("c", int64_t{99}), 99);
+}
+
+TEST(MetaTest, GetOrDefault_Uint64) {
+  Meta m;
+  EXPECT_EQ(m.getOrDefault("a", uint64_t{9}), 9u);
+  m.set("a", uint64_t{42});
+  EXPECT_EQ(m.getOrDefault("a", uint64_t{0}), 42u);
+  m.set("b", int64_t{3});
+  EXPECT_EQ(m.getOrDefault("b", uint64_t{0}), 0u);
+  m.set("c", std::string("x"));
+  EXPECT_EQ(m.getOrDefault("c", uint64_t{11}), 11u);
+}
+
+TEST(MetaTest, GetOrDefault_StringBoolDouble) {
+  Meta m;
+  EXPECT_EQ(m.getOrDefault("s", std::string{"d"}), "d");
+  m.set("s", std::string{"ok"});
+  EXPECT_EQ(m.getOrDefault("s", std::string{}), "ok");
+  EXPECT_FALSE(m.getOrDefault("b", false));
+  m.set("b", true);
+  EXPECT_TRUE(m.getOrDefault("b", false));
+  EXPECT_DOUBLE_EQ(m.getOrDefault("d", 0.0), 0.0);
+  m.set("d", 1.5);
+  EXPECT_DOUBLE_EQ(m.getOrDefault("d", 0.0), 1.5);
+}
+

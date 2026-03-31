@@ -1,6 +1,7 @@
 #include "ClientWrapper.h"
 
 #include "lib/common/BinaryPack.hpp"
+#include "lib/common/io/Json.h"
 #include "lib/common/Utilities.h"
 #include <chrono>
 #include <cctype>
@@ -148,7 +149,7 @@ Napi::Value ClientWrapper::FetchBeaconState(const Napi::CallbackInfo& info) {
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().ltsToJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }

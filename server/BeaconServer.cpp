@@ -2,6 +2,7 @@
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
+#include "lib/common/io/Json.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <chrono>
@@ -721,12 +722,12 @@ BeaconServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, "Failed to parse miner info: " + request.payload);
   }
   registerServer(minerInfo);
-  return buildStateResponse().ltsToJson().dump();
+  return pp::common::io::metaToJsonString(buildStateResponse().ltsToMeta());
 }
 
 BeaconServer::Roe<std::string>
 BeaconServer::hStatus(const Client::Request &request) {
-  return buildStateResponse().ltsToJson().dump();
+  return pp::common::io::metaToJsonString(buildStateResponse().ltsToMeta());
 }
 
 BeaconServer::Roe<std::string>

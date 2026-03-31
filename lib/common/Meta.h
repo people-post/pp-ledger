@@ -117,6 +117,15 @@ public:
     return *p;
   }
 
+  /** Same resolution as getIf<T>; missing or wrong type → defaultValue. */
+  template <typename T>
+  T getOrDefault(const std::string &key, T defaultValue) const {
+    if (auto v = getIf<T>(key)) {
+      return *v;
+    }
+    return defaultValue;
+  }
+
   std::optional<std::reference_wrapper<const Meta>> getMetaIf(const std::string &key) const;
 
 private:

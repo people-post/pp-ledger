@@ -2,6 +2,7 @@
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
+#include "lib/common/io/Json.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
@@ -569,12 +570,12 @@ RelayServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, parseResult.error().message);
   }
   registerServer(minerInfo);
-  return buildStateResponse().ltsToJson().dump();
+  return pp::common::io::metaToJsonString(buildStateResponse().ltsToMeta());
 }
 
 RelayServer::Roe<std::string>
 RelayServer::hStatus(const Client::Request &request) {
-  return buildStateResponse().ltsToJson().dump();
+  return pp::common::io::metaToJsonString(buildStateResponse().ltsToMeta());
 }
 
 RelayServer::Roe<std::string>

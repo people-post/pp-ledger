@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_CLIENT_H
 #define PP_LEDGER_CLIENT_H
 
+#include "lib/common/Meta.h"
 #include "lib/common/Module.h"
 #include "lib/common/ResultOrError.hpp"
 #include "../ledger/Ledger.h"
@@ -162,8 +163,8 @@ public:
     uint64_t currentEpoch { 0 };
     uint64_t nStakeholders { 0 };
 
-    nlohmann::json ltsToJson() const;
-    Roe<bool> ltsFromJson(const nlohmann::json &json);
+    pp::common::Meta ltsToMeta() const;
+    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
   };
 
   struct TxGetByWalletRequest {
