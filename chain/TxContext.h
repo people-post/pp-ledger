@@ -8,9 +8,20 @@
 #include "lib/common/Crypto.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <string>
 
 namespace pp {
+
+/** Callables for scanning block records for serialized account metadata. */
+struct AccountMetaForRecordFns {
+  std::function<std::optional<std::string>(const Ledger::Record &, uint64_t)>
+      user;
+  std::function<std::optional<std::string>(const Ledger::Record &,
+                                             const Ledger::Block &)>
+      genesis;
+};
 
 /**
  * Chain subsystem bundle passed to transaction handlers.
@@ -24,6 +35,7 @@ struct TxContext {
   AccountBuffer bank;
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};
   Checkpoint checkpoint{};
+  std::optional<AccountMetaForRecordFns> accountMetaForRecord{std::nullopt};
 };
 
 /** Scratch-buffer / mempool path after signature validation. */

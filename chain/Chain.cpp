@@ -37,6 +37,13 @@ Chain::Chain() {
   txContext_.ledger.redirectLogger(log().getFullName() + ".Ledger");
   txContext_.consensus.redirectLogger(log().getFullName() + ".Obo");
   recordHandler_.redirectLoggers(log().getFullName());
+  txContext_.accountMetaForRecord = AccountMetaForRecordFns{
+      [this](const Ledger::Record &rec, uint64_t accountId) {
+        return recordHandler_.userAccountMetaForRecord(rec, accountId);
+      },
+      [this](const Ledger::Record &rec, const Ledger::Block &block) {
+        return recordHandler_.genesisAccountMetaForRecord(rec, block);
+      }};
 }
 
 bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
@@ -150,8 +157,13 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
 Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee) const {
-  return mapTx(
-      chain_tx::getUpdatedAccountMetadataForRenewal(block, account, minFee));
+  const auto &fns = txContext_.accountMetaForRecord;
+  if (!fns.has_value()) {
+    return Error(E_INTERNAL,
+                 "Account meta extractors not configured on TxContext");
+  }
+  return mapTx(chain_tx::getUpdatedAccountMetadataForRenewal(
+      block, account, minFee, fns->user, fns->genesis));
 }
 
 Chain::Roe<Ledger::Record>
@@ -656,8 +668,14 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
     return Error(E_INTERNAL,
                  "Chain config required for minimum fee from account meta");
   }
+  const auto &fns = txContext_.accountMetaForRecord;
+  if (!fns.has_value()) {
+    return Error(E_INTERNAL,
+                 "Account meta extractors not configured on TxContext");
+  }
   return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
-      txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId));
+      txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId,
+      fns->user, fns->genesis));
 }
 
 } // namespace pp

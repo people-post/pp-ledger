@@ -72,7 +72,6 @@ chain_tx::Roe<void> EndUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
     const Ledger::TxEndUser &tx, const TxContext &ctx,
     AccountBuffer &bank, [[maybe_unused]] bool isBufferMode) const {
-  (void)ctx;
 
   if (tx.fee != 0) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -91,8 +90,15 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
         "User account not found: " + std::to_string(tx.walletId));
   }
 
+  if (!ctx.accountMetaForRecord.has_value()) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "Account meta extractors not configured on TxContext");
+  }
+  const auto &metaFns = *ctx.accountMetaForRecord;
   auto minimumFeeResult = chain_tx::calculateMinimumFeeForAccountMeta(
-      ctx.ledger, ctx.optChainConfig.value(), bank, tx.walletId);
+      ctx.ledger, ctx.optChainConfig.value(), bank, tx.walletId,
+      metaFns.user, metaFns.genesis);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }

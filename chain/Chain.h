@@ -159,8 +159,8 @@ private:
   bool shouldUseStrictMode(uint64_t blockIndex) const;
 
   /** Account metadata for renewal: user accounts get genesis balance adjusted
-   * to post-renewal (current - fee) since verifyBalance expects that. Single
-   * serialize at end by using getUserAccountMetaFromBlock. */
+   * to post-renewal (current - fee) since verifyBalance expects that. Uses
+   * TxContext account-meta extractors (from RecordHandler). */
   Roe<std::string>
   getUpdatedAccountMetadataForRenewal(const Ledger::Block &block,
                                       const AccountBuffer::Account &account,

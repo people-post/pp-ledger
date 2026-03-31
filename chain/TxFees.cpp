@@ -136,7 +136,9 @@ Roe<uint64_t> calculateMinimumFeeForTransaction(const BlockChainConfig &config,
 
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(
     const Ledger &ledger, const BlockChainConfig &config,
-    const AccountBuffer &bank, uint64_t accountId) {
+    const AccountBuffer &bank, uint64_t accountId,
+    const UserAccountMetaForRecordFn &userMetaForRecord,
+    const GenesisAccountMetaForRecordFn &genesisMetaForRecord) {
   auto accountResult = bank.getAccount(accountId);
   if (!accountResult) {
     return TxError(chain_err::E_ACCOUNT_NOT_FOUND,
@@ -153,15 +155,15 @@ Roe<uint64_t> calculateMinimumFeeForAccountMeta(
   size_t metaSize = 0;
 
   if (accountId == AccountBuffer::ID_GENESIS) {
-    auto metaResult =
-        getGenesisAccountMetaFromBlock(blockResult.value().block);
+    auto metaResult = getGenesisAccountMetaFromBlock(
+        blockResult.value().block, genesisMetaForRecord);
     if (!metaResult) {
       return metaResult.error();
     }
     metaSize = metaResult.value().genesis.meta.size();
   } else {
-    auto userMetaResult =
-        getUserAccountMetaFromBlock(blockResult.value().block, accountId);
+    auto userMetaResult = getUserAccountMetaFromBlock(
+        blockResult.value().block, accountId, userMetaForRecord);
     if (!userMetaResult) {
       return userMetaResult.error();
     }

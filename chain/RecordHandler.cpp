@@ -9,7 +9,18 @@
 #include "RenewalTxHandler.h"
 #include "UserUpdateTxHandler.h"
 
+#include <variant>
+
 namespace pp {
+
+namespace {
+
+template <class... Ts> struct Overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
+
+} // namespace
 
 RecordHandler::RecordHandler() {
   auto install = [this](std::size_t type, std::unique_ptr<ITxHandler> handler) {
@@ -117,6 +128,76 @@ void RecordHandler::redirectLoggers(const std::string &baseName) {
     }
     handlers_[i]->redirectLogger(baseName + ".TxHandler." + std::to_string(i));
   }
+}
+
+std::optional<std::string>
+RecordHandler::userAccountMetaForRecord(const Ledger::Record &rec,
+                                        uint64_t accountId) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return std::nullopt;
+  }
+  const Ledger::TypedTx &typed = typedRoe.value();
+  return std::visit(
+      Overloaded{
+          [&](const Ledger::TxNewUser &tx) -> std::optional<std::string> {
+            if (accountId == AccountBuffer::ID_GENESIS ||
+                tx.toWalletId != accountId) {
+              return std::nullopt;
+            }
+            return tx.meta;
+          },
+          [&](const Ledger::TxUserUpdate &tx) -> std::optional<std::string> {
+            if (accountId == AccountBuffer::ID_GENESIS ||
+                tx.walletId != accountId) {
+              return std::nullopt;
+            }
+            return tx.meta;
+          },
+          [&](const Ledger::TxRenewal &tx) -> std::optional<std::string> {
+            if (accountId == AccountBuffer::ID_GENESIS ||
+                tx.walletId != accountId) {
+              return std::nullopt;
+            }
+            return tx.meta;
+          },
+          [&](const auto &) -> std::optional<std::string> {
+            return std::nullopt;
+          },
+      },
+      typed);
+}
+
+std::optional<std::string>
+RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
+                                           const Ledger::Block &block) const {
+  auto typedRoe = Ledger::decodeRecord(rec);
+  if (!typedRoe) {
+    return std::nullopt;
+  }
+  const Ledger::TypedTx &typed = typedRoe.value();
+  return std::visit(
+      Overloaded{
+          [&](const Ledger::TxGenesis &tx) -> std::optional<std::string> {
+            if (block.index != 0) {
+              return std::nullopt;
+            }
+            return tx.meta;
+          },
+          [&](const Ledger::TxConfig &tx) -> std::optional<std::string> {
+            return tx.meta;
+          },
+          [&](const Ledger::TxRenewal &tx) -> std::optional<std::string> {
+            if (tx.walletId != AccountBuffer::ID_GENESIS) {
+              return std::nullopt;
+            }
+            return tx.meta;
+          },
+          [&](const auto &) -> std::optional<std::string> {
+            return std::nullopt;
+          },
+      },
+      typed);
 }
 
 } // namespace pp

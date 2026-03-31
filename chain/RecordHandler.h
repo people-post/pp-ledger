@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace pp {
@@ -61,6 +62,22 @@ public:
 
   /** Set per-handler logger names (optional). */
   void redirectLoggers(const std::string &baseName);
+
+  /**
+   * Serialized user-account metadata blob from a single record, if this record
+   * updates the given non-genesis account (new user / user update / renewal).
+   */
+  std::optional<std::string>
+  userAccountMetaForRecord(const Ledger::Record &rec,
+                           uint64_t accountId) const;
+
+  /**
+   * Serialized genesis checkpoint metadata from a single record, if applicable
+   * (genesis on block 0, config meta, or genesis renewal).
+   */
+  std::optional<std::string>
+  genesisAccountMetaForRecord(const Ledger::Record &rec,
+                              const Ledger::Block &block) const;
 
 private:
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};
