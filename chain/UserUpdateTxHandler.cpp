@@ -1,4 +1,5 @@
 #include "UserUpdateTxHandler.h"
+#include "AccountBuffer.h"
 #include "ErrorCodes.h"
 
 #include <variant>
@@ -62,6 +63,19 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                              "applyBuffer: expected TxUserUpdate");
   }
   return applyUserUpdateBufferCommon(*p, bank, c);
+}
+
+std::optional<std::string>
+UserUpdateTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
+                                          uint64_t accountId) const {
+  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  if (accountId == AccountBuffer::ID_GENESIS || p->walletId != accountId) {
+    return std::nullopt;
+  }
+  return p->meta;
 }
 
 } // namespace pp

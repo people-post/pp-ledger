@@ -24,6 +24,10 @@ public:
   applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) const override;
 
+  std::optional<std::string>
+  genesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                          const Ledger::Block &block) const override;
+
 private:
   chain_tx::Roe<void>
   applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,

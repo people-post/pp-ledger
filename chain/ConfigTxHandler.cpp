@@ -193,4 +193,14 @@ chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
                                commitTarget);
 }
 
+std::optional<std::string>
+ConfigTxHandler::genesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                                         const Ledger::Block & /*block*/) const {
+  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  return p->meta;
+}
+
 } // namespace pp

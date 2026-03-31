@@ -10,6 +10,7 @@
 #include "lib/common/Module.h"
 
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace pp {
@@ -99,6 +100,29 @@ public:
     (void)c;
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "applyBlock not implemented for this handler");
+  }
+
+  /**
+   * Serialized user-account metadata when this tx updates `accountId`
+   * (non-genesis). Default: nullopt.
+   */
+  virtual std::optional<std::string>
+  userAccountMetaForTx(const Ledger::TypedTx &tx, uint64_t accountId) const {
+    (void)tx;
+    (void)accountId;
+    return std::nullopt;
+  }
+
+  /**
+   * Serialized genesis checkpoint metadata when this tx contributes (genesis on
+   * block 0, config meta, genesis renewal). Default: nullopt.
+   */
+  virtual std::optional<std::string>
+  genesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                          const Ledger::Block &block) const {
+    (void)tx;
+    (void)block;
+    return std::nullopt;
   }
 
 protected:

@@ -108,4 +108,17 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   return {};
 }
 
+std::optional<std::string>
+GenesisTxHandler::genesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                                          const Ledger::Block &block) const {
+  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  if (block.index != 0) {
+    return std::nullopt;
+  }
+  return p->meta;
+}
+
 } // namespace pp

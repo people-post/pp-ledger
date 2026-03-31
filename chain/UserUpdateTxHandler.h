@@ -23,6 +23,10 @@ public:
   chain_tx::Roe<void>
   applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) const override;
+
+  std::optional<std::string>
+  userAccountMetaForTx(const Ledger::TypedTx &tx,
+                       uint64_t accountId) const override;
 };
 
 } // namespace pp

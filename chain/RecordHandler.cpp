@@ -9,18 +9,7 @@
 #include "RenewalTxHandler.h"
 #include "UserUpdateTxHandler.h"
 
-#include <variant>
-
 namespace pp {
-
-namespace {
-
-template <class... Ts> struct Overloaded : Ts... {
-  using Ts::operator()...;
-};
-template <class... Ts> Overloaded(Ts...) -> Overloaded<Ts...>;
-
-} // namespace
 
 RecordHandler::RecordHandler() {
   auto install = [this](std::size_t type, std::unique_ptr<ITxHandler> handler) {
@@ -137,35 +126,11 @@ RecordHandler::userAccountMetaForRecord(const Ledger::Record &rec,
   if (!typedRoe) {
     return std::nullopt;
   }
-  const Ledger::TypedTx &typed = typedRoe.value();
-  return std::visit(
-      Overloaded{
-          [&](const Ledger::TxNewUser &tx) -> std::optional<std::string> {
-            if (accountId == AccountBuffer::ID_GENESIS ||
-                tx.toWalletId != accountId) {
-              return std::nullopt;
-            }
-            return tx.meta;
-          },
-          [&](const Ledger::TxUserUpdate &tx) -> std::optional<std::string> {
-            if (accountId == AccountBuffer::ID_GENESIS ||
-                tx.walletId != accountId) {
-              return std::nullopt;
-            }
-            return tx.meta;
-          },
-          [&](const Ledger::TxRenewal &tx) -> std::optional<std::string> {
-            if (accountId == AccountBuffer::ID_GENESIS ||
-                tx.walletId != accountId) {
-              return std::nullopt;
-            }
-            return tx.meta;
-          },
-          [&](const auto &) -> std::optional<std::string> {
-            return std::nullopt;
-          },
-      },
-      typed);
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return std::nullopt;
+  }
+  return handler->userAccountMetaForTx(typedRoe.value(), accountId);
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
@@ -191,29 +156,11 @@ RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
   if (!typedRoe) {
     return std::nullopt;
   }
-  const Ledger::TypedTx &typed = typedRoe.value();
-  return std::visit(
-      Overloaded{
-          [&](const Ledger::TxGenesis &tx) -> std::optional<std::string> {
-            if (block.index != 0) {
-              return std::nullopt;
-            }
-            return tx.meta;
-          },
-          [&](const Ledger::TxConfig &tx) -> std::optional<std::string> {
-            return tx.meta;
-          },
-          [&](const Ledger::TxRenewal &tx) -> std::optional<std::string> {
-            if (tx.walletId != AccountBuffer::ID_GENESIS) {
-              return std::nullopt;
-            }
-            return tx.meta;
-          },
-          [&](const auto &) -> std::optional<std::string> {
-            return std::nullopt;
-          },
-      },
-      typed);
+  const ITxHandler *handler = get(rec.type);
+  if (!handler) {
+    return std::nullopt;
+  }
+  return handler->genesisAccountMetaForTx(typedRoe.value(), block);
 }
 
 } // namespace pp

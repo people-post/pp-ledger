@@ -185,5 +185,31 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
   return {};
 }
 
+std::optional<std::string>
+RenewalTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
+                                       uint64_t accountId) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  if (accountId == AccountBuffer::ID_GENESIS || p->walletId != accountId) {
+    return std::nullopt;
+  }
+  return p->meta;
+}
+
+std::optional<std::string>
+RenewalTxHandler::genesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                                          const Ledger::Block & /*block*/) const {
+  const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  if (p->walletId != AccountBuffer::ID_GENESIS) {
+    return std::nullopt;
+  }
+  return p->meta;
+}
+
 } // namespace pp
 

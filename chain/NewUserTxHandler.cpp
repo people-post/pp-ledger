@@ -204,4 +204,17 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   return {};
 }
 
+std::optional<std::string>
+NewUserTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
+                                       uint64_t accountId) const {
+  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
+  if (!p) {
+    return std::nullopt;
+  }
+  if (accountId == AccountBuffer::ID_GENESIS || p->toWalletId != accountId) {
+    return std::nullopt;
+  }
+  return p->meta;
+}
+
 } // namespace pp
