@@ -23,7 +23,7 @@ public:
   constexpr static uint64_t ID_RESERVE = 2;
   constexpr static uint64_t ID_RECYCLE = 3;
 
-  constexpr static uint64_t ID_FIRST_USER = 1 << 20;
+  constexpr static uint64_t ID_FIRST_USER = 1 << 30; // User IDs start at 1 billion
 
   constexpr static uint64_t INITIAL_TOKEN_SUPPLY = 1ULL
                                                    << 30; // 1 billion tokens

@@ -609,8 +609,8 @@ inject_transactions_for_block_production() {
         exit 1
     }
 
-    local alice=$((1 << 20))
-    local bob=$(( (1 << 20) + 1 ))
+    local alice=$((1 << 30))
+    local bob=$(( (1 << 30) + 1 ))
     local key_dir="${TEST_DIR}/keys"
     local reserve1="${key_dir}/reserve1.key" reserve2="${key_dir}/reserve2.key" reserve3="${key_dir}/reserve3.key"
     local min_fee=1
@@ -684,8 +684,8 @@ test_scenario_transaction_attempts() {
     echo ""
     echo -e "${BLUE}═══ Scenario 2: Transaction simulation (accounts created in inject phase) ═══${NC}"
 
-    local alice=$((1 << 20))
-    local bob=$(( (1 << 20) + 1 ))
+    local alice=$((1 << 30))
+    local bob=$(( (1 << 30) + 1 ))
     local key_dir="${TEST_DIR}/keys"
     local alice_key="${key_dir}/alice.key"
     local miner_port=$((MINER_BASE_PORT + 1))
