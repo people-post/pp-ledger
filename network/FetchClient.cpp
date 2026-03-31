@@ -43,41 +43,23 @@ FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
     }
   }
 
-  // Send the data and shutdown writing
-  auto sendResult = client.send(data);
-  if (!sendResult) {
+  // Send framed request (length + body)
+  auto writeResult = client.writeFrame(data);
+  if (!writeResult) {
     client.close();
-    return Error(2, "Failed to send data: " + sendResult.error().message);
+    return Error(2, "Failed to send data: " + writeResult.error().message);
   }
 
-  // Shutdown writing to signal end of data
-  auto shutdownResult = client.shutdownWrite();
-  if (!shutdownResult) {
+  log().debug << "Frame sent, waiting for response";
+
+  // Receive framed response (length + body)
+  auto readResult = client.readFrame(timeout);
+  if (!readResult) {
     client.close();
-    return Error(2, "Failed to shutdown write: " + shutdownResult.error().message);
+    return Error(3, "Failed to receive response: " + readResult.error().message);
   }
 
-  log().debug << "Data sent and write shutdown, waiting for response";
-
-  // Receive full response (server sends entire payload then closes connection)
-  std::string response;
-  const size_t chunkSize = 8192;
-  char buffer[chunkSize];
-  while (client.isConnected()) {
-    auto recvResult = client.receive(buffer, sizeof(buffer));
-    if (!recvResult) {
-      if (!response.empty()) {
-        break; // Partial data received then error; return what we have
-      }
-      client.close();
-      return Error(3, "Failed to receive response: " + recvResult.error().message);
-    }
-    size_t bytesRead = recvResult.value();
-    if (bytesRead == 0) {
-      break; // Server closed connection
-    }
-    response.append(buffer, bytesRead);
-  }
+  std::string response = std::move(readResult.value());
 
   log().debug << "Received response (" + std::to_string(response.size()) + " bytes)";
 

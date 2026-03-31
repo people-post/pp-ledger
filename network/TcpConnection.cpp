@@ -9,6 +9,56 @@
 namespace pp {
 namespace network {
 
+namespace {
+
+TcpConnection::Roe<void> recvExact(int fd, void* out, size_t len) {
+  auto* p = static_cast<uint8_t*>(out);
+  size_t off = 0;
+  while (off < len) {
+    ssize_t n = ::recv(fd, p + off, len - off, 0);
+    if (n > 0) {
+      off += static_cast<size_t>(n);
+      continue;
+    }
+    if (n == 0) {
+      return TcpConnection::Error("Connection closed by peer");
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return TcpConnection::Error("Receive timeout (no data within socket timeout)");
+    }
+    return TcpConnection::Error("Failed to receive data: " + std::string(std::strerror(errno)));
+  }
+  return {};
+}
+
+TcpConnection::Roe<void> sendAll(int fd, const void* data, size_t len) {
+  auto* p = static_cast<const uint8_t*>(data);
+  size_t off = 0;
+  while (off < len) {
+    ssize_t n = ::send(fd, p + off, len - off, 0);
+    if (n > 0) {
+      off += static_cast<size_t>(n);
+      continue;
+    }
+    if (n == 0) {
+      return TcpConnection::Error("Failed to send data");
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return TcpConnection::Error("Send timeout (no progress within socket timeout)");
+    }
+    return TcpConnection::Error("Failed to send data: " + std::string(std::strerror(errno)));
+  }
+  return {};
+}
+
+} // namespace
+
 TcpConnection::TcpConnection(int socket_fd)
     : socketFd_(socket_fd) {
   // Get peer address information
@@ -129,6 +179,64 @@ TcpConnection::Roe<std::string> TcpConnection::receiveLine() {
   }
 
   return Roe<std::string>(line);
+}
+
+TcpConnection::Roe<std::string> TcpConnection::readFrame(std::chrono::milliseconds timeout) {
+  if (socketFd_ < 0) {
+    return Error("Connection closed");
+  }
+
+  // Ensure socket timeout is applied consistently for this operation.
+  if (timeout.count() > 0) {
+    auto t = setTimeout(timeout);
+    if (!t) {
+      return Error(t.error().message);
+    }
+  }
+
+  uint32_t netLen = 0;
+  auto hdr = recvExact(socketFd_, &netLen, sizeof(netLen));
+  if (!hdr) {
+    return Error(hdr.error().message);
+  }
+
+  uint32_t len = ntohl(netLen);
+  if (len > MAX_FRAME_SIZE) {
+    return Error("Frame too large: " + std::to_string(len));
+  }
+
+  std::string body;
+  body.resize(len);
+  if (len > 0) {
+    auto b = recvExact(socketFd_, body.data(), len);
+    if (!b) {
+      return Error(b.error().message);
+    }
+  }
+
+  return body;
+}
+
+TcpConnection::Roe<void> TcpConnection::writeFrame(std::string_view body) {
+  if (socketFd_ < 0) {
+    return Error("Connection closed");
+  }
+  if (body.size() > MAX_FRAME_SIZE) {
+    return Error("Frame too large: " + std::to_string(body.size()));
+  }
+
+  uint32_t netLen = htonl(static_cast<uint32_t>(body.size()));
+  auto h = sendAll(socketFd_, &netLen, sizeof(netLen));
+  if (!h) {
+    return Error(h.error().message);
+  }
+  if (!body.empty()) {
+    auto b = sendAll(socketFd_, body.data(), body.size());
+    if (!b) {
+      return Error(b.error().message);
+    }
+  }
+  return {};
 }
 
 TcpConnection::Roe<void> TcpConnection::setTimeout(std::chrono::milliseconds timeout) {

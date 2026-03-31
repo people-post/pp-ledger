@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace pp {
 namespace network {
@@ -52,6 +53,10 @@ public:
   // Receive data
   Roe<size_t> receive(void *buffer, size_t maxLength);
   Roe<std::string> receiveLine();
+
+  // Framed I/O (length-prefixed messages)
+  Roe<void> writeFrame(std::string_view body);
+  Roe<std::string> readFrame(std::chrono::milliseconds timeout);
 
   // Close connection
   void close();

@@ -219,3 +219,46 @@ TEST_F(FetchIntegrationTest, FetchSyncTimesOutWhenServerStalls) {
 
     server->stop();
 }
+
+TEST_F(FetchIntegrationTest, ConcurrentFetchSyncNoTimeouts) {
+    // Start server
+    FetchServer::Config config;
+    config.endpoint = {"127.0.0.1", 18886};
+    config.handler = [this](int fd, const std::string& req, const IpEndpoint&) {
+        server->addResponse(fd, "Echo: " + req);
+    };
+    auto started = server->start(config);
+    ASSERT_TRUE(started.isOk());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    constexpr int kThreads = 16;
+    constexpr int kRequestsPerThread = 5;
+    std::atomic<int> failures{0};
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+
+    for (int i = 0; i < kThreads; ++i) {
+        threads.emplace_back([i, &failures]() {
+            FetchClient c;
+            for (int j = 0; j < kRequestsPerThread; ++j) {
+                std::string msg = "t" + std::to_string(i) + "-m" + std::to_string(j);
+                auto result = c.fetchSync({"127.0.0.1", 18886},
+                                          msg,
+                                          std::chrono::milliseconds(3000));
+                if (!result.isOk() || result.value() != ("Echo: " + msg)) {
+                    failures.fetch_add(1);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(failures.load(), 0);
+
+    server->stop();
+}

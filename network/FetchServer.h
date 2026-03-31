@@ -56,8 +56,11 @@ private:
   // Tracks an active connection reading data
   struct ActiveConnection {
     int fd;
-    std::string buffer;
     IpEndpoint endpoint;
+    enum class Stage { ReadLen, ReadBody };
+    Stage stage{ Stage::ReadLen };
+    uint32_t expectedLen{ 0 };
+    std::string buffer; // used for staged parsing (len header then body)
   };
 
   // Helper: set a file descriptor to non-blocking mode
@@ -74,6 +77,16 @@ private:
 
   // Helper: read available data from a connection
   void readFromConnection(ActiveConnection& conn);
+
+  // Helpers extracted from readFromConnection / runLoop
+  void closeAndRemoveConnection(ActiveConnection& conn, const std::string& reason);
+  void dispatchCompleteFrameAndRemove(ActiveConnection& conn, std::string requestBody);
+  // Returns true if a complete frame was dispatched (and conn removed).
+  bool tryParseSingleFrame(ActiveConnection& conn);
+
+  void pollActiveReads();
+  bool registerClientFd(int clientFd);
+  void acceptPendingConnections();
 
   TcpServer server_;
   Config config_;

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace pp {
 namespace network {
@@ -44,6 +45,12 @@ public:
   // Receive data
   Roe<size_t> receive(void *buffer, size_t maxLength);
   Roe<std::string> receiveLine();
+
+  // Framed I/O (length-prefixed messages)
+  // Frame format: 4-byte uint32 length (network byte order) + body bytes.
+  static constexpr uint32_t MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16 MiB
+  Roe<std::string> readFrame(std::chrono::milliseconds timeout);
+  Roe<void> writeFrame(std::string_view body);
 
   // Set socket send/receive timeout (0 = no timeout)
   Roe<void> setTimeout(std::chrono::milliseconds timeout);

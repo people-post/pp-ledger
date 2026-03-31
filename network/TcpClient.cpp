@@ -167,6 +167,32 @@ TcpClient::Roe<std::string> TcpClient::receiveLine() {
   return Roe<std::string>(result.value());
 }
 
+TcpClient::Roe<void> TcpClient::writeFrame(std::string_view body) {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+  auto r = connection_->writeFrame(body);
+  if (!r) {
+    return Error(r.error().message);
+  }
+  return {};
+}
+
+TcpClient::Roe<std::string> TcpClient::readFrame(std::chrono::milliseconds timeout) {
+  if (!connection_.has_value()) {
+    return Error("Not connected");
+  }
+  auto r = connection_->readFrame(timeout);
+  if (!r) {
+    // If connection closed, clear the connection
+    if (r.error().message.find("closed") != std::string::npos) {
+      connection_.reset();
+    }
+    return Error(r.error().message);
+  }
+  return Roe<std::string>(r.value());
+}
+
 void TcpClient::close() {
   if (connection_.has_value()) {
     connection_->close();
