@@ -80,34 +80,12 @@ public:
                              "getSignerAccountId not implemented for this handler");
   }
 
-  /** Scratch-buffer / mempool path after signature validation. */
-  virtual chain_tx::Roe<void>
-  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
-              const BufferApplyContext &c) const {
-    (void)tx;
-    (void)bank;
-    (void)c;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer not implemented for this handler");
-  }
-
-  /** Committed-chain (block replay) path after signature validation. */
-  virtual chain_tx::Roe<void>
-  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
-             const BlockApplyContext &c) const {
-    (void)tx;
-    (void)bank;
-    (void)c;
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock not implemented for this handler");
-  }
-
   /**
    * Serialized user-account metadata when this tx updates `accountId`
    * (non-genesis). Default: nullopt.
    */
   virtual std::optional<std::string>
-  userAccountMetaForTx(const Ledger::TypedTx &tx, uint64_t accountId) const {
+  getUserAccountMetaForTx(const Ledger::TypedTx &tx, uint64_t accountId) const {
     (void)tx;
     (void)accountId;
     return std::nullopt;
@@ -118,8 +96,8 @@ public:
    * block 0, config meta, genesis renewal). Default: nullopt.
    */
   virtual std::optional<std::string>
-  genesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                          const Ledger::Block &block) const {
+  getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                             const Ledger::Block &block) const {
     (void)tx;
     (void)block;
     return std::nullopt;
@@ -132,8 +110,8 @@ public:
    * Default: use the tx's raw `meta.size()`.
    */
   virtual chain_tx::Roe<size_t>
-  billableCustomMetaSizeForFee(const BlockChainConfig &config,
-                               const Ledger::TypedTx &tx) const {
+  getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                  const Ledger::TypedTx &tx) const {
     (void)config;
     // TypedTx variant order matches Ledger::T_* constants.
     switch (tx.index()) {
@@ -157,9 +135,31 @@ public:
     }
   }
 
+  /** Scratch-buffer / mempool path after signature validation. */
+  virtual chain_tx::Roe<void>
+  applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
+              const BufferApplyContext &c) const {
+    (void)tx;
+    (void)bank;
+    (void)c;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBuffer not implemented for this handler");
+  }
+
+  /** Committed-chain (block replay) path after signature validation. */
+  virtual chain_tx::Roe<void>
+  applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
+             const BlockApplyContext &c) const {
+    (void)tx;
+    (void)bank;
+    (void)c;
+    return chain_tx::TxError(chain_err::E_INTERNAL,
+                             "applyBlock not implemented for this handler");
+  }
+
 protected:
   /**
-   * Cross-block idempotency check using `ctx.idempotencyKeyForRecord` (wired by
+   * Cross-block idempotency check using `ctx.fnIdempotencyKeyForRecord` (wired by
    * Chain). Forwards to chain_tx::validateIdempotencyRules.
    */
   chain_tx::Roe<void>
@@ -169,7 +169,7 @@ protected:
                                   int64_t validationTsMax,
                                   uint64_t effectiveSlot,
                                   bool isStrictMode) const {
-    if (!ctx.idempotencyKeyForRecord.has_value()) {
+    if (!ctx.fnIdempotencyKeyForRecord.has_value()) {
       return chain_tx::TxError(
           chain_err::E_INTERNAL,
           "Idempotency key extractor not configured on TxContext");
@@ -177,7 +177,7 @@ protected:
     return chain_tx::validateIdempotencyRules(
         ctx.ledger, ctx.consensus, ctx.optChainConfig, idempotentId,
         walletIdForIdempotency, validationTsMin, validationTsMax, effectiveSlot,
-        isStrictMode, *ctx.idempotencyKeyForRecord);
+        isStrictMode, *ctx.fnIdempotencyKeyForRecord);
   }
 };
 

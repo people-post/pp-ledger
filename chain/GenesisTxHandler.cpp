@@ -109,8 +109,8 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
 }
 
 std::optional<std::string>
-GenesisTxHandler::genesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                                          const Ledger::Block &block) const {
+GenesisTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                                             const Ledger::Block &block) const {
   const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
   if (!p) {
     return std::nullopt;

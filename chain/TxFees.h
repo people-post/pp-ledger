@@ -25,19 +25,19 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
  *
  * Returning 0 means "no fee meta to bill".
  */
-using BillableCustomMetaSizeForFeeFn =
+using FnBillableCustomMetaSizeForFee =
     std::function<Roe<size_t>(const BlockChainConfig &, const Ledger::TypedTx &)>;
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(
     const BlockChainConfig &config, const Ledger::TypedTx &tx,
-    const BillableCustomMetaSizeForFeeFn &billableCustomMetaSizeForFee);
+    const FnBillableCustomMetaSizeForFee &fnBillableCustomMetaSizeForFee);
 
 /** Minimum renewal fee from serialized account meta at the account's block. */
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(
     const Ledger &ledger, const BlockChainConfig &config,
     const AccountBuffer &bank, uint64_t accountId,
-    const UserAccountMetaForRecordFn &userMetaForRecord,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord);
+    const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord);
 
 } // namespace pp::chain_tx
 

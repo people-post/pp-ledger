@@ -10,12 +10,12 @@
 namespace pp {
 
 chain_tx::Roe<size_t>
-NewUserTxHandler::billableCustomMetaSizeForFee(
+NewUserTxHandler::getBillableCustomMetaSizeForFee(
     const BlockChainConfig &config, const Ledger::TypedTx &tx) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "billableCustomMetaSizeForFee: expected TxNewUser");
+                             "getBillableCustomMetaSizeForFee: expected TxNewUser");
   }
   if (p->meta.size() <= config.freeCustomMetaSize) {
     return 0;
@@ -121,7 +121,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
           chain_err::E_INTERNAL,
           "Chain config required for strict new-user fee validation");
     }
-    if (!ctx.billableCustomMetaSizeForFee.has_value()) {
+    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(
           chain_err::E_INTERNAL,
           "Fee-meta size extractor not configured on TxContext");
@@ -129,7 +129,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
         ctx.optChainConfig.value(), typedTx,
-        *ctx.billableCustomMetaSizeForFee);
+        *ctx.fnBillableCustomMetaSizeForFee);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }
@@ -231,8 +231,8 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
 }
 
 std::optional<std::string>
-NewUserTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
-                                       uint64_t accountId) const {
+NewUserTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
+                                          uint64_t accountId) const {
   const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
   if (!p) {
     return std::nullopt;

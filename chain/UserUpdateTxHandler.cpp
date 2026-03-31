@@ -9,13 +9,13 @@
 namespace pp {
 
 chain_tx::Roe<size_t>
-UserUpdateTxHandler::billableCustomMetaSizeForFee(
+UserUpdateTxHandler::getBillableCustomMetaSizeForFee(
     const BlockChainConfig &config, const Ledger::TypedTx &tx) const {
   const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
   if (!p) {
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
-        "billableCustomMetaSizeForFee: expected TxUserUpdate");
+        "getBillableCustomMetaSizeForFee: expected TxUserUpdate");
   }
   if (p->meta.size() <= config.freeCustomMetaSize) {
     return 0;
@@ -89,8 +89,8 @@ chain_tx::Roe<void> UserUpdateTxHandler::applyBuffer(const Ledger::TypedTx &tx,
 }
 
 std::optional<std::string>
-UserUpdateTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
-                                          uint64_t accountId) const {
+UserUpdateTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
+                                             uint64_t accountId) const {
   const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
   if (!p) {
     return std::nullopt;

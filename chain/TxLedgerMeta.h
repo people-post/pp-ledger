@@ -14,26 +14,26 @@
 
 namespace pp::chain_tx {
 
-using UserAccountMetaForRecordFn =
+using FnUserAccountMetaForRecord =
     std::function<std::optional<std::string>(const Ledger::Record &,
                                            uint64_t accountId)>;
-using GenesisAccountMetaForRecordFn =
+using FnGenesisAccountMetaForRecord =
     std::function<std::optional<std::string>(const Ledger::Record &,
                                              const Ledger::Block &block)>;
 
 Roe<Client::UserAccount>
 getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId,
-                            const UserAccountMetaForRecordFn &userMetaForRecord);
+                            const FnUserAccountMetaForRecord &fnUserMetaForRecord);
 
 Roe<GenesisAccountMeta>
 getGenesisAccountMetaFromBlock(
     const Ledger::Block &block,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord);
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord);
 
 Roe<std::string> getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
-    uint64_t minFee, const UserAccountMetaForRecordFn &userMetaForRecord,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord);
+    uint64_t minFee, const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord);
 
 } // namespace pp::chain_tx
 

@@ -10,12 +10,12 @@
 namespace pp {
 
 chain_tx::Roe<size_t>
-RenewalTxHandler::billableCustomMetaSizeForFee(const BlockChainConfig &config,
-                                               const Ledger::TypedTx &tx) const {
+RenewalTxHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                                  const Ledger::TypedTx &tx) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "billableCustomMetaSizeForFee: expected TxRenewal");
+                             "getBillableCustomMetaSizeForFee: expected TxRenewal");
   }
   if (p->meta.size() <= config.freeCustomMetaSize) {
     return 0;
@@ -157,14 +157,15 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
           chain_err::E_INTERNAL,
           "Chain config required for strict genesis renewal fee validation");
     }
-    if (!ctx.billableCustomMetaSizeForFee.has_value()) {
+    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(
           chain_err::E_INTERNAL,
           "Fee-meta size extractor not configured on TxContext");
     }
     const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), typedTx, *ctx.billableCustomMetaSizeForFee);
+        ctx.optChainConfig.value(), typedTx,
+        *ctx.fnBillableCustomMetaSizeForFee);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }
@@ -221,8 +222,8 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
 }
 
 std::optional<std::string>
-RenewalTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
-                                       uint64_t accountId) const {
+RenewalTxHandler::getUserAccountMetaForTx(const Ledger::TypedTx &tx,
+                                          uint64_t accountId) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return std::nullopt;
@@ -234,8 +235,8 @@ RenewalTxHandler::userAccountMetaForTx(const Ledger::TypedTx &tx,
 }
 
 std::optional<std::string>
-RenewalTxHandler::genesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                                          const Ledger::Block & /*block*/) const {
+RenewalTxHandler::getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                                             const Ledger::Block & /*block*/) const {
   const auto *p = std::get_if<Ledger::TxRenewal>(&tx);
   if (!p) {
     return std::nullopt;

@@ -120,8 +120,8 @@ void RecordHandler::redirectLoggers(const std::string &baseName) {
 }
 
 std::optional<std::string>
-RecordHandler::userAccountMetaForRecord(const Ledger::Record &rec,
-                                        uint64_t accountId) const {
+RecordHandler::getUserAccountMeta(const Ledger::Record &rec,
+                                  uint64_t accountId) const {
   auto typedRoe = Ledger::decodeRecord(rec);
   if (!typedRoe) {
     return std::nullopt;
@@ -130,11 +130,11 @@ RecordHandler::userAccountMetaForRecord(const Ledger::Record &rec,
   if (!handler) {
     return std::nullopt;
   }
-  return handler->userAccountMetaForTx(typedRoe.value(), accountId);
+  return handler->getUserAccountMetaForTx(typedRoe.value(), accountId);
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-RecordHandler::idempotencyKeyForRecord(const Ledger::Record &rec) const {
+RecordHandler::getIdempotencyKey(const Ledger::Record &rec) const {
   auto typedRoe = Ledger::decodeRecord(rec);
   if (!typedRoe) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
@@ -150,8 +150,8 @@ RecordHandler::idempotencyKeyForRecord(const Ledger::Record &rec) const {
 }
 
 std::optional<std::string>
-RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
-                                           const Ledger::Block &block) const {
+RecordHandler::getGenesisAccountMeta(const Ledger::Record &rec,
+                                     const Ledger::Block &block) const {
   auto typedRoe = Ledger::decodeRecord(rec);
   if (!typedRoe) {
     return std::nullopt;
@@ -160,12 +160,12 @@ RecordHandler::genesisAccountMetaForRecord(const Ledger::Record &rec,
   if (!handler) {
     return std::nullopt;
   }
-  return handler->genesisAccountMetaForTx(typedRoe.value(), block);
+  return handler->getGenesisAccountMetaForTx(typedRoe.value(), block);
 }
 
 chain_tx::Roe<size_t>
-RecordHandler::billableCustomMetaSizeForFee(const BlockChainConfig &config,
-                                            const Ledger::TypedTx &tx) const {
+RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                               const Ledger::TypedTx &tx) const {
   // TypedTx variant order matches Ledger::T_* constants.
   const auto type = static_cast<std::size_t>(tx.index());
   const ITxHandler *handler = get(type);
@@ -174,7 +174,7 @@ RecordHandler::billableCustomMetaSizeForFee(const BlockChainConfig &config,
                              "Transaction handler not registered for type " +
                                  std::to_string(type));
   }
-  return handler->billableCustomMetaSizeForFee(config, tx);
+  return handler->getBillableCustomMetaSizeForFee(config, tx);
 }
 
 } // namespace pp

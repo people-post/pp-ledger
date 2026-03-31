@@ -6,7 +6,7 @@ namespace pp::chain_tx {
 Roe<void> checkIdempotency(
     const Ledger &ledger, const consensus::Ouroboros &consensus,
     uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
-    uint64_t slotMax, const IdempotencyKeyForRecordFn &idempotencyKeyForRecord) {
+    uint64_t slotMax, const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord) {
   if (idempotentId == 0) {
     return {};
   }
@@ -30,7 +30,7 @@ Roe<void> checkIdempotency(
       continue;
     }
     for (const auto &rec : block.records) {
-      auto keyRoe = idempotencyKeyForRecord(rec);
+      auto keyRoe = fnIdempotencyKeyForRecord(rec);
       if (!keyRoe) {
         return keyRoe.error();
       }
@@ -55,7 +55,7 @@ Roe<void> validateIdempotencyRules(
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
     int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,
-    const IdempotencyKeyForRecordFn &idempotencyKeyForRecord) {
+    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord) {
   if (!isStrictMode) {
     return {};
   }
@@ -94,7 +94,7 @@ Roe<void> validateIdempotencyRules(
   }
   const uint64_t slotMaxIdempotency = effectiveSlot - 1;
   return checkIdempotency(ledger, consensus, idempotentId, fromWalletId,
-                          slotMin, slotMaxIdempotency, idempotencyKeyForRecord);
+                          slotMin, slotMaxIdempotency, fnIdempotencyKeyForRecord);
 }
 
 } // namespace pp::chain_tx

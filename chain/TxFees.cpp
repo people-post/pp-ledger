@@ -63,12 +63,12 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(
     const BlockChainConfig &config, const Ledger::TypedTx &tx,
-    const BillableCustomMetaSizeForFeeFn &billableCustomMetaSizeForFee) {
-  if (!billableCustomMetaSizeForFee) {
+    const FnBillableCustomMetaSizeForFee &fnBillableCustomMetaSizeForFee) {
+  if (!fnBillableCustomMetaSizeForFee) {
     return TxError(chain_err::E_INTERNAL,
-                   "billableCustomMetaSizeForFee must be provided");
+                   "fnBillableCustomMetaSizeForFee must be provided");
   }
-  auto billableSizeResult = billableCustomMetaSizeForFee(config, tx);
+  auto billableSizeResult = fnBillableCustomMetaSizeForFee(config, tx);
   if (!billableSizeResult) {
     return billableSizeResult.error();
   }
@@ -85,8 +85,8 @@ Roe<uint64_t> calculateMinimumFeeForTransaction(
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(
     const Ledger &ledger, const BlockChainConfig &config,
     const AccountBuffer &bank, uint64_t accountId,
-    const UserAccountMetaForRecordFn &userMetaForRecord,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord) {
+    const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
   auto accountResult = bank.getAccount(accountId);
   if (!accountResult) {
     return TxError(chain_err::E_ACCOUNT_NOT_FOUND,
@@ -104,14 +104,14 @@ Roe<uint64_t> calculateMinimumFeeForAccountMeta(
 
   if (accountId == AccountBuffer::ID_GENESIS) {
     auto metaResult = getGenesisAccountMetaFromBlock(
-        blockResult.value().block, genesisMetaForRecord);
+        blockResult.value().block, fnGenesisMetaForRecord);
     if (!metaResult) {
       return metaResult.error();
     }
     metaSize = metaResult.value().genesis.meta.size();
   } else {
     auto userMetaResult = getUserAccountMetaFromBlock(
-        blockResult.value().block, accountId, userMetaForRecord);
+        blockResult.value().block, accountId, fnUserMetaForRecord);
     if (!userMetaResult) {
       return userMetaResult.error();
     }

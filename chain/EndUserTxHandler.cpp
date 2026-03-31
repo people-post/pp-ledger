@@ -90,15 +90,15 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
         "User account not found: " + std::to_string(tx.walletId));
   }
 
-  if (!ctx.accountMetaForRecord.has_value()) {
+  if (!ctx.fnAccountMetaForRecord.has_value()) {
     return chain_tx::TxError(
         chain_err::E_INTERNAL,
         "Account meta extractors not configured on TxContext");
   }
-  const auto &metaFns = *ctx.accountMetaForRecord;
+  const auto &metaFns = *ctx.fnAccountMetaForRecord;
   auto minimumFeeResult = chain_tx::calculateMinimumFeeForAccountMeta(
       ctx.ledger, ctx.optChainConfig.value(), bank, tx.walletId,
-      metaFns.user, metaFns.genesis);
+      metaFns.fnUser, metaFns.fnGenesis);
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }

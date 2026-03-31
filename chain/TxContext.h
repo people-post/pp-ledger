@@ -17,12 +17,12 @@
 namespace pp {
 
 /** Callables for scanning block records for serialized account metadata. */
-struct AccountMetaForRecordFns {
+struct FnAccountMetaForRecord {
   std::function<std::optional<std::string>(const Ledger::Record &, uint64_t)>
-      user;
+      fnUser;
   std::function<std::optional<std::string>(const Ledger::Record &,
                                              const Ledger::Block &)>
-      genesis;
+      fnGenesis;
 };
 
 /**
@@ -37,11 +37,11 @@ struct TxContext {
   AccountBuffer bank;
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};
   Checkpoint checkpoint{};
-  std::optional<AccountMetaForRecordFns> accountMetaForRecord{std::nullopt};
-  std::optional<chain_tx::IdempotencyKeyForRecordFn> idempotencyKeyForRecord{
+  std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
+  std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{
       std::nullopt};
-  std::optional<chain_tx::BillableCustomMetaSizeForFeeFn>
-      billableCustomMetaSizeForFee{std::nullopt};
+  std::optional<chain_tx::FnBillableCustomMetaSizeForFee>
+      fnBillableCustomMetaSizeForFee{std::nullopt};
 };
 
 /** Scratch-buffer / mempool path after signature validation. */

@@ -50,6 +50,38 @@ public:
   getSignerAccountId(const Ledger::Record &rec, uint64_t slotLeaderId) const;
 
   /**
+   * Serialized user-account metadata blob from a single record, if this record
+   * updates the given non-genesis account (new user / user update / renewal).
+   */
+  std::optional<std::string>
+  getUserAccountMeta(const Ledger::Record &rec, uint64_t accountId) const;
+
+  /**
+   * Serialized genesis checkpoint metadata from a single record, if applicable
+   * (genesis on block 0, config meta, or genesis renewal).
+   */
+  std::optional<std::string>
+  getGenesisAccountMeta(const Ledger::Record &rec,
+                        const Ledger::Block &block) const;
+
+  /**
+   * If this record participates in idempotency rules, return (walletId,
+   * idempotentId). Decode failure or non-participating types yield nullopt
+   * without error (scan skips the record).
+   */
+  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
+  getIdempotencyKey(const Ledger::Record &rec) const;
+
+  /**
+   * Billable (pre-free-tier) custom-meta size for fee calculation.
+   *
+   * This is tx-type aware (e.g. serialized user account meta in tx.meta).
+   */
+  chain_tx::Roe<size_t>
+  getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
+                                  const Ledger::TypedTx &tx) const;
+
+  /**
    * Decode `rec`, dispatch to its handler, and run applyBuffer. Mirrors
    * Chain's decode / handler-not-registered errors.
    */
@@ -65,39 +97,6 @@ public:
 
   /** Set per-handler logger names (optional). */
   void redirectLoggers(const std::string &baseName);
-
-  /**
-   * Serialized user-account metadata blob from a single record, if this record
-   * updates the given non-genesis account (new user / user update / renewal).
-   */
-  std::optional<std::string>
-  userAccountMetaForRecord(const Ledger::Record &rec,
-                           uint64_t accountId) const;
-
-  /**
-   * Serialized genesis checkpoint metadata from a single record, if applicable
-   * (genesis on block 0, config meta, or genesis renewal).
-   */
-  std::optional<std::string>
-  genesisAccountMetaForRecord(const Ledger::Record &rec,
-                              const Ledger::Block &block) const;
-
-  /**
-   * If this record participates in idempotency rules, return (walletId,
-   * idempotentId). Decode failure or non-participating types yield nullopt
-   * without error (scan skips the record).
-   */
-  chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
-  idempotencyKeyForRecord(const Ledger::Record &rec) const;
-
-  /**
-   * Billable (pre-free-tier) custom-meta size for fee calculation.
-   *
-   * This is tx-type aware (e.g. serialized user account meta in tx.meta).
-   */
-  chain_tx::Roe<size_t>
-  billableCustomMetaSizeForFee(const BlockChainConfig &config,
-                               const Ledger::TypedTx &tx) const;
 
 private:
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};

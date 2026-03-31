@@ -37,20 +37,20 @@ Chain::Chain() {
   txContext_.ledger.redirectLogger(log().getFullName() + ".Ledger");
   txContext_.consensus.redirectLogger(log().getFullName() + ".Obo");
   recordHandler_.redirectLoggers(log().getFullName());
-  txContext_.accountMetaForRecord = AccountMetaForRecordFns{
+  txContext_.fnAccountMetaForRecord = FnAccountMetaForRecord{
       [this](const Ledger::Record &rec, uint64_t accountId) {
-        return recordHandler_.userAccountMetaForRecord(rec, accountId);
+        return recordHandler_.getUserAccountMeta(rec, accountId);
       },
       [this](const Ledger::Record &rec, const Ledger::Block &block) {
-        return recordHandler_.genesisAccountMetaForRecord(rec, block);
+        return recordHandler_.getGenesisAccountMeta(rec, block);
       }};
-  txContext_.idempotencyKeyForRecord =
+  txContext_.fnIdempotencyKeyForRecord =
       [this](const Ledger::Record &rec) {
-        return recordHandler_.idempotencyKeyForRecord(rec);
+        return recordHandler_.getIdempotencyKey(rec);
       };
-  txContext_.billableCustomMetaSizeForFee =
+  txContext_.fnBillableCustomMetaSizeForFee =
       [this](const BlockChainConfig &config, const Ledger::TypedTx &tx) {
-        return recordHandler_.billableCustomMetaSizeForFee(config, tx);
+        return recordHandler_.getBillableCustomMetaSizeForFee(config, tx);
       };
 }
 
@@ -165,13 +165,13 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
 Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee) const {
-  const auto &fns = txContext_.accountMetaForRecord;
+  const auto &fns = txContext_.fnAccountMetaForRecord;
   if (!fns.has_value()) {
     return Error(E_INTERNAL,
                  "Account meta extractors not configured on TxContext");
   }
   return mapTx(chain_tx::getUpdatedAccountMetadataForRenewal(
-      block, account, minFee, fns->user, fns->genesis));
+      block, account, minFee, fns->fnUser, fns->fnGenesis));
 }
 
 Chain::Roe<Ledger::Record>
@@ -676,14 +676,14 @@ Chain::calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
     return Error(E_INTERNAL,
                  "Chain config required for minimum fee from account meta");
   }
-  const auto &fns = txContext_.accountMetaForRecord;
+  const auto &fns = txContext_.fnAccountMetaForRecord;
   if (!fns.has_value()) {
     return Error(E_INTERNAL,
                  "Account meta extractors not configured on TxContext");
   }
   return mapTx(chain_tx::calculateMinimumFeeForAccountMeta(
       txContext_.ledger, txContext_.optChainConfig.value(), bank, accountId,
-      fns->user, fns->genesis));
+      fns->fnUser, fns->fnGenesis));
 }
 
 } // namespace pp

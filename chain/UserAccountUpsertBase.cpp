@@ -62,14 +62,15 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
           chain_err::E_INTERNAL,
           "Chain config required for strict user-update fee validation");
     }
-    if (!ctx.billableCustomMetaSizeForFee.has_value()) {
+    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(
           chain_err::E_INTERNAL,
           "Fee-meta size extractor not configured on TxContext");
     }
   const Ledger::TypedTx typedTx(tx);
     auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), typedTx, *ctx.billableCustomMetaSizeForFee);
+        ctx.optChainConfig.value(), typedTx,
+        *ctx.fnBillableCustomMetaSizeForFee);
     if (!minimumFeeResult) {
       return minimumFeeResult.error();
     }

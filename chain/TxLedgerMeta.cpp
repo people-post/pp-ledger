@@ -8,10 +8,10 @@ namespace pp::chain_tx {
 
 Roe<Client::UserAccount>
 getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId,
-                            const UserAccountMetaForRecordFn &userMetaForRecord) {
+                            const FnUserAccountMetaForRecord &fnUserMetaForRecord) {
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto metaOpt = userMetaForRecord(*it, accountId);
+    auto metaOpt = fnUserMetaForRecord(*it, accountId);
     if (!metaOpt) {
       continue;
     }
@@ -32,10 +32,10 @@ getUserAccountMetaFromBlock(const Ledger::Block &block, uint64_t accountId,
 Roe<GenesisAccountMeta>
 getGenesisAccountMetaFromBlock(
     const Ledger::Block &block,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord) {
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
   for (auto it = block.records.rbegin(); it != block.records.rend();
        ++it) {
-    auto metaOpt = genesisMetaForRecord(*it, block);
+    auto metaOpt = fnGenesisMetaForRecord(*it, block);
     if (!metaOpt) {
       continue;
     }
@@ -56,11 +56,11 @@ getGenesisAccountMetaFromBlock(
 
 Roe<std::string> getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
-    uint64_t minFee, const UserAccountMetaForRecordFn &userMetaForRecord,
-    const GenesisAccountMetaForRecordFn &genesisMetaForRecord) {
+    uint64_t minFee, const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
   if (account.id == AccountBuffer::ID_GENESIS) {
     auto metaResult =
-        getGenesisAccountMetaFromBlock(block, genesisMetaForRecord);
+        getGenesisAccountMetaFromBlock(block, fnGenesisMetaForRecord);
     if (!metaResult) {
       return metaResult.error();
     }
@@ -81,7 +81,7 @@ Roe<std::string> getUpdatedAccountMetadataForRenewal(
   }
 
   auto userAccountRoe =
-      getUserAccountMetaFromBlock(block, account.id, userMetaForRecord);
+      getUserAccountMetaFromBlock(block, account.id, fnUserMetaForRecord);
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }

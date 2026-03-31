@@ -22,8 +22,8 @@ public:
              const BlockApplyContext &c) const override;
 
   std::optional<std::string>
-  genesisAccountMetaForTx(const Ledger::TypedTx &tx,
-                          const Ledger::Block &block) const override;
+  getGenesisAccountMetaForTx(const Ledger::TypedTx &tx,
+                             const Ledger::Block &block) const override;
 
 private:
   chain_tx::Roe<void> applyGenesisInit(const Ledger::TxGenesis &tx,

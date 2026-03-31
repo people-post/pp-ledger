@@ -117,7 +117,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
           gm.config, feeTypedTx,
           [&recordHandler](const BlockChainConfig &config,
                            const Ledger::TypedTx &tx) {
-            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
           });
   if (!feeWalletFeeResult) {
     return chain_tx::Roe<void>(feeWalletFeeResult.error());
@@ -159,7 +159,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
           gm.config, minerTypedTx,
           [&recordHandler](const BlockChainConfig &config,
                            const Ledger::TypedTx &tx) {
-            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
           });
   if (!reserveFeeResult) {
     return chain_tx::Roe<void>(reserveFeeResult.error());
@@ -190,7 +190,7 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
           gm.config, recycleTypedTx,
           [&recordHandler](const BlockChainConfig &config,
                            const Ledger::TypedTx &tx) {
-            return recordHandler.billableCustomMetaSizeForFee(config, tx);
+            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
           });
   if (!recycleFeeResult) {
     return chain_tx::Roe<void>(recycleFeeResult.error());

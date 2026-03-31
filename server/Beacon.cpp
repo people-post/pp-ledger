@@ -317,7 +317,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
           config, feeTypedTx,
           [&recordHandler](const Chain::BlockChainConfig &cfg,
                            const Ledger::TypedTx &tx) {
-            return recordHandler.billableCustomMetaSizeForFee(cfg, tx);
+            return recordHandler.getBillableCustomMetaSizeForFee(cfg, tx);
           });
   if (!feeWalletFeeResult) {
     return Error(2, "Failed to calculate fee-wallet transaction fee: " +
