@@ -4,6 +4,10 @@ add_library(pp_lib STATIC
     Crypto.h
     Logger.cpp
     Logger.h
+    io/Json.cpp
+    io/Json.h
+    Meta.cpp
+    Meta.h
     Module.cpp
     Module.h
     ResultOrError.hpp

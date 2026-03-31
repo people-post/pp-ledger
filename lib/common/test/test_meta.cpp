@@ -1,0 +1,164 @@
+#include "lib/common/Meta.h"
+#include "lib/common/io/Json.h"
+#include "lib/common/Serialize.hpp"
+
+#include <gtest/gtest.h>
+
+#include <sstream>
+#include <string>
+
+using pp::common::Meta;
+using pp::common::io::metaFromJsonString;
+using pp::common::io::metaToJsonString;
+using pp::InputArchive;
+using pp::OutputArchive;
+
+namespace {
+
+template <typename T>
+std::string archivePack(const T &value) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & value;
+  return oss.str();
+}
+
+template <typename T>
+bool archiveUnpack(const std::string &data, T &value) {
+  std::istringstream iss(data, std::ios::binary);
+  InputArchive ar(iss);
+  ar & value;
+  return !ar.failed();
+}
+
+std::string archivePackMetaWire(const std::string &key, uint16_t tag,
+                                const std::string &payload,
+                                uint64_t entryCount = 1) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & entryCount;
+  ar & key;
+  ar & tag;
+  ar & payload;
+  return oss.str();
+}
+
+} // namespace
+
+TEST(MetaTest, RoundTrip_PrimitivesAndString) {
+  Meta m;
+  m.set("i64", int64_t{-42});
+  m.set("u64", uint64_t{42});
+  m.set("b", true);
+  m.set("d", 3.125);
+  m.set("s", std::string("hello"));
+
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(archivePack(m), out));
+
+  EXPECT_EQ(out.getIf<int64_t>("i64").value(), -42);
+  EXPECT_EQ(out.getIf<uint64_t>("u64").value(), 42u);
+  EXPECT_EQ(out.getIf<bool>("b").value(), true);
+  EXPECT_DOUBLE_EQ(out.getIf<double>("d").value(), 3.125);
+  EXPECT_EQ(out.getIf<std::string>("s").value(), "hello");
+}
+
+TEST(MetaTest, RoundTrip_NestedMeta) {
+  Meta inner;
+  inner.set("x", uint64_t{7});
+
+  Meta m;
+  m.set("inner", inner);
+
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(archivePack(m), out));
+
+  auto nestedOpt = out.getMetaIf("inner");
+  ASSERT_TRUE(nestedOpt.has_value());
+  EXPECT_EQ(nestedOpt->get().getIf<uint64_t>("x").value(), 7u);
+}
+
+TEST(MetaTest, DeterministicEncoding_MapOrder) {
+  Meta a;
+  a.set("b", uint64_t{2});
+  a.set("a", uint64_t{1});
+
+  Meta b;
+  b.set("a", uint64_t{1});
+  b.set("b", uint64_t{2});
+
+  EXPECT_EQ(archivePack(a), archivePack(b));
+}
+
+TEST(MetaTest, UnknownTag_IsSkipped) {
+  constexpr uint16_t kUnknownWireTag = 999;
+  const std::string wire =
+      archivePackMetaWire("x", kUnknownWireTag, /*payload*/ "abc");
+
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(wire, out));
+  EXPECT_TRUE(out.empty());
+}
+
+TEST(MetaTest, DuplicateKeys_AreRejected) {
+  // Manually craft two entries with the same key.
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  uint64_t entryCount = 2;
+  ar & entryCount;
+
+  const std::string key = "dup";
+
+  // payloads are archives of the underlying values
+  {
+    std::ostringstream p(std::ios::binary);
+    OutputArchive par(p);
+    int64_t v = 1;
+    par & v;
+    std::string payload = p.str();
+    ar & key & Meta::ValueWire::TAG_I64 & payload;
+  }
+  {
+    std::ostringstream p(std::ios::binary);
+    OutputArchive par(p);
+    uint64_t v = 2;
+    par & v;
+    std::string payload = p.str();
+    ar & key & Meta::ValueWire::TAG_U64 & payload;
+  }
+
+  Meta out;
+  EXPECT_TRUE(archiveUnpack(oss.str(), out));
+  // Duplicate key is treated as invalid input; decode clears entries to signal invalid.
+  EXPECT_TRUE(out.empty());
+}
+
+TEST(MetaTest, Json_RoundTrip_PrimitivesAndNested) {
+  Meta inner;
+  inner.set("x", uint64_t{9});
+  inner.set("flag", false);
+
+  Meta m;
+  m.set("i64", int64_t{-1});
+  m.set("u64", uint64_t{1});
+  m.set("b", true);
+  m.set("d", 2.5);
+  m.set("s", std::string("ok"));
+  m.set("inner", inner);
+
+  const std::string j = metaToJsonString(m);
+  Meta parsed;
+  ASSERT_TRUE(metaFromJsonString(parsed, j));
+  EXPECT_EQ(parsed, m);
+}
+
+TEST(MetaTest, Json_RoundTrip_NullMetaPtr) {
+  Meta m;
+  m.set("n", Meta::MetaPtr{});
+
+  const std::string j = metaToJsonString(m);
+  Meta parsed;
+  ASSERT_TRUE(metaFromJsonString(parsed, j));
+  EXPECT_EQ(parsed, m);
+}
+

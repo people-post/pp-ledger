@@ -39,6 +39,18 @@ target_link_libraries(test_archive PRIVATE
 
 gtest_discover_tests(test_archive)
 
+# Test for Meta (variant key/value container)
+add_executable(test_meta
+    test_meta.cpp
+)
+
+target_link_libraries(test_meta PRIVATE
+    pp_lib
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_meta)
+
 # Test for Utilities (Ed25519, etc.)
 add_executable(test_utilities
     test_utilities.cpp
