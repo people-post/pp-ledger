@@ -1,7 +1,6 @@
 #include "Client.h"
 #include "lib/common/Logger.h"
 #include "lib/common/BinaryPack.hpp"
-#include "lib/common/io/Json.h"
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 
@@ -170,14 +169,7 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
 }
 
 Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta) {
-  // JSON numbers ≥0 decode as uint64_t; negatives stay int64_t.
-  if (auto v = meta.getIf<int64_t>("currentTimestamp")) {
-    currentTimestamp = *v;
-  } else if (auto v = meta.getIf<uint64_t>("currentTimestamp")) {
-    currentTimestamp = static_cast<int64_t>(*v);
-  } else {
-    currentTimestamp = 0;
-  }
+  currentTimestamp = meta.getOrDefault("currentTimestamp", int64_t{0});
   checkpointId = meta.getOrDefault("checkpointId", uint64_t{0});
   nextBlockId = meta.getOrDefault("nextBlockId", uint64_t{0});
   currentSlot = meta.getOrDefault("currentSlot", uint64_t{0});
@@ -315,12 +307,13 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
     return Error(result.error().code, result.error().message);
   }
 
-  pp::common::Meta meta;
-  if (!pp::common::io::metaFromJsonString(meta, result.value())) {
-    return Error(E_PARSE_ERROR, "Failed to parse BeaconState JSON");
+  auto metaResult = utl::binaryUnpack<pp::common::Meta>(result.value());
+  if (!metaResult) {
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack beacon state Meta: " + metaResult.error().message);
   }
   BeaconState state;
-  auto parseResult = state.ltsFromMeta(meta);
+  auto parseResult = state.ltsFromMeta(metaResult.value());
   if (!parseResult) {
     return Error(parseResult.error().code, parseResult.error().message);
   }
@@ -335,12 +328,13 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
     return Error(result.error().code, result.error().message);
   }
 
-  pp::common::Meta meta;
-  if (!pp::common::io::metaFromJsonString(meta, result.value())) {
-    return Error(E_PARSE_ERROR, "Failed to parse BeaconState JSON");
+  auto metaResult = utl::binaryUnpack<pp::common::Meta>(result.value());
+  if (!metaResult) {
+    return Error(E_INVALID_RESPONSE,
+                 "Failed to unpack beacon state Meta: " + metaResult.error().message);
   }
   BeaconState state;
-  auto parseResult = state.ltsFromMeta(meta);
+  auto parseResult = state.ltsFromMeta(metaResult.value());
   if (!parseResult) {
     return Error(parseResult.error().code, parseResult.error().message);
   }

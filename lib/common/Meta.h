@@ -26,7 +26,7 @@ public:
     static constexpr uint16_t TAG_STRING = 5;
     static constexpr uint16_t TAG_META = 6;
 
-    uint16_t tag{};
+    uint16_t tag{ 0 };
     std::string payload;
 
     template <typename Archive> void serialize(Archive &ar) { ar & tag & payload; }

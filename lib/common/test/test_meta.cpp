@@ -197,3 +197,13 @@ TEST(MetaTest, GetOrDefault_StringBoolDouble) {
   EXPECT_DOUBLE_EQ(m.getOrDefault("d", 0.0), 1.5);
 }
 
+TEST(MetaTest, Json_IntegerSignDeterminesStoredWidth) {
+  Meta m;
+  ASSERT_TRUE(metaFromJsonString(m, R"({"pos":1730000000,"neg":-5})"));
+  EXPECT_FALSE(m.getIf<int64_t>("pos").has_value());
+  ASSERT_TRUE(m.getIf<uint64_t>("pos").has_value());
+  EXPECT_EQ(m.getIf<uint64_t>("pos").value(), 1730000000u);
+  ASSERT_TRUE(m.getIf<int64_t>("neg").has_value());
+  EXPECT_EQ(m.getIf<int64_t>("neg").value(), -5);
+}
+
