@@ -17,7 +17,8 @@ namespace pp::chain_block {
 /** Block hash: SHA-256 of binary LTS serialization (same as Chain::calculateHash). */
 std::string calculateBlockHash(const Ledger::Block &block);
 
-chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block);
+chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
+                                        const RecordHandler &recordHandler);
 
 chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
                                           const Ledger::ChainNode &block);

@@ -283,6 +283,16 @@ Chain::Roe<Ledger::ChainNode> Chain::readLastBlock() const {
   return result.value();
 }
 
+Chain::Roe<uint64_t>
+Chain::calculateMinimumFeeForTransaction(const BlockChainConfig &config,
+                                         const Ledger::TypedTx &tx) const {
+  return mapTx(chain_tx::calculateMinimumFeeForTransaction(
+      config, tx,
+      [this](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
+        return recordHandler_.getBillableCustomMetaSizeForFee(cfg, t);
+      }));
+}
+
 Chain::Roe<std::vector<Ledger::Record>>
 Chain::findTransactionsByWalletId(uint64_t walletId,
                                   uint64_t &ioBlockId) const {
@@ -523,7 +533,7 @@ Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
 }
 
 Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
-  auto roe = mapTxVoid(chain_block::validateGenesisBlock(block));
+  auto roe = mapTxVoid(chain_block::validateGenesisBlock(block, recordHandler_));
   if (!roe) {
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +

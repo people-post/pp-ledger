@@ -36,7 +36,8 @@ std::string calculateBlockHash(const Ledger::Block &block) {
   return utl::sha256(serialized);
 }
 
-chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
+chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
+                                        const RecordHandler &recordHandler) {
   if (block.block.index != 0) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have index 0");
@@ -111,7 +112,6 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block) {
         "Genesis fee account creation transaction must have amount 0");
   }
   const Ledger::TypedTx feeTypedTx(feeTx);
-  const RecordHandler recordHandler;
   auto feeWalletFeeResult =
       chain_tx::calculateMinimumFeeForTransaction(
           gm.config, feeTypedTx,

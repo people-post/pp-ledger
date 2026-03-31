@@ -127,6 +127,10 @@ public:
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   Roe<Ledger::ChainNode> readLastBlock() const;
 
+  Roe<uint64_t>
+  calculateMinimumFeeForTransaction(const BlockChainConfig &config,
+                                    const Ledger::TypedTx &tx) const;
+
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   Roe<Ledger::Record>
