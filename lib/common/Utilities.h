@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <sstream>
 #include <vector>
+#include "Meta.h"
 #include "ResultOrError.hpp"
 #include <json.hpp>
 
@@ -165,6 +166,9 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
 struct Ed25519KeyPair {
   std::string publicKey;
   std::string privateKey;
+
+  /** JSON/meta object with hex-encoded publicKey and privateKey (init key export). */
+  pp::common::Meta ltsToMeta() const;
 };
 
 /**

@@ -310,7 +310,8 @@ static void handleBeaconCalibration(const httplib::Request&, httplib::Response& 
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().toJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleBeaconMiners(const httplib::Request&, httplib::Response& res,
@@ -347,7 +348,8 @@ static void handleBlockGet(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().toJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleAccountGet(const httplib::Request& req, httplib::Response& res,
@@ -358,7 +360,8 @@ static void handleAccountGet(const httplib::Request& req, httplib::Response& res
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().toJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleAccountCreate(const httplib::Request& req, httplib::Response& res,
@@ -478,7 +481,8 @@ static void handleTxByWallet(const httplib::Request& req, httplib::Response& res
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().toJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static void handleTxByIndex(const httplib::Request& req, httplib::Response& res,
@@ -501,7 +505,8 @@ static void handleTxByIndex(const httplib::Request& req, httplib::Response& res,
     setJsonError(res, 502, r.error().message);
     return;
   }
-  res.set_content(r.value().toJson().dump(), "application/json");
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
+                  "application/json");
 }
 
 static uint64_t jsonToUint64(const json& j, const std::string& key, uint64_t defaultVal) {
@@ -997,7 +1002,8 @@ int main(int argc, char** argv) {
     [](const json& args, pp::Client& beacon, pp::Client&) {
       if (!args.contains("block_id")) return mcpErr("block_id is required");
       auto r = beacon.fetchBlock(args["block_id"].get<uint64_t>());
-      return r ? mcpOk(r.value().toJson().dump(2)) : mcpErr(r.error().message);
+      return r ? mcpOk(pp::common::io::metaToJsonString(r.value().ltsToMeta(), 2))
+               : mcpErr(r.error().message);
     }
   });
 

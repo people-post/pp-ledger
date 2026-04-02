@@ -162,6 +162,36 @@ TEST(MetaTest, Json_RoundTrip_NullMetaPtr) {
   EXPECT_EQ(parsed, m);
 }
 
+TEST(MetaTest, Json_RoundTrip_Array) {
+  std::vector<Meta::Value> items;
+  items.push_back(int64_t{-1});
+  items.push_back(std::string("x"));
+  Meta inner;
+  inner.set("k", uint64_t{3});
+  items.push_back(std::make_shared<Meta>(inner));
+
+  Meta m;
+  m.set("arr", Meta::array(std::move(items)));
+
+  const std::string j = metaToJsonString(m);
+  Meta parsed;
+  ASSERT_TRUE(metaFromJsonString(parsed, j));
+  EXPECT_EQ(parsed, m);
+}
+
+TEST(MetaTest, RoundTrip_ArrayWire) {
+  std::vector<Meta::Value> items;
+  items.push_back(uint64_t{9});
+  items.push_back(Meta::array({std::string("a"), std::string("b")}));
+
+  Meta m;
+  m.set("nested", Meta::array(std::move(items)));
+
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(archivePack(m), out));
+  EXPECT_EQ(out, m);
+}
+
 TEST(MetaTest, GetOrDefault_Int64) {
   Meta m;
   EXPECT_EQ(m.getOrDefault("a", int64_t{-1}), -1);

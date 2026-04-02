@@ -10,7 +10,6 @@
 #include "../consensus/Types.hpp"
 
 #include <chrono>
-#include <json.hpp>
 
 #include <cstdint>
 #include <string>
@@ -37,7 +36,7 @@ public:
       ar & mBalances & publicKeys & minSignatures & keyType;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   struct UserAccount {
@@ -56,7 +55,7 @@ public:
 
     std::string ltsToString() const;
     bool ltsFromString(const std::string& str);
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   struct Error : RoeErrorBase {
@@ -186,7 +185,7 @@ public:
       ar & transactions & nextBlockId;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   struct TxGetByIndexRequest {
@@ -207,7 +206,7 @@ public:
       ar & msTimestamp & nextBlockId;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   Client();

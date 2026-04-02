@@ -562,7 +562,8 @@ int main(int argc, char *argv[]) {
   else if (block_cmd->parsed()) {
     auto result = client.fetchBlock(blockId);
     if (result) {
-      std::cout << result.value().toJson().dump(2) << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
+                << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -572,7 +573,8 @@ int main(int argc, char *argv[]) {
   else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);
     if (result) {
-      std::cout << result.value().toJson().dump(2) << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
+                << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -585,7 +587,8 @@ int main(int argc, char *argv[]) {
     req.beforeBlockId = txs_beforeBlockId;
     auto result = client.fetchTransactionsByWallet(req);
     if (result) {
-      std::cout << result.value().toJson().dump(2) << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
+                << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
@@ -597,7 +600,8 @@ int main(int argc, char *argv[]) {
     req.txIndex = tx_index;
     auto result = client.fetchTransactionByIndex(req);
     if (result) {
-      std::cout << result.value().toJson().dump(2) << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2)
+                << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;

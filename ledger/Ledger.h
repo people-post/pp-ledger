@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DirDirStore.h"
+#include "lib/common/Meta.h"
 #include "lib/common/Module.h"
 #include "lib/common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
@@ -11,7 +12,6 @@
 #include <memory>
 #include <optional>
 #include <variant>
-#include <json.hpp>
 
 namespace pp {
 
@@ -33,7 +33,7 @@ public:
       ar & fee & meta;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   /** Optional client-provided idempotency + validation window fields for user-submitted tx types. */
@@ -46,7 +46,7 @@ public:
       ar & idempotentId & validationTsMin & validationTsMax;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   struct TxDefault : TxCommon, TxIdempotencyWindow {
@@ -60,14 +60,14 @@ public:
           idempotentId & validationTsMin & validationTsMax;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxGenesis : TxCommon {
     template <typename Archive> void serialize(Archive &ar) {
       ar & fee & meta;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxNewUser : TxCommon, TxIdempotencyWindow {
     uint64_t fromWalletId{ 0 }; // Source wallet ID
@@ -79,14 +79,14 @@ public:
           idempotentId & validationTsMin & validationTsMax;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxConfig : TxCommon, TxIdempotencyWindow {
     template <typename Archive> void serialize(Archive &ar) {
       ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxUserUpdate : TxCommon, TxIdempotencyWindow {
     uint64_t walletId{ 0 }; // Wallet ID being updated
@@ -96,7 +96,7 @@ public:
           validationTsMax;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxRenewal : TxCommon {
     uint64_t walletId{ 0 }; // Wallet ID being renewed
@@ -105,7 +105,7 @@ public:
       ar & walletId & fee & meta;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
   struct TxEndUser : TxCommon {
     uint64_t walletId{ 0 }; // Wallet ID being ended
@@ -114,7 +114,7 @@ public:
       ar & walletId & fee & meta;
     }
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   /** In-memory typed transaction payload for centralized dispatch. */
@@ -139,7 +139,7 @@ public:
     /** Decode this Record's packed payload into TypedTx. */
     Roe<TypedTx> decode() const;
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   /**
@@ -164,7 +164,7 @@ public:
 
     std::string ltsToString() const;
     bool ltsFromString(const std::string &str);
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
 
   };
 
@@ -189,7 +189,7 @@ public:
      */
     bool ltsFromString(const std::string& str);
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   Ledger();

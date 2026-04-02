@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "Serialize.hpp"
 
@@ -25,6 +26,7 @@ public:
     static constexpr uint16_t TAG_DOUBLE = 4;
     static constexpr uint16_t TAG_STRING = 5;
     static constexpr uint16_t TAG_META = 6;
+    static constexpr uint16_t TAG_ARRAY = 7;
 
     uint16_t tag{ 0 };
     std::string payload;
@@ -32,10 +34,24 @@ public:
     template <typename Archive> void serialize(Archive &ar) { ar & tag & payload; }
   };
 
+  struct Array;
   using MetaPtr = std::shared_ptr<Meta>;
+  using ArrayPtr = std::shared_ptr<Array>;
 
   using Value =
-      std::variant<int64_t, uint64_t, bool, double, std::string, MetaPtr>;
+      std::variant<int64_t, uint64_t, bool, double, std::string, MetaPtr, ArrayPtr>;
+
+  /** Ordered JSON array (recursive values). */
+  struct Array {
+    std::vector<Value> elements;
+  };
+
+  /** Build a JSON array value (e.g. signatures, records). */
+  static Value array(std::vector<Value> elements) {
+    auto a = std::make_shared<Array>();
+    a->elements = std::move(elements);
+    return Value(ArrayPtr(std::move(a)));
+  }
 
   Meta() = default;
 
@@ -129,6 +145,7 @@ public:
   std::optional<std::reference_wrapper<const Meta>> getMetaIf(const std::string &key) const;
 
 private:
+  static bool valueEqual(const Value &a, const Value &b);
   static ValueWire valueToWire(const Value &v);
   /** Returns false on malformed payload for a known tag. Unknown tag: out=nullopt, true. */
   static bool wireToValue(const ValueWire &w, std::optional<Value> &out);

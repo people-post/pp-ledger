@@ -4,7 +4,6 @@
 #include "lib/common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 
-#include <json.hpp>
 #include <sstream>
 
 namespace pp {
@@ -40,20 +39,21 @@ std::ostream& operator<<(std::ostream& os, const Client::UserAccount& account) {
   return os;
 }
 
-nlohmann::json Client::Wallet::toJson() const {
-  nlohmann::json j;
-  nlohmann::json balances;
-  for (const auto& [tokenId, balance] : mBalances) {
-    balances[std::to_string(tokenId)] = balance;
+pp::common::Meta Client::Wallet::ltsToMeta() const {
+  pp::common::Meta balances;
+  for (const auto &[tokenId, balance] : mBalances) {
+    balances.set(std::to_string(tokenId), static_cast<int64_t>(balance));
   }
-  j["mBalances"] = balances;
-  nlohmann::json keysArray = nlohmann::json::array();
-  for (const auto& pk : publicKeys) {
-    keysArray.push_back(utl::toJsonSafeString(pk));
+  std::vector<pp::common::Meta::Value> keys;
+  keys.reserve(publicKeys.size());
+  for (const auto &pk : publicKeys) {
+    keys.push_back(utl::toJsonSafeString(pk));
   }
-  j["publicKeys"] = keysArray;
-  j["minSignatures"] = minSignatures;
-  j["keyType"] = keyType;
+  pp::common::Meta j;
+  j.set("mBalances", balances);
+  j.set("publicKeys", pp::common::Meta::array(std::move(keys)));
+  j.set("minSignatures", static_cast<uint64_t>(minSignatures));
+  j.set("keyType", static_cast<uint64_t>(keyType));
   return j;
 }
 
@@ -79,10 +79,10 @@ bool Client::UserAccount::ltsFromString(const std::string& str) {
   return true;
 }
 
-nlohmann::json Client::UserAccount::toJson() const {
-  nlohmann::json j;
-  j["wallet"] = wallet.toJson();
-  j["meta"] = utl::toJsonSafeString(meta);
+pp::common::Meta Client::UserAccount::ltsToMeta() const {
+  pp::common::Meta j;
+  j.set("wallet", wallet.ltsToMeta());
+  j.set("meta", utl::toJsonSafeString(meta));
   return j;
 }
 
@@ -147,21 +147,22 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
   return true;
 }
 
-nlohmann::json Client::TxGetByWalletResponse::toJson() const {
-  nlohmann::json j;
-  nlohmann::json transactionsArray = nlohmann::json::array();
-  for (const auto& tx : transactions) {
-    transactionsArray.push_back(tx.toJson());
+pp::common::Meta Client::TxGetByWalletResponse::ltsToMeta() const {
+  std::vector<pp::common::Meta::Value> txs;
+  txs.reserve(transactions.size());
+  for (const auto &tx : transactions) {
+    txs.push_back(std::make_shared<pp::common::Meta>(tx.ltsToMeta()));
   }
-  j["transactions"] = transactionsArray;
-  j["nextBlockId"] = nextBlockId;
+  pp::common::Meta j;
+  j.set("transactions", pp::common::Meta::array(std::move(txs)));
+  j.set("nextBlockId", nextBlockId);
   return j;
 }
 
-nlohmann::json Client::CalibrationResponse::toJson() const {
-  nlohmann::json j;
-  j["msTimestamp"] = msTimestamp;
-  j["nextBlockId"] = nextBlockId;
+pp::common::Meta Client::CalibrationResponse::ltsToMeta() const {
+  pp::common::Meta j;
+  j.set("msTimestamp", msTimestamp);
+  j.set("nextBlockId", nextBlockId);
   return j;
 }
 

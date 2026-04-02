@@ -98,25 +98,21 @@ Beacon::findTransactionByIndex(uint64_t txIndex) const {
   return result.value();
 }
 
-nlohmann::json Beacon::InitKeyConfig::toJson() const {
-  nlohmann::json j;
-  for (const auto &kp : genesis) {
-    j["genesis"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)},
-                            {"privateKey", utl::hexEncode(kp.privateKey)}});
-  }
-  for (const auto &kp : fee) {
-    j["fee"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)},
-                        {"privateKey", utl::hexEncode(kp.privateKey)}});
-  }
-  for (const auto &kp : reserve) {
-    j["reserve"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)},
-                            {"privateKey", utl::hexEncode(kp.privateKey)}});
-  }
-  for (const auto &kp : recycle) {
-    j["recycle"].push_back({{"publicKey", utl::hexEncode(kp.publicKey)},
-                            {"privateKey", utl::hexEncode(kp.privateKey)}});
-  }
-  return j;
+pp::common::Meta Beacon::InitKeyConfig::ltsToMeta() const {
+  auto pairsToMeta = [](const std::vector<utl::Ed25519KeyPair> &pairs) {
+    std::vector<pp::common::Meta::Value> elems;
+    elems.reserve(pairs.size());
+    for (const auto &kp : pairs) {
+      elems.push_back(std::make_shared<pp::common::Meta>(kp.ltsToMeta()));
+    }
+    return pp::common::Meta::array(std::move(elems));
+  };
+  pp::common::Meta out;
+  out.set("genesis", pairsToMeta(genesis));
+  out.set("fee", pairsToMeta(fee));
+  out.set("reserve", pairsToMeta(reserve));
+  out.set("recycle", pairsToMeta(recycle));
+  return out;
 }
 
 Beacon::Roe<void> Beacon::init(const InitConfig &config) {

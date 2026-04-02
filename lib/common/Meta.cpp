@@ -1,10 +1,53 @@
 #include "Meta.h"
 #include "BinaryPack.hpp"
 
+#include <sstream>
 #include <type_traits>
 #include <utility>
 
 namespace pp::common {
+
+bool Meta::valueEqual(const Value &a, const Value &b) {
+  if (a.index() != b.index()) {
+    return false;
+  }
+  return std::visit(
+      [&](const auto &va) -> bool {
+        using V = std::decay_t<decltype(va)>;
+        const auto *vb = std::get_if<V>(&b);
+        if (!vb) {
+          return false;
+        }
+        if constexpr (std::is_same_v<V, MetaPtr>) {
+          if (!va && !(*vb)) {
+            return true;
+          }
+          if (!va || !(*vb)) {
+            return false;
+          }
+          return *va == **vb;
+        }
+        if constexpr (std::is_same_v<V, ArrayPtr>) {
+          if (!va && !(*vb)) {
+            return true;
+          }
+          if (!va || !(*vb)) {
+            return false;
+          }
+          if (va->elements.size() != (*vb)->elements.size()) {
+            return false;
+          }
+          for (size_t i = 0; i < va->elements.size(); ++i) {
+            if (!valueEqual(va->elements[i], (*vb)->elements[i])) {
+              return false;
+            }
+          }
+          return true;
+        }
+        return va == *vb;
+      },
+      a);
+}
 
 Meta::ValueWire Meta::valueToWire(const Value &v) {
   return std::visit(
@@ -27,6 +70,19 @@ Meta::ValueWire Meta::valueToWire(const Value &v) {
         }
         if constexpr (std::is_same_v<V, MetaPtr>) {
           return {ValueWire::TAG_META, x ? pp::utl::binaryPack(*x) : std::string()};
+        }
+        if constexpr (std::is_same_v<V, ArrayPtr>) {
+          std::ostringstream oss;
+          OutputArchive ar(oss);
+          uint64_t n = x ? x->elements.size() : 0;
+          ar & n;
+          if (x) {
+            for (const auto &el : x->elements) {
+              const ValueWire w = valueToWire(el);
+              ar & w;
+            }
+          }
+          return {ValueWire::TAG_ARRAY, oss.str()};
         }
         return {};
       },
@@ -88,6 +144,33 @@ bool Meta::wireToValue(const Meta::ValueWire &w, std::optional<Value> &out) {
     out = std::move(nested);
     return true;
   }
+  case ValueWire::TAG_ARRAY: {
+    std::istringstream iss(w.payload, std::ios::binary);
+    InputArchive ar(iss);
+    uint64_t n = 0;
+    ar & n;
+    if (ar.failed()) {
+      return false;
+    }
+    auto arr = std::make_shared<Array>();
+    for (uint64_t i = 0; i < n; ++i) {
+      ValueWire elemWire;
+      ar & elemWire;
+      if (ar.failed()) {
+        return false;
+      }
+      std::optional<Value> ev;
+      if (!wireToValue(elemWire, ev)) {
+        return false;
+      }
+      if (!ev) {
+        return false;
+      }
+      arr->elements.push_back(std::move(*ev));
+    }
+    out = ArrayPtr(std::move(arr));
+    return true;
+  }
   default:
     return true;
   }
@@ -122,30 +205,7 @@ bool Meta::operator==(const Meta &other) const {
     }
     const Value &a = itA->second;
     const Value &b = itB->second;
-    if (a.index() != b.index()) {
-      return false;
-    }
-    const bool same = std::visit(
-        [&](const auto &va) -> bool {
-          using V = std::decay_t<decltype(va)>;
-          const auto *vb = std::get_if<V>(&b);
-          if (!vb) {
-            return false;
-          }
-          if constexpr (std::is_same_v<V, MetaPtr>) {
-            if (!va && !(*vb)) {
-              return true;
-            }
-            if (!va || !(*vb)) {
-              return false;
-            }
-            return *va == **vb;
-          } else {
-            return va == *vb;
-          }
-        },
-        a);
-    if (!same) {
+    if (!valueEqual(a, b)) {
       return false;
     }
   }

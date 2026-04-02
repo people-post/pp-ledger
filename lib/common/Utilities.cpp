@@ -226,6 +226,13 @@ constexpr size_t ED25519_SIGNATURE_SIZE = 64;
 
 } // namespace
 
+pp::common::Meta Ed25519KeyPair::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("publicKey", hexEncode(publicKey));
+  m.set("privateKey", hexEncode(privateKey));
+  return m;
+}
+
 pp::Roe<Ed25519KeyPair> ed25519Generate() {
   Ed25519KeyPair pair;
   pair.publicKey.resize(crypto_sign_PUBLICKEYBYTES);

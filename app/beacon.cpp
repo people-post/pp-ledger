@@ -2,6 +2,7 @@
 #include "../server/Beacon.h"
 #include "lib/common/Logger.h"
 #include "lib/common/Utilities.h"
+#include "lib/common/io/Json.h"
 
 #include <cli11.hpp>
 
@@ -31,7 +32,8 @@ int initBeacon(const std::string& workDir) {
   }
   
   std::cout << "Beacon initialized successfully (to reinitialize, edit the init config file and run the same command)\n";
-  std::cout << "Please save the private keys, they are not recoverable: " << result.value().toJson().dump(2) << "\n";
+  std::cout << "Please save the private keys, they are not recoverable: "
+            << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
   std::cout << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
   return 0;
 }

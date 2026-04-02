@@ -163,7 +163,7 @@ Napi::Value ClientWrapper::FetchCalibration(const Napi::CallbackInfo& info) {
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().toJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }
@@ -215,7 +215,7 @@ Napi::Value ClientWrapper::FetchBlock(const Napi::CallbackInfo& info) {
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().toJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }
@@ -235,7 +235,7 @@ Napi::Value ClientWrapper::FetchUserAccount(const Napi::CallbackInfo& info) {
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().toJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }
@@ -268,7 +268,7 @@ Napi::Value ClientWrapper::FetchTransactionsByWallet(const Napi::CallbackInfo& i
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().toJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }
@@ -296,7 +296,7 @@ Napi::Value ClientWrapper::FetchTransactionByIndex(const Napi::CallbackInfo& inf
       errorMessage = result.error().message;
       return false;
     }
-    outJson = result.value().toJson().dump();
+    outJson = pp::common::io::metaToJsonString(result.value().ltsToMeta());
     return true;
   });
 }

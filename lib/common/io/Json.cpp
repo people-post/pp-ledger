@@ -36,6 +36,29 @@ void encodeJsonValuePretty(std::string &o, const Meta::Value &value, int indent,
     metaObjectToStringPretty(o, *p, indent, depth);
     return;
   }
+  if (std::holds_alternative<Meta::ArrayPtr>(value)) {
+    const auto &p = std::get<Meta::ArrayPtr>(value);
+    if (!p) {
+      o += "null";
+      return;
+    }
+    o.push_back('[');
+    if (p->elements.empty()) {
+      o.push_back(']');
+      return;
+    }
+    appendNlIndent(o, indent, depth + 1);
+    for (size_t i = 0; i < p->elements.size(); ++i) {
+      if (i > 0) {
+        o.push_back(',');
+        appendNlIndent(o, indent, depth + 1);
+      }
+      encodeJsonValuePretty(o, p->elements[i], indent, depth + 1);
+    }
+    appendNlIndent(o, indent, depth);
+    o.push_back(']');
+    return;
+  }
   o += encodeJsonValue(value);
 }
 
@@ -144,6 +167,23 @@ std::string encodeJsonValue(const Meta::Value &value) {
             o += encodeJsonValue(val);
           }
           o.push_back('}');
+          return o;
+        }
+        if constexpr (std::is_same_v<V, Meta::ArrayPtr>) {
+          if (!v) {
+            return "null";
+          }
+          std::string o;
+          o.push_back('[');
+          bool first = true;
+          for (const auto &el : v->elements) {
+            if (!first) {
+              o.push_back(',');
+            }
+            first = false;
+            o += encodeJsonValue(el);
+          }
+          o.push_back(']');
           return o;
         }
         return "null";
@@ -368,6 +408,32 @@ private:
       }
       out = std::move(nested);
       return true;
+    }
+    if (c == '[') {
+      ++p_;
+      skipWs();
+      auto arr = std::make_shared<Meta::Array>();
+      if (peek() == ']') {
+        ++p_;
+        out = Meta::ArrayPtr(arr);
+        return true;
+      }
+      for (;;) {
+        Meta::Value elem;
+        if (!parseValue(elem)) {
+          return false;
+        }
+        arr->elements.push_back(std::move(elem));
+        skipWs();
+        if (peek() == ']') {
+          ++p_;
+          out = Meta::ArrayPtr(arr);
+          return true;
+        }
+        if (!consume(',')) {
+          return false;
+        }
+      }
     }
     if (c == 'n' && static_cast<size_t>(end_ - p_) >= 4 &&
         std::string_view(p_, 4) == "null") {

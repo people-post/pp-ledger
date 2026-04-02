@@ -66,110 +66,99 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
   return true;
 }
 
-nlohmann::json Ledger::TxCommon::toJson() const {
-  nlohmann::json j;
-  j["fee"] = fee;
-  j["meta"] = utl::toJsonSafeString(meta);
-  return j;
+pp::common::Meta Ledger::TxCommon::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("fee", fee);
+  m.set("meta", utl::toJsonSafeString(meta));
+  return m;
 }
 
 namespace {
 template <typename TxT>
-void appendIdempotencyJson(nlohmann::json& j, const TxT& tx) {
-  j["idempotentId"] = tx.idempotentId;
-  j["validationTsMin"] = tx.validationTsMin;
-  j["validationTsMax"] = tx.validationTsMax;
+void appendIdempotencyMeta(pp::common::Meta &m, const TxT &tx) {
+  m.set("idempotentId", tx.idempotentId);
+  m.set("validationTsMin", tx.validationTsMin);
+  m.set("validationTsMax", tx.validationTsMax);
 }
 } // namespace
 
-nlohmann::json Ledger::TxIdempotencyWindow::toJson() const {
-  nlohmann::json j;
-  j["idempotentId"] = idempotentId;
-  j["validationTsMin"] = validationTsMin;
-  j["validationTsMax"] = validationTsMax;
-  return j;
+pp::common::Meta Ledger::TxIdempotencyWindow::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("idempotentId", idempotentId);
+  m.set("validationTsMin", validationTsMin);
+  m.set("validationTsMax", validationTsMax);
+  return m;
 }
 
-namespace {
-template <typename TxT>
-nlohmann::json txToJsonWithWalletIds(const TxT& tx) {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(tx).toJson();
-  appendIdempotencyJson(j, tx);
-  j["fromWalletId"] = tx.fromWalletId;
-  j["toWalletId"] = tx.toWalletId;
-  return j;
-}
-} // namespace
-
-nlohmann::json Ledger::TxDefault::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  appendIdempotencyJson(j, *this);
-  j["tokenId"] = tokenId;
-  j["amount"] = amount;
-  j["fromWalletId"] = fromWalletId;
-  j["toWalletId"] = toWalletId;
-  return j;
+pp::common::Meta Ledger::TxDefault::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  m.set("tokenId", tokenId);
+  m.set("amount", amount);
+  m.set("fromWalletId", fromWalletId);
+  m.set("toWalletId", toWalletId);
+  return m;
 }
 
-nlohmann::json Ledger::TxGenesis::toJson() const {
-  return static_cast<const Ledger::TxCommon&>(*this).toJson();
+pp::common::Meta Ledger::TxGenesis::ltsToMeta() const {
+  return static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
 }
 
-nlohmann::json Ledger::TxNewUser::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  appendIdempotencyJson(j, *this);
-  j["amount"] = amount;
-  j["fromWalletId"] = fromWalletId;
-  j["toWalletId"] = toWalletId;
-  return j;
+pp::common::Meta Ledger::TxNewUser::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  m.set("amount", amount);
+  m.set("fromWalletId", fromWalletId);
+  m.set("toWalletId", toWalletId);
+  return m;
 }
 
-nlohmann::json Ledger::TxConfig::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  appendIdempotencyJson(j, *this);
-  return j;
+pp::common::Meta Ledger::TxConfig::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  return m;
 }
 
-nlohmann::json Ledger::TxUserUpdate::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  appendIdempotencyJson(j, *this);
-  j["walletId"] = walletId;
-  return j;
+pp::common::Meta Ledger::TxUserUpdate::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  m.set("walletId", walletId);
+  return m;
 }
 
-nlohmann::json Ledger::TxRenewal::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  j["walletId"] = walletId;
-  return j;
+pp::common::Meta Ledger::TxRenewal::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  m.set("walletId", walletId);
+  return m;
 }
 
-nlohmann::json Ledger::TxEndUser::toJson() const {
-  nlohmann::json j = static_cast<const Ledger::TxCommon&>(*this).toJson();
-  j["walletId"] = walletId;
-  return j;
+pp::common::Meta Ledger::TxEndUser::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  m.set("walletId", walletId);
+  return m;
 }
 
-nlohmann::json Ledger::Record::toJson() const {
-  nlohmann::json j;
-  j["type"] = transactionTypeToHumanString(type);
-  j["typeId"] = type;
+pp::common::Meta Ledger::Record::ltsToMeta() const {
+  pp::common::Meta j;
+  j.set("type", std::string(transactionTypeToHumanString(type)));
+  j.set("typeId", static_cast<uint64_t>(type));
 
-  // Unpack the typed transaction payload into structured JSON.
-  // If unpack fails (corrupt/unknown payload), fall back to JSON-safe string.
   auto txRoe = decode();
   if (txRoe) {
-    j["data"] = std::visit(
-        [](const auto& tx) -> nlohmann::json { return tx.toJson(); },
+    const pp::common::Meta dataMeta = std::visit(
+        [](const auto &tx) -> pp::common::Meta { return tx.ltsToMeta(); },
         txRoe.value());
+    j.set("data", dataMeta);
   } else {
-    j["data"] = utl::toJsonSafeString(data);
+    j.set("data", utl::toJsonSafeString(data));
   }
 
-  nlohmann::json sigArray = nlohmann::json::array();
-  for (const auto& sig : signatures) {
-    sigArray.push_back(utl::toJsonSafeString(sig));
+  std::vector<pp::common::Meta::Value> sigVals;
+  sigVals.reserve(signatures.size());
+  for (const auto &sig : signatures) {
+    sigVals.push_back(utl::toJsonSafeString(sig));
   }
-  j["signatures"] = sigArray;
+  j.set("signatures", pp::common::Meta::array(std::move(sigVals)));
   return j;
 }
 
@@ -238,29 +227,29 @@ Ledger::Record::decode() const {
   }
 }
 
-nlohmann::json Ledger::Block::toJson() const {
-  nlohmann::json j;
-  j["index"] = index;
-  j["timestamp"] = utl::formatTimestampLocal(timestamp);
-  j["previousHash"] = utl::toJsonSafeString(previousHash);
-  j["nonce"] = nonce;
-  j["slot"] = slot;
-  j["slotLeader"] = slotLeader;
-  j["startingTxIndex"] = txIndex;
+pp::common::Meta Ledger::Block::ltsToMeta() const {
+  pp::common::Meta j;
+  j.set("index", index);
+  j.set("timestamp", utl::formatTimestampLocal(timestamp));
+  j.set("previousHash", utl::toJsonSafeString(previousHash));
+  j.set("nonce", nonce);
+  j.set("slot", slot);
+  j.set("slotLeader", slotLeader);
+  j.set("startingTxIndex", txIndex);
 
-  nlohmann::json recArray = nlohmann::json::array();
-  for (const auto& rec : records) {
-    recArray.push_back(rec.toJson());
+  std::vector<pp::common::Meta::Value> recVals;
+  recVals.reserve(records.size());
+  for (const auto &rec : records) {
+    recVals.push_back(std::make_shared<pp::common::Meta>(rec.ltsToMeta()));
   }
-  j["records"] = recArray;
-  
+  j.set("records", pp::common::Meta::array(std::move(recVals)));
   return j;
 }
 
-nlohmann::json Ledger::ChainNode::toJson() const {
-  nlohmann::json j;
-  j["hash"] = utl::toJsonSafeString(hash);
-  j["block"] = block.toJson();
+pp::common::Meta Ledger::ChainNode::ltsToMeta() const {
+  pp::common::Meta j;
+  j.set("hash", utl::toJsonSafeString(hash));
+  j.set("block", block.ltsToMeta());
   return j;
 }
 

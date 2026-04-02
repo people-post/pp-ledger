@@ -5,6 +5,7 @@
 
 #include "../consensus/Ouroboros.h"
 #include "../ledger/Ledger.h"
+#include "lib/common/Meta.h"
 #include "lib/common/Module.h"
 #include "lib/common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
@@ -49,7 +50,7 @@ public:
     std::vector<utl::Ed25519KeyPair> reserve;
     std::vector<utl::Ed25519KeyPair> recycle;
 
-    nlohmann::json toJson() const;
+    pp::common::Meta ltsToMeta() const;
   };
 
   struct InitConfig {
