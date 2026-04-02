@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string_view>
+#include <variant>
 
 namespace pp::common::io {
 namespace {
@@ -14,6 +15,54 @@ void appendEscapedJsonString(std::string &out, std::string_view s);
 
 // Forward — mutual recursion with metaToJsonString for nested Meta.
 std::string encodeJsonValue(const Meta::Value &value);
+
+void appendNlIndent(std::string &o, int indent, int depth) {
+  o.push_back('\n');
+  if (indent > 0 && depth > 0) {
+    o.append(static_cast<size_t>(indent * depth), ' ');
+  }
+}
+
+void metaObjectToStringPretty(std::string &o, const Meta &m, int indent, int depth);
+
+void encodeJsonValuePretty(std::string &o, const Meta::Value &value, int indent,
+                           int depth) {
+  if (std::holds_alternative<Meta::MetaPtr>(value)) {
+    const auto &p = std::get<Meta::MetaPtr>(value);
+    if (!p) {
+      o += "null";
+      return;
+    }
+    metaObjectToStringPretty(o, *p, indent, depth);
+    return;
+  }
+  o += encodeJsonValue(value);
+}
+
+void metaObjectToStringPretty(std::string &o, const Meta &m, int indent, int depth) {
+  o.push_back('{');
+  const auto &entries = m.entries();
+  if (entries.empty()) {
+    o.push_back('}');
+    return;
+  }
+  auto it = entries.begin();
+  const auto end = entries.end();
+  appendNlIndent(o, indent, depth + 1);
+  for (;;) {
+    appendEscapedJsonString(o, it->first);
+    o += ": ";
+    encodeJsonValuePretty(o, it->second, indent, depth + 1);
+    ++it;
+    if (it == end) {
+      break;
+    }
+    o.push_back(',');
+    appendNlIndent(o, indent, depth + 1);
+  }
+  appendNlIndent(o, indent, depth);
+  o.push_back('}');
+}
 
 void appendEscapedJsonString(std::string &out, std::string_view s) {
   out.push_back('"');
@@ -347,20 +396,25 @@ private:
 
 } // namespace
 
-std::string metaToJsonString(const Meta &m) {
-  std::string o;
-  o.push_back('{');
-  bool first = true;
-  for (const auto &[k, v] : m.entries()) {
-    if (!first) {
-      o.push_back(',');
+std::string metaToJsonString(const Meta &m, int indent) {
+  if (indent < 0) {
+    std::string o;
+    o.push_back('{');
+    bool first = true;
+    for (const auto &[k, v] : m.entries()) {
+      if (!first) {
+        o.push_back(',');
+      }
+      first = false;
+      appendEscapedJsonString(o, k);
+      o.push_back(':');
+      o += encodeJsonValue(v);
     }
-    first = false;
-    appendEscapedJsonString(o, k);
-    o.push_back(':');
-    o += encodeJsonValue(v);
+    o.push_back('}');
+    return o;
   }
-  o.push_back('}');
+  std::string o;
+  metaObjectToStringPretty(o, m, indent, 0);
   return o;
 }
 

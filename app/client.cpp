@@ -62,11 +62,9 @@ static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin
   validationTsMax = now + 3600;
 }
 
-using json = nlohmann::json;
-
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Current Timestamp: " << pp::utl::formatTimestampLocal(status.currentTimestamp) << "\n";
-  std::cout << json::parse(pp::common::io::metaToJsonString(status.ltsToMeta())).dump(2) << "\n";
+  std::cout << pp::common::io::metaToJsonString(status.ltsToMeta(), 2) << "\n";
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
@@ -554,8 +552,7 @@ int main(int argc, char *argv[]) {
   else if (beacon_status->parsed() && connectToMiner) {
     auto result = client.fetchMinerStatus();
     if (result) {
-      std::cout << json::parse(pp::common::io::metaToJsonString(result.value().ltsToMeta())).dump(2)
-                << "\n";
+      std::cout << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
     } else {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
