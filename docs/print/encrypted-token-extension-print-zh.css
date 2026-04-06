@@ -1,0 +1,9 @@
+/* Encrypted token doc (简体中文) — screen + print; extends design-print.css */
+@import "design-print.css";
+
+:root {
+  --font-sans: "Noto Sans CJK SC", "Noto Sans CJK TC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Noto Serif CJK SC", "Noto Sans CJK SC", serif;
+  /* Slightly roomier line height for mixed Latin / CJK */
+  --line-height: 1.65;
+}

@@ -14,6 +14,20 @@ Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P) to print. Layout is
 
 For **Chinese (简体中文)** use `design-zh.md` instead of `design.md`; the same diagram images are reused. Requires Noto CJK fonts: `sudo apt install fonts-noto-cjk`.
 
+### Encrypted token extension (简体中文 only)
+
+From **`docs/`**:
+
+```bash
+cd docs
+pandoc encrypted-token-extension-zh.md -o encrypted-token-extension-zh.html \
+  --standalone \
+  --css=print/encrypted-token-extension-print-zh.css \
+  -V lang=zh-CN
+```
+
+Open `encrypted-token-extension-zh.html` in a browser. Use **File → Print** (or Ctrl/Cmd+P) to print or **Save as PDF**. Layout uses `print/encrypted-token-extension-print-zh.css` (imports `design-print.css` and sets Noto CJK fonts). Edit `:root` in either file to adjust margins and typography.
+
 To re-render the diagram images (requires Node and `@mermaid-js/mermaid-cli`):
 
 ```bash

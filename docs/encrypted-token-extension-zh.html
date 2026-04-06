@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="description" content="设计说明（对外版）" />
+  <title>加密代币扩展：账户模型上的门罗式隐私</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="print/encrypted-token-extension-print-zh.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">加密代币扩展：账户模型上的门罗式隐私</h1>
+</header>
+<h2 id="摘要">摘要</h2>
+<p>本文说明一项 <strong>加密代币（encrypted token）</strong>
+扩展：在保持 <strong>账户模型</strong> 与
+<strong>基于检查点的待处理交易过期机制</strong> 的前提下，力争实现接近
+<strong>门罗（Monero）</strong> 的隐私效果——对外隐藏
+<strong>发送方、接收方与金额</strong>；同时引入
+<strong>后量子（PQ）加固</strong>。交易有效性由
+<strong>zk-STARK</strong> 类零知识证明（零知识栈路与 Starknet
+等生态相近）承担校验，使网络能在 <strong>不暴露敏感明文</strong>
+的情况下验证规则是否被遵守。文中亦提及 <strong>AI 托管钱包</strong> 作为
+<strong>可选路径</strong>，供 <strong>极高净值</strong> 用户
+<strong>高效管理大量账户</strong>，在单账户隐私之外进一步降低
+<strong>总财富规模</strong> 的可推断性。</p>
+<p>下文面向需要理解产品形态与取舍、但无需深入密码学细节的读者。</p>
+<hr />
+<h2 id="我们要做什么">1. 我们要做什么</h2>
+<h3 id="目标">目标</h3>
+<p>在默认情况下，实现一类代币，使得：</p>
+<ul>
+<li><strong>难以</strong>按常规方式从链上公开信息
+<strong>识别付款人</strong><br />
+</li>
+<li><strong>难以</strong>将收款行为
+<strong>公开对应到明确的「链上收款地址」</strong><br />
+</li>
+<li><strong>链上不可见</strong> 实际 <strong>转账金额</strong></li>
+</ul>
+<p>与此同时，网络仍须强制执行：<strong>授权合法、价值守恒、无双花</strong>，并符合既有账本规则。</p>
+<h3 id="意义何在">意义何在</h3>
+<p>强隐私适用于支付、薪酬、商户结算与财库管理等场景——在这些场景中，<strong>余额与资金流向的公开可见</strong>
+往往构成风险。若再叠加
+<strong>面向后量子的设计取向</strong>，则更符合量子计算逐步成熟背景下，对
+<strong>长期安全性</strong> 的预期。</p>
+<h3 id="超高净值场景ai-托管钱包与多账户策略">超高净值场景：AI
+托管钱包与多账户策略</h3>
+<p>对 <strong>极高净值</strong>
+的个人与机构而言，在密码学隐私之外，实务上还可通过
+<strong>将财富分散到大量账户</strong>，使 <strong>单一链上头寸</strong>
+难以反推
+<strong>总财富规模</strong>。人工运维成百上千个账户几乎不可行。<strong>AI
+托管钱包</strong>（由智能体辅助的托管软件：密钥与授权管理、私密收款发现、检查点与过期节奏下的调度、跨账户路径规划等）有望使
+<strong>大规模多账户隐私运营</strong> 在工程上
+<strong>可负担、可审计（在许可范围内）</strong>。协议层
+<strong>并不强制</strong> 这一形态；它是在协议之上的 <strong>可选
+custody
+模式</strong>：每个账户仍适用同一套隐私规则，由智能体在合规与策略边界内
+<strong>高效编排</strong> 多账户。</p>
+<hr />
+<h2 id="设计支柱隐私形态zk-stark-校验pq-kem">2.
+设计支柱：隐私形态、zk-STARK 校验、PQ KEM</h2>
+<h3 id="门罗式隐私概念层">门罗式隐私（概念层）</h3>
+<p>门罗通过组合多种机制，使观察者难以可靠关联
+<strong>发送方、接收方与金额</strong>。我们追求
+<strong>相近的用户侧隐私体验</strong>，并针对 <strong>账户模型</strong>
+做必要改写（见第 4 节）。</p>
+<h3 id="zk-stark">zk-STARK</h3>
+<p>我们采用 <strong>zk-STARK</strong> 类证明，使验证者能够确认：</p>
+<ul>
+<li>交易符合协议规则<br />
+</li>
+<li>发送方具备合法授权<br />
+</li>
+<li>余额关系成立（无负余额、无双花）</li>
+</ul>
+<p>……而 <strong>无需</strong> 在链上明文发布发送方、接收方与金额。</p>
+<p><strong>为何 zk-STARK 在此有吸引力</strong></p>
+<ul>
+<li><strong>无可信初始化（trusted
+setup）</strong>：有利于采用与信任建立。<br />
+</li>
+<li><strong>证明假设与后量子方向相容：</strong> STARK 类系统主要建立在
+<strong>哈希</strong>
+与相关代数组件之上，<strong>不像基于椭圆曲线离散对数</strong> 的许多
+SNARK 那样，面临 <strong>Shor 算法</strong> 路径下的典型威胁；从而使
+<strong>零知识层</strong> 与 <strong>后量子威胁模型</strong>
+更一致，并与下文用于加密与密钥协商的 <strong>PQ KEM</strong>
+形成互补。<br />
+</li>
+<li><strong>工具链与生态</strong> 成熟、演进快。<br />
+</li>
+<li><strong>可扩展验证</strong> 路径清晰（聚合、优化验证器等）。</li>
+</ul>
+<h3 id="pq-kem后量子密钥封装">PQ KEM（后量子密钥封装）</h3>
+<p>经典椭圆曲线在未来量子攻击面前可能不再安全。<strong>PQ KEM</strong>
+用于增强与隐私相关的
+<strong>加密与密钥协商</strong>，以覆盖该类威胁。</p>
+<p><strong>定位：</strong> 隐私设计
+<strong>主动面向后量子威胁模型</strong>，而非仅假设经典对手。</p>
+<hr />
+<h2 id="账户模型检查点与过期">3. 账户模型、检查点与过期</h2>
+<p>我们仍采用 <strong>账户模型</strong>（余额归属账户），由此获得：</p>
+<ul>
+<li>语义直观，与常见「账户—余额」心智模型一致<br />
+</li>
+<li>与现有账本及集成方式 <strong>对齐</strong><br />
+</li>
+<li>相较彻底改造为纯
+UTXO，<strong>应用与交易所对接成本更低</strong></li>
+</ul>
+<h3
+id="为何坚持账户模型含密钥生命周期">为何坚持账户模型（含密钥生命周期）</h3>
+<p>授权锚定在 <strong>账户</strong>
+上，而非无限膨胀的「一次性硬币」关系图。这种结构有利于
+<strong>密钥轮换与升级</strong>：</p>
+<ul>
+<li>用户可通过 <strong>账户级更新</strong>
+将控制权迁移到新密钥（例如泄露后的应急、合规策略调整，或
+<strong>后量子迁移</strong>），而不必对
+<strong>大量历史输出逐一归集（sweep）</strong>，或沿漫长 UTXO
+历史追踪资金。<br />
+</li>
+<li>钱包与托管流程可统一在
+<strong>「当前由哪套密钥材料授权该账户」</strong>
+这一表述上，比「每笔历史收款输出都要单独迁移」更易理解与操作。</li>
+</ul>
+<p>隐私层仍需隐藏资金流与金额；关键在于
+<strong>「谁有权花费」在账本层面保持以账户为中心</strong>，从而在密码学迭代时，
+<strong>运维级密钥管理</strong> 仍可承受。</p>
+<h3 id="检查点与悬置交易">检查点与悬置交易</h3>
+<p>协议引入 <strong>检查点</strong>。某一检查点
+<strong>最终确定（finalized）</strong> 之后，在此之前
+<strong>始终未能完成结算</strong> 的较早交易（可称为
+<strong>悬置</strong>、陈旧待处理）将 <strong>过期失效</strong>。</p>
+<p><strong>这样做的直接收益</strong></p>
+<ul>
+<li>为与隐私相关的 <strong>待处理状态</strong>
+设上限，避免无限堆积<br />
+</li>
+<li>使节点的资源占用（内存、校验负载） <strong>更可预期</strong><br />
+</li>
+<li>压缩因 <strong>无限期积压</strong> 或 <strong>重放类博弈</strong>
+带来的滥用面</li>
+</ul>
+<h3
+id="为何采用基于检查点的过期链上数据与成本">为何采用「基于检查点的过期」（链上数据与成本）</h3>
+<p>时间上的边界使协议
+<strong>只需保留验证者当前仍须强制执行的那部分状态</strong>。隐私方案往往依赖额外结构（如防重放
+/ 空值器集合、待处理缓冲等）。若无检查点，这类 <strong>辅助状态</strong>
+可能随 <strong>整条链的完整历史</strong> 持续增长。</p>
+<p>检查点 <strong>收窄</strong> 为正确性必须
+<strong>长期保持「活跃」</strong> 的状态范围，从而倾向于：</p>
+<ul>
+<li><strong>缩小</strong> 节点校验与同步所需的
+<strong>工作集</strong>——不必永久背负历史上每一笔未决意图<br />
+</li>
+<li><strong>降低</strong> 需要追赶进度或精简部署的运营方的
+<strong>存储与带宽</strong><br />
+</li>
+<li>相较「每一种隐私相关痕迹都须无限期可重放」的设计，
+<strong>稳态性能更优、运行成本更低</strong></li>
+</ul>
+<p>综合来看：<strong>账户模型</strong>（当前授权与余额表达紧凑）与
+<strong>检查点范围内的状态保留</strong>（过期陈旧工作）共同指向
+<strong>长期更轻的链上负担</strong>，优于「所有隐私细节都必须永久可重放」的极端形态。</p>
+<hr />
+<h2 id="在账户语义下隐藏发送方金额与接收方">4.
+在账户语义下隐藏发送方、金额与接收方</h2>
+<p>我们仍希望对外隐藏 <strong>发送方、金额、接收方</strong>，但
+<strong>接收侧机制</strong> 与经典 UTXO
+不同：不存在形态相同的「新输出硬币」；入账体现为
+<strong>账户余额变更</strong>。</p>
+<h3 id="行为概要非技术表述">行为概要（非技术表述）</h3>
+<ul>
+<li>发送方构造的交易包含
+<strong>与接收方相关的密文</strong>，以及证明该入账在协议下合法的
+<strong>零知识证明</strong>。<br />
+</li>
+<li>接收方凭私密信息 <strong>发现并入账</strong> 转入，而链上
+<strong>不必</strong> 以传统方式公开标注「谁收款」。<br />
+</li>
+<li>链依赖 <strong>证明校验</strong>
+与协议规则，而非明文金额与地址。</li>
+</ul>
+<p>这是工程与密码学上的 <strong>主战场</strong>：在账户模型下，把
+<strong>收款发现、记账正确性与防滥用</strong> 同时做对。</p>
+<hr />
+<h2 id="取舍与代价">5. 取舍与代价</h2>
+<p>隐私与后量子取向 <strong>有真实成本</strong>，需有预期：</p>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 77%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>方面</th>
+<th>典型影响</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>手续费 / 计算</strong></td>
+<td>高于普通转账：证明生成与验证均增加工作量</td>
+</tr>
+<tr class="even">
+<td><strong>交易体积</strong></td>
+<td>更大（密文、证明、辅助数据）</td>
+</tr>
+<tr class="odd">
+<td><strong>节点内存</strong></td>
+<td>额外结构（如类 key image 的双花防护状态等），由矿工 /
+验证者持有或管理</td>
+</tr>
+<tr class="even">
+<td><strong>系统复杂度</strong></td>
+<td>电路、PQ 集成、钱包体验、审计等环节更多</td>
+</tr>
+</tbody>
+</table>
+<p>这是隐私领域的常见权衡：<strong>保密强度 ↔︎
+成本与运维复杂度</strong>。</p>
+<hr />
+<h2 id="补充产品线半隐私代币">6. 补充产品线：「半隐私」代币</h2>
+<p><strong>完全隐私</strong>
+并非适合每一位用户或每一个组织。部分主体——财库与财务、董事会、监管与合作方，或个人用户——在希望
+<strong>转账过程不公开</strong> 的同时，对
+<strong>余额与头寸长期完全不可见</strong>
+仍心存顾虑。针对这一群体，我们定义 <strong>补充型</strong>
+代币类别：与主打的 <strong>全隐私加密代币并行存在</strong>，用于
+<strong>用户分层与场景覆盖</strong>，而非主产品交付受阻时的替代或退路。</p>
+<h3 id="定义">定义</h3>
+<ul>
+<li><strong>转账侧</strong> 仍保持隐私：普通链上观察者
+<strong>看不到</strong> 经典意义上的发送方 / 接收方 /
+金额透明展示；<br />
+</li>
+<li>但 <strong>账户余额</strong> 按 <strong>固定节奏</strong>
+披露（例如按轮次 epoch 或滚动时间窗）。</li>
+</ul>
+<h3 id="为何单独提供">为何单独提供</h3>
+<ul>
+<li>在 <strong>最强保密</strong> 与 <strong>余额层面的有限透明</strong>
+之间提供
+<strong>明确可选</strong>，无需在「要么全隐、要么全透明」之间二选一。<br />
+</li>
+<li>便于与 <strong>治理、审计、合规</strong> 等需要
+<strong>周期性可见账户或汇总头寸</strong> 的流程衔接。<br />
+</li>
+<li>满足需要 <strong>可解释的隐私</strong> 的团队：
+<strong>资金流私密</strong>，同时以 <strong>固定节奏</strong> 澄清
+<strong>余额层面</strong> 的关切。</li>
+</ul>
+<p>这是 <strong>产品线延展</strong>，不是备用方案：半隐私代币覆盖
+<strong>若仅有全隐私则会却步</strong>
+的客群；全隐私代币仍是面向追求极致保密用户的
+<strong>主力形态</strong>。</p>
+<hr />
+<h2 id="工程范围难度与重点">7. 工程范围：难度与重点</h2>
+<h3 id="难度量级粗估">难度量级（粗估）</h3>
+<table>
+<thead>
+<tr class="header">
+<th>维度</th>
+<th>判断</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>研发与协议设计</td>
+<td>高</td>
+</tr>
+<tr class="even">
+<td>工程实现</td>
+<td>高</td>
+</tr>
+<tr class="odd">
+<td>运行侧（内存、校验负载）</td>
+<td>中高</td>
+</tr>
+<tr class="even">
+<td>外部评审</td>
+<td>生产级上线前 <strong>必不可少</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="重点领域">重点领域</h3>
+<ol type="1">
+<li><strong>密码学与协议</strong></li>
+</ol>
+<ul>
+<li>正确性：不可链接性、机密性、账户模型隐私下的双花防范<br />
+</li>
+<li>边界清晰：PQ KEM 覆盖什么、其余依赖何种假设</li>
+</ul>
+<ol start="2" type="1">
+<li><strong>零知识栈</strong></li>
+</ol>
+<ul>
+<li>证明端性能（钱包、批处理）<br />
+</li>
+<li>验证端性能（节点）<br />
+</li>
+<li>证明体积与可能的聚合</li>
+</ul>
+<ol start="3" type="1">
+<li><strong>账本规则与检查点</strong></li>
+</ol>
+<ul>
+<li>过期语义安全（避免误伤资金；钱包行为清晰）<br />
+</li>
+<li>检查点与终局、重组假设的一致性</li>
+</ul>
+<ol start="4" type="1">
+<li><strong>状态与内存</strong></li>
+</ol>
+<ul>
+<li>类 key image 集合、剪枝与抗 DoS<br />
+</li>
+<li>增长上限与最坏路径校验</li>
+</ul>
+<ol start="5" type="1">
+<li><strong>钱包与体验</strong></li>
+</ol>
+<ul>
+<li>私密收款发现在真实设备上可行<br />
+</li>
+<li>恢复、备份与检查点 / 过期提示<br />
+</li>
+<li><strong>AI 辅助托管（可选产品形态）：</strong>
+为超高净值用户安全编排 <strong>大量账户</strong>，支持以
+<strong>头寸分散</strong> 降低 <strong>总财富</strong>
+的可推断性，并在需要时保留策略与审计接口</li>
+</ul>
+<ol start="6" type="1">
+<li><strong>保障措施</strong></li>
+</ol>
+<ul>
+<li>规格化测试、解析与验证路径模糊测试；主网级发布前的
+<strong>第三方密码审计</strong></li>
+</ul>
+<hr />
+<h2 id="要点归纳">8. 要点归纳</h2>
+<ul>
+<li><strong>差异化：</strong> 门罗式隐私目标 + <strong>zk-STARK</strong>
+验证 + <strong>后量子取向</strong> 的密钥建立，组合少见。<br />
+</li>
+<li><strong>与栈一致：</strong> 坚持
+<strong>账户模型</strong>，延续平台方向与集成习惯。<br />
+</li>
+<li><strong>成本诚实：</strong>
+相较透明转账，<strong>手续费更高、交易更大、节点内存压力更大</strong>——强隐私的常见代价。<br />
+</li>
+<li><strong>产品线：</strong> <strong>半隐私</strong> 作为
+<strong>补充产品</strong>，服务希望转账私密、但愿意
+<strong>按约定节奏披露余额</strong>
+的用户与机构（治理、监督、合规等），与全隐私主打的代币
+<strong>并行</strong>。<br />
+</li>
+<li><strong>规模化托管：</strong> <strong>AI 托管钱包</strong> 可在
+<strong>单账户密码学隐私</strong> 之上，落实
+<strong>多账户、分散头寸</strong> 策略，使 <strong>总体财富规模</strong>
+更难从链上推断。<br />
+</li>
+<li><strong>落地关键：</strong>
+证明性能、账户模型下的接收侧设计、状态增长与
+<strong>严格安全评审</strong> 决定成败。</li>
+</ul>
+</body>
+</html>
