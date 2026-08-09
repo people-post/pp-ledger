@@ -3,6 +3,7 @@
   "keys": ["/data/key.txt"],
   "host": "0.0.0.0",
   "port": 8518,
+  "dhtPort": 0,
   "beacons": [
     {
       "host": "relay",

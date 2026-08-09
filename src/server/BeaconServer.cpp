@@ -311,22 +311,13 @@ BeaconServer::init(const std::string &workDir) {
 
   std::filesystem::path workDirPath(workDir);
   std::filesystem::path initConfigPath = workDirPath / FILE_INIT_CONFIG;
-  std::filesystem::path signaturePath = workDirPath / FILE_SIGNATURE;
 
-  if (std::filesystem::exists(workDirPath)) {
-    if (!std::filesystem::exists(signaturePath)) {
-      return Error("Work directory not recognized, please remove it manually "
-                   "and try again");
-    }
-  } else {
-    // Create work directory if it doesn't exist (to write config file)
-    std::filesystem::create_directories(workDirPath);
-    // Create signature file to mark work directory as recognized
-    auto result = utl::writeToNewFile(signaturePath.string(), "");
-    if (!result) {
-      return Error("Failed to create signature file: " +
-                   result.error().message);
-    }
+  auto ensured = ensureWorkDirectory(workDir, FILE_SIGNATURE);
+  if (!ensured) {
+    return Error(ensured.error().code, ensured.error().message);
+  }
+  if (!std::filesystem::exists(workDirPath / FILE_INIT_CONFIG) &&
+      !std::filesystem::exists(workDirPath / FILE_CONFIG)) {
     log().info << "Created work directory: " << workDir;
   }
 

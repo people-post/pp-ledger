@@ -35,8 +35,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libsodium23 \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 10001 --shell /usr/sbin/nologin pp
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder \
     /src/build/app/pp-beacon \
@@ -46,7 +45,8 @@ COPY --from=builder \
     /src/build/app/pp-http \
     /usr/local/bin/
 
-USER pp
+# Run as root by default so bind-mounted data dirs are writable without a
+# host-side chown. Tighten with --user / securityContext in production if needed.
 WORKDIR /data
 
 # Select a role at runtime, e.g.:
