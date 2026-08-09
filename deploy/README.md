@@ -23,7 +23,7 @@ cp configs/beacon/config.json data/beacon/config.json
 docker compose up -d
 
 curl -s http://localhost:8080/api/beacon/state
-docker compose exec http pp-client -h relay:8519 -b status
+docker compose exec http pp-client --host relay:8519 -b status
 ```
 
 Override the image while developing:
