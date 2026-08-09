@@ -30,8 +30,8 @@ See `.github/workflows/README.md` and `deploy/README.md` for details.
 The workflow installs:
 - **build-essential**: GCC, make, and other build tools
 - **cmake**: Build system generator
-- **libsodium-dev**: Libsodium cryptography library
-- **nlohmann-json3-dev**: JSON library for C++
+
+JSON and libsodium are vendored under `src/lib/json` and `src/lib/sodium`.
 
 ## Running Locally
 
@@ -42,9 +42,7 @@ To build the project locally:
 sudo apt-get update
 sudo apt-get install -y \
     build-essential \
-    cmake \
-    libsodium-dev \
-    nlohmann-json3-dev
+    cmake
 
 # Configure and build
 mkdir build && cd build

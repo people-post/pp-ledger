@@ -9,30 +9,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 
-# Treat warnings as errors
-add_compile_options(-Werror)
-
-# Find Libsodium (required for cryptographic operations)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SODIUM REQUIRED libsodium)
-
-# Test build option (default OFF) - gtest only fetched when enabled
+# Test build option (default OFF) - uses vendored googletest under third_party/
 option(BUILD_TESTING "Build the testing tree" OFF)
 
 if(BUILD_TESTING)
-  include(FetchContent)
-  FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0
-  )
   # For Windows: Prevent overriding the parent project's compiler/linker settings
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  add_subdirectory(third_party/googletest EXCLUDE_FROM_ALL)
   enable_testing()
 endif()
 
 # Root of the source tree (headers use paths like "lib/common/Logger.h")
 set(PP_SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
+# Apply -Werror only to project sources (not third_party / vendored deps).
 add_subdirectory(src)

@@ -12,12 +12,10 @@ The following **system packages** must be present (pre-installed in the VM snaps
 
 - `build-essential`, `g++` (GCC 13+)
 - `cmake` (3.15+)
-- `libsodium-dev`
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
-- `pkg-config`
 
-`nlohmann-json3-dev` is optional (CMake FetchContent downloads it automatically).
+JSON and libsodium are **vendored** under `src/lib/json` and `src/lib/sodium` — do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time).
 
 ### Build
 
@@ -42,7 +40,7 @@ clang-tidy -p build src/lib/**/*.cpp src/consensus/*.cpp src/ledger/*.cpp \
  src/network/*.cpp src/chain/*.cpp src/server/*.cpp src/client/*.cpp src/app/*.cpp
 ```
 
-The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`src/lib/http/httplib.h`) is excluded via the header filter.
+The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code under `src/lib/{http,json,cli,sodium}` is excluded via the header filter.
 
 ### Tests
 

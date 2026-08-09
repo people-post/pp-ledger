@@ -35,8 +35,8 @@ make -j$(nproc)
 ```
 
 - C++20, GCC 13+ or Clang 12+, CMake 3.15+
-- Required: `libsodium-dev`, `build-essential`, `pkg-config`, `libstdc++-14-dev`
-- Optional: `nlohmann-json3-dev` (auto-downloaded via FetchContent if absent)
+- Required: `build-essential`, `libstdc++-14-dev` (for Clang)
+- Vendored: `src/lib/json` (nlohmann/json), `src/lib/sodium` (libsodium 1.0.20 static)
 - HTTP server: add `-DBUILD_HTTP=ON`
 
 ## Test

@@ -25,22 +25,12 @@ target_include_directories(pp_lib PUBLIC
     ${PP_SRC_DIR}
 )
 
-# Find Libsodium (required for cryptographic operations in Utilities.cpp)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SODIUM REQUIRED libsodium)
-
-# Link dependencies with PUBLIC to automatically propagate to dependents
-# This ensures any target linking to pp_lib automatically gets:
-# - pp_lib headers (via include directories)
-# - Libsodium library and headers
+# Link dependencies with PUBLIC to automatically propagate to dependents:
+# - vendored nlohmann/json headers
+# - vendored libsodium (static)
 target_link_libraries(pp_lib PUBLIC
-    ${SODIUM_LIBRARIES}
     nlohmann_json::nlohmann_json
-)
-
-# Add Libsodium include directories
-target_include_directories(pp_lib PUBLIC
-    ${SODIUM_INCLUDE_DIRS}
+    sodium::sodium
 )
 
 # Add tests subdirectory if testing is enabled

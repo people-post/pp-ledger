@@ -13,7 +13,7 @@ Checks: >
 
 WarningsAsErrors: ''
 
-# Lint project code under src/* except vendored CLI11 (src/lib/cli/include) and nlohmann/json (src/lib/json/include).
-HeaderFilterRegex: '^.*/src/(?:lib/(?!(?:cli|json)/include(?:/|$))|consensus|ledger|network|chain|server|client|app)/.*'
+# Lint project code under src/* except vendored CLI11, nlohmann/json, and libsodium.
+HeaderFilterRegex: '^.*/src/(?:lib/(?!(?:cli|json)/include(?:/|$)|sodium(?:/|$)|http(?:/|$))|consensus|ledger|network|chain|server|client|app)/.*'
 
 FormatStyle: none

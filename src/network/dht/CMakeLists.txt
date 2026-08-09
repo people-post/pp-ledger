@@ -14,12 +14,7 @@ target_include_directories(pp_dht
 # User implementations use libsodium (dht_random_bytes) and need socket headers
 target_link_libraries(pp_dht
     PUBLIC
-        ${SODIUM_LIBRARIES}
-)
-
-target_include_directories(pp_dht
-    PUBLIC
-        ${SODIUM_INCLUDE_DIRS}
+        sodium::sodium
 )
 
 # C only: no C++ standard

@@ -1,4 +1,5 @@
 # Match GitHub Actions CI (ubuntu-latest → Ubuntu 24.04 / noble).
+# JSON and libsodium are vendored under src/lib/; no crypto/json system packages needed.
 FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -8,9 +9,6 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         cmake \
-        libsodium-dev \
-        nlohmann-json3-dev \
-        pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -34,7 +32,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        libsodium23 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder \
