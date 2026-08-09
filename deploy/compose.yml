@@ -1,0 +1,58 @@
+# Sample single-host stack: Beacon → Relay → Miner → HTTP API
+#
+# See deploy/README.md for init and first-start steps.
+#
+# Image: set PP_LEDGER_IMAGE to a local tag while developing, or a GHCR release tag in production.
+
+name: pp-ledger
+
+x-image: &image ${PP_LEDGER_IMAGE:-ghcr.io/people-post/pp-ledger:latest}
+
+services:
+  beacon:
+    image: *image
+    command: ["pp-beacon", "-d", "/data"]
+    volumes:
+      - ./data/beacon:/data
+    ports:
+      - "8517:8517"
+    restart: unless-stopped
+
+  relay:
+    image: *image
+    command: ["pp-relay", "-d", "/data"]
+    volumes:
+      - ./data/relay:/data
+    ports:
+      - "8519:8519"
+    depends_on:
+      - beacon
+    restart: unless-stopped
+
+  miner:
+    image: *image
+    command: ["pp-miner", "-d", "/data"]
+    volumes:
+      - ./data/miner:/data
+    ports:
+      - "8518:8518"
+    depends_on:
+      - relay
+    restart: unless-stopped
+
+  http:
+    image: *image
+    command:
+      [
+        "pp-http",
+        "--bind", "0.0.0.0",
+        "--port", "8080",
+        "--beacon", "relay:8519",
+        "--miner", "miner:8518",
+      ]
+    ports:
+      - "8080:8080"
+    depends_on:
+      - relay
+      - miner
+    restart: unless-stopped

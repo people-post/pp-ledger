@@ -4,7 +4,7 @@ This document describes how to set up and use GitHub Actions for the pp-ledger p
 
 ## Overview
 
-The project uses GitHub Actions for continuous integration (CI), automatically building and testing the code on every push and pull request.
+The project uses GitHub Actions for continuous integration and Docker image releases. CI runners and the container image both use **Ubuntu 24.04**.
 
 ## Workflow Configuration
 
@@ -16,12 +16,21 @@ The main workflow handles:
 3. Building the project
 4. Running tests
 
+### Release Workflow (`release-docker.yml`)
+
+On `release/v*` tags (and manual dispatch), the workflow:
+1. Builds the multi-stage `Dockerfile` (`ubuntu:24.04`)
+2. Pushes `ghcr.io/<owner>/pp-ledger:<version>` (and `:latest` for tags)
+3. Attaches a linux-x64 binary tarball to a GitHub Release
+
+See `.github/workflows/README.md` and `deploy/README.md` for details.
+
 ### Required Dependencies
 
 The workflow installs:
 - **build-essential**: GCC, make, and other build tools
 - **cmake**: Build system generator
-- **libssl-dev**: OpenSSL development libraries
+- **libsodium-dev**: Libsodium cryptography library
 - **nlohmann-json3-dev**: JSON library for C++
 
 ## Running Locally

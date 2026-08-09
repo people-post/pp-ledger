@@ -23,7 +23,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - ✅ **TCP Networking:** Simple TCP-based peer-to-peer communication
 - ✅ **HTTP API Server:** REST-style HTTP server (pp-http) exposing client interfaces for beacon, miner, block, account, and transactions
 - ✅ **Comprehensive Testing:** Automated tests with Google Test
-- ✅ **CI/CD Pipeline:** GitHub Actions for automated builds and testing
+- ✅ **CI/CD Pipeline:** GitHub Actions for automated builds, tests, and Docker image releases
 
 ## Architecture
 
@@ -122,6 +122,16 @@ The network topology is `Beacon → Relay → Miners`: beacons communicate with 
 
 For detailed server setup, configuration, and troubleshooting, see **[docs/SETUP.md](docs/SETUP.md)**.
 
+### Docker
+
+Release tags (`release/v*`) publish a small Ubuntu 24.04 image to GHCR with all binaries:
+
+```bash
+docker pull ghcr.io/people-post/pp-ledger:latest
+```
+
+See **[deploy/README.md](deploy/README.md)** for Compose-based Beacon → Relay → Miner → HTTP setup.
+
 ## Project Structure
 
 ```
@@ -135,6 +145,7 @@ pp-ledger/
 │   ├── client/       # TCP client library
 │   ├── network/      # Low-level TCP networking
 │   └── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
+├── deploy/           # Docker Compose sample configs for deployment
 ├── scripts/          # Helper scripts
 └── docs/             # Documentation
 ```
@@ -155,6 +166,7 @@ pp-ledger/
 ## Documentation
 
 - **[Setup Guide](docs/SETUP.md)** — Full beacon/miner/client setup, configuration reference, and troubleshooting
+- **[Docker deployment](deploy/README.md)** — GHCR image and Compose quick start
 - **[Server Architecture](src/server/SERVER.md)** — Server components, APIs, and usage guide
 - **[GitHub Actions Setup](docs/GITHUB_ACTIONS_SETUP.md)** — CI/CD configuration
 
