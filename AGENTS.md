@@ -15,7 +15,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-JSON and libsodium are **vendored** under `src/lib/json` and `src/lib/sodium` — do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `3rd_party/googletest` (no FetchContent / network fetch at configure time).
+JSON and libsodium are **vendored** under `src/lib/json` and `src/lib/sodium` — do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time).
 
 ### Build
 

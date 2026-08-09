@@ -145,7 +145,7 @@ pp-ledger/
 │   ├── client/       # TCP client library
 │   ├── network/      # Low-level TCP networking
 │   └── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
-├── 3rd_party/        # Vendored third-party deps (e.g. googletest)
+├── third_party/      # Vendored third-party deps (e.g. googletest)
 ├── deploy/           # Docker Compose sample configs for deployment
 ├── scripts/          # Helper scripts
 └── docs/             # Documentation

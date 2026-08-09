@@ -9,19 +9,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 
-# Test build option (default OFF) - uses vendored googletest under 3rd_party/
+# Test build option (default OFF) - uses vendored googletest under third_party/
 option(BUILD_TESTING "Build the testing tree" OFF)
 
 if(BUILD_TESTING)
   # For Windows: Prevent overriding the parent project's compiler/linker settings
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-  add_subdirectory(3rd_party/googletest EXCLUDE_FROM_ALL)
+  add_subdirectory(third_party/googletest EXCLUDE_FROM_ALL)
   enable_testing()
 endif()
 
 # Root of the source tree (headers use paths like "lib/common/Logger.h")
 set(PP_SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
-# Apply -Werror only to project sources (not 3rd_party / vendored deps).
+# Apply -Werror only to project sources (not third_party / vendored deps).
 add_subdirectory(src)

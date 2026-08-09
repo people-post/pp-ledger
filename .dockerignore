@@ -8,7 +8,7 @@ _codeql_build_dir
 *.log
 deploy
 docs
-3rd_party
+third_party
 test-network.sh
 test-checkpoint-cycles.sh
 LICENSE
