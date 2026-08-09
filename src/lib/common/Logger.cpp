@@ -33,7 +33,7 @@ static std::string getCurrentTimestamp() {
 }
 
 // ConsoleHandler implementation
-void ConsoleHandler::emit(Level level, const std::string &loggerName,
+void ConsoleHandler::emit(Level level, const std::string & /*loggerName*/,
                           const std::string &message) {
   if (level < level_) {
     return;
@@ -55,7 +55,7 @@ FileHandler::~FileHandler() {
   }
 }
 
-void FileHandler::emit(Level level, const std::string &loggerName,
+void FileHandler::emit(Level level, const std::string & /*loggerName*/,
                        const std::string &message) {
   if (level < level_) {
     return;
@@ -277,12 +277,12 @@ static std::shared_ptr<LoggerNode> g_spRoot = initRootLogger();
 // ========== Logger Implementation ==========
 
 Logger::Logger(std::shared_ptr<LoggerNode> node)
-    : spNode_(std::move(node)),
-      debug(this, Level::DEBUG),
+    : debug(this, Level::DEBUG),
       info(this, Level::INFO),
       warning(this, Level::WARNING),
       error(this, Level::ERROR),
-      critical(this, Level::CRITICAL) {
+      critical(this, Level::CRITICAL),
+      spNode_(std::move(node)) {
 }
 
 void Logger::redirectTo(const std::string &targetLoggerName) {

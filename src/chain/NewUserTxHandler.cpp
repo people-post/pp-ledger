@@ -198,7 +198,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
         chain_err::E_TX_VALIDATION,
         "User account must have balance in ID_GENESIS token");
   }
-  if (it->second != tx.amount) {
+  if (it->second != static_cast<int64_t>(tx.amount)) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
         "User account must have balance in ID_GENESIS token: " +

@@ -1,7 +1,12 @@
 # Source tree: libraries, servers, and apps.
 
-# Treat warnings as errors for project code (vendored targets under lib/ opt out).
-add_compile_options(-Werror)
+# Enable common warnings and treat them as errors for project code.
+# Vendored targets (libsodium, CLI11, httplib) opt out via -Wno-error.
+if(MSVC)
+  add_compile_options(/W4 /WX)
+else()
+  add_compile_options(-Wall -Wextra -Werror)
+endif()
 
 add_subdirectory(lib)
 add_subdirectory(consensus)

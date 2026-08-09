@@ -722,12 +722,12 @@ BeaconServer::hRegister(const Client::Request &request) {
 }
 
 BeaconServer::Roe<std::string>
-BeaconServer::hStatus(const Client::Request &request) {
+BeaconServer::hStatus(const Client::Request & /*request*/) {
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
 BeaconServer::Roe<std::string>
-BeaconServer::hCalibration(const Client::Request &request) {
+BeaconServer::hCalibration(const Client::Request & /*request*/) {
   Client::CalibrationResponse response;
   response.msTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
@@ -737,7 +737,7 @@ BeaconServer::hCalibration(const Client::Request &request) {
 }
 
 BeaconServer::Roe<std::string>
-BeaconServer::hMinerList(const Client::Request &request) {
+BeaconServer::hMinerList(const Client::Request & /*request*/) {
   std::vector<pp::common::Meta> list;
   list.reserve(mMiners_.size());
   for (const auto &[id, info] : mMiners_) {

@@ -31,7 +31,7 @@ VRF::Roe<VRF::VRFOutput> VRF::evaluate(const std::string &seed, uint64_t slot,
   return VRFOutput(value, proof);
 }
 
-VRF::Roe<bool> VRF::verify(const std::string &output, const std::string &proof,
+VRF::Roe<bool> VRF::verify(const std::string & /*output*/, const std::string &proof,
                            const std::string &seed, uint64_t slot,
                            const std::string &publicKey) const {
 

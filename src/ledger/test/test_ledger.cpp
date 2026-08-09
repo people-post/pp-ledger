@@ -31,7 +31,7 @@ protected:
     }
   }
 
-  Ledger::ChainNode createTestBlock(uint64_t id, const std::string& data) {
+  Ledger::ChainNode createTestBlock(uint64_t id, const std::string& /*data*/) {
     Ledger::ChainNode block;
     block.block.index = id;
     block.block.previousHash = "prev_hash_" + std::to_string(id);

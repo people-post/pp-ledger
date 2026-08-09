@@ -5,7 +5,8 @@ cmake_minimum_required(VERSION 3.15)
 add_library(nlohmann_json INTERFACE)
 add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
 
-target_include_directories(nlohmann_json INTERFACE
+# SYSTEM so nlohmann headers do not trigger -Werror in dependents.
+target_include_directories(nlohmann_json SYSTEM INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}
 )
