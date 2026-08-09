@@ -43,7 +43,7 @@ sudo apt-get update
 sudo apt-get install -y \
     build-essential \
     cmake \
-    libssl-dev \
+    libsodium-dev \
     nlohmann-json3-dev
 
 # Configure and build
