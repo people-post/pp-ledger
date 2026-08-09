@@ -38,11 +38,11 @@ Run clang-tidy against project source files (requires `compile_commands.json` fr
 
 ```bash
 cd /workspace
-clang-tidy -p build lib/*.cpp consensus/*.cpp ledger/*.cpp network/*.cpp \
- chain/*.cpp server/*.cpp client/*.cpp app/*.cpp
+clang-tidy -p build src/lib/**/*.cpp src/consensus/*.cpp src/ledger/*.cpp \
+ src/network/*.cpp src/chain/*.cpp src/server/*.cpp src/client/*.cpp src/app/*.cpp
 ```
 
-The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`lib/http/httplib.h`) is excluded via the header filter.
+The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, performance, and select modernize checks. Vendored code (`src/lib/http/httplib.h`) is excluded via the header filter.
 
 ### Tests
 

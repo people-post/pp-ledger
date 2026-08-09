@@ -26,7 +26,7 @@ This directory contains automated workflows for building, testing, and releasing
 - **Triggers:** Push of a tag matching `release/v*` (e.g. `release/v1.0.0`)
 - **Purpose:** Build the Node.js N-API addon, package it with the JS wrapper and package.json, and create a GitHub Release with the tarball attached
 - **Features:**
-  - Installs system deps and Node.js, runs `npm ci` in `node-addon/`
+  - Installs system deps and Node.js, runs `npm ci` in `src/node-addon/`
   - Builds with `scripts/ci-build.sh --node-addon`
   - Packages with `scripts/package-node-addon.sh <version> linux-x64`
   - Creates a GitHub Release for the tag and uploads the tarball (e.g. `pp-ledger-node-addon-1.0.0-linux-x64.tar.gz`)
@@ -75,7 +75,7 @@ Workflows install the following system packages:
 - libsodium-dev
 - nlohmann-json3-dev
 
-The release workflow also uses Node.js (e.g. 20 LTS) and runs `npm ci` in `node-addon/`.
+The release workflow also uses Node.js (e.g. 20 LTS) and runs `npm ci` in `src/node-addon/`.
 
 ## Troubleshooting
 

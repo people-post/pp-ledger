@@ -819,6 +819,6 @@ workDir/
 ## References
 
 - **Ouroboros Paper**: [Ouroboros: A Provably Secure Proof-of-Stake Blockchain Protocol](https://eprint.iacr.org/2016/889.pdf)
-- **Consensus Module**: `/consensus/`
-- **Ledger Module**: `/ledger/`
-- **Network Module**: `/network/`
+- **Consensus Module**: `/src/consensus/`
+- **Ledger Module**: `/src/ledger/`
+- **Network Module**: `/src/network/`

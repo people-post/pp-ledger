@@ -70,9 +70,9 @@ flowchart TD
 
 | Location | Linked targets | Purpose |
 |----------|----------------|---------|
-| `chain/test/` | `pp_chain`, gtest | `test_chain`, `test_account_buffer` |
+| `src/chain/test/` | `pp_chain`, gtest | `test_chain`, `test_account_buffer` |
 
-Other component tests remain under their folders (e.g. `lib/common/test`, `ledger/test`, `network/test`).
+Other component tests remain under their folders (e.g. `src/lib/common/test`, `src/ledger/test`, `src/network/test`).
 
 ## Layer summary
 
@@ -100,15 +100,15 @@ Other component tests remain under their folders (e.g. `lib/common/test`, `ledge
 
 ## Root CMake order
 
-The root `CMakeLists.txt` adds subdirectories in dependency order:
+The root `CMakeLists.txt` adds `src/`, and `src/CMakeLists.txt` adds subdirectories in dependency order:
 
-1. `lib`
-2. `consensus`
-3. `network`
-4. `client`
-5. `ledger`
-6. **`chain`**
-7. `server`
-8. `app`
+1. `src/lib`
+2. `src/consensus`
+3. `src/network`
+4. `src/client`
+5. `src/ledger`
+6. **`src/chain`**
+7. `src/server`
+8. `src/app`
 
 This order respects the folder dependency graph above (`chain` before `server`).

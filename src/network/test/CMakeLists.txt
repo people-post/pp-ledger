@@ -9,7 +9,7 @@ add_executable(test_fetch
 )
 
 target_include_directories(test_fetch PRIVATE
-    ${CMAKE_SOURCE_DIR}/network
+    ${PP_SRC_DIR}/network
 )
 
 target_link_libraries(test_fetch PRIVATE
@@ -27,7 +27,7 @@ add_executable(test_tcp
 )
 
 target_include_directories(test_tcp PRIVATE
-    ${CMAKE_SOURCE_DIR}/network
+    ${PP_SRC_DIR}/network
 )
 
 target_link_libraries(test_tcp PRIVATE
@@ -45,7 +45,7 @@ add_executable(test_bulkwriter
 )
 
 target_include_directories(test_bulkwriter PRIVATE
-    ${CMAKE_SOURCE_DIR}/network
+    ${PP_SRC_DIR}/network
 )
 
 target_link_libraries(test_bulkwriter PRIVATE

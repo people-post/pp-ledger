@@ -18,7 +18,7 @@ add_library(pp_server STATIC
 
 target_include_directories(pp_server PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/network
+    ${PP_SRC_DIR}/network
 )
 
 target_link_libraries(pp_server PUBLIC
