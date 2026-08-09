@@ -34,7 +34,7 @@ jobs:
 
       - name: Install node-addon npm dependencies
         run: npm ci
-        working-directory: node-addon
+        working-directory: src/node-addon
 
       - name: Build with node addon
         run: ./scripts/ci-build.sh --node-addon

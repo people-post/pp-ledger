@@ -40,7 +40,7 @@ if [[ -z "$PLATFORM" ]]; then
 fi
 
 ADDON_BINARY="$BUILD_DIR/node-addon/pp_client_node.node"
-NODE_ADDON_SOURCE="$REPO_ROOT/node-addon"
+NODE_ADDON_SOURCE="$REPO_ROOT/src/node-addon"
 STAGING_DIR="$BUILD_DIR/release-package"
 ARCHIVE_NAME="pp-ledger-node-addon-${VERSION}-${PLATFORM}.tar.gz"
 OUTPUT_ARCHIVE="$BUILD_DIR/$ARCHIVE_NAME"

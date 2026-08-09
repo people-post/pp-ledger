@@ -42,7 +42,7 @@ add_library(pp_chain STATIC
 
 target_include_directories(pp_chain PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/network
+    ${PP_SRC_DIR}/network
 )
 
 target_link_libraries(pp_chain PUBLIC

@@ -10,16 +10,17 @@ This file provides context for GitHub Copilot and Copilot coding agents working 
 
 ```
 pp-ledger/
-├── lib/          # Core utilities: Logger, Serialize, BinaryPack, ResultOrError
-├── interface/    # Shared interfaces (IBlock, etc.)
-├── consensus/    # Ouroboros PoS: Ouroboros, EpochManager, SlotLeaderSelection, SlotTimer
-├── ledger/       # Blockchain storage: Ledger, FileStore, DirStore, etc.
-├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
-├── server/       # Beacon + Relay + Miner server logic and AccountBuffer
-├── client/       # TCP client library
-├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DBUILD_HTTP=ON
-├── node-addon/   # Node.js native addon
-├── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
+├── src/
+│   ├── lib/          # Core utilities: Logger, Serialize, BinaryPack, ResultOrError
+│   ├── consensus/    # Ouroboros PoS: Ouroboros, EpochManager, SlotLeaderSelection, SlotTimer
+│   ├── ledger/       # Blockchain storage: Ledger, FileStore, DirStore, etc.
+│   ├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
+│   ├── chain/        # Chain, AccountBuffer, tx helpers
+│   ├── server/       # Beacon + Relay + Miner server logic
+│   ├── client/       # TCP client library
+│   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DBUILD_HTTP=ON
+│   ├── node-addon/   # Node.js native addon
+│   └── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts
 ├── docs/         # Documentation
 ├── AGENTS.md     # Cursor Cloud agent instructions
@@ -50,8 +51,8 @@ cd build && ctest --output-on-failure
 ## Lint
 
 ```bash
-clang-tidy -p build lib/*.cpp consensus/*.cpp ledger/*.cpp network/*.cpp \
-  server/*.cpp client/*.cpp app/*.cpp
+clang-tidy -p build src/lib/**/*.cpp src/consensus/*.cpp src/ledger/*.cpp \
+  src/network/*.cpp src/chain/*.cpp src/server/*.cpp src/client/*.cpp src/app/*.cpp
 ```
 
 Run lint before submitting PRs. Config is in `.clang-tidy` at repo root.

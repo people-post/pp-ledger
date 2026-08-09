@@ -10,14 +10,18 @@ pp-ledger is a C++ blockchain ledger system with Ouroboros Proof-of-Stake consen
 
 ```
 pp-ledger/
-├── lib/          # Core library (shared functionality)
-├── interface/    # Interfaces for cross lib interactions
-├── ledger/       # Ledger lib
-├── consensus/    # Consensus algorithm lib
-├── network/      # Network communication lib
-├── client/       # Client library
-├── server/       # Server library (Beacon, Relay, and Miner implementations)
-└── app/          # Main application (binary entry point)
+├── src/
+│   ├── lib/          # Core library (shared functionality)
+│   ├── ledger/       # Ledger lib
+│   ├── consensus/    # Consensus algorithm lib
+│   ├── network/      # Network communication lib
+│   ├── chain/        # Chain, AccountBuffer, tx helpers
+│   ├── client/       # Client library
+│   ├── server/       # Server library (Beacon, Relay, and Miner implementations)
+│   ├── node-addon/   # Node.js native addon
+│   └── app/          # Main application (binary entry point)
+├── scripts/      # Helper scripts
+└── docs/         # Documentation
 ```
 
 ### Component Architecture

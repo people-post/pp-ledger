@@ -22,7 +22,7 @@ add_library(pp_lib STATIC
 # Public include directories - automatically propagated to dependents
 target_include_directories(pp_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}
+    ${PP_SRC_DIR}
 )
 
 # Find Libsodium (required for cryptographic operations in Utilities.cpp)

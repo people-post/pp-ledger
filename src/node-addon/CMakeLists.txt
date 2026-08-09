@@ -10,7 +10,7 @@ execute_process(
 )
 
 if(NODE_ADDON_API_RESULT)
-  message(FATAL_ERROR "node-addon-api not found in node-addon/. Run: cd node-addon && npm install")
+  message(FATAL_ERROR "node-addon-api not found in src/node-addon/. Run: cd src/node-addon && npm install")
 endif()
 
 string(REPLACE "\"" "" NODE_ADDON_API_INCLUDE "${NODE_ADDON_API_INCLUDE}")
@@ -50,6 +50,9 @@ add_library(pp_client_node MODULE
 set_target_properties(pp_client_node PROPERTIES
   PREFIX ""
   SUFFIX ".node"
+  # Keep historical artifact path: build/node-addon/pp_client_node.node
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-addon"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/node-addon"
 )
 
 target_compile_definitions(pp_client_node PRIVATE

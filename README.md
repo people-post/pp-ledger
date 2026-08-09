@@ -126,15 +126,16 @@ For detailed server setup, configuration, and troubleshooting, see **[docs/SETUP
 
 ```
 pp-ledger/
-├── lib/              # Core utilities (logging, serialization, binary packing)
-├── consensus/        # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
-├── ledger/           # Blockchain storage and management
-├── chain/            # Chain, AccountBuffer, and transaction helper modules
-├── server/           # Beacon, Relay, and Miner server implementations
-├── client/           # TCP client library
-├── network/          # Low-level TCP networking
-├── app/              # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
-├── node-addon/       # Node.js native addon wrapping the client library
+├── src/
+│   ├── lib/          # Core utilities (logging, serialization, binary packing)
+│   ├── consensus/    # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
+│   ├── ledger/       # Blockchain storage and management
+│   ├── chain/        # Chain, AccountBuffer, and transaction helper modules
+│   ├── server/       # Beacon, Relay, and Miner server implementations
+│   ├── client/       # TCP client library
+│   ├── network/      # Low-level TCP networking
+│   ├── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
+│   └── node-addon/   # Node.js native addon wrapping the client library
 ├── scripts/          # Helper scripts
 └── docs/             # Documentation
 ```
@@ -156,7 +157,7 @@ pp-ledger/
 ## Documentation
 
 - **[Setup Guide](docs/SETUP.md)** — Full beacon/miner/client setup, configuration reference, and troubleshooting
-- **[Server Architecture](server/SERVER.md)** — Server components, APIs, and usage guide
+- **[Server Architecture](src/server/SERVER.md)** — Server components, APIs, and usage guide
 - **[GitHub Actions Setup](docs/GITHUB_ACTIONS_SETUP.md)** — CI/CD configuration
 
 ## Contributing
