@@ -7,12 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(BUILD_NODE_ADDON "Build Node.js N-API addon" OFF)
 option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
-
-if(BUILD_NODE_ADDON)
-  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-endif()
 
 # Treat warnings as errors
 add_compile_options(-Werror)

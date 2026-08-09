@@ -134,8 +134,7 @@ pp-ledger/
 │   ├── server/       # Beacon, Relay, and Miner server implementations
 │   ├── client/       # TCP client library
 │   ├── network/      # Low-level TCP networking
-│   ├── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
-│   └── node-addon/   # Node.js native addon wrapping the client library
+│   └── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/          # Helper scripts
 └── docs/             # Documentation
 ```
@@ -152,7 +151,6 @@ pp-ledger/
 | **client** | Client library for server communication | ✅ Working |
 | **network** | TCP networking (FetchClient/Server, TcpClient/Server) | ✅ Working |
 | **app** | Command-line applications (beacon, relay, miner, client, http API server) | ✅ Working |
-| **node-addon** | Node.js native addon for client integration | ✅ Working |
 
 ## Documentation
 
