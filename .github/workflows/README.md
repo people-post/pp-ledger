@@ -14,7 +14,7 @@ CI runners and the Docker image both use **Ubuntu 24.04**.
 - **Runner:** `ubuntu-24.04`
 - **Purpose:** Build and test the pp-ledger project
 - **Features:**
-  - Installs system dependencies (build-essential, cmake, libsodium, nlohmann-json)
+  - Installs system dependencies (build-essential, cmake)
   - Builds via `scripts/ci-build.sh --test` (configure, build, run ctest)
 
 **Steps:**
@@ -69,10 +69,8 @@ See **[deploy/README.md](../../deploy/README.md)** for running the published ima
 Workflows install the following system packages:
 - build-essential (GCC, make, etc.)
 - cmake
-- libsodium-dev
-- nlohmann-json3-dev
 
-The Docker runtime image installs `libsodium23` on `ubuntu:24.04`.
+JSON and libsodium are vendored under `src/lib/` and linked statically, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
 
 ## Troubleshooting
 

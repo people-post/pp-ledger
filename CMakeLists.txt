@@ -9,12 +9,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 
-# Treat warnings as errors
+# Treat warnings as errors (vendored targets opt out as needed)
 add_compile_options(-Werror)
-
-# Find Libsodium (required for cryptographic operations)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SODIUM REQUIRED libsodium)
 
 # Test build option (default OFF) - gtest only fetched when enabled
 option(BUILD_TESTING "Build the testing tree" OFF)

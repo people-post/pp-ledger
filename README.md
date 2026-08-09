@@ -71,10 +71,10 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 sudo apt-get update
 sudo apt-get install -y \
   build-essential \
-  cmake \
-  libsodium-dev \
-  nlohmann-json3-dev
+  cmake
 ```
+
+JSON (`src/lib/json`) and libsodium (`src/lib/sodium`) are vendored; no system packages are required for them.
 
 ### Build
 
@@ -137,7 +137,7 @@ See **[deploy/README.md](deploy/README.md)** for Compose-based Beacon → Relay 
 ```
 pp-ledger/
 ├── src/
-│   ├── lib/          # Core utilities (logging, serialization, binary packing)
+│   ├── lib/          # Core utilities + vendored json/libsodium/http/cli
 │   ├── consensus/    # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
 │   ├── ledger/       # Blockchain storage and management
 │   ├── chain/        # Chain, AccountBuffer, and transaction helper modules
