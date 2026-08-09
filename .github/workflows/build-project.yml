@@ -9,7 +9,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pin to Ubuntu 24.04 so CI matches the Docker runtime base (ubuntu:24.04).
+    runs-on: ubuntu-24.04
     
     steps:
       - name: Checkout repository

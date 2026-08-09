@@ -6,26 +6,72 @@
 #include <filesystem>
 
 namespace pp {
+namespace {
+
+bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry &entry) {
+  const std::string name = entry.path().filename().string();
+  if (name == "config.json" || name == "init-config.json") {
+    return entry.is_regular_file();
+  }
+  if (name == "keys") {
+    return entry.is_directory();
+  }
+  if (entry.is_regular_file()) {
+    return name.ends_with(".txt") || name.ends_with(".key");
+  }
+  return false;
+}
+
+} // namespace
+
+Service::Roe<void> Server::ensureWorkDirectory(
+    const std::string &workDir, const std::string &signatureFileName,
+    int32_t errorCode) {
+  const std::filesystem::path workDirPath(workDir);
+  const std::filesystem::path signaturePath = workDirPath / signatureFileName;
+
+  if (!std::filesystem::exists(workDirPath)) {
+    std::filesystem::create_directories(workDirPath);
+    auto result = utl::writeToNewFile(signaturePath.string(), "");
+    if (!result) {
+      return Error(errorCode,
+                   "Failed to create signature file: " +
+                       result.error().message);
+    }
+    return {};
+  }
+
+  if (std::filesystem::exists(signaturePath)) {
+    return {};
+  }
+
+  // Directory exists without a signature (common for empty Docker volume
+  // mounts). Allow bootstrap-only contents; reject anything else.
+  for (const auto &entry : std::filesystem::directory_iterator(workDirPath)) {
+    if (!isBootstrapWorkDirEntry(entry)) {
+      return Error(errorCode,
+                   "Work directory not recognized, please remove it "
+                   "manually and try again");
+    }
+  }
+
+  auto result = utl::writeToNewFile(signaturePath.string(), "");
+  if (!result) {
+    return Error(errorCode,
+                 "Failed to create signature file: " +
+                     result.error().message);
+  }
+  return {};
+}
 
 Service::Roe<void> Server::run(const std::string &workDir) {
   workDir_ = workDir;
 
   if (useSignatureFile()) {
-    std::filesystem::path signaturePath =
-        std::filesystem::path(workDir) / getSignatureFileName();
-    if (!std::filesystem::exists(workDir)) {
-      std::filesystem::create_directories(workDir);
-      auto result = utl::writeToNewFile(signaturePath.string(), "");
-      if (!result) {
-        return Service::Error(getRunErrorCode(),
-                              "Failed to create signature file: " +
-                                  result.error().message);
-      }
-    }
-    if (!std::filesystem::exists(signaturePath)) {
-      return Service::Error(getRunErrorCode(),
-                            "Work directory not recognized, please remove it "
-                            "manually and try again");
+    auto ensured =
+        ensureWorkDirectory(workDir, getSignatureFileName(), getRunErrorCode());
+    if (!ensured) {
+      return ensured;
     }
   }
 

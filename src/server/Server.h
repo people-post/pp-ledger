@@ -29,6 +29,16 @@ public:
 protected:
   virtual bool useSignatureFile() const { return true; }
 
+  /**
+   * Ensure workDir exists and has a signature file.
+   * Empty dirs and dirs that only contain bootstrap files (config.json,
+   * init-config.json, key files) are treated as new so bind-mounted Docker
+   * volumes work. Non-empty foreign directories still return an error.
+   */
+  static Roe<void> ensureWorkDirectory(const std::string &workDir,
+                                       const std::string &signatureFileName,
+                                       int32_t errorCode = -1);
+
   const std::string &getWorkDir() const { return workDir_; }
   virtual std::string getSignatureFileName() const = 0;
   virtual std::string getLogFileName() const = 0;
