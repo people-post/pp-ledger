@@ -51,6 +51,3 @@ _codeql_detected_source_root
 # Log files
 *.log
 
-# Node addon dependencies
-src/node-addon/node_modules/
-node-addon/node_modules/

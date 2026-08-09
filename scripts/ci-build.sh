@@ -9,15 +9,13 @@ else
 fi
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build}"
 
-NODE_ADDON=
 RUN_TESTS=
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --node-addon) NODE_ADDON=ON ;;
-    --test)       RUN_TESTS=1 ;;
+    --test) RUN_TESTS=1 ;;
     *)
-      echo "Usage: $0 [--node-addon] [--test]" >&2
+      echo "Usage: $0 [--test]" >&2
       exit 1
       ;;
   esac
@@ -31,9 +29,6 @@ CMAKE_ARGS=(
   -S "$REPO_ROOT"
   -B "$BUILD_DIR"
 )
-if [[ -n "$NODE_ADDON" ]]; then
-  CMAKE_ARGS+=(-DBUILD_NODE_ADDON=ON)
-fi
 if [[ -n "$RUN_TESTS" ]]; then
   CMAKE_ARGS+=(-DBUILD_TESTING=ON)
 fi

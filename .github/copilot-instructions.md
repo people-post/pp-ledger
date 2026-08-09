@@ -19,7 +19,6 @@ pp-ledger/
 │   ├── server/       # Beacon + Relay + Miner server logic
 │   ├── client/       # TCP client library
 │   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DBUILD_HTTP=ON
-│   ├── node-addon/   # Node.js native addon
 │   └── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts
 ├── docs/         # Documentation
@@ -97,7 +96,7 @@ See `.aicodeguide` for the full style guide. Key points:
 |------|---------|
 | Build | `cd build && cmake .. && make -j$(nproc)` |
 | Run all tests | `cd build && ctest --output-on-failure` |
-| Lint | `clang-tidy -p build lib/*.cpp ...` |
+| Lint | `clang-tidy -p build src/lib/**/*.cpp ...` |
 | Start test network | `./test-network.sh` |
 | Init beacon (first time) | `./build/app/pp-beacon -d beacon --init` |
 | Start beacon | `./build/app/pp-beacon -d beacon` |

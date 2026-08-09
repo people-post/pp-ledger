@@ -18,7 +18,6 @@ pp-ledger/
 │   ├── chain/        # Chain, AccountBuffer, tx helpers
 │   ├── client/       # Client library
 │   ├── server/       # Server library (Beacon, Relay, and Miner implementations)
-│   ├── node-addon/   # Node.js native addon
 │   └── app/          # Main application (binary entry point)
 ├── scripts/      # Helper scripts
 └── docs/         # Documentation
@@ -154,7 +153,7 @@ Follow this ordering for all #include directives:
 
 **Example (correct ordering):**
 ```cpp
-// In server/Server.cpp
+// In src/server/Server.cpp
 #include "Server.h"     // Own header first
 #include "Ledger.h"     // Same level (server/)
 #include "lib/common/Logger.h"     // Lower level (lib/common/)
@@ -288,6 +287,6 @@ When making changes:
 ## Questions or Clarifications
 
 If uncertain about project structure or conventions, refer to existing code in:
-- [lib/Logger.h](lib/Logger.h) and [lib/Logger.cpp](lib/Logger.cpp) for class structure
-- [app/main.cpp](app/main.cpp) for application patterns
+- [src/lib/common/Logger.h](src/lib/common/Logger.h) and [src/lib/common/Logger.cpp](src/lib/common/Logger.cpp) for class structure
+- [src/app/beacon.cpp](src/app/beacon.cpp) for application patterns
 - Component CMakeLists.txt files for build configuration

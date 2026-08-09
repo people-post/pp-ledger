@@ -183,13 +183,18 @@ All routes are prefixed with `/api/`.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/beacon/state` | Beacon state (checkpoint, block, slot, epoch, timestamp) |
-| GET | `/api/beacon/timestamp` | Server timestamp in ms (for calibration) |
+| GET | `/api/beacon/calibration` | Beacon calibration data |
 | GET | `/api/beacon/miners` | Miner list from beacon |
 | GET | `/api/miner/status` | Miner status (stake, nextBlockId, pending txs, etc.) |
 | GET | `/api/block/<id>` | Block by ID (JSON) |
 | GET | `/api/account/<id>` | User account by ID (JSON) |
+| POST | `/api/account/create` | Create account (JSON body; may sign with provided key) |
 | GET | `/api/tx/by-wallet?walletId=&beforeBlockId=` | Transactions by wallet |
-| POST | `/api/tx` | Submit transaction (body: binary packed `SignedData<Transaction>`; use the `node-addon` or client library to construct this payload) |
+| GET | `/api/tx/by-index?txIndex=` | Transaction by global index |
+| POST | `/api/tx/build` | Build unsigned transaction hex from JSON |
+| POST | `/api/tx/submit` | Submit signed transaction (`type`, `transactionHex`, `signaturesHex[]`) |
+
+External integrations should use this HTTP API (or `pp-client`) rather than native language bindings.
 
 ### Examples
 
@@ -197,6 +202,7 @@ All routes are prefixed with `/api/`.
 curl http://localhost:8080/api/beacon/state
 curl http://localhost:8080/api/miner/status
 curl "http://localhost:8080/api/tx/by-wallet?walletId=1048576&beforeBlockId=10"
+curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/json' -d '{"type":2,...}'
 ```
 
 ---

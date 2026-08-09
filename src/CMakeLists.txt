@@ -1,4 +1,4 @@
-# Source tree: libraries, servers, apps, and optional node addon.
+# Source tree: libraries, servers, and apps.
 
 add_subdirectory(lib)
 add_subdirectory(consensus)
@@ -11,7 +11,3 @@ if(BUILD_HTTP)
   add_subdirectory(lib/http)
 endif()
 add_subdirectory(app)
-
-if(BUILD_NODE_ADDON)
-  add_subdirectory(node-addon)
-endif()
