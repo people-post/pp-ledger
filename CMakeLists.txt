@@ -9,26 +9,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 
-# Treat warnings as errors (vendored targets opt out as needed)
-add_compile_options(-Werror)
-
-# Test build option (default OFF) - gtest only fetched when enabled
+# Test build option (default OFF) - uses vendored googletest under 3rd_party/
 option(BUILD_TESTING "Build the testing tree" OFF)
 
 if(BUILD_TESTING)
-  include(FetchContent)
-  FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.14.0
-  )
   # For Windows: Prevent overriding the parent project's compiler/linker settings
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  add_subdirectory(3rd_party/googletest EXCLUDE_FROM_ALL)
   enable_testing()
 endif()
 
 # Root of the source tree (headers use paths like "lib/common/Logger.h")
 set(PP_SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 
+# Apply -Werror only to project sources (not 3rd_party / vendored deps).
 add_subdirectory(src)
