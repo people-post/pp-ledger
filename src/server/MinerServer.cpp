@@ -768,7 +768,7 @@ MinerServer::hTxAdd(const Client::Request &request) {
 }
 
 MinerServer::Roe<std::string>
-MinerServer::hStatus(const Client::Request &request) {
+MinerServer::hStatus(const Client::Request & /*request*/) {
   Client::MinerStatus status;
 
   status.minerId = config_.minerId;
@@ -792,7 +792,7 @@ MinerServer::hStatus(const Client::Request &request) {
 }
 
 MinerServer::Roe<std::string>
-MinerServer::hCalibration(const Client::Request &request) {
+MinerServer::hCalibration(const Client::Request & /*request*/) {
   if (!miner_.isConfigReady()) {
     return Error(E_REQUEST, "Miner syncing, please retry later");
   }

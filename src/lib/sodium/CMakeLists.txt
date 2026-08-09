@@ -277,11 +277,13 @@ set_target_properties(${PROJECT_NAME}
 
 # Upstream warnings must not fail our -Werror builds.
 target_compile_options(${PROJECT_NAME} PRIVATE
-    $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wno-error>
+    $<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-Wno-error -w>
+    $<$<COMPILE_LANG_AND_ID:C,MSVC>:/W0 /WX->
 )
 
+# SYSTEM so sodium headers do not trigger -Werror in dependents.
 target_include_directories(${PROJECT_NAME}
-    PUBLIC
+    SYSTEM PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/libsodium/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE

@@ -571,12 +571,12 @@ RelayServer::hRegister(const Client::Request &request) {
 }
 
 RelayServer::Roe<std::string>
-RelayServer::hStatus(const Client::Request &request) {
+RelayServer::hStatus(const Client::Request & /*request*/) {
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 
 RelayServer::Roe<std::string>
-RelayServer::hCalibration(const Client::Request &request) {
+RelayServer::hCalibration(const Client::Request & /*request*/) {
   int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();
@@ -628,7 +628,7 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 }
 
 RelayServer::Roe<std::string>
-RelayServer::hMinerList(const Client::Request &request) {
+RelayServer::hMinerList(const Client::Request & /*request*/) {
   std::vector<pp::common::Meta> list;
   list.reserve(mMiners_.size());
   for (const auto &[id, info] : mMiners_) {

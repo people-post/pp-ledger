@@ -783,15 +783,12 @@ TEST_F(DirDirStoreTest, SiblingsHaveSameLevel) {
     // Fill up root level to trigger creation of multiple FileDirStore siblings
     std::string largeData(200 * 1024, 'X');
     
-    size_t blocksAdded = 0;
     for (size_t i = 0; i < 100; i++) {
         if (!dirDirStore.canFit(largeData.size())) {
             break;
         }
         auto result = dirDirStore.appendBlock(largeData);
-        if (result.isOk()) {
-            blocksAdded++;
-        } else {
+        if (!result.isOk()) {
             break;
         }
     }

@@ -233,7 +233,6 @@ private:
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
                                std::chrono::milliseconds timeout = TIMEOUT_FAST);
 
-  bool connected_{false};
   network::IpEndpoint endpoint_;
   network::FetchClient fetchClient_;
 };

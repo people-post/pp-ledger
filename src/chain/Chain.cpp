@@ -199,7 +199,7 @@ Chain::createRenewalTx(uint64_t accountId) const {
       accountId != AccountBuffer::ID_FEE) {
     auto balance =
         txContext_.bank.getBalance(accountId, AccountBuffer::ID_GENESIS);
-    if (balance < minimumFee) {
+    if (balance < static_cast<int64_t>(minimumFee)) {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
       // to recycle account. Never terminate fee account (it pays fee to self).
@@ -249,7 +249,7 @@ Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
 }
 
 Chain::Roe<std::vector<Ledger::Record>>
-Chain::collectRenewals(uint64_t slot) const {
+Chain::collectRenewals(uint64_t /*slot*/) const {
   std::vector<Ledger::Record> renewals;
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 

@@ -207,7 +207,6 @@ TEST_F(SlotTimerTest, ValidatesTimeInSlot) {
 }
 
 TEST_F(SlotTimerTest, CalculatesTimeUntilSlot) {
-    int64_t currentTime = timer->getCurrentTime();
     uint64_t currentSlot = timer->getCurrentSlot(genesisTime);
     uint64_t futureSlot = currentSlot + 10;
     
