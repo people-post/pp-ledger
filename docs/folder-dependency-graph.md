@@ -2,6 +2,8 @@
 
 This document describes how the main source folders in **pp-ledger** depend on each other (build and `#include` dependencies). The diagram omits test subfolders; see **Tests** below.
 
+For integration with **pp-cpp-common**, **pp-browser**, and **pp-node**, see [`platform-integration.md`](platform-integration.md).
+
 ## Diagram (Mermaid)
 
 ```mermaid
