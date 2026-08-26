@@ -6,6 +6,8 @@
 
 pp-ledger is a C++20 blockchain with Ouroboros PoS consensus. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy). It builds with CMake. Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfile` and `deploy/README.md`. See `README.md` for the full quick-start guide.
 
+**Cross-repo work** (pp-cpp-common, pp-browser, pp-node integration, libp2p transport, role matrix): see [`docs/platform-integration.md`](docs/platform-integration.md).
+
 ### System dependencies
 
 The following **system packages** must be present (pre-installed in the VM snapshot):
