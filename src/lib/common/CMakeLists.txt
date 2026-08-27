@@ -1,17 +1,15 @@
-# Lib library — ledger-specific common (Value/Meta, Crypto, Service, Utilities, …).
-# Shared Logger / Module / ResultOrError / Serialize / BinaryPack come from
-# pp-cpp-common via thin shims under this directory.
+# Lib library — ledger-specific common (Crypto, Service, Utilities, …).
+# Shared Logger / Module / ResultOrError / Serialize / BinaryPack / Value+JSON
+# come from pp-cpp-common via thin shims under this directory.
 add_library(pp_lib STATIC
     Crypto.cpp
     Crypto.h
     Logger.h
     Module.h
-    io/Json.cpp
-    io/Json.h
     FiFoMap.h
-    Value.cpp
     Value.h
     Meta.h
+    io/Json.h
     ResultOrError.hpp
     Serialize.hpp
     BinaryPack.hpp

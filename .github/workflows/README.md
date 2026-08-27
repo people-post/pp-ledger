@@ -70,7 +70,7 @@ Workflows install the following system packages:
 - build-essential (GCC, make, etc.)
 - cmake
 
-JSON is vendored under `src/lib/`. Crypto is linked statically from pp-cpp-crypto, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
+Value/Meta JSON IO comes from pp-cpp-common. Crypto is linked statically from pp-cpp-crypto, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
 
 ## Troubleshooting
 
