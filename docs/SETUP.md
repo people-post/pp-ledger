@@ -76,7 +76,7 @@ On first run, the miner creates a default `miner1/config.json`. Edit it to confi
 
 Config fields:
 - `minerId` (required): Unique numeric miner identifier
-- `keys` (required): Array of key-file paths containing 64-hex-character Ed25519 private keys
+- `keys` (required): Array of key-file paths containing hex-encoded ML-DSA-65 private keys (8064 hex chars)
 - `host` (optional): Listen address, default: `"localhost"`
 - `port` (optional): Listen port, default: `8518`
 - `beacons` (required): List of beacon endpoints `{host, port, dhtPort}` to connect to

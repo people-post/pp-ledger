@@ -45,10 +45,10 @@ public:
   template <typename T> using Roe = ResultOrError<T, Error>;
 
   struct InitKeyConfig {
-    std::vector<utl::Ed25519KeyPair> genesis;
-    std::vector<utl::Ed25519KeyPair> fee;
-    std::vector<utl::Ed25519KeyPair> reserve;
-    std::vector<utl::Ed25519KeyPair> recycle;
+    std::vector<utl::MlDsaKeyPair> genesis;
+    std::vector<utl::MlDsaKeyPair> fee;
+    std::vector<utl::MlDsaKeyPair> reserve;
+    std::vector<utl::MlDsaKeyPair> recycle;
 
     pp::common::Meta ltsToMeta() const;
   };
@@ -106,7 +106,7 @@ private:
    * sign failure. */
   Roe<void>
   signWithGenesisKeys(Ledger::Record &record,
-                      const std::vector<utl::Ed25519KeyPair> &genesisKeys,
+                      const std::vector<utl::MlDsaKeyPair> &genesisKeys,
                       const std::string &errorContext) const;
 
   Chain chain_;

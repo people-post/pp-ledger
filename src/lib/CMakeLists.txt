@@ -1,8 +1,7 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.24)
 
 # Top-level lib aggregator.
-# Vendored deps first, then project library sources under lib/common.
+# Vendored json/cli; crypto (sodium + PQ) comes from pp-cpp-crypto (root).
 add_subdirectory(json)
 add_subdirectory(cli)
-add_subdirectory(sodium)
 add_subdirectory(common)

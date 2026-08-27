@@ -17,7 +17,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-JSON and libsodium are **vendored** under `src/lib/json` and `src/lib/sodium` — do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time).
+JSON is vendored under `src/lib/json`. Crypto (libsodium + ML-DSA/ML-KEM) comes from **pp-cpp-crypto** (sibling checkout or FetchContent tag). Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time).
 
 ### Build
 
@@ -57,7 +57,7 @@ cd /workspace/build && ctest --output-on-failure
 See `README.md` "Quick Start" section. Key gotchas:
 
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
-- **Miner config** requires `"keys"` (array of key-file paths) pointing to files containing 64-hex-character Ed25519 private keys, and `"beacons"` (array of `{ "host", "port", "dhtPort" }` objects).
+- **Miner config** requires `"keys"` (array of key-file paths) pointing to files containing hex-encoded ML-DSA-65 private keys (8064 hex chars), and `"beacons"` (array of `{ "host", "port", "dhtPort" }` objects).
 - The `test-network.sh` script uses `"key"` (singular string) in miner configs instead of `"keys"` (array). If this hasn't been fixed, set up miners manually — see the manual setup example below.
 - Slot leader election is **VRF-based and probabilistic**; a single miner may not be elected for many consecutive slots. This is normal.
 
@@ -95,7 +95,8 @@ cd /workspace/build
 
 # 3. Create miner key and config
 mkdir -p test-manual/miner1
-python3 -c "import os; print(os.urandom(32).hex(), end='')" > test-manual/miner1/key.txt
+./app/pp-client keygen | tee /tmp/keygen.out
+grep 'Private key' /tmp/keygen.out | sed 's/.*: *//' | tr -d ' \n' > test-manual/miner1/key.txt
 cat > test-manual/miner1/config.json << 'EOF'
 {
   "minerId": 1,

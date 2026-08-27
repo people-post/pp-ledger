@@ -10,7 +10,7 @@ Published images: `ghcr.io/people-post/pp-ledger:<version>` (also `:latest` on t
 cd deploy
 mkdir -p data/beacon data/relay data/miner
 
-# Miner key (64 hex chars) + role configs (0.0.0.0 + service DNS names)
+# Miner key (ML-DSA-65 hex private key) + role configs (0.0.0.0 + service DNS names)
 python3 -c "import os; print(os.urandom(32).hex(), end='')" > data/miner/key.txt
 cp configs/relay/config.json data/relay/config.json
 cp configs/miner/config.json data/miner/config.json

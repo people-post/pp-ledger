@@ -6,4 +6,4 @@ Vendored libraries that are not part of the pp-ledger source tree.
 |------|----------|--------|
 | `googletest/` | [google/googletest](https://github.com/google/googletest) v1.14.0 | Used when `-DBUILD_TESTING=ON` |
 
-Project-local vendors that ship with application code (JSON, libsodium, CLI11, cpp-httplib) live under `src/lib/` instead.
+Project-local vendors that ship with application code (JSON, CLI11, cpp-httplib) live under `src/lib/`. Crypto (libsodium + PQ natives) comes from pp-cpp-crypto.

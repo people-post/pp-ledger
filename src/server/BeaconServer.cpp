@@ -388,27 +388,27 @@ BeaconServer::init(const std::string &workDir) {
   // Generate keypairs; pass KeyPairs to beacon for genesis signing and
   // checkpoint public keys
   for (int i = 0; i < 3; i++) {
-    auto result = utl::ed25519Generate();
+    auto result = utl::mlDsaGenerate();
     if (!result) {
-      return Error("Failed to generate Ed25519 key: " + result.error().message);
+      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
     }
     initConfig.key.genesis.push_back(result.value());
 
-    result = utl::ed25519Generate();
+    result = utl::mlDsaGenerate();
     if (!result) {
-      return Error("Failed to generate Ed25519 key: " + result.error().message);
+      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
     }
     initConfig.key.fee.push_back(result.value());
 
-    result = utl::ed25519Generate();
+    result = utl::mlDsaGenerate();
     if (!result) {
-      return Error("Failed to generate Ed25519 key: " + result.error().message);
+      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
     }
     initConfig.key.reserve.push_back(result.value());
 
-    result = utl::ed25519Generate();
+    result = utl::mlDsaGenerate();
     if (!result) {
-      return Error("Failed to generate Ed25519 key: " + result.error().message);
+      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
     }
     initConfig.key.recycle.push_back(result.value());
   }

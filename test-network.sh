@@ -387,8 +387,19 @@ create_miner_config() {
     
     local key_file="$miner_dir/key.txt"
     
-    # Miner server requires a key file containing a 64-hex-character Ed25519 private key.
-    python3 -c "import os; print(os.urandom(32).hex(), end='')" > "$key_file"
+    # Miner server requires a key file containing hex-encoded ML-DSA-65 private key.
+    # Prefer pp-client keygen when available; fall back to placeholder only fails at runtime.
+    if [ -x "$BUILD_DIR/app/pp-client" ]; then
+      output=$("$BUILD_DIR/app/pp-client" keygen 2>&1) || {
+        echo -e "${RED}pp-client keygen failed${NC}" >&2
+        echo "$output" >&2
+        exit 1
+      }
+      echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n' > "$key_file"
+    else
+      echo -e "${RED}pp-client not built; cannot generate miner key${NC}" >&2
+      exit 1
+    fi
     
     # Use absolute path for key so it works regardless of process cwd
     local key_path="$key_file"

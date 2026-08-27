@@ -30,12 +30,12 @@ static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyH
   if (pk.size() >= 2 && (pk[0] == '0' && (pk[1] == 'x' || pk[1] == 'X')))
     pk = pk.substr(2);
   std::string decoded = pp::utl::hexDecode(pk);
-  if (decoded.size() != 32) {
+  if (decoded.size() != pp::utl::kMlDsaPublicKeyBytes) {
     return account;  // Caller should validate
   }
   account.wallet.publicKeys.push_back(decoded);
   account.wallet.minSignatures = minSignatures;
-  account.wallet.keyType = pp::Crypto::TK_ED25519;
+  account.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   account.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   account.meta = metaDesc;
   return account;
@@ -73,8 +73,8 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != 32) {
-    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
+    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
     return 1;
   }
   pp::Ledger::TxDefault tx;
@@ -84,7 +84,7 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   tx.fee = fee;
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -144,12 +144,12 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   if (!newPubkeyHex.empty()) {
     auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
     if (userAccount.wallet.publicKeys.empty()) {
-      std::cerr << "Error: --new-pubkey must be 32 bytes (64 hex chars).\n";
+      std::cerr << "Error: --new-pubkey must be ML-DSA-65 public key (1952 bytes / 3904 hex chars).\n";
       return 1;
     }
     pubkeyToUse = userAccount.wallet.publicKeys[0];
   } else {
-    auto pair = pp::utl::ed25519Generate();
+    auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {
       std::cerr << "Error: " << pair.error().message << "\n";
       return 1;
@@ -160,7 +160,7 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
-  userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
+  userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   pp::Ledger::TxNewUser tx;
@@ -201,12 +201,12 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   if (!newPubkeyHex.empty()) {
     auto userAccount = makeNewUserAccountMeta(newPubkeyHex, amount, metaDesc, minSignatures);
     if (userAccount.wallet.publicKeys.empty()) {
-      std::cerr << "Error: --new-pubkey must be 32 bytes (64 hex chars).\n";
+      std::cerr << "Error: --new-pubkey must be ML-DSA-65 public key (1952 bytes / 3904 hex chars).\n";
       return 1;
     }
     pubkeyToUse = userAccount.wallet.publicKeys[0];
   } else {
-    auto pair = pp::utl::ed25519Generate();
+    auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {
       std::cerr << "Error: " << pair.error().message << "\n";
       return 1;
@@ -217,15 +217,15 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
-  userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
+  userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != 32) {
-    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
+    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
     return 1;
   }
   pp::Ledger::TxNewUser tx;
@@ -236,7 +236,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   tx.meta = userAccount.ltsToString();
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -278,12 +278,12 @@ static int runSignTx(const std::string& filePath, const std::string& key) {
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != 32) {
-    std::cerr << "Error: --key must be 32 bytes (64 hex chars).\n";
+  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
+    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
     return 1;
   }
   std::string message = rec.data;
-  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -347,7 +347,7 @@ int main(int argc, char *argv[]) {
   app.add_flag("-m,--miner", connectToMiner, "Connect to MinerServer (default port: 8518)");
 
   // Local command: keygen
-  auto* keygen = app.add_subcommand("keygen", "Generate a new Ed25519 key pair");
+  auto* keygen = app.add_subcommand("keygen", "Generate a new ML-DSA-65 key pair");
 
   // Beacon commands
   auto* beacon_status = app.add_subcommand("status", "Get beacon/miner status");
@@ -470,12 +470,12 @@ int main(int argc, char *argv[]) {
 
   // Handle keygen command (no server connection needed)
   if (keygen->parsed()) {
-    auto pair = pp::utl::ed25519Generate();
+    auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {
       std::cerr << "Error: " << pair.error().message << "\n";
       return 1;
     }
-    std::cout << "Ed25519 key pair generated.\n";
+    std::cout << "ML-DSA-65 key pair generated.\n";
     std::cout << "Public key (hex):   " << pp::utl::hexEncode(pair->publicKey) << "\n";
     std::cout << "Private key (hex):  " << pp::utl::hexEncode(pair->privateKey) << "\n";
     std::cout << "\nKeep the private key secret. Use the public key in config (e.g. beacon keys).\n";

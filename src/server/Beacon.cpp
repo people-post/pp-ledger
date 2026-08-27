@@ -14,7 +14,7 @@ namespace pp {
 namespace {
 
 Client::UserAccount
-makeUserAccountFromKeys(const std::vector<utl::Ed25519KeyPair> &keys,
+makeUserAccountFromKeys(const std::vector<utl::MlDsaKeyPair> &keys,
                         int64_t balance, const std::string &meta) {
   Client::UserAccount account;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
@@ -22,7 +22,7 @@ makeUserAccountFromKeys(const std::vector<utl::Ed25519KeyPair> &keys,
     account.wallet.publicKeys.push_back(kp.publicKey);
   }
   account.wallet.minSignatures = keys.size();
-  account.wallet.keyType = Crypto::TK_ED25519;
+  account.wallet.keyType = Crypto::TK_ML_DSA_65;
   account.meta = meta;
   return account;
 }
@@ -99,7 +99,7 @@ Beacon::findTransactionByIndex(uint64_t txIndex) const {
 }
 
 pp::common::Meta Beacon::InitKeyConfig::ltsToMeta() const {
-  auto pairsToMeta = [](const std::vector<utl::Ed25519KeyPair> &pairs) {
+  auto pairsToMeta = [](const std::vector<utl::MlDsaKeyPair> &pairs) {
     std::vector<pp::common::Meta::Value> elems;
     elems.reserve(pairs.size());
     for (const auto &kp : pairs) {
@@ -245,11 +245,11 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
 
 Beacon::Roe<void>
 Beacon::signWithGenesisKeys(Ledger::Record &record,
-                            const std::vector<utl::Ed25519KeyPair> &genesisKeys,
+                            const std::vector<utl::MlDsaKeyPair> &genesisKeys,
                             const std::string &errorContext) const {
   const std::string &message = record.data;
   for (const auto &kp : genesisKeys) {
-    auto result = utl::ed25519Sign(kp.privateKey, message);
+    auto result = utl::mlDsaSign(kp.privateKey, message);
     if (!result) {
       return Error(18, "Failed to sign " + errorContext + ": " +
                            result.error().message);

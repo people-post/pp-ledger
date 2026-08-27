@@ -1,5 +1,7 @@
 #include "Utilities.h"
+#include "PqCryptoBridge.h"
 #include <charconv>
+#include <chrono>
 #include <ctime>
 #include <cstdint>
 #include <fstream>
@@ -216,113 +218,61 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
   return {};
 }
 
-// --- Ed25519
+// --- ML-DSA-65
 
-namespace {
-
-constexpr size_t ED25519_PRIVATE_KEY_SIZE = 32;
-constexpr size_t ED25519_PUBLIC_KEY_SIZE = 32;
-constexpr size_t ED25519_SIGNATURE_SIZE = 64;
-
-} // namespace
-
-pp::common::Meta Ed25519KeyPair::ltsToMeta() const {
+pp::common::Meta MlDsaKeyPair::ltsToMeta() const {
   pp::common::Meta m;
   m.set("publicKey", hexEncode(publicKey));
   m.set("privateKey", hexEncode(privateKey));
   return m;
 }
 
-pp::Roe<Ed25519KeyPair> ed25519Generate() {
-  Ed25519KeyPair pair;
-  pair.publicKey.resize(crypto_sign_PUBLICKEYBYTES);
-  pair.privateKey.resize(crypto_sign_SECRETKEYBYTES);
-  
-  if (crypto_sign_keypair(
-        reinterpret_cast<unsigned char*>(pair.publicKey.data()),
-        reinterpret_cast<unsigned char*>(pair.privateKey.data())) != 0) {
-    return Error(1, "crypto_sign_keypair failed");
+pp::Roe<MlDsaKeyPair> mlDsaGenerate() {
+  pq_bridge::KeyPair raw;
+  std::string err = pq_bridge::generateKeyPair(raw);
+  if (!err.empty()) {
+    return Error(1, err);
   }
-  
-  // Libsodium's secret key is 64 bytes (32 seed + 32 public), but we only want the 32-byte seed
-  pair.privateKey.resize(ED25519_PRIVATE_KEY_SIZE);
-  
+  MlDsaKeyPair pair;
+  pair.publicKey = std::move(raw.publicKey);
+  pair.privateKey = std::move(raw.privateKey);
   return pair;
 }
 
-pp::Roe<std::string> ed25519Sign(const std::string &privateKey,
-                                 const std::string &message) {
-  if (privateKey.size() != ED25519_PRIVATE_KEY_SIZE) {
-    return Error(1, "ed25519Sign: private key must be 32 bytes");
+pp::Roe<std::string> mlDsaSign(const std::string &privateKey,
+                               const std::string &message) {
+  std::string signature;
+  std::string err = pq_bridge::sign(privateKey, message, signature);
+  if (!err.empty()) {
+    return Error(1, err);
   }
-  
-  // Libsodium expects a 64-byte secret key (32 seed + 32 public key)
-  // We need to expand our 32-byte seed to get the full secret key
-  std::vector<unsigned char> pk(crypto_sign_PUBLICKEYBYTES);
-  std::vector<unsigned char> sk(crypto_sign_SECRETKEYBYTES);
-  
-  if (crypto_sign_seed_keypair(
-        pk.data(), sk.data(),
-        reinterpret_cast<const unsigned char*>(privateKey.data())) != 0) {
-    return Error(2, "crypto_sign_seed_keypair failed");
-  }
-  
-  std::string signature(crypto_sign_BYTES, '\0');
-  unsigned long long sig_len = 0;
-  
-  if (crypto_sign_detached(
-        reinterpret_cast<unsigned char*>(signature.data()),
-        &sig_len,
-        reinterpret_cast<const unsigned char*>(message.data()),
-        message.size(),
-        sk.data()) != 0) {
-    return Error(3, "crypto_sign_detached failed");
-  }
-  
-  if (sig_len != ED25519_SIGNATURE_SIZE) {
-    return Error(4, "unexpected signature size");
-  }
-  
   return signature;
 }
 
-bool ed25519Verify(const std::string &publicKey, const std::string &message,
-                  const std::string &signature) {
-  if (publicKey.size() != ED25519_PUBLIC_KEY_SIZE ||
-      signature.size() != ED25519_SIGNATURE_SIZE) {
-    return false;
-  }
-  
-  int result = crypto_sign_verify_detached(
-      reinterpret_cast<const unsigned char*>(signature.data()),
-      reinterpret_cast<const unsigned char*>(message.data()),
-      message.size(),
-      reinterpret_cast<const unsigned char*>(publicKey.data()));
-  
-  return result == 0;
+bool mlDsaVerify(const std::string &publicKey, const std::string &message,
+                 const std::string &signature) {
+  return pq_bridge::verify(publicKey, message, signature);
 }
 
-bool isValidEd25519PublicKey(const std::string &str) {
+bool isValidMlDsaPublicKey(const std::string &str) {
   std::string raw;
-  if (str.size() == ED25519_PUBLIC_KEY_SIZE) {
+  if (str.size() == kMlDsaPublicKeyBytes) {
     raw = str;
-  } else if (str.size() == 64) {
+  } else if (str.size() == kMlDsaPublicKeyBytes * 2) {
     raw = hexDecode(str);
-    if (raw.size() != ED25519_PUBLIC_KEY_SIZE) {
+    if (raw.size() != kMlDsaPublicKeyBytes) {
       return false;
     }
-  } else if (str.size() == 66 && (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))) {
+  } else if (str.size() == kMlDsaPublicKeyBytes * 2 + 2 &&
+             (str[0] == '0' && (str[1] == 'x' || str[1] == 'X'))) {
     raw = hexDecode(str.substr(2));
-    if (raw.size() != ED25519_PUBLIC_KEY_SIZE) {
+    if (raw.size() != kMlDsaPublicKeyBytes) {
       return false;
     }
   } else {
     return false;
   }
-  
-  // Validate that the public key is a valid point on the Ed25519 curve
-  return crypto_core_ed25519_is_valid_point(
-      reinterpret_cast<const unsigned char*>(raw.data())) == 1;
+  return pq_bridge::isValidPublicKeyRaw(raw);
 }
 
 static std::string trimWhitespace(const std::string &s) {
@@ -391,20 +341,21 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
     content = content.substr(2);
   }
   content = trimWhitespace(content);
-  // Hex-encoded: 64 hex chars -> 32 bytes
-  if (isHexString(content, 64)) {
+  const size_t hexLen = kMlDsaPrivateKeyBytes * 2;
+  if (isHexString(content, hexLen)) {
     std::string raw = hexDecode(content);
-    if (raw.size() != 32) {
-      return Error(3, "Invalid hex-encoded private key (expected 64 hex chars)");
+    if (raw.size() != kMlDsaPrivateKeyBytes) {
+      return Error(3, "Invalid hex-encoded private key (expected " +
+                          std::to_string(hexLen) + " hex chars)");
     }
     return raw;
   }
-  // Raw 32 bytes
-  if (content.size() == 32) {
+  if (content.size() == kMlDsaPrivateKeyBytes) {
     return content;
   }
-  return Error(4, "Private key must be 32 bytes raw or 64 hex characters, got " +
-                      std::to_string(content.size()));
+  return Error(4, "Private key must be " + std::to_string(kMlDsaPrivateKeyBytes) +
+                      " bytes raw or " + std::to_string(hexLen) +
+                      " hex characters, got " + std::to_string(content.size()));
 }
 
 } // namespace utl

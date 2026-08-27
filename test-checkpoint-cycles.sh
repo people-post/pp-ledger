@@ -247,7 +247,7 @@ create_relay_config() {
 EOF
 }
 
-# Generate Ed25519 key for miner - file must contain raw 32 bytes (Miner uses readKey, ed25519Sign needs 32 bytes)
+# Generate ML-DSA-65 key for miner - file contains raw private key bytes (from pp-client keygen)
 generate_miner_key() {
     local miner_id=$1
     local key_dir="${TEST_DIR}/keys"
@@ -262,7 +262,7 @@ generate_miner_key() {
             exit 1
         fi
         hex=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
-        # Miner ed25519Sign expects raw 32 bytes; write binary to file
+        # Miner mlDsaSign expects raw ML-DSA-65 private key bytes; write binary to file
         if command -v xxd &>/dev/null; then
             echo -n "$hex" | xxd -r -p > "$key_file"
         else
@@ -298,7 +298,7 @@ create_miner_config() {
         local keys_json='["recycle1.key", "recycle2.key", "recycle3.key"]'
         echo -e "${CYAN}Miner 3 using 3 recycle keys for signing${NC}"
     else
-        # Other miners: single miner key (raw 32 bytes)
+        # Other miners: single miner key (raw ML-DSA-65 private key)
         cp "$(generate_miner_key "$miner_id")" "$miner_dir/key.txt"
         local keys_json='["key.txt"]'
     fi

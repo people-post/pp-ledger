@@ -393,13 +393,13 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
     if (pk.size() >= 2 && (pk[0] == '0' && (pk[1] == 'x' || pk[1] == 'X')))
       pk = pk.substr(2);
     std::string decoded = pp::utl::hexDecode(pk);
-    if (decoded.size() != 32) {
-      setJsonError(res, 400, "newPubkey must be 32 bytes (64 hex chars)");
+    if (decoded.size() != pp::utl::kMlDsaPublicKeyBytes) {
+      setJsonError(res, 400, "newPubkey must be ML-DSA-65 public key (1952 bytes / 3904 hex chars)");
       return;
     }
     pubkeyToUse = decoded;
   } else {
-    auto pair = pp::utl::ed25519Generate();
+    auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {
       setJsonError(res, 500, std::string("Key generation failed: ") + pair.error().message);
       return;
@@ -411,7 +411,7 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   pp::Client::UserAccount userAccount;
   userAccount.wallet.publicKeys.push_back(pubkeyToUse);
   userAccount.wallet.minSignatures = minSignatures;
-  userAccount.wallet.keyType = pp::Crypto::TK_ED25519;
+  userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   userAccount.meta = metaDesc;
 
@@ -419,8 +419,8 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   if (keyStr.size() >= 2 && (keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X')))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != 32) {
-    setJsonError(res, 400, "key must be 32 bytes (64 hex chars)");
+  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
+    setJsonError(res, 400, "key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars)");
     return;
   }
 
@@ -432,7 +432,7 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   tx.meta = userAccount.ltsToString();
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
   std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::ed25519Sign(privateKey, message);
+  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
     setJsonError(res, 500, std::string("Sign failed: ") + sigResult.error().message);
     return;
@@ -717,13 +717,16 @@ static void handleTxSubmit(const httplib::Request& req, httplib::Response& res,
       return;
     }
     std::string sigHex = item.get<std::string>();
-    if (!isHexStringStrict(sigHex) || sigHex.size() != 128) {
-      setJsonError(res, 400, "each signature hex must be exactly 128 hex chars (64 bytes), without 0x prefix");
+    constexpr size_t kSigHexLen = pp::utl::kMlDsaSignatureBytes * 2;
+    if (!isHexStringStrict(sigHex) || sigHex.size() != kSigHexLen) {
+      setJsonError(res, 400, "each signature hex must be exactly " +
+                   std::to_string(kSigHexLen) +
+                   " hex chars (ML-DSA-65), without 0x prefix");
       return;
     }
     std::string sig = pp::utl::hexDecode(sigHex);
-    if (sig.size() != 64) {
-      setJsonError(res, 400, "signature hex failed to decode to 64 bytes");
+    if (sig.size() != pp::utl::kMlDsaSignatureBytes) {
+      setJsonError(res, 400, "signature hex failed to decode to ML-DSA-65 size");
       return;
     }
     rec.signatures.push_back(std::move(sig));

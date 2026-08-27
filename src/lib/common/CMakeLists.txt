@@ -10,6 +10,8 @@ add_library(pp_lib STATIC
     Meta.h
     Module.cpp
     Module.h
+    PqCryptoBridge.cpp
+    PqCryptoBridge.h
     ResultOrError.hpp
     Serialize.hpp
     Service.cpp
@@ -27,11 +29,17 @@ target_include_directories(pp_lib PUBLIC
 
 # Link dependencies with PUBLIC to automatically propagate to dependents:
 # - vendored nlohmann/json headers
-# - vendored libsodium (static)
+# - pp-cpp-crypto (ML-DSA/ML-KEM + libsodium)
 target_link_libraries(pp_lib PUBLIC
     nlohmann_json::nlohmann_json
+    pp_crypto
     sodium::sodium
 )
+
+# Add tests subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()
 
 # Add tests subdirectory if testing is enabled
 if(BUILD_TESTING)

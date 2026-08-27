@@ -39,141 +39,145 @@ TEST(Sha256Test, OutputIsHexadecimal64Characters) {
   }
 }
 
-// Ed25519 tests
-TEST(Ed25519Test, GenerateReturnsValidKeyPair) {
-  auto pair = ed25519Generate();
+// ML-DSA-65 tests
+TEST(MlDsaTest, GenerateReturnsValidKeyPair) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk()) << (pair.isError() ? pair.error().message : "");
-  EXPECT_EQ(pair->publicKey.size(), 32u);
-  EXPECT_EQ(pair->privateKey.size(), 32u);
+  EXPECT_EQ(pair->publicKey.size(), kMlDsaPublicKeyBytes);
+  EXPECT_EQ(pair->privateKey.size(), kMlDsaPrivateKeyBytes);
 }
 
-TEST(Ed25519Test, SignReturns64ByteSignature) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, SignReturnsExpectedSignatureSize) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "hello world";
-  auto sig = ed25519Sign(pair->privateKey, message);
+  auto sig = mlDsaSign(pair->privateKey, message);
   ASSERT_TRUE(sig.isOk()) << (sig.isError() ? sig.error().message : "");
-  EXPECT_EQ(sig->size(), 64u);
+  EXPECT_EQ(sig->size(), kMlDsaSignatureBytes);
 }
 
-TEST(Ed25519Test, VerifyValidSignatureReturnsTrue) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, VerifyValidSignatureReturnsTrue) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "test message";
-  auto sig = ed25519Sign(pair->privateKey, message);
+  auto sig = mlDsaSign(pair->privateKey, message);
   ASSERT_TRUE(sig.isOk());
-  EXPECT_TRUE(ed25519Verify(pair->publicKey, message, *sig));
+  EXPECT_TRUE(mlDsaVerify(pair->publicKey, message, *sig));
 }
 
-TEST(Ed25519Test, VerifyWrongMessageReturnsFalse) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, VerifyWrongMessageReturnsFalse) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "original";
-  auto sig = ed25519Sign(pair->privateKey, message);
+  auto sig = mlDsaSign(pair->privateKey, message);
   ASSERT_TRUE(sig.isOk());
-  EXPECT_FALSE(ed25519Verify(pair->publicKey, "tampered", *sig));
+  EXPECT_FALSE(mlDsaVerify(pair->publicKey, "tampered", *sig));
 }
 
-TEST(Ed25519Test, VerifyWrongSignatureReturnsFalse) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, VerifyWrongSignatureReturnsFalse) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "message";
-  std::string wrongSig(64, '\0');  // all zeros is not a valid signature
-  EXPECT_FALSE(ed25519Verify(pair->publicKey, message, wrongSig));
+  std::string wrongSig(kMlDsaSignatureBytes, '\0');
+  EXPECT_FALSE(mlDsaVerify(pair->publicKey, message, wrongSig));
 }
 
-TEST(Ed25519Test, VerifyWrongPublicKeyReturnsFalse) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, VerifyWrongPublicKeyReturnsFalse) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "message";
-  auto sig = ed25519Sign(pair->privateKey, message);
+  auto sig = mlDsaSign(pair->privateKey, message);
   ASSERT_TRUE(sig.isOk());
-  std::string wrongPub(32, '\x01');
-  EXPECT_FALSE(ed25519Verify(wrongPub, message, *sig));
+  auto other = mlDsaGenerate();
+  ASSERT_TRUE(other.isOk());
+  EXPECT_FALSE(mlDsaVerify(other->publicKey, message, *sig));
 }
 
-TEST(Ed25519Test, SignWithWrongPrivateKeySizeReturnsError) {
+TEST(MlDsaTest, SignWithWrongPrivateKeySizeReturnsError) {
   std::string shortKey(16, '\0');
-  auto sig = ed25519Sign(shortKey, "msg");
+  auto sig = mlDsaSign(shortKey, "msg");
   EXPECT_TRUE(sig.isError());
   EXPECT_EQ(sig.error().code, 1);
 }
 
-TEST(Ed25519Test, RoundTripGenerateSignVerify) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, RoundTripGenerateSignVerify) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string message = "round-trip payload";
-  auto sig = ed25519Sign(pair->privateKey, message);
+  auto sig = mlDsaSign(pair->privateKey, message);
   ASSERT_TRUE(sig.isOk());
-  EXPECT_TRUE(ed25519Verify(pair->publicKey, message, *sig));
+  EXPECT_TRUE(mlDsaVerify(pair->publicKey, message, *sig));
 }
 
-TEST(Ed25519Test, DifferentKeysProduceDifferentSignatures) {
-  auto pair1 = ed25519Generate();
-  auto pair2 = ed25519Generate();
+TEST(MlDsaTest, DifferentKeysProduceDifferentSignatures) {
+  auto pair1 = mlDsaGenerate();
+  auto pair2 = mlDsaGenerate();
   ASSERT_TRUE(pair1.isOk() && pair2.isOk());
   EXPECT_NE(pair1->publicKey, pair2->publicKey);
   EXPECT_NE(pair1->privateKey, pair2->privateKey);
   std::string message = "same message";
-  auto sig1 = ed25519Sign(pair1->privateKey, message);
-  auto sig2 = ed25519Sign(pair2->privateKey, message);
+  auto sig1 = mlDsaSign(pair1->privateKey, message);
+  auto sig2 = mlDsaSign(pair2->privateKey, message);
   ASSERT_TRUE(sig1.isOk() && sig2.isOk());
   EXPECT_NE(*sig1, *sig2);
-  EXPECT_TRUE(ed25519Verify(pair1->publicKey, message, *sig1));
-  EXPECT_TRUE(ed25519Verify(pair2->publicKey, message, *sig2));
+  EXPECT_TRUE(mlDsaVerify(pair1->publicKey, message, *sig1));
+  EXPECT_TRUE(mlDsaVerify(pair2->publicKey, message, *sig2));
 }
 
-TEST(Ed25519Test, VerifyRejectsWrongSignatureSize) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, VerifyRejectsWrongSignatureSize) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string shortSig(32, '\0');
-  EXPECT_FALSE(ed25519Verify(pair->publicKey, "msg", shortSig));
-  std::string longSig(128, '\0');
-  EXPECT_FALSE(ed25519Verify(pair->publicKey, "msg", longSig));
+  EXPECT_FALSE(mlDsaVerify(pair->publicKey, "msg", shortSig));
+  std::string longSig(kMlDsaSignatureBytes + 64, '\0');
+  EXPECT_FALSE(mlDsaVerify(pair->publicKey, "msg", longSig));
 }
 
-TEST(Ed25519Test, EmptyMessageSignAndVerify) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, EmptyMessageSignAndVerify) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string empty;
-  auto sig = ed25519Sign(pair->privateKey, empty);
+  auto sig = mlDsaSign(pair->privateKey, empty);
   ASSERT_TRUE(sig.isOk());
-  EXPECT_EQ(sig->size(), 64u);
-  EXPECT_TRUE(ed25519Verify(pair->publicKey, empty, *sig));
+  EXPECT_EQ(sig->size(), kMlDsaSignatureBytes);
+  EXPECT_TRUE(mlDsaVerify(pair->publicKey, empty, *sig));
 }
 
-TEST(Ed25519Test, IsValidEd25519PublicKeyRaw32Bytes) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, IsValidMlDsaPublicKeyRaw) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
-  EXPECT_TRUE(isValidEd25519PublicKey(pair->publicKey));
+  EXPECT_TRUE(isValidMlDsaPublicKey(pair->publicKey));
   EXPECT_TRUE(isValidPublicKey(pair->publicKey));
 }
 
-TEST(Ed25519Test, IsValidEd25519PublicKeyHex64) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, IsValidMlDsaPublicKeyHex) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
   std::string hexPub = hexEncode(pair->publicKey);
-  EXPECT_EQ(hexPub.size(), 64u);
-  EXPECT_TRUE(isValidEd25519PublicKey(hexPub));
+  EXPECT_EQ(hexPub.size(), kMlDsaPublicKeyBytes * 2);
+  EXPECT_TRUE(isValidMlDsaPublicKey(hexPub));
 }
 
-TEST(Ed25519Test, IsValidEd25519PublicKeyHex0xPrefix) {
-  auto pair = ed25519Generate();
+TEST(MlDsaTest, IsValidMlDsaPublicKeyHex0xPrefix) {
+  auto pair = mlDsaGenerate();
   ASSERT_TRUE(pair.isOk());
-  EXPECT_TRUE(isValidEd25519PublicKey("0x" + hexEncode(pair->publicKey)));
+  EXPECT_TRUE(isValidMlDsaPublicKey("0x" + hexEncode(pair->publicKey)));
 }
 
-TEST(Ed25519Test, IsValidEd25519PublicKeyRejectsWrongLength) {
-  EXPECT_FALSE(isValidEd25519PublicKey(""));
-  EXPECT_FALSE(isValidEd25519PublicKey("short"));
-  EXPECT_FALSE(isValidEd25519PublicKey(std::string(31, '\0')));
-  EXPECT_FALSE(isValidEd25519PublicKey(std::string(33, '\0')));
-  EXPECT_FALSE(isValidEd25519PublicKey(std::string(63, 'a')));
-  EXPECT_FALSE(isValidEd25519PublicKey(std::string(65, 'a')));
+TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsWrongLength) {
+  EXPECT_FALSE(isValidMlDsaPublicKey(""));
+  EXPECT_FALSE(isValidMlDsaPublicKey("short"));
+  EXPECT_FALSE(isValidMlDsaPublicKey(std::string(kMlDsaPublicKeyBytes - 1, '\0')));
+  EXPECT_FALSE(isValidMlDsaPublicKey(std::string(kMlDsaPublicKeyBytes + 1, '\0')));
+  EXPECT_FALSE(isValidMlDsaPublicKey(std::string(64, 'a')));
 }
 
-TEST(Ed25519Test, IsValidEd25519PublicKeyRejectsInvalidHex) {
-  EXPECT_FALSE(isValidEd25519PublicKey("0xgg" + std::string(60, 'a')));
+TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsAllZero) {
+  EXPECT_FALSE(isValidMlDsaPublicKey(std::string(kMlDsaPublicKeyBytes, '\0')));
+}
+
+TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsInvalidHex) {
+  EXPECT_FALSE(isValidMlDsaPublicKey("0xgg" + std::string(kMlDsaPublicKeyBytes * 2 - 2, 'a')));
 }
 
 }  // namespace utl
