@@ -40,8 +40,3 @@ target_link_libraries(pp_lib PUBLIC
 if(BUILD_TESTING)
     add_subdirectory(test)
 endif()
-
-# Add tests subdirectory if testing is enabled
-if(BUILD_TESTING)
-    add_subdirectory(test)
-endif()
