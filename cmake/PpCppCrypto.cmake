@@ -20,12 +20,15 @@ set(PP_CPP_CRYPTO_GIT_TAG "v0.1.0"
 set(PP_CRYPTO_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-crypto tests" FORCE)
 
 set(_pp_crypto_sibling "${CMAKE_SOURCE_DIR}/../pp-cpp-crypto")
-if(PP_CPP_CRYPTO_SOURCE_DIR)
+if(PP_CPP_CRYPTO_SOURCE_DIR AND EXISTS "${PP_CPP_CRYPTO_SOURCE_DIR}/CMakeLists.txt")
   set(_pp_crypto_src "${PP_CPP_CRYPTO_SOURCE_DIR}")
 elseif(EXISTS "${_pp_crypto_sibling}/CMakeLists.txt")
   set(_pp_crypto_src "${_pp_crypto_sibling}")
   message(STATUS "pp-ledger: using sibling pp-cpp-crypto at ${_pp_crypto_src}")
 else()
+  if(PP_CPP_CRYPTO_SOURCE_DIR)
+    message(WARNING "PP_CPP_CRYPTO_SOURCE_DIR=${PP_CPP_CRYPTO_SOURCE_DIR} is missing; falling back to FetchContent")
+  endif()
   set(_pp_crypto_src "")
 endif()
 
