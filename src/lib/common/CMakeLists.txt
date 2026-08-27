@@ -29,11 +29,9 @@ target_include_directories(pp_lib PUBLIC
 )
 
 # Link dependencies with PUBLIC to automatically propagate to dependents:
-# - vendored nlohmann/json headers
 # - pp-cpp-common (Logger, Module, Roe, Serialize, …)
 # - pp-cpp-crypto (ML-DSA/ML-KEM + libsodium)
 target_link_libraries(pp_lib PUBLIC
-    nlohmann_json::nlohmann_json
     pp_common
     pp_crypto
     sodium::sodium

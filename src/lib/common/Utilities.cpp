@@ -1,5 +1,6 @@
 #include "Utilities.h"
 
+#include "io/Json.h"
 #include "crypto/MlDsa.h"
 #include "crypto/Types.h"
 
@@ -93,7 +94,7 @@ bool parseHostPort(const std::string &hostPort, std::string &host, uint16_t &por
   return parsePort(portStr, port);
 }
 
-pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath) {
+pp::Roe<pp::common::Object> loadJsonFile(const std::string &configPath) {
   if (!std::filesystem::exists(configPath)) {
     return Error(1, "Configuration file not found: " + configPath);
   }
@@ -107,29 +108,30 @@ pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath) {
                       std::istreambuf_iterator<char>());
   configFile.close();
 
-  nlohmann::json config;
-  try {
-    config = nlohmann::json::parse(content);
-  } catch (const nlohmann::json::parse_error &e) {
-    return Error(3, "Failed to parse JSON: " + std::string(e.what()));
+  auto parsed = pp::common::io::valueFromJsonString(content);
+  if (!parsed.isOk()) {
+    return Error(3, "Failed to parse JSON: " + parsed.error().message);
   }
-
-  return config;
+  const auto *obj = pp::common::asObject(parsed.value());
+  if (!obj) {
+    return Error(3, "Configuration root must be a JSON object");
+  }
+  return *obj;
 }
 
-pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request) {
-  nlohmann::json reqJson;
-  try {
-    reqJson = nlohmann::json::parse(request);
-  } catch (const nlohmann::json::parse_error &e) {
-    return Error(1, "Failed to parse request JSON: " + std::string(e.what()));
+pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request) {
+  auto parsed = pp::common::io::valueFromJsonString(request);
+  if (!parsed.isOk()) {
+    return Error(1, "Failed to parse request JSON: " + parsed.error().message);
   }
-
-  if (!reqJson.contains("type")) {
+  const auto *obj = pp::common::asObject(parsed.value());
+  if (!obj) {
+    return Error(2, "request root must be a JSON object");
+  }
+  if (!obj->contains("type")) {
     return Error(2, "missing type field");
   }
-
-  return reqJson;
+  return *obj;
 }
 
 std::string sha256(const std::string &input) {

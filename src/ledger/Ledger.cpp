@@ -68,7 +68,7 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
 
 pp::common::Meta Ledger::TxCommon::ltsToMeta() const {
   pp::common::Meta m;
-  m.set("fee", fee);
+  m.setUIntForJson("fee", fee);
   m.set("meta", utl::toJsonSafeString(meta));
   return m;
 }
@@ -76,7 +76,7 @@ pp::common::Meta Ledger::TxCommon::ltsToMeta() const {
 namespace {
 template <typename TxT>
 void appendIdempotencyMeta(pp::common::Meta &m, const TxT &tx) {
-  m.set("idempotentId", tx.idempotentId);
+  m.setUIntForJson("idempotentId", tx.idempotentId);
   m.set("validationTsMin", tx.validationTsMin);
   m.set("validationTsMax", tx.validationTsMax);
 }
@@ -84,7 +84,7 @@ void appendIdempotencyMeta(pp::common::Meta &m, const TxT &tx) {
 
 pp::common::Meta Ledger::TxIdempotencyWindow::ltsToMeta() const {
   pp::common::Meta m;
-  m.set("idempotentId", idempotentId);
+  m.setUIntForJson("idempotentId", idempotentId);
   m.set("validationTsMin", validationTsMin);
   m.set("validationTsMax", validationTsMax);
   return m;
@@ -93,10 +93,10 @@ pp::common::Meta Ledger::TxIdempotencyWindow::ltsToMeta() const {
 pp::common::Meta Ledger::TxDefault::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
-  m.set("tokenId", tokenId);
-  m.set("amount", amount);
-  m.set("fromWalletId", fromWalletId);
-  m.set("toWalletId", toWalletId);
+  m.setUIntForJson("tokenId", tokenId);
+  m.setUIntForJson("amount", amount);
+  m.setUIntForJson("fromWalletId", fromWalletId);
+  m.setUIntForJson("toWalletId", toWalletId);
   return m;
 }
 
@@ -107,9 +107,9 @@ pp::common::Meta Ledger::TxGenesis::ltsToMeta() const {
 pp::common::Meta Ledger::TxNewUser::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
-  m.set("amount", amount);
-  m.set("fromWalletId", fromWalletId);
-  m.set("toWalletId", toWalletId);
+  m.setUIntForJson("amount", amount);
+  m.setUIntForJson("fromWalletId", fromWalletId);
+  m.setUIntForJson("toWalletId", toWalletId);
   return m;
 }
 
@@ -122,26 +122,26 @@ pp::common::Meta Ledger::TxConfig::ltsToMeta() const {
 pp::common::Meta Ledger::TxUserUpdate::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
-  m.set("walletId", walletId);
+  m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxRenewal::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
-  m.set("walletId", walletId);
+  m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::TxEndUser::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
-  m.set("walletId", walletId);
+  m.setUIntForJson("walletId", walletId);
   return m;
 }
 
 pp::common::Meta Ledger::Record::ltsToMeta() const {
   pp::common::Meta j;
   j.set("type", std::string(transactionTypeToHumanString(type)));
-  j.set("typeId", static_cast<uint64_t>(type));
+  j.setJsonUInt("typeId", type);
 
   auto txRoe = decode();
   if (txRoe) {
@@ -229,13 +229,13 @@ Ledger::Record::decode() const {
 
 pp::common::Meta Ledger::Block::ltsToMeta() const {
   pp::common::Meta j;
-  j.set("index", index);
+  j.setUIntForJson("index", index);
   j.set("timestamp", utl::formatTimestampLocal(timestamp));
   j.set("previousHash", utl::toJsonSafeString(previousHash));
-  j.set("nonce", nonce);
-  j.set("slot", slot);
-  j.set("slotLeader", slotLeader);
-  j.set("startingTxIndex", txIndex);
+  j.setUIntForJson("nonce", nonce);
+  j.setUIntForJson("slot", slot);
+  j.setUIntForJson("slotLeader", slotLeader);
+  j.setUIntForJson("startingTxIndex", txIndex);
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());

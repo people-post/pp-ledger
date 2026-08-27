@@ -52,8 +52,8 @@ pp::common::Meta Client::Wallet::ltsToMeta() const {
   pp::common::Meta j;
   j.set("mBalances", balances);
   j.set("publicKeys", pp::common::Meta::array(std::move(keys)));
-  j.set("minSignatures", static_cast<uint64_t>(minSignatures));
-  j.set("keyType", static_cast<uint64_t>(keyType));
+  j.setJsonUInt("minSignatures", minSignatures);
+  j.setJsonUInt("keyType", keyType);
   return j;
 }
 
@@ -88,14 +88,14 @@ pp::common::Meta Client::UserAccount::ltsToMeta() const {
 
 pp::common::Meta Client::MinerInfo::ltsToMeta() const {
   pp::common::Meta m;
-  m.set("id", id);
+  m.setUIntForJson("id", id);
   m.set("tLastMessage", tLastMessage);
   m.set("endpoint", endpoint);
   return m;
 }
 
 Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
-  id = meta.getOrDefault("id", uint64_t{0});
+  id = meta.getNonNegInt("id").value_or(0);
   tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
   endpoint = meta.getOrDefault("endpoint", std::string{});
   return true;
@@ -103,25 +103,25 @@ Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
 
 pp::common::Meta Client::MinerStatus::ltsToMeta() const {
   pp::common::Meta m;
-  m.set("minerId", minerId);
-  m.set("stake", stake);
-  m.set("nextBlockId", nextBlockId);
-  m.set("currentSlot", currentSlot);
-  m.set("currentEpoch", currentEpoch);
-  m.set("pendingTransactions", pendingTransactions);
-  m.set("nStakeholders", nStakeholders);
+  m.setUIntForJson("minerId", minerId);
+  m.setUIntForJson("stake", stake);
+  m.setUIntForJson("nextBlockId", nextBlockId);
+  m.setUIntForJson("currentSlot", currentSlot);
+  m.setUIntForJson("currentEpoch", currentEpoch);
+  m.setUIntForJson("pendingTransactions", pendingTransactions);
+  m.setUIntForJson("nStakeholders", nStakeholders);
   m.set("isSlotLeader", isSlotLeader);
   return m;
 }
 
 Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta &meta) {
-  minerId = meta.getOrDefault("minerId", uint64_t{0});
-  stake = meta.getOrDefault("stake", uint64_t{0});
-  nextBlockId = meta.getOrDefault("nextBlockId", uint64_t{0});
-  currentSlot = meta.getOrDefault("currentSlot", uint64_t{0});
-  currentEpoch = meta.getOrDefault("currentEpoch", uint64_t{0});
-  pendingTransactions = meta.getOrDefault("pendingTransactions", uint64_t{0});
-  nStakeholders = meta.getOrDefault("nStakeholders", uint64_t{0});
+  minerId = meta.getNonNegInt("minerId").value_or(0);
+  stake = meta.getNonNegInt("stake").value_or(0);
+  nextBlockId = meta.getNonNegInt("nextBlockId").value_or(0);
+  currentSlot = meta.getNonNegInt("currentSlot").value_or(0);
+  currentEpoch = meta.getNonNegInt("currentEpoch").value_or(0);
+  pendingTransactions = meta.getNonNegInt("pendingTransactions").value_or(0);
+  nStakeholders = meta.getNonNegInt("nStakeholders").value_or(0);
   isSlotLeader = meta.getOrDefault("isSlotLeader", false);
   return true;
 }
@@ -129,21 +129,21 @@ Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta &meta)
 pp::common::Meta Client::BeaconState::ltsToMeta() const {
   pp::common::Meta m;
   m.set("currentTimestamp", currentTimestamp);
-  m.set("checkpointId", checkpointId);
-  m.set("nextBlockId", nextBlockId);
-  m.set("currentSlot", currentSlot);
-  m.set("currentEpoch", currentEpoch);
-  m.set("nStakeholders", nStakeholders);
+  m.setUIntForJson("checkpointId", checkpointId);
+  m.setUIntForJson("nextBlockId", nextBlockId);
+  m.setUIntForJson("currentSlot", currentSlot);
+  m.setUIntForJson("currentEpoch", currentEpoch);
+  m.setUIntForJson("nStakeholders", nStakeholders);
   return m;
 }
 
 Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta) {
   currentTimestamp = meta.getOrDefault("currentTimestamp", int64_t{0});
-  checkpointId = meta.getOrDefault("checkpointId", uint64_t{0});
-  nextBlockId = meta.getOrDefault("nextBlockId", uint64_t{0});
-  currentSlot = meta.getOrDefault("currentSlot", uint64_t{0});
-  currentEpoch = meta.getOrDefault("currentEpoch", uint64_t{0});
-  nStakeholders = meta.getOrDefault("nStakeholders", uint64_t{0});
+  checkpointId = meta.getNonNegInt("checkpointId").value_or(0);
+  nextBlockId = meta.getNonNegInt("nextBlockId").value_or(0);
+  currentSlot = meta.getNonNegInt("currentSlot").value_or(0);
+  currentEpoch = meta.getNonNegInt("currentEpoch").value_or(0);
+  nStakeholders = meta.getNonNegInt("nStakeholders").value_or(0);
   return true;
 }
 
@@ -155,14 +155,14 @@ pp::common::Meta Client::TxGetByWalletResponse::ltsToMeta() const {
   }
   pp::common::Meta j;
   j.set("transactions", pp::common::Meta::array(std::move(txs)));
-  j.set("nextBlockId", nextBlockId);
+  j.setUIntForJson("nextBlockId", nextBlockId);
   return j;
 }
 
 pp::common::Meta Client::CalibrationResponse::ltsToMeta() const {
   pp::common::Meta j;
   j.set("msTimestamp", msTimestamp);
-  j.set("nextBlockId", nextBlockId);
+  j.setUIntForJson("nextBlockId", nextBlockId);
   return j;
 }
 

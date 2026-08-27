@@ -17,7 +17,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-JSON is vendored under `src/lib/json`. Shared foundation comes from **pp-cpp-common** and crypto from **pp-cpp-crypto** (sibling checkouts or FetchContent tags). Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time for gtest).
+JSON I/O for Meta/Value is hand-written under `src/lib/common/io/` (no vendored nlohmann). Shared foundation comes from **pp-cpp-common** and crypto from **pp-cpp-crypto** (sibling checkouts or FetchContent tags). Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time for gtest).
 
 ### Build
 

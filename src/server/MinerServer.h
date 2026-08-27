@@ -7,12 +7,12 @@
 #include "../network/DhtRunner.h"
 #include "../network/Types.hpp"
 #include "lib/common/ResultOrError.hpp"
+#include "lib/common/Meta.h"
 #include <chrono>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <mutex>
-#include <json.hpp>
 
 namespace pp {
 
@@ -69,8 +69,8 @@ private:
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
     uint16_t dhtPort{ Client::DEFAULT_DHT_PORT };
 
-    nlohmann::json ltsToJson() const;
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
+    pp::common::Object ltsToJson() const;
+    Roe<void> ltsFromJson(const pp::common::Object& jd);
   };
 
   struct BeaconPeer {
@@ -87,8 +87,8 @@ private:
     uint16_t dhtPort{ Client::DEFAULT_DHT_PORT };
     std::vector<BeaconConfig> beacons{BeaconConfig{}};
 
-    nlohmann::json ltsToJson() const;
-    Roe<void> ltsFromJson(const nlohmann::json& jd);
+    pp::common::Object ltsToJson() const;
+    Roe<void> ltsFromJson(const pp::common::Object& jd);
   };
 
   struct NetworkConfig {

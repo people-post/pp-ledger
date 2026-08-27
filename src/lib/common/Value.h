@@ -173,6 +173,28 @@ public:
 
   bool isNull(const std::string &key) const;
 
+  /**
+   * Read a non-negative integer from a field for JSON-style configs.
+   * Accepts in-memory i64 (>=0) or u64. Rejects negatives and floats.
+   * Use this instead of getIf<uint64_t> after JSON parse (JSON stores i64).
+   */
+  std::optional<uint64_t> getNonNegInt(const std::string &key) const;
+  std::optional<std::string> getString(const std::string &key) const;
+  const Object *getObject(const std::string &key) const;
+  const Array *getArray(const std::string &key) const;
+
+  /**
+   * Store an unsigned integer for JSON emission as i64 when it fits.
+   * Returns false if v > INT64_MAX (cannot round-trip through JSON policy).
+   */
+  bool setJsonUInt(const std::string &key, uint64_t v);
+
+  /**
+   * Prefer JSON number (i64) when v fits; otherwise store a decimal string.
+   * Use for wallet/account/miner ids that may exceed INT64_MAX.
+   */
+  void setUIntForJson(const std::string &key, uint64_t v);
+
 private:
   FiFoMap<std::string, Value> fields_;
 };
@@ -180,5 +202,22 @@ private:
 /** Transition alias: historical Meta name = Object. */
 using Meta = Object;
 using MetaPtr = ObjectPtr;
+
+bool isNullValue(const Value &v);
+bool isStringValue(const Value &v);
+bool isObjectValue(const Value &v);
+bool isArrayValue(const Value &v);
+bool isBoolValue(const Value &v);
+
+/**
+ * Non-negative integer view of a Value (i64>=0, u64, or decimal/hex string).
+ * Preferred for ports / ids read from JSON text. Hex strings may use 0x prefix.
+ */
+std::optional<uint64_t> asNonNegInt(const Value &v);
+std::optional<std::string> asString(const Value &v);
+const Object *asObject(const Value &v);
+Object *asObject(Value &v);
+const Array *asArray(const Value &v);
+Array *asArray(Value &v);
 
 } // namespace pp::common

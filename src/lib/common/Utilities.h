@@ -8,7 +8,6 @@
 #include <vector>
 #include "Meta.h"
 #include "common/Error.h"
-#include <json.hpp>
 
 namespace pp {
 
@@ -89,20 +88,15 @@ std::string join(const std::vector<T> &values, const std::string &delimiter) {
 }
 
 /**
- * Load and parse a JSON configuration file
- * @param configPath Path to the JSON configuration file
- * @param config Output parameter for the parsed JSON object
- * @return Roe<void> indicating success or error
+ * Load and parse a JSON configuration file (must be a JSON object).
+ * Integers are i64; use Object::getNonNegInt for ports/ids.
  */
-pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath);
+pp::Roe<pp::common::Object> loadJsonFile(const std::string &configPath);
 
 /**
- * Parse and validate a JSON request string
- * @param request The JSON request string to parse
- * @param reqJson Output parameter for the parsed JSON object
- * @return Roe<void> indicating success or error
+ * Parse a JSON request string that must be an object with a "type" field.
  */
-pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request);
+pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request);
 
 /**
  * Compute SHA-256 hash using Libsodium
