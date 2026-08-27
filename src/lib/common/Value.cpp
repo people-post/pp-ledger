@@ -1,4 +1,4 @@
-#include "Meta.h"
+#include "Value.h"
 #include "BinaryPack.hpp"
 
 #include <sstream>
@@ -7,7 +7,13 @@
 
 namespace pp::common {
 
-bool Meta::valueEqual(const Value &a, const Value &b) {
+Value makeArray(std::vector<Value> elements) {
+  auto a = std::make_shared<Array>();
+  a->elements = std::move(elements);
+  return Value(ArrayPtr(std::move(a)));
+}
+
+bool valueEqual(const Value &a, const Value &b) {
   if (a.index() != b.index()) {
     return false;
   }
@@ -18,7 +24,7 @@ bool Meta::valueEqual(const Value &a, const Value &b) {
         if (!vb) {
           return false;
         }
-        if constexpr (std::is_same_v<V, MetaPtr>) {
+        if constexpr (std::is_same_v<V, ObjectPtr>) {
           if (!va && !(*vb)) {
             return true;
           }
@@ -49,10 +55,25 @@ bool Meta::valueEqual(const Value &a, const Value &b) {
       a);
 }
 
-Meta::ValueWire Meta::valueToWire(const Value &v) {
+bool Array::operator==(const Array &o) const {
+  if (elements.size() != o.elements.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < elements.size(); ++i) {
+    if (!valueEqual(elements[i], o.elements[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+ValueWire valueToWire(const Value &v) {
   return std::visit(
-      [](const auto &x) -> Meta::ValueWire {
+      [](const auto &x) -> ValueWire {
         using V = std::decay_t<decltype(x)>;
+        if constexpr (std::is_same_v<V, Null>) {
+          return {ValueWire::TAG_NULL, std::string()};
+        }
         if constexpr (std::is_same_v<V, int64_t>) {
           return {ValueWire::TAG_I64, pp::utl::binaryPack(x)};
         }
@@ -68,19 +89,23 @@ Meta::ValueWire Meta::valueToWire(const Value &v) {
         if constexpr (std::is_same_v<V, std::string>) {
           return {ValueWire::TAG_STRING, pp::utl::binaryPack(x)};
         }
-        if constexpr (std::is_same_v<V, MetaPtr>) {
-          return {ValueWire::TAG_META, x ? pp::utl::binaryPack(*x) : std::string()};
+        if constexpr (std::is_same_v<V, ObjectPtr>) {
+          if (!x) {
+            return {ValueWire::TAG_NULL, std::string()};
+          }
+          return {ValueWire::TAG_OBJECT, pp::utl::binaryPack(*x)};
         }
         if constexpr (std::is_same_v<V, ArrayPtr>) {
+          if (!x) {
+            return {ValueWire::TAG_NULL, std::string()};
+          }
           std::ostringstream oss;
           OutputArchive ar(oss);
-          uint64_t n = x ? x->elements.size() : 0;
+          uint64_t n = x->elements.size();
           ar & n;
-          if (x) {
-            for (const auto &el : x->elements) {
-              const ValueWire w = valueToWire(el);
-              ar & w;
-            }
+          for (const auto &el : x->elements) {
+            const ValueWire w = valueToWire(el);
+            ar & w;
           }
           return {ValueWire::TAG_ARRAY, oss.str()};
         }
@@ -89,9 +114,12 @@ Meta::ValueWire Meta::valueToWire(const Value &v) {
       v);
 }
 
-bool Meta::wireToValue(const Meta::ValueWire &w, std::optional<Value> &out) {
+bool wireToValue(const ValueWire &w, std::optional<Value> &out) {
   out = std::nullopt;
   switch (w.tag) {
+  case ValueWire::TAG_NULL:
+    out = Null{};
+    return true;
   case ValueWire::TAG_I64: {
     auto r = pp::utl::binaryUnpack<int64_t>(w.payload);
     if (!r.isOk()) {
@@ -132,10 +160,10 @@ bool Meta::wireToValue(const Meta::ValueWire &w, std::optional<Value> &out) {
     out = std::move(r.value());
     return true;
   }
-  case ValueWire::TAG_META: {
-    auto nested = std::make_shared<Meta>();
+  case ValueWire::TAG_OBJECT: {
+    auto nested = std::make_shared<Object>();
     if (!w.payload.empty()) {
-      auto r = pp::utl::binaryUnpack<Meta>(w.payload);
+      auto r = pp::utl::binaryUnpack<Object>(w.payload);
       if (!r.isOk()) {
         return false;
       }
@@ -176,36 +204,42 @@ bool Meta::wireToValue(const Meta::ValueWire &w, std::optional<Value> &out) {
   }
 }
 
-void Meta::set(const std::string &key, const Meta &v) {
-  entries_[key] = std::make_shared<Meta>(v);
+void Object::set(const std::string &key, const Object &v) {
+  fields_.set(key, Value(std::make_shared<Object>(v)));
 }
 
-std::optional<std::reference_wrapper<const Meta>>
-Meta::getMetaIf(const std::string &key) const {
-  auto it = entries_.find(key);
-  if (it == entries_.end()) {
+std::optional<std::reference_wrapper<const Object>>
+Object::getMetaIf(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
     return std::nullopt;
   }
-  const auto *p = std::get_if<MetaPtr>(&it->second);
+  const auto *p = std::get_if<ObjectPtr>(&slot->get());
   if (!p || !(*p)) {
     return std::nullopt;
   }
   return std::cref(**p);
 }
 
-bool Meta::operator==(const Meta &other) const {
-  if (entries_.size() != other.entries_.size()) {
+bool Object::isNull(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
     return false;
   }
-  auto itA = entries_.begin();
-  auto itB = other.entries_.begin();
-  for (; itA != entries_.end(); ++itA, ++itB) {
+  return std::holds_alternative<Null>(slot->get());
+}
+
+bool Object::operator==(const Object &other) const {
+  if (fields_.size() != other.fields_.size()) {
+    return false;
+  }
+  auto itA = fields_.begin();
+  auto itB = other.fields_.begin();
+  for (; itA != fields_.end(); ++itA, ++itB) {
     if (itA->first != itB->first) {
       return false;
     }
-    const Value &a = itA->second;
-    const Value &b = itB->second;
-    if (!valueEqual(a, b)) {
+    if (!valueEqual(itA->second, itB->second)) {
       return false;
     }
   }
@@ -213,4 +247,3 @@ bool Meta::operator==(const Meta &other) const {
 }
 
 } // namespace pp::common
-

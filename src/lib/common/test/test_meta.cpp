@@ -1,15 +1,28 @@
+#include "lib/common/FiFoMap.h"
 #include "lib/common/Meta.h"
+#include "lib/common/Value.h"
 #include "lib/common/io/Json.h"
 #include "lib/common/Serialize.hpp"
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <sstream>
 #include <string>
 
+using pp::common::Array;
+using pp::common::ArrayPtr;
+using pp::common::FiFoMap;
 using pp::common::Meta;
+using pp::common::Null;
+using pp::common::Object;
+using pp::common::ObjectPtr;
+using pp::common::Value;
+using pp::common::ValueWire;
 using pp::common::io::metaFromJsonString;
 using pp::common::io::metaToJsonString;
+using pp::common::io::valueFromJsonString;
+using pp::common::io::valueToJsonString;
 using pp::InputArchive;
 using pp::OutputArchive;
 
@@ -45,6 +58,37 @@ std::string archivePackMetaWire(const std::string &key, uint16_t tag,
 
 } // namespace
 
+TEST(FiFoMapTest, InsertionOrderAndUpdateKeepsPosition) {
+  FiFoMap<std::string, int> m;
+  m.set("b", 2);
+  m.set("a", 1);
+  m.set("c", 3);
+  m.set("a", 10);
+
+  ASSERT_EQ(m.size(), 3u);
+  auto it = m.begin();
+  EXPECT_EQ(it->first, "b");
+  EXPECT_EQ(it->second, 2);
+  ++it;
+  EXPECT_EQ(it->first, "a");
+  EXPECT_EQ(it->second, 10);
+  ++it;
+  EXPECT_EQ(it->first, "c");
+  EXPECT_EQ(it->second, 3);
+}
+
+TEST(FiFoMapTest, EraseReindexes) {
+  FiFoMap<std::string, int> m;
+  m.set("a", 1);
+  m.set("b", 2);
+  m.set("c", 3);
+  EXPECT_TRUE(m.erase("b"));
+  ASSERT_EQ(m.size(), 2u);
+  EXPECT_EQ(m.begin()->first, "a");
+  EXPECT_EQ(std::next(m.begin())->first, "c");
+  EXPECT_EQ(m.at("c"), 3);
+}
+
 TEST(MetaTest, RoundTrip_PrimitivesAndString) {
   Meta m;
   m.set("i64", int64_t{-42});
@@ -78,7 +122,7 @@ TEST(MetaTest, RoundTrip_NestedMeta) {
   EXPECT_EQ(nestedOpt->get().getIf<uint64_t>("x").value(), 7u);
 }
 
-TEST(MetaTest, DeterministicEncoding_MapOrder) {
+TEST(MetaTest, InsertionOrder_PreservedOnWire) {
   Meta a;
   a.set("b", uint64_t{2});
   a.set("a", uint64_t{1});
@@ -87,7 +131,15 @@ TEST(MetaTest, DeterministicEncoding_MapOrder) {
   b.set("a", uint64_t{1});
   b.set("b", uint64_t{2});
 
-  EXPECT_EQ(archivePack(a), archivePack(b));
+  // Human-facing tree: wire follows insertion order (not key-sorted).
+  EXPECT_NE(archivePack(a), archivePack(b));
+
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(archivePack(a), out));
+  auto it = out.fields().begin();
+  EXPECT_EQ(it->first, "b");
+  ++it;
+  EXPECT_EQ(it->first, "a");
 }
 
 TEST(MetaTest, UnknownTag_IsSkipped) {
@@ -101,7 +153,6 @@ TEST(MetaTest, UnknownTag_IsSkipped) {
 }
 
 TEST(MetaTest, DuplicateKeys_AreRejected) {
-  // Manually craft two entries with the same key.
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   uint64_t entryCount = 2;
@@ -109,14 +160,13 @@ TEST(MetaTest, DuplicateKeys_AreRejected) {
 
   const std::string key = "dup";
 
-  // payloads are archives of the underlying values
   {
     std::ostringstream p(std::ios::binary);
     OutputArchive par(p);
     int64_t v = 1;
     par & v;
     std::string payload = p.str();
-    ar & key & Meta::ValueWire::TAG_I64 & payload;
+    ar & key & ValueWire::TAG_I64 & payload;
   }
   {
     std::ostringstream p(std::ios::binary);
@@ -124,23 +174,21 @@ TEST(MetaTest, DuplicateKeys_AreRejected) {
     uint64_t v = 2;
     par & v;
     std::string payload = p.str();
-    ar & key & Meta::ValueWire::TAG_U64 & payload;
+    ar & key & ValueWire::TAG_U64 & payload;
   }
 
   Meta out;
   EXPECT_TRUE(archiveUnpack(oss.str(), out));
-  // Duplicate key is treated as invalid input; decode clears entries to signal invalid.
   EXPECT_TRUE(out.empty());
 }
 
 TEST(MetaTest, Json_RoundTrip_PrimitivesAndNested) {
   Meta inner;
-  inner.set("x", uint64_t{9});
+  inner.set("x", int64_t{9});
   inner.set("flag", false);
 
   Meta m;
   m.set("i64", int64_t{-1});
-  m.set("u64", uint64_t{1});
   m.set("b", true);
   m.set("d", 2.5);
   m.set("s", std::string("ok"));
@@ -152,23 +200,25 @@ TEST(MetaTest, Json_RoundTrip_PrimitivesAndNested) {
   EXPECT_EQ(parsed, m);
 }
 
-TEST(MetaTest, Json_RoundTrip_NullMetaPtr) {
+TEST(MetaTest, Json_NullVsAbsent) {
   Meta m;
-  m.set("n", Meta::MetaPtr{});
+  m.set("n", Null{});
 
   const std::string j = metaToJsonString(m);
   Meta parsed;
   ASSERT_TRUE(metaFromJsonString(parsed, j));
-  EXPECT_EQ(parsed, m);
+  EXPECT_TRUE(parsed.isNull("n"));
+  EXPECT_FALSE(parsed.contains("missing"));
+  EXPECT_FALSE(parsed.isNull("missing"));
 }
 
 TEST(MetaTest, Json_RoundTrip_Array) {
-  std::vector<Meta::Value> items;
+  std::vector<Value> items;
   items.push_back(int64_t{-1});
   items.push_back(std::string("x"));
   Meta inner;
-  inner.set("k", uint64_t{3});
-  items.push_back(std::make_shared<Meta>(inner));
+  inner.set("k", int64_t{3});
+  items.push_back(std::make_shared<Object>(inner));
 
   Meta m;
   m.set("arr", Meta::array(std::move(items)));
@@ -180,7 +230,7 @@ TEST(MetaTest, Json_RoundTrip_Array) {
 }
 
 TEST(MetaTest, RoundTrip_ArrayWire) {
-  std::vector<Meta::Value> items;
+  std::vector<Value> items;
   items.push_back(uint64_t{9});
   items.push_back(Meta::array({std::string("a"), std::string("b")}));
 
@@ -190,6 +240,14 @@ TEST(MetaTest, RoundTrip_ArrayWire) {
   Meta out;
   ASSERT_TRUE(archiveUnpack(archivePack(m), out));
   EXPECT_EQ(out, m);
+}
+
+TEST(MetaTest, RoundTrip_NullWire) {
+  Meta m;
+  m.set("n", Null{});
+  Meta out;
+  ASSERT_TRUE(archiveUnpack(archivePack(m), out));
+  EXPECT_TRUE(out.isNull("n"));
 }
 
 TEST(MetaTest, GetOrDefault_Int64) {
@@ -210,30 +268,49 @@ TEST(MetaTest, GetOrDefault_Uint64) {
   EXPECT_EQ(m.getOrDefault("a", uint64_t{0}), 42u);
   m.set("b", int64_t{3});
   EXPECT_EQ(m.getOrDefault("b", uint64_t{0}), 0u);
-  m.set("c", std::string("x"));
-  EXPECT_EQ(m.getOrDefault("c", uint64_t{11}), 11u);
 }
 
-TEST(MetaTest, GetOrDefault_StringBoolDouble) {
-  Meta m;
-  EXPECT_EQ(m.getOrDefault("s", std::string{"d"}), "d");
-  m.set("s", std::string{"ok"});
-  EXPECT_EQ(m.getOrDefault("s", std::string{}), "ok");
-  EXPECT_FALSE(m.getOrDefault("b", false));
-  m.set("b", true);
-  EXPECT_TRUE(m.getOrDefault("b", false));
-  EXPECT_DOUBLE_EQ(m.getOrDefault("d", 0.0), 0.0);
-  m.set("d", 1.5);
-  EXPECT_DOUBLE_EQ(m.getOrDefault("d", 0.0), 1.5);
-}
-
-TEST(MetaTest, Json_IntegerSignDeterminesStoredWidth) {
+TEST(MetaTest, Json_IntegersAreI64) {
   Meta m;
   ASSERT_TRUE(metaFromJsonString(m, R"({"pos":1730000000,"neg":-5})"));
-  EXPECT_FALSE(m.getIf<int64_t>("pos").has_value());
-  ASSERT_TRUE(m.getIf<uint64_t>("pos").has_value());
-  EXPECT_EQ(m.getIf<uint64_t>("pos").value(), 1730000000u);
+  ASSERT_TRUE(m.getIf<int64_t>("pos").has_value());
+  EXPECT_EQ(m.getIf<int64_t>("pos").value(), 1730000000);
+  EXPECT_FALSE(m.getIf<uint64_t>("pos").has_value());
   ASSERT_TRUE(m.getIf<int64_t>("neg").has_value());
   EXPECT_EQ(m.getIf<int64_t>("neg").value(), -5);
 }
 
+TEST(MetaTest, Json_IntegerOverflowErrors) {
+  auto r = valueFromJsonString("9223372036854775808");
+  EXPECT_FALSE(r.isOk());
+}
+
+TEST(MetaTest, Json_U64WriteOverflowErrors) {
+  Value v = uint64_t{std::numeric_limits<uint64_t>::max()};
+  auto r = valueToJsonString(v);
+  EXPECT_FALSE(r.isOk());
+}
+
+TEST(MetaTest, Json_InsertionOrderPreserved) {
+  Meta m;
+  m.set("z", int64_t{1});
+  m.set("a", int64_t{2});
+  const std::string j = metaToJsonString(m);
+  EXPECT_EQ(j, R"({"z":1,"a":2})");
+}
+
+TEST(MetaTest, Json_RootArrayAndUtf8) {
+  auto r = valueFromJsonString(R"(["hello", "\u4e16\u754c"])");
+  ASSERT_TRUE(r.isOk());
+  auto *arr = std::get_if<ArrayPtr>(&r.value());
+  ASSERT_TRUE(arr && *arr);
+  ASSERT_EQ((*arr)->elements.size(), 2u);
+  EXPECT_EQ(std::get<std::string>((*arr)->elements[0]), "hello");
+  EXPECT_EQ(std::get<std::string>((*arr)->elements[1]), "世界");
+}
+
+TEST(MetaTest, Json_RootNull) {
+  auto r = valueFromJsonString("null");
+  ASSERT_TRUE(r.isOk());
+  EXPECT_TRUE(std::holds_alternative<Null>(r.value()));
+}

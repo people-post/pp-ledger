@@ -159,10 +159,10 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 
 | Module | Notes |
 |--------|--------|
-| Meta | Ledger/client/server wire types |
+| Value / Object / Meta / FiFoMap | Human-friendly intermediate document tree (JSON-shaped). `Meta` aliases `Object`. Not a canonical signing/identity type — real structs own comparison. Move to pp-cpp-common later. |
 | Crypto | Signing/verify (ML-DSA-65 via pp-cpp-crypto) |
 | Service, ThreadSafeQueue | Server threading |
-| io/Json | Meta ↔ JSON for HTTP/CLI |
+| io/Json | Value/Object ↔ UTF-8 JSON (i64+double numbers; structured errors) |
 | Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
 **Status (2026-08-27):** `cmake/PpCppCommon.cmake` lands; local Logger / Module /
@@ -356,3 +356,4 @@ Suggested locations:
 | 2026-08-26 | Beacon only in standalone pp-ledger; not embedded in pp-node/pp-browser |
 | 2026-08-27 | Consume pp-cpp-crypto; account/tx signing is ML-DSA-65 only (drop Ed25519; no version bump pre-release) |
 | 2026-08-27 | Consume pp-cpp-common; replace duplicated Logger/Module/Roe/Serialize; keep ledger Meta/Crypto/Service/Utilities |
+| 2026-08-27 | Meta → Value/Object backbone with FiFoMap insertion order (memory=JSON=binary); explicit Null; JSON i64+double only; human intermediate tree, not canonical identity |
