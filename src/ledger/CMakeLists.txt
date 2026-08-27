@@ -18,8 +18,8 @@ target_include_directories(pp_ledger PUBLIC
 
 # Link to pp_lib - automatically gets all pp_lib dependencies:
 # - pp_lib headers and libraries
-# - OpenSSL (via pp_lib)
-# - nlohmann/json headers (via pp_lib)
+# - pp-cpp-common (Value/Meta/JSON, Serialize, …)
+# - pp-cpp-crypto / sodium
 target_link_libraries(pp_ledger PUBLIC
     pp_lib
 )

@@ -31,7 +31,7 @@ The workflow installs:
 - **build-essential**: GCC, make, and other build tools
 - **cmake**: Build system generator
 
-JSON I/O for Meta/Value is hand-written under `src/lib/common/io/` (no vendored nlohmann). Crypto is provided by pp-cpp-crypto (FetchContent).
+Value/Meta JSON IO lives in **pp-cpp-common** (`common/io/Json.h`). Crypto is provided by pp-cpp-crypto (FetchContent).
 
 ## Running Locally
 

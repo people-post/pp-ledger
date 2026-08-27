@@ -36,8 +36,8 @@ from sibling repos when convenient.
 - **pp-ledger** is fetched by pp-browser after sodium/crypto deps exist
   (`cmake/PpLedger.cmake`, planned).
 - When pp-ledger is embedded, it must **not** re-fetch crypto if the parent already
-  provides `pp_crypto` / `sodium`. JSON for Meta/Value is hand-written in-tree
-  (`src/lib/common/io`); nlohmann is not required.
+  provides `pp_crypto` / `sodium`. Value/Meta/JSON live in **pp-cpp-common**
+  (`common/Value.h`, `common/io/Json.h`); nlohmann is not used.
 - When pp-ledger is embedded, skip FetchContent for pp-cpp-common if `pp_common`
   already exists (`if(NOT TARGET pp_common)`).
 

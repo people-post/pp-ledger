@@ -36,7 +36,7 @@ make -j$(nproc)
 
 - C++20, GCC 13+ or Clang 12+, CMake 3.15+
 - Required: `build-essential`, `libstdc++-14-dev` (for Clang)
-- Vendored: `src/lib/json` (nlohmann/json); crypto via pp-cpp-crypto (libsodium + ML-DSA-65)
+- Vendored: CLI11 under `src/lib/cli`; crypto via pp-cpp-crypto (libsodium + ML-DSA-65); Value/JSON via pp-cpp-common
 - HTTP server: add `-DBUILD_HTTP=ON`
 
 ## Test
