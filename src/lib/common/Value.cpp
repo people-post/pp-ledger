@@ -1,7 +1,9 @@
 #include "Value.h"
 #include "BinaryPack.hpp"
 
+#include <limits>
 #include <sstream>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -229,6 +231,52 @@ bool Object::isNull(const std::string &key) const {
   return std::holds_alternative<Null>(slot->get());
 }
 
+std::optional<uint64_t> Object::getNonNegInt(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
+    return std::nullopt;
+  }
+  return asNonNegInt(slot->get());
+}
+
+std::optional<std::string> Object::getString(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
+    return std::nullopt;
+  }
+  return asString(slot->get());
+}
+
+const Object *Object::getObject(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
+    return nullptr;
+  }
+  return asObject(slot->get());
+}
+
+const Array *Object::getArray(const std::string &key) const {
+  auto slot = fields_.tryGet(key);
+  if (!slot) {
+    return nullptr;
+  }
+  return asArray(slot->get());
+}
+
+bool Object::setJsonUInt(const std::string &key, uint64_t v) {
+  if (v > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return false;
+  }
+  fields_.set(key, Value(static_cast<int64_t>(v)));
+  return true;
+}
+
+void Object::setUIntForJson(const std::string &key, uint64_t v) {
+  if (!setJsonUInt(key, v)) {
+    fields_.set(key, Value(std::to_string(v)));
+  }
+}
+
 bool Object::operator==(const Object &other) const {
   if (fields_.size() != other.fields_.size()) {
     return false;
@@ -244,6 +292,105 @@ bool Object::operator==(const Object &other) const {
     }
   }
   return true;
+}
+
+bool isNullValue(const Value &v) { return std::holds_alternative<Null>(v); }
+
+bool isStringValue(const Value &v) {
+  return std::holds_alternative<std::string>(v);
+}
+
+bool isObjectValue(const Value &v) {
+  const auto *p = std::get_if<ObjectPtr>(&v);
+  return p && *p;
+}
+
+bool isArrayValue(const Value &v) {
+  const auto *p = std::get_if<ArrayPtr>(&v);
+  return p && *p;
+}
+
+bool isBoolValue(const Value &v) { return std::holds_alternative<bool>(v); }
+
+std::optional<uint64_t> asNonNegInt(const Value &v) {
+  if (const auto *i = std::get_if<int64_t>(&v)) {
+    if (*i < 0) {
+      return std::nullopt;
+    }
+    return static_cast<uint64_t>(*i);
+  }
+  if (const auto *u = std::get_if<uint64_t>(&v)) {
+    return *u;
+  }
+  if (const auto *s = std::get_if<std::string>(&v)) {
+    if (s->empty()) {
+      return std::nullopt;
+    }
+    try {
+      size_t idx = 0;
+      int base = 10;
+      const char *p = s->c_str();
+      if (s->size() >= 2 && s->at(0) == '0' &&
+          (s->at(1) == 'x' || s->at(1) == 'X')) {
+        p += 2;
+        base = 16;
+      }
+      // Reject signed forms; stoull("-1") wraps on unsigned types.
+      if (*p == '+' || *p == '-') {
+        return std::nullopt;
+      }
+      if (*p == '\0') {
+        return std::nullopt;
+      }
+      unsigned long long parsed = std::stoull(p, &idx, base);
+      if (idx != std::char_traits<char>::length(p)) {
+        return std::nullopt;
+      }
+      return static_cast<uint64_t>(parsed);
+    } catch (...) {
+      return std::nullopt;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::string> asString(const Value &v) {
+  if (const auto *s = std::get_if<std::string>(&v)) {
+    return *s;
+  }
+  return std::nullopt;
+}
+
+const Object *asObject(const Value &v) {
+  const auto *p = std::get_if<ObjectPtr>(&v);
+  if (!p || !(*p)) {
+    return nullptr;
+  }
+  return p->get();
+}
+
+Object *asObject(Value &v) {
+  auto *p = std::get_if<ObjectPtr>(&v);
+  if (!p || !(*p)) {
+    return nullptr;
+  }
+  return p->get();
+}
+
+const Array *asArray(const Value &v) {
+  const auto *p = std::get_if<ArrayPtr>(&v);
+  if (!p || !(*p)) {
+    return nullptr;
+  }
+  return p->get();
+}
+
+Array *asArray(Value &v) {
+  auto *p = std::get_if<ArrayPtr>(&v);
+  if (!p || !(*p)) {
+    return nullptr;
+  }
+  return p->get();
 }
 
 } // namespace pp::common

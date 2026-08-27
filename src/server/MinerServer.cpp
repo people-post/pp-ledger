@@ -8,206 +8,173 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <json.hpp>
+#include "lib/common/io/Json.h"
 #include <vector>
 
 namespace pp {
+namespace {
+using pp::common::Array;
+using pp::common::Object;
+using pp::common::ObjectPtr;
+using pp::common::Value;
+using pp::common::asNonNegInt;
+using pp::common::asObject;
+using pp::common::asString;
+using pp::common::io::valueToJsonString;
 
-nlohmann::json MinerServer::BeaconConfig::ltsToJson() const {
-  nlohmann::json j;
-  j["host"] = host;
-  j["port"] = port;
-  j["dhtPort"] = dhtPort;
+pp::Roe<std::string> encodeObjectPretty(const Object &o) {
+  auto r = valueToJsonString(Value(std::make_shared<Object>(o)), 2);
+  if (!r.isOk()) {
+    return pp::Error(r.error().message);
+  }
+  return r.value();
+}
+} // namespace
+
+
+Object MinerServer::BeaconConfig::ltsToJson() const {
+  Object j;
+  j.set("host", host);
+  j.setJsonUInt("port", port);
+  j.setJsonUInt("dhtPort", dhtPort);
   return j;
 }
 
-MinerServer::Roe<void> MinerServer::BeaconConfig::ltsFromJson(const nlohmann::json& jd) {
-  try {
-    // Validate JSON is an object
-    if (!jd.is_object()) {
-      return Error(E_CONFIG, "Configuration must be a JSON object");
-    }
-
-    // Load and validate host
-    if (!jd.contains("host")) {
-      return Error(E_CONFIG, "Field 'host' is required");
-    }
-    if (!jd["host"].is_string()) {
-      return Error(E_CONFIG, "Field 'host' must be a string");
-    }
-    host = jd["host"].get<std::string>();
-    if (host.empty()) {
-      return Error(E_CONFIG, "Field 'host' cannot be empty");
-    }
-
-    // Load and validate port
-    if (!jd.contains("port")) {
-      return Error(E_CONFIG, "Field 'port' is required");
-    }
-    if (!jd["port"].is_number_unsigned()) {
-      return Error(E_CONFIG, "Field 'port' must be a positive number");
-    }
-    uint64_t portValue = jd["port"].get<uint64_t>();
-    if (portValue == 0 || portValue > 65535) {
-      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-    }
-    port = static_cast<uint16_t>(portValue);
-
-    if (!jd.contains("dhtPort")) {
-      return Error(E_CONFIG, "Field 'dhtPort' is required");
-    }
-    if (!jd["dhtPort"].is_number_unsigned()) {
-      return Error(E_CONFIG, "Field 'dhtPort' must be a non-negative number");
-    }
-    uint64_t dhtPortValue = jd["dhtPort"].get<uint64_t>();
-    if (dhtPortValue > 65535) {
-      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-    }
-    dhtPort = static_cast<uint16_t>(dhtPortValue);
-
-    return {};
+MinerServer::Roe<void> MinerServer::BeaconConfig::ltsFromJson(const Object& jd) {
+  auto hostOpt = jd.getString("host");
+  if (!hostOpt) {
+    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
+                                               : "Field 'host' is required");
   }
-  catch (const std::exception &e) {
-    return Error(E_CONFIG, "Failed to parse beacon configuration: " + std::string(e.what()));
+  host = *hostOpt;
+  if (host.empty()) {
+    return Error(E_CONFIG, "Field 'host' cannot be empty");
   }
+  auto portValue = jd.getNonNegInt("port");
+  if (!portValue) {
+    return Error(E_CONFIG, jd.contains("port")
+                               ? "Field 'port' must be a non-negative integer"
+                               : "Field 'port' is required");
+  }
+  if (*portValue == 0 || *portValue > 65535) {
+    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+  }
+  port = static_cast<uint16_t>(*portValue);
+  auto dhtPortValue = jd.getNonNegInt("dhtPort");
+  if (!dhtPortValue) {
+    return Error(E_CONFIG, jd.contains("dhtPort")
+                               ? "Field 'dhtPort' must be a non-negative integer"
+                               : "Field 'dhtPort' is required");
+  }
+  if (*dhtPortValue > 65535) {
+    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+  }
+  dhtPort = static_cast<uint16_t>(*dhtPortValue);
+  return {};
 }
 
 // ============ RunFileConfig methods ============
 
-nlohmann::json MinerServer::RunFileConfig::ltsToJson() const {
-  nlohmann::json j;
-  j["minerId"] = minerId;
-  j["keys"] = keys;
-  j["host"] = host;
-  j["port"] = port;
-  j["dhtPort"] = dhtPort;
-  j["beacons"] = nlohmann::json::array();
-  for (const auto& b : beacons) {
-    j["beacons"].push_back(b.ltsToJson());
+Object MinerServer::RunFileConfig::ltsToJson() const {
+  Object j;
+  j.setUIntForJson("minerId", minerId);
+  std::vector<Value> keyVals;
+  for (const auto &k : keys) {
+    keyVals.push_back(k);
   }
+  j.set("keys", Object::array(std::move(keyVals)));
+  j.set("host", host);
+  j.setJsonUInt("port", port);
+  j.setJsonUInt("dhtPort", dhtPort);
+  std::vector<Value> beaconVals;
+  for (const auto &b : beacons) {
+    beaconVals.push_back(std::make_shared<Object>(b.ltsToJson()));
+  }
+  j.set("beacons", Object::array(std::move(beaconVals)));
   return j;
 }
 
 MinerServer::Roe<void>
-MinerServer::RunFileConfig::ltsFromJson(const nlohmann::json &jd) {
-  try {
-    // Validate JSON is an object
-    if (!jd.is_object()) {
-      return Error(E_CONFIG, "Configuration must be a JSON object");
-    }
-
-    // Load and validate minerId (required)
-    if (!jd.contains("minerId")) {
-      return Error(E_CONFIG, "Field 'minerId' is required");
-    }
-    if (!jd["minerId"].is_number_unsigned()) {
-      return Error(E_CONFIG, "Field 'minerId' must be a non-negative number");
-    }
-    minerId = jd["minerId"].get<uint64_t>();
-
-    // Load and validate key files (required, supports "keys" array or legacy "key" string)
-    if (!jd.contains("keys")) {
-      return Error(E_CONFIG, "Field 'keys' is required");
-    }
-    if (!jd["keys"].is_array()) {
-      return Error(E_CONFIG, "Field 'keys' must be an array");
-    }
-    keys.clear();
-    for (size_t i = 0; i < jd["keys"].size(); ++i) {
-      const auto &k = jd["keys"][i];
-      if (!k.is_string()) {
-        return Error(E_CONFIG,
-                     "All elements in 'keys' array must be strings (index " +
-                         std::to_string(i) + " is not)");
-      }
-      std::string keyFile = k.get<std::string>();
-      if (keyFile.empty()) {
-        return Error(E_CONFIG,
-                     "Key file at index " + std::to_string(i) + " cannot be empty");
-      }
-      keys.push_back(keyFile);
-    }
-    if (keys.empty()) {
-      return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
-    }
-
-    // Load and validate host
-    if (!jd.contains("host")) {
-      return Error(E_CONFIG, "Field 'host' is required");
-    }
-    if (!jd["host"].is_string()) {
-      return Error(E_CONFIG, "Field 'host' must be a string");
-    }
-    host = jd["host"].get<std::string>();
-    if (host.empty()) {
-      return Error(E_CONFIG, "Field 'host' cannot be empty");
-    }
-
-    // Load and validate port
-    if (!jd.contains("port")) {
-      return Error(E_CONFIG, "Field 'port' is required");
-    }
-    if (!jd["port"].is_number_unsigned()) {
-      return Error(E_CONFIG, "Field 'port' must be a positive number");
-    }
-    uint64_t portValue = jd["port"].get<uint64_t>();
-    if (portValue == 0 || portValue > 65535) {
-      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-    }
-    port = static_cast<uint16_t>(portValue);
-
-    // Load and validate dhtPort
-    if (!jd.contains("dhtPort")) {
-      return Error(E_CONFIG, "Field 'dhtPort' is required");
-    }
-    if (!jd["dhtPort"].is_number_unsigned()) {
-      return Error(E_CONFIG, "Field 'dhtPort' must be a non-negative number");
-    }
-    uint64_t dhtPortValue = jd["dhtPort"].get<uint64_t>();
-    if (dhtPortValue > 65535) {
-      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-    }
-    dhtPort = static_cast<uint16_t>(dhtPortValue);
-
-    // Load and validate beacons array (required, must have at least one)
-    if (!jd.contains("beacons")) {
-      return Error(E_CONFIG, "Field 'beacons' is required");
-    }
-    if (!jd["beacons"].is_array()) {
-      return Error(E_CONFIG, "Field 'beacons' must be an array");
-    }
-    if (jd["beacons"].empty()) {
-      return Error(
-          E_CONFIG,
-          "Field 'beacons' array must contain at least one beacon object");
-    }
-
-    beacons.clear();
-    for (size_t i = 0; i < jd["beacons"].size(); ++i) {
-      const auto &beacon = jd["beacons"][i];
-      if (!beacon.is_object()) {
-        return Error(E_CONFIG,
-                     "All elements in 'beacons' array must be objects (index " +
-                         std::to_string(i) + " is not)");
-      }
-      BeaconConfig bc;
-      auto parseResult = bc.ltsFromJson(beacon);
-      if (!parseResult) {
-        return Error(E_CONFIG, "Failed to parse beacon configuration: " + parseResult.error().message);
-      }
-      beacons.push_back(std::move(bc));
-    }
-
-    if (beacons.empty()) {
-      return Error(E_CONFIG, "Field 'beacons' array must contain at least one "
-                             "valid beacon object");
-    }
-
-    return {};
-  } catch (const std::exception &e) {
-    return Error(E_CONFIG,
-                 "Failed to parse run configuration: " + std::string(e.what()));
+MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
+  auto minerIdOpt = jd.getNonNegInt("minerId");
+  if (!minerIdOpt) {
+    return Error(E_CONFIG, jd.contains("minerId")
+                               ? "Field 'minerId' must be a non-negative integer"
+                               : "Field 'minerId' is required");
   }
+  minerId = *minerIdOpt;
+
+  const Array *keysArr = jd.getArray("keys");
+  if (!keysArr) {
+    return Error(E_CONFIG, jd.contains("keys") ? "Field 'keys' must be an array"
+                                               : "Field 'keys' is required");
+  }
+  keys.clear();
+  for (size_t i = 0; i < keysArr->elements.size(); ++i) {
+    auto keyFile = asString(keysArr->elements[i]);
+    if (!keyFile) {
+      return Error(E_CONFIG,
+                   "All elements in 'keys' array must be strings (index " +
+                       std::to_string(i) + " is not)");
+    }
+    if (keyFile->empty()) {
+      return Error(E_CONFIG, "Key file at index " + std::to_string(i) +
+                                 " cannot be empty");
+    }
+    keys.push_back(*keyFile);
+  }
+  if (keys.empty()) {
+    return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
+  }
+
+  auto hostOpt = jd.getString("host");
+  if (!hostOpt) {
+    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
+                                               : "Field 'host' is required");
+  }
+  host = *hostOpt;
+  if (host.empty()) {
+    return Error(E_CONFIG, "Field 'host' cannot be empty");
+  }
+
+  auto portValue = jd.getNonNegInt("port");
+  if (!portValue || *portValue == 0 || *portValue > 65535) {
+    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+  }
+  port = static_cast<uint16_t>(*portValue);
+
+  auto dhtPortValue = jd.getNonNegInt("dhtPort");
+  if (!dhtPortValue || *dhtPortValue > 65535) {
+    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+  }
+  dhtPort = static_cast<uint16_t>(*dhtPortValue);
+
+  const Array *beaconsArr = jd.getArray("beacons");
+  if (!beaconsArr) {
+    return Error(E_CONFIG, jd.contains("beacons") ? "Field 'beacons' must be an array"
+                                                  : "Field 'beacons' is required");
+  }
+  if (beaconsArr->elements.empty()) {
+    return Error(E_CONFIG,
+                 "Field 'beacons' array must contain at least one beacon object");
+  }
+  beacons.clear();
+  for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
+    const Object *beacon = asObject(beaconsArr->elements[i]);
+    if (!beacon) {
+      return Error(E_CONFIG,
+                   "All elements in 'beacons' array must be objects (index " +
+                       std::to_string(i) + " is not)");
+    }
+    BeaconConfig bc;
+    auto parseResult = bc.ltsFromJson(*beacon);
+    if (!parseResult) {
+      return Error(E_CONFIG, "Failed to parse beacon configuration: " +
+                                 parseResult.error().message);
+    }
+    beacons.push_back(std::move(bc));
+  }
+  return {};
 }
 
 // ============ MinerServer methods ============
@@ -235,14 +202,17 @@ Service::Roe<void> MinerServer::onStart() {
                << " found, creating with default values";
 
     // Use default values from RunFileConfig struct
-    nlohmann::json defaultConfig = runFileConfig.ltsToJson();
-
+    auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
+    if (!encoded) {
+      return Service::Error(E_MINER, "Failed to encode " + std::string(FILE_CONFIG) +
+                                         ": " + encoded.error().message);
+    }
     std::ofstream configFile(configPath);
     if (!configFile) {
       return Service::Error(E_MINER,
                             "Failed to create " + std::string(FILE_CONFIG));
     }
-    configFile << defaultConfig.dump(2) << std::endl;
+    configFile << encoded.value() << std::endl;
     configFile.close();
 
     log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
@@ -256,8 +226,7 @@ Service::Roe<void> MinerServer::onStart() {
                                           jsonResult.error().message);
     }
 
-    nlohmann::json config = jsonResult.value();
-    auto parseResult = runFileConfig.ltsFromJson(config);
+    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
     if (!parseResult) {
       return Service::Error(E_CONFIG, "Failed to parse config file: " +
                                           parseResult.error().message);

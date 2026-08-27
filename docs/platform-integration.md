@@ -33,14 +33,15 @@ from sibling repos when convenient.
 
 - **pp-cpp-common** is fetched once at the **top-level consumer** (pp-browser root
   `cmake/PpCppCommon.cmake`, pin release tag e.g. `v0.1.0`).
-- **pp-ledger** is fetched by pp-browser after json/sodium deps exist
+- **pp-ledger** is fetched by pp-browser after sodium/crypto deps exist
   (`cmake/PpLedger.cmake`, planned).
-- When pp-ledger is embedded, it must **not** re-vendor json or re-fetch crypto if the
-  parent already provides `nlohmann_json::nlohmann_json` and `pp_crypto` / `sodium`.
+- When pp-ledger is embedded, it must **not** re-fetch crypto if the parent already
+  provides `pp_crypto` / `sodium`. JSON for Meta/Value is hand-written in-tree
+  (`src/lib/common/io`); nlohmann is not required.
 - When pp-ledger is embedded, skip FetchContent for pp-cpp-common if `pp_common`
   already exists (`if(NOT TARGET pp_common)`).
 
-Standalone pp-ledger (Docker, CI, ops) keeps vendored json and fetches pp-cpp-crypto
+Standalone pp-ledger (Docker, CI, ops) fetches pp-cpp-crypto
 (and may FetchContent pp-cpp-common on its own).
 
 ---

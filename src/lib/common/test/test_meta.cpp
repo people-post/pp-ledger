@@ -19,6 +19,7 @@ using pp::common::Object;
 using pp::common::ObjectPtr;
 using pp::common::Value;
 using pp::common::ValueWire;
+using pp::common::asNonNegInt;
 using pp::common::io::metaFromJsonString;
 using pp::common::io::metaToJsonString;
 using pp::common::io::valueFromJsonString;
@@ -278,6 +279,29 @@ TEST(MetaTest, Json_IntegersAreI64) {
   EXPECT_FALSE(m.getIf<uint64_t>("pos").has_value());
   ASSERT_TRUE(m.getIf<int64_t>("neg").has_value());
   EXPECT_EQ(m.getIf<int64_t>("neg").value(), -5);
+  EXPECT_EQ(m.getNonNegInt("pos").value_or(0), 1730000000u);
+  EXPECT_FALSE(m.getNonNegInt("neg").has_value());
+}
+
+TEST(MetaTest, SetUIntForJson_StringFallback) {
+  Meta m;
+  const uint64_t big = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1ull;
+  m.setUIntForJson("small", 42u);
+  m.setUIntForJson("big", big);
+  EXPECT_EQ(m.getIf<int64_t>("small").value_or(-1), 42);
+  ASSERT_TRUE(m.getIf<std::string>("big").has_value());
+  EXPECT_EQ(m.getIf<std::string>("big").value(), std::to_string(big));
+  EXPECT_EQ(m.getNonNegInt("big").value_or(0), big);
+  const std::string j = metaToJsonString(m);
+  EXPECT_NE(j.find("\"big\":\"" + std::to_string(big) + "\""), std::string::npos);
+}
+
+TEST(MetaTest, AsNonNegInt_DecimalAndHexStrings) {
+  EXPECT_EQ(asNonNegInt(Value(std::string("18446744073709551615"))).value_or(0),
+            std::numeric_limits<uint64_t>::max());
+  EXPECT_EQ(asNonNegInt(Value(std::string("0x10"))).value_or(0), 16u);
+  EXPECT_FALSE(asNonNegInt(Value(std::string("-1"))).has_value());
+  EXPECT_FALSE(asNonNegInt(Value(std::string("12x"))).has_value());
 }
 
 TEST(MetaTest, Json_IntegerOverflowErrors) {

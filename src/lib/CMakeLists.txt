@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 # Top-level lib aggregator.
-# Vendored json/cli; crypto (sodium + PQ) comes from pp-cpp-crypto (root).
-add_subdirectory(json)
+# Vendored cli; crypto (sodium + PQ) comes from pp-cpp-crypto (root).
+# JSON I/O is hand-written in common/io (no nlohmann).
 add_subdirectory(cli)
 add_subdirectory(common)
