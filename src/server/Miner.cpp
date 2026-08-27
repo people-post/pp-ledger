@@ -185,7 +185,7 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     for (auto &rec : slotCache_.txRenewals) {
       const auto &message = rec.data;
       for (const auto &privateKey : config_.privateKeys) {
-        auto result = utl::ed25519Sign(privateKey, message);
+        auto result = utl::mlDsaSign(privateKey, message);
         if (!result) {
           slotCache_ = {};
           return Error(12, result.error().message);

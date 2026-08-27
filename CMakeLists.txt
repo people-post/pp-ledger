@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.24)
 
-project(pp-ledger VERSION 1.0.0 LANGUAGES CXX)
+project(pp-ledger VERSION 1.0.0 LANGUAGES C CXX)
 
 # Set C++ standard to C++20
 set(CMAKE_CXX_STANDARD 20)
@@ -19,6 +19,12 @@ if(BUILD_TESTING)
   add_subdirectory(third_party/googletest EXCLUDE_FROM_ALL)
   enable_testing()
 endif()
+
+# Shared foundation + crypto. Prefer sibling checkouts; otherwise FetchContent.
+# Order matters: pp-cpp-crypto reuses pp_common when already defined.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(PpCppCommon)
+include(PpCppCrypto)
 
 # Root of the source tree (headers use paths like "lib/common/Logger.h")
 set(PP_SRC_DIR "${CMAKE_SOURCE_DIR}/src")

@@ -31,7 +31,7 @@ The workflow installs:
 - **build-essential**: GCC, make, and other build tools
 - **cmake**: Build system generator
 
-JSON and libsodium are vendored under `src/lib/json` and `src/lib/sodium`.
+JSON is vendored under `src/lib/json`. Crypto is provided by pp-cpp-crypto (FetchContent).
 
 ## Running Locally
 

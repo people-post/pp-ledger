@@ -35,13 +35,13 @@ from sibling repos when convenient.
   `cmake/PpCppCommon.cmake`, pin release tag e.g. `v0.1.0`).
 - **pp-ledger** is fetched by pp-browser after json/sodium deps exist
   (`cmake/PpLedger.cmake`, planned).
-- When pp-ledger is embedded, it must **not** re-vendor json/sodium if the parent
-  already provides `nlohmann_json::nlohmann_json` and `sodium` / `sodium::sodium`.
+- When pp-ledger is embedded, it must **not** re-vendor json or re-fetch crypto if the
+  parent already provides `nlohmann_json::nlohmann_json` and `pp_crypto` / `sodium`.
 - When pp-ledger is embedded, skip FetchContent for pp-cpp-common if `pp_common`
   already exists (`if(NOT TARGET pp_common)`).
 
-Standalone pp-ledger (Docker, CI, ops) keeps vendored json/sodium and may FetchContent
-pp-cpp-common on its own.
+Standalone pp-ledger (Docker, CI, ops) keeps vendored json and fetches pp-cpp-crypto
+(and may FetchContent pp-cpp-common on its own).
 
 ---
 
@@ -160,15 +160,15 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 | Module | Notes |
 |--------|--------|
 | Meta | Ledger/client/server wire types |
-| Crypto | Signing/verify (→ PQ migration) |
+| Crypto | Signing/verify (ML-DSA-65 via pp-cpp-crypto) |
 | Service, ThreadSafeQueue | Server threading |
 | io/Json | Meta ↔ JSON for HTTP/CLI |
-| Extended Utilities | Ed25519 helpers, binaryPack wrappers, `loadJsonFile`, … |
+| Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
-Rename local target from `pp_lib` → e.g. `pp_ledger_common` (`pp::ledger_common`).
-
-Includes migrate from `"lib/common/…"` to `"common/…"` (fetched) and a stable
-ledger-specific prefix for the remainder.
+**Status (2026-08-27):** `cmake/PpCppCommon.cmake` lands; local Logger / Module /
+ResultOrError / Serialize / Error are shims or deleted in favor of `pp_common`.
+`BinaryPack.hpp` keeps `pp::utl::binaryPack/Unpack` as thin wrappers over `pp::`.
+Rename `pp_lib` → `pp_ledger_common` still planned.
 
 ### Exported CMake targets (namespaced `pp::`)
 
@@ -195,7 +195,7 @@ Convenience interface (optional):
 option(PP_LEDGER_BUILD_APPS "pp-beacon, pp-miner, …" ON)
 option(PP_LEDGER_BUILD_SERVER "pp_server" ON)
 option(PP_LEDGER_BUILD_TESTS "ctest" OFF)
-option(PP_LEDGER_USE_VENDORED_DEPS "vendor json/sodium" ON)
+option(PP_LEDGER_USE_VENDORED_DEPS "vendor json; crypto via pp-cpp-crypto" ON)
 option(PP_LEDGER_BUILD_HTTP "pp-http" OFF)
 ```
 
@@ -214,19 +214,20 @@ Standalone ops/Docker keeps apps ON and vendored deps ON.
 
 ## Post-quantum crypto (before release)
 
-Both pp-ledger and pp-browser will use the **same PQ stack** (ML-DSA / ML-KEM as in
-pp-browser `third_party/`) before cutting stable library releases.
+Both pp-ledger and pp-browser use the **same PQ stack** via
+[pp-cpp-crypto](https://github.com/people-post/pp-cpp-crypto) (`pp_crypto`, ML-DSA-65 /
+ML-KEM-768 + libsodium).
 
-Plan:
+**pp-ledger status (PQ-only, pre-release):** account/tx signing is **ML-DSA-65 only**
+(`Crypto::TK_ML_DSA_65`). Classical Ed25519 support was removed (no product release yet;
+no wire version bump).
 
-1. Introduce `ICryptoProvider` (or equivalent) in pp-ledger; keep extensible
-   `keyType` on wallets/accounts.
-2. Share implementations via pp-cpp-common or a small shared crypto module both repos
-   fetch.
-3. Migrate Ouroboros VRF / slot leader logic explicitly (hybrid or PQ-VRF — TBD).
-4. **Stabilize libp2p RPC and ledger wire formats after PQ** — signature and key sizes
-   change on the wire.
-5. pp-browser: ledger keys live in `ProfileSecretsService`; avoid long-term Ed25519
+Remaining:
+
+1. Optional `ICryptoProvider` if embedders need injection; `keyType` remains on wallets.
+2. Migrate Ouroboros VRF / slot leader logic explicitly (hybrid or PQ-VRF — TBD).
+3. **Stabilize libp2p RPC and ledger wire formats** now that signature/key sizes are PQ.
+4. pp-browser: ledger keys live in `ProfileSecretsService`; avoid long-term plaintext
    `key.txt` files on disk.
 
 ---
@@ -313,10 +314,10 @@ binaries serve migration and ops.
 
 | Phase | Scope |
 |-------|--------|
-| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common; `pp_ledger_common`; subproject guards for json/sodium/pp_common |
+| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common — **landed** (shims + keep Meta/Crypto/Service/…); rename `pp_lib` → `pp_ledger_common` still open |
 | **2** | pp-ledger: CMake export (`pp::` targets), options, tag `v1.0.0` library release |
 | **3** | Extract `ILedgerTransport`; in-process + TCP implementations; standalone green |
-| **4** | PQ crypto migration; wire format stable |
+| **4** | PQ crypto (ML-DSA-65 signing via pp-cpp-crypto) — **landed** PQ-only; then stabilize wire |
 | **5** | pp-browser: `PpLedger.cmake`, `src/base/ledger/`, embed miner/relay roles |
 | **6** | Libp2p `/pp-ledger/rpc/1.0.0` on pp-node + pp-browser; miner → pp-node over libp2p |
 | **7** | Optional block gossip stream; deprecate DHT on PP nodes |
@@ -353,3 +354,5 @@ Suggested locations:
 | 2026-08-26 | Miner ↔ pp-node blockchain RPC over libp2p |
 | 2026-08-26 | PQ crypto before stable wire/protocol release |
 | 2026-08-26 | Beacon only in standalone pp-ledger; not embedded in pp-node/pp-browser |
+| 2026-08-27 | Consume pp-cpp-crypto; account/tx signing is ML-DSA-65 only (drop Ed25519; no version bump pre-release) |
+| 2026-08-27 | Consume pp-cpp-common; replace duplicated Logger/Module/Roe/Serialize; keep ledger Meta/Crypto/Service/Utilities |

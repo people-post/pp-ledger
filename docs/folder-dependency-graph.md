@@ -91,7 +91,7 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 
 | Folder | Depends on | Notes |
 |--------|------------|--------|
-| **lib** | — | Logger, Module, Service, ResultOrError, Serialize, BinaryPack, Utilities; vendored libsodium + nlohmann/json |
+| **lib** | — | Logger, Module, Service, ResultOrError, Serialize, BinaryPack, Utilities (ML-DSA via pp-cpp-crypto); vendored nlohmann/json |
 | **consensus** | lib | Ouroboros, EpochManager, SlotTimer, SlotLeaderSelection |
 | **network** | lib | TcpServer/Client/Connection, FetchServer/Client, BulkWriter, DHT |
 | **ledger** | lib | Ledger, DirStore, FileStore, DirDirStore, FileDirStore |

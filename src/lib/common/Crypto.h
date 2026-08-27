@@ -8,7 +8,8 @@ namespace pp {
 
 class Crypto {
 public:
-  static constexpr uint8_t TK_ED25519 = 1;
+  /** ML-DSA-65 (FIPS 204). Sole supported account key type (PQ-only). */
+  static constexpr uint8_t TK_ML_DSA_65 = 1;
 
   bool isSupported(uint8_t keyType) const;
   std::string name(uint8_t keyType) const;

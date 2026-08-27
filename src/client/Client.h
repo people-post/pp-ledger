@@ -23,7 +23,7 @@ public:
     std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
     std::vector<std::string> publicKeys;
     uint8_t minSignatures{ 0 };
-    uint8_t keyType{ 0 };  // Crypto::TK_ED25519 = 1; use Crypto::isSupported() to check
+    uint8_t keyType{ 0 };  // Crypto::TK_ML_DSA_65 = 1; use Crypto::isSupported() to check
 
     bool operator==(const Wallet& other) const {
       return mBalances == other.mBalances &&

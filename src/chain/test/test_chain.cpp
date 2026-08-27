@@ -49,8 +49,8 @@ Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   return cfg;
 }
 
-utl::Ed25519KeyPair makeKeyPair() {
-  auto result = utl::ed25519Generate();
+utl::MlDsaKeyPair makeKeyPair() {
+  auto result = utl::mlDsaGenerate();
   EXPECT_TRUE(result.isOk());
   if (!result.isOk()) {
     return {};
@@ -63,15 +63,15 @@ Client::UserAccount makeUserAccount(const std::string &publicKey,
   Client::UserAccount account;
   account.wallet.publicKeys = {publicKey};
   account.wallet.minSignatures = 1;
-  account.wallet.keyType = Crypto::TK_ED25519;
+  account.wallet.keyType = Crypto::TK_ML_DSA_65;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
   account.meta = "test";
   return account;
 }
 
-std::string signMessage(const utl::Ed25519KeyPair &keyPair,
+std::string signMessage(const utl::MlDsaKeyPair &keyPair,
                         const std::string &message) {
-  auto result = utl::ed25519Sign(keyPair.privateKey, message);
+  auto result = utl::mlDsaSign(keyPair.privateKey, message);
   EXPECT_TRUE(result.isOk());
   if (!result.isOk()) {
     return {};
@@ -81,7 +81,7 @@ std::string signMessage(const utl::Ed25519KeyPair &keyPair,
 
 template <typename TxT>
 Ledger::Record makeRecord(uint16_t type, const TxT &tx,
-                          const utl::Ed25519KeyPair &signer) {
+                          const utl::MlDsaKeyPair &signer) {
   Ledger::Record rec;
   rec.type = type;
   rec.data = utl::binaryPack(tx);
@@ -91,16 +91,16 @@ Ledger::Record makeRecord(uint16_t type, const TxT &tx,
 
 Ledger::ChainNode makeGenesisBlock(Chain &validator,
                                    const Chain::BlockChainConfig &chainConfig,
-                                   const utl::Ed25519KeyPair &genesisKey,
-                                   const utl::Ed25519KeyPair &feeKey,
-                                   const utl::Ed25519KeyPair &reserveKey,
-                                   const utl::Ed25519KeyPair &recycleKey) {
+                                   const utl::MlDsaKeyPair &genesisKey,
+                                   const utl::MlDsaKeyPair &feeKey,
+                                   const utl::MlDsaKeyPair &reserveKey,
+                                   const utl::MlDsaKeyPair &recycleKey) {
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
   gm.genesis.wallet.publicKeys = {genesisKey.publicKey};
   gm.genesis.wallet.minSignatures = 1;
-  gm.genesis.wallet.keyType = Crypto::TK_ED25519;
+  gm.genesis.wallet.keyType = Crypto::TK_ML_DSA_65;
   gm.genesis.meta = "genesis";
 
   Ledger::ChainNode genesis;

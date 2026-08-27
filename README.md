@@ -74,7 +74,7 @@ sudo apt-get install -y \
   cmake
 ```
 
-JSON (`src/lib/json`) and libsodium (`src/lib/sodium`) are vendored; no system packages are required for them.
+JSON (`src/lib/json`) is vendored. Shared C++ foundation comes from **pp-cpp-common** (`pp_common`: Logger, Module, Roe, Serialize, …). Crypto comes from **pp-cpp-crypto** (`pp_crypto`: libsodium + ML-DSA-65 / ML-KEM-768). Both prefer sibling `../pp-cpp-*` checkouts, else FetchContent tag `v0.1.0`. No system `libsodium-dev` required.
 
 ### Build
 
@@ -137,7 +137,7 @@ See **[deploy/README.md](deploy/README.md)** for Compose-based Beacon → Relay 
 ```
 pp-ledger/
 ├── src/
-│   ├── lib/          # Core utilities + vendored json/libsodium/http/cli
+│   ├── lib/          # Ledger common + vendored json/http/cli; pp-cpp-common / pp-cpp-crypto
 │   ├── consensus/    # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
 │   ├── ledger/       # Blockchain storage and management
 │   ├── chain/        # Chain, AccountBuffer, and transaction helper modules

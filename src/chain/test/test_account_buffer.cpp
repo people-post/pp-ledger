@@ -13,7 +13,7 @@ protected:
         AccountBuffer::Account a;
         a.id = id;
         a.wallet.publicKeys = {"pk-" + std::to_string(id)};
-        a.wallet.keyType = Crypto::TK_ED25519;
+        a.wallet.keyType = Crypto::TK_ML_DSA_65;
         a.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance; // Use native token (ID ID_GENESIS)
         return a;
     }

@@ -1,20 +1,21 @@
-# Lib library
+# Lib library — ledger-specific common (Meta, Crypto, Service, Utilities, …).
+# Shared Logger / Module / ResultOrError / Serialize / BinaryPack come from
+# pp-cpp-common via thin shims under this directory.
 add_library(pp_lib STATIC
     Crypto.cpp
     Crypto.h
-    Logger.cpp
     Logger.h
+    Module.h
     io/Json.cpp
     io/Json.h
     Meta.cpp
     Meta.h
-    Module.cpp
-    Module.h
     ResultOrError.hpp
     Serialize.hpp
+    BinaryPack.hpp
     Service.cpp
     Service.h
-    BinaryPack.hpp
+    ThreadSafeQueue.hpp
     Utilities.cpp
     Utilities.h
 )
@@ -27,9 +28,12 @@ target_include_directories(pp_lib PUBLIC
 
 # Link dependencies with PUBLIC to automatically propagate to dependents:
 # - vendored nlohmann/json headers
-# - vendored libsodium (static)
+# - pp-cpp-common (Logger, Module, Roe, Serialize, …)
+# - pp-cpp-crypto (ML-DSA/ML-KEM + libsodium)
 target_link_libraries(pp_lib PUBLIC
     nlohmann_json::nlohmann_json
+    pp_common
+    pp_crypto
     sodium::sodium
 )
 

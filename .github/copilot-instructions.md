@@ -36,7 +36,7 @@ make -j$(nproc)
 
 - C++20, GCC 13+ or Clang 12+, CMake 3.15+
 - Required: `build-essential`, `libstdc++-14-dev` (for Clang)
-- Vendored: `src/lib/json` (nlohmann/json), `src/lib/sodium` (libsodium 1.0.20 static)
+- Vendored: `src/lib/json` (nlohmann/json); crypto via pp-cpp-crypto (libsodium + ML-DSA-65)
 - HTTP server: add `-DBUILD_HTTP=ON`
 
 ## Test
@@ -72,7 +72,7 @@ See `.aicodeguide` for the full style guide. Key points:
 
 ## Critical Gotchas
 
-- **Miner config uses `"keys"` (array of file paths)**, NOT `"privateKey"`. Each file contains a 64-hex-char Ed25519 private key.
+- **Miner config uses `"keys"` (array of file paths)**, NOT `"privateKey"`. Each file contains a hex-encoded ML-DSA-65 private key (8064 hex chars).
 - **Beacon must be initialized with `--init` on first run**, then started without `--init` thereafter.
 - **Relay does NOT require `--init`** — it auto-creates `config.json` on first run.
 - **Relay config uses a `"beacon"` object** (single upstream beacon), NOT a `"beacons"` array like miners use.

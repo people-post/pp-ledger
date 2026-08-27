@@ -70,7 +70,7 @@ Workflows install the following system packages:
 - build-essential (GCC, make, etc.)
 - cmake
 
-JSON and libsodium are vendored under `src/lib/` and linked statically, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
+JSON is vendored under `src/lib/`. Crypto is linked statically from pp-cpp-crypto, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
 
 ## Troubleshooting
 
