@@ -14,7 +14,7 @@ set(PP_CPP_COMMON_SOURCE_DIR "" CACHE PATH
   "Optional local checkout of pp-cpp-common (overrides FetchContent)")
 set(PP_CPP_COMMON_GIT_REPOSITORY "https://github.com/people-post/pp-cpp-common.git"
   CACHE STRING "Git remote for pp-cpp-common")
-set(PP_CPP_COMMON_GIT_TAG "a756507fe86cd74e52bfff14795e1350996c68fa"
+set(PP_CPP_COMMON_GIT_TAG "7ad309fd5ce195de0e3f5d39ba30cb2747e86f0d"
   CACHE STRING "pp-cpp-common ref (commit/tag). Bump to a release tag after Value/JSON lands on main.")
 
 set(PP_COMMON_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-common tests" FORCE)
