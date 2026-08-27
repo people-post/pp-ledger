@@ -20,9 +20,10 @@ if(BUILD_TESTING)
   enable_testing()
 endif()
 
-# Shared crypto (libsodium + ML-DSA-65 / ML-KEM-768). Prefer sibling checkout;
-# otherwise FetchContent pin. No-op when a parent already defined pp_crypto.
+# Shared foundation + crypto. Prefer sibling checkouts; otherwise FetchContent.
+# Order matters: pp-cpp-crypto reuses pp_common when already defined.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(PpCppCommon)
 include(PpCppCrypto)
 
 # Root of the source tree (headers use paths like "lib/common/Logger.h")

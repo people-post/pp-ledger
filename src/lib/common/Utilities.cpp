@@ -1,5 +1,8 @@
 #include "Utilities.h"
-#include "PqCryptoBridge.h"
+
+#include "crypto/MlDsa.h"
+#include "crypto/Types.h"
+
 #include <charconv>
 #include <chrono>
 #include <ctime>
@@ -25,6 +28,15 @@ namespace {
     }
   };
   static SodiumInitializer sodium_initializer;
+
+  ByteVector toBytes(const std::string &s) {
+    return ByteVector(reinterpret_cast<const uint8_t *>(s.data()),
+                      reinterpret_cast<const uint8_t *>(s.data()) + s.size());
+  }
+
+  std::string fromBytes(const ByteVector &v) {
+    return std::string(reinterpret_cast<const char *>(v.data()), v.size());
+  }
 }
 
 int64_t getCurrentTime() {
@@ -91,12 +103,10 @@ pp::Roe<nlohmann::json> loadJsonFile(const std::string &configPath) {
     return Error(2, "Failed to open configuration file: " + configPath);
   }
 
-  // Read file content
   std::string content((std::istreambuf_iterator<char>(configFile)),
                       std::istreambuf_iterator<char>());
   configFile.close();
 
-  // Parse JSON
   nlohmann::json config;
   try {
     config = nlohmann::json::parse(content);
@@ -114,19 +124,19 @@ pp::Roe<nlohmann::json> parseJsonRequest(const std::string &request) {
   } catch (const nlohmann::json::parse_error &e) {
     return Error(1, "Failed to parse request JSON: " + std::string(e.what()));
   }
-  
+
   if (!reqJson.contains("type")) {
     return Error(2, "missing type field");
   }
-  
+
   return reqJson;
 }
 
 std::string sha256(const std::string &input) {
   unsigned char hash[crypto_hash_sha256_BYTES];
-  
-  if (crypto_hash_sha256(hash, 
-                         reinterpret_cast<const unsigned char*>(input.c_str()), 
+
+  if (crypto_hash_sha256(hash,
+                         reinterpret_cast<const unsigned char*>(input.c_str()),
                          input.size()) != 0) {
     throw std::runtime_error("crypto_hash_sha256 failed");
   }
@@ -186,12 +196,10 @@ std::string fromJsonSafeString(const std::string &s) {
 }
 
 pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &content) {
-  // Check if file already exists
   if (std::filesystem::exists(filePath)) {
     return Error(1, "File already exists: " + filePath);
   }
 
-  // Create parent directories if needed
   std::filesystem::path path(filePath);
   std::filesystem::path parentDir = path.parent_path();
   if (!parentDir.empty() && !std::filesystem::exists(parentDir)) {
@@ -202,7 +210,6 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
     }
   }
 
-  // Write content to file
   std::ofstream file(filePath);
   if (!file.is_open()) {
     return Error(3, "Failed to open file for writing: " + filePath);
@@ -228,30 +235,43 @@ pp::common::Meta MlDsaKeyPair::ltsToMeta() const {
 }
 
 pp::Roe<MlDsaKeyPair> mlDsaGenerate() {
-  pq_bridge::KeyPair raw;
-  std::string err = pq_bridge::generateKeyPair(raw);
-  if (!err.empty()) {
-    return Error(1, err);
+  auto result = MlDsa::GenerateKeyPair();
+  if (result.isError()) {
+    return Error(1, result.error().message.empty() ? "ML-DSA-65 keygen failed"
+                                                   : result.error().message);
   }
   MlDsaKeyPair pair;
-  pair.publicKey = std::move(raw.publicKey);
-  pair.privateKey = std::move(raw.privateKey);
+  pair.publicKey = fromBytes(result->public_key);
+  pair.privateKey = fromBytes(result->secret_key);
   return pair;
 }
 
 pp::Roe<std::string> mlDsaSign(const std::string &privateKey,
                                const std::string &message) {
-  std::string signature;
-  std::string err = pq_bridge::sign(privateKey, message, signature);
-  if (!err.empty()) {
-    return Error(1, err);
+  if (privateKey.size() != kMlDsaPrivateKeyBytes) {
+    return Error(1, "mlDsaSign: private key must be " +
+                        std::to_string(kMlDsaPrivateKeyBytes) + " bytes");
   }
-  return signature;
+  auto result = MlDsa::Sign(toBytes(privateKey), toBytes(message));
+  if (result.isError()) {
+    return Error(1, result.error().message.empty() ? "ML-DSA-65 sign failed"
+                                                   : result.error().message);
+  }
+  return fromBytes(*result);
 }
 
 bool mlDsaVerify(const std::string &publicKey, const std::string &message,
                  const std::string &signature) {
-  return pq_bridge::verify(publicKey, message, signature);
+  if (publicKey.size() != kMlDsaPublicKeyBytes ||
+      signature.size() != kMlDsaSignatureBytes) {
+    return false;
+  }
+  auto result =
+      MlDsa::Verify(toBytes(publicKey), toBytes(message), toBytes(signature));
+  if (result.isError()) {
+    return false;
+  }
+  return *result;
 }
 
 bool isValidMlDsaPublicKey(const std::string &str) {
@@ -272,7 +292,12 @@ bool isValidMlDsaPublicKey(const std::string &str) {
   } else {
     return false;
   }
-  return pq_bridge::isValidPublicKeyRaw(raw);
+  for (unsigned char c : raw) {
+    if (c != 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static std::string trimWhitespace(const std::string &s) {
@@ -335,7 +360,6 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
   if (content.empty()) {
     return Error(2, "Failed to read key from: " + keyOrPath);
   }
-  // Strip optional 0x prefix
   if (content.size() >= 2 && content[0] == '0' &&
       (content[1] == 'x' || content[1] == 'X')) {
     content = content.substr(2);

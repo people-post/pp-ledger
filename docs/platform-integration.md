@@ -160,15 +160,15 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 | Module | Notes |
 |--------|--------|
 | Meta | Ledger/client/server wire types |
-| Crypto | Signing/verify (→ PQ migration) |
+| Crypto | Signing/verify (ML-DSA-65 via pp-cpp-crypto) |
 | Service, ThreadSafeQueue | Server threading |
 | io/Json | Meta ↔ JSON for HTTP/CLI |
-| Extended Utilities | ML-DSA-65 helpers (via pp-cpp-crypto), binaryPack wrappers, `loadJsonFile`, … |
+| Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
-Rename local target from `pp_lib` → e.g. `pp_ledger_common` (`pp::ledger_common`).
-
-Includes migrate from `"lib/common/…"` to `"common/…"` (fetched) and a stable
-ledger-specific prefix for the remainder.
+**Status (2026-08-27):** `cmake/PpCppCommon.cmake` lands; local Logger / Module /
+ResultOrError / Serialize / Error are shims or deleted in favor of `pp_common`.
+`BinaryPack.hpp` keeps `pp::utl::binaryPack/Unpack` as thin wrappers over `pp::`.
+Rename `pp_lib` → `pp_ledger_common` still planned.
 
 ### Exported CMake targets (namespaced `pp::`)
 
@@ -314,10 +314,10 @@ binaries serve migration and ops.
 
 | Phase | Scope |
 |-------|--------|
-| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common; `pp_ledger_common`; subproject guards for json/sodium/pp_common |
+| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common — **landed** (shims + keep Meta/Crypto/Service/…); rename `pp_lib` → `pp_ledger_common` still open |
 | **2** | pp-ledger: CMake export (`pp::` targets), options, tag `v1.0.0` library release |
 | **3** | Extract `ILedgerTransport`; in-process + TCP implementations; standalone green |
-| **4** | PQ crypto (ML-DSA-65 signing via pp-cpp-crypto) — landed PQ-only; then stabilize wire |
+| **4** | PQ crypto (ML-DSA-65 signing via pp-cpp-crypto) — **landed** PQ-only; then stabilize wire |
 | **5** | pp-browser: `PpLedger.cmake`, `src/base/ledger/`, embed miner/relay roles |
 | **6** | Libp2p `/pp-ledger/rpc/1.0.0` on pp-node + pp-browser; miner → pp-node over libp2p |
 | **7** | Optional block gossip stream; deprecate DHT on PP nodes |
@@ -355,3 +355,4 @@ Suggested locations:
 | 2026-08-26 | PQ crypto before stable wire/protocol release |
 | 2026-08-26 | Beacon only in standalone pp-ledger; not embedded in pp-node/pp-browser |
 | 2026-08-27 | Consume pp-cpp-crypto; account/tx signing is ML-DSA-65 only (drop Ed25519; no version bump pre-release) |
+| 2026-08-27 | Consume pp-cpp-common; replace duplicated Logger/Module/Roe/Serialize; keep ledger Meta/Crypto/Service/Utilities |
