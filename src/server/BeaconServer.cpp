@@ -339,8 +339,13 @@ BeaconServer::init(const std::string &workDir) {
   initConfig.chain.maxCustomMetaSize = initFileConfig.maxCustomMetaSize;
   initConfig.chain.maxTransactionsPerBlock =
       initFileConfig.maxTransactionsPerBlock;
-    initConfig.chain.minFeeCoefficients = initFileConfig.minFeeCoefficients;
-  initConfig.chain.freeCustomMetaSize = initFileConfig.freeCustomMetaSize;
+  initConfig.chain.minFeeCoefficients = initFileConfig.minFeeCoefficients;
+  if (initFileConfig.freeCustomMetaSize >
+      std::numeric_limits<uint32_t>::max()) {
+    return Error("freeCustomMetaSize exceeds uint32_t range");
+  }
+  initConfig.chain.freeCustomMetaSize =
+      static_cast<uint32_t>(initFileConfig.freeCustomMetaSize);
   initConfig.chain.checkpoint.minBlocks = initFileConfig.checkpointMinBlocks;
   initConfig.chain.checkpoint.minAgeSeconds =
       initFileConfig.checkpointMinAgeSeconds;
