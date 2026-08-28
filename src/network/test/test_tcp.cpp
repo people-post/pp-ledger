@@ -1,14 +1,18 @@
 #include "TcpClient.h"
 #include "TcpServer.h"
 #include "TcpConnection.h"
+#include "platform/NetworkPlatform.h"
+#include "SocketTestUtils.h"
 #include <gtest/gtest.h>
 #include <thread>
 #include <chrono>
 #include <cstring>
-#include <sys/socket.h>
-#include <unistd.h>
 
 using namespace pp::network;
+using pp::network::testutil::ensureNetworkPlatform;
+using pp::network::testutil::makeConnectedSocketPair;
+using pp::network::testutil::recvSomeBytes;
+using pp::network::testutil::sendAllBytes;
 
 // Helper function to find an available port
 uint16_t findAvailablePort() {
@@ -23,19 +27,16 @@ uint16_t findAvailablePort() {
 class TcpConnectionTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Create a pair of connected sockets for testing
-        int sockets[2];
-        ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), 0);
-        serverSocket_ = sockets[0];
-        clientSocket_ = sockets[1];
+        ensureNetworkPlatform();
+        ASSERT_TRUE(makeConnectedSocketPair(serverSocket_, clientSocket_));
     }
 
     void TearDown() override {
         if (serverSocket_ >= 0) {
-            close(serverSocket_);
+            socketClose(serverSocket_);
         }
         if (clientSocket_ >= 0) {
-            close(clientSocket_);
+            socketClose(clientSocket_);
         }
     }
 
@@ -98,7 +99,7 @@ TEST_F(TcpConnectionTest, ReceiveData) {
     
     // Send data from client socket
     const char* testData = "Hello World";
-    ::send(clientSocket_, testData, strlen(testData), 0);
+    sendAllBytes(clientSocket_, testData, strlen(testData));
     
     // Receive on server connection
     char buffer[256] = {0};
@@ -114,7 +115,7 @@ TEST_F(TcpConnectionTest, ReceiveLine) {
     
     // Send line with newline from client socket
     const char* line = "Test Line\n";
-    ::send(clientSocket_, line, strlen(line), 0);
+    sendAllBytes(clientSocket_, line, strlen(line));
     
     // Receive line on server connection
     auto result = conn.receiveLine();
@@ -128,7 +129,7 @@ TEST_F(TcpConnectionTest, ReceiveLineWithCarriageReturn) {
     
     // Send line with CRLF from client socket
     const char* line = "Test Line\r\n";
-    ::send(clientSocket_, line, strlen(line), 0);
+    sendAllBytes(clientSocket_, line, strlen(line));
     
     // Receive line on server connection
     auto result = conn.receiveLine();
@@ -168,7 +169,7 @@ TEST_F(TcpConnectionTest, ShutdownWrite) {
     
     // After shutdown write, we can still receive data
     const char* testData = "Hello";
-    ::send(clientSocket_, testData, strlen(testData), 0);
+    sendAllBytes(clientSocket_, testData, strlen(testData));
     
     char buffer[256] = {0};
     auto recvResult = conn.receive(buffer, sizeof(buffer) - 1);
@@ -178,7 +179,7 @@ TEST_F(TcpConnectionTest, ShutdownWrite) {
     
     // Verify client can detect the shutdown
     char clientBuffer[256] = {0};
-    ssize_t received = recv(clientSocket_, clientBuffer, sizeof(clientBuffer), 0);
+    const int received = recvSomeBytes(clientSocket_, clientBuffer, sizeof(clientBuffer));
     EXPECT_EQ(received, 0); // recv returns 0 when peer has shutdown write
 }
 
@@ -193,13 +194,13 @@ TEST_F(TcpConnectionTest, SendAndShutdown) {
     
     // Verify data was sent
     char buffer[256] = {0};
-    ssize_t received = recv(clientSocket_, buffer, sizeof(buffer), 0);
+    int received = recvSomeBytes(clientSocket_, buffer, sizeof(buffer));
     EXPECT_EQ(received, static_cast<ssize_t>(testMessage.length()));
     EXPECT_STREQ(buffer, testMessage.c_str());
     
     // Verify shutdown signal
     char shutdownBuffer[256] = {0};
-    received = recv(clientSocket_, shutdownBuffer, sizeof(shutdownBuffer), 0);
+    received = recvSomeBytes(clientSocket_, shutdownBuffer, sizeof(shutdownBuffer));
     EXPECT_EQ(received, 0); // recv returns 0 when peer has shutdown write
 }
 
@@ -210,6 +211,7 @@ TEST_F(TcpConnectionTest, SendAndShutdown) {
 class TcpClientTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureNetworkPlatform();
         client = std::make_unique<TcpClient>();
         testPort = findAvailablePort();
     }
@@ -306,6 +308,7 @@ TEST_F(TcpClientTest, SendAndShutdownFailsWhenNotConnected) {
 class TcpServerTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureNetworkPlatform();
         server = std::make_unique<TcpServer>();
         testPort = findAvailablePort();
     }
@@ -387,6 +390,7 @@ TEST_F(TcpServerTest, StopWhenListening) {
 class TcpIntegrationTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureNetworkPlatform();
         server = std::make_unique<TcpServer>();
         client = std::make_unique<TcpClient>();
         testPort = findAvailablePort();

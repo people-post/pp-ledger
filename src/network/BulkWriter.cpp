@@ -1,36 +1,20 @@
 #include "BulkWriter.h"
+#include "platform/NetworkPlatform.h"
+#include "platform/PollWait.h"
 
-#include <cerrno>
 #include <chrono>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/socket.h>
 #include <thread>
 #include <unordered_set>
-#include <unistd.h>
 
 #if defined(__linux__)
 #include <sys/epoll.h>
-#else
-#include <poll.h>
 #endif
 
 namespace pp {
 namespace network {
 
 namespace {
-
-int setNonBlocking(int fd) {
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0) return -1;
-  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
-#if !defined(__linux__)
-  // On non-Linux platforms (e.g. macOS), suppress SIGPIPE per socket
-  int val = 1;
-  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &val, sizeof(val));
-#endif
-  return 0;
-}
 
 int calculateTimeout(int timeoutMs, int defaultTimeout) {
   return (timeoutMs >= 0) ? timeoutMs : defaultTimeout;
@@ -42,32 +26,33 @@ BulkWriter::~BulkWriter() {
   std::lock_guard<std::mutex> lock(mutex_);
 #if defined(__linux__)
   if (epollFd_ >= 0) {
-    ::close(epollFd_);
-    epollFd_ = -1;
+    socketClose(epollFd_);
+    epollFd_ = kInvalidSocket;
   }
 #endif
 }
 
-BulkWriter::Roe<void> BulkWriter::add(int fd, const void *data, size_t size) {
+BulkWriter::Roe<void> BulkWriter::add(int fd, const void* data, size_t size) {
   if (fd < 0) {
     return Error("Invalid fd");
   }
-  if (setNonBlocking(fd) < 0) {
-    return Error("Set non-blocking failed: " + std::string(std::strerror(errno)));
+  if (!socketSetNonBlocking(fd) || !socketSetNoSigpipe(fd)) {
+    return Error("Set non-blocking failed: " +
+                 socketErrorString(socketLastError()));
   }
 
   WriteJob job;
   job.fd = fd;
-  job.buffer.assign(static_cast<const uint8_t *>(data),
-                   static_cast<const uint8_t *>(data) + size);
+  job.buffer.assign(static_cast<const uint8_t*>(data),
+                    static_cast<const uint8_t*>(data) + size);
   job.offset = 0;
-  
-  int timeoutMs = calculateJobTimeout(size);
-  job.expireTime = std::chrono::steady_clock::now() + 
-                   std::chrono::milliseconds(timeoutMs);
+
+  const int timeoutMs = calculateJobTimeout(size);
+  job.expireTime =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
   std::lock_guard<std::mutex> lock(mutex_);
-  
+
   jobs_.push_back(std::move(job));
 
 #if defined(__linux__)
@@ -75,21 +60,21 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void *data, size_t size) {
     epollFd_ = epoll_create1(0);
     if (epollFd_ < 0) {
       jobs_.pop_back();
-      return Error("epoll_create1 failed: " + std::string(std::strerror(errno)));
+      return Error("epoll_create1 failed: " + socketErrorString(socketLastError()));
     }
   }
-  struct epoll_event ev = {};
+  epoll_event ev {};
   ev.events = EPOLLOUT;
   ev.data.fd = fd;
   if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
     jobs_.pop_back();
-    return Error("epoll_ctl ADD failed: " + std::string(std::strerror(errno)));
+    return Error("epoll_ctl ADD failed: " + socketErrorString(socketLastError()));
   }
 #endif
   return {};
 }
 
-BulkWriter::Roe<void> BulkWriter::add(int fd, const std::string &data) {
+BulkWriter::Roe<void> BulkWriter::add(int fd, const std::string& data) {
   return add(fd, data.data(), data.size());
 }
 
@@ -97,7 +82,7 @@ void BulkWriter::clear() {
   std::lock_guard<std::mutex> lock(mutex_);
 #if defined(__linux__)
   if (epollFd_ >= 0) {
-    for (const auto &job : jobs_) {
+    for (const auto& job : jobs_) {
       epoll_ctl(epollFd_, EPOLL_CTL_DEL, job.fd, nullptr);
     }
   }
@@ -131,18 +116,19 @@ size_t BulkWriter::runEpoll(int timeoutMs) {
   const int defaultTimeout = 1000;
 
   while (!jobs_.empty()) {
-    int wait = calculateTimeout(timeoutMs, defaultTimeout);
+    const int wait = calculateTimeout(timeoutMs, defaultTimeout);
 
-    size_t maxEvents = jobs_.size();
-    std::vector<struct epoll_event> events(maxEvents);
-    int n = epoll_wait(epollFd_, events.data(), static_cast<int>(maxEvents), wait);
-    
+    const size_t maxEvents = jobs_.size();
+    std::vector<epoll_event> events(maxEvents);
+    const int n = epoll_wait(epollFd_, events.data(), static_cast<int>(maxEvents), wait);
+
     if (n < 0) {
-      if (errno == EINTR) continue;
+      if (socketInterrupted(socketLastError())) {
+        continue;
+      }
       break;
     }
     if (n == 0) {
-      // epoll timed out - still process jobs to check for expired timeouts
       processJobs({});
       break;
     }
@@ -163,34 +149,37 @@ size_t BulkWriter::runEpoll(int timeoutMs) {
 #if !defined(__linux__)
 size_t BulkWriter::runPoll(int timeoutMs) {
   const int defaultTimeout = 1000;
-  if (jobs_.empty()) return 0;
-
-  int wait = calculateTimeout(timeoutMs, defaultTimeout);
-
-  std::vector<struct pollfd> pfds;
-  pfds.reserve(jobs_.size());
-  for (const auto &job : jobs_) {
-    struct pollfd pfd = {};
-    pfd.fd = job.fd;
-    pfd.events = POLLOUT;
-    pfds.push_back(pfd);
+  if (jobs_.empty()) {
+    return 0;
   }
 
-  int r = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), wait);
+  const int wait = calculateTimeout(timeoutMs, defaultTimeout);
+
+  std::vector<PollWaitEntry> entries;
+  entries.reserve(jobs_.size());
+  for (const auto& job : jobs_) {
+    PollWaitEntry entry {};
+    entry.fd = job.fd;
+    entry.events = POLLOUT;
+    entries.push_back(entry);
+  }
+
+  const int r = pollWait(entries, wait);
   if (r < 0) {
-    if (errno == EINTR) return jobs_.size();
+    if (socketInterrupted(socketLastError())) {
+      return jobs_.size();
+    }
     return jobs_.size();
   }
   if (r == 0) {
-    // poll timed out - still process jobs to check for expired timeouts
     processJobs({});
     return jobs_.size();
   }
 
   std::unordered_set<int> ready;
-  for (size_t i = 0; i < pfds.size(); ++i) {
-    if (pfds[i].revents & (POLLOUT | POLLERR | POLLHUP)) {
-      ready.insert(pfds[i].fd);
+  for (const auto& entry : entries) {
+    if (entry.revents & (POLLOUT | POLLERR | POLLHUP)) {
+      ready.insert(entry.fd);
     }
   }
   processJobs(ready);
@@ -208,18 +197,17 @@ void BulkWriter::unregisterFd(int fd) {
 #endif
 }
 
-void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
+void BulkWriter::processJobs(const std::unordered_set<int>& ready) {
   std::vector<WriteJob> next;
   next.reserve(jobs_.size());
-  
-  for (auto &job : jobs_) {
-    // Check for timeout first
+
+  for (auto& job : jobs_) {
     if (isJobTimedOut(job)) {
       unregisterFd(job.fd);
       if (config_.errorCallback) {
         config_.errorCallback(job.fd, Error("Send timeout exceeded"));
       }
-      ::close(job.fd);
+      socketClose(job.fd);
       continue;
     }
 
@@ -228,24 +216,24 @@ void BulkWriter::processJobs(const std::unordered_set<int> &ready) {
       continue;
     }
 
-    WriteResult result = attemptWrite(job);
+    const WriteResult result = attemptWrite(job);
     handleWriteResult(job, result, next);
   }
-  
+
   jobs_ = std::move(next);
 }
 
-BulkWriter::WriteResult BulkWriter::attemptWrite(WriteJob &job) {
-  size_t remaining = job.buffer.size() - job.offset;
-  const void *ptr = job.buffer.data() + job.offset;
+BulkWriter::WriteResult BulkWriter::attemptWrite(WriteJob& job) {
+  const size_t remaining = job.buffer.size() - job.offset;
+  const void* ptr = job.buffer.data() + job.offset;
 #if defined(__linux__)
-  ssize_t sent = ::send(job.fd, ptr, remaining, MSG_NOSIGNAL);
+  const ssize_t sent = ::send(job.fd, ptr, remaining, MSG_NOSIGNAL);
 #else
-  ssize_t sent = ::send(job.fd, ptr, remaining, 0);
+  const ssize_t sent = ::send(job.fd, ptr, remaining, 0);
 #endif
 
   if (sent < 0) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    if (socketWouldBlock(socketLastError())) {
       return WriteResult::Retry;
     }
     return WriteResult::Error;
@@ -255,12 +243,12 @@ BulkWriter::WriteResult BulkWriter::attemptWrite(WriteJob &job) {
   return (job.offset >= job.buffer.size()) ? WriteResult::Complete : WriteResult::Retry;
 }
 
-void BulkWriter::handleWriteResult(WriteJob &job, WriteResult result, 
-                                   std::vector<WriteJob> &next) {
+void BulkWriter::handleWriteResult(WriteJob& job, WriteResult result,
+                                   std::vector<WriteJob>& next) {
   switch (result) {
     case WriteResult::Complete:
       unregisterFd(job.fd);
-      ::close(job.fd);
+      socketClose(job.fd);
       break;
     case WriteResult::Retry:
       next.push_back(std::move(job));
@@ -268,22 +256,20 @@ void BulkWriter::handleWriteResult(WriteJob &job, WriteResult result,
     case WriteResult::Error:
       unregisterFd(job.fd);
       if (config_.errorCallback) {
-        config_.errorCallback(job.fd, Error("Send failed: " + std::string(std::strerror(errno))));
+        config_.errorCallback(
+            job.fd, Error("Send failed: " + socketErrorString(socketLastError())));
       }
-      ::close(job.fd);
+      socketClose(job.fd);
       break;
   }
 }
 
 int BulkWriter::calculateJobTimeout(size_t bufferSize) const {
-  // Convert buffer size to MB (using floating point for precision)
-  double sizeMb = static_cast<double>(bufferSize) / (1024.0 * 1024.0);
-  int timeoutMs = config_.timeout.msBase + 
-                  static_cast<int>(sizeMb * config_.timeout.msPerMb);
-  return timeoutMs;
+  const double sizeMb = static_cast<double>(bufferSize) / (1024.0 * 1024.0);
+  return config_.timeout.msBase + static_cast<int>(sizeMb * config_.timeout.msPerMb);
 }
 
-bool BulkWriter::isJobTimedOut(const WriteJob &job) const {
+bool BulkWriter::isJobTimedOut(const WriteJob& job) const {
   return std::chrono::steady_clock::now() > job.expireTime;
 }
 

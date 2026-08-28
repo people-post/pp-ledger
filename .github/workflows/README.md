@@ -12,7 +12,7 @@ This directory contains automated workflows for building, testing, and releasing
 - **Runners:** Same OS matrix as [pp-browser](https://github.com/people-post/pp-browser) `build.yml`:
   - `ubuntu-24.04` — full build + test (required)
   - `macos-14` — full build + test (required)
-  - `windows-2022` — configured; **continue-on-error** until the POSIX network stack is ported to Winsock/MSVC
+  - `windows-2022` — full build + test (required; MSVC + Ninja + Winsock)
 - **Purpose:** Build and test pp-ledger via `scripts/ci-build.sh --test`
 
 **Steps (per matrix leg):**
@@ -63,10 +63,10 @@ Fetched at configure time via CMake FetchContent (pp-cpp-common, pp-cpp-crypto).
 |----|----------|
 | Linux | `build-essential`, `cmake`, `ninja-build` (CI) |
 | macOS | Xcode/clang; `cmake` via Homebrew if absent |
-| Windows | MSVC (dev cmd), Ninja (CI); network port pending |
+| Windows | MSVC (dev cmd), Ninja (CI); links `ws2_32`, `iphlpapi` |
 
 ## Troubleshooting
 
-- **Windows leg orange/failing:** Expected until `src/network/` gains a Winsock/IOCP backend; Linux and macOS legs are merge gates.
 - **FetchContent failures:** Check tag pins in `cmake/PpCppCommon.cmake` / `cmake/PpCppCrypto.cmake`.
+- **Windows socket errors:** Ensure `networkPlatformInit()` runs before socket use (tests call this via `SocketTestUtils.h`).
 - **Local repro:** `./scripts/ci-build.sh [--test]`

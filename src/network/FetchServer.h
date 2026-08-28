@@ -14,12 +14,8 @@
 namespace pp {
 namespace network {
 
-/**
- * FetchServer - Simple server for receiving data and sending responses
- *
- * Uses TCP sockets for peer-to-peer communication.
- * Handles multiple concurrent connections using non-blocking I/O.
- */
+class IoMultiplexer;
+
 class FetchServer : public Service {
 public:
   struct Error : RoeErrorBase {
@@ -28,62 +24,44 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  using RequestHandler = std::function<void(int fd, const std::string&, const IpEndpoint& endpoint)>;
+  using RequestHandler =
+      std::function<void(int fd, const std::string&, const IpEndpoint& endpoint)>;
 
   struct Config {
     IpEndpoint endpoint;
-    RequestHandler handler{ nullptr };
+    RequestHandler handler{nullptr};
     std::vector<std::string> whitelist;
   };
 
-  /**
-   * Constructor
-   */
   FetchServer();
-
   ~FetchServer() override;
 
   IpEndpoint getEndpoint() const { return server_.getEndpoint(); }
-  Roe<void> addResponse(int fd, const std::string &response);
-  Service::Roe<void> start(const Config &config);
+  Roe<void> addResponse(int fd, const std::string& response);
+  Service::Roe<void> start(const Config& config);
+
 protected:
   void runLoop() override;
-
   Service::Roe<void> onStart() override;
   void onStop() override;
 
 private:
-  // Tracks an active connection reading data
   struct ActiveConnection {
     int fd;
     IpEndpoint endpoint;
     enum class Stage { ReadLen, ReadBody };
-    Stage stage{ Stage::ReadLen };
-    uint32_t expectedLen{ 0 };
-    std::string buffer; // used for staged parsing (len header then body)
+    Stage stage{Stage::ReadLen};
+    uint32_t expectedLen{0};
+    std::string buffer;
   };
 
-  // Helper: set a file descriptor to non-blocking mode
-  bool setNonBlocking(int fd);
-
-  // Helper: get peer endpoint for a connected socket
   Roe<IpEndpoint> getPeerEndpoint(int fd);
-
-  // Helper: true if peer is allowed by whitelist (empty whitelist = allow all)
   bool isAllowedByWhitelist(const IpEndpoint& peer) const;
-
-  // Helper: process read events from epoll
   void processReadEvents(const std::vector<int>& readyFds);
-
-  // Helper: read available data from a connection
   void readFromConnection(ActiveConnection& conn);
-
-  // Helpers extracted from readFromConnection / runLoop
   void closeAndRemoveConnection(ActiveConnection& conn, const std::string& reason);
   void dispatchCompleteFrameAndRemove(ActiveConnection& conn, std::string requestBody);
-  // Returns true if a complete frame was dispatched (and conn removed).
   bool tryParseSingleFrame(ActiveConnection& conn);
-
   void pollActiveReads();
   bool registerClientFd(int clientFd);
   void acceptPendingConnections();
@@ -91,15 +69,7 @@ private:
   TcpServer server_;
   Config config_;
   BulkWriter writer_;
-
-  // epoll file descriptor for monitoring connections
-#ifdef __APPLE__
-  int kqueueFd_{ -1 };
-#else
-  int epollFd_{ -1 };
-#endif
-
-  // Map of fd -> ActiveConnection for all connections being read
+  std::unique_ptr<IoMultiplexer> ioMux_;
   std::map<int, ActiveConnection> activeConnections_;
 };
 

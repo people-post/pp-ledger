@@ -12,17 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            experimental: false
-          - os: macos-14
-            experimental: false
-          # POSIX networking (epoll/kqueue); MSVC port not yet landed.
-          - os: windows-2022
-            experimental: true
+        os: [ubuntu-24.04, macos-14, windows-2022]
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
 
     steps:
       - name: Checkout repository

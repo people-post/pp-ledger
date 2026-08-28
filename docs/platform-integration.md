@@ -294,8 +294,8 @@ As of **pp-browser `develop`** (FetchContent migration merged):
 Continue to ship and support:
 
 - `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`, `pp-http`
-- Docker image / CI (`scripts/ci-build.sh`)
-- TCP fetch + optional DHT for public internet deployment
+- Docker image / CI (`scripts/ci-build.sh`) on **Linux, macOS, and Windows** (`ubuntu-24.04`, `macos-14`, `windows-2022`)
+- TCP fetch + DHT for public internet deployment (Winsock on Windows via `src/network/platform/`)
 
 Embedded PP fleet (pp-node / pp-browser) uses libp2p among themselves; standalone
 binaries serve migration and ops.

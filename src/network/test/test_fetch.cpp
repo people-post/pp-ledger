@@ -1,15 +1,19 @@
 #include "FetchClient.h"
 #include "FetchServer.h"
+#include "platform/NetworkPlatform.h"
+#include "SocketTestUtils.h"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <thread>
 #include <chrono>
 
 using namespace pp::network;
+using pp::network::testutil::ensureNetworkPlatform;
 
 class FetchClientTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureNetworkPlatform();
         client = std::make_unique<FetchClient>();
     }
 
@@ -32,6 +36,7 @@ TEST_F(FetchClientTest, FetchSyncFailsWithInvalidHost) {
 class FetchServerTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        ensureNetworkPlatform();
         server = std::make_unique<FetchServer>();
     }
 

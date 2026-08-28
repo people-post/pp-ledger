@@ -1,25 +1,18 @@
 #include "BulkWriter.h"
+#include "platform/NetworkPlatform.h"
+#include "SocketTestUtils.h"
 #include <gtest/gtest.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <atomic>
 #include <chrono>
 #include <thread>
 
 using namespace pp::network;
+using pp::network::testutil::ensureNetworkPlatform;
+using pp::network::testutil::fdIsOpen;
+using pp::network::testutil::makeConnectedSocketPair;
 
-// Helper: create a connected socketpair and return {writer_fd, reader_fd}
 static void makeSocketPair(int &writer, int &reader) {
-    int sv[2];
-    ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sv), 0);
-    writer = sv[0];
-    reader = sv[1];
-}
-
-// Helper: check whether an fd is still open
-static bool fdIsOpen(int fd) {
-    return fcntl(fd, F_GETFD) != -1;
+    ASSERT_TRUE(makeConnectedSocketPair(writer, reader));
 }
 
 // ============================================================================
@@ -27,11 +20,11 @@ static bool fdIsOpen(int fd) {
 // ============================================================================
 
 TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
+    ensureNetworkPlatform();
     int writer = -1, reader = -1;
     makeSocketPair(writer, reader);
 
-    // Close the reader so that a write to writer will fail
-    ::close(reader);
+    socketClose(reader);
     reader = -1;
 
     BulkWriter bw;
@@ -57,10 +50,11 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
 // ============================================================================
 
 TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
+    ensureNetworkPlatform();
     int writer = -1, reader = -1;
     makeSocketPair(writer, reader);
 
-    ::close(reader);
+    socketClose(reader);
     reader = -1;
 
     std::atomic<bool> callbackCalled{false};
@@ -89,6 +83,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
 // ============================================================================
 
 TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
+    ensureNetworkPlatform();
     int writer = -1, reader = -1;
     makeSocketPair(writer, reader);
 
@@ -116,7 +111,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
     bw.stop();
 
     // Drain the reader so the test doesn't hang
-    ::close(reader);
+    socketClose(reader);
     reader = -1;
 
     EXPECT_FALSE(fdIsOpen(writer)) << "fd should have been closed after timeout";
@@ -127,6 +122,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
 // ============================================================================
 
 TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
+    ensureNetworkPlatform();
     int writer = -1, reader = -1;
     makeSocketPair(writer, reader);
 
@@ -153,7 +149,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
 
     bw.stop();
 
-    ::close(reader);
+    socketClose(reader);
     reader = -1;
 
     EXPECT_TRUE(callbackCalled) << "error callback should have been called on timeout";
@@ -165,6 +161,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
 // ============================================================================
 
 TEST(BulkWriterTest, FdClosedOnSuccessfulWrite) {
+    ensureNetworkPlatform();
     int writer = -1, reader = -1;
     makeSocketPair(writer, reader);
 
@@ -178,7 +175,7 @@ TEST(BulkWriterTest, FdClosedOnSuccessfulWrite) {
 
     bw.stop();
 
-    ::close(reader);
+    socketClose(reader);
     reader = -1;
 
     EXPECT_FALSE(fdIsOpen(writer)) << "fd should have been closed after successful write";

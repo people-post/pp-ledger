@@ -26,6 +26,29 @@ set(NETWORK_HEADERS
     TcpServer.h
 )
 
+if(WIN32)
+  list(APPEND NETWORK_SOURCES
+    platform/SocketOps_Win32.cpp
+    platform/PollWait_Win32.cpp
+    platform/IoMultiplexer_Wsapoll.cpp
+    platform/HostAddress_Win32.cpp
+  )
+elseif(APPLE)
+  list(APPEND NETWORK_SOURCES
+    platform/SocketOps_Posix.cpp
+    platform/PollWait_Posix.cpp
+    platform/IoMultiplexer_Kqueue.cpp
+    platform/HostAddress_Posix.cpp
+  )
+else()
+  list(APPEND NETWORK_SOURCES
+    platform/SocketOps_Posix.cpp
+    platform/PollWait_Posix.cpp
+    platform/IoMultiplexer_Epoll.cpp
+    platform/HostAddress_Posix.cpp
+  )
+endif()
+
 add_library(pp_network STATIC ${NETWORK_SOURCES} ${NETWORK_HEADERS})
 
 target_include_directories(pp_network
@@ -39,6 +62,11 @@ target_link_libraries(pp_network
         pp_ledger_common
         pp_dht
 )
+
+if(WIN32)
+  target_link_libraries(pp_network PUBLIC ws2_32 iphlpapi)
+  target_compile_definitions(pp_network PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+endif()
 
 set_target_properties(pp_network PROPERTIES
     VERSION ${PROJECT_VERSION}

@@ -1,6 +1,6 @@
 #include "LedgerFrameCodec.h"
+#include "platform/NetworkPlatform.h"
 
-#include <arpa/inet.h>
 #include <cstring>
 
 namespace pp {
@@ -22,7 +22,7 @@ LedgerFrameCodec::Roe<std::string> LedgerFrameCodec::encode(std::string_view pay
 }
 
 LedgerFrameCodec::Roe<uint32_t>
-LedgerFrameCodec::decodeLengthPrefix(const void *header, size_t headerSize) {
+LedgerFrameCodec::decodeLengthPrefix(const void* header, size_t headerSize) {
   if (headerSize < sizeof(uint32_t)) {
     return Error(1, "Frame header too short");
   }

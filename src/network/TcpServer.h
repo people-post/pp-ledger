@@ -5,10 +5,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace pp {
 namespace network {
+
+class IoMultiplexer;
 
 class TcpServer {
 public:
@@ -21,39 +24,22 @@ public:
   TcpServer();
   ~TcpServer();
 
-  // Delete copy
-  TcpServer(const TcpServer &) = delete;
-  TcpServer &operator=(const TcpServer &) = delete;
+  TcpServer(const TcpServer&) = delete;
+  TcpServer& operator=(const TcpServer&) = delete;
 
-  // Bind to a host and port and start listening
-  Roe<void> listen(const IpEndpoint &endpoint, int backlog = 10);
-
-  // Accept a client connection (non-blocking)
+  Roe<void> listen(const IpEndpoint& endpoint, int backlog = 10);
   Roe<int> accept();
-
-  // Wait for events (timeout in milliseconds, -1 for infinite)
   Roe<void> waitForEvents(int timeoutMs = -1);
-
-  // Stop the server
   void stop();
-
-  // Check if server is listening
   bool isListening() const;
-
   IpEndpoint getEndpoint() const;
 
 private:
   std::string getHost() const;
-  // Helper to get the actual bound address
-  std::string getBoundAddress() const;
 
-  int socketFd_{ -1 };
-#ifdef __APPLE__
-  int kqueueFd_{ -1 };
-#else
-  int epollFd_{ -1 };
-#endif
-  bool listening_{ false };
+  int socketFd_{-1};
+  std::unique_ptr<IoMultiplexer> ioMux_;
+  bool listening_{false};
   IpEndpoint endpoint_;
 };
 
