@@ -1,8 +1,8 @@
 #include "LedgerFrameCodec.h"
+#include "platform/NetworkPlatform.h"
 
 #include <gtest/gtest.h>
 
-#include <arpa/inet.h>
 #include <cstring>
 
 using pp::network::LedgerFrameCodec;
