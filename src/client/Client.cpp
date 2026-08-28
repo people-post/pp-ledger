@@ -1,7 +1,7 @@
 #include "Client.h"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/BinaryPack.hpp"
-#include "lib/common/Serialize.hpp"
+#include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 
 #include <sstream>

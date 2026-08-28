@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lib/common/Module.h"
+#include "common/Module.h"
 #include <cstdint>
 #include <map>
 #include <string>

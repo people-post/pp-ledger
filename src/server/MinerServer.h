@@ -6,7 +6,7 @@
 #include "../client/Client.h"
 #include "../network/DhtRunner.h"
 #include "../network/Types.hpp"
-#include "lib/common/ResultOrError.hpp"
+#include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include <chrono>
 #include <string>

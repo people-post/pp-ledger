@@ -2,13 +2,13 @@
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include "lib/common/io/Json.h"
+#include "common/io/Json.h"
 #include <vector>
 
 namespace pp {

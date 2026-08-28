@@ -2,8 +2,8 @@
 
 #include "DirDirStore.h"
 #include "lib/common/Meta.h"
-#include "lib/common/Module.h"
-#include "lib/common/ResultOrError.hpp"
+#include "common/Module.h"
+#include "common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
 
 #include <vector>

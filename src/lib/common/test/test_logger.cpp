@@ -1,4 +1,4 @@
-#include "Logger.h"
+#include "common/Logger.h"
 #include <gtest/gtest.h>
 
 TEST(LoggerNodeTest, BasicNodeCreation) {

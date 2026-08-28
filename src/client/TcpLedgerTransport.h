@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ILedgerTransport.h"
-#include "lib/common/Module.h"
+#include "common/Module.h"
 #include "../network/FetchClient.h"
 #include "../network/Types.hpp"
 

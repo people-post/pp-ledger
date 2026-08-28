@@ -3,9 +3,9 @@
 #include "../consensus/Types.hpp"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
-#include "lib/common/io/Json.h"
+#include "common/io/Json.h"
 
 #include <cli11.hpp>
 

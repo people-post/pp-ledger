@@ -1,7 +1,7 @@
 #include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
 
 #include <limits>

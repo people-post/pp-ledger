@@ -1,7 +1,7 @@
 #include "Relay.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>

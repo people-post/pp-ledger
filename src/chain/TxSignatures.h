@@ -4,7 +4,7 @@
 #include "TxError.h"
 #include "AccountBuffer.h"
 #include "lib/common/Crypto.h"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "../ledger/Ledger.h"
 
 #include <string>
