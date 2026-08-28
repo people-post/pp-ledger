@@ -13,12 +13,13 @@ This directory contains automated workflows for building, testing, and releasing
   - `ubuntu-24.04` — full build + test (required)
   - `macos-14` — full build + test (required)
   - `windows-2022` — full build + test (required; MSVC + Ninja + Winsock)
-- **Purpose:** Build and test pp-ledger via `scripts/ci-build.sh --test`
+- **Purpose:** Build and test pp-ledger via `scripts/ci-build.sh`
 
 **Steps (per matrix leg):**
 1. Checkout code
 2. OS-specific deps (apt / Homebrew cmake if missing / Ninja on Windows + MSVC dev cmd)
-3. `./scripts/ci-build.sh --test` (bash on all runners)
+3. `./scripts/ci-build.sh --build --with-tests`
+4. `./scripts/ci-build.sh --run-tests`
 
 ### release-docker.yml
 
@@ -33,7 +34,13 @@ See **[deploy/README.md](../../deploy/README.md)** for running the published ima
 
 ## Scripts (repo root)
 
-- **`scripts/ci-build.sh`** — Configures CMake (`build/`), builds, optional `--test` (ctest). Honors `RUNNER_OS` (set in CI) for Windows Ninja + `--config Release`. Accepts `-DBUILD_TESTING=ON` at the root CMake level as an alias for `PP_LEDGER_BUILD_TESTS`.
+- **`scripts/ci-build.sh`** — Configures CMake (`build/`), builds, and/or runs ctest.
+  Honors `RUNNER_OS` (set in CI) for Windows Ninja + `cmake --build --config Release`
+  and `ctest -C Release`. Flags:
+  - `--build` — configure + build
+  - `--with-tests` — enable `PP_LEDGER_BUILD_TESTS=ON`
+  - `--run-tests` — ctest only
+  - `--test` — shorthand for build + with-tests + run-tests (local convenience)
 
 ## Usage
 
@@ -41,6 +48,9 @@ See **[deploy/README.md](../../deploy/README.md)** for running the published ima
 
 ```bash
 ./scripts/ci-build.sh --test
+# or separately:
+./scripts/ci-build.sh --build --with-tests
+./scripts/ci-build.sh --run-tests
 ```
 
 ### Manual workflow dispatch
@@ -69,4 +79,4 @@ Fetched at configure time via CMake FetchContent (pp-cpp-common, pp-cpp-crypto).
 
 - **FetchContent failures:** Check tag pins in `cmake/PpCppCommon.cmake` / `cmake/PpCppCrypto.cmake`.
 - **Windows socket errors:** Ensure `networkPlatformInit()` runs before socket use (tests call this via `SocketTestUtils.h`).
-- **Local repro:** `./scripts/ci-build.sh [--test]`
+- **Local repro:** `./scripts/ci-build.sh --test`
