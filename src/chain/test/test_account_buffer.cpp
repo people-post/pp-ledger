@@ -245,14 +245,14 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeAmount_ReturnsFalse) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, -100, 10).isOk());
+    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, static_cast<uint64_t>(-100), 10).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_NegativeFee_ReturnsFalse) {
     auto a = makeAccount(1, 1000);
     ASSERT_TRUE(buf.add(a).isOk());
 
-    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, -10).isOk());
+    EXPECT_FALSE(buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10)).isOk());
 }
 
 TEST_F(AccountBufferTest, HasEnoughSpendingPower_ZeroAmount_ReturnsTrue) {
@@ -393,7 +393,7 @@ TEST_F(AccountBufferTest, TransferBalance_WithOutOfRangeFee_Error) {
     ASSERT_TRUE(buf.add(b).isOk());
 
     // Negative literal wraps to a large uint64_t fee and should fail range checks
-    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, -10);
+    auto r = buf.transferBalance(1, 2, AccountBuffer::ID_GENESIS, 100, static_cast<uint64_t>(-10));
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
@@ -800,7 +800,7 @@ TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeAmount_Error) {
     std::map<uint64_t, int64_t> expectedBalances;
     expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    auto r = buf.verifyBalance(1, -50, 50, expectedBalances);
+    auto r = buf.verifyBalance(1, static_cast<uint64_t>(-50), 50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Amount exceeds int64_t range");
@@ -813,7 +813,7 @@ TEST_F(AccountBufferTest, VerifyBalance_OutOfRangeFee_Error) {
     std::map<uint64_t, int64_t> expectedBalances;
     expectedBalances[AccountBuffer::ID_GENESIS] = 900;
 
-    auto r = buf.verifyBalance(1, 50, -50, expectedBalances);
+    auto r = buf.verifyBalance(1, 50, static_cast<uint64_t>(-50), expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_INPUT);
     EXPECT_EQ(r.error().message, "Fee exceeds int64_t range");
