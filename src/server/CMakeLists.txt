@@ -23,7 +23,7 @@ target_include_directories(pp_server PUBLIC
 
 target_link_libraries(pp_server PUBLIC
     pp_chain
-    pp_lib
+    pp_ledger_common
     pp_ledger
     pp_client
     pp_consensus

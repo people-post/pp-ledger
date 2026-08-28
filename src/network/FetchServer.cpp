@@ -1,9 +1,11 @@
 #include "FetchServer.h"
+#include "LedgerFrameCodec.h"
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -51,19 +53,12 @@ FetchServer::~FetchServer() {
 }
 
 FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string &response) {
-  if (response.size() > TcpConnection::MAX_FRAME_SIZE) {
-    return Error(-3, "Response frame too large: " + std::to_string(response.size()));
+  auto framed = LedgerFrameCodec::encode(response);
+  if (!framed) {
+    return Error(-3, framed.error().message);
   }
 
-  std::string framed;
-  framed.resize(sizeof(uint32_t) + response.size());
-  uint32_t netLen = htonl(static_cast<uint32_t>(response.size()));
-  std::memcpy(framed.data(), &netLen, sizeof(netLen));
-  if (!response.empty()) {
-    std::memcpy(framed.data() + sizeof(uint32_t), response.data(), response.size());
-  }
-
-  auto result = writer_.add(fd, framed);
+  auto result = writer_.add(fd, framed.value());
   if (!result) {
     return Error(-3, "Failed to add response to bulk writer: " + result.error().message);
   }
@@ -271,14 +266,14 @@ bool FetchServer::tryParseSingleFrame(ActiveConnection& conn) {
 
       uint32_t netLen = 0;
       std::memcpy(&netLen, conn.buffer.data(), sizeof(netLen));
-      uint32_t len = ntohl(netLen);
-      if (len > TcpConnection::MAX_FRAME_SIZE) {
-        log().error << "Frame too large from " << conn.endpoint.address
-                    << ":" << conn.endpoint.port << " (" << len
-                    << " bytes, fd=" << conn.fd << ")";
+      auto lenResult = LedgerFrameCodec::decodeLengthPrefix(&netLen, sizeof(netLen));
+      if (!lenResult) {
+        log().error << lenResult.error().message << " from " << conn.endpoint.address
+                    << ":" << conn.endpoint.port << " (fd=" << conn.fd << ")";
         closeAndRemoveConnection(conn, "");
         return true;
       }
+      const uint32_t len = lenResult.value();
       conn.expectedLen = len;
       conn.stage = ActiveConnection::Stage::ReadBody;
       conn.buffer.erase(0, sizeof(uint32_t));

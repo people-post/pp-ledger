@@ -13,7 +13,7 @@ target_include_directories(test_fetch PRIVATE
 )
 
 target_link_libraries(test_fetch PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_network
     GTest::gtest_main
     GTest::gmock
@@ -31,7 +31,7 @@ target_include_directories(test_tcp PRIVATE
 )
 
 target_link_libraries(test_tcp PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_network
     GTest::gtest_main
     GTest::gmock
@@ -49,10 +49,26 @@ target_include_directories(test_bulkwriter PRIVATE
 )
 
 target_link_libraries(test_bulkwriter PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_network
     GTest::gtest_main
     GTest::gmock
 )
 
 gtest_discover_tests(test_bulkwriter)
+
+add_executable(test_ledger_frame_codec
+    test_ledger_frame_codec.cpp
+)
+
+target_include_directories(test_ledger_frame_codec PRIVATE
+    ${PP_SRC_DIR}/network
+)
+
+target_link_libraries(test_ledger_frame_codec PRIVATE
+    pp_ledger_common
+    pp_network
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_ledger_frame_codec)

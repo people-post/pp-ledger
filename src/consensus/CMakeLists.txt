@@ -36,7 +36,7 @@ target_include_directories(pp_consensus
 # Link with lib (for Module, Logger, ResultOrError)
 target_link_libraries(pp_consensus
     PUBLIC
-        pp_lib
+        pp_ledger_common
 )
 
 # Set properties
@@ -54,7 +54,7 @@ install(TARGETS pp_consensus
 )
 
 # Add tests subdirectory if testing is enabled
-if(BUILD_TESTING)
+if(PP_LEDGER_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 

@@ -154,6 +154,10 @@ void Server::sendResponse(int fd, const std::string &response) {
   }
 }
 
+std::string Server::dispatchUnframedRequest(const std::string &requestBody) {
+  return handleRequest(requestBody);
+}
+
 std::string Server::handleRequest(const std::string &request) {
   log().debug << "Received request (" << request.size() << " bytes)";
   auto reqResult = utl::binaryUnpack<Client::Request>(request);

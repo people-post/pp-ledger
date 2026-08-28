@@ -1,8 +1,9 @@
-# Fetch / add people-post/pp-cpp-crypto (sodium + ML-KEM/ML-DSA + pp_crypto).
+# Fetch people-post/pp-cpp-crypto (sodium + ML-KEM/ML-DSA + pp_crypto).
 #
-# Prefer a local sibling checkout when present (ppweb3 workspace layout).
-# Otherwise pin a release tag from that repo's main line (PP_CPP_CRYPTO_GIT_TAG).
-# When embedded (e.g. pp-browser already defined pp_crypto), this is a no-op.
+# Pin a release tag (PP_CPP_CRYPTO_GIT_TAG). When embedded (e.g. pp-browser
+# already defined pp_crypto), this is a no-op.
+#
+# Optional override: PP_CPP_CRYPTO_SOURCE_DIR (local checkout path).
 
 if(TARGET pp_crypto AND TARGET sodium)
   return()
@@ -19,23 +20,13 @@ set(PP_CPP_CRYPTO_GIT_TAG "v0.1.0"
 
 set(PP_CRYPTO_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-crypto tests" FORCE)
 
-set(_pp_crypto_sibling "${CMAKE_SOURCE_DIR}/../pp-cpp-crypto")
 if(PP_CPP_CRYPTO_SOURCE_DIR AND EXISTS "${PP_CPP_CRYPTO_SOURCE_DIR}/CMakeLists.txt")
-  set(_pp_crypto_src "${PP_CPP_CRYPTO_SOURCE_DIR}")
-elseif(EXISTS "${_pp_crypto_sibling}/CMakeLists.txt")
-  set(_pp_crypto_src "${_pp_crypto_sibling}")
-  message(STATUS "pp-ledger: using sibling pp-cpp-crypto at ${_pp_crypto_src}")
+  add_subdirectory("${PP_CPP_CRYPTO_SOURCE_DIR}"
+                   "${CMAKE_BINARY_DIR}/_deps/pp_cpp_crypto-build" EXCLUDE_FROM_ALL)
 else()
   if(PP_CPP_CRYPTO_SOURCE_DIR)
     message(WARNING "PP_CPP_CRYPTO_SOURCE_DIR=${PP_CPP_CRYPTO_SOURCE_DIR} is missing; falling back to FetchContent")
   endif()
-  set(_pp_crypto_src "")
-endif()
-
-if(_pp_crypto_src)
-  add_subdirectory("${_pp_crypto_src}"
-                   "${CMAKE_BINARY_DIR}/_deps/pp_cpp_crypto-build" EXCLUDE_FROM_ALL)
-else()
   FetchContent_Declare(
     pp_cpp_crypto
     GIT_REPOSITORY ${PP_CPP_CRYPTO_GIT_REPOSITORY}
@@ -53,6 +44,3 @@ endif()
 if(NOT TARGET mldsa_native OR NOT TARGET mlkem_native)
   message(FATAL_ERROR "pp-cpp-crypto did not define mldsa_native / mlkem_native")
 endif()
-
-unset(_pp_crypto_sibling)
-unset(_pp_crypto_src)

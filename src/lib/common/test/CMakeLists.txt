@@ -9,7 +9,7 @@ add_executable(test_logger
 )
 
 target_link_libraries(test_logger PRIVATE
-    pp_lib
+    pp_ledger_common
     GTest::gtest_main
 )
 
@@ -21,7 +21,7 @@ add_executable(test_result
 )
 
 target_link_libraries(test_result PRIVATE
-    pp_lib
+    pp_ledger_common
     GTest::gtest_main
 )
 
@@ -33,7 +33,7 @@ add_executable(test_archive
 )
 
 target_link_libraries(test_archive PRIVATE
-    pp_lib
+    pp_ledger_common
     GTest::gtest_main
 )
 
@@ -45,7 +45,7 @@ add_executable(test_utilities
 )
 
 target_link_libraries(test_utilities PRIVATE
-    pp_lib
+    pp_ledger_common
     GTest::gtest_main
 )
 

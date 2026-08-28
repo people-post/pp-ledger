@@ -33,16 +33,16 @@ from sibling repos when convenient.
 
 - **pp-cpp-common** is fetched once at the **top-level consumer** (pp-browser root
   `cmake/PpCppCommon.cmake`, pin release tag e.g. `v0.2.0`).
-- **pp-ledger** is fetched by pp-browser after sodium/crypto deps exist
-  (`cmake/PpLedger.cmake`, planned).
+- **pp-ledger** is fetched by pp-browser via FetchContent only (`cmake/PpLedger.cmake`,
+  planned — git tag pin, no sibling checkout shortcut).
 - When pp-ledger is embedded, it must **not** re-fetch crypto if the parent already
   provides `pp_crypto` / `sodium`. Value/Meta/JSON live in **pp-cpp-common**
   (`common/Value.h`, `common/io/Json.h`); nlohmann is not used.
 - When pp-ledger is embedded, skip FetchContent for pp-cpp-common if `pp_common`
   already exists (`if(NOT TARGET pp_common)`).
 
-Standalone pp-ledger (Docker, CI, ops) fetches pp-cpp-crypto
-(and may FetchContent pp-cpp-common on its own).
+Standalone pp-ledger (Docker, CI, ops) fetches pp-cpp-crypto and pp-cpp-common
+via FetchContent (optional `-DPP_CPP_*_SOURCE_DIR=` override only).
 
 ---
 
@@ -97,19 +97,20 @@ TCP connect → u32 BE length + Client::Request → u32 BE length + response →
 
 `Client::Request` = `{ version, type, payload }` (`src/client/Client.h`). Beacon,
 miner, and relay servers implement the same handler surface via
-`Server::handleParsedRequest`.
+`Server::handleParsedRequest`. **`LedgerFrameCodec`** (`src/network/LedgerFrameCodec.h`)
+is the canonical u32 BE length-prefix implementation (max payload 16 MiB).
 
-### Transport layers
+### Transport layers (landed in pp-ledger)
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
 │  Application (pp-ledger): Client::Request / chain / consensus │
 └───────────────────────────┬─────────────────────────────┘
-                            │  ILedgerTransport (planned)
+                            │  ILedgerTransport (unframed RPC envelope bytes)
          ┌──────────────────┼──────────────────┐
          │                  │                  │
-   TcpTransport      InProcessTransport    Libp2pTransport
-   (pp-ledger)       (same process)        (pp-browser only)
+ TcpLedgerTransport   InProcessLedgerTransport   Libp2pLedgerTransport
+ (u32 LedgerFrameCodec)  (no framing)           (pp-browser only; u32)
 ```
 
 | Path | Transport |
@@ -137,8 +138,8 @@ different sockets:
 ### Libp2p protocol (planned spec)
 
 - **Protocol ID:** `/pp-ledger/rpc/1.0.0`
-- **Framing:** match fetch protocol (`u32 BE` length + payload) or align with
-  pp-browser stream conventions (`u64 BE` + payload) — **pick one before v1.0 tag**.
+- **Framing:** **u32 BE** via `LedgerFrameCodec` (same as TCP). Do not reuse pp-browser
+  general `StreamFrameIo` u64 framing for ledger RPC.
 - **Handler rule:** hop off libp2p IO thread before blocking work (same as
   `DialBackService` in pp-browser).
 - **Discovery:** libp2p on PP nodes; deprecate BitTorrent `DhtRunner` on PP fleet over
@@ -151,7 +152,7 @@ uses libp2p**, not TCP. Local UI/client ↔ miner stays in-process.
 
 ---
 
-## pp-ledger library shape (planned)
+## pp-ledger library shape
 
 ### Trim local `src/lib/common`
 
@@ -166,12 +167,10 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 | io/Json | Value/Object ↔ UTF-8 JSON (i64+double numbers; structured errors) |
 | Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
-**Status (2026-08-27):** `cmake/PpCppCommon.cmake` lands; local Logger / Module /
-ResultOrError / Serialize / Error are shims or deleted in favor of `pp_common`.
-`BinaryPack.hpp` keeps `pp::utl::binaryPack/Unpack` as thin wrappers over `pp::`.
-Rename `pp_lib` → `pp_ledger_common` still planned.
+**Status (2026-08-27):** `pp_ledger_common` target (renamed from `pp_lib`); shims for
+Logger / Module / ResultOrError / Serialize / BinaryPack.
 
-### Exported CMake targets (namespaced `pp::`)
+### Exported CMake targets (namespaced `pp::`) — landed
 
 ```text
 pp::ledger_common
@@ -181,35 +180,26 @@ pp::ledger
 pp::client
 pp::chain
 pp::server          # BeaconServer, MinerServer, RelayServer, Server base
-pp::ledger_runtime  # planned: role-based start/stop for embedders
+pp::ledger_runtime  # deferred: role-based start/stop for embedders
 ```
 
-Convenience interface (optional):
-
-```cmake
-# pp_ledger_node — chain + server stack without apps
-```
-
-### Build options (planned)
+### Build options — landed
 
 ```cmake
 option(PP_LEDGER_BUILD_APPS "pp-beacon, pp-miner, …" ON)
-option(PP_LEDGER_BUILD_SERVER "pp_server" ON)
 option(PP_LEDGER_BUILD_TESTS "ctest" OFF)
-option(PP_LEDGER_USE_VENDORED_DEPS "vendor json; crypto via pp-cpp-crypto" ON)
 option(PP_LEDGER_BUILD_HTTP "pp-http" OFF)
 ```
+
+`-DBUILD_TESTING=ON` / `-DBUILD_HTTP=ON` remain accepted aliases.
 
 **pp-browser embed profile:**
 
 ```cmake
 PP_LEDGER_BUILD_APPS=OFF
 PP_LEDGER_BUILD_TESTS=OFF
-PP_LEDGER_USE_VENDORED_DEPS=OFF
 PP_LEDGER_BUILD_HTTP=OFF   # integrate routes into StatusHttpServer instead
 ```
-
-Standalone ops/Docker keeps apps ON and vendored deps ON.
 
 ---
 
@@ -315,9 +305,9 @@ binaries serve migration and ops.
 
 | Phase | Scope |
 |-------|--------|
-| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common — **landed** (shims + keep Meta/Crypto/Service/…); rename `pp_lib` → `pp_ledger_common` still open |
-| **2** | pp-ledger: CMake export (`pp::` targets), options, tag `v1.0.0` library release |
-| **3** | Extract `ILedgerTransport`; in-process + TCP implementations; standalone green |
+| **1** | pp-ledger: FetchContent pp-cpp-common; trim local common — **landed** |
+| **2** | pp-ledger: CMake export (`pp::` targets), options — **landed**; tag `v1.0.0` open |
+| **3** | `ILedgerTransport`; TCP + in-process — **landed**; libp2p in pp-browser open |
 | **4** | PQ crypto (ML-DSA-65 signing via pp-cpp-crypto) — **landed** PQ-only; then stabilize wire |
 | **5** | pp-browser: `PpLedger.cmake`, `src/base/ledger/`, embed miner/relay roles |
 | **6** | Libp2p `/pp-ledger/rpc/1.0.0` on pp-node + pp-browser; miner → pp-node over libp2p |
@@ -358,3 +348,7 @@ Suggested locations:
 | 2026-08-27 | Consume pp-cpp-crypto; account/tx signing is ML-DSA-65 only (drop Ed25519; no version bump pre-release) |
 | 2026-08-27 | Consume pp-cpp-common; replace duplicated Logger/Module/Roe/Serialize; keep ledger Meta/Crypto/Service/Utilities |
 | 2026-08-27 | Meta → Value/Object backbone with FiFoMap insertion order (memory=JSON=binary); explicit Null; JSON i64+double only; human intermediate tree, not canonical identity |
+| 2026-08-27 | `ILedgerTransport` + `TcpLedgerTransport` + `InProcessLedgerTransport`; `LedgerFrameCodec` u32 BE on wire only |
+| 2026-08-27 | `pp_lib` → `pp_ledger_common`; `pp::` ALIAS targets; `PP_LEDGER_BUILD_*` options |
+| 2026-08-27 | FetchContent-only deps (no sibling shortcut); optional `PP_CPP_*_SOURCE_DIR` override |
+| 2026-08-27 | In-process transport: no length prefix; libp2p ledger RPC uses u32 BE (not StreamFrameIo u64) |

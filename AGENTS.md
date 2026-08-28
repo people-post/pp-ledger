@@ -17,7 +17,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation comes from **pp-cpp-common** and crypto from **pp-cpp-crypto** (sibling checkouts or FetchContent tags). Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest` (no FetchContent / network fetch at configure time for gtest).
+Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.2.0` / `v0.1.0`). Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
 
 ### Build
 
@@ -30,7 +30,9 @@ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
 make -j$(nproc)
 ```
 
-- `BUILD_HTTP` (default OFF): Build the HTTP API server (pp-http). Use `-DBUILD_HTTP=ON` to enable it.
+- `PP_LEDGER_BUILD_HTTP` (default OFF): Build the HTTP API server (pp-http). `-DBUILD_HTTP=ON` is an alias.
+- `PP_LEDGER_BUILD_APPS` (default ON): Build `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`.
+- `PP_LEDGER_BUILD_TESTS` (default OFF): Build and enable ctest. `-DBUILD_TESTING=ON` is an alias.
 
 ### Lint
 

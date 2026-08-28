@@ -1,4 +1,5 @@
 #include "TcpConnection.h"
+#include "LedgerFrameCodec.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -200,10 +201,11 @@ TcpConnection::Roe<std::string> TcpConnection::readFrame(std::chrono::millisecon
     return Error(hdr.error().message);
   }
 
-  uint32_t len = ntohl(netLen);
-  if (len > MAX_FRAME_SIZE) {
-    return Error("Frame too large: " + std::to_string(len));
+  auto lenResult = LedgerFrameCodec::decodeLengthPrefix(&netLen, sizeof(netLen));
+  if (!lenResult) {
+    return Error(lenResult.error().message);
   }
+  const uint32_t len = lenResult.value();
 
   std::string body;
   body.resize(len);
@@ -221,20 +223,15 @@ TcpConnection::Roe<void> TcpConnection::writeFrame(std::string_view body) {
   if (socketFd_ < 0) {
     return Error("Connection closed");
   }
-  if (body.size() > MAX_FRAME_SIZE) {
-    return Error("Frame too large: " + std::to_string(body.size()));
+
+  auto framed = LedgerFrameCodec::encode(body);
+  if (!framed) {
+    return Error(framed.error().message);
   }
 
-  uint32_t netLen = htonl(static_cast<uint32_t>(body.size()));
-  auto h = sendAll(socketFd_, &netLen, sizeof(netLen));
+  auto h = sendAll(socketFd_, framed.value().data(), framed.value().size());
   if (!h) {
     return Error(h.error().message);
-  }
-  if (!body.empty()) {
-    auto b = sendAll(socketFd_, body.data(), body.size());
-    if (!b) {
-      return Error(b.error().message);
-    }
   }
   return {};
 }

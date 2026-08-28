@@ -74,7 +74,7 @@ sudo apt-get install -y \
   cmake
 ```
 
-Shared C++ foundation comes from **pp-cpp-common** (`pp_common`: Logger, Module, Roe, Serialize, Value/Meta/JSON, …). Crypto comes from **pp-cpp-crypto** (`pp_crypto`: libsodium + ML-DSA-65 / ML-KEM-768). Both prefer sibling `../pp-cpp-*` checkouts, else FetchContent tags (`pp-cpp-common` `v0.2.0`, `pp-cpp-crypto` `v0.1.0`). No system `libsodium-dev` or `nlohmann-json3-dev` required.
+Shared C++ foundation comes from **pp-cpp-common** (`pp_common`: Logger, Module, Roe, Serialize, Value/Meta/JSON, …). Crypto comes from **pp-cpp-crypto** (`pp_crypto`: libsodium + ML-DSA-65 / ML-KEM-768). Both are fetched via CMake FetchContent (tags `pp-cpp-common` `v0.2.0`, `pp-cpp-crypto` `v0.1.0`). Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=…` / `-DPP_CPP_CRYPTO_SOURCE_DIR=…`. No system `libsodium-dev` or `nlohmann-json3-dev` required.
 
 ### Build
 
