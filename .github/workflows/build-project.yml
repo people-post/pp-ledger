@@ -42,9 +42,15 @@ jobs:
         run: |
           choco install ninja --no-progress -y
 
-      - name: Build and test
+      - name: Configure and build
         shell: bash
         env:
           RUNNER_OS: ${{ runner.os }}
           CMAKE_BUILD_PARALLEL_LEVEL: 2
-        run: ./scripts/ci-build.sh --test
+        run: ./scripts/ci-build.sh --build --with-tests
+
+      - name: Test
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: ./scripts/ci-build.sh --run-tests
