@@ -75,7 +75,7 @@ THE SOFTWARE.
 #if !defined(_WIN32) || defined(__MINGW32__)
 #define dht_gettimeofday(_ts, _tz) gettimeofday((_ts), (_tz))
 #else
-extern int dht_gettimeofday(struct timeval *tv, struct timezone *tz);
+extern int dht_gettimeofday(struct timeval *tv, void *tz);
 #endif
 
 #ifdef _WIN32

@@ -27,6 +27,10 @@ target_link_libraries(pp_dht
 if(WIN32)
   target_link_libraries(pp_dht PUBLIC ws2_32)
   target_compile_definitions(pp_dht PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  # Upstream jech/dht warnings must not fail our /WX builds.
+  target_compile_options(pp_dht PRIVATE /W0 /WX-)
+else()
+  target_compile_options(pp_dht PRIVATE -Wno-error -w)
 endif()
 
 set_target_properties(pp_dht PROPERTIES

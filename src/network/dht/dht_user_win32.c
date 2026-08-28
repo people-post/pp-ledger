@@ -13,7 +13,7 @@ int dht_sendto(int sockfd, const void *buf, int len, int flags,
     return (int)sendto((SOCKET)sockfd, (const char *)buf, len, flags, to, tolen);
 }
 
-int dht_gettimeofday(struct timeval *tv, struct timezone *tz)
+int dht_gettimeofday(struct timeval *tv, void *tz)
 {
     (void)tz;
     if (!tv) {
