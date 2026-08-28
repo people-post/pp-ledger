@@ -195,7 +195,7 @@ TEST_F(TcpConnectionTest, SendAndShutdown) {
     // Verify data was sent
     char buffer[256] = {0};
     int received = recvSomeBytes(clientSocket_, buffer, sizeof(buffer));
-    EXPECT_EQ(received, static_cast<ssize_t>(testMessage.length()));
+    EXPECT_EQ(received, static_cast<int>(testMessage.length()));
     EXPECT_STREQ(buffer, testMessage.c_str());
     
     // Verify shutdown signal
