@@ -1,15 +1,18 @@
 #ifndef PP_LEDGER_CLIENT_H
 #define PP_LEDGER_CLIENT_H
 
+#include "ILedgerTransport.h"
+#include "InProcessLedgerTransport.h"
+#include "TcpLedgerTransport.h"
 #include "lib/common/Meta.h"
 #include "lib/common/Module.h"
 #include "lib/common/ResultOrError.hpp"
 #include "../ledger/Ledger.h"
-#include "../network/FetchClient.h"
 #include "../network/Types.hpp"
 #include "../consensus/Types.hpp"
 
 #include <chrono>
+#include <memory>
 
 #include <cstdint>
 #include <string>
@@ -215,6 +218,12 @@ public:
   Roe<void> setEndpoint(const std::string& endpoint);
   void setEndpoint(const network::IpEndpoint &endpoint);
 
+  /** Replace default TCP transport (e.g. in-process for embedded UI). */
+  void setTransport(std::unique_ptr<ILedgerTransport> transport);
+
+  ILedgerTransport *transport() { return transport_.get(); }
+  const ILedgerTransport *transport() const { return transport_.get(); }
+
   Roe<BeaconState> fetchBeaconState();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */
   Roe<CalibrationResponse> fetchCalibration();
@@ -233,8 +242,10 @@ private:
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
                                std::chrono::milliseconds timeout = TIMEOUT_FAST);
 
+  void syncTcpTransportEndpoint();
+
   network::IpEndpoint endpoint_;
-  network::FetchClient fetchClient_;
+  std::unique_ptr<ILedgerTransport> transport_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Client::Request& req);

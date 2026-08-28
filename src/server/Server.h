@@ -58,6 +58,12 @@ protected:
   /** Process all pending requests in the queue (up to a cap). Returns number processed. */
   size_t pollAndProcessAllRequests(size_t maxCount = 100);
 
+  /**
+   * Process unframed binaryPack(Client::Request) bytes; returns
+   * binaryPack(Client::Response). Used by in-process transport and tests.
+   */
+  std::string dispatchUnframedRequest(const std::string &requestBody);
+
   virtual std::string handleParsedRequest(const Client::Request &request) = 0;
 
   Service::Roe<void> startFetchServer(const network::IpEndpoint &endpoint);

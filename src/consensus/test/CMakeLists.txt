@@ -9,7 +9,7 @@ add_executable(test_ouroboros_consensus
 )
 
 target_link_libraries(test_ouroboros_consensus PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_consensus
     GTest::gtest_main
     GTest::gmock
@@ -23,7 +23,7 @@ add_executable(test_ouroboros_epoch
 )
 
 target_link_libraries(test_ouroboros_epoch PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_consensus
     GTest::gtest_main
     GTest::gmock
@@ -37,7 +37,7 @@ add_executable(test_ouroboros_vrf
 )
 
 target_link_libraries(test_ouroboros_vrf PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_consensus
     GTest::gtest_main
     GTest::gmock

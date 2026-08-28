@@ -1,5 +1,6 @@
 #pragma once
 
+#include "LedgerFrameCodec.h"
 #include "lib/common/ResultOrError.hpp"
 #include "Types.hpp"
 
@@ -46,9 +47,8 @@ public:
   Roe<size_t> receive(void *buffer, size_t maxLength);
   Roe<std::string> receiveLine();
 
-  // Framed I/O (length-prefixed messages)
-  // Frame format: 4-byte uint32 length (network byte order) + body bytes.
-  static constexpr uint32_t MAX_FRAME_SIZE = 16 * 1024 * 1024; // 16 MiB
+  // Framed I/O — see LedgerFrameCodec (u32 BE length + body).
+  static constexpr uint32_t MAX_FRAME_SIZE = LedgerFrameCodec::MAX_PAYLOAD_SIZE;
   Roe<std::string> readFrame(std::chrono::milliseconds timeout);
   Roe<void> writeFrame(std::string_view body);
 

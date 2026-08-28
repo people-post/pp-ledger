@@ -46,7 +46,7 @@ target_include_directories(pp_chain PUBLIC
 )
 
 target_link_libraries(pp_chain PUBLIC
-    pp_lib
+    pp_ledger_common
     pp_ledger
     pp_client
     pp_consensus
@@ -55,6 +55,6 @@ target_link_libraries(pp_chain PUBLIC
 
 message(STATUS "Chain library configured")
 
-if(BUILD_TESTING)
+if(PP_LEDGER_BUILD_TESTS)
   add_subdirectory(test)
 endif()

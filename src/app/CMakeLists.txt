@@ -7,7 +7,7 @@ add_executable(pp-client
 )
 
 target_link_libraries(pp-client PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_client
     pp_ledger
     CLI11::CLI11
@@ -20,7 +20,7 @@ add_executable(pp-beacon
 )
 
 target_link_libraries(pp-beacon PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_server
     CLI11::CLI11
 )
@@ -32,7 +32,7 @@ add_executable(pp-relay
 )
 
 target_link_libraries(pp-relay PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_server
     CLI11::CLI11
 )
@@ -44,7 +44,7 @@ add_executable(pp-miner
 )
 
 target_link_libraries(pp-miner PRIVATE
-    pp_lib
+    pp_ledger_common
     pp_server
     CLI11::CLI11
 )
@@ -58,7 +58,7 @@ if(BUILD_HTTP)
 
   target_include_directories(pp-http PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_link_libraries(pp-http PRIVATE
-      pp_lib
+      pp_ledger_common
       pp_client
       pp_ledger
       pp_http

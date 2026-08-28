@@ -16,15 +16,15 @@ target_include_directories(pp_ledger PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Link to pp_lib - automatically gets all pp_lib dependencies:
-# - pp_lib headers and libraries
+# Link to pp_ledger_common - automatically gets all pp_ledger_common dependencies:
+# - pp_ledger_common headers and libraries
 # - pp-cpp-common (Value/Meta/JSON, Serialize, …)
 # - pp-cpp-crypto / sodium
 target_link_libraries(pp_ledger PUBLIC
-    pp_lib
+    pp_ledger_common
 )
 
 # Add tests subdirectory if testing is enabled
-if(BUILD_TESTING)
+if(PP_LEDGER_BUILD_TESTS)
     add_subdirectory(test)
 endif()

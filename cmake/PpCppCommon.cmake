@@ -1,8 +1,9 @@
-# Fetch / add people-post/pp-cpp-common (target pp_common).
+# Fetch people-post/pp-cpp-common (target pp_common).
 #
-# Prefer a local sibling checkout when present (ppweb3 workspace layout).
-# Otherwise pin a release tag from that repo's main line (PP_CPP_COMMON_GIT_TAG).
-# When embedded (e.g. pp-browser already defined pp_common), this is a no-op.
+# Pin a release tag (PP_CPP_COMMON_GIT_TAG). When embedded (e.g. pp-browser
+# already defined pp_common), this is a no-op.
+#
+# Optional override: PP_CPP_COMMON_SOURCE_DIR (local checkout path).
 
 if(TARGET pp_common)
   return()
@@ -19,23 +20,13 @@ set(PP_CPP_COMMON_GIT_TAG "v0.2.0"
 
 set(PP_COMMON_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-common tests" FORCE)
 
-set(_pp_common_sibling "${CMAKE_SOURCE_DIR}/../pp-cpp-common")
 if(PP_CPP_COMMON_SOURCE_DIR AND EXISTS "${PP_CPP_COMMON_SOURCE_DIR}/CMakeLists.txt")
-  set(_pp_common_src "${PP_CPP_COMMON_SOURCE_DIR}")
-elseif(EXISTS "${_pp_common_sibling}/CMakeLists.txt")
-  set(_pp_common_src "${_pp_common_sibling}")
-  message(STATUS "pp-ledger: using sibling pp-cpp-common at ${_pp_common_src}")
+  add_subdirectory("${PP_CPP_COMMON_SOURCE_DIR}"
+                   "${CMAKE_BINARY_DIR}/_deps/pp_cpp_common-build" EXCLUDE_FROM_ALL)
 else()
   if(PP_CPP_COMMON_SOURCE_DIR)
     message(WARNING "PP_CPP_COMMON_SOURCE_DIR=${PP_CPP_COMMON_SOURCE_DIR} is missing; falling back to FetchContent")
   endif()
-  set(_pp_common_src "")
-endif()
-
-if(_pp_common_src)
-  add_subdirectory("${_pp_common_src}"
-                   "${CMAKE_BINARY_DIR}/_deps/pp_cpp_common-build" EXCLUDE_FROM_ALL)
-else()
   FetchContent_Declare(
     pp_cpp_common
     GIT_REPOSITORY ${PP_CPP_COMMON_GIT_REPOSITORY}
@@ -47,6 +38,3 @@ endif()
 if(NOT TARGET pp_common)
   message(FATAL_ERROR "pp-cpp-common did not define target pp_common")
 endif()
-
-unset(_pp_common_sibling)
-unset(_pp_common_src)

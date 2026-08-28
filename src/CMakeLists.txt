@@ -1,7 +1,5 @@
 # Source tree: libraries, servers, and apps.
 
-# Enable common warnings and treat them as errors for project code.
-# Vendored targets (libsodium, CLI11, httplib) opt out via -Wno-error.
 if(MSVC)
   add_compile_options(/W4 /WX)
 else()
@@ -15,7 +13,11 @@ add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(chain)
 add_subdirectory(server)
-if(BUILD_HTTP)
+
+if(PP_LEDGER_BUILD_HTTP)
   add_subdirectory(lib/http)
 endif()
-add_subdirectory(app)
+
+if(PP_LEDGER_BUILD_APPS)
+  add_subdirectory(app)
+endif()

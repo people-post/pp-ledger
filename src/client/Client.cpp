@@ -167,10 +167,24 @@ pp::common::Meta Client::CalibrationResponse::ltsToMeta() const {
 }
 
 Client::Client() {
-  fetchClient_.redirectLogger(log().getFullName() + ".FetchClient");
+  transport_ = std::make_unique<TcpLedgerTransport>();
+  if (auto *tcp = dynamic_cast<TcpLedgerTransport *>(transport_.get())) {
+    tcp->redirectLogger(log().getFullName() + ".TcpLedgerTransport");
+  }
 }
 
-Client::~Client() {}
+Client::~Client() = default;
+
+void Client::syncTcpTransportEndpoint() {
+  if (auto *tcp = dynamic_cast<TcpLedgerTransport *>(transport_.get())) {
+    tcp->setEndpoint(endpoint_);
+  }
+}
+
+void Client::setTransport(std::unique_ptr<ILedgerTransport> transport) {
+  transport_ = std::move(transport);
+  syncTcpTransportEndpoint();
+}
 
 std::string Client::getErrorMessage(uint16_t errorCode) {
   switch (errorCode) {
@@ -195,16 +209,21 @@ Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
     return Error(E_NOT_CONNECTED, "Invalid endpoint: " + endpoint);
   }
   endpoint_ = ep;
+  syncTcpTransportEndpoint();
   return {};
 }
 
 void Client::setEndpoint(const network::IpEndpoint &endpoint) {
   endpoint_ = endpoint;
+  syncTcpTransportEndpoint();
 }
 
 Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload,
                                              std::chrono::milliseconds timeout) {
-  if (endpoint_.port == 0) {
+  if (!transport_) {
+    return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
+  }
+  if (transport_->requiresRemoteEndpoint() && endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
 
@@ -216,7 +235,7 @@ Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &p
   std::string requestData = utl::binaryPack(req);
   log().debug << "Sending binary request: " << req;
 
-  auto result = fetchClient_.fetchSync(endpoint_, requestData, timeout);
+  auto result = transport_->roundTrip(requestData, timeout);
 
   if (!result.isOk()) {
     return Error(E_REQUEST_FAILED,
