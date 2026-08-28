@@ -15,6 +15,13 @@ static bool makeSocketPair(int &writer, int &reader) {
     return makeConnectedSocketPair(writer, reader);
 }
 
+// On TCP, a tiny write after peer-close often succeeds into the local send
+// buffer (Complete path). Use a large payload so the kernel surfaces EPIPE /
+// ECONNRESET (or we hit the job timeout) and exercise the error path.
+static std::string largePayload() {
+    return std::string(256 * 1024, 'x');
+}
+
 // ============================================================================
 // BulkWriter: fd closed on write error (no callback)
 // ============================================================================
@@ -29,19 +36,19 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
 
     BulkWriter bw;
     BulkWriter::Config cfg;
+    cfg.timeout.msBase = 200;
+    cfg.timeout.msPerMb = 0;
     cfg.errorCallback = nullptr;
     bw.setConfig(cfg);
     bw.start();
 
-    auto result = bw.add(writer, "hello");
+    auto result = bw.add(writer, largePayload());
     ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
-    // Give the write loop time to detect the broken pipe and close the fd
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     bw.stop();
 
-    // After BulkWriter processes the error it must have closed writer
     EXPECT_FALSE(fdIsOpen(writer)) << "fd should have been closed after write error";
 }
 
@@ -61,20 +68,22 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
 
     BulkWriter bw;
     BulkWriter::Config cfg;
+    cfg.timeout.msBase = 200;
+    cfg.timeout.msPerMb = 0;
     cfg.errorCallback = [&](int /*fd*/, const BulkWriter::Error & /*e*/) {
         callbackCalled = true;
     };
     bw.setConfig(cfg);
     bw.start();
 
-    auto result = bw.add(writer, "hello");
+    auto result = bw.add(writer, largePayload());
     ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     bw.stop();
 
-    EXPECT_TRUE(callbackCalled) << "error callback should have been called";
+    EXPECT_TRUE(callbackCalled) << "error/timeout callback should have been called";
     EXPECT_FALSE(fdIsOpen(writer)) << "fd should have been closed after write error";
 }
 
@@ -90,7 +99,8 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
     // Fill the send buffer so that writes block but don't error.
     // We use a very small timeout so it expires quickly.
     int sndbuf = 1;
-    ASSERT_EQ(setsockopt(writer, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
+    ASSERT_EQ(setsockopt(writer, SOL_SOCKET, SO_SNDBUF,
+                         reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf)), 0);
 
     BulkWriter bw;
     BulkWriter::Config cfg;
@@ -127,7 +137,8 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
     ASSERT_TRUE(makeSocketPair(writer, reader));
 
     int sndbuf = 1;
-    ASSERT_EQ(setsockopt(writer, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
+    ASSERT_EQ(setsockopt(writer, SOL_SOCKET, SO_SNDBUF,
+                         reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf)), 0);
 
     std::atomic<bool> callbackCalled{false};
 

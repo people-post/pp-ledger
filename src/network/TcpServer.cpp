@@ -42,7 +42,11 @@ TcpServer::Roe<void> TcpServer::listen(const IpEndpoint& endpoint, int backlog) 
   if (endpoint.address == "0.0.0.0" || endpoint.address.empty()) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
   } else if (endpoint.address == "localhost" || endpoint.address == "127.0.0.1") {
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    if (inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) != 1) {
+      socketClose(socketFd_);
+      socketFd_ = kInvalidSocket;
+      return Error("Failed to resolve localhost address");
+    }
   } else {
     if (inet_pton(AF_INET, endpoint.address.c_str(), &server_addr.sin_addr) != 1) {
       socketClose(socketFd_);
