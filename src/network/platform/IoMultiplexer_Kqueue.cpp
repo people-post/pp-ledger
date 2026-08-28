@@ -58,7 +58,9 @@ public:
     if (kqueueFd_ < 0) {
       return -1;
     }
-    kevent events[32];
+
+    ready.clear();
+    int total = 0;
     timespec timeout {};
     timespec* timeoutPtr = nullptr;
     if (timeoutMs >= 0) {
@@ -66,24 +68,30 @@ public:
       timeout.tv_nsec = static_cast<long>((timeoutMs % 1000) * 1000000L);
       timeoutPtr = &timeout;
     }
-    const int n = kevent(kqueueFd_, nullptr, 0, events, 32, timeoutPtr);
-    if (n <= 0) {
-      return n;
-    }
-    ready.clear();
-    ready.reserve(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) {
-      ReadyEvent ev {};
-      ev.fd = static_cast<SocketHandle>(events[i].ident);
-      if (events[i].filter == EVFILT_READ) {
-        ev.events |= Readable;
+
+    while (true) {
+      kevent events[64];
+      const int n = kevent(kqueueFd_, nullptr, 0, events, 64, total == 0 ? timeoutPtr : nullptr);
+      if (n <= 0) {
+        return total == 0 ? n : total;
       }
-      if (events[i].filter == EVFILT_WRITE) {
-        ev.events |= Writable;
+      total += n;
+      for (int i = 0; i < n; ++i) {
+        ReadyEvent ev {};
+        ev.fd = static_cast<SocketHandle>(events[i].ident);
+        if (events[i].filter == EVFILT_READ) {
+          ev.events |= Readable;
+        }
+        if (events[i].filter == EVFILT_WRITE) {
+          ev.events |= Writable;
+        }
+        ready.push_back(ev);
       }
-      ready.push_back(ev);
+      if (n < 64) {
+        break;
+      }
     }
-    return n;
+    return total;
   }
 
 private:
