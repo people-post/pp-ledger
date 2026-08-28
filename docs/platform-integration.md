@@ -95,6 +95,13 @@ Today’s wire contract (standalone):
 TCP connect → u32 BE length + Client::Request → u32 BE length + response → close
 ```
 
+Each connection carries **one** request/response pair (short-lived TCP). Public-facing
+relay/miner servers enforce per-IP caps, connection/RPC rate limits, read timeouts, and
+a 512 KiB default payload cap via `SecurityConfig::publicDefaults()` and
+`ConnectionGuard`. Trusted beacon servers use higher limits (`trustedDefaults()`).
+Handler work runs on a bounded queue + worker pool in `Server`; I/O stays on
+`FetchServer`.
+
 `Client::Request` = `{ version, type, payload }` (`src/client/Client.h`). Beacon,
 miner, and relay servers implement the same handler surface via
 `Server::handleParsedRequest`. **`LedgerFrameCodec`** (`src/network/LedgerFrameCodec.h`)
@@ -167,8 +174,9 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 | io/Json | Value/Object ↔ UTF-8 JSON (i64+double numbers; structured errors) |
 | Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
-**Status (2026-08-27):** `pp_ledger_common` target (renamed from `pp_lib`); shims for
-Logger / Module / ResultOrError / Serialize / BinaryPack.
+**Status (2026-08-27):** `pp_ledger_common` target (renamed from `pp_lib`); include
+pp-cpp-common headers as `common/…` directly. Ledger-only: `Meta.h`, `BinaryPack.hpp`
+(`pp::utl` wrappers), Crypto, Service, Utilities.
 
 ### Exported CMake targets (namespaced `pp::`) — landed
 
@@ -293,8 +301,8 @@ As of **pp-browser `develop`** (FetchContent migration merged):
 Continue to ship and support:
 
 - `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`, `pp-http`
-- Docker image / CI (`scripts/ci-build.sh`)
-- TCP fetch + optional DHT for public internet deployment
+- Docker image / CI (`scripts/ci-build.sh`) on **Linux, macOS, and Windows** (`ubuntu-24.04`, `macos-14`, `windows-2022`)
+- TCP fetch + DHT for public internet deployment (Winsock on Windows via `src/network/platform/`)
 
 Embedded PP fleet (pp-node / pp-browser) uses libp2p among themselves; standalone
 binaries serve migration and ops.
@@ -352,3 +360,4 @@ Suggested locations:
 | 2026-08-27 | `pp_lib` → `pp_ledger_common`; `pp::` ALIAS targets; `PP_LEDGER_BUILD_*` options |
 | 2026-08-27 | FetchContent-only deps (no sibling shortcut); optional `PP_CPP_*_SOURCE_DIR` override |
 | 2026-08-27 | In-process transport: no length prefix; libp2p ledger RPC uses u32 BE (not StreamFrameIo u64) |
+| 2026-08-28 | Public TCP abuse controls: tiered `SecurityConfig`, `ConnectionGuard`, bounded handler queue + worker pool on standalone servers |

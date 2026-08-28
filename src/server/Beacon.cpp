@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <limits>
 
 namespace pp {
 
@@ -21,7 +22,9 @@ makeUserAccountFromKeys(const std::vector<utl::MlDsaKeyPair> &keys,
   for (const auto &kp : keys) {
     account.wallet.publicKeys.push_back(kp.publicKey);
   }
-  account.wallet.minSignatures = keys.size();
+  account.wallet.minSignatures =
+      static_cast<uint8_t>(std::min<size_t>(
+          keys.size(), std::numeric_limits<uint8_t>::max()));
   account.wallet.keyType = Crypto::TK_ML_DSA_65;
   account.meta = meta;
   return account;

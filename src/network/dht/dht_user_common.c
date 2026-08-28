@@ -1,43 +1,24 @@
 /*
- * User-provided implementations for jech/dht.
- * - dht_sendto: wrap sendto()
- * - dht_blacklisted: no blacklist (return 0)
- * - dht_hash: SHA-1 of concatenated inputs (v1||v2||v3)
- * - dht_random_bytes: libsodium randombytes_buf
- *
- * SHA-1 is a minimal C implementation (FIPS 180-1), used only for
- * DHT token generation as required by the BitTorrent DHT protocol.
+ * Shared user-provided hooks for jech/dht (platform-independent).
  */
 
-#define _GNU_SOURCE
-
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
+#endif
 #include <sodium.h>
 
 #include "dht.h"
 
-/* ========== dht_sendto ========== */
-int dht_sendto(int sockfd, const void *buf, int len, int flags,
-               const struct sockaddr *to, int tolen)
-{
-    return (int)sendto(sockfd, buf, (size_t)len, flags, to, (socklen_t)tolen);
-}
-
-/* ========== dht_blacklisted ========== */
-int dht_blacklisted(const struct sockaddr *sa, int salen)
-{
-    (void)sa;
-    (void)salen;
-    return 0;
-}
-
-/* ========== Minimal SHA-1 for dht_hash ========== */
 #define SHA1_DIGEST_SIZE 20
 
 static const unsigned int sha1_k[] = {
@@ -82,7 +63,6 @@ static void sha1_process_block(unsigned int state[5], const unsigned char block[
     state[0] += a; state[1] += b; state[2] += c; state[3] += d; state[4] += e;
 }
 
-/* Hash one contiguous buffer of length total_len. */
 static void sha1_buffer(unsigned char *out, const unsigned char *data, size_t total_len)
 {
     unsigned int state[5] = { 0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u };
@@ -103,7 +83,6 @@ static void sha1_buffer(unsigned char *out, const unsigned char *data, size_t to
     } else {
         memset(block + n, 0, 56 - n);
     }
-    /* Append length in bits (big-endian) in last 8 bytes. */
     {
         unsigned long long bits = total_len * 8ULL;
         block[56] = (unsigned char)(bits >> 56);
@@ -125,7 +104,13 @@ static void sha1_buffer(unsigned char *out, const unsigned char *data, size_t to
     }
 }
 
-/* ========== dht_hash ========== */
+int dht_blacklisted(const struct sockaddr *sa, int salen)
+{
+    (void)sa;
+    (void)salen;
+    return 0;
+}
+
 void dht_hash(void *hash_return, int hash_size,
               const void *v1, int len1,
               const void *v2, int len2,
@@ -156,7 +141,6 @@ void dht_hash(void *hash_return, int hash_size,
     memcpy(hash_return, digest, (size_t)(hash_size < SHA1_DIGEST_SIZE ? hash_size : SHA1_DIGEST_SIZE));
 }
 
-/* ========== dht_random_bytes ========== */
 int dht_random_bytes(void *buf, size_t size)
 {
     randombytes_buf(buf, size);

@@ -47,10 +47,18 @@ int64_t getCurrentTime() {
 
 std::string formatTimestampLocal(int64_t unixSeconds) {
   time_t t = static_cast<time_t>(unixSeconds);
-  std::tm* local = std::localtime(&t);
-  if (!local) return std::to_string(unixSeconds);
+  std::tm local {};
+#if defined(_WIN32)
+  if (localtime_s(&local, &t) != 0) {
+    return std::to_string(unixSeconds);
+  }
+#else
+  if (localtime_r(&t, &local) == nullptr) {
+    return std::to_string(unixSeconds);
+  }
+#endif
   char buf[64];
-  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", local) == 0)
+  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", &local) == 0)
     return std::to_string(unixSeconds);
   return std::string(buf);
 }

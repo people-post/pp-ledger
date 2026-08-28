@@ -125,6 +125,9 @@ public:
     Roe<std::string> relocateToSubdir(const std::string &subdirName,
                                        const std::vector<std::string> &excludeFiles = {}) override;
 
+    /** Flush index and close all nested stores. Safe to call multiple times. */
+    void close();
+
 private:
     static constexpr const char* DIRDIR_INDEX_FILENAME = "dirdir_idx.dat";
 

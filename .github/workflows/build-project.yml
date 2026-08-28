@@ -2,26 +2,55 @@ name: Build pp-ledger
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
   workflow_dispatch:
 
 jobs:
   build:
-    # Pin to Ubuntu 24.04 so CI matches the Docker runtime base (ubuntu:24.04).
-    runs-on: ubuntu-24.04
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Install system dependencies
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake
-      
-      - name: Build and test
-        run: ./scripts/ci-build.sh --test
+          sudo apt-get install -y build-essential cmake ninja-build
+
+      - name: Install macOS deps
+        if: runner.os == 'macOS'
+        run: |
+          if ! command -v cmake >/dev/null 2>&1; then
+            brew install cmake
+          fi
+
+      - name: Install Windows deps
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ninja --no-progress -y
+
+      - name: Configure and build
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          CMAKE_BUILD_PARALLEL_LEVEL: 2
+        run: ./scripts/ci-build.sh --build --with-tests
+
+      - name: Test
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+        run: ./scripts/ci-build.sh --run-tests

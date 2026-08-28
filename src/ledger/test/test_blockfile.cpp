@@ -13,14 +13,15 @@ protected:
   pp::FileStore::InitConfig config;
 
   void SetUp() override {
-    testDir = "/tmp/pp-ledger-test";
+    testDir = (std::filesystem::temp_directory_path() / "pp-ledger-test").string();
     testFile = testDir + "/test_block.dat";
 
-    if (std::filesystem::exists(testFile)) {
-      std::filesystem::remove(testFile);
+    std::error_code ec;
+    if (std::filesystem::exists(testFile, ec)) {
+      std::filesystem::remove(testFile, ec);
     }
-    if (!std::filesystem::exists(testDir)) {
-      std::filesystem::create_directories(testDir);
+    if (!std::filesystem::exists(testDir, ec)) {
+      std::filesystem::create_directories(testDir, ec);
     }
 
     // FileStore requires at least 1MB max size
@@ -29,9 +30,10 @@ protected:
   }
 
   void TearDown() override {
-    if (std::filesystem::exists(testFile)) {
-      std::filesystem::remove(testFile);
-    }
+    // Close before delete — Windows cannot remove an open file handle.
+    fileStore.close();
+    std::error_code ec;
+    std::filesystem::remove(testFile, ec);
   }
 };
 
@@ -258,10 +260,10 @@ TEST_F(FileStoreTest, MultipleFilesAreIndependent) {
   EXPECT_STREQ(buffer1, data1);
   EXPECT_STREQ(buffer2, data2);
 
-  // Cleanup
-  if (std::filesystem::exists(testFile2)) {
-    std::filesystem::remove(testFile2);
-  }
+  // Cleanup (close before remove — required on Windows)
+  fileStore2.close();
+  std::error_code ec;
+  std::filesystem::remove(testFile2, ec);
 }
 
 TEST_F(FileStoreTest, CannotWriteBeyondMaxSize) {

@@ -1,0 +1,110 @@
+#include "IoMultiplexer.h"
+
+#include <sys/event.h>
+#include <sys/time.h>
+
+namespace pp {
+namespace network {
+
+namespace {
+
+class KqueueMultiplexer final : public IoMultiplexer {
+public:
+  KqueueMultiplexer() {
+    kqueueFd_ = kqueue();
+  }
+
+  ~KqueueMultiplexer() override {
+    if (kqueueFd_ >= 0) {
+      ::close(kqueueFd_);
+      kqueueFd_ = kInvalidSocket;
+    }
+  }
+
+  bool add(SocketHandle fd, unsigned events, bool /*edgeTriggered*/) override {
+    if (kqueueFd_ < 0) {
+      return false;
+    }
+    if (events & Readable) {
+      struct kevent ev {};
+      EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, nullptr);
+      if (::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
+        return false;
+      }
+    }
+    if (events & Writable) {
+      struct kevent ev {};
+      EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD, 0, 0, nullptr);
+      if (::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool remove(SocketHandle fd) override {
+    if (kqueueFd_ < 0) {
+      return false;
+    }
+    struct kevent ev {};
+    EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
+    ::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
+    EV_SET(&ev, fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+    ::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
+    return true;
+  }
+
+  int wait(int timeoutMs, std::vector<ReadyEvent>& ready) override {
+    if (kqueueFd_ < 0) {
+      return -1;
+    }
+
+    ready.clear();
+    int total = 0;
+    struct timespec timeout {};
+    struct timespec* timeoutPtr = nullptr;
+    if (timeoutMs >= 0) {
+      timeout.tv_sec = timeoutMs / 1000;
+      timeout.tv_nsec = static_cast<long>((timeoutMs % 1000) * 1000000L);
+      timeoutPtr = &timeout;
+    }
+
+    while (true) {
+      struct kevent events[64];
+      struct timespec zeroTimeout {};
+      const int n = ::kevent(kqueueFd_, nullptr, 0, events, 64,
+                             total == 0 ? timeoutPtr : &zeroTimeout);
+      if (n <= 0) {
+        return total == 0 ? n : total;
+      }
+      total += n;
+      for (int i = 0; i < n; ++i) {
+        ReadyEvent ev {};
+        ev.fd = static_cast<SocketHandle>(events[i].ident);
+        if (events[i].filter == EVFILT_READ) {
+          ev.events |= Readable;
+        }
+        if (events[i].filter == EVFILT_WRITE) {
+          ev.events |= Writable;
+        }
+        ready.push_back(ev);
+      }
+      if (n < 64) {
+        break;
+      }
+    }
+    return total;
+  }
+
+private:
+  SocketHandle kqueueFd_{kInvalidSocket};
+};
+
+} // namespace
+
+std::unique_ptr<IoMultiplexer> IoMultiplexer::create() {
+  return std::make_unique<KqueueMultiplexer>();
+}
+
+} // namespace network
+} // namespace pp

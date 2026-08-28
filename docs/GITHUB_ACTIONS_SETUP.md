@@ -4,17 +4,28 @@ This document describes how to set up and use GitHub Actions for the pp-ledger p
 
 ## Overview
 
-The project uses GitHub Actions for continuous integration and Docker image releases. CI runners and the container image both use **Ubuntu 24.04**.
+The project uses GitHub Actions for continuous integration and Docker image releases.
+
+**Build matrix** (same runner images as pp-browser `build.yml`):
+
+| Runner | Status |
+|--------|--------|
+| `ubuntu-24.04` | Required — full build + test |
+| `macos-14` | Required — full build + test |
+| `windows-2022` | Required — full build + test (MSVC + Winsock network stack) |
+
+Release Docker builds remain **Ubuntu 24.04** only.
 
 ## Workflow Configuration
 
 ### Build Workflow (`build-project.yml`)
 
-The main workflow handles:
-1. Installing system dependencies
-2. Configuring CMake
+The main workflow handles, on each matrix runner:
+
+1. Installing OS-specific build tools
+2. Configuring CMake (FetchContent for pp-cpp-common / pp-cpp-crypto)
 3. Building the project
-4. Running tests
+4. Running tests (`ctest`) when invoked with `--test`
 
 ### Release Workflow (`release-docker.yml`)
 

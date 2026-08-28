@@ -79,6 +79,9 @@ public:
     Roe<std::string> relocateToSubdir(const std::string &subdirName,
                                        const std::vector<std::string> &excludeFiles = {}) override;
 
+    /** Flush index and close all open block files. Safe to call multiple times. */
+    void close();
+
 private:
     struct Config {
         std::string dirPath;

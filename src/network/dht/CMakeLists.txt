@@ -1,23 +1,38 @@
 # jech/dht (BitTorrent DHT) - C library with user-provided hooks
 enable_language(C)
 
-add_library(pp_dht STATIC
+set(DHT_SOURCES
     dht.c
-    dht_user.c
+    dht_user_common.c
 )
+
+if(WIN32)
+  list(APPEND DHT_SOURCES dht_user_win32.c)
+else()
+  list(APPEND DHT_SOURCES dht_user_posix.c)
+endif()
+
+add_library(pp_dht STATIC ${DHT_SOURCES})
 
 target_include_directories(pp_dht
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# User implementations use libsodium (dht_random_bytes) and need socket headers
 target_link_libraries(pp_dht
     PUBLIC
         sodium::sodium
 )
 
-# C only: no C++ standard
+if(WIN32)
+  target_link_libraries(pp_dht PUBLIC ws2_32)
+  target_compile_definitions(pp_dht PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  # Upstream jech/dht warnings must not fail our /WX builds.
+  target_compile_options(pp_dht PRIVATE /W0 /WX-)
+else()
+  target_compile_options(pp_dht PRIVATE -Wno-error -w)
+endif()
+
 set_target_properties(pp_dht PROPERTIES
     C_STANDARD 99
 )

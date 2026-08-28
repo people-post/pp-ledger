@@ -1,61 +1,58 @@
 #include "FetchServer.h"
 #include "LedgerFrameCodec.h"
-#include <algorithm>
-#include <arpa/inet.h>
-#include <cerrno>
-#include <cstring>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <string>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <vector>
+#include "platform/ConnectionGuard.h"
+#include "platform/IoMultiplexer.h"
+#include "platform/NetworkPlatform.h"
 
-#ifdef __APPLE__
-#include <sys/event.h>
-#else
-#include <sys/epoll.h>
-#endif
+#include <algorithm>
+#include <cstring>
+#include <string>
+#include <vector>
 
 namespace pp {
 namespace network {
 
 namespace {
 
-void unregisterRead(int queueFd, int fd) {
-#ifdef __APPLE__
-  struct kevent ev;
-  EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-  kevent(queueFd, &ev, 1, nullptr, 0, nullptr);
-#else
-  epoll_ctl(queueFd, EPOLL_CTL_DEL, fd, nullptr);
-#endif
+std::chrono::steady_clock::time_point nowSteady() {
+  return std::chrono::steady_clock::now();
 }
 
 } // namespace
 
-FetchServer::FetchServer() {}
+FetchServer::FetchServer() = default;
 
 FetchServer::~FetchServer() {
-#ifdef __APPLE__
-  if (kqueueFd_ >= 0) {
-    ::close(kqueueFd_);
-  }
-#else
-  if (epollFd_ >= 0) {
-    ::close(epollFd_);
-  }
-#endif
-  // Close any remaining connections
   for (auto& pair : activeConnections_) {
-    ::close(pair.first);
+    if (connectionGuard_) {
+      connectionGuard_->releaseConnection(pair.second.endpoint.address);
+    }
+    socketClose(pair.first);
   }
 }
 
-FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string &response) {
+FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string& response) {
+  return tryWriteResponse(fd, response);
+}
+
+FetchServer::Roe<void> FetchServer::tryWriteResponse(int fd, const std::string& response) {
   auto framed = LedgerFrameCodec::encode(response);
   if (!framed) {
     return Error(-3, framed.error().message);
+  }
+
+  if (framed.value().size() <= config_.performance.writeFastPathMaxBytes) {
+#if defined(_WIN32)
+    const int sent = ::send(static_cast<SOCKET>(fd), framed.value().data(),
+                            static_cast<int>(framed.value().size()), 0);
+#else
+    const ssize_t sent =
+        ::send(fd, framed.value().data(), framed.value().size(), MSG_NOSIGNAL);
+#endif
+    if (sent >= 0 && static_cast<size_t>(sent) == framed.value().size()) {
+      socketClose(fd);
+      return {};
+    }
   }
 
   auto result = writer_.add(fd, framed.value());
@@ -65,32 +62,30 @@ FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string &respo
   return {};
 }
 
-Service::Roe<void> FetchServer::start(const Config &config) {
+Service::Roe<void> FetchServer::start(const Config& config) {
   config_ = config;
+  connectionGuard_ = std::make_unique<ConnectionGuard>(config_.security);
 
   log().info << "Starting server on " << config_.endpoint.address << ":"
              << config_.endpoint.port;
 
-  // Call base class start() which will call onStart() then spawn thread
   return Service::start();
 }
 
 Service::Roe<void> FetchServer::onStart() {
-  // Create epoll/kqueue instance for monitoring connections
-#ifdef __APPLE__
-  kqueueFd_ = kqueue();
-  if (kqueueFd_ < 0) {
-    return Service::Error(-1, "Failed to create kqueue: " + std::string(std::strerror(errno)));
+  ioMux_ = IoMultiplexer::create();
+  if (!ioMux_) {
+    return Service::Error(-1, "Failed to create I/O multiplexer");
   }
-#else
-  epollFd_ = epoll_create1(0);
-  if (epollFd_ < 0) {
-    return Service::Error(-1, "Failed to create epoll: " + std::string(std::strerror(errno)));
-  }
-#endif
 
-  // Start listening
-  auto listenResult = server_.listen(config_.endpoint);
+  BulkWriter::Config writerCfg;
+  writerCfg.timeout = config_.performance.bulkWriterTimeout;
+  writer_.setConfig(writerCfg);
+
+  const int backlog = config_.performance.listenBacklog > 0
+                          ? config_.performance.listenBacklog
+                          : 1024;
+  auto listenResult = server_.listen(config_.endpoint, backlog);
   if (!listenResult) {
     return Service::Error(-2, "Failed to start listening: " + listenResult.error().message);
   }
@@ -105,47 +100,24 @@ Service::Roe<void> FetchServer::onStart() {
 void FetchServer::onStop() {
   writer_.stop();
   server_.stop();
-  
-  // Clean up epoll/kqueue
-#ifdef __APPLE__
-  if (kqueueFd_ >= 0) {
-    ::close(kqueueFd_);
-    kqueueFd_ = -1;
-  }
-#else
-  if (epollFd_ >= 0) {
-    ::close(epollFd_);
-    epollFd_ = -1;
-  }
-#endif
-  
-  // Close all active connections
+  ioMux_.reset();
+  connectionGuard_.reset();
+
   for (auto& pair : activeConnections_) {
-    ::close(pair.first);
+    socketClose(pair.first);
   }
   activeConnections_.clear();
 }
 
-bool FetchServer::setNonBlocking(int fd) {
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0) {
-    return false;
-  }
-  if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-    return false;
-  }
-  return true;
-}
-
 FetchServer::Roe<IpEndpoint> FetchServer::getPeerEndpoint(int fd) {
-  struct sockaddr_in peer_addr;
+  sockaddr_in peer_addr {};
   socklen_t addr_len = sizeof(peer_addr);
-  if (getpeername(fd, (struct sockaddr *)&peer_addr, &addr_len) != 0) {
-    return Error(static_cast<int32_t>(errno),
-                 "getpeername failed: " + std::string(std::strerror(errno)));
+  if (getpeername(fd, reinterpret_cast<sockaddr*>(&peer_addr), &addr_len) != 0) {
+    return Error(static_cast<int32_t>(socketLastError()),
+                 "getpeername failed: " + socketErrorString(socketLastError()));
   }
   IpEndpoint peer;
-  char addr_str[INET_ADDRSTRLEN];
+  char addr_str[INET_ADDRSTRLEN] = {};
   inet_ntop(AF_INET, &peer_addr.sin_addr, addr_str, INET_ADDRSTRLEN);
   peer.address = addr_str;
   peer.port = ntohs(peer_addr.sin_port);
@@ -164,100 +136,99 @@ void FetchServer::processReadEvents(const std::vector<int>& readyFds) {
   for (int fd : readyFds) {
     auto it = activeConnections_.find(fd);
     if (it == activeConnections_.end()) {
-      continue; // Connection already removed
+      continue;
     }
-    
     readFromConnection(it->second);
-    
-    // Check if connection is complete (will be marked by readFromConnection)
-    // We'll detect this by checking if recv returned 0 or error
   }
 }
 
 void FetchServer::readFromConnection(ActiveConnection& conn) {
   char buffer[8192];
-  
+
   while (true) {
-    ssize_t bytesRead = ::recv(conn.fd, buffer, sizeof(buffer), 0);
-    
+#if defined(_WIN32)
+    const int bytesRead =
+        ::recv(static_cast<SOCKET>(conn.fd), buffer, static_cast<int>(sizeof(buffer)), 0);
+#else
+    const ssize_t bytesRead = ::recv(conn.fd, buffer, sizeof(buffer), 0);
+#endif
+
     if (bytesRead > 0) {
-      // Data received, append to buffer
-      conn.buffer.append(buffer, bytesRead);
-      
-      // Try to parse a single framed request (one-request-per-connection).
+      conn.lastReadAt = nowSteady();
+      conn.buffer.append(buffer, static_cast<size_t>(bytesRead));
       if (tryParseSingleFrame(conn)) {
         return;
       }
     } else if (bytesRead == 0) {
-      // Peer closed before completing a full frame (or after sending).
-      closeAndRemoveConnection(conn,
-                               "Connection closed by peer while reading request from " +
-                                   conn.endpoint.address + ":" +
-                                   std::to_string(conn.endpoint.port) + " (fd=" +
-                                   std::to_string(conn.fd) + ")");
+      closeAndRemoveConnection(
+          conn, "Connection closed by peer while reading request from " +
+                    conn.endpoint.address + ":" + std::to_string(conn.endpoint.port) +
+                    " (fd=" + std::to_string(conn.fd) + ")");
       break;
-      
     } else {
-      // Error or would block
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        // No more data available right now
-        break;
-      } else {
-        // Real error
-        log().error << "Error reading from fd " << conn.fd << ": " << std::strerror(errno);
-        closeAndRemoveConnection(conn, "");
+      const int err = socketLastError();
+      if (socketWouldBlock(err)) {
         break;
       }
+      log().error << "Error reading from fd " << conn.fd << ": "
+                  << socketErrorString(err);
+      closeAndRemoveConnection(conn, "");
+      break;
     }
   }
 }
 
-void FetchServer::closeAndRemoveConnection(ActiveConnection& conn, const std::string& reason) {
+void FetchServer::closeAndRemoveConnection(ActiveConnection& conn,
+                                           const std::string& reason) {
   if (!reason.empty()) {
     log().error << reason;
   }
-  unregisterRead(
-#ifdef __APPLE__
-      kqueueFd_,
-#else
-      epollFd_,
-#endif
-      conn.fd);
-  ::close(conn.fd);
-  int fd = conn.fd;
+  if (ioMux_) {
+    ioMux_->remove(conn.fd);
+  }
+  if (connectionGuard_) {
+    connectionGuard_->releaseConnection(conn.endpoint.address);
+  }
+  socketClose(conn.fd);
+  const int fd = conn.fd;
   activeConnections_.erase(fd);
 }
 
-void FetchServer::dispatchCompleteFrameAndRemove(ActiveConnection& conn, std::string requestBody) {
-  log().info << "Received complete request from " << conn.endpoint.address
-             << ":" << conn.endpoint.port << " (" << requestBody.size()
+void FetchServer::dispatchCompleteFrameAndRemove(ActiveConnection& conn,
+                                                 std::string requestBody) {
+  if (connectionGuard_ && !connectionGuard_->tryRecordRpc(conn.endpoint.address)) {
+    log().info << "RPC rate limited for " << conn.endpoint.address;
+    closeAndRemoveConnection(conn, "");
+    return;
+  }
+
+  log().info << "Received complete request from " << conn.endpoint.address << ":"
+             << conn.endpoint.port << " (" << requestBody.size()
              << " bytes, fd=" << conn.fd << ")";
 
-  // Stop reading; keep fd open for response (BulkWriter closes after send).
-  unregisterRead(
-#ifdef __APPLE__
-      kqueueFd_,
-#else
-      epollFd_,
-#endif
-      conn.fd);
+  if (ioMux_) {
+    ioMux_->remove(conn.fd);
+  }
+
+  if (connectionGuard_) {
+    connectionGuard_->releaseConnection(conn.endpoint.address);
+  }
 
   try {
     if (config_.handler) {
       config_.handler(conn.fd, requestBody, conn.endpoint);
     }
     log().debug << "Request processed successfully for fd " << conn.fd;
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     log().error << "Error processing request: " << e.what();
-    ::close(conn.fd);
+    socketClose(conn.fd);
   }
 
-  int fd = conn.fd;
+  const int fd = conn.fd;
   activeConnections_.erase(fd);
 }
 
 bool FetchServer::tryParseSingleFrame(ActiveConnection& conn) {
-  // Returns true if a complete frame was parsed and dispatched (and conn removed).
   while (true) {
     if (conn.stage == ActiveConnection::Stage::ReadLen) {
       if (conn.buffer.size() < sizeof(uint32_t)) {
@@ -273,14 +244,19 @@ bool FetchServer::tryParseSingleFrame(ActiveConnection& conn) {
         closeAndRemoveConnection(conn, "");
         return true;
       }
-      const uint32_t len = lenResult.value();
-      conn.expectedLen = len;
+      if (lenResult.value() > config_.security.maxPayloadBytes) {
+        log().error << "Frame too large (" << lenResult.value() << " bytes, max "
+                    << config_.security.maxPayloadBytes << ") from "
+                    << conn.endpoint.address << ":" << conn.endpoint.port;
+        closeAndRemoveConnection(conn, "");
+        return true;
+      }
+      conn.expectedLen = lenResult.value();
       conn.stage = ActiveConnection::Stage::ReadBody;
       conn.buffer.erase(0, sizeof(uint32_t));
       continue;
     }
 
-    // Stage::ReadBody
     if (conn.buffer.size() < conn.expectedLen) {
       return false;
     }
@@ -292,52 +268,74 @@ bool FetchServer::tryParseSingleFrame(ActiveConnection& conn) {
 }
 
 void FetchServer::pollActiveReads() {
+  if (activeConnections_.empty() || !ioMux_) {
+    return;
+  }
+
+  std::vector<IoMultiplexer::ReadyEvent> ready;
+  const int n = ioMux_->wait(1, ready);
+  if (n > 0) {
+    std::vector<int> readyFds;
+    readyFds.reserve(ready.size());
+    for (const auto& ev : ready) {
+      if (ev.events & IoMultiplexer::Readable) {
+        readyFds.push_back(ev.fd);
+      }
+    }
+    processReadEvents(readyFds);
+  }
+}
+
+void FetchServer::sweepTimedOutConnections() {
   if (activeConnections_.empty()) {
     return;
   }
-#ifdef __APPLE__
-  struct kevent events[32];
-  struct timespec timeout = {0, 1000000}; // 1ms
-  int n = kevent(kqueueFd_, nullptr, 0, events, 32, &timeout);
-  if (n > 0) {
-    std::vector<int> readyFds;
-    readyFds.reserve(n);
-    for (int i = 0; i < n; ++i) {
-      readyFds.push_back(static_cast<int>(events[i].ident));
-    }
-    processReadEvents(readyFds);
+
+  const auto now = nowSteady();
+  if (connectionGuard_) {
+    connectionGuard_->expireStale(now);
   }
-#else
-  struct epoll_event events[32];
-  int n = epoll_wait(epollFd_, events, 32, 1); // 1ms timeout
-  if (n > 0) {
-    std::vector<int> readyFds;
-    readyFds.reserve(n);
-    for (int i = 0; i < n; ++i) {
-      readyFds.push_back(events[i].data.fd);
+
+  std::vector<int> timedOut;
+  timedOut.reserve(activeConnections_.size());
+  for (const auto& pair : activeConnections_) {
+    const auto& conn = pair.second;
+    if (config_.security.readTotalTimeout.count() > 0 &&
+        now - conn.acceptedAt > config_.security.readTotalTimeout) {
+      timedOut.push_back(pair.first);
+      continue;
     }
-    processReadEvents(readyFds);
+    if (config_.security.readIdleTimeout.count() > 0 &&
+        now - conn.lastReadAt > config_.security.readIdleTimeout) {
+      timedOut.push_back(pair.first);
+    }
   }
-#endif
+
+  for (int fd : timedOut) {
+    auto it = activeConnections_.find(fd);
+    if (it == activeConnections_.end()) {
+      continue;
+    }
+    closeAndRemoveConnection(it->second, "Connection read timeout (fd=" + std::to_string(fd) + ")");
+  }
 }
 
 bool FetchServer::registerClientFd(int clientFd) {
-#ifdef __APPLE__
-  struct kevent ev;
-  EV_SET(&ev, clientFd, EVFILT_READ, EV_ADD, 0, 0, nullptr);
-  if (kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
-    log().error << "Failed to add fd to kqueue: " << std::strerror(errno);
+  if (!ioMux_) {
     return false;
   }
-#else
-  struct epoll_event ev = {};
-  ev.events = EPOLLIN | EPOLLET; // Edge-triggered for efficiency
-  ev.data.fd = clientFd;
-  if (epoll_ctl(epollFd_, EPOLL_CTL_ADD, clientFd, &ev) < 0) {
-    log().error << "Failed to add fd to epoll: " << std::strerror(errno);
+  if (!socketSetNonBlocking(clientFd)) {
+    log().error << "Failed to set non-blocking mode for fd " << clientFd;
     return false;
   }
-#endif
+  if (config_.security.readIdleTimeout.count() > 0) {
+    socketSetTimeout(clientFd, config_.security.readIdleTimeout);
+  }
+  if (!ioMux_->add(clientFd, IoMultiplexer::Readable, true)) {
+    log().error << "Failed to add fd to I/O multiplexer: "
+                << socketErrorString(socketLastError());
+    return false;
+  }
   return true;
 }
 
@@ -348,42 +346,51 @@ void FetchServer::acceptPendingConnections() {
       break;
     }
 
-    int clientFd = acceptResult.value();
+    const int clientFd = acceptResult.value();
 
     auto peerResult = getPeerEndpoint(clientFd);
     if (!peerResult) {
       log().error << "Failed to get peer endpoint for fd " << clientFd << ": "
                   << peerResult.error().message;
-      ::close(clientFd);
+      socketClose(clientFd);
       continue;
     }
-    IpEndpoint peerEndpoint = peerResult.value();
+    const IpEndpoint peerEndpoint = peerResult.value();
 
     if (!isAllowedByWhitelist(peerEndpoint)) {
       log().info << "Rejected connection from " << peerEndpoint.address << ":"
                  << peerEndpoint.port << " (not in whitelist)";
-      ::close(clientFd);
+      socketClose(clientFd);
       continue;
     }
 
-    if (!setNonBlocking(clientFd)) {
-      log().error << "Failed to set non-blocking mode for fd " << clientFd;
-      ::close(clientFd);
+    ConnectionRejectReason rejectReason = ConnectionRejectReason::None;
+    if (connectionGuard_ &&
+        !connectionGuard_->tryAcceptConnection(peerEndpoint.address, rejectReason)) {
+      log().info << "Rejected connection from " << peerEndpoint.address << ":"
+                 << peerEndpoint.port << " (" << toString(rejectReason) << ")";
+      socketClose(clientFd);
       continue;
     }
 
     if (!registerClientFd(clientFd)) {
-      ::close(clientFd);
+      if (connectionGuard_) {
+        connectionGuard_->releaseConnection(peerEndpoint.address);
+      }
+      socketClose(clientFd);
       continue;
     }
 
     ActiveConnection conn;
     conn.fd = clientFd;
     conn.endpoint = peerEndpoint;
+    const auto now = nowSteady();
+    conn.acceptedAt = now;
+    conn.lastReadAt = now;
     activeConnections_[clientFd] = std::move(conn);
 
-    log().debug << "Accepted new connection from " << peerEndpoint.address
-                << ":" << peerEndpoint.port << " (fd=" << clientFd << ")";
+    log().debug << "Accepted new connection from " << peerEndpoint.address << ":"
+                << peerEndpoint.port << " (fd=" << clientFd << ")";
   }
 }
 
@@ -391,18 +398,15 @@ void FetchServer::runLoop() {
   log().debug << "Server loop started";
 
   while (!isStopSet()) {
-    // Wait for events on the listening socket
-    auto waitResult = server_.waitForEvents(100); // 100ms timeout
+    sweepTimedOutConnections();
+
+    auto waitResult = server_.waitForEvents(100);
     if (!waitResult) {
-      // Timeout - check for ready connections
       pollActiveReads();
       continue;
     }
 
-    // Accept all pending connections (edge-triggered accept must be drained).
     acceptPendingConnections();
-
-    // Service any reads that became ready.
     pollActiveReads();
   }
 

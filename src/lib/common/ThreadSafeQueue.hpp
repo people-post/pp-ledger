@@ -1,67 +1,71 @@
 #pragma once
 
-#include <queue>
+#include <chrono>
+#include <condition_variable>
 #include <mutex>
+#include <optional>
+#include <queue>
 
 namespace pp {
 
 /**
  * ThreadSafeQueue - A thread-safe wrapper around std::queue
- * 
- * Provides synchronized access to queue operations for multi-threaded scenarios.
- * All public methods are thread-safe.
- * 
- * @tparam T The type of elements stored in the queue
  */
 template <typename T>
 class ThreadSafeQueue {
 public:
-  /**
-   * Constructor
-   */
-  ThreadSafeQueue() = default;
+  explicit ThreadSafeQueue(size_t maxSize = 0) : maxSize_(maxSize) {}
 
-  /**
-   * Destructor
-   */
-  ~ThreadSafeQueue() = default;
-
-  // Delete copy operations for safety
   ThreadSafeQueue(const ThreadSafeQueue&) = delete;
   ThreadSafeQueue& operator=(const ThreadSafeQueue&) = delete;
 
-  /**
-   * Get the current size of the queue
-   * @return Number of elements in the queue
-   */
+  void setMaxSize(size_t maxSize) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    maxSize_ = maxSize;
+  }
+
+  size_t maxSize() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return maxSize_;
+  }
+
   size_t size() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return queue_.size();
   }
 
-  /**
-   * Push an element to the back of the queue
-   * @param value The value to push
-   */
   void push(const T& value) {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.push(value);
+    cv_.notify_one();
   }
 
-  /**
-   * Push an element to the back of the queue (move version)
-   * @param value The value to push
-   */
   void push(T&& value) {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.push(std::move(value));
+    cv_.notify_one();
   }
 
-  /**
-   * Poll an element from the front of the queue
-   * @param t Reference to store the popped element
-   * @return true if an element was popped, false if queue was empty
-   */
+  bool tryPush(const T& value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (maxSize_ > 0 && queue_.size() >= maxSize_) {
+      return false;
+    }
+    queue_.push(value);
+    cv_.notify_one();
+    return true;
+  }
+
+  bool tryPush(T&& value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (maxSize_ > 0 && queue_.size() >= maxSize_) {
+      return false;
+    }
+    queue_.push(std::move(value));
+    cv_.notify_one();
+    return true;
+  }
+
   bool poll(T& t) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (queue_.empty()) {
@@ -72,8 +76,21 @@ public:
     return true;
   }
 
+  template <typename Rep, typename Period>
+  bool waitPop(T& t, const std::chrono::duration<Rep, Period>& timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!cv_.wait_for(lock, timeout, [this]() { return !queue_.empty(); })) {
+      return false;
+    }
+    t = std::move(queue_.front());
+    queue_.pop();
+    return true;
+  }
+
 private:
+  size_t maxSize_;
   mutable std::mutex mutex_;
+  std::condition_variable cv_;
   std::queue<T> queue_;
 };
 

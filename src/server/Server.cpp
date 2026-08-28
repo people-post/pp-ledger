@@ -3,12 +3,16 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
+#include "platform/NetworkPlatform.h"
+
+#include <algorithm>
 #include <filesystem>
+#include <thread>
 
 namespace pp {
 namespace {
 
-bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry &entry) {
+bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry& entry) {
   const std::string name = entry.path().filename().string();
   if (name == "config.json" || name == "init-config.json") {
     return entry.is_regular_file();
@@ -22,11 +26,24 @@ bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry &entry) {
   return false;
 }
 
+size_t defaultHandlerWorkers() {
+  const unsigned hw = std::thread::hardware_concurrency();
+  if (hw == 0) {
+    return WorkerPool::kDefaultThreadCount;
+  }
+  return std::clamp(static_cast<size_t>(hw / 2), WorkerPool::kMinThreadCount,
+                    WorkerPool::kMaxThreadCount);
+}
+
 } // namespace
 
-Service::Roe<void> Server::ensureWorkDirectory(
-    const std::string &workDir, const std::string &signatureFileName,
-    int32_t errorCode) {
+Server::~Server() {
+  stopRequestHandlers();
+}
+
+Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
+                                                 const std::string& signatureFileName,
+                                                 int32_t errorCode) {
   const std::filesystem::path workDirPath(workDir);
   const std::filesystem::path signaturePath = workDirPath / signatureFileName;
 
@@ -35,8 +52,7 @@ Service::Roe<void> Server::ensureWorkDirectory(
     auto result = utl::writeToNewFile(signaturePath.string(), "");
     if (!result) {
       return Error(errorCode,
-                   "Failed to create signature file: " +
-                       result.error().message);
+                   "Failed to create signature file: " + result.error().message);
     }
     return {};
   }
@@ -45,9 +61,7 @@ Service::Roe<void> Server::ensureWorkDirectory(
     return {};
   }
 
-  // Directory exists without a signature (common for empty Docker volume
-  // mounts). Allow bootstrap-only contents; reject anything else.
-  for (const auto &entry : std::filesystem::directory_iterator(workDirPath)) {
+  for (const auto& entry : std::filesystem::directory_iterator(workDirPath)) {
     if (!isBootstrapWorkDirEntry(entry)) {
       return Error(errorCode,
                    "Work directory not recognized, please remove it "
@@ -58,13 +72,12 @@ Service::Roe<void> Server::ensureWorkDirectory(
   auto result = utl::writeToNewFile(signaturePath.string(), "");
   if (!result) {
     return Error(errorCode,
-                 "Failed to create signature file: " +
-                     result.error().message);
+                 "Failed to create signature file: " + result.error().message);
   }
   return {};
 }
 
-Service::Roe<void> Server::run(const std::string &workDir) {
+Service::Roe<void> Server::run(const std::string& workDir) {
   workDir_ = workDir;
 
   if (useSignatureFile()) {
@@ -75,14 +88,13 @@ Service::Roe<void> Server::run(const std::string &workDir) {
     }
   }
 
-  log().info << "Running " << getServerName()
-             << " with work directory: " << workDir;
+  log().info << "Running " << getServerName() << " with work directory: " << workDir;
   log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
 
   return Service::run();
 }
 
-std::string Server::packResponse(const std::string &payload) {
+std::string Server::packResponse(const std::string& payload) {
   Client::Response resp;
   resp.version = Client::Response::VERSION;
   resp.errorCode = 0;
@@ -90,8 +102,7 @@ std::string Server::packResponse(const std::string &payload) {
   return utl::binaryPack(resp);
 }
 
-std::string Server::packResponse(uint16_t errorCode,
-                                 const std::string &message) {
+std::string Server::packResponse(uint16_t errorCode, const std::string& message) {
   Client::Response resp;
   resp.version = Client::Response::VERSION;
   resp.errorCode = errorCode;
@@ -120,45 +131,108 @@ size_t Server::pollAndProcessAllRequests(size_t maxCount) {
   return n;
 }
 
-void Server::processQueuedRequest(QueuedRequest &qr) {
+void Server::processQueuedRequest(QueuedRequest& qr) {
   log().debug << "Processing request from queue";
   std::string response = handleRequest(qr.request);
   sendResponse(qr.fd, response);
 }
 
-Service::Roe<void>
-Server::startFetchServer(const network::IpEndpoint &endpoint) {
-  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
-  network::FetchServer::Config config;
-  config.endpoint = endpoint;
-  config.handler = [this](int fd, const std::string &request,
-                          const network::IpEndpoint &) {
-    requestQueue_.push(QueuedRequest{fd, request});
-
-    log().debug << "Request enqueued (queue size: " << getRequestQueueSize()
-                << ")";
-  };
-  customizeFetchServerConfig(config);
-  return fetchServer_.start(config);
-}
-
-void Server::stopFetchServer() { fetchServer_.stop(); }
-
-void Server::onStop() { stopFetchServer(); }
-
-void Server::sendResponse(int fd, const std::string &response) {
-  auto addResponseResult = fetchServer_.addResponse(fd, response);
-  if (!addResponseResult) {
-    log().error << "Failed to queue response: "
-                << addResponseResult.error().message;
+void Server::handlerWorkerLoop() {
+  while (!handlerStop_.load()) {
+    QueuedRequest qr;
+    if (!requestQueue_.waitPop(qr, std::chrono::milliseconds(50))) {
+      continue;
+    }
+    processQueuedRequest(qr);
   }
 }
 
-std::string Server::dispatchUnframedRequest(const std::string &requestBody) {
+void Server::startRequestHandlers() {
+  if (handlerPool_) {
+    return;
+  }
+
+  size_t workers = performanceConfig_.handlerWorkers;
+  if (workers == 0) {
+    workers = defaultHandlerWorkers();
+  }
+  workers = std::clamp(workers, WorkerPool::kMinThreadCount, WorkerPool::kMaxThreadCount);
+  handlerWorkerCount_ = workers;
+
+  handlerPool_ = std::make_unique<WorkerPool>(workers);
+  handlerStop_.store(false);
+
+  for (size_t i = 0; i < workers; ++i) {
+    handlerPool_->Post(WorkerLane::Normal, [this]() { handlerWorkerLoop(); });
+  }
+
+  log().info << "Started " << workers << " RPC handler worker(s)";
+}
+
+void Server::stopRequestHandlers() {
+  handlerStop_.store(true);
+  if (handlerPool_) {
+    handlerPool_->Shutdown();
+    handlerPool_.reset();
+  }
+}
+
+Service::Roe<void> Server::startFetchServer(const network::IpEndpoint& endpoint) {
+  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
+
+  if (performanceConfig_.maxRequestQueueSize > 0) {
+    requestQueue_.setMaxSize(performanceConfig_.maxRequestQueueSize);
+  }
+
+  network::FetchServer::Config config;
+  config.endpoint = endpoint;
+  config.performance = performanceConfig_;
+  config.handler = [this](int fd, const std::string& request,
+                          const network::IpEndpoint& peer) {
+    QueuedRequest qr;
+    qr.fd = fd;
+    qr.request = request;
+    if (!requestQueue_.tryPush(std::move(qr))) {
+      log().warning << "Request queue full; rejecting request from " << peer.address;
+      network::socketClose(fd);
+      return;
+    }
+    log().debug << "Request enqueued (queue size: " << getRequestQueueSize() << ")";
+  };
+
+  customizeFetchServerConfig(config);
+
+  auto started = fetchServer_.start(config);
+  if (!started) {
+    return started;
+  }
+
+  startRequestHandlers();
+  return {};
+}
+
+void Server::stopFetchServer() {
+  stopRequestHandlers();
+  fetchServer_.stop();
+}
+
+void Server::onStop() {
+  stopFetchServer();
+}
+
+void Server::sendResponse(int fd, const std::string& response) {
+  auto addResponseResult = fetchServer_.tryWriteResponse(fd, response);
+  if (!addResponseResult) {
+    log().error << "Failed to queue response: " << addResponseResult.error().message;
+    network::socketClose(fd);
+  }
+}
+
+std::string Server::dispatchUnframedRequest(const std::string& requestBody) {
   return handleRequest(requestBody);
 }
 
-std::string Server::handleRequest(const std::string &request) {
+std::string Server::handleRequest(const std::string& request) {
   log().debug << "Received request (" << request.size() << " bytes)";
   auto reqResult = utl::binaryUnpack<Client::Request>(request);
   if (!reqResult) {

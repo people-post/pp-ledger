@@ -14,9 +14,35 @@ namespace pp {
 DirDirStore::DirDirStore() {}
 
 DirDirStore::~DirDirStore() { 
+  close();
+}
+
+void DirDirStore::close() {
   if (!config_.dirPath.empty()) { 
     flush(); 
   }
+  if (rootStore_) {
+    rootStore_->close();
+    rootStore_.reset();
+  }
+  for (auto &[dirId, info] : dirInfoMap_) {
+    (void)dirId;
+    if (info.fileDirStore) {
+      info.fileDirStore->close();
+      info.fileDirStore.reset();
+    }
+    if (info.dirDirStore) {
+      info.dirDirStore->close();
+      info.dirDirStore.reset();
+    }
+  }
+  dirInfoMap_.clear();
+  dirIdOrder_.clear();
+  totalBlockCount_ = 0;
+  currentDirId_ = 0;
+  currentLevel_ = 0;
+  indexFilePath_.clear();
+  config_ = {};
 }
 
 std::string DirDirStore::getDirDirIndexFilePath(const std::string &dirPath) {

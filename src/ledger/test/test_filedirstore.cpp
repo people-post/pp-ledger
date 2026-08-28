@@ -14,12 +14,11 @@ protected:
     
     void SetUp() override {
         fileDirStore.redirectLogger("filedirstore");
-        testDir = "/tmp/pp-ledger-filedirstore-test";
+        testDir = (std::filesystem::temp_directory_path() / "pp-ledger-filedirstore-test").string();
         
         // Clean up test directory
-        if (std::filesystem::exists(testDir)) {
-            std::filesystem::remove_all(testDir);
-        }
+        std::error_code ec;
+        std::filesystem::remove_all(testDir, ec);
         // Don't create the directory here - let init() do it
         
         config = pp::FileDirStore::InitConfig();
@@ -29,9 +28,10 @@ protected:
     }
     
     void TearDown() override {
-        if (std::filesystem::exists(testDir)) {
-            std::filesystem::remove_all(testDir);
-        }
+        // Close open FileStore handles before deleting the directory (Windows).
+        fileDirStore.close();
+        std::error_code ec;
+        std::filesystem::remove_all(testDir, ec);
     }
     
     // Helper to create test block data

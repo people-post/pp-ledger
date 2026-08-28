@@ -72,3 +72,19 @@ target_link_libraries(test_ledger_frame_codec PRIVATE
 )
 
 gtest_discover_tests(test_ledger_frame_codec)
+
+add_executable(test_fetch_security
+    test_fetch_security.cpp
+)
+
+target_include_directories(test_fetch_security PRIVATE
+    ${PP_SRC_DIR}/network
+)
+
+target_link_libraries(test_fetch_security PRIVATE
+    pp_ledger_common
+    pp_network
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_fetch_security)
