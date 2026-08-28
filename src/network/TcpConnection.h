@@ -1,7 +1,7 @@
 #pragma once
 
 #include "LedgerFrameCodec.h"
-#include "lib/common/ResultOrError.hpp"
+#include "common/ResultOrError.hpp"
 #include "Types.hpp"
 
 #include <chrono>

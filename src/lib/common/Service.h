@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Module.h"
+#include "common/Module.h"
 #include "Utilities.h"
 #include <atomic>
 #include <thread>

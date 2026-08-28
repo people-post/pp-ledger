@@ -1,8 +1,8 @@
 #include "../server/BeaconServer.h"
 #include "../server/Beacon.h"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
-#include "lib/common/io/Json.h"
+#include "common/io/Json.h"
 
 #include <cli11.hpp>
 

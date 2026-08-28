@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lib/common/Module.h"
-#include "lib/common/ResultOrError.hpp"
+#include "common/Module.h"
+#include "common/ResultOrError.hpp"
 #include <cstdint>
 #include <random>
 #include <string>

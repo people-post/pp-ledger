@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_TX_ERROR_H
 #define PP_LEDGER_TX_ERROR_H
 
-#include "lib/common/ResultOrError.hpp"
+#include "common/ResultOrError.hpp"
 
 namespace pp::chain_tx {
 

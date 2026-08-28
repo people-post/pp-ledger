@@ -11,8 +11,8 @@
 #include "TxError.h"
 #include "Types.h"
 #include "lib/common/Crypto.h"
-#include "lib/common/Module.h"
-#include "lib/common/ResultOrError.hpp"
+#include "common/Module.h"
+#include "common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
 
 #include <array>

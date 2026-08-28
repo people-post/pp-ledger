@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lib/common/ResultOrError.hpp"
+#include "common/ResultOrError.hpp"
 #include "lib/common/Service.h"
 
 #include <chrono>

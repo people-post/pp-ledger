@@ -7,7 +7,7 @@
 #include "TxContext.h"
 #include "TxError.h"
 #include "../ledger/Ledger.h"
-#include "lib/common/Module.h"
+#include "common/Module.h"
 
 #include <optional>
 #include <string>

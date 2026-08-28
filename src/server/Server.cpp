@@ -1,7 +1,7 @@
 #include "Server.h"
 #include "../client/Client.h"
 #include "lib/common/BinaryPack.hpp"
-#include "lib/common/Logger.h"
+#include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <filesystem>
 
