@@ -26,9 +26,17 @@ TcpServer::Roe<void> TcpServer::listen(const IpEndpoint& endpoint, int backlog) 
     return Error("Failed to create socket");
   }
 
+  // Windows SO_REUSEADDR allows multiple listeners on the same port; use
+  // SO_EXCLUSIVEADDRUSE so a second bind fails (matches POSIX SO_REUSEADDR).
+#if defined(_WIN32)
+  BOOL exclusive = TRUE;
+  if (setsockopt(socketFd_, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                 reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) < 0) {
+#else
   int opt = 1;
   if (setsockopt(socketFd_, SOL_SOCKET, SO_REUSEADDR,
                  reinterpret_cast<const char*>(&opt), sizeof(opt)) < 0) {
+#endif
     socketClose(socketFd_);
     socketFd_ = kInvalidSocket;
     return Error("Failed to set socket options");

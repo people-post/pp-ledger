@@ -6,6 +6,13 @@
 #include <chrono>
 #include <thread>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#endif
+
 using namespace pp::network;
 using pp::network::testutil::ensureNetworkPlatform;
 using pp::network::testutil::fdIsOpen;
@@ -22,6 +29,32 @@ static std::string largePayload() {
     return std::string(256 * 1024, 'x');
 }
 
+// Shrink the writer send buffer and abort the peer so send() fails (or the
+// job times out) instead of Completing into a large kernel buffer — especially
+// important on Windows where closesocket() is graceful by default.
+static void prepareWriteErrorScenario(int writer, int &reader) {
+    int sndbuf = 1024;
+    (void)setsockopt(writer, SOL_SOCKET, SO_SNDBUF,
+                     reinterpret_cast<const char *>(&sndbuf), sizeof(sndbuf));
+#if defined(_WIN32)
+    LINGER linger {};
+    linger.l_onoff = 1;
+    linger.l_linger = 0;
+    (void)setsockopt(reader, SOL_SOCKET, SO_LINGER,
+                     reinterpret_cast<const char *>(&linger), sizeof(linger));
+#endif
+    socketClose(reader);
+    reader = -1;
+
+    // Ensure subsequent sends fail even if the kernel still accepts a large
+    // buffered write after a graceful peer close (common on Windows).
+#if defined(_WIN32)
+    (void)::shutdown(static_cast<SOCKET>(writer), SD_BOTH);
+#else
+    (void)::shutdown(writer, SHUT_RDWR);
+#endif
+}
+
 // ============================================================================
 // BulkWriter: fd closed on write error (no callback)
 // ============================================================================
@@ -30,9 +63,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
     ASSERT_TRUE(makeSocketPair(writer, reader));
-
-    socketClose(reader);
-    reader = -1;
+    prepareWriteErrorScenario(writer, reader);
 
     BulkWriter bw;
     BulkWriter::Config cfg;
@@ -45,7 +76,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
     auto result = bw.add(writer, largePayload());
     ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     bw.stop();
 
@@ -60,9 +91,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
     ASSERT_TRUE(makeSocketPair(writer, reader));
-
-    socketClose(reader);
-    reader = -1;
+    prepareWriteErrorScenario(writer, reader);
 
     std::atomic<bool> callbackCalled{false};
 
@@ -79,7 +108,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
     auto result = bw.add(writer, largePayload());
     ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     bw.stop();
 

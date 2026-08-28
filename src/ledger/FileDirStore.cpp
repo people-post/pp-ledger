@@ -14,9 +14,19 @@ namespace pp {
 FileDirStore::FileDirStore() {}
 
 FileDirStore::~FileDirStore() { 
+  close();
+}
+
+void FileDirStore::close() {
   if (!config_.dirPath.empty()) { 
     flush(); 
   }
+  fileInfoMap_.clear();
+  fileIdOrder_.clear();
+  totalBlockCount_ = 0;
+  currentFileId_ = 0;
+  indexFilePath_.clear();
+  config_ = {};
 }
 
 FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {

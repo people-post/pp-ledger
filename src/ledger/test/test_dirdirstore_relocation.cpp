@@ -11,13 +11,12 @@ protected:
     
     void SetUp() override {
         dirDirStore.redirectLogger("dirdirstore");
-        testDir = "/tmp/pp-ledger-dirdirstore-relocation-test";
+        testDir = (std::filesystem::temp_directory_path() / "pp-ledger-dirdirstore-relocation-test").string();
         
         // Clean up test directory
-        if (std::filesystem::exists(testDir)) {
-            std::filesystem::remove_all(testDir);
-        }
-        std::filesystem::create_directories(testDir);
+        std::error_code ec;
+        std::filesystem::remove_all(testDir, ec);
+        std::filesystem::create_directories(testDir, ec);
         
         config = pp::DirDirStore::InitConfig();
         config.dirPath = testDir;
@@ -27,9 +26,10 @@ protected:
     }
     
     void TearDown() override {
-        if (std::filesystem::exists(testDir)) {
-            std::filesystem::remove_all(testDir);
-        }
+        // Close nested open stores before deleting the directory (Windows).
+        dirDirStore.close();
+        std::error_code ec;
+        std::filesystem::remove_all(testDir, ec);
     }
     
     std::string createTestBlock(size_t i) {
