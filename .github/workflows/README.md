@@ -2,25 +2,23 @@
 
 This directory contains automated workflows for building, testing, and releasing the pp-ledger project. Path-dependent build logic lives in the **`scripts/`** directory at the repo root so CI and local use stay in sync.
 
-CI runners and the Docker image both use **Ubuntu 24.04**.
-
 ## Workflows
 
 ### build-project.yml
 
 **Main build and test workflow**
 
-- **Triggers:** Push to main, pull requests, manual dispatch
-- **Runner:** `ubuntu-24.04`
-- **Purpose:** Build and test the pp-ledger project
-- **Features:**
-  - Installs system dependencies (build-essential, cmake)
-  - Builds via `scripts/ci-build.sh --test` (configure, build, run ctest)
+- **Triggers:** Push to `main` / `develop`, pull requests, manual dispatch
+- **Runners:** Same OS matrix as [pp-browser](https://github.com/people-post/pp-browser) `build.yml`:
+  - `ubuntu-24.04` — full build + test (required)
+  - `macos-14` — full build + test (required)
+  - `windows-2022` — configured; **continue-on-error** until the POSIX network stack is ported to Winsock/MSVC
+- **Purpose:** Build and test pp-ledger via `scripts/ci-build.sh --test`
 
-**Steps:**
+**Steps (per matrix leg):**
 1. Checkout code
-2. Install system dependencies
-3. Build and test (single step: `./scripts/ci-build.sh --test`)
+2. OS-specific deps (apt / Homebrew cmake if missing / Ninja on Windows + MSVC dev cmd)
+3. `./scripts/ci-build.sh --test` (bash on all runners)
 
 ### release-docker.yml
 
@@ -30,30 +28,25 @@ CI runners and the Docker image both use **Ubuntu 24.04**.
 - **Runner:** `ubuntu-24.04`
 - **Purpose:** Build the multi-stage `Dockerfile` (Ubuntu 24.04) and push to GHCR; on tags, also attach a linux-x64 binary tarball to a GitHub Release
 - **Image:** `ghcr.io/<owner>/pp-ledger:<version>` and `:latest` (tags only)
-- **Features:**
-  - Release build includes `pp-http` (`BUILD_HTTP=ON`)
-  - Buildx + GHA cache
-  - Binaries extracted from the published image for the release tarball
 
-**Steps:**
-1. Checkout, derive version from tag (`release/v1.0.0` → `1.0.0`)
-2. Log in to `ghcr.io`, build/push image
-3. On tags: package `pp-ledger-linux-x64-<version>.tar.gz` and create GitHub Release
+See **[deploy/README.md](../../deploy/README.md)** for running the published image with Compose.
 
 ## Scripts (repo root)
 
-- **`scripts/ci-build.sh`** — Resolves repo root, configures CMake (`build/`), builds. Options: `--test` (run ctest after build).
+- **`scripts/ci-build.sh`** — Configures CMake (`build/`), builds, optional `--test` (ctest). Honors `RUNNER_OS` (set in CI) for Windows Ninja + `--config Release`. Accepts `-DBUILD_TESTING=ON` at the root CMake level as an alias for `PP_LEDGER_BUILD_TESTS`.
 
 ## Usage
 
-### Running the main build
+### Running the main build locally
 
-The main build runs automatically on pushes and PRs. To manually trigger:
+```bash
+./scripts/ci-build.sh --test
+```
 
-1. Go to **Actions** tab
-2. Select **Build pp-ledger**
-3. Click **Run workflow**
-4. Select branch and click **Run workflow**
+### Manual workflow dispatch
+
+1. Go to **Actions** → **Build pp-ledger**
+2. **Run workflow** → pick branch
 
 ### Publishing a release image
 
@@ -62,36 +55,18 @@ git tag release/v1.0.0
 git push origin release/v1.0.0
 ```
 
-See **[deploy/README.md](../../deploy/README.md)** for running the published image with Compose.
-
 ## Dependencies
 
-Workflows install the following system packages:
-- build-essential (GCC, make, etc.)
-- cmake
+Fetched at configure time via CMake FetchContent (pp-cpp-common, pp-cpp-crypto). System packages:
 
-Value/Meta JSON IO comes from pp-cpp-common. Crypto is linked statically from pp-cpp-crypto, so Docker runtime images do not need `libsodium23` or `nlohmann-json3-dev`.
+| OS | Packages |
+|----|----------|
+| Linux | `build-essential`, `cmake`, `ninja-build` (CI) |
+| macOS | Xcode/clang; `cmake` via Homebrew if absent |
+| Windows | MSVC (dev cmd), Ninja (CI); network port pending |
 
 ## Troubleshooting
 
-### Build failures
-
-If builds fail:
-1. Check workflow logs for specific errors
-2. Ensure all dependencies are correctly specified
-3. Verify the CMakeLists.txt configuration is correct
-4. Run the same steps locally via `./scripts/ci-build.sh [--test]`
-
-### Release / image failures
-
-1. Ensure the tag matches `release/v*` (e.g. `release/v1.0.0`)
-2. Confirm `packages: write` permission is available to the workflow (default `GITHUB_TOKEN` is enough for GHCR in this repo)
-3. Build locally: `docker build -t pp-ledger:local .`
-
-## Future improvements
-
-Planned enhancements:
-- [ ] Add caching for faster builds
-- [ ] Run tests in parallel
-- [ ] Add code coverage reporting
-- [ ] Multi-arch images (e.g. arm64) via buildx matrix
+- **Windows leg orange/failing:** Expected until `src/network/` gains a Winsock/IOCP backend; Linux and macOS legs are merge gates.
+- **FetchContent failures:** Check tag pins in `cmake/PpCppCommon.cmake` / `cmake/PpCppCrypto.cmake`.
+- **Local repro:** `./scripts/ci-build.sh [--test]`

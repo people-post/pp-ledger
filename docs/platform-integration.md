@@ -167,8 +167,9 @@ Fetch **pp-cpp-common**; **remove duplicated modules** already provided there.
 | io/Json | Value/Object ↔ UTF-8 JSON (i64+double numbers; structured errors) |
 | Extended Utilities | ML-DSA-65 helpers, binaryPack wrappers (`pp::utl`), `loadJsonFile`, … |
 
-**Status (2026-08-27):** `pp_ledger_common` target (renamed from `pp_lib`); shims for
-Logger / Module / ResultOrError / Serialize / BinaryPack.
+**Status (2026-08-27):** `pp_ledger_common` target (renamed from `pp_lib`); include
+pp-cpp-common headers as `common/…` directly. Ledger-only: `Meta.h`, `BinaryPack.hpp`
+(`pp::utl` wrappers), Crypto, Service, Utilities.
 
 ### Exported CMake targets (namespaced `pp::`) — landed
 

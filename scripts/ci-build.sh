@@ -29,13 +29,21 @@ CMAKE_ARGS=(
   -S "$REPO_ROOT"
   -B "$BUILD_DIR"
 )
-if [[ -n "$RUN_TESTS" ]]; then
-  CMAKE_ARGS+=(-DBUILD_TESTING=ON)
+
+GENERATOR=()
+BUILD_CONFIG=()
+if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+  GENERATOR=(-G Ninja)
+  BUILD_CONFIG=(--config Release)
 fi
 
-cmake "${CMAKE_ARGS[@]}"
-cmake --build "$BUILD_DIR" -j"$(nproc)"
+if [[ -n "$RUN_TESTS" ]]; then
+  CMAKE_ARGS+=(-DPP_LEDGER_BUILD_TESTS=ON)
+fi
+
+cmake "${CMAKE_ARGS[@]}" "${GENERATOR[@]}"
+cmake --build "$BUILD_DIR" "${BUILD_CONFIG[@]}" -j "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 
 if [[ -n "$RUN_TESTS" ]]; then
-  ctest --test-dir "$BUILD_DIR" --output-on-failure
+  ctest --test-dir "$BUILD_DIR" "${BUILD_CONFIG[@]}" --output-on-failure
 fi
