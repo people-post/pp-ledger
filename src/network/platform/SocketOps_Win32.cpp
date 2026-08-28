@@ -57,6 +57,11 @@ bool socketSetNonBlocking(SocketHandle fd) {
   return ioctlsocket(toNativeSocket(fd), FIONBIO, &mode) == 0;
 }
 
+bool socketSetBlocking(SocketHandle fd) {
+  u_long mode = 0;
+  return ioctlsocket(toNativeSocket(fd), FIONBIO, &mode) == 0;
+}
+
 bool socketSetNoSigpipe(SocketHandle /*fd*/) {
   return true;
 }

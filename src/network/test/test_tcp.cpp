@@ -477,7 +477,7 @@ TEST_F(TcpIntegrationTest, ServerReceivesDataFromClient) {
         // Accept connection
         auto acceptResult = server->accept();
         if (acceptResult.isOk()) {
-            TcpConnection conn = std::move(acceptResult.value());
+            TcpConnection conn(acceptResult.value());
             
             // Receive data
             char buffer[256] = {0};
@@ -512,7 +512,7 @@ TEST_F(TcpIntegrationTest, FullBidirectionalCommunication) {
     auto acceptResult = server->accept();
     ASSERT_TRUE(acceptResult.isOk());
     
-    TcpConnection conn = std::move(acceptResult.value());
+    TcpConnection conn(acceptResult.value());
     
     // Client sends
     std::string clientMessage = "Hello from client";
@@ -563,7 +563,7 @@ TEST_F(TcpIntegrationTest, ReceiveLine) {
     auto acceptResult = server->accept();
     ASSERT_TRUE(acceptResult.isOk());
     
-    TcpConnection conn = std::move(acceptResult.value());
+    TcpConnection conn(acceptResult.value());
     
     // Client sends line
     std::string line = "Test Line\n";
@@ -640,7 +640,7 @@ TEST_F(TcpIntegrationTest, ClientClosesConnection) {
     auto acceptResult = server->accept();
     ASSERT_TRUE(acceptResult.isOk());
     
-    TcpConnection conn = std::move(acceptResult.value());
+    TcpConnection conn(acceptResult.value());
     
     // Client closes
     client->close();
@@ -674,7 +674,7 @@ TEST_F(TcpIntegrationTest, ClientShutdownWrite) {
     auto acceptResult = server->accept();
     ASSERT_TRUE(acceptResult.isOk());
     
-    TcpConnection serverConn = std::move(acceptResult.value());
+    TcpConnection serverConn(acceptResult.value());
     
     // Client sends data and shuts down write
     const std::string message = "Hello Server";
@@ -691,7 +691,8 @@ TEST_F(TcpIntegrationTest, ClientShutdownWrite) {
         auto recvResult = serverConn.receive(buffer, sizeof(buffer));
         if (!recvResult) {
             // Should get "closed by peer" error when client shutdown write
-            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos);
+            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos)
+                << "unexpected receive error: " << recvResult.error().message;
             break;
         }
         receivedData.append(buffer, recvResult.value());
@@ -731,7 +732,7 @@ TEST_F(TcpIntegrationTest, ClientSendAndShutdown) {
     auto acceptResult = server->accept();
     ASSERT_TRUE(acceptResult.isOk());
     
-    TcpConnection serverConn = std::move(acceptResult.value());
+    TcpConnection serverConn(acceptResult.value());
     
     // Client sends data and shuts down write in one call
     const std::string message = "Hello from client";
@@ -746,7 +747,8 @@ TEST_F(TcpIntegrationTest, ClientSendAndShutdown) {
         auto recvResult = serverConn.receive(buffer, sizeof(buffer));
         if (!recvResult) {
             // Should get "closed by peer" error when client shutdown write
-            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos);
+            EXPECT_NE(recvResult.error().message.find("closed by peer"), std::string::npos)
+                << "unexpected receive error: " << recvResult.error().message;
             break;
         }
         receivedData.append(buffer, recvResult.value());

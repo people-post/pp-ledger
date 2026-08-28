@@ -101,6 +101,14 @@ TcpServer::Roe<int> TcpServer::accept() {
     return Error("Failed to accept connection");
   }
 
+  // Listen socket is non-blocking; some platforms inherit that on accept.
+  // TcpServer callers (tests, blocking helpers) expect a blocking client fd.
+  // FetchServer re-enables non-blocking after accept.
+  if (!socketSetBlocking(client_fd)) {
+    socketClose(client_fd);
+    return Error("Failed to configure accepted socket");
+  }
+
   return client_fd;
 }
 

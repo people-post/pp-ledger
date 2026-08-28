@@ -11,8 +11,8 @@ using pp::network::testutil::ensureNetworkPlatform;
 using pp::network::testutil::fdIsOpen;
 using pp::network::testutil::makeConnectedSocketPair;
 
-static void makeSocketPair(int &writer, int &reader) {
-    ASSERT_TRUE(makeConnectedSocketPair(writer, reader));
+static bool makeSocketPair(int &writer, int &reader) {
+    return makeConnectedSocketPair(writer, reader);
 }
 
 // ============================================================================
@@ -22,7 +22,7 @@ static void makeSocketPair(int &writer, int &reader) {
 TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
-    makeSocketPair(writer, reader);
+    ASSERT_TRUE(makeSocketPair(writer, reader));
 
     socketClose(reader);
     reader = -1;
@@ -52,7 +52,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
 TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
-    makeSocketPair(writer, reader);
+    ASSERT_TRUE(makeSocketPair(writer, reader));
 
     socketClose(reader);
     reader = -1;
@@ -85,7 +85,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
 TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
-    makeSocketPair(writer, reader);
+    ASSERT_TRUE(makeSocketPair(writer, reader));
 
     // Fill the send buffer so that writes block but don't error.
     // We use a very small timeout so it expires quickly.
@@ -124,7 +124,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithoutCallback) {
 TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
-    makeSocketPair(writer, reader);
+    ASSERT_TRUE(makeSocketPair(writer, reader));
 
     int sndbuf = 1;
     ASSERT_EQ(setsockopt(writer, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
@@ -163,7 +163,7 @@ TEST(BulkWriterTest, FdClosedOnTimeoutWithCallback) {
 TEST(BulkWriterTest, FdClosedOnSuccessfulWrite) {
     ensureNetworkPlatform();
     int writer = -1, reader = -1;
-    makeSocketPair(writer, reader);
+    ASSERT_TRUE(makeSocketPair(writer, reader));
 
     BulkWriter bw;
     bw.start();

@@ -40,6 +40,7 @@ void networkPlatformShutdown();
 
 void socketClose(SocketHandle fd);
 bool socketSetNonBlocking(SocketHandle fd);
+bool socketSetBlocking(SocketHandle fd);
 bool socketSetNoSigpipe(SocketHandle fd);
 bool socketSetTimeout(SocketHandle fd, std::chrono::milliseconds timeout);
 

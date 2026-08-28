@@ -36,10 +36,12 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void* data, size_t size) {
   if (fd < 0) {
     return Error("Invalid fd");
   }
-  if (!socketSetNonBlocking(fd) || !socketSetNoSigpipe(fd)) {
+  if (!socketSetNonBlocking(fd)) {
     return Error("Set non-blocking failed: " +
                  socketErrorString(socketLastError()));
   }
+  // Best-effort: older BulkWriter ignored SO_NOSIGPIPE failures on macOS.
+  (void)socketSetNoSigpipe(fd);
 
   WriteJob job;
   job.fd = fd;

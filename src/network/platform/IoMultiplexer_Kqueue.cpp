@@ -71,8 +71,9 @@ public:
 
     while (true) {
       struct kevent events[64];
-      const int n =
-          ::kevent(kqueueFd_, nullptr, 0, events, 64, total == 0 ? timeoutPtr : nullptr);
+      struct timespec zeroTimeout {};
+      const int n = ::kevent(kqueueFd_, nullptr, 0, events, 64,
+                             total == 0 ? timeoutPtr : &zeroTimeout);
       if (n <= 0) {
         return total == 0 ? n : total;
       }

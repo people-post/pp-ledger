@@ -36,6 +36,14 @@ bool socketSetNonBlocking(SocketHandle fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0;
 }
 
+bool socketSetBlocking(SocketHandle fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) {
+    return false;
+  }
+  return fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) >= 0;
+}
+
 bool socketSetNoSigpipe(SocketHandle fd) {
 #if defined(__APPLE__)
   int val = 1;
