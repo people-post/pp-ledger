@@ -49,25 +49,32 @@ public:
     if (epollFd_ < 0) {
       return -1;
     }
-    epoll_event events[32];
-    const int n = epoll_wait(epollFd_, events, 32, timeoutMs);
-    if (n <= 0) {
-      return n;
-    }
+
     ready.clear();
-    ready.reserve(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) {
-      ReadyEvent ev {};
-      ev.fd = events[i].data.fd;
-      if (events[i].events & EPOLLIN) {
-        ev.events |= Readable;
+    int total = 0;
+    while (true) {
+      epoll_event events[64];
+      const int n = epoll_wait(epollFd_, events, 64, total == 0 ? timeoutMs : 0);
+      if (n <= 0) {
+        return total == 0 ? n : total;
       }
-      if (events[i].events & EPOLLOUT) {
-        ev.events |= Writable;
+      total += n;
+      for (int i = 0; i < n; ++i) {
+        ReadyEvent ev {};
+        ev.fd = events[i].data.fd;
+        if (events[i].events & EPOLLIN) {
+          ev.events |= Readable;
+        }
+        if (events[i].events & EPOLLOUT) {
+          ev.events |= Writable;
+        }
+        ready.push_back(ev);
       }
-      ready.push_back(ev);
+      if (n < 64) {
+        break;
+      }
     }
-    return n;
+    return total;
   }
 
 private:

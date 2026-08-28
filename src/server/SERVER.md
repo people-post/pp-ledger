@@ -545,7 +545,19 @@ Success responses include:
 
 - **BeaconServer**: Thread-safe access to active servers list
 - **MinerServer**: Thread-safe transaction pool and state management
-- **Both servers**: Handle concurrent requests via FetchServer
+- **All servers**: RPC handling runs on a dedicated `WorkerPool` (see `Server`); the
+  role `runLoop` threads no longer poll the request queue directly
+- **FetchServer**: I/O thread accepts connections and reads frames; completed requests
+  are queued for handler workers; responses are written via fast path or `BulkWriter`
+
+### Public TCP abuse controls
+
+Relay and miner servers configure `FetchServer` with `SecurityConfig::publicDefaults()`
+(per-IP caps, connection/RPC rate limits, read timeouts, 512 KiB payload cap). Beacon
+servers use `trustedDefaults()` and may restrict peers via IP whitelist.
+
+When the bounded request queue is full, new connections are rejected and the client fd
+is closed immediately.
 
 ## Usage Examples
 
@@ -809,7 +821,6 @@ workDir/
 ### Both
 - TLS/SSL encryption
 - Authentication and authorization
-- Rate limiting
 - Request logging and metrics
 - WebSocket support for real-time updates
 - Peer discovery mechanisms

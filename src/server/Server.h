@@ -5,41 +5,30 @@
 #include "lib/common/Service.h"
 #include "lib/common/ThreadSafeQueue.hpp"
 #include "../network/FetchServer.h"
+#include "common/WorkerPool.h"
+
+#include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace pp {
 
-/**
- * Server - Base class for RelayServer, MinerServer, and BeaconServer.
- *
- * Provides common run(workDir) behavior: work directory setup, optional
- * signature file for directory recognition, log file handler, then
- * Service::run() (onStart + runLoop). Also provides shared request queue,
- * processQueuedRequest, and handleRequest(string) with virtual
- * handleParsedRequest and sendResponse for derived implementations.
- */
 class Server : public Service {
 public:
   Server() = default;
-  ~Server() override = default;
+  ~Server() override;
 
-  virtual Service::Roe<void> run(const std::string &workDir);
+  virtual Service::Roe<void> run(const std::string& workDir);
 
 protected:
   virtual bool useSignatureFile() const { return true; }
 
-  /**
-   * Ensure workDir exists and has a signature file.
-   * Empty dirs and dirs that only contain bootstrap files (config.json,
-   * init-config.json, key files) are treated as new so bind-mounted Docker
-   * volumes work. Non-empty foreign directories still return an error.
-   */
-  static Roe<void> ensureWorkDirectory(const std::string &workDir,
-                                       const std::string &signatureFileName,
+  static Roe<void> ensureWorkDirectory(const std::string& workDir,
+                                       const std::string& signatureFileName,
                                        int32_t errorCode = -1);
 
-  const std::string &getWorkDir() const { return workDir_; }
+  const std::string& getWorkDir() const { return workDir_; }
   virtual std::string getSignatureFileName() const = 0;
   virtual std::string getLogFileName() const = 0;
   virtual std::string getServerName() const = 0;
@@ -50,27 +39,23 @@ protected:
 
   size_t getRequestQueueSize() const;
 
-  static std::string packResponse(const std::string &payload);
-  static std::string packResponse(uint16_t errorCode,
-                                  const std::string &message);
+  static std::string packResponse(const std::string& payload);
+  static std::string packResponse(uint16_t errorCode, const std::string& message);
 
   bool pollAndProcessOneRequest();
-  /** Process all pending requests in the queue (up to a cap). Returns number processed. */
   size_t pollAndProcessAllRequests(size_t maxCount = 100);
 
-  /**
-   * Process unframed binaryPack(Client::Request) bytes; returns
-   * binaryPack(Client::Response). Used by in-process transport and tests.
-   */
-  std::string dispatchUnframedRequest(const std::string &requestBody);
+  std::string dispatchUnframedRequest(const std::string& requestBody);
+  virtual std::string handleParsedRequest(const Client::Request& request) = 0;
 
-  virtual std::string handleParsedRequest(const Client::Request &request) = 0;
-
-  Service::Roe<void> startFetchServer(const network::IpEndpoint &endpoint);
+  Service::Roe<void> startFetchServer(const network::IpEndpoint& endpoint);
   void stopFetchServer();
 
-  /** Override to customize FetchServer config (e.g. whitelist) before start. */
-  virtual void customizeFetchServerConfig(network::FetchServer::Config & /*config*/) {}
+  virtual void customizeFetchServerConfig(network::FetchServer::Config& /*config*/) {}
+
+  void setPerformanceConfig(const network::PerformanceConfig& config) {
+    performanceConfig_ = config;
+  }
 
   void onStop() override;
 
@@ -80,14 +65,20 @@ private:
     std::string request;
   };
 
-  void processQueuedRequest(QueuedRequest &qr);
-  std::string handleRequest(const std::string &request);
-
-  void sendResponse(int fd, const std::string &response);
+  void processQueuedRequest(QueuedRequest& qr);
+  std::string handleRequest(const std::string& request);
+  void sendResponse(int fd, const std::string& response);
+  void startRequestHandlers();
+  void stopRequestHandlers();
+  void handlerWorkerLoop();
 
   std::string workDir_;
+  network::PerformanceConfig performanceConfig_{};
   ThreadSafeQueue<QueuedRequest> requestQueue_;
   network::FetchServer fetchServer_;
+  std::unique_ptr<WorkerPool> handlerPool_;
+  std::atomic<bool> handlerStop_{false};
+  size_t handlerWorkerCount_{0};
 };
 
 } // namespace pp

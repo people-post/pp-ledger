@@ -1,5 +1,6 @@
 #include "FetchClient.h"
 #include "FetchServer.h"
+#include "FetchServerConfig.h"
 #include "platform/NetworkPlatform.h"
 #include "SocketTestUtils.h"
 #include <gtest/gtest.h>
@@ -229,6 +230,7 @@ TEST_F(FetchIntegrationTest, ConcurrentFetchSyncNoTimeouts) {
     // Start server
     FetchServer::Config config;
     config.endpoint = {"127.0.0.1", 18886};
+    config.security = SecurityConfig::trustedDefaults();
     config.handler = [this](int fd, const std::string& req, const IpEndpoint&) {
         server->addResponse(fd, "Echo: " + req);
     };

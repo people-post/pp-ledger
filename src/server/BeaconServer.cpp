@@ -497,8 +497,10 @@ Service::Roe<void> BeaconServer::onStart() {
 }
 
 void BeaconServer::customizeFetchServerConfig(
-    network::FetchServer::Config &config) {
+    network::FetchServer::Config& config) {
   config.whitelist = config_.network.whitelist;
+  config.security = network::SecurityConfig::trustedDefaults();
+  config.performance.maxRequestQueueSize = 8192;
 }
 
 void BeaconServer::initHandlers() {
@@ -566,15 +568,9 @@ void BeaconServer::runLoop() {
 
   while (!isStopSet()) {
     try {
-      // Update beacon state
       beacon_.refresh();
-
-      // Process queued requests
-      if (!pollAndProcessOneRequest()) {
-        // Sleep for a short time if queue is not too busy
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-    } catch (const std::exception &e) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }

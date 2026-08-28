@@ -95,6 +95,13 @@ Today’s wire contract (standalone):
 TCP connect → u32 BE length + Client::Request → u32 BE length + response → close
 ```
 
+Each connection carries **one** request/response pair (short-lived TCP). Public-facing
+relay/miner servers enforce per-IP caps, connection/RPC rate limits, read timeouts, and
+a 512 KiB default payload cap via `SecurityConfig::publicDefaults()` and
+`ConnectionGuard`. Trusted beacon servers use higher limits (`trustedDefaults()`).
+Handler work runs on a bounded queue + worker pool in `Server`; I/O stays on
+`FetchServer`.
+
 `Client::Request` = `{ version, type, payload }` (`src/client/Client.h`). Beacon,
 miner, and relay servers implement the same handler surface via
 `Server::handleParsedRequest`. **`LedgerFrameCodec`** (`src/network/LedgerFrameCodec.h`)
@@ -353,3 +360,4 @@ Suggested locations:
 | 2026-08-27 | `pp_lib` → `pp_ledger_common`; `pp::` ALIAS targets; `PP_LEDGER_BUILD_*` options |
 | 2026-08-27 | FetchContent-only deps (no sibling shortcut); optional `PP_CPP_*_SOURCE_DIR` override |
 | 2026-08-27 | In-process transport: no length prefix; libp2p ledger RPC uses u32 BE (not StreamFrameIo u64) |
+| 2026-08-28 | Public TCP abuse controls: tiered `SecurityConfig`, `ConnectionGuard`, bounded handler queue + worker pool on standalone servers |

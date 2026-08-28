@@ -130,6 +130,11 @@ RelayServer::RelayServer() {
   relay_.redirectLogger(log().getFullName() + ".Relay");
   client_.redirectLogger(log().getFullName() + ".Client");
   dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
+  setPerformanceConfig(network::PerformanceConfig{});
+}
+
+void RelayServer::customizeFetchServerConfig(network::FetchServer::Config& config) {
+  config.security = network::SecurityConfig::publicDefaults();
 }
 
 Service::Roe<void> RelayServer::onStart() {
@@ -363,17 +368,10 @@ void RelayServer::runLoop() {
 
   while (!isStopSet()) {
     try {
-      // Update relay state
       relay_.refresh();
-
       syncBlocksPeriodically();
-
-      // Process queued requests
-      if (!pollAndProcessOneRequest()) {
-        // Sleep for a short time if queue is not too busy
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-    } catch (const std::exception &e) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }

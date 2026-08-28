@@ -188,6 +188,10 @@ MinerServer::MinerServer() {
 
 MinerServer::~MinerServer() {}
 
+void MinerServer::customizeFetchServerConfig(network::FetchServer::Config& config) {
+  config.security = network::SecurityConfig::publicDefaults();
+}
+
 Service::Roe<void> MinerServer::onStart() {
   // Construct config file path
   std::filesystem::path configPath =
@@ -484,8 +488,6 @@ void MinerServer::runLoop() {
     try {
       // Update miner state
       miner_.refresh();
-
-      pollAndProcessAllRequests();
 
       syncBlocksPeriodically();
 

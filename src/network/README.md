@@ -51,29 +51,36 @@ A server for accepting connections and handling requests.
 
 **Features:**
 - Port-based listening
-- Simple receive-process-send-close pattern
+- Simple receive-process-send-close pattern (one request per TCP connection)
 - Configurable request handlers
-- Automatic connection management
+- Tiered security presets (`SecurityConfig::publicDefaults()` vs `trustedDefaults()`)
+- Per-IP connection caps and connection/RPC rate limits for public-facing roles
+- Bounded request queue with dedicated handler worker pool (via `Server` base)
+- Read idle/total timeouts and maximum payload enforcement
+
+**Configuration:**
+
+`FetchServer::Config` carries `SecurityConfig` and `PerformanceConfig` (see
+`FetchServerConfig.h`). Public-facing relay/miner servers use `publicDefaults()`;
+trusted beacon servers use `trustedDefaults()` plus optional IP whitelist.
 
 **Usage:**
 
 ```cpp
 #include "FetchServer.h"
+#include "FetchServerConfig.h"
 
 using namespace pp::network;
 
-// Create fetch server
 FetchServer server;
-
-// Start server with request handler
-server.start(8888, [](const std::string& request) {
-    // Process request and return response
-    return "Echo: " + request;
-});
-
-// Server is now running and accepting connections
-
-// Stop server when done
+FetchServer::Config config;
+config.endpoint = {"127.0.0.1", 8517};
+config.security = SecurityConfig::publicDefaults();
+config.handler = [&server](int fd, const std::string& request, const IpEndpoint&) {
+  server.addResponse(fd, "Echo: " + request);
+};
+server.start(config);
+// ...
 server.stop();
 ```
 
@@ -120,9 +127,37 @@ ctest -R test_fetch --output-on-failure
 
 The fetch protocol is intentionally simple:
 - No HTTP headers or parsing overhead
-- Direct binary data transfer
-- Single request-response per connection
+- **u32 big-endian length prefix** via `LedgerFrameCodec` (max payload 16 MiB on trusted paths; 512 KiB default on public paths)
+- Single request-response per connection (short-lived TCP)
 - Automatic connection cleanup
+
+## Security and performance (public TCP)
+
+Public-facing servers (relay, miner) apply `SecurityConfig::publicDefaults()`:
+
+| Setting | Default |
+|---------|---------|
+| `maxPayloadBytes` | 512 KiB |
+| `readIdleTimeout` | 15 s |
+| `readTotalTimeout` | 30 s |
+| `maxConcurrentConnections` | 4096 |
+| `maxConcurrentConnectionsPerIp` | 64 |
+| `maxConnectionsPerIpPerMinute` | 60 |
+| `maxRpcPerIpPerMinute` | 120 |
+
+Trusted beacon servers use `trustedDefaults()` (higher caps, rate limits disabled) and
+may restrict peers via `Config::whitelist`.
+
+`ConnectionGuard` (`platform/ConnectionGuard.h`) enforces per-IP and global caps at
+accept time and tracks RPC rate after frame dispatch. `FetchServer` sweeps idle/total
+read timeouts and rejects oversize length prefixes before body reads.
+
+Performance defaults (`PerformanceConfig`):
+
+- Handler worker pool (default 4 workers, sized by `Server` from hardware concurrency)
+- Bounded request queue (4096 slots; overflow closes the client fd)
+- Listen backlog 1024
+- Small-response write fast path (≤ 4 KiB sent synchronously before BulkWriter)
 
 This makes it ideal for:
 - High-performance data exchange
@@ -132,9 +167,7 @@ This makes it ideal for:
 
 ## Future Enhancements
 
-- Connection pooling for multiple requests
 - Streaming support for large data transfers
 - Compression support
 - Encryption and authentication (TLS)
-- Timeout configuration
 - Retry logic with exponential backoff

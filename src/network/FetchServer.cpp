@@ -1,5 +1,6 @@
 #include "FetchServer.h"
 #include "LedgerFrameCodec.h"
+#include "platform/ConnectionGuard.h"
 #include "platform/IoMultiplexer.h"
 #include "platform/NetworkPlatform.h"
 
@@ -11,18 +12,47 @@
 namespace pp {
 namespace network {
 
+namespace {
+
+std::chrono::steady_clock::time_point nowSteady() {
+  return std::chrono::steady_clock::now();
+}
+
+} // namespace
+
 FetchServer::FetchServer() = default;
 
 FetchServer::~FetchServer() {
   for (auto& pair : activeConnections_) {
+    if (connectionGuard_) {
+      connectionGuard_->releaseConnection(pair.second.endpoint.address);
+    }
     socketClose(pair.first);
   }
 }
 
 FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string& response) {
+  return tryWriteResponse(fd, response);
+}
+
+FetchServer::Roe<void> FetchServer::tryWriteResponse(int fd, const std::string& response) {
   auto framed = LedgerFrameCodec::encode(response);
   if (!framed) {
     return Error(-3, framed.error().message);
+  }
+
+  if (framed.value().size() <= config_.performance.writeFastPathMaxBytes) {
+#if defined(_WIN32)
+    const int sent = ::send(static_cast<SOCKET>(fd), framed.value().data(),
+                            static_cast<int>(framed.value().size()), 0);
+#else
+    const ssize_t sent =
+        ::send(fd, framed.value().data(), framed.value().size(), MSG_NOSIGNAL);
+#endif
+    if (sent >= 0 && static_cast<size_t>(sent) == framed.value().size()) {
+      socketClose(fd);
+      return {};
+    }
   }
 
   auto result = writer_.add(fd, framed.value());
@@ -34,6 +64,7 @@ FetchServer::Roe<void> FetchServer::addResponse(int fd, const std::string& respo
 
 Service::Roe<void> FetchServer::start(const Config& config) {
   config_ = config;
+  connectionGuard_ = std::make_unique<ConnectionGuard>(config_.security);
 
   log().info << "Starting server on " << config_.endpoint.address << ":"
              << config_.endpoint.port;
@@ -47,7 +78,14 @@ Service::Roe<void> FetchServer::onStart() {
     return Service::Error(-1, "Failed to create I/O multiplexer");
   }
 
-  auto listenResult = server_.listen(config_.endpoint);
+  BulkWriter::Config writerCfg;
+  writerCfg.timeout = config_.performance.bulkWriterTimeout;
+  writer_.setConfig(writerCfg);
+
+  const int backlog = config_.performance.listenBacklog > 0
+                          ? config_.performance.listenBacklog
+                          : 1024;
+  auto listenResult = server_.listen(config_.endpoint, backlog);
   if (!listenResult) {
     return Service::Error(-2, "Failed to start listening: " + listenResult.error().message);
   }
@@ -63,6 +101,7 @@ void FetchServer::onStop() {
   writer_.stop();
   server_.stop();
   ioMux_.reset();
+  connectionGuard_.reset();
 
   for (auto& pair : activeConnections_) {
     socketClose(pair.first);
@@ -115,6 +154,7 @@ void FetchServer::readFromConnection(ActiveConnection& conn) {
 #endif
 
     if (bytesRead > 0) {
+      conn.lastReadAt = nowSteady();
       conn.buffer.append(buffer, static_cast<size_t>(bytesRead));
       if (tryParseSingleFrame(conn)) {
         return;
@@ -146,6 +186,9 @@ void FetchServer::closeAndRemoveConnection(ActiveConnection& conn,
   if (ioMux_) {
     ioMux_->remove(conn.fd);
   }
+  if (connectionGuard_) {
+    connectionGuard_->releaseConnection(conn.endpoint.address);
+  }
   socketClose(conn.fd);
   const int fd = conn.fd;
   activeConnections_.erase(fd);
@@ -153,12 +196,22 @@ void FetchServer::closeAndRemoveConnection(ActiveConnection& conn,
 
 void FetchServer::dispatchCompleteFrameAndRemove(ActiveConnection& conn,
                                                  std::string requestBody) {
+  if (connectionGuard_ && !connectionGuard_->tryRecordRpc(conn.endpoint.address)) {
+    log().info << "RPC rate limited for " << conn.endpoint.address;
+    closeAndRemoveConnection(conn, "");
+    return;
+  }
+
   log().info << "Received complete request from " << conn.endpoint.address << ":"
              << conn.endpoint.port << " (" << requestBody.size()
              << " bytes, fd=" << conn.fd << ")";
 
   if (ioMux_) {
     ioMux_->remove(conn.fd);
+  }
+
+  if (connectionGuard_) {
+    connectionGuard_->releaseConnection(conn.endpoint.address);
   }
 
   try {
@@ -188,6 +241,13 @@ bool FetchServer::tryParseSingleFrame(ActiveConnection& conn) {
       if (!lenResult) {
         log().error << lenResult.error().message << " from " << conn.endpoint.address
                     << ":" << conn.endpoint.port << " (fd=" << conn.fd << ")";
+        closeAndRemoveConnection(conn, "");
+        return true;
+      }
+      if (lenResult.value() > config_.security.maxPayloadBytes) {
+        log().error << "Frame too large (" << lenResult.value() << " bytes, max "
+                    << config_.security.maxPayloadBytes << ") from "
+                    << conn.endpoint.address << ":" << conn.endpoint.port;
         closeAndRemoveConnection(conn, "");
         return true;
       }
@@ -226,6 +286,40 @@ void FetchServer::pollActiveReads() {
   }
 }
 
+void FetchServer::sweepTimedOutConnections() {
+  if (activeConnections_.empty()) {
+    return;
+  }
+
+  const auto now = nowSteady();
+  if (connectionGuard_) {
+    connectionGuard_->expireStale(now);
+  }
+
+  std::vector<int> timedOut;
+  timedOut.reserve(activeConnections_.size());
+  for (const auto& pair : activeConnections_) {
+    const auto& conn = pair.second;
+    if (config_.security.readTotalTimeout.count() > 0 &&
+        now - conn.acceptedAt > config_.security.readTotalTimeout) {
+      timedOut.push_back(pair.first);
+      continue;
+    }
+    if (config_.security.readIdleTimeout.count() > 0 &&
+        now - conn.lastReadAt > config_.security.readIdleTimeout) {
+      timedOut.push_back(pair.first);
+    }
+  }
+
+  for (int fd : timedOut) {
+    auto it = activeConnections_.find(fd);
+    if (it == activeConnections_.end()) {
+      continue;
+    }
+    closeAndRemoveConnection(it->second, "Connection read timeout (fd=" + std::to_string(fd) + ")");
+  }
+}
+
 bool FetchServer::registerClientFd(int clientFd) {
   if (!ioMux_) {
     return false;
@@ -233,6 +327,9 @@ bool FetchServer::registerClientFd(int clientFd) {
   if (!socketSetNonBlocking(clientFd)) {
     log().error << "Failed to set non-blocking mode for fd " << clientFd;
     return false;
+  }
+  if (config_.security.readIdleTimeout.count() > 0) {
+    socketSetTimeout(clientFd, config_.security.readIdleTimeout);
   }
   if (!ioMux_->add(clientFd, IoMultiplexer::Readable, true)) {
     log().error << "Failed to add fd to I/O multiplexer: "
@@ -267,7 +364,19 @@ void FetchServer::acceptPendingConnections() {
       continue;
     }
 
+    ConnectionRejectReason rejectReason = ConnectionRejectReason::None;
+    if (connectionGuard_ &&
+        !connectionGuard_->tryAcceptConnection(peerEndpoint.address, rejectReason)) {
+      log().info << "Rejected connection from " << peerEndpoint.address << ":"
+                 << peerEndpoint.port << " (" << toString(rejectReason) << ")";
+      socketClose(clientFd);
+      continue;
+    }
+
     if (!registerClientFd(clientFd)) {
+      if (connectionGuard_) {
+        connectionGuard_->releaseConnection(peerEndpoint.address);
+      }
       socketClose(clientFd);
       continue;
     }
@@ -275,6 +384,9 @@ void FetchServer::acceptPendingConnections() {
     ActiveConnection conn;
     conn.fd = clientFd;
     conn.endpoint = peerEndpoint;
+    const auto now = nowSteady();
+    conn.acceptedAt = now;
+    conn.lastReadAt = now;
     activeConnections_[clientFd] = std::move(conn);
 
     log().debug << "Accepted new connection from " << peerEndpoint.address << ":"
@@ -286,6 +398,8 @@ void FetchServer::runLoop() {
   log().debug << "Server loop started";
 
   while (!isStopSet()) {
+    sweepTimedOutConnections();
+
     auto waitResult = server_.waitForEvents(100);
     if (!waitResult) {
       pollActiveReads();

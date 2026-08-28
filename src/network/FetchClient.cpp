@@ -1,32 +1,47 @@
 #include "FetchClient.h"
-#include <thread>
+
+#include "common/WorkerPool.h"
+
+#include <mutex>
 
 namespace pp {
 namespace network {
+namespace {
 
-FetchClient::FetchClient() {}
+std::mutex gFetchPoolMutex;
+std::unique_ptr<WorkerPool> gFetchPool;
 
-void FetchClient::fetch(const IpEndpoint &endpoint, const std::string &data,
+WorkerPool& fetchPool() {
+  std::lock_guard<std::mutex> lock(gFetchPoolMutex);
+  if (!gFetchPool) {
+    gFetchPool = std::make_unique<WorkerPool>(WorkerPool::kDefaultThreadCount);
+  }
+  return *gFetchPool;
+}
+
+} // namespace
+
+FetchClient::FetchClient() = default;
+
+void FetchClient::fetch(const IpEndpoint& endpoint, const std::string& data,
                         ResponseCallback callback,
                         std::chrono::milliseconds timeout) {
-
   log().info << "Fetching from " << endpoint;
 
-  // Run in a separate thread for async behavior
-  std::thread([this, endpoint, data, callback = std::move(callback), timeout]() {
-    auto result = fetchSync(endpoint, data, timeout);
-    callback(result);
-  }).detach();
+  fetchPool().Post(WorkerLane::Normal,
+                   [this, endpoint, data, callback = std::move(callback), timeout]() {
+                     auto result = fetchSync(endpoint, data, timeout);
+                     callback(result);
+                   });
 }
 
 FetchClient::Roe<std::string>
-FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
+FetchClient::fetchSync(const IpEndpoint& endpoint, const std::string& data,
                        std::chrono::milliseconds timeout) {
   log().debug << "Sync fetch from " << endpoint;
 
   TcpClient client;
 
-  // Connect to the server
   auto connectResult = client.connect(endpoint);
   if (!connectResult) {
     return Error(1, "Failed to connect: " + connectResult.error().message);
@@ -34,7 +49,6 @@ FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
 
   log().debug << "Connected successfully";
 
-  // Apply socket timeout for send and receive operations
   if (timeout.count() > 0) {
     auto timeoutResult = client.setTimeout(timeout);
     if (!timeoutResult) {
@@ -43,7 +57,6 @@ FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
     }
   }
 
-  // Send framed request (length + body)
   auto writeResult = client.writeFrame(data);
   if (!writeResult) {
     client.close();
@@ -52,7 +65,6 @@ FetchClient::fetchSync(const IpEndpoint &endpoint, const std::string &data,
 
   log().debug << "Frame sent, waiting for response";
 
-  // Receive framed response (length + body)
   auto readResult = client.readFrame(timeout);
   if (!readResult) {
     client.close();

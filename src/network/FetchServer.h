@@ -1,11 +1,13 @@
 #pragma once
 
 #include "BulkWriter.h"
+#include "FetchServerConfig.h"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Service.h"
 #include "TcpServer.h"
 #include "TcpConnection.h"
 #include "Types.hpp"
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -14,6 +16,7 @@
 namespace pp {
 namespace network {
 
+class ConnectionGuard;
 class IoMultiplexer;
 
 class FetchServer : public Service {
@@ -31,6 +34,8 @@ public:
     IpEndpoint endpoint;
     RequestHandler handler{nullptr};
     std::vector<std::string> whitelist;
+    SecurityConfig security{SecurityConfig::publicDefaults()};
+    PerformanceConfig performance{};
   };
 
   FetchServer();
@@ -38,6 +43,7 @@ public:
 
   IpEndpoint getEndpoint() const { return server_.getEndpoint(); }
   Roe<void> addResponse(int fd, const std::string& response);
+  Roe<void> tryWriteResponse(int fd, const std::string& response);
   Service::Roe<void> start(const Config& config);
 
 protected:
@@ -53,6 +59,8 @@ private:
     Stage stage{Stage::ReadLen};
     uint32_t expectedLen{0};
     std::string buffer;
+    std::chrono::steady_clock::time_point acceptedAt{};
+    std::chrono::steady_clock::time_point lastReadAt{};
   };
 
   Roe<IpEndpoint> getPeerEndpoint(int fd);
@@ -63,6 +71,7 @@ private:
   void dispatchCompleteFrameAndRemove(ActiveConnection& conn, std::string requestBody);
   bool tryParseSingleFrame(ActiveConnection& conn);
   void pollActiveReads();
+  void sweepTimedOutConnections();
   bool registerClientFd(int clientFd);
   void acceptPendingConnections();
 
@@ -70,6 +79,7 @@ private:
   Config config_;
   BulkWriter writer_;
   std::unique_ptr<IoMultiplexer> ioMux_;
+  std::unique_ptr<ConnectionGuard> connectionGuard_;
   std::map<int, ActiveConnection> activeConnections_;
 };
 

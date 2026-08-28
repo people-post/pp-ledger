@@ -27,7 +27,7 @@ public:
   TcpServer(const TcpServer&) = delete;
   TcpServer& operator=(const TcpServer&) = delete;
 
-  Roe<void> listen(const IpEndpoint& endpoint, int backlog = 10);
+  Roe<void> listen(const IpEndpoint& endpoint, int backlog = 1024);
   Roe<int> accept();
   Roe<void> waitForEvents(int timeoutMs = -1);
   void stop();

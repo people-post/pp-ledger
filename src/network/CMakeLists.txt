@@ -9,10 +9,12 @@ set(NETWORK_SOURCES
     DhtRunner.cpp
     FetchClient.cpp
     FetchServer.cpp
+    FetchServerConfig.cpp
     LedgerFrameCodec.cpp
     TcpClient.cpp
     TcpConnection.cpp
     TcpServer.cpp
+    platform/ConnectionGuard.cpp
 )
 
 set(NETWORK_HEADERS

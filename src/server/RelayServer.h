@@ -52,6 +52,8 @@ protected:
    */
   void runLoop() override;
 
+  void customizeFetchServerConfig(network::FetchServer::Config& config) override;
+
   /**
    * Called before service thread starts - initializes beacon and network
    */
