@@ -40,8 +40,10 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void* data, size_t size) {
     return Error("Set non-blocking failed: " +
                  socketErrorString(socketLastError()));
   }
-  // Best-effort: older BulkWriter ignored SO_NOSIGPIPE failures on macOS.
-  (void)socketSetNoSigpipe(fd);
+  if (!socketSetNoSigpipe(fd)) {
+    return Error("Set SO_NOSIGPIPE failed: " +
+                 socketErrorString(socketLastError()));
+  }
 
   WriteJob job;
   job.fd = fd;
@@ -228,7 +230,11 @@ void BulkWriter::processJobs(const std::unordered_set<int>& ready) {
 BulkWriter::WriteResult BulkWriter::attemptWrite(WriteJob& job) {
   const size_t remaining = job.buffer.size() - job.offset;
   const void* ptr = job.buffer.data() + job.offset;
-#if defined(__linux__)
+#if defined(_WIN32)
+  const int sent =
+      ::send(static_cast<SOCKET>(job.fd), reinterpret_cast<const char*>(ptr),
+             static_cast<int>(remaining), 0);
+#elif defined(__linux__)
   const ssize_t sent = ::send(job.fd, ptr, remaining, MSG_NOSIGNAL);
 #else
   const ssize_t sent = ::send(job.fd, ptr, remaining, 0);

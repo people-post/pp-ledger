@@ -2,6 +2,10 @@
 
 #include <cstring>
 
+#if !defined(_WIN32)
+#include <signal.h>
+#endif
+
 namespace pp {
 namespace network {
 
@@ -12,6 +16,13 @@ int gPlatformRefCount = 0;
 } // namespace
 
 bool networkPlatformInit() {
+  if (gPlatformRefCount == 0) {
+#if !defined(_WIN32) && !defined(__linux__)
+    // macOS/BSD: writing to a closed socket can raise SIGPIPE. Prefer
+    // SO_NOSIGPIPE per-socket, but ignore process-wide as a safety net.
+    signal(SIGPIPE, SIG_IGN);
+#endif
+  }
   ++gPlatformRefCount;
   return true;
 }
