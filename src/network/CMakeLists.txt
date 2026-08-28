@@ -67,7 +67,11 @@ target_link_libraries(pp_network
 
 if(WIN32)
   target_link_libraries(pp_network PUBLIC ws2_32 iphlpapi)
-  target_compile_definitions(pp_network PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  target_compile_definitions(pp_network PRIVATE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
+  )
 endif()
 
 set_target_properties(pp_network PROPERTIES

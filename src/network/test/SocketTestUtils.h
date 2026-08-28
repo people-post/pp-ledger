@@ -12,11 +12,23 @@ inline void ensureNetworkPlatform() {
   ASSERT_TRUE(networkPlatformInit());
 }
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__APPLE__)
 
+// TCP loopback pair: AF_UNIX socketpair + SO_NOSIGPIPE is unreliable on some
+// Darwin runners, and Winsock has no socketpair.
 inline bool makeConnectedSocketPair(int& a, int& b) {
-  SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (listener == INVALID_SOCKET) {
+#if defined(_WIN32)
+  using Sock = SOCKET;
+  const Sock kInvalid = INVALID_SOCKET;
+  auto closeSock = [](Sock s) { closesocket(s); };
+#else
+  using Sock = int;
+  const Sock kInvalid = -1;
+  auto closeSock = [](Sock s) { ::close(s); };
+#endif
+
+  Sock listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (listener == kInvalid) {
     return false;
   }
 
@@ -25,34 +37,49 @@ inline bool makeConnectedSocketPair(int& a, int& b) {
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   addr.sin_port = 0;
   if (bind(listener, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
-    closesocket(listener);
+    closeSock(listener);
     return false;
   }
   if (listen(listener, 1) != 0) {
-    closesocket(listener);
+    closeSock(listener);
     return false;
   }
 
+#if defined(_WIN32)
   int addrLen = sizeof(addr);
+#else
+  socklen_t addrLen = sizeof(addr);
+#endif
   if (getsockname(listener, reinterpret_cast<sockaddr*>(&addr), &addrLen) != 0) {
-    closesocket(listener);
+    closeSock(listener);
     return false;
   }
 
-  SOCKET client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (client == INVALID_SOCKET) {
-    closesocket(listener);
+  Sock client = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (client == kInvalid) {
+    closeSock(listener);
     return false;
   }
 
+#if defined(_WIN32)
   u_long mode = 1;
   ioctlsocket(client, FIONBIO, &mode);
+#else
+  const int flags = fcntl(client, F_GETFL, 0);
+  if (flags >= 0) {
+    fcntl(client, F_SETFL, flags | O_NONBLOCK);
+  }
+#endif
 
   const int connectResult =
       connect(client, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+#if defined(_WIN32)
   if (connectResult != 0 && WSAGetLastError() != WSAEWOULDBLOCK) {
-    closesocket(client);
-    closesocket(listener);
+#else
+  if (connectResult != 0 && errno != EINPROGRESS) {
+#endif
+    closeSock(client);
+    closeSock(listener);
     return false;
   }
 
@@ -61,18 +88,31 @@ inline bool makeConnectedSocketPair(int& a, int& b) {
   FD_SET(client, &writeSet);
   timeval timeout {};
   timeout.tv_sec = 2;
+#if defined(_WIN32)
   if (select(0, nullptr, &writeSet, nullptr, &timeout) <= 0) {
-    closesocket(client);
-    closesocket(listener);
+#else
+  if (select(client + 1, nullptr, &writeSet, nullptr, &timeout) <= 0) {
+#endif
+    closeSock(client);
+    closeSock(listener);
     return false;
   }
 
-  SOCKET server = accept(listener, nullptr, nullptr);
-  closesocket(listener);
-  if (server == INVALID_SOCKET) {
-    closesocket(client);
+  Sock server = accept(listener, nullptr, nullptr);
+  closeSock(listener);
+  if (server == kInvalid) {
+    closeSock(client);
     return false;
   }
+
+#if defined(_WIN32)
+  mode = 0;
+  ioctlsocket(client, FIONBIO, &mode);
+#else
+  if (flags >= 0) {
+    fcntl(client, F_SETFL, flags & ~O_NONBLOCK);
+  }
+#endif
 
   a = static_cast<int>(client);
   b = static_cast<int>(server);
@@ -83,6 +123,7 @@ inline bool fdIsOpen(int fd) {
   if (fd < 0) {
     return false;
   }
+#if defined(_WIN32)
   char buf;
   const int r = recv(static_cast<SOCKET>(fd), &buf, 1, MSG_PEEK);
   if (r == SOCKET_ERROR) {
@@ -90,6 +131,9 @@ inline bool fdIsOpen(int fd) {
     return err != WSAENOTSOCK;
   }
   return true;
+#else
+  return fcntl(fd, F_GETFD) != -1;
+#endif
 }
 
 #else

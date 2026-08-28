@@ -40,10 +40,9 @@ BulkWriter::Roe<void> BulkWriter::add(int fd, const void* data, size_t size) {
     return Error("Set non-blocking failed: " +
                  socketErrorString(socketLastError()));
   }
-  if (!socketSetNoSigpipe(fd)) {
-    return Error("Set SO_NOSIGPIPE failed: " +
-                 socketErrorString(socketLastError()));
-  }
+  // Best-effort on platforms without MSG_NOSIGNAL. networkPlatformInit()
+  // also ignores SIGPIPE process-wide on macOS/BSD as a safety net.
+  (void)socketSetNoSigpipe(fd);
 
   WriteJob job;
   job.fd = fd;

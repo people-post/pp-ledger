@@ -34,7 +34,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithoutCallback) {
     bw.start();
 
     auto result = bw.add(writer, "hello");
-    ASSERT_TRUE(result.isOk());
+    ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
     // Give the write loop time to detect the broken pipe and close the fd
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -68,7 +68,7 @@ TEST(BulkWriterTest, FdClosedOnWriteErrorWithCallback) {
     bw.start();
 
     auto result = bw.add(writer, "hello");
-    ASSERT_TRUE(result.isOk());
+    ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
@@ -169,7 +169,7 @@ TEST(BulkWriterTest, FdClosedOnSuccessfulWrite) {
     bw.start();
 
     auto result = bw.add(writer, "hello");
-    ASSERT_TRUE(result.isOk());
+    ASSERT_TRUE(result.isOk()) << (result ? "" : result.error().message);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
