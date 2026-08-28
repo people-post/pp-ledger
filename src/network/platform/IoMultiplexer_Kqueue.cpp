@@ -26,16 +26,16 @@ public:
       return false;
     }
     if (events & Readable) {
-      kevent ev {};
+      struct kevent ev {};
       EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, nullptr);
-      if (kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
+      if (::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
         return false;
       }
     }
     if (events & Writable) {
-      kevent ev {};
+      struct kevent ev {};
       EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD, 0, 0, nullptr);
-      if (kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
+      if (::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr) < 0) {
         return false;
       }
     }
@@ -46,11 +46,11 @@ public:
     if (kqueueFd_ < 0) {
       return false;
     }
-    kevent ev {};
+    struct kevent ev {};
     EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
-    kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
+    ::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
     EV_SET(&ev, fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
-    kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
+    ::kevent(kqueueFd_, &ev, 1, nullptr, 0, nullptr);
     return true;
   }
 
@@ -61,8 +61,8 @@ public:
 
     ready.clear();
     int total = 0;
-    timespec timeout {};
-    timespec* timeoutPtr = nullptr;
+    struct timespec timeout {};
+    struct timespec* timeoutPtr = nullptr;
     if (timeoutMs >= 0) {
       timeout.tv_sec = timeoutMs / 1000;
       timeout.tv_nsec = static_cast<long>((timeoutMs % 1000) * 1000000L);
@@ -70,8 +70,9 @@ public:
     }
 
     while (true) {
-      kevent events[64];
-      const int n = kevent(kqueueFd_, nullptr, 0, events, 64, total == 0 ? timeoutPtr : nullptr);
+      struct kevent events[64];
+      const int n =
+          ::kevent(kqueueFd_, nullptr, 0, events, 64, total == 0 ? timeoutPtr : nullptr);
       if (n <= 0) {
         return total == 0 ? n : total;
       }
