@@ -3,6 +3,7 @@
 #include "TxLedgerMeta.h"
 
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace pp::chain_tx {
@@ -46,19 +47,52 @@ Roe<uint64_t> calculateMinimumFeeFromNonFreeMetaSize(
           ? 0ULL
           : (nonFreeCustomMetaSizeBytes + BYTES_PER_KIB - 1) / BYTES_PER_KIB;
 
-  const unsigned __int128 a = getFeeCoefficient(config.minFeeCoefficients, 0);
-  const unsigned __int128 b = getFeeCoefficient(config.minFeeCoefficients, 1);
-  const unsigned __int128 c = getFeeCoefficient(config.minFeeCoefficients, 2);
-  const unsigned __int128 x = nonFreeSizeKiB;
-  const unsigned __int128 minimumFee = a + b * x + c * x * x;
+  // fee = a + b*x + c*x*x, checked without __int128 (unsupported on MSVC).
+  const uint64_t a = getFeeCoefficient(config.minFeeCoefficients, 0);
+  const uint64_t b = getFeeCoefficient(config.minFeeCoefficients, 1);
+  const uint64_t c = getFeeCoefficient(config.minFeeCoefficients, 2);
+  const uint64_t x = nonFreeSizeKiB;
+  constexpr uint64_t kMaxFee =
+      static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
 
-  if (minimumFee >
-      static_cast<unsigned __int128>(std::numeric_limits<int64_t>::max())) {
+  auto mulU64 = [](uint64_t lhs, uint64_t rhs) -> std::optional<uint64_t> {
+    if (lhs == 0 || rhs == 0) {
+      return 0ULL;
+    }
+    if (lhs > std::numeric_limits<uint64_t>::max() / rhs) {
+      return std::nullopt;
+    }
+    return lhs * rhs;
+  };
+  auto addFee = [&](uint64_t lhs, uint64_t rhs) -> Roe<uint64_t> {
+    if (lhs > kMaxFee - rhs) {
+      return TxError(chain_err::E_TX_VALIDATION,
+                     "Calculated minimum fee exceeds int64_t range");
+    }
+    return lhs + rhs;
+  };
+
+  const auto bx = mulU64(b, x);
+  if (!bx || *bx > kMaxFee) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Calculated minimum fee exceeds int64_t range");
+  }
+  const auto xx = mulU64(x, x);
+  if (!xx) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Calculated minimum fee exceeds int64_t range");
+  }
+  const auto cxx = mulU64(c, *xx);
+  if (!cxx || *cxx > kMaxFee) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Calculated minimum fee exceeds int64_t range");
   }
 
-  return static_cast<uint64_t>(minimumFee);
+  auto sum = addFee(a, *bx);
+  if (!sum) {
+    return sum.error();
+  }
+  return addFee(sum.value(), *cxx);
 }
 
 Roe<uint64_t> calculateMinimumFeeForTransaction(
