@@ -30,20 +30,28 @@ CMAKE_ARGS=(
   -B "$BUILD_DIR"
 )
 
-GENERATOR=()
-BUILD_CONFIG=()
 if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
-  GENERATOR=(-G Ninja)
-  BUILD_CONFIG=(--config Release)
+  CMAKE_ARGS+=(-G Ninja)
 fi
 
 if [[ -n "$RUN_TESTS" ]]; then
   CMAKE_ARGS+=(-DPP_LEDGER_BUILD_TESTS=ON)
 fi
 
-cmake "${CMAKE_ARGS[@]}" "${GENERATOR[@]}"
-cmake --build "$BUILD_DIR" "${BUILD_CONFIG[@]}" -j "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
+# Note: avoid empty "${arr[@]}" under `set -u` — bash < 4.4 (macOS) treats it
+# as unbound. Fold optional flags into CMAKE_ARGS / BUILD_ARGS instead.
+BUILD_ARGS=("$BUILD_DIR")
+if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+  BUILD_ARGS+=(--config Release)
+fi
+
+cmake "${CMAKE_ARGS[@]}"
+cmake --build "${BUILD_ARGS[@]}" -j "${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 
 if [[ -n "$RUN_TESTS" ]]; then
-  ctest --test-dir "$BUILD_DIR" "${BUILD_CONFIG[@]}" --output-on-failure
+  CTEST_ARGS=(--test-dir "$BUILD_DIR" --output-on-failure)
+  if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+    CTEST_ARGS+=(--config Release)
+  fi
+  ctest "${CTEST_ARGS[@]}"
 fi
