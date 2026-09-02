@@ -90,3 +90,32 @@ install(TARGETS pp_network
 if(PP_LEDGER_BUILD_TESTS)
     add_subdirectory(test)
 endif()
+
+if(PP_LEDGER_AMP)
+    add_library(pp_ledger_amp STATIC
+        AmpLedgerServer.cpp
+        LedgerAmpRuntime.cpp
+        ServerAmpSupport.cpp
+    )
+
+    target_include_directories(pp_ledger_amp PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PP_SRC_DIR}
+        ${PP_SRC_DIR}/client
+    )
+
+    target_link_libraries(pp_ledger_amp PUBLIC
+        pp_amp_link
+        pp_ledger_common
+    )
+
+    target_sources(pp_ledger_amp PRIVATE
+        ${PP_SRC_DIR}/client/AmpLedgerTransport.cpp
+    )
+
+    target_compile_definitions(pp_ledger_amp PUBLIC PP_LEDGER_HAS_AMP)
+
+    if(PP_LEDGER_BUILD_TESTS)
+        add_subdirectory(amp/test)
+    endif()
+endif()

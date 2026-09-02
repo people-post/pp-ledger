@@ -30,4 +30,9 @@ target_link_libraries(pp_server PUBLIC
     pp_network
 )
 
+if(PP_LEDGER_AMP)
+  target_compile_definitions(pp_server PUBLIC PP_LEDGER_HAS_AMP)
+  target_link_libraries(pp_server PUBLIC pp_ledger_amp)
+endif()
+
 message(STATUS "Server configured with TCP network support")
