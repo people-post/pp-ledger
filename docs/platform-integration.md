@@ -124,10 +124,10 @@ is the canonical u32 BE length-prefix implementation (max payload 16 MiB).
 |------|-----------|
 | UI → local miner (pp-browser, same process) | **In-process** |
 | pp-browser miner → **pp-node** relay | **Libp2p** `/pp-ledger/rpc/1.0.0` |
-| pp-node relay → internet upstream relay/beacon | **TCP** (existing fetch protocol) |
-| Standalone `pp-miner` → `pp-relay` | **TCP** (until fleet migrates) |
+| pp-node relay → upstream relay / beacon | **AMP** (same RPC bytes) |
+| Standalone `pp-miner` → `pp-relay` (or beacon) | **AMP** `/pp-ledger/rpc/1.0.0` |
 | pp-browser volunteer relay → peers | **Libp2p** |
-| pp-browser volunteer relay → upstream | **TCP** and/or libp2p to pp-node |
+| pp-browser volunteer relay → upstream | Libp2p and/or AMP to pp-node |
 
 ### pp-node as protocol gateway
 
@@ -137,7 +137,7 @@ different sockets:
 ```text
   pp-browser miner ──libp2p /pp-ledger/rpc/1.0.0──► pp-node relay
                                                           │
-                                                          │ TCP fetch
+                                                          │ AMP (same RPC)
                                                           ▼
                                                     upstream relay / beacon
 ```

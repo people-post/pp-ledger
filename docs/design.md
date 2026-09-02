@@ -49,6 +49,11 @@ Three types of node keep the network running. They have distinct, non-overlappin
 | **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | No | Yes |
 | **Miner** | Elected participant who packages and adds new blocks; earns fees | Yes | partial |
 
+Miners and clients use the **same RPC** against any upstream endpoint (`beacons[]` in config).
+They do not learn whether the peer is a relay or the terminal beacon. Relays likewise treat
+their configured upstream as opaque. Only the terminal beacon **realizes** authoritative
+writes; gateways forward or cache per [amp-transport.md](amp-transport.md#topology-uniform-upstream).
+
 > **Why this matters:** Miners compete fairly — only the randomly elected miner for a given tick may add a block, and their election odds are proportional to how much they have staked. This makes the network both decentralised and predictable.
 
 Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.

@@ -18,9 +18,9 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - ✅ **Ouroboros Consensus:** Proof-of-stake consensus with VRF-based slot leader selection
 - ✅ **Blockchain & Ledger:** Complete transaction and wallet management
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
-- ✅ **Relay Server:** Trusted intermediary between beacons and miners — exposes beacon-compatible API to miners
+- ✅ **Relay Server:** Trusted gateway — same ledger RPC as beacon; miners use opaque upstream endpoints
 - ✅ **Modular Architecture:** Clean separation of concerns (lib, consensus, ledger, server, client, network)
-- ✅ **TCP Networking:** Simple TCP-based peer-to-peer communication
+- ✅ **AMP Networking:** UDP/ADP fleet transport (`/pp-ledger/rpc/1.0.0`) via pp-cpp-amp
 - ✅ **HTTP API Server:** REST-style HTTP server (pp-http) exposing client interfaces for beacon, miner, block, account, and transactions
 - ✅ **Comprehensive Testing:** Automated tests with Google Test
 - ✅ **CI/CD Pipeline:** GitHub Actions for automated builds, tests, and Docker image releases
@@ -38,11 +38,10 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - Limited in number (5-10 globally), run by network founders or elected stakeholders
 
 **Relay Servers:**
-- Trusted intermediaries between beacons and miners
-- Beacons only communicate with trusted relays (not directly with miners)
-- Miners use the relay with the same API as a beacon
-- Sync blocks from a single upstream beacon
-- Register miners and serve chain data on their behalf
+- Trusted gateways between the terminal beacon and participants
+- Expose the **same ledger RPC** as the beacon — miners do not distinguish relay from beacon
+- `beacon` in relay config is an **upstream** endpoint (terminal beacon or another relay)
+- Sync blocks from upstream; forward mutating RPCs (e.g. `BLOCK_ADD`) write-through
 - Do NOT produce blocks
 - Run `pp-relay` binary
 
@@ -52,7 +51,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - Produce blocks when elected as slot leader
 - Stake is registered with and managed by beacon servers
 - Selection probability based on registered stake amount
-- Sync with beacon (or relay) servers to stay up-to-date
+- `beacons[]` lists opaque upstream endpoints (relay and/or beacon); sync and broadcast use this set
 
 ### Consensus Mechanism
 
@@ -111,7 +110,9 @@ Use the automated script to spin up a local test network (1 beacon + 3 miners):
 
 The script initializes a beacon on port 8517 and miners on ports 8518+. Stop with Ctrl+C.
 
-The network topology is `Beacon → Relay → Miners`: beacons communicate with trusted relays, and miners connect to relays using the same API they would use for a beacon directly.
+The network topology is `Beacon ← Relay ← Miners` (relays may chain). Miners configure
+opaque upstream multiaddrs in `beacons[]` — same RPC whether the hop is a relay or the
+terminal beacon. See [docs/amp-transport.md](docs/amp-transport.md).
 
 **Test the network** (in another terminal):
 ```bash
