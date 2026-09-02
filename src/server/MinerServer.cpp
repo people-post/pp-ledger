@@ -1,6 +1,7 @@
 #include "MinerServer.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
+#include "../network/amp/AmpIdentity.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
@@ -32,49 +33,6 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 } // namespace
 
 
-Object MinerServer::BeaconConfig::ltsToJson() const {
-  Object j;
-  j.set("host", host);
-  j.setJsonUInt("port", port);
-  j.setJsonUInt("dhtPort", dhtPort);
-  return j;
-}
-
-MinerServer::Roe<void> MinerServer::BeaconConfig::ltsFromJson(const Object& jd) {
-  auto hostOpt = jd.getString("host");
-  if (!hostOpt) {
-    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
-                                               : "Field 'host' is required");
-  }
-  host = *hostOpt;
-  if (host.empty()) {
-    return Error(E_CONFIG, "Field 'host' cannot be empty");
-  }
-  auto portValue = jd.getNonNegInt("port");
-  if (!portValue) {
-    return Error(E_CONFIG, jd.contains("port")
-                               ? "Field 'port' must be a non-negative integer"
-                               : "Field 'port' is required");
-  }
-  if (*portValue == 0 || *portValue > 65535) {
-    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-  }
-  port = static_cast<uint16_t>(*portValue);
-  auto dhtPortValue = jd.getNonNegInt("dhtPort");
-  if (!dhtPortValue) {
-    return Error(E_CONFIG, jd.contains("dhtPort")
-                               ? "Field 'dhtPort' must be a non-negative integer"
-                               : "Field 'dhtPort' is required");
-  }
-  if (*dhtPortValue > 65535) {
-    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-  }
-  dhtPort = static_cast<uint16_t>(*dhtPortValue);
-  return {};
-}
-
-// ============ RunFileConfig methods ============
-
 Object MinerServer::RunFileConfig::ltsToJson() const {
   Object j;
   j.setUIntForJson("minerId", minerId);
@@ -85,10 +43,9 @@ Object MinerServer::RunFileConfig::ltsToJson() const {
   j.set("keys", Object::array(std::move(keyVals)));
   j.set("host", host);
   j.setJsonUInt("port", port);
-  j.setJsonUInt("dhtPort", dhtPort);
   std::vector<Value> beaconVals;
   for (const auto &b : beacons) {
-    beaconVals.push_back(std::make_shared<Object>(b.ltsToJson()));
+    beaconVals.push_back(b);
   }
   j.set("beacons", Object::array(std::move(beaconVals)));
   return j;
@@ -143,36 +100,31 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   }
   port = static_cast<uint16_t>(*portValue);
 
-  auto dhtPortValue = jd.getNonNegInt("dhtPort");
-  if (!dhtPortValue || *dhtPortValue > 65535) {
-    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-  }
-  dhtPort = static_cast<uint16_t>(*dhtPortValue);
-
   const Array *beaconsArr = jd.getArray("beacons");
   if (!beaconsArr) {
     return Error(E_CONFIG, jd.contains("beacons") ? "Field 'beacons' must be an array"
                                                   : "Field 'beacons' is required");
   }
   if (beaconsArr->elements.empty()) {
-    return Error(E_CONFIG,
-                 "Field 'beacons' array must contain at least one beacon object");
+    return Error(E_CONFIG, "Field 'beacons' array must contain at least one beacon entry");
   }
   beacons.clear();
   for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
+    if (auto s = asString(beaconsArr->elements[i])) {
+      beacons.push_back(*s);
+      continue;
+    }
     const Object *beacon = asObject(beaconsArr->elements[i]);
     if (!beacon) {
       return Error(E_CONFIG,
-                   "All elements in 'beacons' array must be objects (index " +
-                       std::to_string(i) + " is not)");
+                   "beacons[] entries must be multiaddr strings or objects (index " +
+                       std::to_string(i) + ")");
     }
-    BeaconConfig bc;
-    auto parseResult = bc.ltsFromJson(*beacon);
-    if (!parseResult) {
-      return Error(E_CONFIG, "Failed to parse beacon configuration: " +
-                                 parseResult.error().message);
+    auto ma = network::ParseBeaconMultiaddr(*beacon);
+    if (!ma) {
+      return Error(E_CONFIG, "Failed to parse beacon configuration: " + ma.error().message);
     }
-    beacons.push_back(std::move(bc));
+    beacons.push_back(std::move(*ma));
   }
   return {};
 }
@@ -183,13 +135,13 @@ MinerServer::MinerServer() {
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
   client_.redirectLogger(log().getFullName() + ".Client");
-  dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
 }
 
 MinerServer::~MinerServer() {}
 
-void MinerServer::customizeFetchServerConfig(network::FetchServer::Config& config) {
-  config.security = network::SecurityConfig::publicDefaults();
+Client::Roe<void> MinerServer::dialPeerMultiaddr(const std::string& multiaddr,
+                                                 const std::string& peer_key) {
+  return client_.setAmpPeer(peer_key, multiaddr);
 }
 
 Service::Roe<void> MinerServer::onStart() {
@@ -251,46 +203,27 @@ Service::Roe<void> MinerServer::onStart() {
     }
     config_.privateKeys.push_back(keyResult.value());
   }
-  config_.network.endpoint.address = runFileConfig.host;
-  config_.network.endpoint.port = runFileConfig.port;
-  config_.network.beacons.clear();
-  config_.network.beacons.reserve(runFileConfig.beacons.size());
-  for (const auto& b : runFileConfig.beacons) {
-    BeaconPeer peer;
-    peer.endpoint.address = b.host;
-    peer.endpoint.port = b.port;
-    peer.dht.address = b.host;
-    peer.dht.port = b.dhtPort;
-    config_.network.beacons.push_back(std::move(peer));
-  }
+  config_.network.udp_port = runFileConfig.port;
+  config_.network.beacon_multiaddrs = runFileConfig.beacons;
 
   log().info << "Configuration loaded";
   log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  Endpoint: " << config_.network.endpoint;
-  log().info << "  Beacons: " << config_.network.beacons.size();
+  log().info << "  UDP port: " << config_.network.udp_port;
+  log().info << "  Beacons: " << config_.network.beacon_multiaddrs.size();
 
-  auto serverStarted = startFetchServer(config_.network.endpoint);
+  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.privateKeys.front(), config_.network.udp_port);
+  if (!ampCfg) {
+    return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
+  }
+  auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
-    return Service::Error(E_MINER, "Failed to start FetchServer: " +
-                                       serverStarted.error().message);
+    return Service::Error(E_MINER, "Failed to start AMP server: " + serverStarted.error().message);
   }
 
-  // Start DHT (bootstrap from each beacon/relay DHT)
-  std::vector<std::string> dhtBootstrap;
-  for (const auto& b : config_.network.beacons) {
-    dhtBootstrap.push_back(b.dht.ltsToString());
+  if (!ampRuntime()) {
+    return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  network::DhtRunner::Config dhtConfig;
-  dhtConfig.bootstrapEndpoints = dhtBootstrap;
-  dhtConfig.dhtPort = runFileConfig.dhtPort;
-  dhtConfig.myTcpPort = config_.network.endpoint.port;
-  dhtConfig.networkId = network::DhtRunner::getDefaultNetworkId();
-  dhtConfig.nodeIdPath = getWorkDir() + "/dht-node.id";
-  auto dhtStart = dhtRunner_.start(dhtConfig);
-  if (!dhtStart) {
-    return Service::Error(E_NETWORK, "Failed to start DHT: " +
-                                        dhtStart.error().message);
-  }
+  client_.attachAmpTransport(ampRuntime()->links(), ampRuntime()->ioPump(), "beacon");
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();
@@ -348,7 +281,7 @@ Service::Roe<void> MinerServer::onStart() {
 }
 
 MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
-  if (config_.network.beacons.empty()) {
+  if (config_.network.beacon_multiaddrs.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
@@ -393,16 +326,15 @@ MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
 }
 
 MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
-  if (config_.network.beacons.empty()) {
+  if (config_.network.beacon_multiaddrs.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  const auto &beacon0 = config_.network.beacons[0];
-  std::string beaconAddr =
-      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
-  log().info << "Syncing blocks from beacon: " << beaconAddr;
+  log().info << "Syncing blocks from beacon: " << config_.network.beacon_multiaddrs.front();
 
-  client_.setEndpoint(beacon0.endpoint);
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs.front(), "beacon"); !dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
 
   auto calibrationResult = client_.fetchCalibration();
   if (!calibrationResult) {
@@ -476,7 +408,6 @@ void MinerServer::initHandlers() {
 }
 
 void MinerServer::onStop() {
-  dhtRunner_.stop();
   Server::onStop();
   log().info << "MinerServer resources cleaned up";
 }
@@ -560,13 +491,13 @@ void MinerServer::syncBlocksPeriodically() {
 }
 
 void MinerServer::refreshMinerListFromBeacon() {
-  if (config_.network.beacons.empty()) {
+  if (config_.network.beacon_multiaddrs.empty()) {
     return;
   }
-  const auto &beacon0 = config_.network.beacons[0];
-  std::string beaconAddr =
-      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
-  client_.setEndpoint(beacon0.endpoint);
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs.front(), "beacon"); !dial) {
+    log().warning << "Failed to dial beacon for miner list: " << dial.error().message;
+    return;
+  }
   auto minerListResult = client_.fetchMinerList();
   if (minerListResult) {
     for (const auto &miner : minerListResult.value()) {
@@ -727,8 +658,8 @@ MinerServer::hTxAdd(const Client::Request &request) {
                << " address unknown, transaction cached for retry in next slot";
     return {"Transaction cached for retry in next slot"};
   }
-  if (!client_.setEndpoint(leaderAddr)) {
-    return Error(E_CONFIG, "Failed to resolve leader address: " + leaderAddr);
+  if (auto dial = dialPeerMultiaddr(leaderAddr, "leader"); !dial) {
+    return Error(E_CONFIG, "Failed to dial slot leader: " + dial.error().message);
   }
 
   auto result = client_.addTransaction(record);
@@ -871,7 +802,7 @@ void MinerServer::retryCachedTransactionForwards() {
                 << " transactions remain cached";
     return;
   }
-  if (!client_.setEndpoint(leaderAddr)) {
+  if (auto dial = dialPeerMultiaddr(leaderAddr, "leader"); !dial) {
     for (const auto &tx : cached) {
       miner_.addToForwardCache(tx);
     }
@@ -908,21 +839,20 @@ void MinerServer::handleValidatorRole() {
 }
 
 MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
-  if (config_.network.beacons.empty()) {
+  if (config_.network.beacon_multiaddrs.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  // Try to connect to the first beacon in the list
-  const auto &beacon0 = config_.network.beacons[0];
-  std::string beaconAddr =
-      beacon0.endpoint.address + ":" + std::to_string(beacon0.endpoint.port);
-  log().info << "Connecting to beacon server: " << beaconAddr;
+  const auto& beacon_ma = config_.network.beacon_multiaddrs.front();
+  log().info << "Connecting to beacon server: " << beacon_ma;
 
-  client_.setEndpoint(beacon0.endpoint);
+  if (auto dial = dialPeerMultiaddr(beacon_ma, "beacon"); !dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
 
   Client::MinerInfo minerInfo;
   minerInfo.id = config_.minerId;
-  minerInfo.endpoint = getFetchServerEndpoint().ltsToString();
+  minerInfo.endpoint = listenMultiaddr();
   auto stateResult = client_.registerMinerServer(minerInfo);
   if (!stateResult) {
     return Error(E_NETWORK,
@@ -939,14 +869,15 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
 MinerServer::Roe<void>
 MinerServer::broadcastBlock(const Ledger::ChainNode &block) {
   bool anySuccess = false;
-  for (const auto &beacon : config_.network.beacons) {
-    std::string beaconAddr =
-        beacon.endpoint.address + ":" + std::to_string(beacon.endpoint.port);
-    client_.setEndpoint(beacon.endpoint);
+  for (const auto &beacon_ma : config_.network.beacon_multiaddrs) {
+    if (auto dial = dialPeerMultiaddr(beacon_ma, "beacon"); !dial) {
+      log().warning << "Failed to dial beacon " << beacon_ma << ": " << dial.error().message;
+      continue;
+    }
     auto clientResult = client_.addBlock(block);
     if (!clientResult) {
-      log().warning << "Failed to add block to beacon: " + beaconAddr + ": " +
-                           clientResult.error().message;
+      log().warning << "Failed to add block to beacon " << beacon_ma << ": "
+                    << clientResult.error().message;
       continue;
     }
     anySuccess = true;

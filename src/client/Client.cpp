@@ -1,3 +1,4 @@
+#include "AmpLedgerTransport.h"
 #include "Client.h"
 #include "common/Logger.h"
 #include "lib/common/BinaryPack.hpp"
@@ -166,24 +167,33 @@ pp::common::Meta Client::CalibrationResponse::ltsToMeta() const {
   return j;
 }
 
-Client::Client() {
-  transport_ = std::make_unique<TcpLedgerTransport>();
-  if (auto *tcp = dynamic_cast<TcpLedgerTransport *>(transport_.get())) {
-    tcp->redirectLogger(log().getFullName() + ".TcpLedgerTransport");
-  }
-}
+Client::Client() = default;
 
 Client::~Client() = default;
 
-void Client::syncTcpTransportEndpoint() {
-  if (auto *tcp = dynamic_cast<TcpLedgerTransport *>(transport_.get())) {
-    tcp->setEndpoint(endpoint_);
+void Client::attachAmpTransport(pp::amp::PeerLinkManager& links, network::LedgerAmpRuntime::IoPump io_pump,
+                                std::string default_peer_key) {
+  amp_default_peer_key_ = std::move(default_peer_key);
+  transport_ = std::make_unique<AmpLedgerTransport>(links, amp_default_peer_key_, std::move(io_pump));
+  if (auto* amp = dynamic_cast<AmpLedgerTransport*>(transport_.get())) {
+    amp->redirectLogger(log().getFullName() + ".AmpLedgerTransport");
   }
+}
+
+Client::Roe<void> Client::setAmpPeer(const std::string& peer_key, const std::string& multiaddr) {
+  auto* amp = dynamic_cast<AmpLedgerTransport*>(transport_.get());
+  if (!amp) {
+    return Error(E_NOT_CONNECTED, "AMP transport not configured");
+  }
+  if (!amp->links().RegisterEndpoint(peer_key, multiaddr)) {
+    return Error(E_NOT_CONNECTED, "Failed to register peer endpoint: " + multiaddr);
+  }
+  amp->setPeerKey(peer_key);
+  return {};
 }
 
 void Client::setTransport(std::unique_ptr<ILedgerTransport> transport) {
   transport_ = std::move(transport);
-  syncTcpTransportEndpoint();
 }
 
 std::string Client::getErrorMessage(uint16_t errorCode) {
@@ -203,27 +213,9 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
   }
 }
 
-Client::Roe<void> Client::setEndpoint(const std::string& endpoint) {
-  auto ep = network::IpEndpoint::ltsFromString(endpoint);
-  if (ep.port == 0) {
-    return Error(E_NOT_CONNECTED, "Invalid endpoint: " + endpoint);
-  }
-  endpoint_ = ep;
-  syncTcpTransportEndpoint();
-  return {};
-}
-
-void Client::setEndpoint(const network::IpEndpoint &endpoint) {
-  endpoint_ = endpoint;
-  syncTcpTransportEndpoint();
-}
-
 Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &payload,
                                              std::chrono::milliseconds timeout) {
   if (!transport_) {
-    return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
-  }
-  if (transport_->requiresRemoteEndpoint() && endpoint_.port == 0) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
 
