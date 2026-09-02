@@ -7,6 +7,10 @@
 #include "../network/FetchServer.h"
 #include "common/WorkerPool.h"
 
+#ifdef PP_LEDGER_HAS_AMP
+#include "../network/ServerAmpSupport.h"
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -51,6 +55,12 @@ protected:
   Service::Roe<void> startFetchServer(const network::IpEndpoint& endpoint);
   void stopFetchServer();
 
+#ifdef PP_LEDGER_HAS_AMP
+  Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
+  void stopAmpServer();
+  bool isAmpServerRunning() const { return ampSupport_ && ampSupport_->isRunning(); }
+#endif
+
   virtual void customizeFetchServerConfig(network::FetchServer::Config& /*config*/) {}
 
   void setPerformanceConfig(const network::PerformanceConfig& config) {
@@ -76,6 +86,9 @@ private:
   network::PerformanceConfig performanceConfig_{};
   ThreadSafeQueue<QueuedRequest> requestQueue_;
   network::FetchServer fetchServer_;
+#ifdef PP_LEDGER_HAS_AMP
+  std::unique_ptr<network::ServerAmpSupport> ampSupport_;
+#endif
   std::unique_ptr<WorkerPool> handlerPool_;
   std::atomic<bool> handlerStop_{false};
   size_t handlerWorkerCount_{0};

@@ -218,6 +218,9 @@ void Server::stopFetchServer() {
 
 void Server::onStop() {
   stopFetchServer();
+#ifdef PP_LEDGER_HAS_AMP
+  stopAmpServer();
+#endif
 }
 
 void Server::sendResponse(int fd, const std::string& response) {
@@ -240,5 +243,34 @@ std::string Server::handleRequest(const std::string& request) {
   }
   return handleParsedRequest(reqResult.value());
 }
+
+#ifdef PP_LEDGER_HAS_AMP
+Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
+  if (ampSupport_) {
+    return Service::Error(-1, "AMP server already started");
+  }
+  ampSupport_ = std::make_unique<network::ServerAmpSupport>();
+  WorkerPool* pool = handlerPool_ ? handlerPool_.get() : nullptr;
+  if (!pool && !handlerPool_) {
+    startRequestHandlers();
+    pool = handlerPool_.get();
+  }
+  auto started = ampSupport_->Start(
+      config, [this](const std::string& body) { return dispatchUnframedRequest(body); }, pool);
+  if (!started) {
+    ampSupport_.reset();
+    return started;
+  }
+  log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
+  return {};
+}
+
+void Server::stopAmpServer() {
+  if (ampSupport_) {
+    ampSupport_->Stop();
+    ampSupport_.reset();
+  }
+}
+#endif
 
 } // namespace pp
