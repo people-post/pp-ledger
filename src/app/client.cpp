@@ -1,6 +1,8 @@
 #include "Client.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
+#include "../network/LedgerAmpRuntime.h"
+#include "../network/amp/AmpIdentity.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "common/Logger.h"
@@ -529,11 +531,35 @@ int main(int argc, char *argv[]) {
 
   pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG
                                               : pp::logging::Level::WARNING);
-  pp::Client client;
 
-  // Initialize connection
-  pp::network::IpEndpoint endpoint{parsedHost, parsedPort};
-  client.setEndpoint(endpoint);
+  std::string multiaddr = host;
+  if (!multiaddr.empty() && multiaddr.front() != '/') {
+    std::cerr << "Error: server address must be an ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...).\n";
+    return 1;
+  }
+
+  auto ephemeralKeys = pp::utl::mlDsaGenerate();
+  if (!ephemeralKeys) {
+    std::cerr << "Error: failed to generate ephemeral AMP identity: " << ephemeralKeys.error().message << "\n";
+    return 1;
+  }
+  auto ampCfg = pp::network::LedgerAmpConfigFromPrivateKey(ephemeralKeys->privateKey, 0);
+  if (!ampCfg) {
+    std::cerr << "Error: failed to configure AMP client: " << ampCfg.error().message << "\n";
+    return 1;
+  }
+  pp::network::LedgerAmpRuntime ampRuntime;
+  if (auto started = ampRuntime.Start(*ampCfg); !started) {
+    std::cerr << "Error: failed to start AMP runtime: " << started.error().message << "\n";
+    return 1;
+  }
+
+  pp::Client client;
+  client.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "remote");
+  if (auto dial = client.setAmpPeer("remote", multiaddr); !dial) {
+    std::cerr << "Error: failed to dial server: " << dial.error().message << "\n";
+    return 1;
+  }
 
   int exitCode = 0;
 

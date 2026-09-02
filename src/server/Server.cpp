@@ -3,7 +3,6 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
-#include "platform/NetworkPlatform.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -110,43 +109,6 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
   return utl::binaryPack(resp);
 }
 
-size_t Server::getRequestQueueSize() const { return requestQueue_.size(); }
-
-bool Server::pollAndProcessOneRequest() {
-  QueuedRequest qr;
-  if (!requestQueue_.poll(qr)) {
-    return false;
-  }
-  processQueuedRequest(qr);
-  return true;
-}
-
-size_t Server::pollAndProcessAllRequests(size_t maxCount) {
-  size_t n = 0;
-  QueuedRequest qr;
-  while (n < maxCount && requestQueue_.poll(qr)) {
-    processQueuedRequest(qr);
-    ++n;
-  }
-  return n;
-}
-
-void Server::processQueuedRequest(QueuedRequest& qr) {
-  log().debug << "Processing request from queue";
-  std::string response = handleRequest(qr.request);
-  sendResponse(qr.fd, response);
-}
-
-void Server::handlerWorkerLoop() {
-  while (!handlerStop_.load()) {
-    QueuedRequest qr;
-    if (!requestQueue_.waitPop(qr, std::chrono::milliseconds(50))) {
-      continue;
-    }
-    processQueuedRequest(qr);
-  }
-}
-
 void Server::startRequestHandlers() {
   if (handlerPool_) {
     return;
@@ -157,14 +119,9 @@ void Server::startRequestHandlers() {
     workers = defaultHandlerWorkers();
   }
   workers = std::clamp(workers, WorkerPool::kMinThreadCount, WorkerPool::kMaxThreadCount);
-  handlerWorkerCount_ = workers;
 
   handlerPool_ = std::make_unique<WorkerPool>(workers);
   handlerStop_.store(false);
-
-  for (size_t i = 0; i < workers; ++i) {
-    handlerPool_->Post(WorkerLane::Normal, [this]() { handlerWorkerLoop(); });
-  }
 
   log().info << "Started " << workers << " RPC handler worker(s)";
 }
@@ -177,58 +134,8 @@ void Server::stopRequestHandlers() {
   }
 }
 
-Service::Roe<void> Server::startFetchServer(const network::IpEndpoint& endpoint) {
-  fetchServer_.redirectLogger(log().getFullName() + ".FetchServer");
-
-  if (performanceConfig_.maxRequestQueueSize > 0) {
-    requestQueue_.setMaxSize(performanceConfig_.maxRequestQueueSize);
-  }
-
-  network::FetchServer::Config config;
-  config.endpoint = endpoint;
-  config.performance = performanceConfig_;
-  config.handler = [this](int fd, const std::string& request,
-                          const network::IpEndpoint& peer) {
-    QueuedRequest qr;
-    qr.fd = fd;
-    qr.request = request;
-    if (!requestQueue_.tryPush(std::move(qr))) {
-      log().warning << "Request queue full; rejecting request from " << peer.address;
-      network::socketClose(fd);
-      return;
-    }
-    log().debug << "Request enqueued (queue size: " << getRequestQueueSize() << ")";
-  };
-
-  customizeFetchServerConfig(config);
-
-  auto started = fetchServer_.start(config);
-  if (!started) {
-    return started;
-  }
-
-  startRequestHandlers();
-  return {};
-}
-
-void Server::stopFetchServer() {
-  stopRequestHandlers();
-  fetchServer_.stop();
-}
-
 void Server::onStop() {
-  stopFetchServer();
-#ifdef PP_LEDGER_HAS_AMP
   stopAmpServer();
-#endif
-}
-
-void Server::sendResponse(int fd, const std::string& response) {
-  auto addResponseResult = fetchServer_.tryWriteResponse(fd, response);
-  if (!addResponseResult) {
-    log().error << "Failed to queue response: " << addResponseResult.error().message;
-    network::socketClose(fd);
-  }
 }
 
 std::string Server::dispatchUnframedRequest(const std::string& requestBody) {
@@ -244,19 +151,27 @@ std::string Server::handleRequest(const std::string& request) {
   return handleParsedRequest(reqResult.value());
 }
 
-#ifdef PP_LEDGER_HAS_AMP
+std::string Server::listenMultiaddr() const {
+  return ampSupport_ ? ampSupport_->listenMultiaddr() : std::string{};
+}
+
+network::LedgerAmpRuntime* Server::ampRuntime() {
+  return ampSupport_ ? &ampSupport_->runtime() : nullptr;
+}
+
+pp::amp::PeerLinkManager* Server::peerLinks() {
+  return ampSupport_ ? &ampSupport_->links() : nullptr;
+}
+
 Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");
   }
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  WorkerPool* pool = handlerPool_ ? handlerPool_.get() : nullptr;
-  if (!pool && !handlerPool_) {
-    startRequestHandlers();
-    pool = handlerPool_.get();
-  }
+  startRequestHandlers();
   auto started = ampSupport_->Start(
-      config, [this](const std::string& body) { return dispatchUnframedRequest(body); }, pool);
+      config, [this](const std::string& body) { return dispatchUnframedRequest(body); },
+      handlerPool_.get());
   if (!started) {
     ampSupport_.reset();
     return started;
@@ -266,11 +181,11 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
 }
 
 void Server::stopAmpServer() {
+  stopRequestHandlers();
   if (ampSupport_) {
     ampSupport_->Stop();
     ampSupport_.reset();
   }
 }
-#endif
 
 } // namespace pp

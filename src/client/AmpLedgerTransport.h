@@ -19,6 +19,9 @@ public:
   void setPeerKey(std::string peer_key) { peer_key_ = std::move(peer_key); }
   const std::string& peerKey() const { return peer_key_; }
 
+  pp::amp::PeerLinkManager& links() { return links_; }
+  const pp::amp::PeerLinkManager& links() const { return links_; }
+
   void setIoPump(IoPump pump) { io_pump_ = std::move(pump); }
 
   Roe<std::string> roundTrip(const std::string& requestBody, std::chrono::milliseconds timeout) override;

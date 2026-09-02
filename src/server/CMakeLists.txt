@@ -28,11 +28,7 @@ target_link_libraries(pp_server PUBLIC
     pp_client
     pp_consensus
     pp_network
+    pp_ledger_amp
 )
 
-if(PP_LEDGER_AMP)
-  target_compile_definitions(pp_server PUBLIC PP_LEDGER_HAS_AMP)
-  target_link_libraries(pp_server PUBLIC pp_ledger_amp)
-endif()
-
-message(STATUS "Server configured with TCP network support")
+message(STATUS "Server configured with AMP network support")
