@@ -49,6 +49,8 @@ Three types of node keep the network running. They have distinct, non-overlappin
 | **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | No | Yes |
 | **Miner** | Elected participant who packages and adds new blocks; earns fees | Yes | partial |
 
+Network interaction (uniform upstream, realization, sync): [ledger-topology.md](ledger-topology.md).
+
 Miners and clients use the **same RPC** against any upstream endpoint (`beacons[]` in config).
 They do not learn whether the peer is a relay or the terminal beacon. Relays likewise treat
 their configured upstream as opaque. Only the terminal beacon **realizes** authoritative

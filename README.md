@@ -112,7 +112,8 @@ The script initializes a beacon on port 8517 and miners on ports 8518+. Stop wit
 
 The network topology is `Beacon ← Relay ← Miners` (relays may chain). Miners configure
 opaque upstream multiaddrs in `beacons[]` — same RPC whether the hop is a relay or the
-terminal beacon. See [docs/amp-transport.md](docs/amp-transport.md).
+terminal beacon. See [docs/amp-transport.md](docs/amp-transport.md) and
+[docs/ledger-topology.md](docs/ledger-topology.md).
 
 **Test the network** (in another terminal):
 ```bash
