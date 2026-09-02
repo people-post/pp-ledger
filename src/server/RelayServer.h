@@ -139,6 +139,8 @@ private:
   std::map<uint32_t, Handler> requestHandlers_;
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
+  uint64_t registryVersion_{0};
+  std::string networkId_;
 };
 
 } // namespace pp

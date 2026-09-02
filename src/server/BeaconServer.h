@@ -104,6 +104,7 @@ private:
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
     std::string ampKey{ "keys/amp-identity.txt" };
+    std::string networkId;
     std::vector<std::string> whitelist;
 
     pp::common::Object ltsToJson();
@@ -119,6 +120,7 @@ private:
   struct Config {
     NetworkConfig network;
     Chain::CheckpointConfig checkpoint;
+    std::string network_id;
   };
 
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
@@ -148,6 +150,7 @@ private:
   std::map<uint32_t, Handler> requestHandlers_;
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
+  uint64_t registryVersion_{0};
 };
 
 } // namespace pp

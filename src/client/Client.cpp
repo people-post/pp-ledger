@@ -135,6 +135,15 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   m.setUIntForJson("currentSlot", currentSlot);
   m.setUIntForJson("currentEpoch", currentEpoch);
   m.setUIntForJson("nStakeholders", nStakeholders);
+  if (!networkId.empty()) {
+    m.set("networkId", networkId);
+  }
+  if (!headHash.empty()) {
+    m.set("headHash", headHash);
+  }
+  if (registryVersion != 0) {
+    m.setUIntForJson("registryVersion", registryVersion);
+  }
   return m;
 }
 
@@ -145,6 +154,9 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
   currentSlot = meta.getNonNegInt("currentSlot").value_or(0);
   currentEpoch = meta.getNonNegInt("currentEpoch").value_or(0);
   nStakeholders = meta.getNonNegInt("nStakeholders").value_or(0);
+  networkId = meta.getOrDefault("networkId", std::string{});
+  headHash = meta.getOrDefault("headHash", std::string{});
+  registryVersion = meta.getNonNegInt("registryVersion").value_or(0);
   return true;
 }
 

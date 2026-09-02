@@ -275,33 +275,40 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
   if (nextBlockId >= latestBlockId) {
     log().info << "Already in sync: next block " << nextBlockId
                << ", beacon latest " << latestBlockId;
-    return {};
-  }
+  } else {
+    log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
 
-  log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
+    for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
+      auto blockResult = client_.fetchBlock(blockId);
+      if (!blockResult) {
+        return Error(E_NETWORK,
+                     "Failed to fetch block " + std::to_string(blockId) +
+                         " from beacon: " + blockResult.error().message);
+      }
 
-  for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
-    auto blockResult = client_.fetchBlock(blockId);
-    if (!blockResult) {
-      return Error(E_NETWORK,
-                   "Failed to fetch block " + std::to_string(blockId) +
-                       " from beacon: " + blockResult.error().message);
+      Ledger::ChainNode block = blockResult.value();
+      block.hash = relay_.calculateHash(block.block);
+
+      auto addResult = relay_.addBlock(block);
+      if (!addResult) {
+        return Error(E_RELAY, "Failed to add block " + std::to_string(blockId) +
+                                  ": " + addResult.error().message);
+      }
+
+      log().debug << "Synced block " << blockId;
     }
 
-    Ledger::ChainNode block = blockResult.value();
-    block.hash = relay_.calculateHash(block.block);
-
-    auto addResult = relay_.addBlock(block);
-    if (!addResult) {
-      return Error(E_RELAY, "Failed to add block " + std::to_string(blockId) +
-                                ": " + addResult.error().message);
-    }
-
-    log().debug << "Synced block " << blockId;
+    log().info << "Sync complete: " << (latestBlockId - nextBlockId)
+               << " blocks added";
   }
 
-  log().info << "Sync complete: " << (latestBlockId - nextBlockId)
-             << " blocks added";
+  if (auto status = client_.fetchBeaconState()) {
+    registryVersion_ = status.value().registryVersion;
+    if (!status.value().networkId.empty()) {
+      networkId_ = status.value().networkId;
+    }
+  }
+
   return {};
 }
 
@@ -361,6 +368,13 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.currentSlot = relay_.getCurrentSlot();
   state.currentEpoch = relay_.getCurrentEpoch();
   state.nStakeholders = relay_.getStakeholders().size();
+  state.networkId = networkId_;
+  state.registryVersion = registryVersion_;
+  if (state.nextBlockId > 0) {
+    if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {
+      state.headHash = tip.value().hash;
+    }
+  }
 
   return state;
 }
@@ -526,8 +540,22 @@ RelayServer::hRegister(const Client::Request &request) {
   if (!parsed) {
     return Error(E_REQUEST, parsed.error().message);
   }
+  if (config_.network.beacon_multiaddr.empty()) {
+    return Error(E_CONFIG, "No upstream configured");
+  }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
+  }
+  auto stateResult = client_.registerMinerServer(minerInfo);
+  if (!stateResult) {
+    return Error(E_NETWORK, "Upstream register failed: " + stateResult.error().message);
+  }
   registerServer(minerInfo);
-  return utl::binaryPack(buildStateResponse().ltsToMeta());
+  registryVersion_ = stateResult.value().registryVersion;
+  if (!stateResult.value().networkId.empty()) {
+    networkId_ = stateResult.value().networkId;
+  }
+  return utl::binaryPack(stateResult.value().ltsToMeta());
 }
 
 RelayServer::Roe<std::string>
@@ -594,10 +622,24 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 
 RelayServer::Roe<std::string>
 RelayServer::hMinerList(const Client::Request & /*request*/) {
+  if (config_.network.beacon_multiaddr.empty()) {
+    return Error(E_CONFIG, "No upstream configured");
+  }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
+  }
+  auto minerListResult = client_.fetchMinerList();
+  if (!minerListResult) {
+    return Error(E_NETWORK,
+                 "Failed to fetch miner list from upstream: " +
+                     minerListResult.error().message);
+  }
+  mMiners_.clear();
   std::vector<pp::common::Meta> list;
-  list.reserve(mMiners_.size());
-  for (const auto &[id, info] : mMiners_) {
-    list.push_back(info.ltsToMeta());
+  list.reserve(minerListResult.value().size());
+  for (const auto &miner : minerListResult.value()) {
+    mMiners_[miner.id] = miner;
+    list.push_back(miner.ltsToMeta());
   }
   return utl::binaryPack(list);
 }

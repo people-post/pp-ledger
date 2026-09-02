@@ -165,6 +165,10 @@ public:
     uint64_t currentSlot { 0 };
     uint64_t currentEpoch { 0 };
     uint64_t nStakeholders { 0 };
+    /** Optional STATUS v2 fields (see docs/ledger-topology.md). */
+    std::string networkId;
+    std::string headHash;
+    uint64_t registryVersion{ 0 };
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
