@@ -82,30 +82,25 @@ pp-node relay stays **on** regardless of whether any pp-browser instance is mini
 
 ---
 
-## Networking: TCP vs libp2p
+## Networking: AMP (standalone) vs libp2p (pp-browser)
 
 ### Principle
 
 **Do not embed libp2p inside pp-ledger core.** pp-ledger owns the **RPC contract**;
 transports are pluggable.
 
-Today’s wire contract (standalone):
+Standalone fleet wire contract (see [amp-transport.md](amp-transport.md)):
 
 ```text
-TCP connect → u32 BE length + Client::Request → u32 BE length + response → close
+AMP/UDP associate → /pp-ledger/rpc/1.0.0 channel → binaryPack(Request/Response)
 ```
 
-Each connection carries **one** request/response pair (short-lived TCP). Public-facing
-relay/miner servers enforce per-IP caps, connection/RPC rate limits, read timeouts, and
-a 512 KiB default payload cap via `SecurityConfig::publicDefaults()` and
-`ConnectionGuard`. Trusted beacon servers use higher limits (`trustedDefaults()`).
-Handler work runs on a bounded queue + worker pool in `Server`; I/O stays on
-`FetchServer`.
+TCP fetch and DHT are **retired** for standalone binaries.
 
 `Client::Request` = `{ version, type, payload }` (`src/client/Client.h`). Beacon,
-miner, and relay servers implement the same handler surface via
-`Server::handleParsedRequest`. **`LedgerFrameCodec`** (`src/network/LedgerFrameCodec.h`)
-is the canonical u32 BE length-prefix implementation (max payload 16 MiB).
+miner, and relay servers implement the **same** handler surface via
+`Server::handleParsedRequest` — downstream peers do not distinguish gateway from terminal
+beacon on the wire.
 
 ### Transport layers (landed in pp-ledger)
 
@@ -124,10 +119,10 @@ is the canonical u32 BE length-prefix implementation (max payload 16 MiB).
 |------|-----------|
 | UI → local miner (pp-browser, same process) | **In-process** |
 | pp-browser miner → **pp-node** relay | **Libp2p** `/pp-ledger/rpc/1.0.0` |
-| pp-node relay → internet upstream relay/beacon | **TCP** (existing fetch protocol) |
-| Standalone `pp-miner` → `pp-relay` | **TCP** (until fleet migrates) |
+| pp-node relay → upstream relay / beacon | **AMP** (same RPC bytes) |
+| Standalone `pp-miner` → `pp-relay` (or beacon) | **AMP** `/pp-ledger/rpc/1.0.0` |
 | pp-browser volunteer relay → peers | **Libp2p** |
-| pp-browser volunteer relay → upstream | **TCP** and/or libp2p to pp-node |
+| pp-browser volunteer relay → upstream | Libp2p and/or AMP to pp-node |
 
 ### pp-node as protocol gateway
 
@@ -137,7 +132,7 @@ different sockets:
 ```text
   pp-browser miner ──libp2p /pp-ledger/rpc/1.0.0──► pp-node relay
                                                           │
-                                                          │ TCP fetch
+                                                          │ AMP (same RPC)
                                                           ▼
                                                     upstream relay / beacon
 ```

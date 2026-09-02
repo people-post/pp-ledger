@@ -9,11 +9,29 @@
 #include <mldsa_native.h>
 
 #include <array>
-#include <cstdio>
+#include <sstream>
 
 namespace pp {
 namespace network {
 namespace {
+
+bool ParseIpv4Host(const std::string& host, std::array<int, 4>& octets) {
+  std::istringstream stream(host);
+  char dot = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (!(stream >> octets[static_cast<size_t>(i)]) || octets[static_cast<size_t>(i)] < 0 ||
+        octets[static_cast<size_t>(i)] > 255) {
+      return false;
+    }
+    if (i < 3) {
+      if (!(stream >> dot) || dot != '.') {
+        return false;
+      }
+    }
+  }
+  std::string trailing;
+  return !(stream >> trailing);
+}
 
 pp::amp::MshIdentity IdentityFromPrivateKeyBytes(const std::string& private_key) {
   pp::amp::MshIdentity identity;
@@ -33,17 +51,10 @@ pp::Roe<pp::adp::IpEndpoint> HostPortToEndpoint(const std::string& host, uint16_
   if (host == "localhost") {
     return pp::adp::IpEndpoint::V4(127, 0, 0, 1, port);
   }
-  int a = 0;
-  int b = 0;
-  int c = 0;
-  int d = 0;
-  char dot = 0;
-  if (std::sscanf(host.c_str(), "%d%c%d%c%d%c%d", &a, &dot, &b, &dot, &c, &dot, &d) == 4 && dot == '.') {
-    if (a < 0 || a > 255 || b < 0 || b > 255 || c < 0 || c > 255 || d < 0 || d > 255) {
-      return pp::Error("invalid IPv4 host");
-    }
-    return pp::adp::IpEndpoint::V4(static_cast<uint8_t>(a), static_cast<uint8_t>(b),
-                                   static_cast<uint8_t>(c), static_cast<uint8_t>(d), port);
+  std::array<int, 4> octets{};
+  if (ParseIpv4Host(host, octets)) {
+    return pp::adp::IpEndpoint::V4(static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
+                                   static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3]), port);
   }
   return pp::Error("unsupported beacon host (use IPv4 or localhost)");
 }

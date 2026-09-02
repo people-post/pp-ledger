@@ -22,6 +22,23 @@ TCP fetch (`FetchServer` / `TcpLedgerTransport`) and BitTorrent DHT (`DhtRunner`
 | Payload | Unframed `binaryPack(Client::Request/Response)` — **no** u32 `LedgerFrameCodec` |
 | Max size | 512 KiB (`ledger::rpc::kMaxPayloadBytes`) |
 
+## Topology (uniform upstream)
+
+Beacon, relay, and miner expose the **same** `/pp-ledger/rpc/1.0.0` handler surface. Downstream
+participants do **not** distinguish relay from beacon on the wire — config fields such as
+`beacons[]` (miner) and `beacon` (relay) name **opaque upstream endpoints** only.
+
+- **Gateways** (relay, edge relay, pp-node): cache chain data, forward mutating RPCs upstream,
+  and may chain (`relay → relay → …`).
+- **Terminal beacon**: the only node that **realizes** authoritative mutations (e.g. commits
+  `BLOCK_ADD` to the canonical chain). A gateway must not return success on a mutating RPC unless
+  its upstream path succeeded (write-through).
+- **Reads** (`BLOCK_GET`, `ACCOUNT_GET`, …): gateways may serve from a local replica and
+  backfill from upstream on miss.
+
+Ops chooses what sits behind each multiaddr; miners and clients validate **chain state**
+(crypto, checkpoints, consistency across multiple upstreams), not peer role.
+
 ## Dependency
 
 pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v0.1.2** (includes ADP keepalive).
@@ -62,12 +79,12 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
   "host": "0.0.0.0",
   "port": 8518,
   "beacons": [
-    "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"
+    "/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<upstream-peer-id>"
   ]
 }
 ```
 
-Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
+`beacons[]` lists one or more upstream ledger endpoints (relay or terminal beacon). Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
 
 **Relay** (default port 8519):
 
@@ -75,11 +92,14 @@ Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
 {
   "port": 8519,
   "keys": ["keys/amp-identity.txt"],
-  "beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"
+  "beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<upstream-peer-id>"
 }
 ```
 
-On startup, each server logs its listen multiaddr. Copy the beacon multiaddr into miner/relay configs.
+Relay `beacon` is a single **upstream** endpoint (terminal beacon or another relay).
+
+On startup, each server logs its listen multiaddr. Copy that multiaddr into downstream
+`beacons[]` / relay `beacon` configs as needed.
 
 ## Client (`pp-client`)
 
