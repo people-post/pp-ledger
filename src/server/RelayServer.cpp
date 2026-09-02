@@ -1,6 +1,7 @@
 #include "RelayServer.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
+#include "../network/amp/AmpIdentity.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
@@ -31,66 +32,29 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 }
 } // namespace
 
-
-// ============ BeaconConfig methods ============
-
-Object RelayServer::BeaconConfig::ltsToJson() {
-  Object j;
-  j.set("host", host);
-  j.setJsonUInt("port", port);
-  j.setJsonUInt("dhtPort", dhtPort);
-  return j;
-}
-
-RelayServer::Roe<void> RelayServer::BeaconConfig::ltsFromJson(const Object &jd) {
-  auto hostOpt = jd.getString("host");
-  if (!hostOpt) {
-    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
-                                               : "Field 'host' is required");
-  }
-  host = *hostOpt;
-  if (host.empty()) {
-    return Error(E_CONFIG, "Field 'host' cannot be empty");
-  }
-  auto portValue = jd.getNonNegInt("port");
-  if (!portValue || *portValue == 0 || *portValue > 65535) {
-    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-  }
-  port = static_cast<uint16_t>(*portValue);
-  auto dhtPortValue = jd.getNonNegInt("dhtPort");
-  if (!dhtPortValue || *dhtPortValue > 65535) {
-    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-  }
-  dhtPort = static_cast<uint16_t>(*dhtPortValue);
-  return {};
-}
-
 // ============ RunFileConfig methods ============
 
 Object RelayServer::RunFileConfig::ltsToJson() {
   Object j;
-  j.set("host", host);
   j.setJsonUInt("port", port);
-  j.setJsonUInt("dhtPort", dhtPort);
-  j.set("beacon", beacon.ltsToJson());
+  std::vector<Value> keyVals;
+  for (const auto &k : keys) {
+    keyVals.push_back(k);
+  }
+  j.set("keys", Object::array(std::move(keyVals)));
+  if (!beacon.empty()) {
+    j.set("beacon", beacon);
+  } else {
+    Object beaconObj;
+    beaconObj.set("host", Client::DEFAULT_HOST);
+    beaconObj.setJsonUInt("port", Client::DEFAULT_BEACON_PORT);
+    j.set("beacon", beaconObj);
+  }
   return j;
 }
 
 RelayServer::Roe<void>
 RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
-  if (jd.contains("host")) {
-    auto hostOpt = jd.getString("host");
-    if (!hostOpt) {
-      return Error(E_CONFIG, "Field 'host' must be a string");
-    }
-    host = *hostOpt;
-    if (host.empty()) {
-      return Error(E_CONFIG, "Field 'host' cannot be empty");
-    }
-  } else {
-    host = Client::DEFAULT_HOST;
-  }
-
   if (jd.contains("port")) {
     auto portValue = jd.getNonNegInt("port");
     if (!portValue || *portValue == 0 || *portValue > 65535) {
@@ -98,26 +62,53 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     }
     port = static_cast<uint16_t>(*portValue);
   } else {
-    port = Client::DEFAULT_BEACON_PORT;
+    port = DEFAULT_RELAY_PORT;
   }
 
-  const Object *jb = jd.getObject("beacon");
-  if (!jb) {
-    return Error(E_CONFIG, jd.contains("beacon")
-                               ? "Field 'beacon' must be an object"
-                               : "Field 'beacon' is required");
-  }
-  auto br = beacon.ltsFromJson(*jb);
-  if (!br) {
-    return br;
-  }
-
-  if (jd.contains("dhtPort")) {
-    auto v = jd.getNonNegInt("dhtPort");
-    if (!v || *v > 65535) {
-      return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
+  if (jd.contains("keys")) {
+    const Array *keysArr = jd.getArray("keys");
+    if (!keysArr) {
+      return Error(E_CONFIG, "Field 'keys' must be an array");
     }
-    dhtPort = static_cast<uint16_t>(*v);
+    keys.clear();
+    for (size_t i = 0; i < keysArr->elements.size(); ++i) {
+      auto keyFile = asString(keysArr->elements[i]);
+      if (!keyFile) {
+        return Error(E_CONFIG,
+                     "All elements in 'keys' array must be strings (index " +
+                         std::to_string(i) + " is not)");
+      }
+      if (keyFile->empty()) {
+        return Error(E_CONFIG, "Key file at index " + std::to_string(i) +
+                                   " cannot be empty");
+      }
+      keys.push_back(*keyFile);
+    }
+    if (keys.empty()) {
+      return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
+    }
+  } else {
+    keys = {FILE_AMP_IDENTITY};
+  }
+
+  if (auto beaconStr = jd.getString("beacon")) {
+    auto ma = network::ParseBeaconMultiaddrString(*beaconStr);
+    if (!ma) {
+      return Error(E_CONFIG, "Failed to parse beacon multiaddr: " + ma.error().message);
+    }
+    beacon = std::move(*ma);
+  } else {
+    const Object *beaconObj = jd.getObject("beacon");
+    if (!beaconObj) {
+      return Error(E_CONFIG, jd.contains("beacon")
+                                 ? "Field 'beacon' must be a multiaddr string or object"
+                                 : "Field 'beacon' is required");
+    }
+    auto ma = network::ParseBeaconMultiaddr(*beaconObj);
+    if (!ma) {
+      return Error(E_CONFIG, "Failed to parse beacon configuration: " + ma.error().message);
+    }
+    beacon = std::move(*ma);
   }
 
   return {};
@@ -129,12 +120,11 @@ RelayServer::RelayServer() {
   redirectLogger("RelayServer");
   relay_.redirectLogger(log().getFullName() + ".Relay");
   client_.redirectLogger(log().getFullName() + ".Client");
-  dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
-  setPerformanceConfig(network::PerformanceConfig{});
 }
 
-void RelayServer::customizeFetchServerConfig(network::FetchServer::Config& config) {
-  config.security = network::SecurityConfig::publicDefaults();
+Client::Roe<void> RelayServer::dialPeerMultiaddr(const std::string& multiaddr,
+                                                 const std::string& peer_key) {
+  return client_.setAmpPeer(peer_key, multiaddr);
 }
 
 Service::Roe<void> RelayServer::onStart() {
@@ -182,34 +172,43 @@ Service::Roe<void> RelayServer::onStart() {
   }
 
   // Apply configuration from RunFileConfig
-  config_.network.endpoint.address = runFileConfig.host;
-  config_.network.endpoint.port = runFileConfig.port;
-  config_.network.beacon.address = runFileConfig.beacon.host;
-  config_.network.beacon.port = runFileConfig.beacon.port;
-  config_.network.beaconDhtPort = runFileConfig.beacon.dhtPort;
+  config_.network.udp_port = runFileConfig.port;
+  config_.network.beacon_multiaddr = runFileConfig.beacon;
+  config_.network.privateKeys.clear();
+  for (const auto &keyFile : runFileConfig.keys) {
+    auto keyResult = utl::readPrivateKey(keyFile, getWorkDir());
+    if (!keyResult) {
+      return Service::Error(E_CONFIG,
+                            "Failed to load key '" + keyFile + "': " +
+                                keyResult.error().message);
+    }
+    config_.network.privateKeys.push_back(keyResult.value());
+  }
 
   log().info << "Configuration loaded";
-  log().info << "  Endpoint: " << config_.network.endpoint;
-  log().info << "  Beacon: " << config_.network.beacon
-             << " (DHT UDP " << config_.network.beaconDhtPort << ")";
+  log().info << "  UDP port: " << config_.network.udp_port;
+  log().info << "  Beacon: " << config_.network.beacon_multiaddr;
 
-  auto serverStarted = startFetchServer(config_.network.endpoint);
+  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.network.privateKeys.front(),
+                                                       config_.network.udp_port);
+  if (!ampCfg) {
+    return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
+  }
+  auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
-    return Service::Error(E_NETWORK, "Failed to start FetchServer: " +
+    return Service::Error(E_NETWORK, "Failed to start AMP server: " +
                                          serverStarted.error().message);
   }
 
-  // Start DHT (bootstrap from beacon's DHT endpoint)
-  network::DhtRunner::Config dhtConfig;
-  network::IpEndpoint beacon = {config_.network.beacon.address, config_.network.beaconDhtPort};
-  dhtConfig.bootstrapEndpoints = {beacon.ltsToString()};
-  dhtConfig.dhtPort = runFileConfig.dhtPort;
-  dhtConfig.myTcpPort = config_.network.endpoint.port;
-  dhtConfig.networkId = network::DhtRunner::getDefaultNetworkId();
-  dhtConfig.nodeIdPath = getWorkDir() + "/dht-node.id";
-  auto dhtStart = dhtRunner_.start(dhtConfig);
-  if (!dhtStart) {
-    return Service::Error(E_NETWORK, "Failed to start DHT: " + dhtStart.error().message);
+  if (!ampRuntime()) {
+    return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
+  }
+  client_.attachAmpTransport(ampRuntime()->links(), ampRuntime()->ioPump(), "beacon");
+
+  if (!config_.network.beacon_multiaddr.empty()) {
+    if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+      return Service::Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
+    }
   }
 
   // Initialize Relay with starting block id 0 (no beacon sync, no block
@@ -254,11 +253,15 @@ Service::Roe<void> RelayServer::onStart() {
 }
 
 RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
-  std::string beaconAddr =
-      config_.network.beacon.address + ":" + std::to_string(config_.network.beacon.port);
-  log().info << "Syncing blocks from beacon: " << beaconAddr;
+  if (config_.network.beacon_multiaddr.empty()) {
+    return Error(E_CONFIG, "No beacon server configured");
+  }
 
-  client_.setEndpoint(config_.network.beacon);
+  log().info << "Syncing blocks from beacon: " << config_.network.beacon_multiaddr;
+
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
 
   auto calibrationResult = client_.fetchCalibration();
   if (!calibrationResult) {
@@ -334,7 +337,6 @@ void RelayServer::initHandlers() {
 };
 
 void RelayServer::onStop() {
-  dhtRunner_.stop();
   Server::onStop();
   log().info << "RelayServer resources cleaned up";
 }
@@ -455,7 +457,9 @@ RelayServer::hBlockAdd(const Client::Request &request) {
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
-  client_.setEndpoint(config_.network.beacon);
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
+  }
   auto result = client_.addBlock(block);
   if (!result) {
     return Error(E_NETWORK, result.error().message);
@@ -543,7 +547,12 @@ RelayServer::hCalibration(const Client::Request & /*request*/) {
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
-  client_.setEndpoint(config_.network.beacon);
+  if (config_.network.beacon_multiaddr.empty()) {
+    return Error(E_CONFIG, "No beacon server configured");
+  }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
 
   struct Sample {
     int64_t offsetMs;
