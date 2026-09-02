@@ -82,30 +82,25 @@ pp-node relay stays **on** regardless of whether any pp-browser instance is mini
 
 ---
 
-## Networking: TCP vs libp2p
+## Networking: AMP (standalone) vs libp2p (pp-browser)
 
 ### Principle
 
 **Do not embed libp2p inside pp-ledger core.** pp-ledger owns the **RPC contract**;
 transports are pluggable.
 
-Today’s wire contract (standalone):
+Standalone fleet wire contract (see [amp-transport.md](amp-transport.md)):
 
 ```text
-TCP connect → u32 BE length + Client::Request → u32 BE length + response → close
+AMP/UDP associate → /pp-ledger/rpc/1.0.0 channel → binaryPack(Request/Response)
 ```
 
-Each connection carries **one** request/response pair (short-lived TCP). Public-facing
-relay/miner servers enforce per-IP caps, connection/RPC rate limits, read timeouts, and
-a 512 KiB default payload cap via `SecurityConfig::publicDefaults()` and
-`ConnectionGuard`. Trusted beacon servers use higher limits (`trustedDefaults()`).
-Handler work runs on a bounded queue + worker pool in `Server`; I/O stays on
-`FetchServer`.
+TCP fetch and DHT are **retired** for standalone binaries.
 
 `Client::Request` = `{ version, type, payload }` (`src/client/Client.h`). Beacon,
-miner, and relay servers implement the same handler surface via
-`Server::handleParsedRequest`. **`LedgerFrameCodec`** (`src/network/LedgerFrameCodec.h`)
-is the canonical u32 BE length-prefix implementation (max payload 16 MiB).
+miner, and relay servers implement the **same** handler surface via
+`Server::handleParsedRequest` — downstream peers do not distinguish gateway from terminal
+beacon on the wire.
 
 ### Transport layers (landed in pp-ledger)
 

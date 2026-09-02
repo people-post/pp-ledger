@@ -253,8 +253,8 @@ All requests/responses use JSON format.
 Relay servers sit between beacons and miners:
 
 - **Beacons** are few, trusted, and run by founders/elected stakeholders — they only communicate with trusted relays
-- **Relays** sync blocks from a single upstream beacon and expose the beacon-compatible API to miners
-- **Miners** connect to relays using exactly the same API they would use to connect to a beacon directly
+- **Relays** sync blocks from upstream and expose the same ledger RPC to miners (opaque upstream; may chain)
+- **Miners** connect via `beacons[]` — same API whether the endpoint is a relay or terminal beacon
 
 ### Relay Configuration
 
@@ -442,7 +442,7 @@ Miner is considered out of date if:
 
 **Interaction Flow:**
 - **Beacons** validate and archive blocks, communicate only with trusted relays
-- **Relays** sync blocks from their upstream beacon and serve the beacon-compatible API to miners
+- **Relays** sync blocks from upstream and expose the same ledger RPC to miners (opaque upstream; may chain)
 - **Miners** connect to relays (using the same API as they would use for a beacon directly)
 - **Miners** produce blocks based on stake and submit them via the relay
 - **Beacons** form a network and sync with each other
