@@ -15,7 +15,7 @@ class Server;
 
 namespace network {
 
-/** Optional AMP ingress for pp-ledger Server (when PP_LEDGER_HAS_AMP). */
+/** AMP ingress for pp-ledger Server. */
 class ServerAmpSupport {
 public:
   using DispatchFn = std::function<std::string(const std::string& requestBody)>;
@@ -28,6 +28,9 @@ public:
 
   bool isRunning() const { return runtime_.isRunning(); }
   std::string listenMultiaddr() const { return runtime_.listenMultiaddr(); }
+  LedgerAmpRuntime& runtime() { return runtime_; }
+  pp::amp::PeerLinkManager& links() { return runtime_.links(); }
+  LedgerAmpRuntime::IoPump ioPump() const { return runtime_.ioPump(); }
 
 private:
   LedgerAmpRuntime runtime_;

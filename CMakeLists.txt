@@ -11,12 +11,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(PP_LEDGER_BUILD_APPS "Build pp-beacon, pp-miner, pp-client, pp-relay" ON)
 option(PP_LEDGER_BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 option(PP_LEDGER_BUILD_TESTS "Build the testing tree" OFF)
-option(PP_LEDGER_AMP "Build AMP ledger transport (requires pp-cpp-amp)" OFF)
-
-set(_pp_amp_sibling "${CMAKE_SOURCE_DIR}/../pp-cpp-amp")
-if(EXISTS "${_pp_amp_sibling}/CMakeLists.txt")
-  set(PP_LEDGER_AMP ON CACHE BOOL "Build AMP ledger transport (sibling pp-cpp-amp found)" FORCE)
-endif()
 
 # Back-compat with scripts/docs that pass -DBUILD_HTTP / -DBUILD_TESTING.
 if(BUILD_HTTP)
@@ -36,10 +30,7 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(PpCppCommon)
 include(PpCppCrypto)
-
-if(PP_LEDGER_AMP)
-  include(PpCppAmp)
-endif()
+include(PpCppAmp)
 
 set(PP_SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 

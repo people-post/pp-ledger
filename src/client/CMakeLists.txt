@@ -3,8 +3,8 @@ add_library(pp_client STATIC
     Client.cpp
     Client.h
     ILedgerTransport.h
-    TcpLedgerTransport.cpp
-    TcpLedgerTransport.h
+    AmpLedgerTransport.cpp
+    AmpLedgerTransport.h
     InProcessLedgerTransport.cpp
     InProcessLedgerTransport.h
 )
@@ -18,4 +18,5 @@ target_link_libraries(pp_client PUBLIC
     pp_ledger_common
     pp_ledger
     pp_network
+    pp_ledger_amp
 )

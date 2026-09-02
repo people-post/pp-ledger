@@ -1,57 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(network VERSION 1.0.0 LANGUAGES CXX C)
+project(network VERSION 1.0.0 LANGUAGES CXX)
 
-add_subdirectory(dht)
-
-set(NETWORK_SOURCES
-    BulkWriter.cpp
-    DhtRunner.cpp
-    FetchClient.cpp
-    FetchServer.cpp
-    FetchServerConfig.cpp
-    LedgerFrameCodec.cpp
-    TcpClient.cpp
-    TcpConnection.cpp
-    TcpServer.cpp
-    platform/ConnectionGuard.cpp
-)
-
-set(NETWORK_HEADERS
-    BulkWriter.h
-    DhtRunner.h
-    FetchClient.h
-    FetchServer.h
-    LedgerFrameCodec.h
-    TcpClient.h
-    TcpConnection.h
-    TcpServer.h
-)
-
-if(WIN32)
-  list(APPEND NETWORK_SOURCES
-    platform/SocketOps_Win32.cpp
-    platform/PollWait_Win32.cpp
-    platform/IoMultiplexer_Wsapoll.cpp
-    platform/HostAddress_Win32.cpp
-  )
-elseif(APPLE)
-  list(APPEND NETWORK_SOURCES
-    platform/SocketOps_Posix.cpp
-    platform/PollWait_Posix.cpp
-    platform/IoMultiplexer_Kqueue.cpp
-    platform/HostAddress_Posix.cpp
-  )
-else()
-  list(APPEND NETWORK_SOURCES
-    platform/SocketOps_Posix.cpp
-    platform/PollWait_Posix.cpp
-    platform/IoMultiplexer_Epoll.cpp
-    platform/HostAddress_Posix.cpp
-  )
-endif()
-
-add_library(pp_network STATIC ${NETWORK_SOURCES} ${NETWORK_HEADERS})
+add_library(pp_network STATIC Types.hpp)
 
 target_include_directories(pp_network
     PUBLIC
@@ -62,60 +13,38 @@ target_include_directories(pp_network
 target_link_libraries(pp_network
     PUBLIC
         pp_ledger_common
-        pp_dht
 )
-
-if(WIN32)
-  target_link_libraries(pp_network PUBLIC ws2_32 iphlpapi)
-  target_compile_definitions(pp_network PRIVATE
-    WIN32_LEAN_AND_MEAN
-    NOMINMAX
-    _CRT_SECURE_NO_WARNINGS
-    _WINSOCK_DEPRECATED_NO_WARNINGS
-  )
-endif()
 
 set_target_properties(pp_network PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 1
-    PUBLIC_HEADER "${NETWORK_HEADERS}"
 )
 
-install(TARGETS pp_network
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    PUBLIC_HEADER DESTINATION include/network
+add_library(pp_ledger_amp STATIC
+    AmpLedgerServer.cpp
+    LedgerAmpRuntime.cpp
+    ServerAmpSupport.cpp
+    amp/LedgerPeerId.cpp
+    amp/AmpIdentity.cpp
+)
+
+target_include_directories(pp_ledger_amp PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${PP_SRC_DIR}
+    ${PP_SRC_DIR}/client
+)
+
+target_link_libraries(pp_ledger_amp PUBLIC
+    pp_amp_link
+    pp_ledger_common
+    pp_crypto
+    mldsa_native
+)
+
+target_sources(pp_ledger_amp PRIVATE
+    ${PP_SRC_DIR}/client/AmpLedgerTransport.cpp
 )
 
 if(PP_LEDGER_BUILD_TESTS)
-    add_subdirectory(test)
-endif()
-
-if(PP_LEDGER_AMP)
-    add_library(pp_ledger_amp STATIC
-        AmpLedgerServer.cpp
-        LedgerAmpRuntime.cpp
-        ServerAmpSupport.cpp
-    )
-
-    target_include_directories(pp_ledger_amp PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${PP_SRC_DIR}
-        ${PP_SRC_DIR}/client
-    )
-
-    target_link_libraries(pp_ledger_amp PUBLIC
-        pp_amp_link
-        pp_ledger_common
-    )
-
-    target_sources(pp_ledger_amp PRIVATE
-        ${PP_SRC_DIR}/client/AmpLedgerTransport.cpp
-    )
-
-    target_compile_definitions(pp_ledger_amp PUBLIC PP_LEDGER_HAS_AMP)
-
-    if(PP_LEDGER_BUILD_TESTS)
-        add_subdirectory(amp/test)
-    endif()
+    add_subdirectory(amp/test)
 endif()

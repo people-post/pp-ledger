@@ -4,8 +4,7 @@
 #include "Beacon.h"
 #include "Server.h"
 #include "../client/Client.h"
-#include "../network/DhtRunner.h"
-#include "../network/TcpConnection.h"
+#include "../network/amp/AmpIdentity.h"
 #include "../network/Types.hpp"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
@@ -48,11 +47,6 @@ protected:
   std::string getServerName() const override { return "BeaconServer"; }
   int32_t getRunErrorCode() const override { return E_BEACON; }
 
-  void customizeFetchServerConfig(network::FetchServer::Config &config) override;
-
-  /**
-   * Service thread main loop - processes queued requests
-   */
   void runLoop() override;
 
   /**
@@ -71,6 +65,7 @@ private:
   constexpr static const char* FILE_LOG = "beacon.log";
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
+  constexpr static const char* FILE_AMP_IDENTITY = "keys/amp-identity.txt";
 
   // Default configuration values
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = 7; // 7 seconds per slot
@@ -108,15 +103,16 @@ private:
   struct RunFileConfig {
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
-    uint16_t dhtPort{ Client::DEFAULT_DHT_PORT };
-    std::vector<std::string> whitelist; // Whitelisted beacon addresses
+    std::string ampKey{ "keys/amp-identity.txt" };
+    std::vector<std::string> whitelist;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);
   };
 
   struct NetworkConfig {
-    network::IpEndpoint endpoint;
+    uint16_t udp_port{ Client::DEFAULT_BEACON_PORT };
+    std::string amp_key_path;
     std::vector<std::string> whitelist;
   };
 
@@ -147,7 +143,6 @@ private:
   Config config_;
   Beacon beacon_;
   Client client_;
-  network::DhtRunner dhtRunner_;
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;

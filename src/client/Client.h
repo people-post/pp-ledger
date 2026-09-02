@@ -3,7 +3,8 @@
 
 #include "ILedgerTransport.h"
 #include "InProcessLedgerTransport.h"
-#include "TcpLedgerTransport.h"
+#include "../network/LedgerAmpRuntime.h"
+#include "amp/link/PeerLinkManager.h"
 #include "lib/common/Meta.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
@@ -215,8 +216,11 @@ public:
   Client();
   ~Client() override;
 
-  Roe<void> setEndpoint(const std::string& endpoint);
-  void setEndpoint(const network::IpEndpoint &endpoint);
+  Roe<void> setAmpPeer(const std::string& peer_key, const std::string& multiaddr);
+
+  /** Attach AMP transport using an existing local link manager (servers / CLI). */
+  void attachAmpTransport(pp::amp::PeerLinkManager& links, network::LedgerAmpRuntime::IoPump io_pump,
+                          std::string default_peer_key = "remote");
 
   /** Replace default TCP transport (e.g. in-process for embedded UI). */
   void setTransport(std::unique_ptr<ILedgerTransport> transport);
@@ -242,9 +246,7 @@ private:
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
                                std::chrono::milliseconds timeout = TIMEOUT_FAST);
 
-  void syncTcpTransportEndpoint();
-
-  network::IpEndpoint endpoint_;
+  std::string amp_default_peer_key_{"remote"};
   std::unique_ptr<ILedgerTransport> transport_;
 };
 

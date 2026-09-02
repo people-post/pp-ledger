@@ -197,7 +197,7 @@ Object BeaconServer::RunFileConfig::ltsToJson() {
   Object j;
   j.set("host", host);
   j.setJsonUInt("port", port);
-  j.setJsonUInt("dhtPort", dhtPort);
+  j.set("ampKey", ampKey);
   std::vector<Value> wl;
   for (const auto &w : whitelist) {
     wl.push_back(w);
@@ -229,16 +229,13 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
   }
   port = static_cast<uint16_t>(*portValue);
 
-  auto dhtPortValue = jd.getNonNegInt("dhtPort");
-  if (!dhtPortValue) {
-    return Error(E_CONFIG, jd.contains("dhtPort")
-                               ? "Field 'dhtPort' must be a non-negative integer"
-                               : "Field 'dhtPort' is required");
+  if (jd.contains("ampKey")) {
+    auto keyOpt = jd.getString("ampKey");
+    if (!keyOpt || keyOpt->empty()) {
+      return Error(E_CONFIG, "Field 'ampKey' must be a non-empty string");
+    }
+    ampKey = *keyOpt;
   }
-  if (*dhtPortValue > 65535) {
-    return Error(E_CONFIG, "Field 'dhtPort' must be between 0 and 65535");
-  }
-  dhtPort = static_cast<uint16_t>(*dhtPortValue);
 
   if (jd.contains("whitelist")) {
     const Array *arr = jd.getArray("whitelist");
@@ -264,7 +261,6 @@ BeaconServer::BeaconServer() {
   redirectLogger("BeaconServer");
   beacon_.redirectLogger(log().getFullName() + ".Beacon");
   client_.redirectLogger(log().getFullName() + ".Client");
-  dhtRunner_.redirectLogger(log().getFullName() + ".Dht");
 }
 
 BeaconServer::Roe<Beacon::InitKeyConfig>
@@ -385,6 +381,21 @@ BeaconServer::init(const std::string &workDir) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
 
+  std::filesystem::create_directories(workDirPath / "keys");
+  const std::filesystem::path ampKeyPath = workDirPath / FILE_AMP_IDENTITY;
+  if (!std::filesystem::exists(ampKeyPath)) {
+    auto ampKeys = utl::mlDsaGenerate();
+    if (!ampKeys) {
+      return Error("Failed to generate AMP identity key: " + ampKeys.error().message);
+    }
+    const std::string hexKey = utl::hexEncode(ampKeys->privateKey);
+    auto writeResult = utl::writeToNewFile(ampKeyPath.string(), hexKey + "\n");
+    if (!writeResult) {
+      return Error("Failed to write AMP identity key: " + writeResult.error().message);
+    }
+    log().info << "Created AMP identity key: " << ampKeyPath.string();
+  }
+
   log().info << "Beacon initialized successfully";
   return initConfig.key;
 }
@@ -457,27 +468,15 @@ Service::Roe<void> BeaconServer::onStart() {
   }
 
   // Apply configuration from RunFileConfig
-  config_.network.endpoint.address = runFileConfig.host;
-  config_.network.endpoint.port = runFileConfig.port;
+  config_.network.udp_port = runFileConfig.port;
+  config_.network.amp_key_path = runFileConfig.ampKey;
   config_.network.whitelist = runFileConfig.whitelist;
 
   log().info << "Configuration loaded";
-  log().info << "  Endpoint: " << config_.network.endpoint;
+  log().info << "  UDP port: " << config_.network.udp_port;
+  log().info << "  AMP key: " << config_.network.amp_key_path;
   log().info << "  Whitelisted beacons: "
              << utl::join(config_.network.whitelist, ", ");
-
-  // Start DHT (beacon is the bootstrapping peer; no bootstrap endpoints)
-  network::DhtRunner::Config dhtConfig;
-  dhtConfig.bootstrapEndpoints = {};
-  dhtConfig.dhtPort = runFileConfig.dhtPort;
-  dhtConfig.myTcpPort = config_.network.endpoint.port;
-  dhtConfig.networkId = network::DhtRunner::getDefaultNetworkId();
-  dhtConfig.nodeIdPath = getWorkDir() + "/dht-node.id";
-  auto dhtStart = dhtRunner_.start(dhtConfig);
-  if (!dhtStart) {
-    return Service::Error(E_NETWORK, "Failed to start DHT: " +
-                                        dhtStart.error().message);
-  }
 
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
@@ -491,21 +490,27 @@ Service::Roe<void> BeaconServer::onStart() {
 
   log().info << "Beacon core initialized";
 
-  auto serverStarted = startFetchServer(config_.network.endpoint);
+  auto keyResult = utl::readPrivateKey(config_.network.amp_key_path, getWorkDir());
+  if (!keyResult) {
+    return Service::Error(E_CONFIG, "Failed to load AMP identity key: " + keyResult.error().message);
+  }
+  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(*keyResult, config_.network.udp_port);
+  if (!ampCfg) {
+    return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);
+  }
+
+  auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
-    return Service::Error(-5, "Failed to start FetchServer: " +
-                                  serverStarted.error().message);
+    return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }
 
   initHandlers();
   return {};
 }
 
-void BeaconServer::customizeFetchServerConfig(
-    network::FetchServer::Config& config) {
-  config.whitelist = config_.network.whitelist;
-  config.security = network::SecurityConfig::trustedDefaults();
-  config.performance.maxRequestQueueSize = 8192;
+void BeaconServer::onStop() {
+  Server::onStop();
+  log().info << "BeaconServer resources cleaned up";
 }
 
 void BeaconServer::initHandlers() {
@@ -539,11 +544,6 @@ void BeaconServer::initHandlers() {
   hml = [this](const Client::Request &request) { return hMinerList(request); };
 };
 
-void BeaconServer::onStop() {
-  dhtRunner_.stop();
-  Server::onStop();
-  log().info << "BeaconServer resources cleaned up";
-}
 
 void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
   mMiners_[minerInfo.id] = minerInfo;
