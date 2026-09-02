@@ -66,6 +66,7 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
   "host": "0.0.0.0",
   "port": 8517,
   "ampKey": "keys/amp-identity.txt",
+  "networkId": "pp-testnet-1",
   "whitelist": []
 }
 ```
@@ -87,6 +88,16 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
 ```
 
 `beacons[]` lists one or more upstream ledger endpoints (relay or terminal beacon). Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
+
+Optional network anchor (see [ledger-topology.md](ledger-topology.md#8-network-anchor-participant-config)):
+
+```json
+"networkAnchor": {
+  "networkId": "pp-testnet-1",
+  "genesisHash": "<hex>",
+  "trustedCheckpointId": 0
+}
+```
 
 **Relay** (default port 8519):
 

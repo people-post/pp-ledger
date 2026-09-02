@@ -2,6 +2,7 @@
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "../network/amp/AmpIdentity.h"
+#include "NetworkAnchor.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
@@ -126,6 +127,9 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
     }
     beacons.push_back(std::move(*ma));
   }
+  if (const Object* anchorObj = jd.getObject("networkAnchor")) {
+    network_anchor = NetworkAnchor::fromJson(*anchorObj);
+  }
   return {};
 }
 
@@ -142,6 +146,73 @@ MinerServer::~MinerServer() {}
 Client::Roe<void> MinerServer::dialPeerMultiaddr(const std::string& multiaddr,
                                                  const std::string& peer_key) {
   return client_.setAmpPeer(peer_key, multiaddr);
+}
+
+MinerServer::Roe<void> MinerServer::dialUpstreamIndex(size_t index) {
+  if (index >= config_.network.beacon_multiaddrs.size()) {
+    return Error(E_CONFIG, "upstream index out of range");
+  }
+  auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs[index], "beacon");
+  if (!dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
+  return {};
+}
+
+MinerServer::Roe<void> MinerServer::dialActiveUpstream() {
+  return dialUpstreamIndex(active_upstream_index_);
+}
+
+MinerServer::Roe<void> MinerServer::verifyUpstreamState(const Client::BeaconState& state) {
+  return NetworkAnchor::verifyStatus<Error>(config_.network.network_anchor, state);
+}
+
+MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
+  if (config_.network.network_anchor.genesis_hash.empty()) {
+    return {};
+  }
+  auto block = client_.fetchBlock(0);
+  if (!block) {
+    return Error(E_NETWORK,
+                 "Failed to fetch genesis block for anchor verification: " +
+                     block.error().message);
+  }
+  return NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor,
+                                                 block.value().hash);
+}
+
+MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
+  size_t best = config_.network.beacon_multiaddrs.size();
+  uint64_t best_height = 0;
+  for (size_t i = 0; i < config_.network.beacon_multiaddrs.size(); ++i) {
+    if (auto dial = dialUpstreamIndex(i); !dial) {
+      log().warning << "Skipping upstream [" << i << "] "
+                    << config_.network.beacon_multiaddrs[i] << ": "
+                    << dial.error().message;
+      continue;
+    }
+    auto status = client_.fetchBeaconState();
+    if (!status) {
+      log().warning << "Skipping upstream [" << i << "]: status failed: "
+                    << status.error().message;
+      continue;
+    }
+    if (auto verified = verifyUpstreamState(status.value()); !verified) {
+      log().warning << "Skipping upstream [" << i << "]: " << verified.error().message;
+      continue;
+    }
+    if (status.value().nextBlockId >= best_height) {
+      best_height = status.value().nextBlockId;
+      best = i;
+    }
+  }
+  if (best >= config_.network.beacon_multiaddrs.size()) {
+    return Error(E_NETWORK, "No healthy upstream available");
+  }
+  log().info << "Selected upstream [" << best << "] "
+             << config_.network.beacon_multiaddrs[best] << " (nextBlockId="
+             << best_height << ")";
+  return best;
 }
 
 Service::Roe<void> MinerServer::onStart() {
@@ -205,6 +276,7 @@ Service::Roe<void> MinerServer::onStart() {
   }
   config_.network.udp_port = runFileConfig.port;
   config_.network.beacon_multiaddrs = runFileConfig.beacons;
+  config_.network.network_anchor = runFileConfig.network_anchor;
 
   log().info << "Configuration loaded";
   log().info << "  Miner ID: " << config_.minerId;
@@ -284,6 +356,9 @@ MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
   if (config_.network.beacon_multiaddrs.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
   }
+  if (auto dial = dialActiveUpstream(); !dial) {
+    return Error(E_NETWORK, dial.error().message);
+  }
 
   struct Sample {
     int64_t offsetMs;
@@ -330,11 +405,19 @@ MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  log().info << "Syncing blocks from beacon: " << config_.network.beacon_multiaddrs.front();
-
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs.front(), "beacon"); !dial) {
-    return Error(E_NETWORK, dial.error().message);
+  if (auto dial = dialActiveUpstream(); !dial) {
+    auto best = selectBestUpstreamIndex();
+    if (!best) {
+      return Error(E_NETWORK, best.error().message);
+    }
+    active_upstream_index_ = best.value();
+    if (auto redial = dialActiveUpstream(); !redial) {
+      return Error(E_NETWORK, redial.error().message);
+    }
   }
+
+  const auto& upstream_ma = config_.network.beacon_multiaddrs[active_upstream_index_];
+  log().info << "Syncing blocks from upstream: " << upstream_ma;
 
   auto calibrationResult = client_.fetchCalibration();
   if (!calibrationResult) {
@@ -494,9 +577,19 @@ void MinerServer::refreshMinerListFromBeacon() {
   if (config_.network.beacon_multiaddrs.empty()) {
     return;
   }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs.front(), "beacon"); !dial) {
-    log().warning << "Failed to dial beacon for miner list: " << dial.error().message;
-    return;
+  if (auto dial = dialActiveUpstream(); !dial) {
+    auto best = selectBestUpstreamIndex();
+    if (!best) {
+      log().warning << "Failed to select upstream for miner list: "
+                    << best.error().message;
+      return;
+    }
+    active_upstream_index_ = best.value();
+    if (auto redial = dialActiveUpstream(); !redial) {
+      log().warning << "Failed to dial upstream for miner list: "
+                    << redial.error().message;
+      return;
+    }
   }
   auto minerListResult = client_.fetchMinerList();
   if (minerListResult) {
@@ -843,10 +936,16 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  const auto& beacon_ma = config_.network.beacon_multiaddrs.front();
-  log().info << "Connecting to beacon server: " << beacon_ma;
+  auto best = selectBestUpstreamIndex();
+  if (!best) {
+    return Error(E_NETWORK, best.error().message);
+  }
+  active_upstream_index_ = best.value();
 
-  if (auto dial = dialPeerMultiaddr(beacon_ma, "beacon"); !dial) {
+  const auto& upstream_ma = config_.network.beacon_multiaddrs[active_upstream_index_];
+  log().info << "Connecting to upstream: " << upstream_ma;
+
+  if (auto dial = dialActiveUpstream(); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
 
@@ -856,12 +955,22 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   auto stateResult = client_.registerMinerServer(minerInfo);
   if (!stateResult) {
     return Error(E_NETWORK,
-                 "Failed to get beacon state: " + stateResult.error().message);
+                 "Failed to register with upstream: " + stateResult.error().message);
   }
 
   const auto &state = stateResult.value();
+  if (auto verified = verifyUpstreamState(state); !verified) {
+    return Error(E_NETWORK, verified.error().message);
+  }
+  if (auto genesis = verifyGenesisAnchor(); !genesis) {
+    return Error(E_NETWORK, genesis.error().message);
+  }
+
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
+  if (!state.networkId.empty()) {
+    log().info << "Network ID: " << state.networkId;
+  }
 
   return state;
 }

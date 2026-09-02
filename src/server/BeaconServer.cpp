@@ -198,6 +198,9 @@ Object BeaconServer::RunFileConfig::ltsToJson() {
   j.set("host", host);
   j.setJsonUInt("port", port);
   j.set("ampKey", ampKey);
+  if (!networkId.empty()) {
+    j.set("networkId", networkId);
+  }
   std::vector<Value> wl;
   for (const auto &w : whitelist) {
     wl.push_back(w);
@@ -235,6 +238,14 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
       return Error(E_CONFIG, "Field 'ampKey' must be a non-empty string");
     }
     ampKey = *keyOpt;
+  }
+
+  if (jd.contains("networkId")) {
+    auto idOpt = jd.getString("networkId");
+    if (!idOpt || idOpt->empty()) {
+      return Error(E_CONFIG, "Field 'networkId' must be a non-empty string when set");
+    }
+    networkId = *idOpt;
   }
 
   if (jd.contains("whitelist")) {
@@ -471,6 +482,7 @@ Service::Roe<void> BeaconServer::onStart() {
   config_.network.udp_port = runFileConfig.port;
   config_.network.amp_key_path = runFileConfig.ampKey;
   config_.network.whitelist = runFileConfig.whitelist;
+  config_.network_id = runFileConfig.networkId;
 
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
@@ -547,6 +559,7 @@ void BeaconServer::initHandlers() {
 
 void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
   mMiners_[minerInfo.id] = minerInfo;
+  ++registryVersion_;
   log().debug << "Updated miner record: " << minerInfo.id << " " << minerInfo.endpoint;
 }
 
@@ -564,6 +577,13 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.currentSlot = beacon_.getCurrentSlot();
   state.currentEpoch = beacon_.getCurrentEpoch();
   state.nStakeholders = beacon_.getStakeholders().size();
+  state.networkId = config_.network_id;
+  state.registryVersion = registryVersion_;
+  if (state.nextBlockId > 0) {
+    if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
+      state.headHash = tip.value().hash;
+    }
+  }
 
   return state;
 }

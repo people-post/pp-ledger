@@ -2,6 +2,7 @@
 #define PP_LEDGER_MINER_SERVER_H
 
 #include "Miner.h"
+#include "NetworkAnchor.h"
 #include "Server.h"
 #include "../client/Client.h"
 #include "../network/Types.hpp"
@@ -57,6 +58,7 @@ private:
     std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_MINER_PORT };
     std::vector<std::string> beacons;
+    NetworkAnchor network_anchor;
 
     pp::common::Object ltsToJson() const;
     Roe<void> ltsFromJson(const pp::common::Object& jd);
@@ -65,6 +67,7 @@ private:
   struct NetworkConfig {
     uint16_t udp_port{ Client::DEFAULT_MINER_PORT };
     std::vector<std::string> beacon_multiaddrs;
+    NetworkAnchor network_anchor;
   };
 
   struct Config {
@@ -87,6 +90,11 @@ private:
   void retryCachedTransactionForwards();
   Roe<void> broadcastBlock(const Ledger::ChainNode& block);
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
+  Roe<void> dialUpstreamIndex(size_t index);
+  Roe<void> dialActiveUpstream();
+  Roe<size_t> selectBestUpstreamIndex();
+  Roe<void> verifyUpstreamState(const Client::BeaconState& state);
+  Roe<void> verifyGenesisAnchor();
 
   std::string handleParsedRequest(const Client::Request &request) override;
 
@@ -114,6 +122,7 @@ private:
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};
   uint64_t lastForwardRetrySlot_{0};
+  size_t active_upstream_index_{0};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
