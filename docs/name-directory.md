@@ -12,28 +12,38 @@ This document freezes how **pp-ledger** supports memorable names and optional ac
 
 ## 1. Goal
 
-Users and services should be findable by a memorable handle under a **registerable domain**, without teaching PeerIds or raw wallet ids as the primary UX.
+Users find each other by a memorable handle under a **registerable domain**. pp-ledger’s job is **name ownership** and **account-attached blob storage** — not mesh dialing.
 
 ```text
-alice@example.com  →  ledger wallet (uint64)  →  optional mesh tips / posts in account attachment
+Bob → NAME_GET(alice@domain)     // NameIndex lookup (not a chain scan)
+   → Alice’s ledger wallet id
+   → ACCOUNT_GET / attachment    // opaque blob: PeerIds, Brief account id, posts, …
+   → (pp-browser interprets blob and dials PeerId)
 ```
 
-Mesh consumers (pp-browser) map that wallet (and optional Brief `account:` link) to PeerId/endpoints via the existing name-directory port. The chain owns **who may hold which name**; reachability stays off the authoritative name record.
+| Concern | Who cares |
+|---------|-----------|
+| Who may hold `alice@domain` | **pp-ledger** (DomainIndex / NameIndex / grants) |
+| Brief Account ID, PeerId, endpoints, post hashes | **Account attachment** — stored/returned by ledger; **not** ledger protocol keywords |
+| Amp dial / DHT / contacts | **pp-browser** (and projectors), using PeerId from the blob |
+
+You cannot Amp-dial a Brief Account ID or a ledger wallet id. Mesh reachability is always **PeerId**; the chain path above is how Bob discovers those PeerIds after a name lookup.
 
 ---
 
 ## 2. Identity layers (do not collapse)
 
-| Layer | Form | Role | Stable? |
-|-------|------|------|---------|
-| **Ledger account** | `uint64` wallet id | Spend, renew, close, sign grants | Yes (keys rotate without changing id) |
-| **Brief Account ID** | `account:…` (optional link field) | Mesh / contacts person root | Yes until account key rotation |
-| **Memorable name** | `local` + `domain` → canonical `local@domain` | Human entry into the phone book | No — rebind / release allowed |
-| **PeerId / multiaddrs** | device / dial hints | Reachability only | Device-scoped; not name truth |
+| Layer | Form | Role | First-class on chain? |
+|-------|------|------|------------------------|
+| **Memorable name** | `local` + `domain` → `local@domain` | Human entry; unique under DomainGrant | **Yes** — NameIndex |
+| **Ledger account** | `uint64` wallet id | Owner of the name; spend / renew / close | **Yes** — AccountBuffer |
+| **Account attachment** | versioned blob on the wallet | Rich tips consumers may publish | **Opaque storage** (once persisted) |
+| **PeerId / endpoints** | inside attachment | What mesh actually dials | No — consumer-defined |
+| **Brief Account ID** | inside attachment | Optional person link for pp-browser | No — consumer-defined |
 
-**Primary economic key on chain:** `uint64`.  
-**Primary person key for mesh:** Brief Account ID when linked.  
-**Memorable name:** claimable label under a domain, not a substitute for either id.
+**Chain primary for names:** `local@domain` → `uint64`.  
+**Mesh dial target (consumer):** PeerId(s) read from attachment (or HTTP/Amp twin until chain tips exist).  
+**Memorable name** is not a substitute for wallet id; **Brief Account ID** is not a mesh address.
 
 Optional **vanity digit↔letter encoding** of the `uint64` (phone-keypad style) is display/input sugar only — not a namespace and not a substitute for `local@domain`.
 
@@ -104,10 +114,11 @@ NameBinding
   domain
   // derived key: local + "@" + domain
   owner_wallet_id           // user id (>= ID_FIRST_USER)
-  external_account_id?      // optional Brief "account:…"
   seq
   expires_at?               // optional; may follow account upkeep
 ```
+
+Brief Account ID / PeerId / endpoints are **not** NameBinding fields — they live in the owner’s account attachment (opaque to ledger semantics).
 
 ### DomainGrant (approval)
 
@@ -139,30 +150,112 @@ This parallels `T_NEW_USER` sponsorship (`from` authorizes / pays; `to` is creat
 
 ---
 
-## 6. Account attachment — posts without a PostIndex
+## 6. Account attachment — multi-profile envelope (hybrid)
 
-Posts (content hashes, parent hashes) do **not** need a first-class global post index for v1.
+From pp-ledger’s point of view, attachment **payload bytes are opaque** (no PeerId / Brief / post semantics). The chain **does** mandate a thin envelope, **wallet-id profile keys**, size caps, and optional **attested** slots. The account owner has **full authority** on-chain to write any slot on their own attachment.
 
-Once `NAME_GET` yields `owner_wallet_id`, clients load the account and decode a **persisted attachment**:
+Once `NAME_GET` yields `owner_wallet_id`, clients `ACCOUNT_GET` and read `attachment.profiles[…]`.
+
+### 6.1 Envelope (mandated)
 
 ```text
-AccountAttachment (versioned)
-  external_account_id?
-  posts_tip?              // root hash and/or small hash list + parent refs, seq
-  mesh_tip?               // optional entity_kind / capabilities / endpoint hints
-  // other profile fields…
+AccountAttachment
+  version: 1
+  profiles: {
+    <publisher_wallet_id>: ProfileSlot,   // uint64 — must exist on chain
+    ...
+  }
+
+ProfileSlot
+  mode: "user" | "attested"   // or infer from attestation presence
+  data: bytes | object        // opaque to ledger meaning
+  seq: u64                    // per-slot
+  attestation?: {             // required when mode = attested
+    publisher_wallet_id       // must equal the map key; reserved (< ID_FIRST_USER)
+    domain                    // required for attested; DomainIndex owner == publisher
+    expires
+    sig                       // publisher signs (profile_id, data, seq, subject_wallet, …)
+  }
 ```
 
-| Concern | Approach |
-|---------|----------|
-| Discover author | Name / wallet id |
-| Bodies | Off-chain; chain holds hashes the owner currently asserts |
-| History | Tip / short commitment set in attachment — not unbounded archive |
-| Global `POST_GET` by hash | Deferred; promote to PostIndex only if needed |
+**`profile_id` = publisher’s ledger wallet id** (not a free-form string). Avoids apps squatting “good” names; display uses `NAME_GET_BY_WALLET(publisher)` / domain when useful. Multiple products from one publisher live **inside** that slot’s `data` (publisher-controlled), not as extra map keys.
 
-### Gap vs today’s runtime
+**Ledger always validates:** `version`, map shape, each key is an existing wallet id, total/per-slot byte caps, fee.  
+**Ledger validates when attested:** map key == attestation.publisher; publisher reserved; domain owned by that publisher; signature; expiry.  
+**Ledger never validates:** contents of `data`; and for `mode=user`, does **not** require the publisher’s signature — the **subject account owner** alone may write any key on their profile.
 
-Live `AccountBuffer::Account` is `{ id, wallet, blockId }` only. `UserAccount.meta` rides on txs for fees/history but is **not** kept as live account state. Account attachment (and therefore posts-in-meta) requires a deliberate state change when implementing — do not assume decode-after-`ACCOUNT_GET` works today.
+Illustrative policy knobs: `max_attachment_bytes`, `max_slots`, `max_slot_bytes`.
+
+### 6.2 Slot kinds and authority
+
+| Kind | On-chain write authority | Extra chain check | Reader trust |
+|------|--------------------------|-------------------|--------------|
+| **user** | Subject (Alice) signs outer tx; may set any `profiles[P]` | Envelope + caps + key exists | Do **not** treat as “officially from P” |
+| **attested** | Alice still publishes | + reserved publisher + domain attestation | Safe to treat as vouched by that org |
+
+Alice owns her attachment: chain sovereignty is **hers**. Attribution for official tips is **`attested` only**. Indie apps use a normal user wallet as `profile_id` without reserved/domain; they are not attested.
+
+```text
+profiles[<reserved_pp_wallet>] = {
+  mode: "attested",
+  data: { mesh_tip, external_account_id?, posts_tip? },  // e.g. pp-browser consumer schema
+  seq: 7,
+  attestation: { publisher: <reserved_pp_wallet>, domain: "example.com", sig: … }
+}
+
+profiles[<indie_app_wallet>] = {
+  mode: "user",
+  data: { … },
+  seq: 3
+}
+```
+
+### 6.3 Wallet host — keys stay with the user; proposal auth is host-side
+
+Apps never receive account private keys. **Publisher proposal authentication is host policy, not a chain write rule:**
+
+```text
+1. App P → host: proposal { profile_id: P, data [, attestation] }
+   Host SHOULD verify the proposal is signed by P (anti-phishing / “really from this app”)
+2. Host loads current attachment; merges **that key only**
+3. Review UI: slot diff, fee/size, mode (user vs attested), “other profiles untouched”
+4. User confirms (PIN) → host signs ATTACH_UPSERT_SLOT → TX_ADD
+5. App gets ack — still no keys
+```
+
+Alice may also edit any slot via a power editor / `ATTACH_REPLACE_ALL` (warned). Chain allows it; host UX should make wipe risk obvious.
+
+Default app path: replace `profiles[P]` only. Full-map replace is an explicit escape hatch.
+
+### 6.4 Validation split (chain vs client)
+
+| Concern | On-chain | Wallet / host | Consumer when reading |
+|---------|----------|---------------|------------------------|
+| Name / domain ownership | Yes | — | — |
+| Envelope, caps, slot-patch, key∈wallets | Yes | Merge preview | — |
+| Alice may write any `profiles[P]` | Yes (her sig) | Optional proposal-from-P check | — |
+| Attested reserved+domain sig | Yes when mode=attested | Show publisher/domain | Prefer attested for official tips |
+| PeerId / Brief / post meaning | No | Interpret known publishers’ `data` | Same |
+| Phishing | No | Slot-scoped review + proposal auth | Ignore non-attested for high trust |
+
+Rule of thumb: **Alice’s blob is hers on-chain**; **“did this proposal come from app P?”** is host-side; **“is this an official org tip?”** is attested + consumer policy.
+
+### 6.5 Consumer data example (under a known publisher wallet)
+
+Documented for pp-browser — **not** ledger consensus keywords. Slot key = platform/reserved publisher wallet id; `data` shape e.g.:
+
+```text
+data:
+  external_account_id?   // Brief "account:…"
+  mesh_tip?              // peer_id / endpoints[] / entity_kind / capabilities
+  posts_tip?             // content hashes + parents, seq — no global PostIndex
+```
+
+Other apps use **their** wallet id as `profile_id` and their own `data` schema.
+
+### 6.6 Gap vs today’s runtime
+
+Live `AccountBuffer::Account` is `{ id, wallet, blockId }` only. `UserAccount.meta` rides on txs for fees/history but is **not** kept as live account state. Persisting `AccountAttachment` (so decode-after-`ACCOUNT_GET` works) is a deliberate later change.
 
 ---
 
@@ -187,43 +280,52 @@ Terminal beacon state
 | `DOMAIN_GET` | by `domain` → `DomainBinding` |
 | `NAME_GET` | by canonical `local@domain` → `NameBinding` (+ optional wallet summary) |
 | `NAME_GET_BY_WALLET` | reverse: wallet → preferred name(s) |
-| `ACCOUNT_GET` | existing; later returns attachment when persisted |
-| `TX_ADD` | claim/renew/release domain; claim/release name (with grant) |
+| `ACCOUNT_GET` | existing; later returns persisted `AccountAttachment` |
+| `TX_ADD` | domain/name txs; attachment slot upsert/delete |
 
 Exact numeric `T_REQ_*` ids assigned at implementation time.
 
-### Tx family (names only — types TBD)
+### Tx family (logical — types TBD)
 
-| Tx (logical) | Signer | Effect |
-|--------------|--------|--------|
+| Tx | Signer | Effect |
+|----|--------|--------|
 | `DOMAIN_CLAIM` / renew / release | Reserved owner | Mutate `DomainIndex` |
 | `NAME_CLAIM` / renew | Beneficiary (+ embedded `DomainGrant`) | Mutate `NameIndex` |
 | `NAME_RELEASE` | Domain owner and/or beneficiary (policy) | Free the local |
+| `ATTACH_UPSERT_SLOT` | Account owner | Patch one `profiles[id]` (other keys unchanged) |
+| `ATTACH_DELETE_SLOT` | Account owner | Remove one profile key |
+| `ATTACH_REPLACE_ALL` | Account owner | Replace entire map (warned escape hatch) |
 
-Prefer **dedicated tx types** (or one typed family) over stuffing uniqueness rules into opaque `UserAccount.meta` alone. Meta/attachment may **mirror** display fields; indexes are authoritative for collisions.
+Prefer **slot upsert** as the default path so one app-driven update does not replace the whole map. Prefer **dedicated name txs** over stuffing uniqueness into free-form meta; indexes remain authoritative for collisions.
+
+For `ATTACH_UPSERT_SLOT`: account owner signature is sufficient for `mode=user` (any existing publisher key). For `mode=attested`, chain additionally verifies reserved + domain attestation (map key must be that publisher).
 
 ---
 
 ## 8. Mesh / pp-browser mapping
 
-```text
-Cold start → ledger_gateway (pp-node) → NAME_GET(alice@domain)
-         → NameBinding { owner_wallet_id, external_account_id? }
-         → ACCOUNT_GET / directory twin → PeerId hints
-         → dial (DHT / contacts for multiaddrs)
-```
+pp-browser (or any consumer) uses ledger as a phone-book backend behind `INameDirectory`:
 
-Chain-era `NameRecord` (browser port) should map 1:1:
+```text
+NAME_GET(alice@domain)  →  NameBinding { owner_wallet_id, … }
+ACCOUNT_GET(wallet)     →  AccountAttachment.profiles
+Consumer picks a publisher wallet (e.g. platform reserved id), reads
+  profiles[<publisher_wallet>].data  (prefer mode=attested for dial-critical tips)
+  → mesh_tip / external_account_id / …
+→ dial PeerId (DHT / contacts for multiaddrs)
+```
 
 | NameRecord field | Chain source |
 |------------------|--------------|
-| `name` | canonical `local@domain` |
-| `account_id` | `external_account_id` or derived link |
-| `peer_id` / `endpoints[]` | attachment `mesh_tip` or HTTP/Amp projector |
-| `entity_kind` / `capabilities` | attachment or projector |
-| `seq` / `expires_at` | `NameBinding` |
+| `name` | canonical `local@domain` (NameIndex) |
+| `peer_id` / `endpoints[]` | attested (or chosen) publisher slot `data` / HTTP/Amp projector |
+| `account_id` | same consumer `data` (opaque) |
+| `entity_kind` / `capabilities` | same / projector |
+| `seq` / `expires_at` | NameBinding (+ slot `seq` as needed) |
 
-HTTP/Amp directories become projectors/caches once chain is truth. DHT must not store names.
+Do not treat a non-attested `profiles[P]` as proof that P authored the tip — only Alice committed it to her blob.
+
+HTTP/Amp directories become projectors/caches once chain tips exist. DHT must not store names.
 
 Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays scarce / often private ([platform-integration.md](platform-integration.md)).
 
@@ -233,20 +335,30 @@ Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays sca
 
 1. Do not make `local@domain` the ledger account id.  
 2. Do not let users register domains.  
-3. Do not enforce domain uniqueness only via free-form account meta.  
-4. Do not require multiaddrs on the authoritative name record.  
-5. Do not put a global PostIndex in the critical path for v1.  
-6. Do not ship name transfer in v1.  
-7. Do not treat vanity encodings of `uint64` as the memorable namespace.  
-8. Do not embed libp2p or mesh dial logic inside pp-ledger core.
+3. Do not enforce domain/name uniqueness only via free-form account meta — use DomainIndex / NameIndex.  
+4. Do not treat Brief Account ID or PeerId as ledger protocol keywords; keep them in slot `data`.  
+5. Do not imply Amp can dial wallet id or Brief Account ID — dial target is PeerId from consumer data.  
+6. Do not require multiaddrs on NameBinding (hints belong in attachment / DHT).  
+7. Do not put a global PostIndex in the critical path for v1.  
+8. Do not ship name transfer in v1.  
+9. Do not treat vanity encodings of `uint64` as the memorable namespace.  
+10. Do not embed libp2p or mesh dial logic inside pp-ledger core.  
+11. Do not document name lookup as a full-chain scan — it is an index RPC (`NAME_GET`).  
+12. Do not use free-form string profile ids — keys are existing wallet ids.  
+13. Do not require every app slot to be attested — attested is reserved+domain only.  
+14. Do not require publisher signature on-chain for `mode=user` — subject owner has full write authority on their attachment.  
+15. Do not treat non-attested `profiles[P]` as proof P authored the tip.  
+16. Do not hand account private keys to apps — host proposes/reviews; user signs.  
+17. Do not default to full attachment replace for multi-app updates — prefer `ATTACH_UPSERT_SLOT`.  
+18. Do not expect chain validation to stop phishing — host proposal auth + review.
 
 ---
 
 ## 10. Implementation posture
 
 **Now:** this design doc + keep browser `INameDirectory` / `NameRecord` aligned.  
-**Later:** DomainIndex / NameIndex + grant validation + RPC; persist `AccountAttachment`; wire browser chain provider behind the same port.  
-**Not blocking:** PostIndex, name transfer, multi-domain UI polish, vanity encoding.
+**Later:** DomainIndex / NameIndex + grant validation + RPC; persist `AccountAttachment` with multi-profile envelope; slot upsert txs; optional attested slots; wire browser chain provider behind the same port.  
+**Not blocking:** PostIndex, name transfer, requiring attestation for all apps, vanity encoding.
 
 ---
 
@@ -255,7 +367,13 @@ Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays sca
 | Date | Decision |
 |------|----------|
 | 2026-09-03 | Memorable names are `{local, domain}` with canonical `local@domain` |
-| 2026-09-03 | Ledger `uint64` remains economic primary; Brief Account ID optional link; name is mutable label |
+| 2026-09-03 | NameIndex maps name → ledger `uint64`; Brief Account ID / PeerId live in opaque slot `data` |
+| 2026-09-03 | Mesh dial target is PeerId (consumer); chain does not dial and does not treat PeerId as a keyword |
 | 2026-09-03 | Only reserved accounts register domains; user locals require DomainGrant |
-| 2026-09-03 | No first-class PostIndex v1 — posts tip in persisted account attachment |
+| 2026-09-03 | No first-class PostIndex v1 — posts tip in consumer profile data |
+| 2026-09-03 | Attachment = multi-profile envelope; chain validates structure/caps; payload opaque |
+| 2026-09-03 | `profile_id` = existing publisher wallet id (no free-form string squat) |
+| 2026-09-03 | Subject account owner has full on-chain authority over their attachment slots |
+| 2026-09-03 | Publisher proposal auth is host-side; attested (reserved+domain) is the on-chain authenticity bit |
+| 2026-09-03 | Default publish path = slot upsert via wallet host; user signs; apps never hold keys |
 | 2026-09-03 | Design/wire only; runtime deferred |
