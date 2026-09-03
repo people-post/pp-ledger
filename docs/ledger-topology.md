@@ -5,7 +5,8 @@
 transport binding (AMP today; libp2p at the pp-browser edge per
 [platform-integration.md](platform-integration.md)).  
 **Related:** [design.md](design.md) (roles & consensus), [amp-transport.md](amp-transport.md)
-(wire format & config field names).
+(wire format & config field names), [name-directory.md](name-directory.md) (DomainIndex /
+NameIndex — future terminal-owned registries).
 
 This document is **normative guidance** for making the chain protocol robust, efficient, and
 reliable. Implementation may lag; new work should move toward these properties rather than

@@ -7,6 +7,8 @@ from sibling repos when convenient.
 
 **Status:** agreed design (2026-08-26). Implementation is phased; see [Roadmap](#roadmap).
 
+**Related:** [name-directory.md](name-directory.md) — on-chain domains / memorable names (schema only; eventual phone book for mesh).
+
 **Related repos:**
 
 | Repo | Role |
@@ -356,3 +358,4 @@ Suggested locations:
 | 2026-08-27 | FetchContent-only deps (no sibling shortcut); optional `PP_CPP_*_SOURCE_DIR` override |
 | 2026-08-27 | In-process transport: no length prefix; libp2p ledger RPC uses u32 BE (not StreamFrameIo u64) |
 | 2026-08-28 | Public TCP abuse controls: tiered `SecurityConfig`, `ConnectionGuard`, bounded handler queue + worker pool on standalone servers |
+| 2026-09-03 | Name directory design: reserved accounts own domains; user `local@domain` via DomainGrant; no PostIndex v1 — see [name-directory.md](name-directory.md) |

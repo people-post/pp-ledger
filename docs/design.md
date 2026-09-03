@@ -100,6 +100,8 @@ The network reserves a range of special accounts for issuing and managing tokens
 
 Every person or organisation on the network has a **user account**. Account identities are separate from cryptographic keys: users can rotate keys and switch algorithms without changing their account, enabling a path to post-quantum security. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
 
+Memorable handles (`local@domain`) and reserved-account **domain** ownership are designed in [name-directory.md](name-directory.md) (schema only; not yet in the live tx set).
+
 ![User Account](print/user-account.png){width=50%}
 
 | Capability | Available today |
