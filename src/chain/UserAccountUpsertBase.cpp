@@ -3,11 +3,36 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "../client/AccountAttachment.h"
 #include "../client/Client.h"
 
 #include <string>
 
 namespace pp {
+
+namespace {
+
+chain_tx::Roe<std::string> validateAndCanonicalizeAttachment(
+    const std::string &raw, AccountBuffer &bank, const AccountBuffer *committed,
+    uint64_t subjectWalletId) {
+  auto publisherExists = [&](uint64_t id) {
+    if (id == subjectWalletId) {
+      return true;
+    }
+    if (bank.hasAccount(id)) {
+      return true;
+    }
+    return committed != nullptr && committed->hasAccount(id);
+  };
+  auto parsed = AccountAttachment::parseAndValidate(raw, publisherExists);
+  if (!parsed) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Account attachment: " + parsed.error().message);
+  }
+  return parsed->ltsToString();
+}
+
+} // namespace
 
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
@@ -91,6 +116,13 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
             std::to_string(tx.meta.size()) + " bytes");
   }
 
+  auto attachmentRoe = validateAndCanonicalizeAttachment(
+      userAccount.meta, bank, isBufferMode ? &ctx.bank : nullptr, tx.walletId);
+  if (!attachmentRoe) {
+    return attachmentRoe.error();
+  }
+  userAccount.meta = attachmentRoe.value();
+
   if (!ctx.crypto.isSupported(userAccount.wallet.keyType)) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
@@ -149,4 +181,3 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
 }
 
 } // namespace pp
-

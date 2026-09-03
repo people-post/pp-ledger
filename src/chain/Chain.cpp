@@ -159,6 +159,34 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
   auto const &account = roeAccount.value();
   Client::UserAccount userAccount;
   userAccount.wallet = account.wallet;
+
+  // Attachment is not kept in AccountBuffer (hot path stays light). Hydrate
+  // ad-hoc from the account tip block.
+  const auto &fns = txContext_.fnAccountMetaForRecord;
+  if (!fns.has_value()) {
+    return Error(E_INTERNAL,
+                 "Account meta extractors not configured on TxContext");
+  }
+  auto blockResult = txContext_.ledger.readBlock(account.blockId);
+  if (!blockResult) {
+    return Error(E_BLOCK_NOT_FOUND,
+                 "Block not found: " + std::to_string(account.blockId));
+  }
+  if (accountId == AccountBuffer::ID_GENESIS) {
+    auto gmRoe = chain_tx::getGenesisAccountMetaFromBlock(
+        blockResult.value().block, fns->fnGenesis);
+    if (!gmRoe) {
+      return Error(gmRoe.error());
+    }
+    userAccount.meta = gmRoe.value().genesis.meta;
+  } else {
+    auto uaRoe = chain_tx::getUserAccountMetaFromBlock(
+        blockResult.value().block, accountId, fns->fnUser);
+    if (!uaRoe) {
+      return Error(uaRoe.error());
+    }
+    userAccount.meta = uaRoe.value().meta;
+  }
   return userAccount;
 }
 

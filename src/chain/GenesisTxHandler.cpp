@@ -2,6 +2,7 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "Types.h"
+#include "../client/AccountAttachment.h"
 
 namespace pp {
 
@@ -87,6 +88,18 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   config.slotDuration = ctx.optChainConfig.value().slotDuration;
   config.slotsPerEpoch = ctx.optChainConfig.value().slotsPerEpoch;
   ctx.consensus.init(config);
+
+  auto publisherExists = [&](uint64_t id) {
+    return id == AccountBuffer::ID_GENESIS || ctx.bank.hasAccount(id);
+  };
+  auto parsed = AccountAttachment::parseAndValidate(gm.genesis.meta,
+                                                    publisherExists);
+  if (!parsed) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis account attachment: " +
+                                 parsed.error().message);
+  }
+  gm.genesis.meta = parsed->ltsToString();
 
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;

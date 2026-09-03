@@ -4,6 +4,8 @@
  * Also exposes a Model Context Protocol (MCP) server via SSE transport.
  */
 #include "Client.h"
+#include "AccountAttachment.h"
+#include "AccountIds.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "common/Logger.h"
@@ -45,8 +47,8 @@ using pp::common::io::metaToJsonString;
 using pp::common::io::valueFromJsonString;
 using pp::common::io::valueToJsonString;
 
-static constexpr uint64_t ID_GENESIS = 0;
-static constexpr uint64_t ID_FIRST_USER = 1ULL << 20;
+static constexpr uint64_t ID_GENESIS = pp::AccountIds::ID_GENESIS;
+static constexpr uint64_t ID_FIRST_USER = pp::AccountIds::ID_FIRST_USER;
 static constexpr size_t MAX_MCP_SESSIONS = 4;
 static constexpr size_t MAX_MCP_PENDING_EVENTS_PER_SESSION = 256;
 static constexpr size_t HTTP_PAYLOAD_MAX_LENGTH = 2 * 1024 * 1024; // 2 MiB
@@ -545,7 +547,8 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   userAccount.wallet.minSignatures = minSignatures;
   userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
-  userAccount.meta = metaDesc;
+  (void)metaDesc;
+  userAccount.meta = pp::AccountAttachment::emptySerialized();
 
   std::string keyStr = pp::utl::readKey(objectString(body, "key"));
   if (keyStr.size() >= 2 && (keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X')))

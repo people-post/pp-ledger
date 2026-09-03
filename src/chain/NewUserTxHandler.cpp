@@ -2,6 +2,7 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "../client/AccountAttachment.h"
 #include "../client/Client.h"
 
 #include <string>
@@ -172,6 +173,23 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
                              "Failed to deserialize user account: " + tx.meta);
   }
+
+  auto publisherExists = [&](uint64_t id) {
+    if (id == tx.toWalletId) {
+      return true;
+    }
+    if (bank.hasAccount(id)) {
+      return true;
+    }
+    return isBufferMode && ctx.bank.hasAccount(id);
+  };
+  auto parsed =
+      AccountAttachment::parseAndValidate(userAccount.meta, publisherExists);
+  if (!parsed) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Account attachment: " + parsed.error().message);
+  }
+  userAccount.meta = parsed->ltsToString();
 
   if (!ctx.crypto.isSupported(userAccount.wallet.keyType)) {
     return chain_tx::TxError(

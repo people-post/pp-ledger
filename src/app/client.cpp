@@ -1,4 +1,6 @@
 #include "Client.h"
+#include "AccountAttachment.h"
+#include "AccountIds.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
 #include "../network/LedgerAmpRuntime.h"
@@ -20,7 +22,8 @@
 #include <string>
 #include <vector>
 
-static constexpr uint64_t ID_GENESIS = 0;  // Native token (matches AccountBuffer)
+static constexpr uint64_t ID_GENESIS = pp::AccountIds::ID_GENESIS;
+static constexpr uint64_t ID_FIRST_USER = pp::AccountIds::ID_FIRST_USER;
 
 static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyHex,
                                                      uint64_t amount,
@@ -38,11 +41,11 @@ static pp::Client::UserAccount makeNewUserAccountMeta(const std::string& pubkeyH
   account.wallet.minSignatures = minSignatures;
   account.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   account.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
-  account.meta = metaDesc;
+  // Hard-cut: UserAccount.meta is AccountAttachment envelope (ignore free-text).
+  (void)metaDesc;
+  account.meta = pp::AccountAttachment::emptySerialized();
   return account;
 }
-
-static constexpr uint64_t ID_FIRST_USER = 1ULL << 20;  // Min new account ID (matches AccountBuffer)
 
 static uint64_t randomAccountId() {
   std::random_device rd;
@@ -163,7 +166,8 @@ static int runMkAccount(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amo
   userAccount.wallet.minSignatures = minSignatures;
   userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
-  userAccount.meta = metaDesc;
+  (void)metaDesc;
+  userAccount.meta = pp::AccountAttachment::emptySerialized();
   pp::Ledger::TxNewUser tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
@@ -220,7 +224,8 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   userAccount.wallet.minSignatures = minSignatures;
   userAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
-  userAccount.meta = metaDesc;
+  (void)metaDesc;
+  userAccount.meta = pp::AccountAttachment::emptySerialized();
   std::string keyStr = pp::utl::readKey(key);
   if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
     keyStr = keyStr.substr(2);

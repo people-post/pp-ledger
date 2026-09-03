@@ -25,6 +25,18 @@ public:
   constexpr static uint16_t T_RENEWAL = 5;     // Miner to renew user/genesis account with latest account info
   constexpr static uint16_t T_END_USER = 6;    // Miner to terminate user account due to insufficient fee.
 
+  // Reserved for name-directory / attachment (docs/name-directory.md); not
+  // installed in RecordHandler yet — do not reuse these ids.
+  constexpr static uint16_t T_DOMAIN_CLAIM = 7;
+  constexpr static uint16_t T_DOMAIN_RENEW = 8;
+  constexpr static uint16_t T_DOMAIN_RELEASE = 9;
+  constexpr static uint16_t T_NAME_CLAIM = 10;
+  constexpr static uint16_t T_NAME_RENEW = 11;
+  constexpr static uint16_t T_NAME_RELEASE = 12;
+  constexpr static uint16_t T_ATTACH_UPSERT_SLOT = 13;
+  constexpr static uint16_t T_ATTACH_DELETE_SLOT = 14;
+  constexpr static uint16_t T_ATTACH_REPLACE_ALL = 15;
+
   struct TxCommon {
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
     std::string meta;           // Transaction metadata

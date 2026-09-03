@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_ACCOUNT_BUFFER_H
 #define PP_LEDGER_ACCOUNT_BUFFER_H
 
+#include "../client/AccountIds.h"
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
 #include "common/ResultOrError.hpp"
@@ -17,16 +18,14 @@ namespace pp {
  */
 class AccountBuffer {
 public:
-  // Well-known account IDs
-  constexpr static uint64_t ID_GENESIS = 0;
-  constexpr static uint64_t ID_FEE = 1;
-  constexpr static uint64_t ID_RESERVE = 2;
-  constexpr static uint64_t ID_RECYCLE = 3;
-
-  constexpr static uint64_t ID_FIRST_USER = 1 << 30; // User IDs start at 1 billion
-
-  constexpr static uint64_t INITIAL_TOKEN_SUPPLY = 1ULL
-                                                   << 30; // 1 billion tokens
+  // Well-known account IDs (defined in client/AccountIds.h)
+  constexpr static uint64_t ID_GENESIS = AccountIds::ID_GENESIS;
+  constexpr static uint64_t ID_FEE = AccountIds::ID_FEE;
+  constexpr static uint64_t ID_RESERVE = AccountIds::ID_RESERVE;
+  constexpr static uint64_t ID_RECYCLE = AccountIds::ID_RECYCLE;
+  constexpr static uint64_t ID_FIRST_USER = AccountIds::ID_FIRST_USER;
+  constexpr static uint64_t INITIAL_TOKEN_SUPPLY =
+      AccountIds::INITIAL_TOKEN_SUPPLY;
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;

@@ -253,9 +253,17 @@ data:
 
 Other apps use **their** wallet id as `profile_id` and their own `data` schema.
 
-### 6.6 Gap vs today’s runtime
+### 6.6 Live state (hard cut; buffer stays light)
 
-Live `AccountBuffer::Account` is `{ id, wallet, blockId }` only. `UserAccount.meta` rides on txs for fees/history but is **not** kept as live account state. Persisting `AccountAttachment` (so decode-after-`ACCOUNT_GET` works) is a deliberate later change.
+`AccountBuffer::Account` remains `{ id, wallet, blockId }` only — no attachment bytes in the hot map (scale).
+
+On write (`T_NEW_USER` / `T_USER_UPDATE` / genesis+config): validate `UserAccount.meta` as an `AccountAttachment` envelope and store it **in the tx / tip block** only.
+
+On read (`ACCOUNT_GET`, renewal fee/meta): hydrate attachment **ad-hoc** from the account tip (`blockId` → last user/genesis meta record). Optional disk side-index later; not in the consensus buffer.
+
+Hard cut (no dual decode): free-text meta is rejected; empty input canonicalizes to an empty v1 envelope. Wipe old ledgers before upgrading.
+
+**Reserved ids (not wired yet):** `Ledger::T_DOMAIN_*` / `T_NAME_*` / `T_ATTACH_*` (7–15); `Client::T_REQ_DOMAIN_GET` / `NAME_GET` / `NAME_GET_BY_WALLET` (2101–2103).
 
 ---
 
@@ -356,8 +364,8 @@ Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays sca
 
 ## 10. Implementation posture
 
-**Now:** this design doc + keep browser `INameDirectory` / `NameRecord` aligned.  
-**Later:** DomainIndex / NameIndex + grant validation + RPC; persist `AccountAttachment` with multi-profile envelope; slot upsert txs; optional attested slots; wire browser chain provider behind the same port.  
+**Now:** envelope validate on write + ad-hoc hydrate on read; reserved tx/RPC ids.  
+**Later:** DomainIndex / NameIndex + grant validation + name/attach RPC; attested crypto + DomainIndex check; slot upsert txs; optional attachment tip index for gateways; browser chain provider.  
 **Not blocking:** PostIndex, name transfer, requiring attestation for all apps, vanity encoding.
 
 ---
@@ -376,4 +384,4 @@ Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays sca
 | 2026-09-03 | Subject account owner has full on-chain authority over their attachment slots |
 | 2026-09-03 | Publisher proposal auth is host-side; attested (reserved+domain) is the on-chain authenticity bit |
 | 2026-09-03 | Default publish path = slot upsert via wallet host; user signs; apps never hold keys |
-| 2026-09-03 | Design/wire only; runtime deferred |
+| 2026-09-03 | Hard cut: AccountAttachment envelope on writes; hydrate ad-hoc from tip block (buffer stays light); reserve T_* 7–15 and T_REQ 2101–2103 |

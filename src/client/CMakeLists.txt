@@ -2,6 +2,8 @@
 add_library(pp_client STATIC
     Client.cpp
     Client.h
+    AccountAttachment.cpp
+    AccountAttachment.h
     ILedgerTransport.h
     AmpLedgerTransport.cpp
     AmpLedgerTransport.h

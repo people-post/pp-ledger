@@ -1,5 +1,6 @@
 #include "Beacon.h"
 #include "../chain/TxFees.h"
+#include "../client/AccountAttachment.h"
 #include "../client/Client.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
@@ -281,7 +282,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   Chain::GenesisAccountMeta gm;
   gm.config = config;
   gm.genesis =
-      makeUserAccountFromKeys(key.genesis, 0, "Native token genesis wallet");
+      makeUserAccountFromKeys(key.genesis, 0, AccountAttachment::emptySerialized());
 
   // First transaction: GenesisAccountMeta
   Ledger::TxGenesis txGenesis;
@@ -301,7 +302,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
 
   // Second transaction: Create fee wallet
   auto feeAccount =
-      makeUserAccountFromKeys(key.fee, 0, "Wallet for transaction fees");
+      makeUserAccountFromKeys(key.fee, 0, AccountAttachment::emptySerialized());
 
   Ledger::TxNewUser txFee;
   txFee.fromWalletId = AccountBuffer::ID_GENESIS;
@@ -330,9 +331,9 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
 
   // Third transaction: Create reserve wallet with initial stake
   auto reserveAccount =
-      makeUserAccountFromKeys(key.reserve, 0, "Native token reserve wallet");
+      makeUserAccountFromKeys(key.reserve, 0, AccountAttachment::emptySerialized());
   auto recycleAccount = makeUserAccountFromKeys(
-      key.recycle, 0, "Account for recycling write-off balances");
+      key.recycle, 0, AccountAttachment::emptySerialized());
 
   auto getNonFreeMetaSize = [&](size_t customMetaSize) -> uint64_t {
     return customMetaSize > config.freeCustomMetaSize

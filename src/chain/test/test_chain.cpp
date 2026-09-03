@@ -3,6 +3,8 @@
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "Chain.h"
+#include "client/AccountAttachment.h"
+#include "client/Client.h"
 
 #include <gtest/gtest.h>
 
@@ -65,7 +67,7 @@ Client::UserAccount makeUserAccount(const std::string &publicKey,
   account.wallet.minSignatures = 1;
   account.wallet.keyType = Crypto::TK_ML_DSA_65;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
-  account.meta = "test";
+  account.meta = AccountAttachment::emptySerialized();
   return account;
 }
 
@@ -101,7 +103,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   gm.genesis.wallet.publicKeys = {genesisKey.publicKey};
   gm.genesis.wallet.minSignatures = 1;
   gm.genesis.wallet.keyType = Crypto::TK_ML_DSA_65;
-  gm.genesis.meta = "genesis";
+  gm.genesis.meta = AccountAttachment::emptySerialized();
 
   Ledger::ChainNode genesis;
   genesis.block.index = 0;
@@ -135,7 +137,6 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
 
   Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
   Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
-  recycleAccount.meta = "Account for recycling write-off balances";
 
   const uint64_t recycleNonFreeBytes =
       recycleAccount.meta.size() > chainConfig.freeCustomMetaSize
