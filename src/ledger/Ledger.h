@@ -161,28 +161,28 @@ public:
    * Body (`records`) is committed indirectly via `txRoot`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 2;
+    static constexpr uint16_t CURRENT_VERSION = 3;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
+    /** Raw 32-byte SHA-256 previous block hash (zeros at genesis). */
     std::string previousHash;
-    uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
     uint64_t slotLeader{ 0 };
     /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
     uint64_t txIndex{ 0 };
-    /** SHA-256 commitment to `records` (see chain_block::calculateTxRoot). */
+    /** Raw 32-byte SHA-256 commitment to `records`. */
     std::string txRoot;
-    /** SHA-256 commitment to post-block account state (AccountBuffer state root). */
+    /** Raw 32-byte SHA-256 commitment to post-block account state. */
     std::string stateRoot;
 
     // --- Body (not hashed directly; committed via txRoot) ---
     std::vector<Record> records;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & previousHash & nonce & slot & slotLeader &
-          txIndex & txRoot & stateRoot & records;
+      ar & index & timestamp & previousHash & slot & slotLeader & txIndex &
+          txRoot & stateRoot & records;
     }
 
     /** Binary LTS of header fields only (used for block hash). */
@@ -200,6 +200,7 @@ public:
    */
   struct ChainNode {
     Block block;
+    /** Raw 32-byte SHA-256 of block.headerToString(). */
     std::string hash;
 
     /**

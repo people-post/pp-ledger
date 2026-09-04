@@ -35,7 +35,7 @@ bool isValidTimestamp(const consensus::Ouroboros &consensus,
 } // namespace
 
 std::string calculateBlockHash(const Ledger::Block &block) {
-  return utl::sha256(block.headerToString());
+  return utl::sha256Raw(block.headerToString());
 }
 
 std::string calculateTxRoot(const std::vector<Ledger::Record> &records) {
@@ -45,7 +45,7 @@ std::string calculateTxRoot(const std::vector<Ledger::Record> &records) {
     std::string packed = utl::binaryPack(rec);
     ar & packed;
   }
-  return utl::sha256(std::string("pp-ledger/txroot/v1") + oss.str());
+  return utl::sha256Raw(std::string("pp-ledger/txroot/v1") + oss.str());
 }
 
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
@@ -54,13 +54,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have index 0");
   }
-  if (block.block.previousHash != "0") {
+  if (block.block.previousHash != utl::zeroHash()) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis block must have previousHash \"0\"");
-  }
-  if (block.block.nonce != 0) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis block must have nonce 0");
+                             "Genesis block must have zero previousHash");
   }
   if (block.block.slot != 0) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,

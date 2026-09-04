@@ -108,8 +108,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   Ledger::ChainNode genesis;
   genesis.block.index = 0;
   genesis.block.timestamp = chainConfig.genesisTime;
-  genesis.block.previousHash = "0";
-  genesis.block.nonce = 0;
+  genesis.block.previousHash = utl::zeroHash();
   genesis.block.slot = 0;
   genesis.block.slotLeader = 0;
 
@@ -192,7 +191,6 @@ Ledger::ChainNode makeNextBlock(
   Ledger::ChainNode block;
   block.block.index = previous.block.index + 1;
   block.block.previousHash = previous.hash;
-  block.block.nonce = 0;
   block.block.slot = previous.block.slot + 1;
   block.block.timestamp = validator.getSlotStartTime(block.block.slot);
   auto leaderResult = validator.getSlotLeader(block.block.slot);
@@ -239,27 +237,27 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   Ledger::Block block;
   block.index = 1;
   block.timestamp = 12345;
-  block.previousHash = "prev";
-  block.nonce = 7;
+  block.previousHash = utl::zeroHash();
   block.slot = 2;
   block.slotLeader = 3;
-  block.txRoot = "txroot";
-  block.stateRoot = "stateroot";
+  block.txRoot = utl::sha256Raw("txroot");
+  block.stateRoot = utl::sha256Raw("stateroot");
 
   std::string hash1 = validator.calculateHash(block);
   std::string hash2 = validator.calculateHash(block);
   EXPECT_EQ(hash1, hash2);
+  EXPECT_EQ(hash1.size(), utl::SHA256_DIGEST_SIZE);
 
-  block.nonce = 8;
+  block.slotLeader = 4;
   std::string hash3 = validator.calculateHash(block);
   EXPECT_NE(hash1, hash3);
 
   // Body changes alone must not affect header hash when roots are unchanged.
-  block.nonce = 7;
+  block.slotLeader = 3;
   block.records.push_back({});
   EXPECT_EQ(validator.calculateHash(block), hash1);
 
-  block.txRoot = "txroot-changed";
+  block.txRoot = utl::sha256Raw("txroot-changed");
   EXPECT_NE(validator.calculateHash(block), hash1);
 }
 

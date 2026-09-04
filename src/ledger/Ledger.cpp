@@ -32,7 +32,7 @@ std::string Ledger::Block::headerToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   uint16_t version = CURRENT_VERSION;
-  ar & version & index & timestamp & previousHash & nonce & slot & slotLeader &
+  ar & version & index & timestamp & previousHash & slot & slotLeader &
       txIndex & txRoot & stateRoot;
   return oss.str();
 }
@@ -241,7 +241,6 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
   j.setUIntForJson("index", index);
   j.set("timestamp", utl::formatTimestampLocal(timestamp));
   j.set("previousHash", utl::toJsonSafeString(previousHash));
-  j.setUIntForJson("nonce", nonce);
   j.setUIntForJson("slot", slot);
   j.setUIntForJson("slotLeader", slotLeader);
   j.setUIntForJson("startingTxIndex", txIndex);

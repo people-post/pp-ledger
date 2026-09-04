@@ -452,7 +452,7 @@ std::string AccountBuffer::calculateStateRoot() const {
   for (const auto &[id, account] : mAccounts_) {
     ar & id & account.wallet & account.blockId;
   }
-  return utl::sha256(std::string("pp-ledger/state/v1") + oss.str());
+  return utl::sha256Raw(std::string("pp-ledger/state/v1") + oss.str());
 }
 
 } // namespace pp

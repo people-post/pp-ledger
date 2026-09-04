@@ -30,6 +30,13 @@ TEST(Sha256Test, SameInputProducesSameHash) {
   EXPECT_EQ(hash1, hash2);
 }
 
+TEST(Sha256Test, Sha256RawMatchesHexEncoding) {
+  std::string raw = sha256Raw("hello world");
+  EXPECT_EQ(raw.size(), SHA256_DIGEST_SIZE);
+  EXPECT_EQ(hexEncode(raw), sha256("hello world"));
+  EXPECT_EQ(zeroHash().size(), SHA256_DIGEST_SIZE);
+}
+
 TEST(Sha256Test, OutputIsHexadecimal64Characters) {
   std::string hash = sha256("test");
   EXPECT_EQ(hash.size(), 64u);  // SHA-256 produces 32 bytes = 64 hex chars

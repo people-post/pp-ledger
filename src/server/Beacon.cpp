@@ -274,8 +274,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
   genesisBlock.block.timestamp = config.genesisTime;
-  genesisBlock.block.previousHash = "0";
-  genesisBlock.block.nonce = 0;
+  genesisBlock.block.previousHash = utl::zeroHash();
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
 
