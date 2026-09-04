@@ -444,6 +444,11 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
 }
 
 Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+  if (pendingSeal_.has_value()) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Cannot seal while a previous sealed block is uncommitted");
+  }
+
   if (block.block.index == 0) {
     block.block.epoch = 0;
     block.block.stakeSnapshotHash =
@@ -456,39 +461,26 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
   }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 
-  // Overlay fork: O(1) SMT clone + touched-account CoW (no full map copy / no
-  // full-account rehash).
-  AccountBuffer scratchBank = txContext_.bank.forkForSeal();
-
-  TxContext scratch;
-  scratch.bank = std::move(scratchBank);
-  scratch.optChainConfig = txContext_.optChainConfig;
-  scratch.checkpoint = txContext_.checkpoint;
-  scratch.fnAccountMetaForRecord = txContext_.fnAccountMetaForRecord;
-  scratch.fnIdempotencyKeyForRecord = txContext_.fnIdempotencyKeyForRecord;
-  scratch.fnBillableCustomMetaSizeForFee =
-      txContext_.fnBillableCustomMetaSizeForFee;
-  scratch.consensus.init(txContext_.consensus.getConfig());
-  if (txContext_.consensus.getStakeholderCount() > 0) {
-    scratch.consensus.setStakeholders(txContext_.consensus.getStakeholders(),
-                                      txContext_.consensus.getCurrentEpoch());
-  }
-
-  // Non-strict dry-run: skip idempotency / fee-min checks; apply balance effects.
-  const bool dryRunStrict = false;
+  // Single apply on the tip bank (same path addBlock would use). Matching
+  // addBlock persists only — no second apply, no AccountBuffer overlay.
+  const bool isStrictMode = shouldUseStrictMode(block.block.index);
   for (const auto &rec : block.block.records) {
-    BlockApplyContext ctx{scratch, block.block.index, block.block.slot,
-                          block.block.slotLeader, dryRunStrict};
-    auto applied = recordHandler_.applyBlock(rec, scratch.bank, ctx);
+    Roe<void> applied;
+    if (block.block.index == 0) {
+      applied = processGenesisTxRecord(rec);
+    } else {
+      applied = processNormalTxRecord(rec, block.block.index, block.block.slot,
+                                      block.block.slotLeader, isStrictMode);
+    }
     if (!applied) {
       return Error(E_TX_VALIDATION,
-                   "Failed to simulate block for stateRoot: " +
-                       applied.error().message);
+                   "Failed to apply block for seal: " + applied.error().message);
     }
   }
 
-  block.block.stateRoot = scratch.bank.calculateStateRoot();
+  block.block.stateRoot = txContext_.bank.calculateStateRoot();
   block.hash = calculateHash(block.block);
+  pendingSeal_ = PendingSeal{block.block.index, block.hash};
   return {};
 }
 
@@ -534,6 +526,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
 
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
+  pendingSeal_.reset();
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
@@ -587,6 +580,16 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
 }
 
 Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
+  if (pendingSeal_.has_value()) {
+    if (pendingSeal_->index != block.block.index ||
+        pendingSeal_->hash != block.hash) {
+      return Error(E_BLOCK_VALIDATION,
+                   "Tip has an uncommitted sealed block; commit it before "
+                   "adding a different block");
+    }
+    return commitSealedBlock(block);
+  }
+
   bool isStrictMode = shouldUseStrictMode(block.block.index);
   auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
@@ -604,6 +607,66 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
              << " from slot leader: " << block.block.slotLeader;
 
   return {};
+}
+
+Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
+  // Effects already applied in sealBlock; verify commitments then persist.
+  if (block.block.index == 0) {
+    auto genesisValidation =
+        mapTxVoid(chain_block::validateGenesisBlock(block, recordHandler_));
+    if (!genesisValidation) {
+      return Error(E_BLOCK_VALIDATION, genesisValidation.error().message);
+    }
+  } else {
+    const std::string expectedTxRoot =
+        chain_block::calculateTxRoot(block.block.records);
+    if (block.block.txRoot != expectedTxRoot) {
+      return Error(E_BLOCK_HASH, "Block txRoot mismatch");
+    }
+    if (calculateHash(block.block) != block.hash) {
+      return Error(E_BLOCK_HASH, "Block hash validation failed");
+    }
+    auto sequenceValidation =
+        mapTxVoid(chain_block::validateBlockSequence(txContext_.ledger, block));
+    if (!sequenceValidation) {
+      return Error(E_BLOCK_VALIDATION, sequenceValidation.error().message);
+    }
+  }
+
+  if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
+    return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
+  }
+
+  // Rotate before persist so needsCheckpoint sees the same nextBlockId as the
+  // normal processNormalBlock → addBlock path.
+  maybeRotateCheckpoint(block);
+
+  auto ledgerResult = txContext_.ledger.addBlock(block);
+  if (!ledgerResult) {
+    return Error(E_LEDGER_WRITE,
+                 "Failed to persist block: " + ledgerResult.error().message);
+  }
+
+  pendingSeal_.reset();
+
+  log().info << "Block added: " << block.block.index
+             << " from slot leader: " << block.block.slotLeader;
+
+  return {};
+}
+
+void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
+  if (block.block.index == 0) {
+    return;
+  }
+  if (txContext_.optChainConfig.has_value() &&
+      needsCheckpoint(txContext_.optChainConfig.value()) &&
+      block.block.index > txContext_.checkpoint.currentId) {
+    txContext_.checkpoint.lastId = txContext_.checkpoint.currentId;
+    txContext_.checkpoint.currentId = block.block.index;
+    log().info << "Checkpoint rotated: last=" << txContext_.checkpoint.lastId
+               << ", current=" << txContext_.checkpoint.currentId;
+  }
 }
 
 Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
@@ -665,14 +728,7 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
     return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
   }
 
-  if (txContext_.optChainConfig.has_value() &&
-      needsCheckpoint(txContext_.optChainConfig.value()) &&
-      block.block.index > txContext_.checkpoint.currentId) {
-    txContext_.checkpoint.lastId = txContext_.checkpoint.currentId;
-    txContext_.checkpoint.currentId = block.block.index;
-    log().info << "Checkpoint rotated: last=" << txContext_.checkpoint.lastId
-               << ", current=" << txContext_.checkpoint.currentId;
-  }
+  maybeRotateCheckpoint(block);
 
   return {};
 }

@@ -57,11 +57,10 @@ Full block LTS for disk also appends `records` after the header fields
 | `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v1" \|\| pack(id, wallet, blockId))`. Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
 | `stakeSnapshotHash` | `SHA-256("pp-ledger/stake/v1" \|\| pack(id, stake)…)` stakeholders sorted by id |
 
-`Chain::sealBlock` fills `epoch`, `stakeSnapshotHash`, `txRoot`, then dry-runs
-apply on an **overlay fork** of `AccountBuffer` (O(1) SMT clone + CoW for
-touched accounts only) to obtain `stateRoot`, then sets `hash`.
-Validation checks `txRoot` before apply and `stateRoot` after apply against the
-live tree root (O(1)).
+`Chain::sealBlock` applies records once to the tip `AccountBuffer`, then sets
+`stateRoot` and `hash`. The matching `addBlock` persists without re-applying.
+Validation of received blocks still applies on `addBlock` and checks `stateRoot`
+against the live tree root (O(1)).
 
 Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, four records
 (`T_GENESIS` + fee/reserve/recycle `T_NEW_USER`).

@@ -9,20 +9,17 @@
 
 #include <cstdint>
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
 namespace pp {
 
 /**
- * AccountBuffer - Manages user accounts in a buffer.
+ * AccountBuffer - committed account state for the chain tip.
  *
- * Maintains an incremental sparse Merkle tree (`stateTree_`) updated only for
- * touched accounts. `calculateStateRoot()` is O(1).
- *
- * `forkForSeal()` builds a cheap overlay that reads through to this buffer and
- * clones the SMT (O(1)); seal dry-runs mutate only touched accounts / paths.
+ * Maintains an incremental sparse Merkle tree updated only for touched
+ * accounts. `calculateStateRoot()` is O(1). There is no overlay/scratch mode:
+ * block sealing applies once to this buffer; see Chain::sealBlock.
  */
 class AccountBuffer {
 public:
@@ -58,12 +55,6 @@ public:
   AccountBuffer &operator=(const AccountBuffer &) = delete;
   AccountBuffer(AccountBuffer &&) noexcept = default;
   AccountBuffer &operator=(AccountBuffer &&) noexcept = default;
-
-  /**
-   * Overlay fork for seal dry-run: reads fall through to `*this`, writes stay
-   * local, SMT is path-copied from this buffer's tree.
-   */
-  AccountBuffer forkForSeal() const;
 
   bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
@@ -127,18 +118,15 @@ public:
 
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
-  bool isDeleted(uint64_t id) const;
   void touchTree(const Account &account);
   void clearTree(uint64_t id);
-  /** Materialize account into local map for mutation (overlay CoW).
-   *  Returns a pointer into mAccounts_. ResultOrError cannot store references. */
+  /**
+   * Pointer into mAccounts_. ResultOrError cannot store references, so
+   * mutators use Account* rather than Roe<Account&>.
+   */
   Roe<Account *> mutableAccount(uint64_t id);
 
-  /** Local accounts (full store, or overlay deltas when parent_ != nullptr). */
   std::map<uint64_t, Account> mAccounts_;
-  /** Ids removed in an overlay that still exist on parent_. */
-  std::set<uint64_t> deleted_;
-  const AccountBuffer *parent_{nullptr};
   AccountStateTree stateTree_;
 };
 

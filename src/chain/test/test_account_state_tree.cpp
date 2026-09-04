@@ -70,23 +70,17 @@ TEST(AccountBufferStateRootTest, IncrementalRootMatchesIndependentReplay) {
   EXPECT_EQ(a.calculateStateRoot(), b.calculateStateRoot());
 }
 
-TEST(AccountBufferStateRootTest, ForkForSealDoesNotMutateParentTree) {
-  AccountBuffer parent;
+TEST(AccountBufferStateRootTest, RemoveClearsLeaf) {
+  AccountBuffer buf;
   AccountBuffer::Account fee;
   fee.id = AccountBuffer::ID_FEE;
   fee.wallet.keyType = Crypto::TK_ML_DSA_65;
   fee.wallet.publicKeys = {"pk"};
   fee.wallet.minSignatures = 1;
-  ASSERT_TRUE(parent.add(fee).isOk());
-  const std::string before = parent.calculateStateRoot();
-
-  AccountBuffer fork = parent.forkForSeal();
-  ASSERT_TRUE(fork
-                  .depositBalance(AccountBuffer::ID_FEE,
-                                  AccountBuffer::ID_GENESIS, 10)
-                  .isOk());
-  EXPECT_NE(fork.calculateStateRoot(), before);
-  EXPECT_EQ(parent.calculateStateRoot(), before);
-  EXPECT_EQ(parent.getBalance(AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS),
-            0);
+  ASSERT_TRUE(buf.add(fee).isOk());
+  const std::string withFee = buf.calculateStateRoot();
+  EXPECT_NE(withFee, AccountStateTree::emptyRoot());
+  buf.remove(AccountBuffer::ID_FEE);
+  EXPECT_EQ(buf.calculateStateRoot(), AccountStateTree::emptyRoot());
+  EXPECT_FALSE(buf.hasAccount(AccountBuffer::ID_FEE));
 }

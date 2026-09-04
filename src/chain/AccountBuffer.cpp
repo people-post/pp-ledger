@@ -11,17 +11,6 @@ namespace pp {
 
 AccountBuffer::AccountBuffer() = default;
 
-AccountBuffer AccountBuffer::forkForSeal() const {
-  AccountBuffer fork;
-  fork.parent_ = this;
-  fork.stateTree_ = stateTree_.clone();
-  return fork;
-}
-
-bool AccountBuffer::isDeleted(uint64_t id) const {
-  return deleted_.find(id) != deleted_.end();
-}
-
 std::string AccountBuffer::accountLeafHash(const Account &account) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -37,46 +26,18 @@ void AccountBuffer::clearTree(uint64_t id) { stateTree_.clearLeaf(id); }
 
 AccountBuffer::Roe<AccountBuffer::Account *>
 AccountBuffer::mutableAccount(uint64_t id) {
-  if (isDeleted(id)) {
+  auto it = mAccounts_.find(id);
+  if (it == mAccounts_.end()) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
   }
-  auto it = mAccounts_.find(id);
-  if (it != mAccounts_.end()) {
-    return &it->second;
-  }
-  if (parent_ != nullptr) {
-    auto parentAcc = parent_->getAccount(id);
-    if (!parentAcc) {
-      return Error(parentAcc.error().code, parentAcc.error().message);
-    }
-    auto [ins, _] = mAccounts_.emplace(id, parentAcc.value());
-    return &ins->second;
-  }
-  return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
+  return &it->second;
 }
 
 bool AccountBuffer::hasAccount(uint64_t id) const {
-  if (isDeleted(id)) {
-    return false;
-  }
-  if (mAccounts_.find(id) != mAccounts_.end()) {
-    return true;
-  }
-  return parent_ != nullptr && parent_->hasAccount(id);
+  return mAccounts_.find(id) != mAccounts_.end();
 }
 
-bool AccountBuffer::isEmpty() const {
-  if (!mAccounts_.empty()) {
-    return false;
-  }
-  if (parent_ == nullptr) {
-    return true;
-  }
-  // Overlay with only deletes of a non-empty parent is non-empty only if parent
-  // still has visible accounts — approximate via stakeholders/ids is heavy;
-  // treat as empty only when parent empty (seal forks start with empty overlay).
-  return parent_->isEmpty();
-}
+bool AccountBuffer::isEmpty() const { return mAccounts_.empty(); }
 
 bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
                                              uint64_t tokenId) const {
@@ -87,44 +48,21 @@ bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
 std::vector<uint64_t>
 AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
   std::vector<uint64_t> ids;
-  auto consider = [&](uint64_t id, const Account &account) {
-    if (isDeleted(id)) {
-      return;
-    }
+  for (const auto &[id, account] : mAccounts_) {
     if (account.blockId < blockId) {
       ids.push_back(id);
     }
-  };
-  if (parent_ != nullptr) {
-    for (uint64_t id : parent_->getAccountIdsBeforeBlockId(blockId)) {
-      if (mAccounts_.find(id) != mAccounts_.end() || isDeleted(id)) {
-        continue;
-      }
-      auto acc = parent_->getAccount(id);
-      if (acc) {
-        consider(id, acc.value());
-      }
-    }
-  }
-  for (const auto &[id, account] : mAccounts_) {
-    consider(id, account);
   }
   return ids;
 }
 
 AccountBuffer::Roe<const AccountBuffer::Account &>
 AccountBuffer::getAccount(uint64_t id) const {
-  if (isDeleted(id)) {
+  auto it = mAccounts_.find(id);
+  if (it == mAccounts_.end()) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
   }
-  auto it = mAccounts_.find(id);
-  if (it != mAccounts_.end()) {
-    return it->second;
-  }
-  if (parent_ != nullptr) {
-    return parent_->getAccount(id);
-  }
-  return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
+  return it->second;
 }
 
 int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
@@ -141,31 +79,14 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
 
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   std::vector<consensus::Stakeholder> stakeholders;
-  auto consider = [&](uint64_t id, const Account &account) {
-    if (isDeleted(id)) {
-      return;
-    }
+  for (const auto &[id, account] : mAccounts_) {
     auto balanceIt = account.wallet.mBalances.find(ID_GENESIS);
     if (balanceIt == account.wallet.mBalances.end()) {
-      return;
+      continue;
     }
     if (balanceIt->second > 0) {
       stakeholders.push_back({id, uint64_t(balanceIt->second)});
     }
-  };
-  if (parent_ != nullptr) {
-    for (const auto &s : parent_->getStakeholders()) {
-      if (mAccounts_.find(s.id) != mAccounts_.end() || isDeleted(s.id)) {
-        continue;
-      }
-      auto acc = parent_->getAccount(s.id);
-      if (acc) {
-        consider(s.id, acc.value());
-      }
-    }
-  }
-  for (const auto &[id, account] : mAccounts_) {
-    consider(id, account);
   }
   return stakeholders;
 }
@@ -175,7 +96,6 @@ AccountBuffer::Roe<void> AccountBuffer::add(const Account &account) {
     return Error(E_ACCOUNT, "Account already exists");
   }
 
-  deleted_.erase(account.id);
   mAccounts_[account.id] = account;
   touchTree(account);
   return {};
@@ -187,7 +107,6 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
       return Error(E_ACCOUNT,
                    "Account to update not found: " + std::to_string(id));
     }
-    deleted_.erase(id);
     mAccounts_[id] = account;
     touchTree(account);
   }
@@ -535,18 +454,11 @@ void AccountBuffer::remove(uint64_t id) {
     return;
   }
   mAccounts_.erase(id);
-  if (parent_ != nullptr && parent_->hasAccount(id)) {
-    deleted_.insert(id);
-  } else {
-    deleted_.erase(id);
-  }
   clearTree(id);
 }
 
 void AccountBuffer::clear() {
   mAccounts_.clear();
-  deleted_.clear();
-  parent_ = nullptr;
   stateTree_ = AccountStateTree{};
 }
 

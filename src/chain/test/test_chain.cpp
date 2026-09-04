@@ -278,11 +278,12 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  // sealBlock already applied tip state; corrupting hash must not commit.
   genesis.hash = "bad-hash";
 
   auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isError());
-  EXPECT_NE(result.error().message.find("Genesis block hash validation failed"),
+  EXPECT_NE(result.error().message.find("uncommitted sealed block"),
             std::string::npos);
 }
 
