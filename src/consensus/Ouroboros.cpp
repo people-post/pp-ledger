@@ -39,6 +39,9 @@ bool Ouroboros::isSlotBlockProductionTime(uint64_t slot) const {
 }
 
 int64_t Ouroboros::getTimestamp() const {
+  if (clockOverride_.has_value()) {
+    return *clockOverride_;
+  }
   auto now = std::chrono::system_clock::now();
   int64_t localTime =
       std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
@@ -140,7 +143,19 @@ void Ouroboros::assertConfigIsSet() const {
 void Ouroboros::init(const Config& config) {
   config_ = config;
   cache_ = {};
+  clockOverride_.reset();
+  forcedLeaders_.clear();
 }
+
+void Ouroboros::setClockOverride(std::optional<int64_t> unixSeconds) {
+  clockOverride_ = unixSeconds;
+}
+
+void Ouroboros::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
+  forcedLeaders_[slot] = stakeholderId;
+}
+
+void Ouroboros::clearForcedSlotLeaders() { forcedLeaders_.clear(); }
 
 void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
   setStakeholders(stakeholders, getCurrentEpoch());
@@ -184,6 +199,11 @@ std::vector<uint64_t> Ouroboros::getEligibleLeaderPool() const {
 }
 
 uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
+  auto forced = forcedLeaders_.find(slot);
+  if (forced != forcedLeaders_.end()) {
+    return forced->second;
+  }
+
   std::vector<uint64_t> pool = getEligibleLeaderPool();
   if (pool.empty()) {
     return 0;

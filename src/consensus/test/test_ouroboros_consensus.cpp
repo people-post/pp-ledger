@@ -209,3 +209,62 @@ TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     EXPECT_THAT(leader1.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
     EXPECT_THAT(leader2.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
 }
+
+
+TEST_F(OuroborosTest, ClockOverridePinsCurrentSlot) {
+    // genesisTime=0, slotDuration=5 → timestamp 17 is slot 3
+    consensus->setClockOverride(17);
+    EXPECT_EQ(consensus->getTimestamp(), 17);
+    EXPECT_EQ(consensus->getCurrentSlot(), 3u);
+    EXPECT_EQ(consensus->getCurrentEpoch(), 0u);
+
+    consensus->setClockOverride(50);
+    EXPECT_EQ(consensus->getCurrentSlot(), 10u);
+    EXPECT_EQ(consensus->getCurrentEpoch(), 1u);
+
+    consensus->setClockOverride(std::nullopt);
+    // Live clock is non-deterministic; just ensure override cleared without throw.
+    EXPECT_GE(consensus->getTimestamp(), 0);
+}
+
+TEST_F(OuroborosWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
+    const uint64_t slot = 7;
+    auto natural = consensus->getSlotLeader(slot);
+    ASSERT_TRUE(natural.isOk());
+
+    const uint64_t forced = (natural.value() == 1) ? 2 : 1;
+    consensus->forceSlotLeader(slot, forced);
+
+    auto overridden = consensus->getSlotLeader(slot);
+    ASSERT_TRUE(overridden.isOk());
+    EXPECT_EQ(overridden.value(), forced);
+    EXPECT_TRUE(consensus->isSlotLeader(slot, forced));
+    EXPECT_FALSE(consensus->isSlotLeader(slot, natural.value()));
+    EXPECT_TRUE(consensus->validateSlotLeader(forced, slot));
+    EXPECT_FALSE(consensus->validateSlotLeader(natural.value(), slot));
+
+    consensus->clearForcedSlotLeaders();
+    auto restored = consensus->getSlotLeader(slot);
+    ASSERT_TRUE(restored.isOk());
+    EXPECT_EQ(restored.value(), natural.value());
+}
+
+TEST_F(OuroborosWithStakeholdersTest, InitClearsInjectors) {
+    consensus->setClockOverride(100);
+    consensus->forceSlotLeader(3, 2);
+    consensus->init({
+        .genesisTime = 0,
+        .timeOffset = 0,
+        .slotDuration = 5,
+        .slotsPerEpoch = 10,
+    });
+    consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+
+    // Clock override cleared → not pinned at 100 unless wall clock happens to match.
+    // Forced leader cleared → slot 3 uses natural election again.
+    auto leader = consensus->getSlotLeader(3);
+    ASSERT_TRUE(leader.isOk());
+    // Re-force and confirm inject still works after init.
+    consensus->forceSlotLeader(3, 1);
+    EXPECT_EQ(consensus->getSlotLeader(3).value(), 1u);
+}

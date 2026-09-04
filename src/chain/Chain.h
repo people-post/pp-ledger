@@ -153,6 +153,15 @@ public:
                        uint64_t slotLeaderId) const;
 
   void initConsensus(const consensus::Ouroboros::Config &config);
+
+  /**
+   * Test/sim injectors forwarded to Ouroboros (see docs/architecture/TESTING.md).
+   * Production binaries must not call these.
+   */
+  void setClockOverride(std::optional<int64_t> unixSeconds);
+  void forceSlotLeader(uint64_t slot, uint64_t stakeholderId);
+  void clearForcedSlotLeaders();
+
   Roe<void> initLedger(const Ledger::InitConfig &config);
   Roe<void> mountLedger(const std::string &workDir);
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);

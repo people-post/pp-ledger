@@ -503,6 +503,18 @@ void Chain::initConsensus(const consensus::Ouroboros::Config &config) {
   txContext_.consensus.init(config);
 }
 
+void Chain::setClockOverride(std::optional<int64_t> unixSeconds) {
+  txContext_.consensus.setClockOverride(unixSeconds);
+}
+
+void Chain::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
+  txContext_.consensus.forceSlotLeader(slot, stakeholderId);
+}
+
+void Chain::clearForcedSlotLeaders() {
+  txContext_.consensus.clearForcedSlotLeaders();
+}
+
 Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
   auto result = txContext_.ledger.init(config);
   if (!result) {
