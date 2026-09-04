@@ -424,6 +424,36 @@ get_next_block_id() {
     echo "$out" | grep -o '"nextBlockId"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0"
 }
 
+
+get_miner_next_block_id() {
+    local port=$1
+    local out
+    out=$(fetch_miner_status "$port")
+    echo "$out" | grep -o '"nextBlockId"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0"
+}
+
+# Wait until miner nextBlockId >= target (tip catch-up). Returns 0 on success.
+wait_for_miner_tip() {
+    local port=$1
+    local target=$2
+    local max_wait=${3:-60}
+    local elapsed=0
+    echo -e "${CYAN}Waiting for miner :$port nextBlockId >= $target (max ${max_wait}s)...${NC}"
+    while [ "$elapsed" -lt "$max_wait" ]; do
+        local got
+        got=$(get_miner_next_block_id "$port")
+        if [ -n "$got" ] && [ "$got" -ge "$target" ] 2>/dev/null; then
+            echo -e "${GREEN}✓ Miner tip caught up: nextBlockId=$got (target >= $target)${NC}"
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    echo -e "${RED}✗ Miner tip timeout: nextBlockId=$(get_miner_next_block_id "$port") (target $target)${NC}"
+    return 1
+}
+
+
 get_checkpoint_ids() {
     local out
     out=$(fetch_beacon_state)
@@ -735,13 +765,25 @@ test_scenario_late_joiner_miner() {
     start_miner 3
     sleep 4
 
-    # Verify miner3 caught up
-    local status3
-    status3=$(fetch_miner_status $((MINER_BASE_PORT + 2)))
-    echo -e "${CYAN}Miner3 status after sync:${NC}"
-    echo "$status3" | head -15
+    # L-SMOKE-LATEJOIN: hard tip equality (miner nextBlockId catches beacon tip)
+    local beacon_tip
+    beacon_tip=$(get_next_block_id)
+    local miner_port=$((MINER_BASE_PORT + 2))
+    if ! wait_for_miner_tip "$miner_port" "$beacon_tip" 90; then
+        echo -e "${RED}✗ L-SMOKE-LATEJOIN failed: miner3 tip did not reach beacon nextBlockId=$beacon_tip${NC}"
+        fetch_miner_status "$miner_port" | head -20 || true
+        fetch_beacon_state | head -20 || true
+        return 1
+    fi
 
-    echo -e "${GREEN}Late-joiner flow exercised: miner starts from lastCheckpointId, syncs blocks.${NC}"
+    local miner_tip
+    miner_tip=$(get_miner_next_block_id "$miner_port")
+    if [ "$miner_tip" -lt "$beacon_tip" ]; then
+        echo -e "${RED}✗ L-SMOKE-LATEJOIN tip mismatch: miner=$miner_tip beacon=$beacon_tip${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ L-SMOKE-LATEJOIN: miner3 nextBlockId=$miner_tip >= beacon=$beacon_tip${NC}"
     echo -e "${CYAN}When checkpointId > 0: blocks before checkpointId use non-strict mode,${NC}"
     echo -e "${CYAN}at/after checkpointId use strict mode (see Miner::addBlock).${NC}"
 }

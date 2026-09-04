@@ -182,4 +182,22 @@ TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   EXPECT_EQ(unpacked->payload, request.payload);
 }
 
+
+TEST_F(AmpLedgerRpcTest, RoundTripFailsWhenDatagramsDropped) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
+
+  // Drop every outbound datagram from the client after association so the RPC
+  // cannot complete — in-process stand-in for L-NET-LOSS (purpose catalog).
+  h->io_a->SetDropRate(1.0);
+
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  auto response = transport.roundTrip("should-not-arrive", std::chrono::milliseconds(200));
+  EXPECT_TRUE(response.isError()) << "expected timeout/failure under total loss";
+}
+
 } // namespace

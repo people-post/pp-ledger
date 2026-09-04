@@ -5,6 +5,7 @@
 #include "Types.hpp"
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,6 +83,15 @@ public:
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
 
+  /**
+   * Test/sim injectors — pin wall clock and/or override elected leaders.
+   * Production binaries must not call these; reserved for unit tests and
+   * in-process smoke compose (docs/architecture/TESTING.md).
+   */
+  void setClockOverride(std::optional<int64_t> unixSeconds);
+  void forceSlotLeader(uint64_t slot, uint64_t stakeholderId);
+  void clearForcedSlotLeaders();
+
 private:
   struct Cache {
     std::map<uint64_t, uint64_t> mStakeholders;
@@ -102,6 +112,8 @@ private:
   // Data members
   Config config_;
   Cache cache_;
+  std::optional<int64_t> clockOverride_;
+  std::map<uint64_t, uint64_t> forcedLeaders_;  // slot -> stakeholderId
 };
 
 } // namespace consensus

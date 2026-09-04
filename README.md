@@ -90,6 +90,8 @@ cd build
 ctest --output-on-failure
 ```
 
+Test doctrine and purpose catalog (`L-*`): [docs/architecture/TESTING.md](docs/architecture/TESTING.md), [docs/ops/TEST_STRATEGY.md](docs/ops/TEST_STRATEGY.md).
+
 ### Quick Test Network
 
 Use the automated script to spin up a local test network (1 beacon + 3 miners):

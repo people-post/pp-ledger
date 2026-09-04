@@ -50,6 +50,8 @@ The `.clang-tidy` config at the repo root enables bugprone, clang-analyzer, perf
 
 ### Tests
 
+Doctrine + purpose catalog: [docs/architecture/TESTING.md](docs/architecture/TESTING.md), [docs/ops/TEST_STRATEGY.md](docs/ops/TEST_STRATEGY.md).
+
 ```bash
 cd /workspace/build && ctest --output-on-failure
 ```
