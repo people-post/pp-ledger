@@ -94,16 +94,15 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !idem) {
     return idem;
   }
-  if (p->fee > 0) {
-    if (auto r =
-            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
-        !r) {
-      return chain_tx::TxError(r.error().code, r.error().message);
-    }
+  if (auto seeded =
+          chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
+      !seeded) {
+    return seeded;
   }
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->fromWalletId);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->fromWalletId);
+      !seeded) {
+    return seeded;
   }
   return applyNewUser(*p, c.ctx, bank, c.blockId, true, true);
 }
@@ -149,34 +148,14 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
             std::to_string(AccountBuffer::ID_FIRST_USER));
   }
 
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize user account: " + tx.meta);
+  auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(
+      tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr,
+      tx.toWalletId, "Failed to deserialize user account: " + tx.meta);
+  if (!userAccountRoe) {
+    return userAccountRoe.error();
   }
+  Client::UserAccount userAccount = std::move(userAccountRoe.value());
 
-  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
-      userAccount.meta,
-      [&](uint64_t id) {
-        if (id == tx.toWalletId) {
-          return true;
-        }
-        if (bank.hasAccount(id)) {
-          return true;
-        }
-        return isBufferMode && ctx.bank.hasAccount(id);
-      },
-      "Account attachment: ");
-  if (!attachmentRoe) {
-    return attachmentRoe.error();
-  }
-  userAccount.meta = attachmentRoe.value();
-
-  if (auto walletOk =
-          chain_tx::validateUserWalletBasics(ctx.crypto, userAccount.wallet);
-      !walletOk) {
-    return walletOk;
-  }
   if (userAccount.wallet.mBalances.size() != 1) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User account must have exactly one balance");

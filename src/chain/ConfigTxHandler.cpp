@@ -153,10 +153,10 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !idem) {
     return idem;
   }
-  if (auto r =
-          bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_GENESIS);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded = chain_tx::seedCommittedAccount(
+          bank, c.ctx.bank, AccountBuffer::ID_GENESIS);
+      !seeded) {
+    return seeded;
   }
   return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
 }

@@ -160,37 +160,20 @@ Roe<uint64_t> calculateMinimumFeeForAccountMeta(
                        std::to_string(accountResult.value().blockId));
   }
 
-  size_t metaSize = 0;
-
-  if (accountId == AccountBuffer::ID_GENESIS) {
-    auto metaResult = getGenesisAccountMetaFromBlock(
-        blockResult.value().block, fnGenesisMetaForRecord);
-    if (!metaResult) {
-      return metaResult.error();
-    }
-    metaSize = metaResult.value().genesis.meta.size();
-  } else {
-    auto userMetaResult = getUserAccountMetaFromBlock(
-        blockResult.value().block, accountId, fnUserMetaForRecord);
-    if (!userMetaResult) {
-      return userMetaResult.error();
-    }
-    metaSize = userMetaResult.value().meta.size();
+  auto metaRoe = getAccountCustomMetaFromBlock(
+      blockResult.value().block, accountId, fnUserMetaForRecord,
+      fnGenesisMetaForRecord);
+  if (!metaRoe) {
+    return metaRoe.error();
   }
 
-  if (metaSize > config.maxCustomMetaSize) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "Custom metadata exceeds maxCustomMetaSize: " +
-                       std::to_string(metaSize) + " > " +
-                       std::to_string(config.maxCustomMetaSize));
+  auto nonFreeResult = toNonFree(config, metaRoe.value().size());
+  if (!nonFreeResult) {
+    return nonFreeResult.error();
   }
 
-  const uint64_t nonFreeMetaSize =
-      metaSize > config.freeCustomMetaSize
-          ? static_cast<uint64_t>(metaSize) - config.freeCustomMetaSize
-          : 0ULL;
-
-  return calculateMinimumFeeFromNonFreeMetaSize(config, nonFreeMetaSize);
+  return calculateMinimumFeeFromNonFreeMetaSize(
+      config, static_cast<uint64_t>(nonFreeResult.value()));
 }
 
 } // namespace pp::chain_tx

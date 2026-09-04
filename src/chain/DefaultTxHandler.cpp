@@ -1,5 +1,6 @@
 #include "DefaultTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "TxTyped.h"
@@ -62,19 +63,20 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !idem) {
     return idem;
   }
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->fromWalletId);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->fromWalletId);
+      !seeded) {
+    return seeded;
   }
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->toWalletId); !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->toWalletId);
+      !seeded) {
+    return seeded;
   }
-  if (p->fee > 0) {
-    if (auto r =
-            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
-        !r) {
-      return chain_tx::TxError(r.error().code, r.error().message);
-    }
+  if (auto seeded =
+          chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
+      !seeded) {
+    return seeded;
   }
   return applyDefaultTransferStrict(*p, c.ctx, bank);
 }
@@ -164,15 +166,10 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
           }
         }
       }
-      if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
-        auto depositFeeResult = bank.depositBalance(
-            AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
-            static_cast<int64_t>(tx.fee));
-        if (!depositFeeResult) {
-          return chain_tx::TxError(
-              chain_err::E_TX_TRANSFER,
-              "Failed to credit fee: " + depositFeeResult.error().message);
-        }
+      if (auto credited = chain_tx::creditFeeToFeeAccount(
+              bank, tx.fee, "Failed to credit fee: ");
+          !credited) {
+        return credited;
       }
     }
   } else {

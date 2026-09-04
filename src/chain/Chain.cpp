@@ -178,21 +178,12 @@ Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {
     return Error(E_BLOCK_NOT_FOUND,
                  "Block not found: " + std::to_string(account.blockId));
   }
-  if (accountId == AccountBuffer::ID_GENESIS) {
-    auto gmRoe = chain_tx::getGenesisAccountMetaFromBlock(
-        blockResult.value().block, fns->fnGenesis);
-    if (!gmRoe) {
-      return Error(gmRoe.error());
-    }
-    userAccount.meta = gmRoe.value().genesis.meta;
-  } else {
-    auto uaRoe = chain_tx::getUserAccountMetaFromBlock(
-        blockResult.value().block, accountId, fns->fnUser);
-    if (!uaRoe) {
-      return Error(uaRoe.error());
-    }
-    userAccount.meta = uaRoe.value().meta;
+  auto metaRoe = chain_tx::getAccountCustomMetaFromBlock(
+      blockResult.value().block, accountId, fns->fnUser, fns->fnGenesis);
+  if (!metaRoe) {
+    return Error(metaRoe.error());
   }
+  userAccount.meta = metaRoe.value();
   return userAccount;
 }
 

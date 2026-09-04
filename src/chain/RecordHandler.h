@@ -99,6 +99,10 @@ public:
   void redirectLoggers(const std::string &baseName);
 
 private:
+  /** Decode record and resolve its handler (shared by apply/signer paths). */
+  chain_tx::Roe<std::pair<const ITxHandler *, Ledger::TypedTx>>
+  decodeWithHandler(const Ledger::Record &rec) const;
+
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};
 };
 

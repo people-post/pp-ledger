@@ -63,6 +63,35 @@ chain_tx::Roe<Ledger::TxNewUser> loadGenesisNewUserWithExactFee(
   return tx;
 }
 
+
+chain_tx::Roe<void> requireGenesisBootstrapRouting(
+    const Ledger::TxNewUser &tx, uint64_t expectedTo, const char *routingMsg) {
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS ||
+      tx.toWalletId != expectedTo) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, routingMsg);
+  }
+  return {};
+}
+
+chain_tx::Roe<void> requireGenesisBootstrapZeroAmountMeta(
+    const Ledger::TxNewUser &tx, const char *amountMsg, const char *metaMsg) {
+  if (tx.amount != 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, amountMsg);
+  }
+  if (tx.meta.empty()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, metaMsg);
+  }
+  return {};
+}
+
+chain_tx::Roe<int64_t> requireFeeFitsInt64(uint64_t fee,
+                                          const char *overflowMsg) {
+  if (fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, overflowMsg);
+  }
+  return static_cast<int64_t>(fee);
+}
+
 } // namespace
 
 std::string calculateBlockHash(const Ledger::Block &block) {
@@ -167,22 +196,19 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return feeTxRoe.error();
   }
   const auto &feeTx = feeTxRoe.value();
-  if (feeTx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      feeTx.toWalletId != AccountBuffer::ID_FEE) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis fee account creation transaction "
-        "must transfer from genesis to fee wallet");
+  if (auto routing = requireGenesisBootstrapRouting(
+          feeTx, AccountBuffer::ID_FEE,
+          "Genesis fee account creation transaction "
+          "must transfer from genesis to fee wallet");
+      !routing) {
+    return routing;
   }
-  if (feeTx.amount != 0) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis fee account creation transaction must have amount 0");
-  }
-  if (feeTx.meta.empty()) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis fee account creation transaction must have meta");
+  if (auto shape = requireGenesisBootstrapZeroAmountMeta(
+          feeTx,
+          "Genesis fee account creation transaction must have amount 0",
+          "Genesis fee account creation transaction must have meta");
+      !shape) {
+    return shape;
   }
 
   auto minerTxRoe = loadGenesisNewUserWithExactFee(
@@ -194,11 +220,12 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return minerTxRoe.error();
   }
   const auto &minerTx = minerTxRoe.value();
-  if (minerTx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      minerTx.toWalletId != AccountBuffer::ID_RESERVE) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis miner transaction must transfer "
-                             "from genesis to new user wallet");
+  if (auto routing = requireGenesisBootstrapRouting(
+          minerTx, AccountBuffer::ID_RESERVE,
+          "Genesis miner transaction must transfer "
+          "from genesis to new user wallet");
+      !routing) {
+    return routing;
   }
 
   auto recycleTxRoe = loadGenesisNewUserWithExactFee(
@@ -211,23 +238,25 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
   }
   const auto &recycleTx = recycleTxRoe.value();
 
-  if (minerTx.fee >
-          static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
-      recycleTx.fee >
-          static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis transaction fee exceeds int64_t range");
+  auto minerFeeSignedRoe = requireFeeFitsInt64(
+      minerTx.fee, "Genesis transaction fee exceeds int64_t range");
+  if (!minerFeeSignedRoe) {
+    return minerFeeSignedRoe.error();
   }
-  const int64_t minerFeeSigned = static_cast<int64_t>(minerTx.fee);
-  const int64_t recycleFeeSigned = static_cast<int64_t>(recycleTx.fee);
+  auto recycleFeeSignedRoe = requireFeeFitsInt64(
+      recycleTx.fee, "Genesis transaction fee exceeds int64_t range");
+  if (!recycleFeeSignedRoe) {
+    return recycleFeeSignedRoe.error();
+  }
+  const int64_t minerFeeSigned = minerFeeSignedRoe.value();
+  const int64_t recycleFeeSigned = recycleFeeSignedRoe.value();
 
-  if (feeTx.fee >
-      static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis fee-wallet transaction fee exceeds int64_t range");
+  auto feeWalletFeeSignedRoe = requireFeeFitsInt64(
+      feeTx.fee, "Genesis fee-wallet transaction fee exceeds int64_t range");
+  if (!feeWalletFeeSignedRoe) {
+    return feeWalletFeeSignedRoe.error();
   }
-  const int64_t feeWalletFeeSigned = static_cast<int64_t>(feeTx.fee);
+  const int64_t feeWalletFeeSigned = feeWalletFeeSignedRoe.value();
 
   if (minerTx.amount + feeWalletFeeSigned + minerFeeSigned +
           recycleFeeSigned !=
@@ -239,22 +268,19 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
             std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
   }
 
-  if (recycleTx.fromWalletId != AccountBuffer::ID_GENESIS ||
-      recycleTx.toWalletId != AccountBuffer::ID_RECYCLE) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis recycle account creation transaction must transfer "
-        "from genesis to recycle wallet");
+  if (auto routing = requireGenesisBootstrapRouting(
+          recycleTx, AccountBuffer::ID_RECYCLE,
+          "Genesis recycle account creation transaction must transfer "
+          "from genesis to recycle wallet");
+      !routing) {
+    return routing;
   }
-  if (recycleTx.amount != 0) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis recycle account creation transaction must have amount 0");
-  }
-  if (recycleTx.meta.empty()) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis recycle account creation transaction must have meta");
+  if (auto shape = requireGenesisBootstrapZeroAmountMeta(
+          recycleTx,
+          "Genesis recycle account creation transaction must have amount 0",
+          "Genesis recycle account creation transaction must have meta");
+      !shape) {
+    return shape;
   }
 
   std::string calculatedHash = calculateBlockHash(block.block);

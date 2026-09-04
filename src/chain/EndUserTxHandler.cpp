@@ -1,5 +1,6 @@
 #include "EndUserTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "TxTyped.h"
@@ -49,13 +50,15 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
     return pRoe.error();
   }
   const auto *p = pRoe.value();
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->walletId); !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->walletId);
+      !seeded) {
+    return seeded;
   }
-  if (auto r =
-          bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_RECYCLE);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded = chain_tx::seedCommittedAccount(
+          bank, c.ctx.bank, AccountBuffer::ID_RECYCLE);
+      !seeded) {
+    return seeded;
   }
   return applyEndUser(*p, c.ctx, bank, true);
 }

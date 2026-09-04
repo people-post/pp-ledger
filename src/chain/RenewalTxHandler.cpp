@@ -89,17 +89,15 @@ chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   }
   const auto *p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
-    if (auto r =
-            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_GENESIS);
-        !r) {
-      return chain_tx::TxError(r.error().code, r.error().message);
+    if (auto seeded = chain_tx::seedCommittedAccount(
+            bank, c.ctx.bank, AccountBuffer::ID_GENESIS);
+        !seeded) {
+      return seeded;
     }
-    if (p->fee > 0) {
-      if (auto r =
-              bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
-          !r) {
-        return chain_tx::TxError(r.error().code, r.error().message);
-      }
+    if (auto seeded =
+            chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
+        !seeded) {
+      return seeded;
     }
     return applyRenewal(*p, c.ctx, bank, c.blockId, true, true);
   }
@@ -179,19 +177,8 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     return replaced;
   }
 
-  if (tx.fee > 0 && bank.hasAccount(AccountBuffer::ID_FEE)) {
-    auto depositResult = bank.depositBalance(
-        AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS,
-        static_cast<int64_t>(tx.fee));
-    if (!depositResult) {
-      return chain_tx::TxError(
-          chain_err::E_TX_TRANSFER,
-          "Failed to credit fee to fee account: " +
-              depositResult.error().message);
-    }
-  }
-
-  return {};
+  return chain_tx::creditFeeToFeeAccount(
+      bank, tx.fee, "Failed to credit fee to fee account: ");
 }
 
 std::optional<std::string>

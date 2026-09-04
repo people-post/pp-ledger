@@ -30,6 +30,15 @@ getGenesisAccountMetaFromBlock(
     const Ledger::Block &block,
     const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord);
 
+/**
+ * Attachment / custom-meta payload stored on the account's tip block
+ * (genesis.meta or user.meta). Shared by Chain::getAccount and fee sizing.
+ */
+Roe<std::string> getAccountCustomMetaFromBlock(
+    const Ledger::Block &block, uint64_t accountId,
+    const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord);
+
 Roe<std::string> getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee, const FnUserAccountMetaForRecord &fnUserMetaForRecord,
