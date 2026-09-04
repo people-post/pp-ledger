@@ -121,6 +121,13 @@ public:
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
+
+  /**
+   * Fill txRoot + stateRoot from records / simulated post-state, then set hash.
+   * Dry-runs apply on a scratch bank (does not mutate committed state).
+   */
+  Roe<void> sealBlock(Ledger::ChainNode &block);
+
   Roe<std::vector<Ledger::Record>>
   collectRenewals(uint64_t slot) const;
 

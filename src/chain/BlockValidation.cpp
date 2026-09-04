@@ -2,10 +2,13 @@
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "common/Logger.h"
+#include "common/Serialize.hpp"
+#include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 
 #include <limits>
 #include <set>
+#include <sstream>
 #include <utility>
 
 namespace pp::chain_block {
@@ -32,8 +35,17 @@ bool isValidTimestamp(const consensus::Ouroboros &consensus,
 } // namespace
 
 std::string calculateBlockHash(const Ledger::Block &block) {
-  std::string serialized = block.ltsToString();
-  return utl::sha256(serialized);
+  return utl::sha256(block.headerToString());
+}
+
+std::string calculateTxRoot(const std::vector<Ledger::Record> &records) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  for (const auto &rec : records) {
+    std::string packed = utl::binaryPack(rec);
+    ar & packed;
+  }
+  return utl::sha256(std::string("pp-ledger/txroot/v1") + oss.str());
 }
 
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
@@ -66,6 +78,13 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis block must have exactly four transactions");
+  }
+
+  const std::string expectedTxRoot =
+      calculateTxRoot(block.block.records);
+  if (block.block.txRoot != expectedTxRoot) {
+    return chain_tx::TxError(chain_err::E_BLOCK_HASH,
+                             "Genesis block txRoot mismatch");
   }
 
   const auto &checkpointRec = block.block.records[0];
@@ -506,6 +525,11 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                      const std::optional<BlockChainConfig> &optChainConfig,
                      const Checkpoint &checkpoint,
                      const RecordHandler &recordHandler) {
+  const std::string expectedTxRoot = calculateTxRoot(block.block.records);
+  if (block.block.txRoot != expectedTxRoot) {
+    return chain_tx::TxError(chain_err::E_BLOCK_HASH, "Block txRoot mismatch");
+  }
+
   std::string calculatedHash = calculateBlockHash(block.block);
   if (calculatedHash != block.hash) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,

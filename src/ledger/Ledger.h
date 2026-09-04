@@ -155,25 +155,39 @@ public:
   };
 
   /**
-   * Block data structure (without hash)
+   * Block data structure (without hash).
+   *
+   * Header fields are committed by the block hash (see headerToString).
+   * Body (`records`) is committed indirectly via `txRoot`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 1;
+    static constexpr uint16_t CURRENT_VERSION = 2;
 
+    // --- Header (hashed) ---
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
-    std::vector<Record> records;
     std::string previousHash;
     uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
     uint64_t slotLeader{ 0 };
     /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
     uint64_t txIndex{ 0 };
+    /** SHA-256 commitment to `records` (see chain_block::calculateTxRoot). */
+    std::string txRoot;
+    /** SHA-256 commitment to post-block account state (AccountBuffer state root). */
+    std::string stateRoot;
+
+    // --- Body (not hashed directly; committed via txRoot) ---
+    std::vector<Record> records;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & records & previousHash & nonce & slot & slotLeader & txIndex;
+      ar & index & timestamp & previousHash & nonce & slot & slotLeader &
+          txIndex & txRoot & stateRoot & records;
     }
 
+    /** Binary LTS of header fields only (used for block hash). */
+    std::string headerToString() const;
+    /** Full block LTS for disk / RawBlock (header + body). */
     std::string ltsToString() const;
     bool ltsFromString(const std::string &str);
     pp::common::Meta ltsToMeta() const;

@@ -437,6 +437,41 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
   return chain_block::calculateBlockHash(block);
 }
 
+Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+  block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
+
+  TxContext scratch;
+  scratch.bank = txContext_.bank;
+  scratch.optChainConfig = txContext_.optChainConfig;
+  scratch.checkpoint = txContext_.checkpoint;
+  scratch.fnAccountMetaForRecord = txContext_.fnAccountMetaForRecord;
+  scratch.fnIdempotencyKeyForRecord = txContext_.fnIdempotencyKeyForRecord;
+  scratch.fnBillableCustomMetaSizeForFee =
+      txContext_.fnBillableCustomMetaSizeForFee;
+  scratch.consensus.init(txContext_.consensus.getConfig());
+  if (txContext_.consensus.getStakeholderCount() > 0) {
+    scratch.consensus.setStakeholders(txContext_.consensus.getStakeholders(),
+                                      txContext_.consensus.getCurrentEpoch());
+  }
+
+  // Non-strict dry-run: skip idempotency / fee-min checks; apply balance effects.
+  const bool dryRunStrict = false;
+  for (const auto &rec : block.block.records) {
+    BlockApplyContext ctx{scratch, block.block.index, block.block.slot,
+                          block.block.slotLeader, dryRunStrict};
+    auto applied = recordHandler_.applyBlock(rec, scratch.bank, ctx);
+    if (!applied) {
+      return Error(E_TX_VALIDATION,
+                   "Failed to simulate block for stateRoot: " +
+                       applied.error().message);
+    }
+  }
+
+  block.block.stateRoot = scratch.bank.calculateStateRoot();
+  block.hash = calculateHash(block.block);
+  return {};
+}
+
 void Chain::refreshStakeholders() {
   if (txContext_.consensus.isStakeUpdateNeeded()) {
     auto stakeholders = txContext_.bank.getStakeholders();
@@ -576,6 +611,11 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
     }
   }
 
+  const std::string expectedStateRoot = txContext_.bank.calculateStateRoot();
+  if (block.block.stateRoot != expectedStateRoot) {
+    return Error(E_BLOCK_HASH, "Genesis block stateRoot mismatch");
+  }
+
   return {};
 }
 
@@ -598,6 +638,11 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
     }
+  }
+
+  const std::string expectedStateRoot = txContext_.bank.calculateStateRoot();
+  if (block.block.stateRoot != expectedStateRoot) {
+    return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
   }
 
   if (txContext_.optChainConfig.has_value() &&

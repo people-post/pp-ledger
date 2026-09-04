@@ -28,6 +28,15 @@ std::string transactionTypeToHumanString(uint16_t type) {
 
 } // namespace
 
+std::string Ledger::Block::headerToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  uint16_t version = CURRENT_VERSION;
+  ar & version & index & timestamp & previousHash & nonce & slot & slotLeader &
+      txIndex & txRoot & stateRoot;
+  return oss.str();
+}
+
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -236,6 +245,8 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
   j.setUIntForJson("slot", slot);
   j.setUIntForJson("slotLeader", slotLeader);
   j.setUIntForJson("startingTxIndex", txIndex);
+  j.set("txRoot", utl::toJsonSafeString(txRoot));
+  j.set("stateRoot", utl::toJsonSafeString(stateRoot));
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());

@@ -98,6 +98,12 @@ public:
   void clear();
   void reset();
 
+  /**
+   * Deterministic SHA-256 commitment to all accounts (id-ordered).
+   * Domain-separated: "pp-ledger/state/v1" || binaryPack(accounts...).
+   */
+  std::string calculateStateRoot() const;
+
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
 

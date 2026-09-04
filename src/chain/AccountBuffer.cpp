@@ -1,6 +1,10 @@
 #include "AccountBuffer.h"
 
+#include "common/Serialize.hpp"
+#include "lib/common/Utilities.h"
+
 #include <limits>
+#include <sstream>
 #include <string>
 
 namespace pp {
@@ -441,5 +445,14 @@ void AccountBuffer::remove(uint64_t id) { mAccounts_.erase(id); }
 void AccountBuffer::clear() { mAccounts_.clear(); }
 
 void AccountBuffer::reset() { clear(); }
+
+std::string AccountBuffer::calculateStateRoot() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  for (const auto &[id, account] : mAccounts_) {
+    ar & id & account.wallet & account.blockId;
+  }
+  return utl::sha256(std::string("pp-ledger/state/v1") + oss.str());
+}
 
 } // namespace pp

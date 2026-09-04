@@ -181,7 +181,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.records.push_back(
       makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey));
 
-  genesis.hash = validator.calculateHash(genesis.block);
+  auto sealResult = validator.sealBlock(genesis);
+  EXPECT_TRUE(sealResult.isOk());
   return genesis;
 }
 
@@ -200,7 +201,8 @@ Ledger::ChainNode makeNextBlock(
   block.block.txIndex =
       previous.block.txIndex + previous.block.records.size();
   block.block.records = records;
-  block.hash = validator.calculateHash(block.block);
+  auto sealResult = validator.sealBlock(block);
+  EXPECT_TRUE(sealResult.isOk());
   return block;
 }
 
@@ -241,6 +243,8 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   block.nonce = 7;
   block.slot = 2;
   block.slotLeader = 3;
+  block.txRoot = "txroot";
+  block.stateRoot = "stateroot";
 
   std::string hash1 = validator.calculateHash(block);
   std::string hash2 = validator.calculateHash(block);
@@ -249,6 +253,14 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   block.nonce = 8;
   std::string hash3 = validator.calculateHash(block);
   EXPECT_NE(hash1, hash3);
+
+  // Body changes alone must not affect header hash when roots are unchanged.
+  block.nonce = 7;
+  block.records.push_back({});
+  EXPECT_EQ(validator.calculateHash(block), hash1);
+
+  block.txRoot = "txroot-changed";
+  EXPECT_NE(validator.calculateHash(block), hash1);
 }
 
 TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {

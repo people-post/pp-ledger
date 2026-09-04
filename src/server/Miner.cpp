@@ -336,7 +336,10 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
   block.block.txIndex =
       latestBlock.block.txIndex + latestBlock.block.records.size();
   block.block.records = records;
-  block.hash = calculateHash(block.block);
+  auto sealResult = chain_.sealBlock(block);
+  if (!sealResult) {
+    return Error(12, "Failed to seal block: " + sealResult.error().message);
+  }
 
   log().debug << "Created block " << blockIndex << " with "
               << block.block.records.size() << " transactions";

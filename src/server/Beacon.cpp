@@ -413,7 +413,11 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   }
   genesisBlock.block.records.push_back(rec);
 
-  genesisBlock.hash = calculateHash(genesisBlock.block);
+  auto sealResult = chain_.sealBlock(genesisBlock);
+  if (!sealResult) {
+    return Error(19, "Failed to seal genesis block: " +
+                         sealResult.error().message);
+  }
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;
   return genesisBlock;
 }
