@@ -219,4 +219,126 @@ TEST_F(AmpLedgerRpcTest, SuccessThenLossFailsSecondRoundTrip) {
   EXPECT_TRUE(second.isError()) << "expected failure after enabling loss";
 }
 
+TEST_F(AmpLedgerRpcTest, RoundTripSurvivesReorderWindow) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  // L-NET-REORDER: hold-and-random-release on both directions after association.
+  h->io_a->SetReorderWindow(4);
+  h->io_b->SetReorderWindow(4);
+  h->io_a->SetRngSeed(0);
+  h->io_b->SetRngSeed(1);
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() {
+    h->PumpBoth();
+    // Drive may emit several datagrams; flush after so held packets still make progress.
+    h->io_a->FlushReorder();
+    h->io_b->FlushReorder();
+  });
+
+  const std::string payload = "reorder-window-payload";
+  auto response = transport.roundTrip(payload, std::chrono::seconds(5));
+  ASSERT_TRUE(response.isOk()) << response.error().message;
+  EXPECT_EQ(response.value(), payload);
+}
+
+TEST_F(AmpLedgerRpcTest, RoundTripSurvivesDatagramDuplication) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  // Transport-level duplicate injection (ingress replay of datagrams).
+  h->io_a->SetDupRate(1.0);
+  h->io_b->SetDupRate(1.0);
+  h->io_a->SetRngSeed(3);
+  h->io_b->SetRngSeed(4);
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+
+  auto response = transport.roundTrip("dup-datagram-payload", std::chrono::seconds(5));
+  ASSERT_TRUE(response.isOk()) << response.error().message;
+  EXPECT_EQ(response.value(), "dup-datagram-payload");
+}
+
+TEST_F(AmpLedgerRpcTest, ClientRejectsOversizeRequest) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  bool handler_called = false;
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [&](const std::string& body) {
+    handler_called = true;
+    return body;
+  });
+
+  // L-ADV-INGRESS: AmpLedgerTransport refuses bodies above kMaxPayloadBytes.
+  const std::string huge(pp::ledger::rpc::kMaxPayloadBytes + 1, 'x');
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  auto response = transport.roundTrip(huge, std::chrono::seconds(2));
+  EXPECT_TRUE(response.isError());
+  EXPECT_FALSE(handler_called);
+}
+
+TEST_F(AmpLedgerRpcTest, TruncatedClientRequestReturnsErrorResponse) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  // L-ADV-INGRESS: malformed / truncated Client::Request is rejected cleanly.
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) {
+    auto req = pp::utl::binaryUnpack<pp::Client::Request>(body);
+    if (!req) {
+      pp::Client::Response err;
+      err.version = pp::Client::Response::VERSION;
+      err.errorCode = 1;
+      err.payload = req.error().message;
+      return pp::utl::binaryPack(err);
+    }
+    pp::Client::Response resp;
+    resp.version = pp::Client::Response::VERSION;
+    resp.errorCode = 0;
+    resp.payload = req->payload;
+    return pp::utl::binaryPack(resp);
+  });
+
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  auto framed = transport.roundTrip(std::string("\x01\x02\x03", 3), std::chrono::seconds(5));
+  ASSERT_TRUE(framed.isOk()) << framed.error().message;
+
+  auto unpacked = pp::utl::binaryUnpack<pp::Client::Response>(framed.value());
+  ASSERT_TRUE(unpacked.isOk());
+  EXPECT_NE(unpacked->errorCode, 0);
+  EXPECT_FALSE(unpacked->payload.empty());
+}
+
+TEST_F(AmpLedgerRpcTest, IdenticalRequestReplayIsIdempotentEcho) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  size_t handler_calls = 0;
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [&](const std::string& body) {
+    ++handler_calls;
+    return body;
+  });
+
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  const std::string payload = "replay-same-body";
+  auto first = transport.roundTrip(payload, std::chrono::seconds(5));
+  auto second = transport.roundTrip(payload, std::chrono::seconds(5));
+  ASSERT_TRUE(first.isOk()) << first.error().message;
+  ASSERT_TRUE(second.isOk()) << second.error().message;
+  EXPECT_EQ(first.value(), payload);
+  EXPECT_EQ(second.value(), payload);
+  EXPECT_EQ(handler_calls, 2u);
+}
+
 } // namespace
