@@ -43,7 +43,8 @@ Full design guidance: [ledger-topology.md](ledger-topology.md).
 
 ## Dependency
 
-pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v0.1.2** (includes ADP keepalive).
+pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v0.1.3**
+(ADP keepalive + `MemoryDatagramIo` true reorder window).
 
 ## Modules (pp-ledger)
 
@@ -126,4 +127,5 @@ pp-client -b -H '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/...' status
 
 - [ledger-topology.md](ledger-topology.md) — long-term network design (uniform upstream, realization, sync)
 - pp-cpp-amp [KEEPALIVE.md](https://github.com/people-post/pp-cpp-amp/blob/main/docs/KEEPALIVE.md) — NAT link maintenance (v0.1.2+)
+- pp-cpp-amp `MemoryDatagramIo::SetReorderWindow` — in-process datagram reorder (v0.1.3+)
 - Fleet integration (pp-browser / pp-node): deferred to WS3+

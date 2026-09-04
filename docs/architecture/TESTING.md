@@ -73,9 +73,10 @@ Every high-risk behavior needs a home tier **or** an explicit skip:
   (also forwarded on `Chain`) — deterministic slots and leaders so tests are
   not hostage to wall clock or empty-slot lottery. In-process tip compose:
   `ChainComposeTest` in `src/chain/test/test_chain.cpp`.
-- **Amp `MemoryDatagramIo` (`SetDropRate` / `DropNext`) + `VirtualClock`** — used by
-  `src/network/amp/test/test_amp_ledger_rpc.cpp`; extend with reorder before Docker
-  netem.
+- **Amp `MemoryDatagramIo` (`SetDropRate` / `DropNext` / `SetReorderWindow` /
+  `SetDupRate`) + `VirtualClock`** — used by
+  `src/network/amp/test/test_amp_ledger_rpc.cpp`. Reorder/dup are covered in-process
+  (`covered-above` for Docker netem until needed).
 - Prefer thin `pp-client` probes over ad-hoc `curl` for smoke asserts.
 
 ---

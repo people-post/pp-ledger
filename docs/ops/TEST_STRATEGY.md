@@ -47,13 +47,13 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-CHAIN-FEE** | Fee / spending power / renewals | Unit (`test_account_buffer`, chain) | |
 | **L-NET-RPC** | Amp ledger RPC echo + Client framing | Integration (`test_amp_ledger_rpc`) | |
 | **L-NET-LOSS** | RPC fails clean under total datagram loss | Integration (`RoundTripFailsWhenDatagramsDropped`, `SuccessThenLossFailsSecondRoundTrip`) | Docker netem = `covered-above` later |
-| **L-NET-REORDER** | RPC survives reorder window | Integration | `glue-gap` — extend MemoryDatagramIo harness |
+| **L-NET-REORDER** | RPC survives reorder window | Integration (`RoundTripSurvivesReorderWindow`) | Amp `MemoryDatagramIo::SetReorderWindow` (random release) |
 | **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`test-network.sh`) | Not CI-gated yet |
 | **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
 | **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke | Assert tip progress (not only process up) |
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`test-checkpoint-cycles.sh` scenario 3) | Hard `nextBlockId` equality assert |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
-| **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Unit + integration | Phase A priority; expand adversarial vectors |
+| **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
 | **L-MULTI-BEACON** | Inter-beacon sync / BFT | — | `non-goal` (see SERVER.md future) |
 
