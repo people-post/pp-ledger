@@ -341,4 +341,68 @@ TEST_F(AmpLedgerRpcTest, IdenticalRequestReplayIsIdempotentEcho) {
   EXPECT_EQ(handler_calls, 2u);
 }
 
+// Mirrors Server::handleRequest unpack + BeaconServer unsupported-type path.
+std::string DispatchClientRequestOrReject(const std::string& body) {
+  auto req = pp::utl::binaryUnpack<pp::Client::Request>(body);
+  if (!req) {
+    pp::Client::Response err;
+    err.version = pp::Client::Response::VERSION;
+    err.errorCode = 1;
+    err.payload = req.error().message;
+    return pp::utl::binaryPack(err);
+  }
+  // Only STATUS is treated as supported in this ingress fixture.
+  if (req->type != pp::Client::T_REQ_STATUS) {
+    pp::Client::Response err;
+    err.version = pp::Client::Response::VERSION;
+    err.errorCode = 1;
+    err.payload = "Unsupported request type: " + std::to_string(req->type);
+    return pp::utl::binaryPack(err);
+  }
+  pp::Client::Response resp;
+  resp.version = pp::Client::Response::VERSION;
+  resp.errorCode = 0;
+  resp.payload = req->payload;
+  return pp::utl::binaryPack(resp);
+}
+
+TEST_F(AmpLedgerRpcTest, EmptyRequestBodyReturnsErrorResponse) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), DispatchClientRequestOrReject);
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+
+  auto framed = transport.roundTrip(std::string{}, std::chrono::seconds(5));
+  ASSERT_TRUE(framed.isOk()) << framed.error().message;
+  auto unpacked = pp::utl::binaryUnpack<pp::Client::Response>(framed.value());
+  ASSERT_TRUE(unpacked.isOk());
+  EXPECT_TRUE(unpacked->isError());
+  EXPECT_FALSE(unpacked->payload.empty());
+}
+
+TEST_F(AmpLedgerRpcTest, UnknownRequestTypeReturnsErrorResponse) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), DispatchClientRequestOrReject);
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+
+  pp::Client::Request request;
+  request.version = pp::Client::Request::VERSION;
+  request.type = 0xDEADBEEFu;
+  request.payload = "nope";
+
+  auto framed = transport.roundTrip(pp::utl::binaryPack(request), std::chrono::seconds(5));
+  ASSERT_TRUE(framed.isOk()) << framed.error().message;
+  auto unpacked = pp::utl::binaryUnpack<pp::Client::Response>(framed.value());
+  ASSERT_TRUE(unpacked.isOk());
+  EXPECT_TRUE(unpacked->isError());
+  EXPECT_NE(unpacked->payload.find("Unsupported request type"), std::string::npos);
+}
+
 } // namespace

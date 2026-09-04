@@ -53,7 +53,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke | Assert tip progress (not only process up) |
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`test-checkpoint-cycles.sh` scenario 3) | Hard `nextBlockId` equality assert |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
-| **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Expand further vectors (unknown type, nested payload) later |
+| **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
 | **L-MULTI-BEACON** | Inter-beacon sync / BFT | — | `non-goal` (see SERVER.md future) |
 
