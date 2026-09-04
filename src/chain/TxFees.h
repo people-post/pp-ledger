@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string_view>
 
 namespace pp::chain_tx {
@@ -31,6 +32,19 @@ using FnBillableCustomMetaSizeForFee =
 Roe<uint64_t> calculateMinimumFeeForTransaction(
     const BlockChainConfig &config, const Ledger::TypedTx &tx,
     const FnBillableCustomMetaSizeForFee &fnBillableCustomMetaSizeForFee);
+
+/**
+ * Strict-mode gate shared by Default / NewUser / user-upsert / genesis renewal:
+ * require chain config + fee-meta callback, compute minimum, compare `fee`.
+ *
+ * `feeBelowMinPrefix` is prepended to the numeric fee in the E_TX_FEE message.
+ */
+Roe<void> requireMinimumFee(
+    const std::optional<BlockChainConfig> &optChainConfig,
+    const std::optional<FnBillableCustomMetaSizeForFee>
+        &fnBillableCustomMetaSizeForFee,
+    const Ledger::TypedTx &typedTx, uint64_t fee,
+    std::string_view configRequiredMsg, std::string_view feeBelowMinPrefix);
 
 /** Minimum renewal fee from serialized account meta at the account's block. */
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

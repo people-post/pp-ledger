@@ -1,7 +1,9 @@
 #include "EndUserTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "TxTyped.h"
 
 #include <variant>
 
@@ -10,50 +12,53 @@ namespace pp {
 chain_tx::Roe<uint64_t>
 EndUserTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
-  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxEndUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxEndUser>(tx, "getSignerAccountId",
+                                                    "TxEndUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return slotLeaderId != 0 ? slotLeaderId : p->walletId;
+  return slotLeaderId != 0 ? slotLeaderId : pRoe.value()->walletId;
 }
 
 chain_tx::Roe<bool>
 EndUserTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                         uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxEndUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxEndUser>(tx, "matchesWalletForIndex",
+                                                    "TxEndUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return p->walletId == walletId;
+  return pRoe.value()->walletId == walletId;
 }
 
 chain_tx::Roe<std::optional<uint64_t>>
 EndUserTxHandler::getRenewalAccountIdIfAny(const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getRenewalAccountIdIfAny: expected TxEndUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxEndUser>(
+      tx, "getRenewalAccountIdIfAny", "TxEndUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return std::optional<uint64_t>(p->walletId);
+  return std::optional<uint64_t>(pRoe.value()->walletId);
 }
 
 chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer: expected TxEndUser");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxEndUser>(tx, "applyBuffer", "TxEndUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->walletId); !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  const auto *p = pRoe.value();
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->walletId);
+      !seeded) {
+    return seeded;
   }
-  if (auto r =
-          bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_RECYCLE);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded = chain_tx::seedCommittedAccount(
+          bank, c.ctx.bank, AccountBuffer::ID_RECYCLE);
+      !seeded) {
+    return seeded;
   }
   return applyEndUser(*p, c.ctx, bank, true);
 }
@@ -61,12 +66,12 @@ chain_tx::Roe<void> EndUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> EndUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxEndUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxEndUser");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxEndUser>(tx, "applyBlock", "TxEndUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return applyEndUser(*p, c.ctx, bank, false);
+  return applyEndUser(*pRoe.value(), c.ctx, bank, false);
 }
 
 chain_tx::Roe<void> EndUserTxHandler::applyEndUser(

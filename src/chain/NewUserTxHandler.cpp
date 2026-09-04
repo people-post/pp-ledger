@@ -1,8 +1,9 @@
 #include "NewUserTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "../client/AccountAttachment.h"
+#include "TxTyped.h"
 #include "../client/Client.h"
 
 #include <string>
@@ -13,53 +14,46 @@ namespace pp {
 chain_tx::Roe<size_t>
 NewUserTxHandler::getBillableCustomMetaSizeForFee(
     const BlockChainConfig &config, const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getBillableCustomMetaSizeForFee: expected TxNewUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxNewUser>(
+      tx, "getBillableCustomMetaSizeForFee", "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  if (p->meta.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(p->meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize user account metadata for fee "
-                             "calculation");
-  }
-  return userAccount.meta.size();
+  return chain_tx::billableUserCustomMetaSize(config, pRoe.value()->meta);
 }
 
 chain_tx::Roe<uint64_t>
 NewUserTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxNewUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxNewUser>(tx, "getSignerAccountId",
+                                                    "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return p->fromWalletId;
+  return pRoe.value()->fromWalletId;
 }
 
 chain_tx::Roe<bool>
 NewUserTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                         uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxNewUser");
+  auto pRoe = chain_tx::expectTx<Ledger::TxNewUser>(tx, "matchesWalletForIndex",
+                                                    "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   return p->fromWalletId == walletId || p->toWalletId == walletId;
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
 NewUserTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getIdempotencyKey: expected TxNewUser");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxNewUser>(tx, "getIdempotencyKey", "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
@@ -70,11 +64,12 @@ NewUserTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
 chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxNewUser");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxNewUser>(tx, "applyBlock", "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
           p->validationTsMax, c.blockSlot, c.isStrictMode);
@@ -87,27 +82,27 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                   AccountBuffer &bank,
                                                   const BufferApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxNewUser>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer: expected TxNewUser");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxNewUser>(tx, "applyBuffer", "TxNewUser");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
           p->validationTsMax, c.effectiveSlot, c.isStrictMode);
       !idem) {
     return idem;
   }
-  if (p->fee > 0) {
-    if (auto r =
-            bank.seedFromCommittedIfMissing(c.ctx.bank, AccountBuffer::ID_FEE);
-        !r) {
-      return chain_tx::TxError(r.error().code, r.error().message);
-    }
+  if (auto seeded =
+          chain_tx::seedFeeAccountIfNeeded(bank, c.ctx.bank, p->fee);
+      !seeded) {
+    return seeded;
   }
-  if (auto r = bank.seedFromCommittedIfMissing(c.ctx.bank, p->fromWalletId);
-      !r) {
-    return chain_tx::TxError(r.error().code, r.error().message);
+  if (auto seeded =
+          chain_tx::seedCommittedAccount(bank, c.ctx.bank, p->fromWalletId);
+      !seeded) {
+    return seeded;
   }
   return applyNewUser(*p, c.ctx, bank, c.blockId, true, true);
 }
@@ -117,28 +112,13 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     bool isStrictMode) const {
   if (isStrictMode) {
-    if (!ctx.optChainConfig.has_value()) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL,
-          "Chain config required for strict new-user fee validation");
-    }
-    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL,
-          "Fee-meta size extractor not configured on TxContext");
-    }
-    const Ledger::TypedTx typedTx(tx);
-    auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), typedTx,
-        *ctx.fnBillableCustomMetaSizeForFee);
-    if (!minimumFeeResult) {
-      return minimumFeeResult.error();
-    }
-    const uint64_t minFeePerTransaction = minimumFeeResult.value();
-    if (tx.fee < minFeePerTransaction) {
-      return chain_tx::TxError(chain_err::E_TX_FEE,
-                               "New user transaction fee below minimum: " +
-                                   std::to_string(tx.fee));
+    if (auto feeGate = chain_tx::requireMinimumFee(
+            ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
+            Ledger::TypedTx(tx), tx.fee,
+            "Chain config required for strict new-user fee validation",
+            "New user transaction fee below minimum: ");
+        !feeGate) {
+      return feeGate;
     }
   }
 
@@ -168,44 +148,14 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
             std::to_string(AccountBuffer::ID_FIRST_USER));
   }
 
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(tx.meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize user account: " + tx.meta);
+  auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(
+      tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr,
+      tx.toWalletId, "Failed to deserialize user account: " + tx.meta);
+  if (!userAccountRoe) {
+    return userAccountRoe.error();
   }
+  Client::UserAccount userAccount = std::move(userAccountRoe.value());
 
-  auto publisherExists = [&](uint64_t id) {
-    if (id == tx.toWalletId) {
-      return true;
-    }
-    if (bank.hasAccount(id)) {
-      return true;
-    }
-    return isBufferMode && ctx.bank.hasAccount(id);
-  };
-  auto parsed =
-      AccountAttachment::parseAndValidate(userAccount.meta, publisherExists);
-  if (!parsed) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Account attachment: " + parsed.error().message);
-  }
-  userAccount.meta = parsed->ltsToString();
-
-  if (!ctx.crypto.isSupported(userAccount.wallet.keyType)) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Unsupported key type: " +
-            std::to_string(int(userAccount.wallet.keyType)));
-  }
-  if (userAccount.wallet.publicKeys.empty()) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "User account must have at least one public key");
-  }
-  if (userAccount.wallet.minSignatures < 1) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "User account must require at least one signature");
-  }
   if (userAccount.wallet.mBalances.size() != 1) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User account must have exactly one balance");

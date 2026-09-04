@@ -54,6 +54,25 @@ getGenesisAccountMetaFromBlock(
                  "No prior checkpoint/user/renewal from this account in block");
 }
 
+Roe<std::string> getAccountCustomMetaFromBlock(
+    const Ledger::Block &block, uint64_t accountId,
+    const FnUserAccountMetaForRecord &fnUserMetaForRecord,
+    const FnGenesisAccountMetaForRecord &fnGenesisMetaForRecord) {
+  if (accountId == AccountBuffer::ID_GENESIS) {
+    auto gmRoe = getGenesisAccountMetaFromBlock(block, fnGenesisMetaForRecord);
+    if (!gmRoe) {
+      return gmRoe.error();
+    }
+    return gmRoe.value().genesis.meta;
+  }
+  auto userRoe =
+      getUserAccountMetaFromBlock(block, accountId, fnUserMetaForRecord);
+  if (!userRoe) {
+    return userRoe.error();
+  }
+  return userRoe.value().meta;
+}
+
 Roe<std::string> getUpdatedAccountMetadataForRenewal(
     const Ledger::Block &block, const AccountBuffer::Account &account,
     uint64_t minFee, const FnUserAccountMetaForRecord &fnUserMetaForRecord,

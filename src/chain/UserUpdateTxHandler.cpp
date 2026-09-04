@@ -1,8 +1,9 @@
 #include "UserUpdateTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
+#include "TxTyped.h"
 #include "Types.h"
-#include "../client/Client.h"
 
 #include <variant>
 
@@ -11,54 +12,45 @@ namespace pp {
 chain_tx::Roe<size_t>
 UserUpdateTxHandler::getBillableCustomMetaSizeForFee(
     const BlockChainConfig &config, const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "getBillableCustomMetaSizeForFee: expected TxUserUpdate");
+  auto pRoe = chain_tx::expectTx<Ledger::TxUserUpdate>(
+      tx, "getBillableCustomMetaSizeForFee", "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  if (p->meta.size() <= config.freeCustomMetaSize) {
-    return 0;
-  }
-  Client::UserAccount userAccount;
-  if (!userAccount.ltsFromString(p->meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize user account metadata for fee "
-                             "calculation");
-  }
-  return userAccount.meta.size();
+  return chain_tx::billableUserCustomMetaSize(config, pRoe.value()->meta);
 }
 
 chain_tx::Roe<uint64_t>
 UserUpdateTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                         uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxUserUpdate");
+  auto pRoe = chain_tx::expectTx<Ledger::TxUserUpdate>(tx, "getSignerAccountId",
+                                                       "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return p->walletId;
+  return pRoe.value()->walletId;
 }
 
 chain_tx::Roe<bool>
 UserUpdateTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                            uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxUserUpdate");
+  auto pRoe = chain_tx::expectTx<Ledger::TxUserUpdate>(
+      tx, "matchesWalletForIndex", "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return p->walletId == walletId;
+  return pRoe.value()->walletId == walletId;
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
 UserUpdateTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getIdempotencyKey: expected TxUserUpdate");
+  auto pRoe = chain_tx::expectTx<Ledger::TxUserUpdate>(tx, "getIdempotencyKey",
+                                                       "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
@@ -69,23 +61,23 @@ UserUpdateTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
 chain_tx::Roe<void> UserUpdateTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                     AccountBuffer &bank,
                                                     const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxUserUpdate");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxUserUpdate>(tx, "applyBlock", "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return applyUserUpdateBlockCommon(*p, bank, c);
+  return applyUserUpdateBlockCommon(*pRoe.value(), bank, c);
 }
 
 chain_tx::Roe<void> UserUpdateTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                      AccountBuffer &bank,
                                                      const BufferApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxUserUpdate>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer: expected TxUserUpdate");
+  auto pRoe = chain_tx::expectTx<Ledger::TxUserUpdate>(tx, "applyBuffer",
+                                                       "TxUserUpdate");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return applyUserUpdateBufferCommon(*p, bank, c);
+  return applyUserUpdateBufferCommon(*pRoe.value(), bank, c);
 }
 
 std::optional<std::string>

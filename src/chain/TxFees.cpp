@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace pp::chain_tx {
@@ -116,6 +117,31 @@ Roe<uint64_t> calculateMinimumFeeForTransaction(
       config, static_cast<uint64_t>(nonFreeResult.value()));
 }
 
+Roe<void> requireMinimumFee(
+    const std::optional<BlockChainConfig> &optChainConfig,
+    const std::optional<FnBillableCustomMetaSizeForFee>
+        &fnBillableCustomMetaSizeForFee,
+    const Ledger::TypedTx &typedTx, uint64_t fee,
+    std::string_view configRequiredMsg, std::string_view feeBelowMinPrefix) {
+  if (!optChainConfig.has_value()) {
+    return TxError(chain_err::E_INTERNAL, std::string(configRequiredMsg));
+  }
+  if (!fnBillableCustomMetaSizeForFee.has_value()) {
+    return TxError(chain_err::E_INTERNAL,
+                   "Fee-meta size extractor not configured on TxContext");
+  }
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(
+      optChainConfig.value(), typedTx, *fnBillableCustomMetaSizeForFee);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  if (fee < minimumFeeResult.value()) {
+    return TxError(chain_err::E_TX_FEE,
+                   std::string(feeBelowMinPrefix) + std::to_string(fee));
+  }
+  return {};
+}
+
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(
     const Ledger &ledger, const BlockChainConfig &config,
     const AccountBuffer &bank, uint64_t accountId,
@@ -134,37 +160,20 @@ Roe<uint64_t> calculateMinimumFeeForAccountMeta(
                        std::to_string(accountResult.value().blockId));
   }
 
-  size_t metaSize = 0;
-
-  if (accountId == AccountBuffer::ID_GENESIS) {
-    auto metaResult = getGenesisAccountMetaFromBlock(
-        blockResult.value().block, fnGenesisMetaForRecord);
-    if (!metaResult) {
-      return metaResult.error();
-    }
-    metaSize = metaResult.value().genesis.meta.size();
-  } else {
-    auto userMetaResult = getUserAccountMetaFromBlock(
-        blockResult.value().block, accountId, fnUserMetaForRecord);
-    if (!userMetaResult) {
-      return userMetaResult.error();
-    }
-    metaSize = userMetaResult.value().meta.size();
+  auto metaRoe = getAccountCustomMetaFromBlock(
+      blockResult.value().block, accountId, fnUserMetaForRecord,
+      fnGenesisMetaForRecord);
+  if (!metaRoe) {
+    return metaRoe.error();
   }
 
-  if (metaSize > config.maxCustomMetaSize) {
-    return TxError(chain_err::E_TX_VALIDATION,
-                   "Custom metadata exceeds maxCustomMetaSize: " +
-                       std::to_string(metaSize) + " > " +
-                       std::to_string(config.maxCustomMetaSize));
+  auto nonFreeResult = toNonFree(config, metaRoe.value().size());
+  if (!nonFreeResult) {
+    return nonFreeResult.error();
   }
 
-  const uint64_t nonFreeMetaSize =
-      metaSize > config.freeCustomMetaSize
-          ? static_cast<uint64_t>(metaSize) - config.freeCustomMetaSize
-          : 0ULL;
-
-  return calculateMinimumFeeFromNonFreeMetaSize(config, nonFreeMetaSize);
+  return calculateMinimumFeeFromNonFreeMetaSize(
+      config, static_cast<uint64_t>(nonFreeResult.value()));
 }
 
 } // namespace pp::chain_tx

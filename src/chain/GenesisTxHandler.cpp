@@ -1,8 +1,9 @@
 #include "GenesisTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
+#include "TxTyped.h"
 #include "Types.h"
-#include "../client/AccountAttachment.h"
 
 namespace pp {
 
@@ -10,24 +11,24 @@ chain_tx::Roe<uint64_t>
 GenesisTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxGenesis");
+  auto pRoe = chain_tx::expectTx<Ledger::TxGenesis>(tx, "getSignerAccountId",
+                                                    "TxGenesis");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  (void)p;
+  (void)pRoe.value();
   return AccountBuffer::ID_GENESIS;
 }
 
 chain_tx::Roe<bool>
 GenesisTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                         uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxGenesis");
+  auto pRoe = chain_tx::expectTx<Ledger::TxGenesis>(tx, "matchesWalletForIndex",
+                                                    "TxGenesis");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  (void)p;
+  (void)pRoe.value();
   return walletId == AccountBuffer::ID_GENESIS;
 }
 
@@ -44,10 +45,10 @@ chain_tx::Roe<void> GenesisTxHandler::applyBuffer(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> GenesisTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                  AccountBuffer & /*bank*/,
                                                  const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxGenesis>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxGenesis");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxGenesis>(tx, "applyBlock", "TxGenesis");
+  if (!pRoe) {
+    return pRoe.error();
   }
 
   // The genesis init transaction lives in the genesis block (blockId=0) and
@@ -57,7 +58,7 @@ chain_tx::Roe<void> GenesisTxHandler::applyBlock(const Ledger::TypedTx &tx,
                              "Genesis transaction type not allowed in normal block");
   }
 
-  return applyGenesisInit(*p, c.ctx);
+  return applyGenesisInit(*pRoe.value(), c.ctx);
 }
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
@@ -89,17 +90,16 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   config.slotsPerEpoch = ctx.optChainConfig.value().slotsPerEpoch;
   ctx.consensus.init(config);
 
-  auto publisherExists = [&](uint64_t id) {
-    return id == AccountBuffer::ID_GENESIS || ctx.bank.hasAccount(id);
-  };
-  auto parsed = AccountAttachment::parseAndValidate(gm.genesis.meta,
-                                                    publisherExists);
-  if (!parsed) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account attachment: " +
-                                 parsed.error().message);
+  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
+      gm.genesis.meta,
+      [&](uint64_t id) {
+        return id == AccountBuffer::ID_GENESIS || ctx.bank.hasAccount(id);
+      },
+      "Genesis account attachment: ");
+  if (!attachmentRoe) {
+    return attachmentRoe.error();
   }
-  gm.genesis.meta = parsed->ltsToString();
+  gm.genesis.meta = attachmentRoe.value();
 
   AccountBuffer::Account genesisAccount;
   genesisAccount.id = AccountBuffer::ID_GENESIS;
