@@ -48,7 +48,10 @@ pp::common::Meta Client::Wallet::ltsToMeta() const {
   std::vector<pp::common::Meta::Value> keys;
   keys.reserve(publicKeys.size());
   for (const auto &pk : publicKeys) {
-    keys.push_back(utl::toJsonSafeString(pk));
+    // Named local avoids GCC -Wmaybe-uninitialized false positive on
+    // std::variant move into vector from a converting temporary.
+    std::string safe = utl::toJsonSafeString(pk);
+    keys.emplace_back(std::move(safe));
   }
   pp::common::Meta j;
   j.set("mBalances", balances);

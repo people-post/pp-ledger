@@ -165,7 +165,10 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
   std::vector<pp::common::Meta::Value> sigVals;
   sigVals.reserve(signatures.size());
   for (const auto &sig : signatures) {
-    sigVals.push_back(utl::toJsonSafeString(sig));
+    // Named local avoids GCC -Wmaybe-uninitialized false positive on
+    // std::variant move into vector from a converting temporary.
+    std::string safe = utl::toJsonSafeString(sig);
+    sigVals.emplace_back(std::move(safe));
   }
   j.set("signatures", pp::common::Meta::array(std::move(sigVals)));
   return j;
