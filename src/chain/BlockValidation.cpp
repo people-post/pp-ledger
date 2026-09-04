@@ -33,6 +33,36 @@ bool isValidTimestamp(const consensus::Ouroboros &consensus,
   return true;
 }
 
+/** Unpack a genesis bootstrap T_NEW_USER record and require exact min fee. */
+chain_tx::Roe<Ledger::TxNewUser> loadGenesisNewUserWithExactFee(
+    const Ledger::Record &rec, const BlockChainConfig &config,
+    const RecordHandler &recordHandler, const char *wrongTypeMsg,
+    const char *deserializeFailMsg, const char *feeMismatchPrefix) {
+  if (rec.type != Ledger::T_NEW_USER) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, wrongTypeMsg);
+  }
+  auto txRoe = utl::binaryUnpack<Ledger::TxNewUser>(rec.data);
+  if (!txRoe) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, deserializeFailMsg);
+  }
+  const auto &tx = txRoe.value();
+  const Ledger::TypedTx typedTx(tx);
+  auto feeResult = chain_tx::calculateMinimumFeeForTransaction(
+      config, typedTx,
+      [&recordHandler](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
+        return recordHandler.getBillableCustomMetaSizeForFee(cfg, t);
+      });
+  if (!feeResult) {
+    return feeResult.error();
+  }
+  if (tx.fee != feeResult.value()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             std::string(feeMismatchPrefix) +
+                                 std::to_string(feeResult.value()));
+  }
+  return tx;
+}
+
 } // namespace
 
 std::string calculateBlockHash(const Ledger::Block &block) {
@@ -128,16 +158,13 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
         "Failed to deserialize genesis checkpoint meta");
   }
 
-  const auto &feeRec = block.block.records[1];
-  if (feeRec.type != Ledger::T_NEW_USER) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Second genesis transaction must be new user transaction");
-  }
-  auto feeTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(feeRec.data);
+  auto feeTxRoe = loadGenesisNewUserWithExactFee(
+      block.block.records[1], gm.config, recordHandler,
+      "Second genesis transaction must be new user transaction",
+      "Failed to deserialize fee tx payload",
+      "Genesis fee account creation transaction must have fee: ");
   if (!feeTxRoe) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Failed to deserialize fee tx payload");
+    return feeTxRoe.error();
   }
   const auto &feeTx = feeTxRoe.value();
   if (feeTx.fromWalletId != AccountBuffer::ID_GENESIS ||
@@ -152,40 +179,19 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have amount 0");
   }
-  const Ledger::TypedTx feeTypedTx(feeTx);
-  auto feeWalletFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(
-          gm.config, feeTypedTx,
-          [&recordHandler](const BlockChainConfig &config,
-                           const Ledger::TypedTx &tx) {
-            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
-          });
-  if (!feeWalletFeeResult) {
-    return chain_tx::Roe<void>(feeWalletFeeResult.error());
-  }
-  const uint64_t expectedFeeWalletFee = feeWalletFeeResult.value();
-  if (feeTx.fee != expectedFeeWalletFee) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis fee account creation transaction must have fee: " +
-            std::to_string(expectedFeeWalletFee));
-  }
   if (feeTx.meta.empty()) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis fee account creation transaction must have meta");
   }
 
-  const auto &minerRec = block.block.records[2];
-  if (minerRec.type != Ledger::T_NEW_USER) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Third genesis transaction must be new user transaction");
-  }
-  auto minerTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(minerRec.data);
+  auto minerTxRoe = loadGenesisNewUserWithExactFee(
+      block.block.records[2], gm.config, recordHandler,
+      "Third genesis transaction must be new user transaction",
+      "Failed to deserialize reserve tx payload",
+      "Genesis reserve transaction must have fee: ");
   if (!minerTxRoe) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Failed to deserialize reserve tx payload");
+    return minerTxRoe.error();
   }
   const auto &minerTx = minerTxRoe.value();
   if (minerTx.fromWalletId != AccountBuffer::ID_GENESIS ||
@@ -194,49 +200,16 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
                              "Genesis miner transaction must transfer "
                              "from genesis to new user wallet");
   }
-  const Ledger::TypedTx minerTypedTx(minerTx);
-  auto reserveFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(
-          gm.config, minerTypedTx,
-          [&recordHandler](const BlockChainConfig &config,
-                           const Ledger::TypedTx &tx) {
-            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
-          });
-  if (!reserveFeeResult) {
-    return chain_tx::Roe<void>(reserveFeeResult.error());
-  }
-  const uint64_t expectedReserveFee = reserveFeeResult.value();
-  if (minerTx.fee != expectedReserveFee) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis reserve transaction must have fee: " +
-            std::to_string(expectedReserveFee));
-  }
 
-  const auto &recycleRec = block.block.records[3];
-  if (recycleRec.type != Ledger::T_NEW_USER) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Fourth genesis transaction must be new user transaction");
-  }
-  auto recycleTxRoe = utl::binaryUnpack<Ledger::TxNewUser>(recycleRec.data);
+  auto recycleTxRoe = loadGenesisNewUserWithExactFee(
+      block.block.records[3], gm.config, recordHandler,
+      "Fourth genesis transaction must be new user transaction",
+      "Failed to deserialize recycle tx payload",
+      "Genesis recycle account creation transaction must have fee: ");
   if (!recycleTxRoe) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Failed to deserialize recycle tx payload");
+    return recycleTxRoe.error();
   }
   const auto &recycleTx = recycleTxRoe.value();
-  const Ledger::TypedTx recycleTypedTx(recycleTx);
-  auto recycleFeeResult =
-      chain_tx::calculateMinimumFeeForTransaction(
-          gm.config, recycleTypedTx,
-          [&recordHandler](const BlockChainConfig &config,
-                           const Ledger::TypedTx &tx) {
-            return recordHandler.getBillableCustomMetaSizeForFee(config, tx);
-          });
-  if (!recycleFeeResult) {
-    return chain_tx::Roe<void>(recycleFeeResult.error());
-  }
-  const uint64_t expectedRecycleFee = recycleFeeResult.value();
 
   if (minerTx.fee >
           static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
@@ -277,12 +250,6 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis recycle account creation transaction must have amount 0");
-  }
-  if (recycleTx.fee != expectedRecycleFee) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis recycle account creation transaction must have fee: " +
-            std::to_string(expectedRecycleFee));
   }
   if (recycleTx.meta.empty()) {
     return chain_tx::TxError(

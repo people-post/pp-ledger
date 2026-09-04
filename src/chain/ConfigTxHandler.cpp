@@ -1,8 +1,9 @@
 #include "ConfigTxHandler.h"
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
+#include "TxTyped.h"
 #include "Types.h"
-#include "../client/AccountAttachment.h"
 
 #include <variant>
 
@@ -12,34 +13,35 @@ chain_tx::Roe<uint64_t>
 ConfigTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                     uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxConfig");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxConfig>(tx, "getSignerAccountId", "TxConfig");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  (void)p;
+  (void)pRoe.value();
   return AccountBuffer::ID_GENESIS;
 }
 
 chain_tx::Roe<bool>
 ConfigTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                        uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxConfig");
+  auto pRoe = chain_tx::expectTx<Ledger::TxConfig>(tx, "matchesWalletForIndex",
+                                                   "TxConfig");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  (void)p;
+  (void)pRoe.value();
   return walletId == AccountBuffer::ID_GENESIS;
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
 ConfigTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getIdempotencyKey: expected TxConfig");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxConfig>(tx, "getIdempotencyKey", "TxConfig");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
@@ -75,14 +77,9 @@ chain_tx::Roe<void> applyConfigUpdateCore(
                                  tx.meta);
   }
 
-  if (gm.genesis.wallet.publicKeys.size() < 3) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account must have at least 3 public keys");
-  }
-
-  if (gm.genesis.wallet.minSignatures < 2) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account must have at least 2 signatures");
+  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
+      !shape) {
+    return shape;
   }
 
   if (isStrictMode) {
@@ -112,29 +109,21 @@ chain_tx::Roe<void> applyConfigUpdateCore(
                              "Genesis account balance mismatch");
   }
 
-  auto publisherExists = [&](uint64_t id) {
-    return id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
-  };
-  auto parsed = AccountAttachment::parseAndValidate(gm.genesis.meta,
-                                                    publisherExists);
-  if (!parsed) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account attachment: " +
-                                 parsed.error().message);
+  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
+      gm.genesis.meta,
+      [&](uint64_t id) {
+        return id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
+      },
+      "Genesis account attachment: ");
+  if (!attachmentRoe) {
+    return attachmentRoe.error();
   }
-  gm.genesis.meta = parsed->ltsToString();
+  gm.genesis.meta = attachmentRoe.value();
 
-  bank.remove(AccountBuffer::ID_GENESIS);
-
-  AccountBuffer::Account account;
-  account.id = AccountBuffer::ID_GENESIS;
-  account.blockId = blockId;
-  account.wallet = gm.genesis.wallet;
-  auto addResult = bank.add(account);
-  if (!addResult) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER,
-                             "Failed to add updated genesis account: " +
-                                 addResult.error().message);
+  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
+                                                      gm.genesis.wallet);
+      !replaced) {
+    return replaced;
   }
 
   if (commitOptChainConfig) {
@@ -152,11 +141,12 @@ chain_tx::Roe<void> applyConfigUpdateCore(
 chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                  AccountBuffer &bank,
                                                  const BufferApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer: expected TxConfig");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBuffer", "TxConfig");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
           p->validationTsMax, c.effectiveSlot, c.isStrictMode);
@@ -174,11 +164,12 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                 AccountBuffer &bank,
                                                 const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxConfig>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxConfig");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxConfig>(tx, "applyBlock", "TxConfig");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
           p->validationTsMax, c.blockSlot, c.isStrictMode);

@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace pp::chain_tx {
@@ -114,6 +115,31 @@ Roe<uint64_t> calculateMinimumFeeForTransaction(
 
   return calculateMinimumFeeFromNonFreeMetaSize(
       config, static_cast<uint64_t>(nonFreeResult.value()));
+}
+
+Roe<void> requireMinimumFee(
+    const std::optional<BlockChainConfig> &optChainConfig,
+    const std::optional<FnBillableCustomMetaSizeForFee>
+        &fnBillableCustomMetaSizeForFee,
+    const Ledger::TypedTx &typedTx, uint64_t fee,
+    std::string_view configRequiredMsg, std::string_view feeBelowMinPrefix) {
+  if (!optChainConfig.has_value()) {
+    return TxError(chain_err::E_INTERNAL, std::string(configRequiredMsg));
+  }
+  if (!fnBillableCustomMetaSizeForFee.has_value()) {
+    return TxError(chain_err::E_INTERNAL,
+                   "Fee-meta size extractor not configured on TxContext");
+  }
+  auto minimumFeeResult = calculateMinimumFeeForTransaction(
+      optChainConfig.value(), typedTx, *fnBillableCustomMetaSizeForFee);
+  if (!minimumFeeResult) {
+    return minimumFeeResult.error();
+  }
+  if (fee < minimumFeeResult.value()) {
+    return TxError(chain_err::E_TX_FEE,
+                   std::string(feeBelowMinPrefix) + std::to_string(fee));
+  }
+  return {};
 }
 
 Roe<uint64_t> calculateMinimumFeeForAccountMeta(

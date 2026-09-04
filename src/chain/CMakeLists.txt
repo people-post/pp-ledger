@@ -17,12 +17,15 @@ add_library(pp_chain STATIC
     TxError.h
     TxFees.cpp
     TxFees.h
+    TxTyped.h
     TxSignatures.cpp
     TxSignatures.h
     TxIdempotency.cpp
     TxIdempotency.h
     TxLedgerMeta.cpp
     TxLedgerMeta.h
+    AccountPolicy.cpp
+    AccountPolicy.h
     ITxHandler.h
     UserAccountUpsertBase.cpp
     UserAccountUpsertBase.h

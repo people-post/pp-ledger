@@ -1,38 +1,14 @@
 #include "UserAccountUpsertBase.h"
 
 #include "AccountBuffer.h"
+#include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "../client/AccountAttachment.h"
 #include "../client/Client.h"
 
 #include <string>
 
 namespace pp {
-
-namespace {
-
-chain_tx::Roe<std::string> validateAndCanonicalizeAttachment(
-    const std::string &raw, AccountBuffer &bank, const AccountBuffer *committed,
-    uint64_t subjectWalletId) {
-  auto publisherExists = [&](uint64_t id) {
-    if (id == subjectWalletId) {
-      return true;
-    }
-    if (bank.hasAccount(id)) {
-      return true;
-    }
-    return committed != nullptr && committed->hasAccount(id);
-  };
-  auto parsed = AccountAttachment::parseAndValidate(raw, publisherExists);
-  if (!parsed) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Account attachment: " + parsed.error().message);
-  }
-  return parsed->ltsToString();
-}
-
-} // namespace
 
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
@@ -82,28 +58,13 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
   (void)isBufferMode;
 
   if (isStrictMode) {
-    if (!ctx.optChainConfig.has_value()) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL,
-          "Chain config required for strict user-update fee validation");
-    }
-    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL,
-          "Fee-meta size extractor not configured on TxContext");
-    }
-  const Ledger::TypedTx typedTx(tx);
-    auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-        ctx.optChainConfig.value(), typedTx,
-        *ctx.fnBillableCustomMetaSizeForFee);
-    if (!minimumFeeResult) {
-      return minimumFeeResult.error();
-    }
-    const uint64_t minFeePerTransaction = minimumFeeResult.value();
-    if (tx.fee < minFeePerTransaction) {
-      return chain_tx::TxError(
-          chain_err::E_TX_FEE,
-          "User update transaction fee below minimum: " + std::to_string(tx.fee));
+    if (auto feeGate = chain_tx::requireMinimumFee(
+            ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
+            Ledger::TypedTx(tx), tx.fee,
+            "Chain config required for strict user-update fee validation",
+            "User update transaction fee below minimum: ");
+        !feeGate) {
+      return feeGate;
     }
   }
 
@@ -116,25 +77,27 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
             std::to_string(tx.meta.size()) + " bytes");
   }
 
-  auto attachmentRoe = validateAndCanonicalizeAttachment(
-      userAccount.meta, bank, isBufferMode ? &ctx.bank : nullptr, tx.walletId);
+  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
+      userAccount.meta,
+      [&](uint64_t id) {
+        if (id == tx.walletId) {
+          return true;
+        }
+        if (bank.hasAccount(id)) {
+          return true;
+        }
+        return isBufferMode && ctx.bank.hasAccount(id);
+      },
+      "Account attachment: ");
   if (!attachmentRoe) {
     return attachmentRoe.error();
   }
   userAccount.meta = attachmentRoe.value();
 
-  if (!ctx.crypto.isSupported(userAccount.wallet.keyType)) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Unsupported key type: " + std::to_string(int(userAccount.wallet.keyType)));
-  }
-  if (userAccount.wallet.publicKeys.empty()) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "User account must have at least one public key");
-  }
-  if (userAccount.wallet.minSignatures < 1) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "User account must require at least one signature");
+  if (auto walletOk =
+          chain_tx::validateUserWalletBasics(ctx.crypto, userAccount.wallet);
+      !walletOk) {
+    return walletOk;
   }
 
   auto bufferAccountResult = bank.getAccount(tx.walletId);

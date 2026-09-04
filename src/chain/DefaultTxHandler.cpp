@@ -2,6 +2,7 @@
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "TxTyped.h"
 
 #include <variant>
 
@@ -11,32 +12,34 @@ chain_tx::Roe<uint64_t>
 DefaultTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
   (void)slotLeaderId;
-  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getSignerAccountId: expected TxDefault");
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "getSignerAccountId",
+                                                    "TxDefault");
+  if (!pRoe) {
+    return pRoe.error();
   }
-  return p->fromWalletId;
+  return pRoe.value()->fromWalletId;
 }
 
 chain_tx::Roe<bool>
 DefaultTxHandler::matchesWalletForIndex(const Ledger::TypedTx &tx,
                                         uint64_t walletId) const {
-  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "matchesWalletForIndex: expected TxDefault");
+  auto pRoe = chain_tx::expectTx<Ledger::TxDefault>(tx, "matchesWalletForIndex",
+                                                    "TxDefault");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   return p->fromWalletId == walletId || p->toWalletId == walletId;
 }
 
 chain_tx::Roe<std::optional<std::pair<uint64_t, uint64_t>>>
 DefaultTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
-  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "getIdempotencyKey: expected TxDefault");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxDefault>(tx, "getIdempotencyKey", "TxDefault");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (p->idempotentId == 0) {
     return std::optional<std::pair<uint64_t, uint64_t>>{};
   }
@@ -47,11 +50,12 @@ DefaultTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
 chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
                                                 AccountBuffer &bank,
                                                 const BufferApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBuffer: expected TxDefault");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBuffer", "TxDefault");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
           p->validationTsMax, c.effectiveSlot, c.isStrictMode);
@@ -78,11 +82,12 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
                                                 AccountBuffer &bank,
                                                 const BlockApplyContext &c) const {
-  const auto *p = std::get_if<Ledger::TxDefault>(&tx);
-  if (!p) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "applyBlock: expected TxDefault");
+  auto pRoe =
+      chain_tx::expectTx<Ledger::TxDefault>(tx, "applyBlock", "TxDefault");
+  if (!pRoe) {
+    return pRoe.error();
   }
+  const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
           p->validationTsMax, c.blockSlot, c.isStrictMode);
@@ -98,28 +103,13 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
     AccountBuffer &bank) const {
-  if (!ctx.optChainConfig.has_value()) {
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "Chain config required for strict default transfer fee validation");
-  }
-  if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
-    return chain_tx::TxError(
-        chain_err::E_INTERNAL,
-        "Fee-meta size extractor not configured on TxContext");
-  }
-  const Ledger::TypedTx typedTx(tx);
-  auto minimumFeeResult = chain_tx::calculateMinimumFeeForTransaction(
-      ctx.optChainConfig.value(), typedTx,
-      *ctx.fnBillableCustomMetaSizeForFee);
-  if (!minimumFeeResult) {
-    return minimumFeeResult.error();
-  }
-  const uint64_t minFeePerTransaction = minimumFeeResult.value();
-  if (tx.fee < minFeePerTransaction) {
-    return chain_tx::TxError(
-        chain_err::E_TX_FEE,
-        "Transaction fee below minimum: " + std::to_string(tx.fee));
+  if (auto feeGate = chain_tx::requireMinimumFee(
+          ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
+          Ledger::TypedTx(tx), tx.fee,
+          "Chain config required for strict default transfer fee validation",
+          "Transaction fee below minimum: ");
+      !feeGate) {
+    return feeGate;
   }
 
   auto transferResult = bank.transferBalance(tx.fromWalletId, tx.toWalletId,
