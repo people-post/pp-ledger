@@ -456,8 +456,12 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
   }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 
+  // Overlay fork: O(1) SMT clone + touched-account CoW (no full map copy / no
+  // full-account rehash).
+  AccountBuffer scratchBank = txContext_.bank.forkForSeal();
+
   TxContext scratch;
-  scratch.bank = txContext_.bank;
+  scratch.bank = std::move(scratchBank);
   scratch.optChainConfig = txContext_.optChainConfig;
   scratch.checkpoint = txContext_.checkpoint;
   scratch.fnAccountMetaForRecord = txContext_.fnAccountMetaForRecord;

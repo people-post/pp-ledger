@@ -4,10 +4,12 @@
 #include "../client/AccountIds.h"
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
+#include "AccountStateTree.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -15,6 +17,12 @@ namespace pp {
 
 /**
  * AccountBuffer - Manages user accounts in a buffer.
+ *
+ * Maintains an incremental sparse Merkle tree (`stateTree_`) updated only for
+ * touched accounts. `calculateStateRoot()` is O(1).
+ *
+ * `forkForSeal()` builds a cheap overlay that reads through to this buffer and
+ * clones the SMT (O(1)); seal dry-runs mutate only touched accounts / paths.
  */
 class AccountBuffer {
 public:
@@ -45,6 +53,17 @@ public:
 
   AccountBuffer();
   ~AccountBuffer() = default;
+
+  AccountBuffer(const AccountBuffer &) = delete;
+  AccountBuffer &operator=(const AccountBuffer &) = delete;
+  AccountBuffer(AccountBuffer &&) noexcept = default;
+  AccountBuffer &operator=(AccountBuffer &&) noexcept = default;
+
+  /**
+   * Overlay fork for seal dry-run: reads fall through to `*this`, writes stay
+   * local, SMT is path-copied from this buffer's tree.
+   */
+  AccountBuffer forkForSeal() const;
 
   bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
@@ -99,15 +118,28 @@ public:
   void reset();
 
   /**
-   * Deterministic SHA-256 commitment to all accounts (id-ordered).
-   * Domain-separated: "pp-ledger/state/v1" || binaryPack(accounts...).
+   * O(1) root of the account sparse Merkle tree (incremental updates only).
    */
   std::string calculateStateRoot() const;
 
+  /** Leaf digest for one account (used by the SMT). */
+  static std::string accountLeafHash(const Account &account);
+
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
+  bool isDeleted(uint64_t id) const;
+  void touchTree(const Account &account);
+  void clearTree(uint64_t id);
+  /** Materialize account into local map for mutation (overlay CoW).
+   *  Returns a pointer into mAccounts_. ResultOrError cannot store references. */
+  Roe<Account *> mutableAccount(uint64_t id);
 
+  /** Local accounts (full store, or overlay deltas when parent_ != nullptr). */
   std::map<uint64_t, Account> mAccounts_;
+  /** Ids removed in an overlay that still exist on parent_. */
+  std::set<uint64_t> deleted_;
+  const AccountBuffer *parent_{nullptr};
+  AccountStateTree stateTree_;
 };
 
 } // namespace pp

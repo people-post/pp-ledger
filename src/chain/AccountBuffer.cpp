@@ -9,13 +9,74 @@
 
 namespace pp {
 
-AccountBuffer::AccountBuffer() {}
+AccountBuffer::AccountBuffer() = default;
 
-bool AccountBuffer::hasAccount(uint64_t id) const {
-  return mAccounts_.find(id) != mAccounts_.end();
+AccountBuffer AccountBuffer::forkForSeal() const {
+  AccountBuffer fork;
+  fork.parent_ = this;
+  fork.stateTree_ = stateTree_.clone();
+  return fork;
 }
 
-bool AccountBuffer::isEmpty() const { return mAccounts_.empty(); }
+bool AccountBuffer::isDeleted(uint64_t id) const {
+  return deleted_.find(id) != deleted_.end();
+}
+
+std::string AccountBuffer::accountLeafHash(const Account &account) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & account.id & account.wallet & account.blockId;
+  return utl::sha256Raw(std::string("pp-ledger/account-leaf/v1") + oss.str());
+}
+
+void AccountBuffer::touchTree(const Account &account) {
+  stateTree_.setLeaf(account.id, accountLeafHash(account));
+}
+
+void AccountBuffer::clearTree(uint64_t id) { stateTree_.clearLeaf(id); }
+
+AccountBuffer::Roe<AccountBuffer::Account *>
+AccountBuffer::mutableAccount(uint64_t id) {
+  if (isDeleted(id)) {
+    return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
+  }
+  auto it = mAccounts_.find(id);
+  if (it != mAccounts_.end()) {
+    return &it->second;
+  }
+  if (parent_ != nullptr) {
+    auto parentAcc = parent_->getAccount(id);
+    if (!parentAcc) {
+      return Error(parentAcc.error().code, parentAcc.error().message);
+    }
+    auto [ins, _] = mAccounts_.emplace(id, parentAcc.value());
+    return &ins->second;
+  }
+  return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
+}
+
+bool AccountBuffer::hasAccount(uint64_t id) const {
+  if (isDeleted(id)) {
+    return false;
+  }
+  if (mAccounts_.find(id) != mAccounts_.end()) {
+    return true;
+  }
+  return parent_ != nullptr && parent_->hasAccount(id);
+}
+
+bool AccountBuffer::isEmpty() const {
+  if (!mAccounts_.empty()) {
+    return false;
+  }
+  if (parent_ == nullptr) {
+    return true;
+  }
+  // Overlay with only deletes of a non-empty parent is non-empty only if parent
+  // still has visible accounts — approximate via stakeholders/ids is heavy;
+  // treat as empty only when parent empty (seal forks start with empty overlay).
+  return parent_->isEmpty();
+}
 
 bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
                                              uint64_t tokenId) const {
@@ -26,30 +87,53 @@ bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
 std::vector<uint64_t>
 AccountBuffer::getAccountIdsBeforeBlockId(uint64_t blockId) const {
   std::vector<uint64_t> ids;
-  for (const auto &[id, account] : mAccounts_) {
+  auto consider = [&](uint64_t id, const Account &account) {
+    if (isDeleted(id)) {
+      return;
+    }
     if (account.blockId < blockId) {
       ids.push_back(id);
     }
+  };
+  if (parent_ != nullptr) {
+    for (uint64_t id : parent_->getAccountIdsBeforeBlockId(blockId)) {
+      if (mAccounts_.find(id) != mAccounts_.end() || isDeleted(id)) {
+        continue;
+      }
+      auto acc = parent_->getAccount(id);
+      if (acc) {
+        consider(id, acc.value());
+      }
+    }
+  }
+  for (const auto &[id, account] : mAccounts_) {
+    consider(id, account);
   }
   return ids;
 }
 
 AccountBuffer::Roe<const AccountBuffer::Account &>
 AccountBuffer::getAccount(uint64_t id) const {
-  auto it = mAccounts_.find(id);
-  if (it == mAccounts_.end()) {
+  if (isDeleted(id)) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
   }
-  return it->second;
+  auto it = mAccounts_.find(id);
+  if (it != mAccounts_.end()) {
+    return it->second;
+  }
+  if (parent_ != nullptr) {
+    return parent_->getAccount(id);
+  }
+  return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
 }
 
 int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
-  auto it = mAccounts_.find(accountId);
-  if (it == mAccounts_.end()) {
+  auto acc = getAccount(accountId);
+  if (!acc) {
     return 0;
   }
-  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
-  if (balanceIt == it->second.wallet.mBalances.end()) {
+  auto balanceIt = acc.value().wallet.mBalances.find(tokenId);
+  if (balanceIt == acc.value().wallet.mBalances.end()) {
     return 0;
   }
   return balanceIt->second;
@@ -57,14 +141,31 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
 
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   std::vector<consensus::Stakeholder> stakeholders;
-  for (const auto &[id, account] : mAccounts_) {
+  auto consider = [&](uint64_t id, const Account &account) {
+    if (isDeleted(id)) {
+      return;
+    }
     auto balanceIt = account.wallet.mBalances.find(ID_GENESIS);
     if (balanceIt == account.wallet.mBalances.end()) {
-      continue;
+      return;
     }
     if (balanceIt->second > 0) {
       stakeholders.push_back({id, uint64_t(balanceIt->second)});
     }
+  };
+  if (parent_ != nullptr) {
+    for (const auto &s : parent_->getStakeholders()) {
+      if (mAccounts_.find(s.id) != mAccounts_.end() || isDeleted(s.id)) {
+        continue;
+      }
+      auto acc = parent_->getAccount(s.id);
+      if (acc) {
+        consider(s.id, acc.value());
+      }
+    }
+  }
+  for (const auto &[id, account] : mAccounts_) {
+    consider(id, account);
   }
   return stakeholders;
 }
@@ -74,8 +175,9 @@ AccountBuffer::Roe<void> AccountBuffer::add(const Account &account) {
     return Error(E_ACCOUNT, "Account already exists");
   }
 
+  deleted_.erase(account.id);
   mAccounts_[account.id] = account;
-
+  touchTree(account);
   return {};
 }
 
@@ -85,7 +187,9 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
       return Error(E_ACCOUNT,
                    "Account to update not found: " + std::to_string(id));
     }
+    deleted_.erase(id);
     mAccounts_[id] = account;
+    touchTree(account);
   }
   return {};
 }
@@ -118,7 +222,6 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
                                                             uint64_t tokenId,
                                                             uint64_t amount,
                                                             uint64_t fee) const {
-  // Validate inputs
   if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return Error(E_INPUT, "Amount exceeds int64_t range");
   }
@@ -128,41 +231,31 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   const int64_t amountSigned = static_cast<int64_t>(amount);
   const int64_t feeSigned = static_cast<int64_t>(fee);
 
-  // Check if account exists
-  auto it = mAccounts_.find(accountId);
-  if (it == mAccounts_.end()) {
+  auto accRoe = getAccount(accountId);
+  if (!accRoe) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
+  const Account &account = accRoe.value();
 
-  // Get token balance
   int64_t tokenBalance = 0;
-  auto tokenBalanceIt = it->second.wallet.mBalances.find(tokenId);
-  if (tokenBalanceIt != it->second.wallet.mBalances.end()) {
+  auto tokenBalanceIt = account.wallet.mBalances.find(tokenId);
+  if (tokenBalanceIt != account.wallet.mBalances.end()) {
     tokenBalance = tokenBalanceIt->second;
   }
 
-  // Get fee balance (in ID_GENESIS token)
   int64_t feeBalance = 0;
   if (tokenId == ID_GENESIS) {
-    // If tokenId is ID_GENESIS, the fee comes from the same balance as the
-    // transfer
     feeBalance = tokenBalance;
   } else {
-    auto feeBalanceIt = it->second.wallet.mBalances.find(ID_GENESIS);
-    if (feeBalanceIt != it->second.wallet.mBalances.end()) {
+    auto feeBalanceIt = account.wallet.mBalances.find(ID_GENESIS);
+    if (feeBalanceIt != account.wallet.mBalances.end()) {
       feeBalance = feeBalanceIt->second;
     }
   }
 
-  // Check if negative balance is allowed for this token (only for genesis token
-  // account)
-  bool allowNegativeTokenBalance =
-      isNegativeBalanceAllowed(it->second, tokenId);
+  bool allowNegativeTokenBalance = isNegativeBalanceAllowed(account, tokenId);
 
-  // Check sufficient balance
   if (tokenId == ID_GENESIS) {
-    // Both amount and fee come from the same balance
-    // For genesis account, allow negative balance
     if (allowNegativeTokenBalance) {
       if (amountSigned + feeSigned + INT64_MIN > tokenBalance) {
         return Error(E_BALANCE,
@@ -174,11 +267,7 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
       return Error(E_BALANCE, "Insufficient balance for transfer and fee");
     }
   } else {
-    // Amount and fee come from different balances
-    // For custom token genesis account: can have negative token balance, but
-    // must have enough fee in ID_GENESIS
     if (allowNegativeTokenBalance) {
-      // For custom token genesis account, check for underflow
       if (amountSigned + INT64_MIN > tokenBalance) {
         return Error(E_BALANCE,
                      "Transfer amount would cause balance underflow");
@@ -195,9 +284,8 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
 }
 
 AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
-  uint64_t accountId, uint64_t amount, uint64_t fee,
+    uint64_t accountId, uint64_t amount, uint64_t fee,
     const std::map<uint64_t, int64_t> &expectedBalances) const {
-  // Validate inputs
   if (amount > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
     return Error(E_INPUT, "Amount exceeds int64_t range");
   }
@@ -207,16 +295,14 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
   const int64_t amountSigned = static_cast<int64_t>(amount);
   const int64_t feeSigned = static_cast<int64_t>(fee);
 
-  // Check if account exists
-  auto it = mAccounts_.find(accountId);
-  if (it == mAccounts_.end()) {
+  auto accRoe = getAccount(accountId);
+  if (!accRoe) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
 
-  const auto &account = it->second;
+  const auto &account = accRoe.value();
   const auto &bufferBalances = account.wallet.mBalances;
 
-  // Helper to get balance or zero
   auto getBalanceOrZero = [](const std::map<uint64_t, int64_t> &balances,
                              uint64_t tokenId) -> int64_t {
     auto balanceIt = balances.find(tokenId);
@@ -226,7 +312,6 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     return balanceIt->second;
   };
 
-  // Helper for safe addition
   auto safeAdd = [](int64_t a, int64_t b, int64_t &out) -> bool {
     if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
         (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
@@ -236,7 +321,6 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     return true;
   };
 
-  // Check all non-genesis token balances match exactly
   for (const auto &[tokenId, bufferBalance] : bufferBalances) {
     if (tokenId == ID_GENESIS) {
       continue;
@@ -259,14 +343,11 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     }
   }
 
-  // For genesis token: buffer balance should equal expected balance + amount +
-  // fee First compute delta = amount + fee
   int64_t delta = 0;
   if (!safeAdd(amountSigned, feeSigned, delta)) {
     return Error(E_BALANCE, "Amount and fee overflow");
   }
 
-  // Then compute expected buffer genesis = expected genesis + delta
   int64_t expectedGenesis = getBalanceOrZero(expectedBalances, ID_GENESIS);
   int64_t expectedBufferGenesis = 0;
   if (!safeAdd(expectedGenesis, delta, expectedBufferGenesis)) {
@@ -276,8 +357,11 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
 
   int64_t bufferGenesis = getBalanceOrZero(bufferBalances, ID_GENESIS);
   if (bufferGenesis != expectedBufferGenesis) {
-    return Error(E_BALANCE, "Genesis token balance mismatch for account " + std::to_string(accountId) + ": expected " +
-                 std::to_string(expectedBufferGenesis) + ", got " + std::to_string(bufferGenesis));
+    return Error(E_BALANCE,
+                 "Genesis token balance mismatch for account " +
+                     std::to_string(accountId) + ": expected " +
+                     std::to_string(expectedBufferGenesis) + ", got " +
+                     std::to_string(bufferGenesis));
   }
 
   return {};
@@ -290,21 +374,23 @@ AccountBuffer::Roe<void> AccountBuffer::depositBalance(uint64_t accountId,
     return Error(E_INPUT, "Deposit amount must be non-negative");
   }
 
-  auto it = mAccounts_.find(accountId);
-  if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
+  auto accRoe = mutableAccount(accountId);
+  if (!accRoe) {
+    return Error(accRoe.error().code, accRoe.error().message);
   }
+  Account &account = *accRoe.value();
 
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
-  if (balanceIt != it->second.wallet.mBalances.end()) {
+  auto balanceIt = account.wallet.mBalances.find(tokenId);
+  if (balanceIt != account.wallet.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
 
   if (currentBalance > INT64_MAX - amount) {
     return Error(E_BALANCE, "Deposit would cause balance overflow");
   }
-  it->second.wallet.mBalances[tokenId] = currentBalance + amount;
+  account.wallet.mBalances[tokenId] = currentBalance + amount;
+  touchTree(account);
   return {};
 }
 
@@ -315,32 +401,32 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
     return Error(E_INPUT, "Withdraw amount must be non-negative");
   }
 
-  auto it = mAccounts_.find(accountId);
-  if (it == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
+  auto accRoe = mutableAccount(accountId);
+  if (!accRoe) {
+    return Error(accRoe.error().code, accRoe.error().message);
   }
+  Account &account = *accRoe.value();
 
   int64_t currentBalance = 0;
-  auto balanceIt = it->second.wallet.mBalances.find(tokenId);
-  if (balanceIt != it->second.wallet.mBalances.end()) {
+  auto balanceIt = account.wallet.mBalances.find(tokenId);
+  if (balanceIt != account.wallet.mBalances.end()) {
     currentBalance = balanceIt->second;
   }
 
-  if (!isNegativeBalanceAllowed(it->second, tokenId) &&
-      currentBalance < amount) {
+  if (!isNegativeBalanceAllowed(account, tokenId) && currentBalance < amount) {
     return Error(E_BALANCE, "Insufficient balance");
   }
   if (currentBalance < INT64_MIN + amount) {
     return Error(E_BALANCE, "Withdraw would cause balance underflow");
   }
-  it->second.wallet.mBalances[tokenId] = currentBalance - amount;
+  account.wallet.mBalances[tokenId] = currentBalance - amount;
+  touchTree(account);
   return {};
 }
 
 AccountBuffer::Roe<void>
 AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
                                uint64_t amount, uint64_t fee) {
-  // Verify spending power of source account
   auto spendingResult = verifySpendingPower(fromId, tokenId, amount, fee);
   if (!spendingResult) {
     return spendingResult;
@@ -348,111 +434,126 @@ AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
   const int64_t amountSigned = static_cast<int64_t>(amount);
   const int64_t feeSigned = static_cast<int64_t>(fee);
 
-  auto fromIt = mAccounts_.find(fromId);
-  if (fromIt == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Source account not found: " + std::to_string(fromId));
+  if (auto fromRoe = mutableAccount(fromId); !fromRoe) {
+    return Error(E_ACCOUNT,
+                 "Source account not found: " + std::to_string(fromId));
+  }
+  if (auto toRoe = mutableAccount(toId); !toRoe) {
+    return Error(E_ACCOUNT,
+                 "Destination account not found: " + std::to_string(toId));
+  }
+  if (fee > 0) {
+    if (auto feeRoe = mutableAccount(ID_FEE); !feeRoe) {
+      return Error(E_ACCOUNT,
+                   "Fee account not found: " + std::to_string(ID_FEE));
+    }
   }
 
-  auto toIt = mAccounts_.find(toId);
-  if (toIt == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Destination account not found: " + std::to_string(toId));
-  }
+  Account &fromAcc = mAccounts_.at(fromId);
+  Account &toAcc = mAccounts_.at(toId);
 
   int64_t fromBalance = 0;
-  auto fromBalanceIt = fromIt->second.wallet.mBalances.find(tokenId);
-  if (fromBalanceIt != fromIt->second.wallet.mBalances.end()) {
+  auto fromBalanceIt = fromAcc.wallet.mBalances.find(tokenId);
+  if (fromBalanceIt != fromAcc.wallet.mBalances.end()) {
     fromBalance = fromBalanceIt->second;
   }
 
   int64_t toBalance = 0;
-  auto toBalanceIt = toIt->second.wallet.mBalances.find(tokenId);
-  if (toBalanceIt != toIt->second.wallet.mBalances.end()) {
+  auto toBalanceIt = toAcc.wallet.mBalances.find(tokenId);
+  if (toBalanceIt != toAcc.wallet.mBalances.end()) {
     toBalance = toBalanceIt->second;
   }
 
-  // Check for overflow in destination account
   if (toBalance > INT64_MAX - amountSigned) {
     return Error(E_INPUT, "Transfer would cause balance overflow");
   }
 
-  // Get fee balance if needed
   int64_t genesisBalance = 0;
   if (fee > 0 && tokenId != ID_GENESIS) {
-    // For custom token transfers, retrieve ID_GENESIS balance for fee deduction
-    auto genesisBalanceIt = fromIt->second.wallet.mBalances.find(ID_GENESIS);
-    if (genesisBalanceIt != fromIt->second.wallet.mBalances.end()) {
+    auto genesisBalanceIt = fromAcc.wallet.mBalances.find(ID_GENESIS);
+    if (genesisBalanceIt != fromAcc.wallet.mBalances.end()) {
       genesisBalance = genesisBalanceIt->second;
     }
   }
 
-  // Perform the transfer
-  fromIt->second.wallet.mBalances[tokenId] = fromBalance - amountSigned;
-  toIt->second.wallet.mBalances[tokenId] = toBalance + amountSigned;
+  fromAcc.wallet.mBalances[tokenId] = fromBalance - amountSigned;
+  toAcc.wallet.mBalances[tokenId] = toBalance + amountSigned;
 
-  // Deduct the fee from sender and credit to ID_FEE account
   if (fee > 0) {
     if (tokenId == ID_GENESIS) {
-      fromIt->second.wallet.mBalances[ID_GENESIS] =
+      fromAcc.wallet.mBalances[ID_GENESIS] =
           fromBalance - amountSigned - feeSigned;
     } else {
-      fromIt->second.wallet.mBalances[ID_GENESIS] = genesisBalance - feeSigned;
+      fromAcc.wallet.mBalances[ID_GENESIS] = genesisBalance - feeSigned;
     }
 
-    auto feeIt = mAccounts_.find(ID_FEE);
-    if (feeIt == mAccounts_.end()) {
-      return Error(E_ACCOUNT, "Fee account not found: " + std::to_string(ID_FEE));
-    }
+    Account &feeAcc = mAccounts_.at(ID_FEE);
     int64_t feeAccountBalance = 0;
-    auto feeBalanceIt = feeIt->second.wallet.mBalances.find(ID_GENESIS);
-    if (feeBalanceIt != feeIt->second.wallet.mBalances.end()) {
+    auto feeBalanceIt = feeAcc.wallet.mBalances.find(ID_GENESIS);
+    if (feeBalanceIt != feeAcc.wallet.mBalances.end()) {
       feeAccountBalance = feeBalanceIt->second;
     }
     if (feeAccountBalance > INT64_MAX - feeSigned) {
       return Error(E_INPUT, "Fee account balance would overflow");
     }
-    feeIt->second.wallet.mBalances[ID_GENESIS] = feeAccountBalance + feeSigned;
+    feeAcc.wallet.mBalances[ID_GENESIS] = feeAccountBalance + feeSigned;
+    touchTree(feeAcc);
   }
 
+  touchTree(fromAcc);
+  touchTree(toAcc);
   return {};
 }
 
 AccountBuffer::Roe<void> AccountBuffer::writeOff(uint64_t accountId) {
-  auto itAccount = mAccounts_.find(accountId);
-  if (itAccount == mAccounts_.end()) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(accountId));
   }
-
-  auto itRecycle = mAccounts_.find(ID_RECYCLE);
-  if (itRecycle == mAccounts_.end()) {
-    return Error(E_ACCOUNT, "Recycle account not found: " + std::to_string(ID_RECYCLE));
+  if (auto recycleRoe = mutableAccount(ID_RECYCLE); !recycleRoe) {
+    return Error(E_ACCOUNT,
+                 "Recycle account not found: " + std::to_string(ID_RECYCLE));
   }
 
-  for (const auto &[tokenId, amount] : itAccount->second.wallet.mBalances) {
-    // Notice negative balances are not handled here.
-    // In case of custom token genesis account, the balance becomes history and
-    // cannot be used for minting new tokens.
+  const std::map<uint64_t, int64_t> balances =
+      mAccounts_.at(accountId).wallet.mBalances;
+  Account &recycle = mAccounts_.at(ID_RECYCLE);
+
+  for (const auto &[tokenId, amount] : balances) {
     if (amount > 0) {
-      itRecycle->second.wallet.mBalances[tokenId] += amount;
+      recycle.wallet.mBalances[tokenId] += amount;
     }
   }
 
-  mAccounts_.erase(itAccount);
+  touchTree(recycle);
+  remove(accountId);
   return {};
 }
 
-void AccountBuffer::remove(uint64_t id) { mAccounts_.erase(id); }
+void AccountBuffer::remove(uint64_t id) {
+  if (!hasAccount(id)) {
+    return;
+  }
+  mAccounts_.erase(id);
+  if (parent_ != nullptr && parent_->hasAccount(id)) {
+    deleted_.insert(id);
+  } else {
+    deleted_.erase(id);
+  }
+  clearTree(id);
+}
 
-void AccountBuffer::clear() { mAccounts_.clear(); }
+void AccountBuffer::clear() {
+  mAccounts_.clear();
+  deleted_.clear();
+  parent_ = nullptr;
+  stateTree_ = AccountStateTree{};
+}
 
 void AccountBuffer::reset() { clear(); }
 
 std::string AccountBuffer::calculateStateRoot() const {
-  std::ostringstream oss(std::ios::binary);
-  OutputArchive ar(oss);
-  for (const auto &[id, account] : mAccounts_) {
-    ar & id & account.wallet & account.blockId;
-  }
-  return utl::sha256Raw(std::string("pp-ledger/state/v1") + oss.str());
+  return stateTree_.root();
 }
 
 } // namespace pp

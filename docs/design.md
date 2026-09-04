@@ -72,6 +72,7 @@ The first checkpoint is the network launch itself; later checkpoints cover range
 New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
 On-disk block layout (volumes of flat file dirs): [ledger-storage.md](ledger-storage.md).
+Wire formats and commitments: [wire-schema.md](wire-schema.md).
 
 ![How checkpoints work (time)](print/checkpoints.png)
 
