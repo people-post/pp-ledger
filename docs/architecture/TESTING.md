@@ -69,9 +69,10 @@ Every high-risk behavior needs a home tier **or** an explicit skip:
 
 ## Injectors and in-process fabric
 
-- **`Ouroboros::setClockOverride` / `forceSlotLeader` / `clearForcedSlotLeaders`** —
-  deterministic slots and leaders so tests are not hostage to wall clock or
-  empty-slot lottery.
+- **`Ouroboros::setClockOverride` / `forceSlotLeader` / `clearForcedSlotLeaders`**
+  (also forwarded on `Chain`) — deterministic slots and leaders so tests are
+  not hostage to wall clock or empty-slot lottery. In-process tip compose:
+  `ChainComposeTest` in `src/chain/test/test_chain.cpp`.
 - **Amp `MemoryDatagramIo` (`SetDropRate` / `DropNext`) + `VirtualClock`** — used by
   `src/network/amp/test/test_amp_ledger_rpc.cpp`; extend with reorder before Docker
   netem.

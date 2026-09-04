@@ -3,6 +3,7 @@
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "Chain.h"
+#include "BlockValidation.h"
 #include "client/AccountAttachment.h"
 #include "client/Client.h"
 
@@ -1014,3 +1015,165 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
 
   std::filesystem::remove_all(tempDir, ec);
 }
+
+
+namespace {
+
+struct ComposeHarness {
+  Chain producer;
+  Chain peer;
+  Chain::BlockChainConfig chainConfig;
+  utl::MlDsaKeyPair genesisKey;
+  utl::MlDsaKeyPair feeKey;
+  utl::MlDsaKeyPair reserveKey;
+  utl::MlDsaKeyPair recycleKey;
+  std::filesystem::path producerDir;
+  std::filesystem::path peerDir;
+  Ledger::ChainNode genesis;
+
+  void SetUp() {
+    chainConfig = makeChainConfig(/*genesisTime=*/0);
+    chainConfig.slotDuration = 5;
+    chainConfig.slotsPerEpoch = 10;
+    chainConfig.checkpoint.minBlocks = 100;
+    chainConfig.checkpoint.minAgeSeconds = 0;
+
+    consensus::Ouroboros::Config consensusConfig;
+    consensusConfig.genesisTime = 0;
+    consensusConfig.timeOffset = 0;
+    consensusConfig.slotDuration = 5;
+    consensusConfig.slotsPerEpoch = 10;
+    producer.initConsensus(consensusConfig);
+    peer.initConsensus(consensusConfig);
+
+    genesisKey = makeKeyPair();
+    feeKey = makeKeyPair();
+    reserveKey = makeKeyPair();
+    recycleKey = makeKeyPair();
+
+    producerDir = std::filesystem::temp_directory_path() /
+                  "pp-ledger-compose-producer";
+    peerDir = std::filesystem::temp_directory_path() / "pp-ledger-compose-peer";
+    std::error_code ec;
+    std::filesystem::remove_all(producerDir, ec);
+    std::filesystem::remove_all(peerDir, ec);
+
+    Ledger::InitConfig producerLedger;
+    producerLedger.workDir = producerDir.string();
+    producerLedger.startingBlockId = 0;
+    ASSERT_TRUE(producer.initLedger(producerLedger).isOk());
+
+    Ledger::InitConfig peerLedger;
+    peerLedger.workDir = peerDir.string();
+    peerLedger.startingBlockId = 0;
+    ASSERT_TRUE(peer.initLedger(peerLedger).isOk());
+
+    genesis = makeGenesisBlock(producer, chainConfig, genesisKey, feeKey,
+                               reserveKey, recycleKey);
+    ASSERT_TRUE(producer.addBlock(genesis).isOk());
+
+    // Peer applies the same genesis bytes (unsealed path) so tip banks match.
+    ASSERT_TRUE(peer.addBlock(genesis).isOk());
+
+    producer.refreshStakeholders();
+    peer.refreshStakeholders();
+    ASSERT_FALSE(producer.getStakeholders().empty());
+    ASSERT_EQ(producer.getStakeholders().size(), peer.getStakeholders().size());
+  }
+
+  void TearDown() {
+    std::error_code ec;
+    std::filesystem::remove_all(producerDir, ec);
+    std::filesystem::remove_all(peerDir, ec);
+  }
+};
+
+} // namespace
+
+class ChainComposeTest : public ::testing::Test {
+protected:
+  void SetUp() override { harness_.SetUp(); }
+  void TearDown() override { harness_.TearDown(); }
+  ComposeHarness harness_;
+};
+
+// L-CONSENSUS-FORCE + L-SMOKE-L1 (in-process): forced leader block is accepted
+// by producer (seal path) and by a peer (validateNormalBlock path).
+TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  const auto stakeholders = producer.getStakeholders();
+  ASSERT_FALSE(stakeholders.empty());
+  const uint64_t forced = stakeholders.front().id;
+
+  producer.forceSlotLeader(slot, forced);
+  peer.forceSlotLeader(slot, forced);
+  // Pin clock inside the slot so timing checks on the peer unsealed path pass.
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  peer.setClockOverride(peer.getSlotStartTime(slot));
+
+  Ledger::ChainNode block1 = makeNextBlock(producer, harness_.genesis, {});
+  EXPECT_EQ(block1.block.slot, slot);
+  EXPECT_EQ(block1.block.slotLeader, forced);
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+
+  // Peer did not seal — full validateNormalBlock including slot-leader check.
+  auto peerAdd = peer.addBlock(block1);
+  ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
+
+  EXPECT_EQ(producer.getNextBlockId(), peer.getNextBlockId());
+  auto tipP = producer.readLastBlock();
+  auto tipQ = peer.readLastBlock();
+  ASSERT_TRUE(tipP.isOk());
+  ASSERT_TRUE(tipQ.isOk());
+  EXPECT_EQ(tipP->hash, tipQ->hash);
+  EXPECT_EQ(tipP->block.slotLeader, forced);
+}
+
+// L-CONSENSUS-WRONG-LEADER: unsealed addBlock rejects a forged slot leader.
+TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
+  auto &producer = harness_.producer;
+
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  const auto stakeholders = producer.getStakeholders();
+  ASSERT_FALSE(stakeholders.empty());
+  const uint64_t forced = stakeholders.front().id;
+  const uint64_t wrong =
+      (stakeholders.size() > 1) ? stakeholders.back().id : forced + 9999;
+  ASSERT_NE(forced, wrong);
+
+  producer.forceSlotLeader(slot, forced);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+
+  Ledger::ChainNode bad;
+  bad.block.index = harness_.genesis.block.index + 1;
+  bad.block.previousHash = harness_.genesis.hash;
+  bad.block.slot = slot;
+  bad.block.timestamp = producer.getSlotStartTime(slot);
+  bad.block.slotLeader = wrong;
+  bad.block.epoch = slot / 10; // slotsPerEpoch from harness config
+  bad.block.txIndex =
+      harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
+  bad.block.records = {};
+  bad.block.txRoot = chain_block::calculateTxRoot(bad.block.records);
+  bad.block.stakeSnapshotHash =
+      chain_block::calculateStakeSnapshotHash(producer.getStakeholders());
+  // Empty body: state unchanged; peer/producer tip root after genesis.
+  // Hash must match header fields (including wrong leader) for validation to
+  // reach the slot-leader check.
+  auto tip = producer.readLastBlock();
+  ASSERT_TRUE(tip.isOk());
+  bad.block.stateRoot = tip->block.stateRoot;
+  bad.hash = producer.calculateHash(bad.block);
+
+  auto add = producer.addBlock(bad);
+  ASSERT_TRUE(add.isError()) << "wrong leader must be rejected";
+  // processNormalBlock maps validateNormalBlock failures to E_BLOCK_VALIDATION.
+  EXPECT_EQ(add.error().code, Chain::E_BLOCK_VALIDATION) << add.error().message;
+  EXPECT_NE(add.error().message.find("slot leader"), std::string::npos)
+      << add.error().message;
+  EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
+}
+

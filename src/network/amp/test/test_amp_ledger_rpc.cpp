@@ -200,4 +200,23 @@ TEST_F(AmpLedgerRpcTest, RoundTripFailsWhenDatagramsDropped) {
   EXPECT_TRUE(response.isError()) << "expected timeout/failure under total loss";
 }
 
+
+TEST_F(AmpLedgerRpcTest, SuccessThenLossFailsSecondRoundTrip) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+
+  auto first = transport.roundTrip("ok-before-loss", std::chrono::seconds(5));
+  ASSERT_TRUE(first.isOk()) << first.error().message;
+  EXPECT_EQ(first.value(), "ok-before-loss");
+
+  h->io_a->SetDropRate(1.0);
+  auto second = transport.roundTrip("should-fail", std::chrono::milliseconds(200));
+  EXPECT_TRUE(second.isError()) << "expected failure after enabling loss";
+}
+
 } // namespace

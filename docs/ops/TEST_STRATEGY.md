@@ -41,14 +41,15 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 |----|----------|-----------|--------------|
 | **L-CONSENSUS-ELECT** | Same stakeholders + slot ⇒ same leader | Unit (`test_ouroboros_consensus`) | |
 | **L-CONSENSUS-CLOCK** | Injected clock pins slot/epoch | Unit (`ClockOverridePinsCurrentSlot`) | |
-| **L-CONSENSUS-FORCE** | Forced leader overrides election + validate | Unit (`ForceSlotLeaderOverridesElection`) | Unlocks smokes without empty-slot lottery |
-| **L-CONSENSUS-WRONG-LEADER** | Non-leader rejected via `validateSlotLeader` | Unit (same) | Full `validateNormalBlock` compose next (`glue-gap` for chain fixture) |
+| **L-CONSENSUS-FORCE** | Forced leader overrides election + validate | Unit (`ForceSlotLeaderOverridesElection`) + Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | Unlocks smokes without empty-slot lottery |
+| **L-CONSENSUS-WRONG-LEADER** | Non-leader rejected on unsealed `addBlock` | Integration (`WrongLeader_UnsealedAddBlockRejected`) | |
 | **L-CHAIN-SEQ** | Block sequence / hash / genesis rules | Unit (`test_chain`) | |
 | **L-CHAIN-FEE** | Fee / spending power / renewals | Unit (`test_account_buffer`, chain) | |
 | **L-NET-RPC** | Amp ledger RPC echo + Client framing | Integration (`test_amp_ledger_rpc`) | |
-| **L-NET-LOSS** | RPC fails clean under total datagram loss | Integration (`RoundTripFailsWhenDatagramsDropped`) | Docker netem = `covered-above` later |
+| **L-NET-LOSS** | RPC fails clean under total datagram loss | Integration (`RoundTripFailsWhenDatagramsDropped`, `SuccessThenLossFailsSecondRoundTrip`) | Docker netem = `covered-above` later |
 | **L-NET-REORDER** | RPC survives reorder window | Integration | `glue-gap` — extend MemoryDatagramIo harness |
 | **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`test-network.sh`) | Not CI-gated yet |
+| **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
 | **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke | Assert tip progress (not only process up) |
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`test-checkpoint-cycles.sh` scenario 3) | Hard `nextBlockId` equality assert |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
