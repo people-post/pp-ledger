@@ -38,16 +38,18 @@ struct BlockChainConfig {
   uint32_t freeCustomMetaSize{0};
   CheckpointConfig checkpoint;
   uint64_t maxValidationTimespanSeconds{0};
+  /** Chain identity included in every transaction signing message. */
+  std::string networkId;
 
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
-            &checkpoint &maxValidationTimespanSeconds;
+            &checkpoint &maxValidationTimespanSeconds &networkId;
   }
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 1;
+  constexpr static const uint32_t VERSION = 2;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

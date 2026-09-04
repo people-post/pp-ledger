@@ -83,11 +83,12 @@ std::string signMessage(const utl::MlDsaKeyPair &keyPair,
 
 template <typename TxT>
 Ledger::Record makeRecord(uint16_t type, const TxT &tx,
-                          const utl::MlDsaKeyPair &signer) {
+                          const utl::MlDsaKeyPair &signer,
+                          const std::string &networkId = {}) {
   Ledger::Record rec;
   rec.type = type;
   rec.data = utl::binaryPack(tx);
-  rec.signatures = {signMessage(signer, rec.data)};
+  rec.signatures = {signMessage(signer, rec.signingMessage(networkId))};
   return rec;
 }
 
@@ -108,16 +109,17 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   Ledger::ChainNode genesis;
   genesis.block.index = 0;
   genesis.block.timestamp = chainConfig.genesisTime;
-  genesis.block.previousHash = "0";
-  genesis.block.nonce = 0;
+  genesis.block.previousHash = utl::zeroHash();
   genesis.block.slot = 0;
   genesis.block.slotLeader = 0;
+  genesis.block.epoch = 0;
 
   Ledger::TxGenesis checkpointTx;
   checkpointTx.fee = 0;
   checkpointTx.meta = gm.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey));
+      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey,
+                 chainConfig.networkId));
 
   Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
   Ledger::TxNewUser feeTx;
@@ -133,7 +135,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
   feeTx.fee = static_cast<uint64_t>(feeWalletFee);
   feeTx.meta = feeAccount.ltsToString();
-  genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey));
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey, chainConfig.networkId));
 
   Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
   Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
@@ -170,7 +173,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   reserveTx.fee = static_cast<uint64_t>(reserveFee);
   reserveTx.meta = reserveAccount.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey));
+      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey,
+                 chainConfig.networkId));
 
   Ledger::TxNewUser recycleTx;
   recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
@@ -179,9 +183,11 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   recycleTx.fee = static_cast<uint64_t>(recycleFee);
   recycleTx.meta = recycleAccount.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey));
+      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey,
+                 chainConfig.networkId));
 
-  genesis.hash = validator.calculateHash(genesis.block);
+  auto sealResult = validator.sealBlock(genesis);
+  EXPECT_TRUE(sealResult.isOk());
   return genesis;
 }
 
@@ -191,7 +197,6 @@ Ledger::ChainNode makeNextBlock(
   Ledger::ChainNode block;
   block.block.index = previous.block.index + 1;
   block.block.previousHash = previous.hash;
-  block.block.nonce = 0;
   block.block.slot = previous.block.slot + 1;
   block.block.timestamp = validator.getSlotStartTime(block.block.slot);
   auto leaderResult = validator.getSlotLeader(block.block.slot);
@@ -200,7 +205,8 @@ Ledger::ChainNode makeNextBlock(
   block.block.txIndex =
       previous.block.txIndex + previous.block.records.size();
   block.block.records = records;
-  block.hash = validator.calculateHash(block.block);
+  auto sealResult = validator.sealBlock(block);
+  EXPECT_TRUE(sealResult.isOk());
   return block;
 }
 
@@ -237,18 +243,28 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
   Ledger::Block block;
   block.index = 1;
   block.timestamp = 12345;
-  block.previousHash = "prev";
-  block.nonce = 7;
+  block.previousHash = utl::zeroHash();
   block.slot = 2;
   block.slotLeader = 3;
+  block.txRoot = utl::sha256Raw("txroot");
+  block.stateRoot = utl::sha256Raw("stateroot");
 
   std::string hash1 = validator.calculateHash(block);
   std::string hash2 = validator.calculateHash(block);
   EXPECT_EQ(hash1, hash2);
+  EXPECT_EQ(hash1.size(), utl::SHA256_DIGEST_SIZE);
 
-  block.nonce = 8;
+  block.slotLeader = 4;
   std::string hash3 = validator.calculateHash(block);
   EXPECT_NE(hash1, hash3);
+
+  // Body changes alone must not affect header hash when roots are unchanged.
+  block.slotLeader = 3;
+  block.records.push_back({});
+  EXPECT_EQ(validator.calculateHash(block), hash1);
+
+  block.txRoot = utl::sha256Raw("txroot-changed");
+  EXPECT_NE(validator.calculateHash(block), hash1);
 }
 
 TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
@@ -262,11 +278,12 @@ TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  // sealBlock already applied tip state; corrupting hash must not commit.
   genesis.hash = "bad-hash";
 
   auto result = validator.addBlock(genesis);
   EXPECT_TRUE(result.isError());
-  EXPECT_NE(result.error().message.find("Genesis block hash validation failed"),
+  EXPECT_NE(result.error().message.find("uncommitted sealed block"),
             std::string::npos);
 }
 

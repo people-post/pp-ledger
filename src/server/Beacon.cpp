@@ -84,6 +84,10 @@ std::string Beacon::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+std::string Beacon::getNetworkId() const {
+  return chain_.getNetworkId();
+}
+
 Beacon::Roe<std::vector<Ledger::Record>>
 Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
@@ -250,8 +254,9 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
 Beacon::Roe<void>
 Beacon::signWithGenesisKeys(Ledger::Record &record,
                             const std::vector<utl::MlDsaKeyPair> &genesisKeys,
+                            const std::string &networkId,
                             const std::string &errorContext) const {
-  const std::string &message = record.data;
+  const std::string message = record.signingMessage(networkId);
   for (const auto &kp : genesisKeys) {
     auto result = utl::mlDsaSign(kp.privateKey, message);
     if (!result) {
@@ -265,7 +270,7 @@ Beacon::signWithGenesisKeys(Ledger::Record &record,
 
 Beacon::Roe<Ledger::ChainNode>
 Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
-                           const InitKeyConfig &key) const {
+                           const InitKeyConfig &key) {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create fee, reserve, and recycle accounts
@@ -274,10 +279,10 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
   genesisBlock.block.timestamp = config.genesisTime;
-  genesisBlock.block.previousHash = "0";
-  genesisBlock.block.nonce = 0;
+  genesisBlock.block.previousHash = utl::zeroHash();
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
+  genesisBlock.block.epoch = 0;
 
   Chain::GenesisAccountMeta gm;
   gm.config = config;
@@ -294,7 +299,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txGenesis);
   rec.signatures = {};
   auto roeGenesis =
-      signWithGenesisKeys(rec, key.genesis, "checkpoint transaction");
+      signWithGenesisKeys(rec, key.genesis, config.networkId,
+                          "checkpoint transaction");
   if (!roeGenesis) {
     return roeGenesis.error();
   }
@@ -323,7 +329,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.type = Ledger::T_NEW_USER;
   rec.data = utl::binaryPack(txFee);
   rec.signatures = {};
-  auto roeFee = signWithGenesisKeys(rec, key.genesis, "fee transaction");
+  auto roeFee = signWithGenesisKeys(rec, key.genesis, config.networkId,
+                                    "fee transaction");
   if (!roeFee) {
     return roeFee.error();
   }
@@ -388,7 +395,8 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txReserve);
   rec.signatures = {};
   auto roeReserve =
-      signWithGenesisKeys(rec, key.genesis, "reserve transaction");
+      signWithGenesisKeys(rec, key.genesis, config.networkId,
+                          "reserve transaction");
   if (!roeReserve) {
     return roeReserve.error();
   }
@@ -407,13 +415,18 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txRecycle);
   rec.signatures = {};
   auto roeRecycle =
-      signWithGenesisKeys(rec, key.genesis, "recycle transaction");
+      signWithGenesisKeys(rec, key.genesis, config.networkId,
+                          "recycle transaction");
   if (!roeRecycle) {
     return roeRecycle.error();
   }
   genesisBlock.block.records.push_back(rec);
 
-  genesisBlock.hash = calculateHash(genesisBlock.block);
+  auto sealResult = chain_.sealBlock(genesisBlock);
+  if (!sealResult) {
+    return Error(19, "Failed to seal genesis block: " +
+                         sealResult.error().message);
+  }
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;
   return genesisBlock;
 }

@@ -107,6 +107,20 @@ pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request);
 std::string sha256(const std::string &input);
 
 /**
+ * Compute SHA-256 digest as raw 32 bytes (not hex-encoded).
+ * Prefer this for consensus / wire hash fields.
+ */
+std::string sha256Raw(const std::string &input);
+
+/** SHA-256 digest length in bytes. */
+constexpr size_t SHA256_DIGEST_SIZE = 32;
+
+/** 32 zero bytes — genesis previousHash / empty commitment sentinel. */
+inline std::string zeroHash() {
+  return std::string(SHA256_DIGEST_SIZE, '\0');
+}
+
+/**
  * Encode binary data as hex string (e.g. for JSON-safe transport)
  * @param data Raw bytes
  * @return Lowercase hex string (two chars per byte)

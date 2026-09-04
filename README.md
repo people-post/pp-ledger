@@ -15,8 +15,8 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 
 ## Features
 
-- ✅ **Ouroboros Consensus:** Proof-of-stake consensus with VRF-based slot leader selection
-- ✅ **Blockchain & Ledger:** Complete transaction and wallet management
+- ✅ **Ouroboros Consensus:** Slot/epoch PoS with deterministic leader election (see [docs/wire-schema.md](docs/wire-schema.md))
+- ✅ **Blockchain & Ledger:** Account-based multi-token ledger with header commitments (`txRoot` / `stateRoot`)
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
 - ✅ **Relay Server:** Trusted gateway — same ledger RPC as beacon; miners use opaque upstream endpoints
 - ✅ **Modular Architecture:** Clean separation of concerns (lib, consensus, ledger, server, client, network)

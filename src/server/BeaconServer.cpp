@@ -358,6 +358,7 @@ BeaconServer::init(const std::string &workDir) {
       initFileConfig.checkpointMinAgeSeconds;
   initConfig.chain.maxValidationTimespanSeconds =
       initFileConfig.maxValidationTimespanSeconds;
+  initConfig.chain.networkId = config_.network_id;
 
   // Generate keypairs; pass KeyPairs to beacon for genesis signing and
   // checkpoint public keys
@@ -577,7 +578,10 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.currentSlot = beacon_.getCurrentSlot();
   state.currentEpoch = beacon_.getCurrentEpoch();
   state.nStakeholders = beacon_.getStakeholders().size();
-  state.networkId = config_.network_id;
+  state.networkId = beacon_.getNetworkId();
+  if (state.networkId.empty()) {
+    state.networkId = config_.network_id;
+  }
   state.registryVersion = registryVersion_;
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {

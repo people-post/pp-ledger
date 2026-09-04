@@ -118,9 +118,20 @@ public:
   /** Max transactions per block (0 = no limit). Renewals are not counted toward
    * this cap. */
   uint64_t getMaxTransactionsPerBlock() const;
+  /** networkId from loaded chain config (empty if config not ready). */
+  std::string getNetworkId() const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
+
+  /**
+   * Apply `block.records` once to the tip bank, fill header commitments
+   * (`epoch`, `stakeSnapshotHash`, `txRoot`, `stateRoot`) and `hash`.
+   * Does not persist; the matching `addBlock` only writes the ledger.
+   * Must not be called again until that `addBlock` (or the tip is reset).
+   */
+  Roe<void> sealBlock(Ledger::ChainNode &block);
+
   Roe<std::vector<Ledger::Record>>
   collectRenewals(uint64_t slot) const;
 
@@ -189,6 +200,9 @@ private:
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                bool isStrictMode);
+  /** Persist a block whose effects were already applied by sealBlock. */
+  Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
+  void maybeRotateCheckpoint(const Ledger::ChainNode &block);
 
   Roe<void> processGenesisTxRecord(
       const Ledger::Record &record);
@@ -203,6 +217,13 @@ private:
   TxContext txContext_{};
 
   RecordHandler recordHandler_{};
+
+  /** Tip bank already reflects this sealed-but-uncommitted block. */
+  struct PendingSeal {
+    uint64_t index{0};
+    std::string hash;
+  };
+  std::optional<PendingSeal> pendingSeal_;
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);

@@ -143,6 +143,10 @@ pp::Roe<pp::common::Object> parseJsonRequest(const std::string &request) {
 }
 
 std::string sha256(const std::string &input) {
+  return hexEncode(sha256Raw(input));
+}
+
+std::string sha256Raw(const std::string &input) {
   unsigned char hash[crypto_hash_sha256_BYTES];
 
   if (crypto_hash_sha256(hash,
@@ -151,12 +155,8 @@ std::string sha256(const std::string &input) {
     throw std::runtime_error("crypto_hash_sha256 failed");
   }
 
-  std::stringstream ss;
-  for (unsigned int i = 0; i < crypto_hash_sha256_BYTES; i++) {
-    ss << std::hex << std::setw(2) << std::setfill('0')
-       << static_cast<int>(hash[i]);
-  }
-  return ss.str();
+  return std::string(reinterpret_cast<const char *>(hash),
+                     crypto_hash_sha256_BYTES);
 }
 
 std::string hexEncode(const std::string &data) {

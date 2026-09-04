@@ -148,6 +148,17 @@ public:
       ar & type & data & signatures;
     }
 
+    /**
+     * Canonical message signed by account keys:
+     * binaryPack(type, networkId, data). Binds signatures to tx type and chain.
+     */
+    static std::string makeSigningMessage(uint16_t type,
+                                          const std::string &networkId,
+                                          const std::string &payload);
+
+    /** makeSigningMessage(type, networkId, data). */
+    std::string signingMessage(const std::string &networkId) const;
+
     /** Decode this Record's packed payload into TypedTx. */
     Roe<TypedTx> decode() const;
 
@@ -155,25 +166,46 @@ public:
   };
 
   /**
-   * Block data structure (without hash)
+   * Block data structure (without hash).
+   *
+   * Header fields are committed by the block hash (see headerToString).
+   * Body (`records`) is committed indirectly via `txRoot`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 1;
+    static constexpr uint16_t CURRENT_VERSION = 4;
 
+    // --- Header (hashed) ---
     uint64_t index{ 0 };
     int64_t timestamp{ 0 };
-    std::vector<Record> records;
+    /** Raw 32-byte SHA-256 previous block hash (zeros at genesis). */
     std::string previousHash;
-    uint64_t nonce{ 0 };
     uint64_t slot{ 0 };
     uint64_t slotLeader{ 0 };
+    /** Epoch containing `slot` (must match consensus epoch-from-slot). */
+    uint64_t epoch{ 0 };
     /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
     uint64_t txIndex{ 0 };
+    /** Raw 32-byte SHA-256 commitment to `records`. */
+    std::string txRoot;
+    /** Raw 32-byte SHA-256 commitment to post-block account state. */
+    std::string stateRoot;
+    /**
+     * Raw 32-byte commitment to the stakeholder set used for leader election
+     * in this epoch (see chain_block::calculateStakeSnapshotHash).
+     */
+    std::string stakeSnapshotHash;
+
+    // --- Body (not hashed directly; committed via txRoot) ---
+    std::vector<Record> records;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & records & previousHash & nonce & slot & slotLeader & txIndex;
+      ar & index & timestamp & previousHash & slot & slotLeader & epoch &
+          txIndex & txRoot & stateRoot & stakeSnapshotHash & records;
     }
 
+    /** Binary LTS of header fields only (used for block hash). */
+    std::string headerToString() const;
+    /** Full block LTS for disk / RawBlock (header + body). */
     std::string ltsToString() const;
     bool ltsFromString(const std::string &str);
     pp::common::Meta ltsToMeta() const;
@@ -186,6 +218,7 @@ public:
    */
   struct ChainNode {
     Block block;
+    /** Raw 32-byte SHA-256 of block.headerToString(). */
     std::string hash;
 
     /**

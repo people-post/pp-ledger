@@ -28,6 +28,15 @@ std::string transactionTypeToHumanString(uint16_t type) {
 
 } // namespace
 
+std::string Ledger::Block::headerToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  uint16_t version = CURRENT_VERSION;
+  ar & version & index & timestamp & previousHash & slot & slotLeader & epoch &
+      txIndex & txRoot & stateRoot & stakeSnapshotHash;
+  return oss.str();
+}
+
 std::string Ledger::Block::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
@@ -156,10 +165,27 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
   std::vector<pp::common::Meta::Value> sigVals;
   sigVals.reserve(signatures.size());
   for (const auto &sig : signatures) {
-    sigVals.push_back(utl::toJsonSafeString(sig));
+    // Named local avoids GCC -Wmaybe-uninitialized false positive on
+    // std::variant move into vector from a converting temporary.
+    std::string safe = utl::toJsonSafeString(sig);
+    sigVals.emplace_back(std::move(safe));
   }
   j.set("signatures", pp::common::Meta::array(std::move(sigVals)));
   return j;
+}
+
+std::string Ledger::Record::makeSigningMessage(uint16_t type,
+                                               const std::string &networkId,
+                                               const std::string &payload) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & type & networkId & payload;
+  return oss.str();
+}
+
+std::string
+Ledger::Record::signingMessage(const std::string &networkId) const {
+  return makeSigningMessage(type, networkId, data);
 }
 
 Ledger::Roe<Ledger::TypedTx>
@@ -232,10 +258,13 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
   j.setUIntForJson("index", index);
   j.set("timestamp", utl::formatTimestampLocal(timestamp));
   j.set("previousHash", utl::toJsonSafeString(previousHash));
-  j.setUIntForJson("nonce", nonce);
   j.setUIntForJson("slot", slot);
   j.setUIntForJson("slotLeader", slotLeader);
+  j.setUIntForJson("epoch", epoch);
   j.setUIntForJson("startingTxIndex", txIndex);
+  j.set("txRoot", utl::toJsonSafeString(txRoot));
+  j.set("stateRoot", utl::toJsonSafeString(stateRoot));
+  j.set("stakeSnapshotHash", utl::toJsonSafeString(stakeSnapshotHash));
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());

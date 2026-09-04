@@ -4,6 +4,7 @@
 #include "../client/AccountIds.h"
 #include "../client/Client.h"
 #include "../consensus/Ouroboros.h"
+#include "AccountStateTree.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>
@@ -14,7 +15,11 @@
 namespace pp {
 
 /**
- * AccountBuffer - Manages user accounts in a buffer.
+ * AccountBuffer - committed account state for the chain tip.
+ *
+ * Maintains an incremental sparse Merkle tree updated only for touched
+ * accounts. `calculateStateRoot()` is O(1). There is no overlay/scratch mode:
+ * block sealing applies once to this buffer; see Chain::sealBlock.
  */
 class AccountBuffer {
 public:
@@ -45,6 +50,11 @@ public:
 
   AccountBuffer();
   ~AccountBuffer() = default;
+
+  AccountBuffer(const AccountBuffer &) = delete;
+  AccountBuffer &operator=(const AccountBuffer &) = delete;
+  AccountBuffer(AccountBuffer &&) noexcept = default;
+  AccountBuffer &operator=(AccountBuffer &&) noexcept = default;
 
   bool isEmpty() const;
   bool hasAccount(uint64_t id) const;
@@ -98,10 +108,26 @@ public:
   void clear();
   void reset();
 
+  /**
+   * O(1) root of the account sparse Merkle tree (incremental updates only).
+   */
+  std::string calculateStateRoot() const;
+
+  /** Leaf digest for one account (used by the SMT). */
+  static std::string accountLeafHash(const Account &account);
+
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
+  void touchTree(const Account &account);
+  void clearTree(uint64_t id);
+  /**
+   * Pointer into mAccounts_. ResultOrError cannot store references, so
+   * mutators use Account* rather than Roe<Account&>.
+   */
+  Roe<Account *> mutableAccount(uint64_t id);
 
   std::map<uint64_t, Account> mAccounts_;
+  AccountStateTree stateTree_;
 };
 
 } // namespace pp

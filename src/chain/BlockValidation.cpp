@@ -2,10 +2,14 @@
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "common/Logger.h"
+#include "common/Serialize.hpp"
+#include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 
+#include <algorithm>
 #include <limits>
 #include <set>
+#include <sstream>
 #include <utility>
 
 namespace pp::chain_block {
@@ -32,8 +36,31 @@ bool isValidTimestamp(const consensus::Ouroboros &consensus,
 } // namespace
 
 std::string calculateBlockHash(const Ledger::Block &block) {
-  std::string serialized = block.ltsToString();
-  return utl::sha256(serialized);
+  return utl::sha256Raw(block.headerToString());
+}
+
+std::string calculateTxRoot(const std::vector<Ledger::Record> &records) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  for (const auto &rec : records) {
+    std::string packed = utl::binaryPack(rec);
+    ar & packed;
+  }
+  return utl::sha256Raw(std::string("pp-ledger/txroot/v1") + oss.str());
+}
+
+std::string calculateStakeSnapshotHash(
+    const std::vector<consensus::Stakeholder> &stakeholders) {
+  std::vector<consensus::Stakeholder> sorted = stakeholders;
+  std::sort(sorted.begin(), sorted.end(),
+            [](const consensus::Stakeholder &a,
+               const consensus::Stakeholder &b) { return a.id < b.id; });
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  for (const auto &s : sorted) {
+    ar & s.id & s.stake;
+  }
+  return utl::sha256Raw(std::string("pp-ledger/stake/v1") + oss.str());
 }
 
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
@@ -42,13 +69,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have index 0");
   }
-  if (block.block.previousHash != "0") {
+  if (block.block.previousHash != utl::zeroHash()) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis block must have previousHash \"0\"");
-  }
-  if (block.block.nonce != 0) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                             "Genesis block must have nonce 0");
+                             "Genesis block must have zero previousHash");
   }
   if (block.block.slot != 0) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
@@ -58,14 +81,32 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have slotLeader 0");
   }
+  if (block.block.epoch != 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Genesis block must have epoch 0");
+  }
   if (block.block.txIndex != 0) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must have txIndex 0");
+  }
+  const std::string expectedStakeHash =
+      calculateStakeSnapshotHash({});
+  if (block.block.stakeSnapshotHash != expectedStakeHash) {
+    return chain_tx::TxError(
+        chain_err::E_BLOCK_GENESIS,
+        "Genesis block must commit empty stake snapshot");
   }
   if (block.block.records.size() != 4) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis block must have exactly four transactions");
+  }
+
+  const std::string expectedTxRoot =
+      calculateTxRoot(block.block.records);
+  if (block.block.txRoot != expectedTxRoot) {
+    return chain_tx::TxError(chain_err::E_BLOCK_HASH,
+                             "Genesis block txRoot mismatch");
   }
 
   const auto &checkpointRec = block.block.records[0];
@@ -506,6 +547,11 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                      const std::optional<BlockChainConfig> &optChainConfig,
                      const Checkpoint &checkpoint,
                      const RecordHandler &recordHandler) {
+  const std::string expectedTxRoot = calculateTxRoot(block.block.records);
+  if (block.block.txRoot != expectedTxRoot) {
+    return chain_tx::TxError(chain_err::E_BLOCK_HASH, "Block txRoot mismatch");
+  }
+
   std::string calculatedHash = calculateBlockHash(block.block);
   if (calculatedHash != block.hash) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
@@ -520,6 +566,19 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
   if (isStrictMode) {
     uint64_t slot = block.block.slot;
     uint64_t slotLeader = block.block.slotLeader;
+    const uint64_t expectedEpoch = consensus.getEpochFromSlot(slot);
+    if (block.block.epoch != expectedEpoch) {
+      return chain_tx::TxError(
+          chain_err::E_CONSENSUS_SLOT_LEADER,
+          "Block epoch mismatch: expected " + std::to_string(expectedEpoch) +
+              " got " + std::to_string(block.block.epoch));
+    }
+    const std::string expectedStakeHash =
+        calculateStakeSnapshotHash(consensus.getStakeholders());
+    if (block.block.stakeSnapshotHash != expectedStakeHash) {
+      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                               "Block stakeSnapshotHash mismatch");
+    }
     if (!consensus.validateSlotLeader(slotLeader, slot)) {
       return chain_tx::TxError(
           chain_err::E_CONSENSUS_SLOT_LEADER,
