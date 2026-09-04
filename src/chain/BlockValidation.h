@@ -20,6 +20,13 @@ std::string calculateBlockHash(const Ledger::Block &block);
 /** SHA-256 commitment to ordered records. Domain: "pp-ledger/txroot/v1". */
 std::string calculateTxRoot(const std::vector<Ledger::Record> &records);
 
+/**
+ * SHA-256 commitment to the stakeholder set used for leader election.
+ * Domain: "pp-ledger/stake/v1"; stakeholders packed sorted by id.
+ */
+std::string calculateStakeSnapshotHash(
+    const std::vector<consensus::Stakeholder> &stakeholders);
+
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
                                         const RecordHandler &recordHandler);
 

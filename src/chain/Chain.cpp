@@ -438,6 +438,16 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
 }
 
 Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+  if (block.block.index == 0) {
+    block.block.epoch = 0;
+    block.block.stakeSnapshotHash =
+        chain_block::calculateStakeSnapshotHash({});
+  } else {
+    block.block.epoch =
+        txContext_.consensus.getEpochFromSlot(block.block.slot);
+    block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
+        txContext_.consensus.getStakeholders());
+  }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 
   TxContext scratch;

@@ -161,7 +161,7 @@ public:
    * Body (`records`) is committed indirectly via `txRoot`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 3;
+    static constexpr uint16_t CURRENT_VERSION = 4;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
@@ -170,19 +170,26 @@ public:
     std::string previousHash;
     uint64_t slot{ 0 };
     uint64_t slotLeader{ 0 };
+    /** Epoch containing `slot` (must match consensus epoch-from-slot). */
+    uint64_t epoch{ 0 };
     /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
     uint64_t txIndex{ 0 };
     /** Raw 32-byte SHA-256 commitment to `records`. */
     std::string txRoot;
     /** Raw 32-byte SHA-256 commitment to post-block account state. */
     std::string stateRoot;
+    /**
+     * Raw 32-byte commitment to the stakeholder set used for leader election
+     * in this epoch (see chain_block::calculateStakeSnapshotHash).
+     */
+    std::string stakeSnapshotHash;
 
     // --- Body (not hashed directly; committed via txRoot) ---
     std::vector<Record> records;
 
     template <typename Archive> void serialize(Archive &ar) {
-      ar & index & timestamp & previousHash & slot & slotLeader & txIndex &
-          txRoot & stateRoot & records;
+      ar & index & timestamp & previousHash & slot & slotLeader & epoch &
+          txIndex & txRoot & stateRoot & stakeSnapshotHash & records;
     }
 
     /** Binary LTS of header fields only (used for block hash). */

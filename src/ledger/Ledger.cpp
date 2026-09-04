@@ -32,8 +32,8 @@ std::string Ledger::Block::headerToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   uint16_t version = CURRENT_VERSION;
-  ar & version & index & timestamp & previousHash & slot & slotLeader &
-      txIndex & txRoot & stateRoot;
+  ar & version & index & timestamp & previousHash & slot & slotLeader & epoch &
+      txIndex & txRoot & stateRoot & stakeSnapshotHash;
   return oss.str();
 }
 
@@ -243,9 +243,11 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
   j.set("previousHash", utl::toJsonSafeString(previousHash));
   j.setUIntForJson("slot", slot);
   j.setUIntForJson("slotLeader", slotLeader);
+  j.setUIntForJson("epoch", epoch);
   j.setUIntForJson("startingTxIndex", txIndex);
   j.set("txRoot", utl::toJsonSafeString(txRoot));
   j.set("stateRoot", utl::toJsonSafeString(stateRoot));
+  j.set("stakeSnapshotHash", utl::toJsonSafeString(stakeSnapshotHash));
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());

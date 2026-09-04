@@ -111,6 +111,7 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.previousHash = utl::zeroHash();
   genesis.block.slot = 0;
   genesis.block.slotLeader = 0;
+  genesis.block.epoch = 0;
 
   Ledger::TxGenesis checkpointTx;
   checkpointTx.fee = 0;

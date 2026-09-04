@@ -277,6 +277,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   genesisBlock.block.previousHash = utl::zeroHash();
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
+  genesisBlock.block.epoch = 0;
 
   Chain::GenesisAccountMeta gm;
   gm.config = config;
