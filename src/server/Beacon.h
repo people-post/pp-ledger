@@ -77,6 +77,8 @@ public:
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
+  /** networkId from loaded chain config (empty if not ready). */
+  std::string getNetworkId() const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
@@ -100,13 +102,14 @@ private:
 
   Roe<Ledger::ChainNode>
   createGenesisBlock(const Chain::BlockChainConfig &config,
-                     const InitKeyConfig &key) const;
+                     const InitKeyConfig &key);
 
   /** Signs transaction with genesis keys and adds signatures. Returns error on
    * sign failure. */
   Roe<void>
   signWithGenesisKeys(Ledger::Record &record,
                       const std::vector<utl::MlDsaKeyPair> &genesisKeys,
+                      const std::string &networkId,
                       const std::string &errorContext) const;
 
   Chain chain_;

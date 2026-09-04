@@ -118,6 +118,8 @@ public:
   /** Max transactions per block (0 = no limit). Renewals are not counted toward
    * this cap. */
   uint64_t getMaxTransactionsPerBlock() const;
+  /** networkId from loaded chain config (empty if config not ready). */
+  std::string getNetworkId() const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;

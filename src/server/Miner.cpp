@@ -182,8 +182,9 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       return Error(12, renewalsResult.error().message);
     }
     slotCache_.txRenewals = renewalsResult.value();
+    const std::string networkId = chain_.getNetworkId();
     for (auto &rec : slotCache_.txRenewals) {
-      const auto &message = rec.data;
+      const std::string message = rec.signingMessage(networkId);
       for (const auto &privateKey : config_.privateKeys) {
         auto result = utl::mlDsaSign(privateKey, message);
         if (!result) {

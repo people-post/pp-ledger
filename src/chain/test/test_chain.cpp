@@ -83,11 +83,12 @@ std::string signMessage(const utl::MlDsaKeyPair &keyPair,
 
 template <typename TxT>
 Ledger::Record makeRecord(uint16_t type, const TxT &tx,
-                          const utl::MlDsaKeyPair &signer) {
+                          const utl::MlDsaKeyPair &signer,
+                          const std::string &networkId = {}) {
   Ledger::Record rec;
   rec.type = type;
   rec.data = utl::binaryPack(tx);
-  rec.signatures = {signMessage(signer, rec.data)};
+  rec.signatures = {signMessage(signer, rec.signingMessage(networkId))};
   return rec;
 }
 
@@ -117,7 +118,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   checkpointTx.fee = 0;
   checkpointTx.meta = gm.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey));
+      makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey,
+                 chainConfig.networkId));
 
   Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
   Ledger::TxNewUser feeTx;
@@ -133,7 +135,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
   feeTx.fee = static_cast<uint64_t>(feeWalletFee);
   feeTx.meta = feeAccount.ltsToString();
-  genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey));
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey, chainConfig.networkId));
 
   Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
   Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
@@ -170,7 +173,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   reserveTx.fee = static_cast<uint64_t>(reserveFee);
   reserveTx.meta = reserveAccount.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey));
+      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey,
+                 chainConfig.networkId));
 
   Ledger::TxNewUser recycleTx;
   recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
@@ -179,7 +183,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   recycleTx.fee = static_cast<uint64_t>(recycleFee);
   recycleTx.meta = recycleAccount.ltsToString();
   genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey));
+      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey,
+                 chainConfig.networkId));
 
   auto sealResult = validator.sealBlock(genesis);
   EXPECT_TRUE(sealResult.isOk());

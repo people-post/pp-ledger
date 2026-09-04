@@ -566,15 +566,20 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   tx.fee = fee;
   tx.meta = userAccount.ltsToString();
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
-  std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
+  std::string payload = pp::utl::binaryPack(tx);
+  pp::Ledger::Record rec;
+  rec.type = pp::Ledger::T_NEW_USER;
+  rec.data = std::move(payload);
+  std::string networkId;
+  if (auto st = minerClient.fetchBeaconState()) {
+    networkId = st->networkId;
+  }
+  auto sigResult =
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
   if (!sigResult) {
     setJsonError(res, 500, std::string("Sign failed: ") + sigResult.error().message);
     return;
   }
-  pp::Ledger::Record rec;
-  rec.type = pp::Ledger::T_NEW_USER;
-  rec.data = std::move(message);
   rec.signatures = {*sigResult};
 
   auto r = minerClient.addTransaction(rec);

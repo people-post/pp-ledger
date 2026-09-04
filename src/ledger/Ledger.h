@@ -148,6 +148,17 @@ public:
       ar & type & data & signatures;
     }
 
+    /**
+     * Canonical message signed by account keys:
+     * binaryPack(type, networkId, data). Binds signatures to tx type and chain.
+     */
+    static std::string makeSigningMessage(uint16_t type,
+                                          const std::string &networkId,
+                                          const std::string &payload);
+
+    /** makeSigningMessage(type, networkId, data). */
+    std::string signingMessage(const std::string &networkId) const;
+
     /** Decode this Record's packed payload into TypedTx. */
     Roe<TypedTx> decode() const;
 

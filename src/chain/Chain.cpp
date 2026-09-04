@@ -128,6 +128,12 @@ uint64_t Chain::getMaxTransactionsPerBlock() const {
              : 0;
 }
 
+std::string Chain::getNetworkId() const {
+  return txContext_.optChainConfig.has_value()
+             ? txContext_.optChainConfig.value().networkId
+             : std::string{};
+}
+
 Chain::Roe<uint64_t> Chain::getSlotLeader(uint64_t slot) const {
   auto result = txContext_.consensus.getSlotLeader(slot);
   if (!result) {
@@ -758,8 +764,9 @@ Chain::Roe<void> Chain::validateTxSignatures(
       return {};
     }
   }
-  return verifySignaturesAgainstAccount(record.data, record.signatures,
-                                        accountResult.value());
+  return verifySignaturesAgainstAccount(
+      record.signingMessage(getNetworkId()), record.signatures,
+      accountResult.value());
 }
 
 Chain::Roe<uint64_t>

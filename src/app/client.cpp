@@ -87,15 +87,20 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   tx.amount = amount;
   tx.fee = fee;
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
-  std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
+  std::string payload = pp::utl::binaryPack(tx);
+  pp::Ledger::Record rec;
+  rec.type = pp::Ledger::T_DEFAULT;
+  rec.data = std::move(payload);
+  std::string networkId;
+  if (auto st = client.fetchBeaconState()) {
+    networkId = st->networkId;
+  }
+  auto sigResult =
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
   }
-  pp::Ledger::Record rec;
-  rec.type = pp::Ledger::T_DEFAULT;
-  rec.data = std::move(message);
   rec.signatures = {*sigResult};
   auto result = client.addTransaction(rec);
   if (!result) {
@@ -241,15 +246,20 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   tx.fee = fee;
   tx.meta = userAccount.ltsToString();
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
-  std::string message = pp::utl::binaryPack(tx);
-  auto sigResult = pp::utl::mlDsaSign(privateKey, message);
+  std::string payload = pp::utl::binaryPack(tx);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_NEW_USER;
+  rec.data = std::move(payload);
+  std::string networkId;
+  if (auto st = client.fetchBeaconState()) {
+    networkId = st->networkId;
+  }
+  auto sigResult =
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
   }
-  TxRecord rec;
-  rec.type = pp::Ledger::T_NEW_USER;
-  rec.data = std::move(message);
   rec.signatures = {*sigResult};
   auto result = client.addTransaction(rec);
   if (!result) {
@@ -268,7 +278,8 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   return 0;
 }
 
-static int runSignTx(const std::string& filePath, const std::string& key) {
+static int runSignTx(const std::string& filePath, const std::string& key,
+                     const std::string& networkId) {
   auto content = readFileContent(filePath);
   if (!content) {
     std::cerr << "Error: " << content.error().message << "\n";
@@ -288,7 +299,7 @@ static int runSignTx(const std::string& filePath, const std::string& key) {
     std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
     return 1;
   }
-  std::string message = rec.data;
+  std::string message = rec.signingMessage(networkId);
   auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
@@ -463,9 +474,12 @@ int main(int argc, char *argv[]) {
   auto* sign_tx_cmd = app.add_subcommand("sign-tx", "Add signature to a transaction file");
   std::string sign_tx_file;
   std::string sign_key;
+  std::string sign_network_id;
   sign_tx_cmd->add_option("file", sign_tx_file, "Transaction file to sign")->required();
   sign_tx_cmd->add_option("-k,--key", sign_key, "Private key (hex or file) to sign")
       ->required();
+  sign_tx_cmd->add_option("--network-id", sign_network_id,
+                          "Chain networkId for the signing message (must match genesis)");
 
   // submit-tx: submit signed tx file to miner
   auto* submit_tx_cmd = app.add_subcommand("submit-tx", "Submit signed transaction file to miner");
@@ -503,7 +517,7 @@ int main(int argc, char *argv[]) {
 
   // Handle sign-tx (no server connection needed)
   if (sign_tx_cmd->parsed()) {
-    return runSignTx(sign_tx_file, sign_key);
+    return runSignTx(sign_tx_file, sign_key, sign_network_id);
   }
 
   // For server commands, validate beacon/miner flag

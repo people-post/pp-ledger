@@ -22,7 +22,8 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << "freeCustomMetaSize: " << config.freeCustomMetaSize << ", "
      << "checkpoint: " << config.checkpoint << ", "
      << "maxValidationTimespanSeconds: " << config.maxValidationTimespanSeconds
-     << "}";
+     << ", "
+     << "networkId: " << config.networkId << "}";
   return os;
 }
 

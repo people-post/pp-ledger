@@ -171,6 +171,20 @@ pp::common::Meta Ledger::Record::ltsToMeta() const {
   return j;
 }
 
+std::string Ledger::Record::makeSigningMessage(uint16_t type,
+                                               const std::string &networkId,
+                                               const std::string &payload) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & type & networkId & payload;
+  return oss.str();
+}
+
+std::string
+Ledger::Record::signingMessage(const std::string &networkId) const {
+  return makeSigningMessage(type, networkId, data);
+}
+
 Ledger::Roe<Ledger::TypedTx>
 Ledger::Record::decode() const {
   switch (type) {
