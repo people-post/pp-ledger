@@ -18,8 +18,8 @@ FileDirStore::~FileDirStore() {
 }
 
 void FileDirStore::close() {
-  if (!config_.dirPath.empty()) { 
-    flush(); 
+  if (!config_.dirPath.empty() && std::filesystem::exists(config_.dirPath)) {
+    flush();
   }
   fileInfoMap_.clear();
   fileIdOrder_.clear();
@@ -544,40 +544,6 @@ void FileDirStore::flush() {
   }
 }
 
-FileDirStore::Roe<std::string> FileDirStore::relocateToSubdir(const std::string &subdirName,
-                                                               const std::vector<std::string> &excludeFiles) {
-  log().info << "Relocating FileDirStore contents to subdirectory: " << subdirName;
-
-  // Close all open files first
-  for (auto &[fileId, fileInfo] : fileInfoMap_) {
-    fileInfo.blockFile.reset();
-  }
-
-  if (!saveIndex()) {
-    return Error("Failed to save index before relocation");
-  }
-
-  std::string originalPath = config_.dirPath;
-  auto relocateResult = performDirectoryRelocation(originalPath, subdirName, excludeFiles);
-  if (!relocateResult.isOk()) {
-    return relocateResult;
-  }
-  std::string targetSubdir = relocateResult.value();
-
-  config_.dirPath = targetSubdir;
-  indexFilePath_ = getIndexFilePath(targetSubdir);
-
-  auto reopenResult = reopenBlockFiles();
-  if (!reopenResult.isOk()) {
-    return Error(reopenResult.error().message);
-  }
-
-  log().info << "Successfully relocated FileDirStore to: " << targetSubdir;
-  return targetSubdir;
-}
-
-// Helper methods
-
 FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
   for (auto &[fileId, fileInfo] : fileInfoMap_) {
     std::string filepath = getBlockFilePath(fileId);
@@ -598,27 +564,6 @@ FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
     fileInfo.blockFile = std::move(ukpBlockFile);
     log().debug << "Opened existing block file: " << filepath
                 << " (blocks: " << fileInfo.blockFile->getBlockCount() << ")";
-  }
-  return {};
-}
-
-FileDirStore::Roe<void> FileDirStore::reopenBlockFiles() {
-  for (auto &[fileId, fileInfo] : fileInfoMap_) {
-    std::string filepath = getBlockFilePath(fileId);
-    if (!std::filesystem::exists(filepath)) {
-      continue;
-    }
-
-    auto ukpBlockFile = std::make_unique<FileStore>();
-    ukpBlockFile->redirectLogger(log().getFullName() + ".File" + std::to_string(fileId));
-    auto result = ukpBlockFile->mount(filepath, config_.maxFileSize);
-    if (!result.isOk()) {
-      log().error << "Failed to reopen block file: " << filepath;
-      return Error("Failed to reopen block file: " + result.error().message);
-    }
-
-    fileInfo.blockFile = std::move(ukpBlockFile);
-    log().debug << "Reopened block file: " << filepath;
   }
   return {};
 }

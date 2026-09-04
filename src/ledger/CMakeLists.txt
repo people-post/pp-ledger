@@ -8,8 +8,8 @@ add_library(pp_ledger STATIC
     FileStore.h
     FileDirStore.cpp
     FileDirStore.h
-    DirDirStore.cpp
-    DirDirStore.h
+    VolumeStore.cpp
+    VolumeStore.h
 )
 
 target_include_directories(pp_ledger PUBLIC

@@ -69,6 +69,8 @@ As the chain grows over months and years, storing every block from the very begi
 The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks.
 New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
+On-disk block layout (volumes of flat file dirs): [ledger-storage.md](ledger-storage.md).
+
 ![How checkpoints work (time)](print/checkpoints.png)
 
 | Term | Meaning |

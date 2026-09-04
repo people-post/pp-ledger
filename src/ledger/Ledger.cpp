@@ -273,7 +273,7 @@ uint64_t Ledger::getStartingBlockId() const {
 
 Ledger::Roe<void> Ledger::init(const InitConfig& config) {
   workDir_ = config.workDir;
-  dataDir_ = workDir_ + "/data";
+  volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
   
   // Verify work directory does NOT exist (fresh initialization)
@@ -289,17 +289,15 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
 
   log().info << "Ledger work directory created: " << workDir_;
 
-  // Initialize DirDirStore with new directory
-  DirDirStore::InitConfig storeConfig;
-  storeConfig.dirPath = dataDir_;
-  storeConfig.maxDirCount = 1000;    // Default values - can be made configurable
-  storeConfig.maxFileCount = 1000;
-  storeConfig.maxFileSize = static_cast<size_t>(10) * 1024 * 1024; // 10 MB
-  storeConfig.maxLevel = 2;
+  VolumeStore::InitConfig storeConfig;
+  storeConfig.volumesDir = volumesDir_;
+  storeConfig.maxFileCount = 64;
+  storeConfig.maxFileSize = static_cast<size_t>(128) * 1024 * 1024; // 128 MiB
+  storeConfig.maxVolumes = 10000;
 
   auto initResult = store_.init(storeConfig);
   if (!initResult.isOk()) {
-    return Error("Failed to initialize DirDirStore: " + initResult.error().message);
+    return Error("Failed to initialize VolumeStore: " + initResult.error().message);
   }
 
   // Set starting block ID for fresh initialization
@@ -319,7 +317,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
 
 Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
   workDir_ = workDir;
-  dataDir_ = workDir_ + "/data";
+  volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
 
   // Verify work directory exists (loading existing ledger)
@@ -330,10 +328,9 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 
   log().info << "Mounting ledger at: " << workDir_;
 
-  // Check if data directory exists
-  bool dataExists = std::filesystem::exists(dataDir_, ec);
-  if (!dataExists) {
-    return Error("Ledger data directory not found: " + dataDir_);
+  if (!std::filesystem::exists(volumesDir_, ec)) {
+    return Error("Ledger volumes directory not found: " + volumesDir_ +
+                 ". Re-init required (legacy data/ layout is unsupported).");
   }
 
   // Load existing index to get current state
@@ -343,14 +340,12 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 
   log().info << "Loaded existing ledger with startingBlockId=" << meta_.startingBlockId;
 
-  // Mount existing DirDirStore (config values are loaded from index)
-  DirDirStore::MountConfig storeConfig;
-  storeConfig.dirPath = dataDir_;
-  storeConfig.maxLevel = 2;
+  VolumeStore::MountConfig storeConfig;
+  storeConfig.volumesDir = volumesDir_;
 
   auto mountResult = store_.mount(storeConfig);
   if (!mountResult.isOk()) {
-    return Error("Failed to mount DirDirStore: " + mountResult.error().message);
+    return Error("Failed to mount VolumeStore: " + mountResult.error().message);
   }
 
   log().info << "Ledger mounted successfully at " << workDir_ 
@@ -649,11 +644,10 @@ Ledger::Roe<Ledger::ChainNode> Ledger::findBlockByTimestamp(int64_t timestamp) c
 Ledger::Roe<void> Ledger::cleanupData() {
   std::error_code ec;
   
-  // Remove data directory
-  if (std::filesystem::exists(dataDir_, ec)) {
-    std::filesystem::remove_all(dataDir_, ec);
+  if (std::filesystem::exists(volumesDir_, ec)) {
+    std::filesystem::remove_all(volumesDir_, ec);
     if (ec) {
-      return Error("Failed to remove data directory: " + ec.message());
+      return Error("Failed to remove volumes directory: " + ec.message());
     }
   }
 

@@ -57,7 +57,7 @@ TEST_F(LedgerTest, InitializeNewLedger) {
   EXPECT_EQ(ledger.getNextBlockId(), 0);
 
   // Verify directory structure
-  EXPECT_TRUE(std::filesystem::exists(testDir_ / "data"));
+  EXPECT_TRUE(std::filesystem::exists(testDir_ / "volumes"));
   EXPECT_TRUE(std::filesystem::exists(testDir_ / "ledger_index.dat"));
 }
 

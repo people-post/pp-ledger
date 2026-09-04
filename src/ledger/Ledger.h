@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DirDirStore.h"
+#include "VolumeStore.h"
 #include "lib/common/Meta.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
@@ -272,10 +272,10 @@ private:
   };
 
   std::string workDir_;
-  std::string dataDir_;
+  std::string volumesDir_;
   std::string indexFilePath_;
   Meta meta_;
-  DirDirStore store_;
+  VolumeStore store_;
 
   /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
   mutable std::optional<ChainNode> latestBlockCache_;

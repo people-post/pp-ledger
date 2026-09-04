@@ -69,16 +69,6 @@ public:
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
 
-    /**
-     * Relocates all contents of this store to a subdirectory.
-     * This is used during transition when the store needs to be nested
-     * under a parent DirDirStore.
-     * @param subdirName The name of the subdirectory (e.g., "000001")
-     * @return The full path to the new subdirectory on success
-     */
-    Roe<std::string> relocateToSubdir(const std::string &subdirName,
-                                       const std::vector<std::string> &excludeFiles = {}) override;
-
     /** Flush index and close all open block files. Safe to call multiple times. */
     void close();
 
@@ -160,9 +150,7 @@ private:
     bool readIndexHeader(std::istream &is);
     void flush();
 
-    // Helper methods for init and relocate
     Roe<void> openExistingBlockFiles();
-    Roe<void> reopenBlockFiles();
     void recalculateTotalBlockCount();
     void updateCurrentFileId();
 };

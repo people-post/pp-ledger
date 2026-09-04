@@ -765,9 +765,9 @@ workDir/
 
 ### Ledger Persistence
 
-- Blocks stored in `DirDirStore` backend
-- Automatic file rotation when files reach size limit
-- Recursive directory structure for scalability
+- Blocks stored via `VolumeStore` (ordered volumes of `FileDirStore`)
+- Automatic file rotation within a volume when files reach size limit
+- Growth opens a new empty volume (`v00000N`) — never relocates old data
 - Index maintained for fast block lookup
 
 ## Troubleshooting
