@@ -43,7 +43,7 @@ Full design guidance: [ledger-topology.md](ledger-topology.md).
 
 ## Dependency
 
-pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v0.1.5**
+pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v0.1.6**
 (ADP keepalive, circuit-carrier default, `MemoryDatagramIo` reorder window). Align with pp-browser’s Amp pin when sharing a sibling checkout.
 
 **Ownership:** Amp supplies L1–L3 transport only (`LedgerRpcChannelPolicy` lives in this repo). Chain tip/range sync, checkpoints, and RPC codecs stay in pp-ledger — do not push ledger sync or BitTorrent-style piece swarm into Amp. See [pp-cpp-amp OWNERSHIP](https://github.com/people-post/pp-cpp-amp/blob/develop/docs/OWNERSHIP.md).
