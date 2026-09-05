@@ -8,7 +8,7 @@ set(PP_CPP_AMP_SOURCE_DIR "" CACHE PATH
   "Optional local checkout of pp-cpp-amp (overrides FetchContent)")
 set(PP_CPP_AMP_GIT_REPOSITORY "https://github.com/people-post/pp-cpp-amp.git"
   CACHE STRING "Git remote for pp-cpp-amp")
-set(PP_CPP_AMP_GIT_TAG "v0.1.3"
+set(PP_CPP_AMP_GIT_TAG "v0.1.6"
   CACHE STRING "Release tag on pp-cpp-amp main (not a branch name)")
 
 set(PP_AMP_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-amp tests" FORCE)

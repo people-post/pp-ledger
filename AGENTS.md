@@ -19,7 +19,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.2.0` / `v0.1.0`). **pp-cpp-amp** (`v0.1.3`) is required for fleet networking — see [docs/amp-transport.md](docs/amp-transport.md). Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
+Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.2.0` / `v0.1.0`). **pp-cpp-amp** (`v0.1.6`) is required for fleet networking — see [docs/amp-transport.md](docs/amp-transport.md). Amp is transport-only; ledger RPC/sync stay in this repo. Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
 
 ### Build
 
