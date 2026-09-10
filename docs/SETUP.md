@@ -158,7 +158,7 @@ The client connects to either the beacon server or miner server to query status 
 
 ## HTTP API Server (pp-http)
 
-The HTTP server exposes the same interfaces as the client over REST-style HTTP, proxying to configured beacon and miner endpoints.
+The HTTP server exposes the same interfaces as the client over REST-style HTTP, proxying to configured beacon and miner endpoints over **AMP** (same transport as `pp-client`).
 
 ### Build and run
 
@@ -166,15 +166,18 @@ The HTTP server exposes the same interfaces as the client over REST-style HTTP, 
 cd build
 cmake -DBUILD_HTTP=ON ..   # Re-run cmake to enable the HTTP server (off by default)
 make pp-http
-./app/pp-http --port 8080 --beacon localhost:8517 --miner localhost:8518
+# Copy listen multiaddrs from beacon/miner logs (adp/1.0.0/p2p/...)
+./app/pp-http --port 8080 \
+  --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
+  --miner  '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>'
 ```
 
 ### Options
 
 - `--port <port>` — HTTP listen port (default: 8080)
 - `--bind <address>` — Bind address (default: 0.0.0.0)
-- `--beacon <host:port>` — Beacon endpoint (default: localhost:8517)
-- `--miner <host:port>` — Miner endpoint (default: localhost:8518)
+- `--beacon <multiaddr>` — Beacon ADP multiaddr (required)
+- `--miner <multiaddr>` — Miner ADP multiaddr (required)
 
 ### Routes
 

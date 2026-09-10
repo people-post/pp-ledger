@@ -104,7 +104,7 @@ See `.aicodeguide` for the full style guide. Key points:
 | Start miner | `./build/app/pp-miner -d miner1` |
 | Check beacon status | `./build/app/pp-client -b status` |
 | Submit transaction | `./build/app/pp-client -m add-tx <from> <to> <amount>` |
-| Start HTTP API | `./build/app/pp-http --port 8080 --beacon localhost:8517 --miner localhost:8518` |
+| Start HTTP API | `./build/app/pp-http --port 8080 --beacon '<beacon-adp-multiaddr>' --miner '<miner-adp-multiaddr>'` |
 
 ## PR Checklist
 
