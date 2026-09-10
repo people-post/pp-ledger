@@ -146,6 +146,9 @@ protected:
   time_t idle_interval_sec_;
   time_t idle_interval_usec_;
   size_t payload_max_length_;
+  Limits limits_;
+  Timeouts timeouts_;
+  int pool_idle_timeout_sec_;
 
 private:
   using Handlers =

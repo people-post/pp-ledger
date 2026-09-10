@@ -139,7 +139,7 @@ ReadResult WebSocket::read(std::string &msg) {
     bool fin;
 
     if (!impl::read_websocket_frame(strm_, opcode, payload, fin, is_server_,
-                                    Defaults::get().websocket.limits.websocket_max_payload)) {
+                                    config_.limits.websocket_max_payload)) {
       closed_ = true;
       return Fail;
     }
@@ -174,7 +174,7 @@ ReadResult WebSocket::read(std::string &msg) {
           bool cont_fin;
           if (!impl::read_websocket_frame(
                   strm_, cont_opcode, cont_payload, cont_fin, is_server_,
-                  Defaults::get().websocket.limits.websocket_max_payload)) {
+                  config_.limits.websocket_max_payload)) {
             closed_ = true;
             return Fail;
           }
@@ -201,7 +201,7 @@ ReadResult WebSocket::read(std::string &msg) {
             return Fail;
           }
           msg += cont_payload;
-          if (msg.size() > Defaults::get().websocket.limits.websocket_max_payload) {
+          if (msg.size() > config_.limits.websocket_max_payload) {
             closed_ = true;
             return Fail;
           }
@@ -248,7 +248,7 @@ void WebSocket::close(CloseStatus status, const std::string &reason) {
   // RFC 6455 Section 7.1.1: after sending a Close frame, wait for the peer's
   // Close response before closing the TCP connection. Use a short timeout to
   // avoid hanging if the peer doesn't respond.
-  strm_.set_read_timeout(Defaults::get().websocket.timeouts.websocket_close_sec, 0);
+  strm_.set_read_timeout(config_.timeouts.websocket_close_sec, 0);
   Opcode op;
   std::string resp;
   bool fin;
@@ -271,7 +271,7 @@ void WebSocket::start_heartbeat() {
     std::unique_lock<std::mutex> lock(ping_mutex_);
     while (!closed_) {
       ping_cv_.wait_for(lock, std::chrono::seconds(
-                                  Defaults::get().websocket.timeouts.websocket_ping_interval_sec));
+                                  config_.timeouts.websocket_ping_interval_sec));
       if (closed_) { break; }
       lock.unlock();
       if (!send_frame(Opcode::Ping, nullptr, 0)) {
@@ -408,7 +408,8 @@ bool WebSocketClient::connect() {
   Request req;
   req.method = "GET";
   req.path = path_;
-  ws_ = std::unique_ptr<WebSocket>(new WebSocket(std::move(strm), req, false));
+  ws_ = std::unique_ptr<WebSocket>(
+      new WebSocket(std::move(strm), req, false, config_));
   return true;
 }
 

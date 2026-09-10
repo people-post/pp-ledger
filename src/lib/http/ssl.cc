@@ -225,9 +225,11 @@ bool process_server_socket_ssl(
     const std::atomic<socket_t> &svr_sock, tls::session_t session,
     socket_t sock, size_t keep_alive_max_count, time_t keep_alive_timeout_sec,
     time_t read_timeout_sec, time_t read_timeout_usec, time_t write_timeout_sec,
-    time_t write_timeout_usec, T callback) {
+    time_t write_timeout_usec, time_t keep_alive_check_interval_usec,
+    T callback) {
   return process_server_socket_core(
       svr_sock, sock, keep_alive_max_count, keep_alive_timeout_sec,
+      keep_alive_check_interval_usec,
       [&](bool close_connection, bool &connection_closed) {
         SSLSocketStream strm(sock, session, read_timeout_sec, read_timeout_usec,
                              write_timeout_sec, write_timeout_usec);
@@ -780,7 +782,7 @@ bool SSLServer::process_and_close_socket(socket_t sock) {
   ret = detail::process_server_socket_ssl(
       svr_sock_, session, sock, keep_alive_max_count_, keep_alive_timeout_sec_,
       read_timeout_sec_, read_timeout_usec_, write_timeout_sec_,
-      write_timeout_usec_,
+      write_timeout_usec_, timeouts_.keep_alive_check_interval_usec,
       [&](Stream &strm, bool close_connection, bool &connection_closed) {
         return process_request(
             strm, remote_addr, remote_port, local_addr, local_port,

@@ -684,7 +684,7 @@ struct Request {
   bool is_multipart_form_data() const;
 
   // private members...
-  size_t redirect_count_ = Defaults::get().limits().redirect_max_count;
+  size_t redirect_count_ = Limits{}.redirect_max_count;
   size_t content_length_ = 0;
   ContentProvider content_provider_;
   bool is_chunked_content_provider_ = false;
@@ -853,7 +853,8 @@ public:
 
 class ThreadPool final : public TaskQueue {
 public:
-  explicit ThreadPool(size_t n, size_t max_n = 0, size_t mqr = 0);
+  explicit ThreadPool(size_t n, size_t max_n = 0, size_t mqr = 0,
+                      int idle_timeout_sec = 3);
   ThreadPool(const ThreadPool &) = delete;
   ~ThreadPool() override = default;
 
@@ -868,6 +869,7 @@ private:
   size_t base_thread_count_;
   size_t max_thread_count_;
   size_t max_queued_requests_;
+  int idle_timeout_sec_;
   size_t idle_thread_count_;
 
   bool shutdown_;

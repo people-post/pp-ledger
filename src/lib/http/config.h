@@ -2,9 +2,9 @@
 //  config.h
 //
 //  Fork of cpp-httplib 0.32 (pp-ledger). Tunables live in ServerConfig /
-//  ClientConfig / Limits / Defaults — not CPPHTTPLIB_* macros.
+//  ClientConfig / Limits / Timeouts — not CPPHTTPLIB_* macros.
 //  Feature gates (OPENSSL / zlib / …) remain compile-time macros.
-//  Follow-up: plumb Limits into every detail parser (today Defaults is used).
+//  Per-instance Limits/Timeouts are stored on Server / ClientImpl / WebSocket.
 //
 
 #ifndef CPPHTTPLIB_CONFIG_H
@@ -105,31 +105,6 @@ struct ClientConfig {
 struct WebsocketConfig {
   Timeouts timeouts;
   Limits limits;
-};
-
-/** Process-wide defaults for detail/ paths not yet plumbed per-instance. */
-class Defaults {
-public:
-  static Defaults &get() {
-    static Defaults instance;
-    return instance;
-  }
-
-  ServerConfig server;
-  ClientConfig client;
-  WebsocketConfig websocket;
-  Limits &limits() { return server.limits; }
-  const Limits &limits() const { return server.limits; }
-  Timeouts &timeouts() { return server.timeouts; }
-  const Timeouts &timeouts() const { return server.timeouts; }
-  ThreadPoolConfig &pool() { return server.pool; }
-  const ThreadPoolConfig &pool() const { return server.pool; }
-
-  Defaults(const Defaults &) = delete;
-  Defaults &operator=(const Defaults &) = delete;
-
-private:
-  Defaults() = default;
 };
 
 } // namespace httplib

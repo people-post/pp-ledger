@@ -123,7 +123,8 @@ struct BodyReader {
   Stream *stream = nullptr;
   bool has_content_length = false;
   size_t content_length = 0;
-  size_t payload_max_length = Defaults::get().limits().payload_max;
+  size_t payload_max_length = Limits{}.payload_max;
+  Limits limits{};
   size_t bytes_read = 0;
   bool chunked = false;
   bool eof = false;
@@ -432,13 +433,13 @@ protected:
   std::string client_cert_path_;
   std::string client_key_path_;
 
-  time_t connection_timeout_sec_ = Defaults::get().client.timeouts.connection_sec;
-  time_t connection_timeout_usec_ = Defaults::get().client.timeouts.connection_usec;
-  time_t read_timeout_sec_ = Defaults::get().client.timeouts.client_read_sec;
-  time_t read_timeout_usec_ = Defaults::get().client.timeouts.client_read_usec;
-  time_t write_timeout_sec_ = Defaults::get().client.timeouts.client_write_sec;
-  time_t write_timeout_usec_ = Defaults::get().client.timeouts.client_write_usec;
-  time_t max_timeout_msec_ = Defaults::get().client.timeouts.client_max_msec;
+  time_t connection_timeout_sec_ = Timeouts{}.connection_sec;
+  time_t connection_timeout_usec_ = Timeouts{}.connection_usec;
+  time_t read_timeout_sec_ = Timeouts{}.client_read_sec;
+  time_t read_timeout_usec_ = Timeouts{}.client_read_usec;
+  time_t write_timeout_sec_ = Timeouts{}.client_write_sec;
+  time_t write_timeout_usec_ = Timeouts{}.client_write_usec;
+  time_t max_timeout_msec_ = Timeouts{}.client_max_msec;
 
   std::string basic_auth_username_;
   std::string basic_auth_password_;
@@ -450,15 +451,17 @@ protected:
   bool path_encode_ = true;
 
   int address_family_ = AF_UNSPEC;
-  bool tcp_nodelay_ = Defaults::get().client.tcp_nodelay;
-  bool ipv6_v6only_ = Defaults::get().client.ipv6_v6only;
+  bool tcp_nodelay_ = false;
+  bool ipv6_v6only_ = false;
   SocketOptions socket_options_ = nullptr;
 
   bool compress_ = false;
   bool decompress_ = true;
 
-  size_t payload_max_length_ = Defaults::get().client.limits.payload_max;
+  size_t payload_max_length_ = Limits{}.payload_max;
   bool has_payload_max_length_ = false;
+  Limits limits_;
+  Timeouts timeouts_;
 
   std::string interface_;
 

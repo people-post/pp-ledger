@@ -929,7 +929,7 @@ bool parse_header(const char *beg, const char *end, T fn) {
 }
 
 bool parse_trailers(stream_line_reader &line_reader, Headers &dest,
-                           const Headers &src_headers) {
+                           const Headers &src_headers, const Limits &limits) {
   // NOTE: In RFC 9112, '7.1 Chunked Transfer Coding' mentions "The chunked
   // transfer coding is complete when a chunk with a chunk-size of zero is
   // received, possibly followed by a trailer section, and finally terminated by
@@ -996,8 +996,8 @@ bool parse_trailers(stream_line_reader &line_reader, Headers &dest,
 
   size_t trailer_header_count = 0;
   while (strcmp(line_reader.ptr(), "\r\n") != 0) {
-    if (line_reader.size() > Defaults::get().limits().header_max_length) { return false; }
-    if (trailer_header_count >= Defaults::get().limits().header_max_count) { return false; }
+    if (line_reader.size() > limits.header_max_length) { return false; }
+    if (trailer_header_count >= limits.header_max_count) { return false; }
 
     constexpr auto line_terminator_len = 2;
     auto line_beg = line_reader.ptr();
@@ -1433,11 +1433,11 @@ bool is_socket_alive(socket_t sock) {
 }
 
 bool keep_alive(const std::atomic<socket_t> &svr_sock, socket_t sock,
-                       time_t keep_alive_timeout_sec) {
+                       time_t keep_alive_timeout_sec,
+                       time_t keep_alive_check_interval_usec) {
   using namespace std::chrono;
 
-  const auto interval_usec =
-      Defaults::get().timeouts().keep_alive_check_interval_usec;
+  const auto interval_usec = keep_alive_check_interval_usec;
 
   // Avoid expensive `steady_clock::now()` call for the first time
   if (select_read(sock, 0, interval_usec) > 0) { return true; }
@@ -1469,11 +1469,14 @@ template <typename T>
 bool
 process_server_socket_core(const std::atomic<socket_t> &svr_sock, socket_t sock,
                            size_t keep_alive_max_count,
-                           time_t keep_alive_timeout_sec, T callback) {
+                           time_t keep_alive_timeout_sec,
+                           time_t keep_alive_check_interval_usec, T callback) {
   assert(keep_alive_max_count > 0);
   auto ret = false;
   auto count = keep_alive_max_count;
-  while (count > 0 && keep_alive(svr_sock, sock, keep_alive_timeout_sec)) {
+  while (count > 0 &&
+         keep_alive(svr_sock, sock, keep_alive_timeout_sec,
+                    keep_alive_check_interval_usec)) {
     auto close_connection = count == 1;
     auto connection_closed = false;
     ret = callback(close_connection, connection_closed);
@@ -1489,9 +1492,11 @@ process_server_socket(const std::atomic<socket_t> &svr_sock, socket_t sock,
                       size_t keep_alive_max_count,
                       time_t keep_alive_timeout_sec, time_t read_timeout_sec,
                       time_t read_timeout_usec, time_t write_timeout_sec,
-                      time_t write_timeout_usec, T callback) {
+                      time_t write_timeout_usec,
+                      time_t keep_alive_check_interval_usec, T callback) {
   return process_server_socket_core(
       svr_sock, sock, keep_alive_max_count, keep_alive_timeout_sec,
+      keep_alive_check_interval_usec,
       [&](bool close_connection, bool &connection_closed) {
         SocketStream strm(sock, read_timeout_sec, read_timeout_usec,
                           write_timeout_sec, write_timeout_usec);
@@ -2683,7 +2688,7 @@ const char *get_header_value(const Headers &headers,
   return def;
 }
 
-bool read_headers(Stream &strm, Headers &headers) {
+bool read_headers(Stream &strm, Headers &headers, const Limits &limits) {
   const auto bufsiz = 2048;
   char buf[bufsiz];
   stream_line_reader line_reader(strm, buf, bufsiz);
@@ -2708,10 +2713,10 @@ bool read_headers(Stream &strm, Headers &headers) {
 #endif
     }
 
-    if (line_reader.size() > Defaults::get().limits().header_max_length) { return false; }
+    if (line_reader.size() > limits.header_max_length) { return false; }
 
     // Check header count limit
-    if (header_count >= Defaults::get().limits().header_max_count) { return false; }
+    if (header_count >= limits.header_max_count) { return false; }
 
     // Exclude line terminator
     auto end = line_reader.ptr() + line_reader.size() - line_terminator_len;
@@ -2744,7 +2749,7 @@ bool read_websocket_upgrade_response(Stream &strm,
 
   // Parse headers using existing read_headers
   Headers headers;
-  if (!read_headers(strm, headers)) { return false; }
+  if (!read_headers(strm, headers, Limits{})) { return false; }
 
   // Verify Upgrade: websocket (case-insensitive)
   auto upgrade_it = headers.find("Upgrade");
@@ -2848,7 +2853,8 @@ read_content_without_length(Stream &strm, size_t payload_max_length,
 template <typename T>
 ReadContentResult read_content_chunked(Stream &strm, T &x,
                                               size_t payload_max_length,
-                                              ContentReceiverWithProgress out) {
+                                              ContentReceiverWithProgress out,
+                                              const Limits &limits) {
   detail::ChunkedDecoder dec(strm);
 
   char buf[IoBuffers::recv];
@@ -2861,7 +2867,7 @@ ReadContentResult read_content_chunked(Stream &strm, T &x,
     if (n < 0) { return ReadContentResult::Error; }
 
     if (n == 0) {
-      if (!dec.parse_trailers_into(x.trailers, x.headers)) {
+      if (!dec.parse_trailers_into(x.trailers, x.headers, limits)) {
         return ReadContentResult::Error;
       }
       return ReadContentResult::Success;
@@ -2929,7 +2935,8 @@ bool prepare_content_receiver(T &x, int &status,
 template <typename T>
 bool read_content(Stream &strm, T &x, size_t payload_max_length, int &status,
                   DownloadProgress progress,
-                  ContentReceiverWithProgress receiver, bool decompress) {
+                  ContentReceiverWithProgress receiver, bool decompress,
+                  const Limits &limits) {
   return prepare_content_receiver(
       x, status, std::move(receiver), decompress,
       [&](const ContentReceiverWithProgress &out) {
@@ -2937,7 +2944,8 @@ bool read_content(Stream &strm, T &x, size_t payload_max_length, int &status,
         auto exceed_payload_max_length = false;
 
         if (is_chunked_transfer_encoding(x.headers)) {
-          auto result = read_content_chunked(strm, x, payload_max_length, out);
+          auto result =
+              read_content_chunked(strm, x, payload_max_length, out, limits);
           if (result == ReadContentResult::Success) {
             ret = true;
           } else if (result == ReadContentResult::PayloadTooLarge) {
@@ -3559,6 +3567,8 @@ class FormDataParser {
 public:
   FormDataParser() = default;
 
+  void set_header_max_length(size_t n) { header_max_length_ = n; }
+
   void set_boundary(std::string &&boundary) {
     boundary_ = std::move(boundary);
     dash_boundary_crlf_ = dash_ + boundary_ + crlf_;
@@ -3588,7 +3598,7 @@ public:
       }
       case 2: { // Headers
         auto pos = buf_find(crlf_);
-        if (pos > Defaults::get().limits().header_max_length) { return false; }
+        if (pos > header_max_length_) { return false; }
         while (pos < buf_size()) {
           // Empty line
           if (pos == 0) {
@@ -3734,6 +3744,7 @@ private:
 
   const std::string dash_ = "--";
   const std::string crlf_ = "\r\n";
+  size_t header_max_length_ = Limits{}.header_max_length;
   std::string boundary_;
   std::string dash_boundary_crlf_;
   std::string crlf_dash_boundary_;
@@ -3948,7 +3959,7 @@ void coalesce_ranges(Ranges &ranges, size_t content_length) {
   ranges = std::move(coalesced);
 }
 
-bool range_error(Request &req, Response &res) {
+bool range_error(Request &req, Response &res, const Limits &limits) {
   if (!req.ranges.empty() && 200 <= res.status && res.status < 300) {
     ssize_t content_len = static_cast<ssize_t>(
         res.content_length_ ? res.content_length_ : res.body.size());
@@ -3961,7 +3972,7 @@ bool range_error(Request &req, Response &res) {
     // https://www.rfc-editor.org/rfc/rfc9110#section-14.2
 
     // Too many ranges
-    if (req.ranges.size() > Defaults::get().limits().range_max_count) { return true; }
+    if (req.ranges.size() > limits.range_max_count) { return true; }
 
     for (auto &r : req.ranges) {
       auto &first_pos = r.first;
@@ -5126,8 +5137,9 @@ ssize_t detail::BodyReader::read(char *buf, size_t len) {
 }
 
 // ThreadPool implementation
-ThreadPool::ThreadPool(size_t n, size_t max_n, size_t mqr)
-    : base_thread_count_(n), max_queued_requests_(mqr), idle_thread_count_(0),
+ThreadPool::ThreadPool(size_t n, size_t max_n, size_t mqr, int idle_timeout_sec)
+    : base_thread_count_(n), max_queued_requests_(mqr),
+      idle_timeout_sec_(idle_timeout_sec), idle_thread_count_(0),
       shutdown_(false) {
 #ifndef CPPHTTPLIB_NO_EXCEPTIONS
   if (max_n != 0 && max_n < n) {
@@ -5218,7 +5230,7 @@ void ThreadPool::worker(bool is_dynamic) {
 
       if (is_dynamic) {
         auto has_work = cond_.wait_for(
-            lock, std::chrono::seconds(Defaults::get().pool().idle_timeout_sec),
+            lock, std::chrono::seconds(idle_timeout_sec_),
             [&] { return !jobs_.empty() || shutdown_; });
         if (!has_work) {
           // Timed out with no work - exit this dynamic thread
@@ -5606,8 +5618,9 @@ bool check_and_write_headers(Stream &strm, Headers &headers,
 // HTTP server implementation
 Server::Server(const ServerConfig &config)
     : new_task_queue([count = config.pool.count,
-                      max_count = config.pool.effective_max_count()] {
-        return new ThreadPool(count, max_count);
+                      max_count = config.pool.effective_max_count(),
+                      idle = config.pool.idle_timeout_sec] {
+        return new ThreadPool(count, max_count, 0, idle);
       }),
       keep_alive_max_count_(config.limits.keep_alive_max_count),
       keep_alive_timeout_sec_(config.timeouts.keep_alive_sec),
@@ -5618,6 +5631,9 @@ Server::Server(const ServerConfig &config)
       idle_interval_sec_(config.timeouts.idle_interval_sec),
       idle_interval_usec_(config.timeouts.idle_interval_usec),
       payload_max_length_(config.limits.payload_max),
+      limits_(config.limits),
+      timeouts_(config.timeouts),
+      pool_idle_timeout_sec_(config.pool.idle_timeout_sec),
       tcp_nodelay_(config.tcp_nodelay),
       ipv6_v6only_(config.ipv6_v6only),
       listen_backlog_(config.listen_backlog) {
@@ -6155,7 +6171,7 @@ bool Server::read_content(Stream &strm, Request &req, Response &res) {
           },
           // Multipart FormData
           [&](const FormData &file) {
-            if (count++ == Defaults::get().limits().multipart_file_max) {
+            if (count++ == limits_.multipart_file_max) {
               output_error_log(Error::TooManyFormDataFiles, &req);
               return false;
             }
@@ -6184,7 +6200,7 @@ bool Server::read_content(Stream &strm, Request &req, Response &res) {
           })) {
     const auto &content_type = req.get_header_value("Content-Type");
     if (!content_type.find("application/x-www-form-urlencoded")) {
-      if (req.body.size() > Defaults::get().limits().form_urlencoded_payload_max) {
+      if (req.body.size() > limits_.form_urlencoded_payload_max) {
         res.status = StatusCode::PayloadTooLarge_413; // NOTE: should be 414?
         output_error_log(Error::ExceedMaxPayloadSize, &req);
         return false;
@@ -6220,6 +6236,7 @@ bool Server::read_content_core(
     }
 
     multipart_form_data_parser.set_boundary(std::move(boundary));
+    multipart_form_data_parser.set_header_max_length(limits_.header_max_length);
     out = [&](const char *buf, size_t n, size_t /*off*/, size_t /*len*/) {
       return multipart_form_data_parser.parse(buf, n, multipart_header,
                                               multipart_receiver);
@@ -6278,7 +6295,7 @@ bool Server::read_content_core(
 #endif
 
   if (!detail::read_content(strm, req, payload_max_length_, res.status, nullptr,
-                            out, true)) {
+                            out, true, limits_)) {
     return false;
   }
 
@@ -6860,14 +6877,14 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
   }
 
   // Request headers
-  if (!detail::read_headers(strm, req.headers)) {
+  if (!detail::read_headers(strm, req.headers, limits_)) {
     res.status = StatusCode::BadRequest_400;
     output_error_log(Error::InvalidHeaders, &req);
     return write_response(strm, close_connection, req, res);
   }
 
   // Check if the request URI doesn't exceed the limit
-  if (req.target.size() > Defaults::get().limits().request_uri_max) {
+  if (req.target.size() > limits_.request_uri_max) {
     res.status = StatusCode::UriTooLong_414;
     output_error_log(Error::ExceedUriMaxLength, &req);
     return write_response(strm, close_connection, req, res);
@@ -6997,8 +7014,11 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
 
         {
           // Use WebSocket-specific read timeout instead of HTTP timeout
-          strm.set_read_timeout(Defaults::get().websocket.timeouts.websocket_read_sec, 0);
-          ws::WebSocket ws(strm, req, true);
+          strm.set_read_timeout(timeouts_.websocket_read_sec, 0);
+          WebsocketConfig ws_config;
+          ws_config.timeouts = timeouts_;
+          ws_config.limits = limits_;
+          ws::WebSocket ws(strm, req, true, ws_config);
           entry.handler(req, ws);
         }
         return true;
@@ -7076,7 +7096,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
           });
     }
 
-    if (detail::range_error(req, res)) {
+    if (detail::range_error(req, res, limits_)) {
       res.body.clear();
       res.content_length_ = 0;
       res.content_provider_ = nullptr;
@@ -7107,7 +7127,7 @@ bool Server::process_and_close_socket(socket_t sock) {
   auto ret = detail::process_server_socket(
       svr_sock_, sock, keep_alive_max_count_, keep_alive_timeout_sec_,
       read_timeout_sec_, read_timeout_usec_, write_timeout_sec_,
-      write_timeout_usec_,
+      write_timeout_usec_, timeouts_.keep_alive_check_interval_usec,
       [&](Stream &strm, bool close_connection, bool &connection_closed) {
         return process_request(strm, remote_addr, remote_port, local_addr,
                                local_port, close_connection, connection_closed,
@@ -7168,7 +7188,9 @@ ClientImpl::ClientImpl(const std::string &host, int port,
       max_timeout_msec_(config.timeouts.client_max_msec),
       tcp_nodelay_(config.tcp_nodelay),
       ipv6_v6only_(config.ipv6_v6only),
-      payload_max_length_(config.limits.payload_max) {}
+      payload_max_length_(config.limits.payload_max),
+      limits_(config.limits),
+      timeouts_(config.timeouts) {}
 
 ClientImpl::~ClientImpl() {
   // Wait until all the requests in flight are handled.
@@ -7631,7 +7653,7 @@ ClientImpl::open_stream(const std::string &method, const std::string &path,
   }
 
   if (!read_response_line(strm, req, *handle.response) ||
-      !detail::read_headers(strm, handle.response->headers)) {
+      !detail::read_headers(strm, handle.response->headers, limits_)) {
     handle.error = Error::Read;
     handle.response.reset();
     return handle;
@@ -7639,6 +7661,7 @@ ClientImpl::open_stream(const std::string &method, const std::string &path,
 
   handle.body_reader_.stream = handle.stream_;
   handle.body_reader_.payload_max_length = payload_max_length_;
+  handle.body_reader_.limits = limits_;
 
   auto content_length_str = handle.response->get_header_value("Content-Length");
   if (!content_length_str.empty()) {
@@ -7669,12 +7692,13 @@ ssize_t ClientImpl::StreamHandle::read(char *buf, size_t len) {
     trailers_parsed_ = true;
     if (body_reader_.chunked_decoder) {
       if (!body_reader_.chunked_decoder->parse_trailers_into(
-              response->trailers, response->headers)) {
+              response->trailers, response->headers, body_reader_.limits)) {
         return n;
       }
     } else {
       detail::ChunkedDecoder dec(*stream_);
-      if (!dec.parse_trailers_into(response->trailers, response->headers)) {
+      if (!dec.parse_trailers_into(response->trailers, response->headers,
+                                   body_reader_.limits)) {
         return n;
       }
     }
@@ -7746,7 +7770,7 @@ void ClientImpl::StreamHandle::parse_trailers_if_needed() {
   if (!line_reader.getline()) { return; }
 
   if (!detail::parse_trailers(line_reader, response->trailers,
-                              response->headers)) {
+                              response->headers, body_reader_.limits)) {
     return;
   }
 }
@@ -7803,10 +7827,11 @@ ssize_t ChunkedDecoder::read_payload(char *buf, size_t len,
 }
 
 bool ChunkedDecoder::parse_trailers_into(Headers &dest,
-                                                const Headers &src_headers) {
+                                                const Headers &src_headers,
+                                                const Limits &limits) {
   stream_line_reader lr(strm, line_buf, sizeof(line_buf));
   if (!lr.getline()) { return false; }
-  return parse_trailers(lr, dest, src_headers);
+  return parse_trailers(lr, dest, src_headers, limits);
 }
 
 } // namespace detail
@@ -8251,8 +8276,8 @@ bool ClientImpl::write_request(Stream &strm, Request &req,
   // handles early responses properly.
 #if defined(_WIN32)
   if (!skip_body &&
-      req.body.size() > Defaults::get().timeouts().wait_early_server_response_threshold &&
-      req.path.size() > Defaults::get().limits().request_uri_max) {
+      req.body.size() > timeouts_.wait_early_server_response_threshold &&
+      req.path.size() > limits_.request_uri_max) {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
@@ -8274,7 +8299,7 @@ bool ClientImpl::write_request(Stream &strm, Request &req,
       auto elapsed =
           std::chrono::duration_cast<std::chrono::milliseconds>(now - start)
               .count();
-      if (elapsed >= Defaults::get().timeouts().wait_early_server_response_timeout_msec) {
+      if (elapsed >= timeouts_.wait_early_server_response_timeout_msec) {
         break;
       }
 
@@ -8467,9 +8492,9 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
                                         Response &res, bool close_connection,
                                         Error &error) {
   // Auto-add Expect: 100-continue for large bodies
-  if (Defaults::get().timeouts().expect_100_threshold > 0 && !req.has_header("Expect")) {
+  if (timeouts_.expect_100_threshold > 0 && !req.has_header("Expect")) {
     auto body_size = req.body.empty() ? req.content_length_ : req.body.size();
-    if (body_size >= Defaults::get().timeouts().expect_100_threshold) {
+    if (body_size >= timeouts_.expect_100_threshold) {
       req.set_header("Expect", "100-continue");
     }
   }
@@ -8495,9 +8520,9 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
 #endif
 
   // Handle Expect: 100-continue with timeout
-  if (expect_100_continue && Defaults::get().timeouts().expect_100_timeout_msec > 0) {
-    time_t sec = Defaults::get().timeouts().expect_100_timeout_msec / 1000;
-    time_t usec = (Defaults::get().timeouts().expect_100_timeout_msec % 1000) * 1000;
+  if (expect_100_continue && timeouts_.expect_100_timeout_msec > 0) {
+    time_t sec = timeouts_.expect_100_timeout_msec / 1000;
+    time_t usec = (timeouts_.expect_100_timeout_msec % 1000) * 1000;
     auto ret = detail::select_read(strm.socket(), sec, usec);
     if (ret <= 0) {
       // Timeout or error: send body anyway (server didn't respond in time)
@@ -8509,7 +8534,7 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
   // Receive response and headers
   // When using Expect: 100-continue, don't auto-skip `100 Continue` response
   if (!read_response_line(strm, req, res, !expect_100_continue) ||
-      !detail::read_headers(strm, res.headers)) {
+      !detail::read_headers(strm, res.headers, limits_)) {
     if (write_request_success) { error = Error::Read; }
     output_error_log(error, &req);
     return false;
@@ -8527,7 +8552,7 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
       res.headers.clear();
       res.body.clear();
       if (!read_response_line(strm, req, res) ||
-          !detail::read_headers(strm, res.headers)) {
+          !detail::read_headers(strm, res.headers, limits_)) {
         error = Error::Read;
         output_error_log(error, &req);
         return false;
@@ -8605,7 +8630,7 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
                             : payload_max_length_;
       if (!detail::read_content(strm, res, max_length, dummy_status,
                                 std::move(progress), std::move(out),
-                                decompress_)) {
+                                decompress_, limits_)) {
         if (error != Error::Canceled) { error = Error::Read; }
         output_error_log(error, &req);
         return false;

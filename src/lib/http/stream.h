@@ -432,7 +432,7 @@ private:
 };
 
 bool parse_trailers(stream_line_reader &line_reader, Headers &dest,
-                    const Headers &src_headers);
+                    const Headers &src_headers, const Limits &limits = Limits{});
 
 struct ChunkedDecoder {
   Stream &strm;
@@ -447,7 +447,8 @@ struct ChunkedDecoder {
   ssize_t read_payload(char *buf, size_t len, size_t &out_chunk_offset,
                        size_t &out_chunk_total);
 
-  bool parse_trailers_into(Headers &dest, const Headers &src_headers);
+  bool parse_trailers_into(Headers &dest, const Headers &src_headers,
+                           const Limits &limits = Limits{});
 };
 
 class mmap {

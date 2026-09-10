@@ -51,7 +51,7 @@ target_link_libraries(pp-miner PRIVATE
 set_target_properties(pp-miner PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PP_APP_OUTPUT_DIR}")
 
 # HTTP API server (client interfaces over HTTP, using cpp-httplib)
-if(BUILD_HTTP)
+if(PP_LEDGER_BUILD_HTTP)
   add_executable(pp-http
       http.cpp
   )

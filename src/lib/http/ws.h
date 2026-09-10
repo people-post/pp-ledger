@@ -54,15 +54,16 @@ private:
   friend class httplib::Server;
   friend class WebSocketClient;
 
-  WebSocket(Stream &strm, const Request &req, bool is_server)
-      : strm_(strm), req_(req), is_server_(is_server) {
+  WebSocket(Stream &strm, const Request &req, bool is_server,
+            const WebsocketConfig &config = {})
+      : strm_(strm), req_(req), is_server_(is_server), config_(config) {
     start_heartbeat();
   }
 
   WebSocket(std::unique_ptr<Stream> &&owned_strm, const Request &req,
-            bool is_server)
+            bool is_server, const WebsocketConfig &config = {})
       : strm_(*owned_strm), owned_strm_(std::move(owned_strm)), req_(req),
-        is_server_(is_server) {
+        is_server_(is_server), config_(config) {
     start_heartbeat();
   }
 
@@ -78,6 +79,7 @@ private:
   std::thread ping_thread_;
   std::mutex ping_mutex_;
   std::condition_variable ping_cv_;
+  WebsocketConfig config_;
 };
 
 class WebSocketClient {
@@ -120,10 +122,11 @@ private:
   bool is_valid_ = false;
   socket_t sock_ = INVALID_SOCKET;
   std::unique_ptr<WebSocket> ws_;
-  time_t read_timeout_sec_ = Defaults::get().websocket.timeouts.websocket_read_sec;
+  WebsocketConfig config_;
+  time_t read_timeout_sec_ = Timeouts{}.websocket_read_sec;
   time_t read_timeout_usec_ = 0;
-  time_t write_timeout_sec_ = Defaults::get().websocket.timeouts.client_write_sec;
-  time_t write_timeout_usec_ = Defaults::get().websocket.timeouts.client_write_usec;
+  time_t write_timeout_sec_ = Timeouts{}.client_write_sec;
+  time_t write_timeout_usec_ = Timeouts{}.client_write_usec;
 
 #ifdef CPPHTTPLIB_SSL_ENABLED
   bool is_ssl_ = false;
