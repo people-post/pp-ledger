@@ -164,7 +164,7 @@ The HTTP server exposes the same interfaces as the client over REST-style HTTP, 
 
 ```bash
 cd build
-cmake -DBUILD_HTTP=ON ..   # Re-run cmake to enable the HTTP server (off by default)
+cmake -DPP_LEDGER_BUILD_HTTP=ON ..   # Re-run cmake to enable the HTTP server (off by default)
 make pp-http
 # Copy listen multiaddrs from beacon/miner logs (adp/1.0.0/p2p/...)
 ./app/pp-http --port 8080 \

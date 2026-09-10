@@ -196,8 +196,6 @@ option(PP_LEDGER_BUILD_TESTS "ctest" OFF)
 option(PP_LEDGER_BUILD_HTTP "pp-http" OFF)
 ```
 
-`-DBUILD_TESTING=ON` / `-DBUILD_HTTP=ON` remain accepted aliases.
-
 **pp-browser embed profile:**
 
 ```cmake

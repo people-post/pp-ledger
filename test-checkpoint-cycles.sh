@@ -371,7 +371,7 @@ start_all_miners() {
 
 start_http() {
     if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
-        echo -e "${YELLOW}pp-http not built (BUILD_HTTP=OFF), skipping HTTP server${NC}"
+        echo -e "${YELLOW}pp-http not built (PP_LEDGER_BUILD_HTTP=OFF), skipping HTTP server${NC}"
         return 0
     fi
     local http_dir="${TEST_DIR}/http"

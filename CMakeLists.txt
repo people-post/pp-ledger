@@ -12,14 +12,6 @@ option(PP_LEDGER_BUILD_APPS "Build pp-beacon, pp-miner, pp-client, pp-relay" ON)
 option(PP_LEDGER_BUILD_HTTP "Build HTTP API server (pp-http)" OFF)
 option(PP_LEDGER_BUILD_TESTS "Build the testing tree" OFF)
 
-# Back-compat with scripts/docs that pass -DBUILD_HTTP / -DBUILD_TESTING.
-if(BUILD_HTTP)
-  set(PP_LEDGER_BUILD_HTTP ON CACHE BOOL "Build HTTP API server (pp-http)" FORCE)
-endif()
-if(BUILD_TESTING)
-  set(PP_LEDGER_BUILD_TESTS ON CACHE BOOL "Build the testing tree" FORCE)
-endif()
-
 if(PP_LEDGER_BUILD_TESTS)
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)

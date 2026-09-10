@@ -17,7 +17,7 @@ COPY . .
 
 RUN cmake -S . -B build \
       -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_HTTP=ON \
+      -DPP_LEDGER_BUILD_HTTP=ON \
     && cmake --build build -j"$(nproc)" \
     && strip \
         build/app/pp-beacon \

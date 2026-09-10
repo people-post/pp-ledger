@@ -463,10 +463,10 @@ start_miners() {
     done
 }
 
-# Start HTTP API server (skipped if pp-http not built, e.g. BUILD_HTTP=OFF)
+# Start HTTP API server (skipped if pp-http not built, e.g. PP_LEDGER_BUILD_HTTP=OFF)
 start_http() {
     if [ ! -f "$BUILD_DIR/app/pp-http" ]; then
-        echo -e "${YELLOW}pp-http not built (BUILD_HTTP=OFF), skipping HTTP server${NC}"
+        echo -e "${YELLOW}pp-http not built (PP_LEDGER_BUILD_HTTP=OFF), skipping HTTP server${NC}"
         return 0
     fi
 

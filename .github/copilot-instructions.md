@@ -18,7 +18,7 @@ pp-ledger/
 │   ├── chain/        # Chain, AccountBuffer, tx helpers
 │   ├── server/       # Beacon + Relay + Miner server logic
 │   ├── client/       # TCP client library
-│   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DBUILD_HTTP=ON
+│   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DPP_LEDGER_BUILD_HTTP=ON
 │   └── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts
 ├── docs/         # Documentation
@@ -37,7 +37,7 @@ make -j$(nproc)
 - C++20, GCC 13+ or Clang 12+, CMake 3.15+
 - Required: `build-essential`, `libstdc++-14-dev` (for Clang)
 - Vendored: CLI11 under `src/lib/cli`; crypto via pp-cpp-crypto (libsodium + ML-DSA-65); Value/JSON via pp-cpp-common
-- HTTP server: add `-DBUILD_HTTP=ON`
+- HTTP server: add `-DPP_LEDGER_BUILD_HTTP=ON`
 
 ## Test
 

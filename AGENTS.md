@@ -32,9 +32,9 @@ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
 make -j$(nproc)
 ```
 
-- `PP_LEDGER_BUILD_HTTP` (default OFF): Build the HTTP API server (pp-http). `-DBUILD_HTTP=ON` is an alias.
+- `PP_LEDGER_BUILD_HTTP` (default OFF): Build the HTTP API server (pp-http).
 - `PP_LEDGER_BUILD_APPS` (default ON): Build `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`.
-- `PP_LEDGER_BUILD_TESTS` (default OFF): Build and enable ctest. `-DBUILD_TESTING=ON` is an alias.
+- `PP_LEDGER_BUILD_TESTS` (default OFF): Build and enable ctest.
 
 ### Lint
 
