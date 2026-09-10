@@ -117,7 +117,9 @@ EOF
 ./app/pp-miner -d test-manual/miner1 &
 
 # 5. Start HTTP API (optional)
-./app/pp-http --port 8080 --beacon localhost:8517 --miner localhost:8518 &
+./app/pp-http --port 8080 \
+  --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
+  --miner '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>' &
 ```
 
 ### Default ports

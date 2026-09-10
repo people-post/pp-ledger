@@ -996,8 +996,8 @@ bool parse_trailers(stream_line_reader &line_reader, Headers &dest,
 
   size_t trailer_header_count = 0;
   while (strcmp(line_reader.ptr(), "\r\n") != 0) {
-    if (line_reader.size() > CPPHTTPLIB_HEADER_MAX_LENGTH) { return false; }
-    if (trailer_header_count >= CPPHTTPLIB_HEADER_MAX_COUNT) { return false; }
+    if (line_reader.size() > Defaults::get().limits().header_max_length) { return false; }
+    if (trailer_header_count >= Defaults::get().limits().header_max_count) { return false; }
 
     constexpr auto line_terminator_len = 2;
     auto line_beg = line_reader.ptr();
@@ -1163,7 +1163,7 @@ bool stream_line_reader::getline() {
 #endif
 
   for (size_t i = 0;; i++) {
-    if (size() >= CPPHTTPLIB_MAX_LINE_LENGTH) {
+    if (size() >= IoBuffers::max_line) {
       // Treat exceptionally long lines as an error to
       // prevent infinite loops/memory exhaustion
       return false;
@@ -1437,7 +1437,7 @@ bool keep_alive(const std::atomic<socket_t> &svr_sock, socket_t sock,
   using namespace std::chrono;
 
   const auto interval_usec =
-      CPPHTTPLIB_KEEPALIVE_TIMEOUT_CHECK_INTERVAL_USECOND;
+      Defaults::get().timeouts().keep_alive_check_interval_usec;
 
   // Avoid expensive `steady_clock::now()` call for the first time
   if (select_read(sock, 0, interval_usec) > 0) { return true; }
@@ -2403,7 +2403,7 @@ bool gzip_compressor::compress(const char *data, size_t data_length,
     auto flush = (last && data_length == 0) ? Z_FINISH : Z_NO_FLUSH;
     auto ret = Z_OK;
 
-    std::array<char, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+    std::array<char, IoBuffers::compression> buff{};
     do {
       strm_.avail_out = static_cast<uInt>(buff.size());
       strm_.next_out = reinterpret_cast<Bytef *>(buff.data());
@@ -2458,7 +2458,7 @@ bool gzip_decompressor::decompress(const char *data, size_t data_length,
     data_length -= strm_.avail_in;
     data += strm_.avail_in;
 
-    std::array<char, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+    std::array<char, IoBuffers::compression> buff{};
     while (strm_.avail_in > 0 && ret == Z_OK) {
       strm_.avail_out = static_cast<uInt>(buff.size());
       strm_.next_out = reinterpret_cast<Bytef *>(buff.data());
@@ -2496,7 +2496,7 @@ brotli_compressor::~brotli_compressor() {
 
 bool brotli_compressor::compress(const char *data, size_t data_length,
                                         bool last, Callback callback) {
-  std::array<uint8_t, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+  std::array<uint8_t, IoBuffers::compression> buff{};
 
   auto operation = last ? BROTLI_OPERATION_FINISH : BROTLI_OPERATION_PROCESS;
   auto available_in = data_length;
@@ -2552,7 +2552,7 @@ bool brotli_decompressor::decompress(const char *data,
 
   decoder_r = BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT;
 
-  std::array<char, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+  std::array<char, IoBuffers::compression> buff{};
   while (decoder_r == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
     char *next_out = buff.data();
     size_t avail_out = buff.size();
@@ -2581,14 +2581,14 @@ zstd_compressor::~zstd_compressor() { ZSTD_freeCCtx(ctx_); }
 
 bool zstd_compressor::compress(const char *data, size_t data_length,
                                       bool last, Callback callback) {
-  std::array<char, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+  std::array<char, IoBuffers::compression> buff{};
 
   ZSTD_EndDirective mode = last ? ZSTD_e_end : ZSTD_e_continue;
   ZSTD_inBuffer input = {data, data_length, 0};
 
   bool finished;
   do {
-    ZSTD_outBuffer output = {buff.data(), CPPHTTPLIB_COMPRESSION_BUFSIZ, 0};
+    ZSTD_outBuffer output = {buff.data(), IoBuffers::compression, 0};
     size_t const remaining = ZSTD_compressStream2(ctx_, &output, &input, mode);
 
     if (ZSTD_isError(remaining)) { return false; }
@@ -2610,11 +2610,11 @@ bool zstd_decompressor::is_valid() const { return ctx_ != nullptr; }
 
 bool zstd_decompressor::decompress(const char *data, size_t data_length,
                                           Callback callback) {
-  std::array<char, CPPHTTPLIB_COMPRESSION_BUFSIZ> buff{};
+  std::array<char, IoBuffers::compression> buff{};
   ZSTD_inBuffer input = {data, data_length, 0};
 
   while (input.pos < input.size) {
-    ZSTD_outBuffer output = {buff.data(), CPPHTTPLIB_COMPRESSION_BUFSIZ, 0};
+    ZSTD_outBuffer output = {buff.data(), IoBuffers::compression, 0};
     size_t const remaining = ZSTD_decompressStream(ctx_, &output, &input);
 
     if (ZSTD_isError(remaining)) { return false; }
@@ -2708,10 +2708,10 @@ bool read_headers(Stream &strm, Headers &headers) {
 #endif
     }
 
-    if (line_reader.size() > CPPHTTPLIB_HEADER_MAX_LENGTH) { return false; }
+    if (line_reader.size() > Defaults::get().limits().header_max_length) { return false; }
 
     // Check header count limit
-    if (header_count >= CPPHTTPLIB_HEADER_MAX_COUNT) { return false; }
+    if (header_count >= Defaults::get().limits().header_max_count) { return false; }
 
     // Exclude line terminator
     auto end = line_reader.ptr() + line_reader.size() - line_terminator_len;
@@ -2783,7 +2783,7 @@ ReadContentResult read_content_with_length(
     Stream &strm, size_t len, DownloadProgress progress,
     ContentReceiverWithProgress out,
     size_t payload_max_length = (std::numeric_limits<size_t>::max)()) {
-  char buf[CPPHTTPLIB_RECV_BUFSIZ];
+  char buf[IoBuffers::recv];
 
   detail::BodyReader br;
   br.stream = &strm;
@@ -2797,7 +2797,7 @@ ReadContentResult read_content_with_length(
   size_t r = 0;
   while (r < len) {
     auto read_len = static_cast<size_t>(len - r);
-    auto to_read = (std::min)(read_len, CPPHTTPLIB_RECV_BUFSIZ);
+    auto to_read = (std::min)(read_len, IoBuffers::recv);
     auto n = detail::read_body_content(&strm, br, buf, to_read);
     if (n <= 0) {
       // Check if it was a payload size error
@@ -2823,10 +2823,10 @@ ReadContentResult read_content_with_length(
 ReadContentResult
 read_content_without_length(Stream &strm, size_t payload_max_length,
                             ContentReceiverWithProgress out) {
-  char buf[CPPHTTPLIB_RECV_BUFSIZ];
+  char buf[IoBuffers::recv];
   size_t r = 0;
   for (;;) {
-    auto n = strm.read(buf, CPPHTTPLIB_RECV_BUFSIZ);
+    auto n = strm.read(buf, IoBuffers::recv);
     if (n == 0) { return ReadContentResult::Success; }
     if (n < 0) { return ReadContentResult::Error; }
 
@@ -2851,7 +2851,7 @@ ReadContentResult read_content_chunked(Stream &strm, T &x,
                                               ContentReceiverWithProgress out) {
   detail::ChunkedDecoder dec(strm);
 
-  char buf[CPPHTTPLIB_RECV_BUFSIZ];
+  char buf[IoBuffers::recv];
   size_t total_len = 0;
 
   for (;;) {
@@ -3588,7 +3588,7 @@ public:
       }
       case 2: { // Headers
         auto pos = buf_find(crlf_);
-        if (pos > CPPHTTPLIB_HEADER_MAX_LENGTH) { return false; }
+        if (pos > Defaults::get().limits().header_max_length) { return false; }
         while (pos < buf_size()) {
           // Empty line
           if (pos == 0) {
@@ -3961,7 +3961,7 @@ bool range_error(Request &req, Response &res) {
     // https://www.rfc-editor.org/rfc/rfc9110#section-14.2
 
     // Too many ranges
-    if (req.ranges.size() > CPPHTTPLIB_RANGE_MAX_COUNT) { return true; }
+    if (req.ranges.size() > Defaults::get().limits().range_max_count) { return true; }
 
     for (auto &r : req.ranges) {
       auto &first_pos = r.first;
@@ -5218,7 +5218,7 @@ void ThreadPool::worker(bool is_dynamic) {
 
       if (is_dynamic) {
         auto has_work = cond_.wait_for(
-            lock, std::chrono::seconds(CPPHTTPLIB_THREAD_POOL_IDLE_TIMEOUT),
+            lock, std::chrono::seconds(Defaults::get().pool().idle_timeout_sec),
             [&] { return !jobs_.empty() || shutdown_; });
         if (!has_work) {
           // Timed out with no work - exit this dynamic thread
@@ -5347,7 +5347,7 @@ ssize_t SocketStream::read(char *ptr, size_t size) {
 
   if (size < read_buff_size_) {
     auto n = read_socket(sock_, read_buff_.data(), read_buff_size_,
-                         CPPHTTPLIB_RECV_FLAGS);
+                         IoBuffers::recv_flags);
     if (n <= 0) {
       if (n == 0) {
         error_ = Error::ConnectionClosed;
@@ -5365,7 +5365,7 @@ ssize_t SocketStream::read(char *ptr, size_t size) {
       return static_cast<ssize_t>(size);
     }
   } else {
-    auto n = read_socket(sock_, ptr, size, CPPHTTPLIB_RECV_FLAGS);
+    auto n = read_socket(sock_, ptr, size, IoBuffers::recv_flags);
     if (n <= 0) {
       if (n == 0) {
         error_ = Error::ConnectionClosed;
@@ -5385,7 +5385,7 @@ ssize_t SocketStream::write(const char *ptr, size_t size) {
       (std::min)(size, static_cast<size_t>((std::numeric_limits<int>::max)()));
 #endif
 
-  return send_socket(sock_, ptr, size, CPPHTTPLIB_SEND_FLAGS);
+  return send_socket(sock_, ptr, size, IoBuffers::send_flags);
 }
 
 void SocketStream::get_remote_ip_and_port(std::string &ip,
@@ -5604,11 +5604,23 @@ bool check_and_write_headers(Stream &strm, Headers &headers,
  */
 
 // HTTP server implementation
-Server::Server()
-    : new_task_queue([] {
-        return new ThreadPool(CPPHTTPLIB_THREAD_POOL_COUNT,
-                              CPPHTTPLIB_THREAD_POOL_MAX_COUNT);
-      }) {
+Server::Server(const ServerConfig &config)
+    : new_task_queue([count = config.pool.count,
+                      max_count = config.pool.effective_max_count()] {
+        return new ThreadPool(count, max_count);
+      }),
+      keep_alive_max_count_(config.limits.keep_alive_max_count),
+      keep_alive_timeout_sec_(config.timeouts.keep_alive_sec),
+      read_timeout_sec_(config.timeouts.server_read_sec),
+      read_timeout_usec_(config.timeouts.server_read_usec),
+      write_timeout_sec_(config.timeouts.server_write_sec),
+      write_timeout_usec_(config.timeouts.server_write_usec),
+      idle_interval_sec_(config.timeouts.idle_interval_sec),
+      idle_interval_usec_(config.timeouts.idle_interval_usec),
+      payload_max_length_(config.limits.payload_max),
+      tcp_nodelay_(config.tcp_nodelay),
+      ipv6_v6only_(config.ipv6_v6only),
+      listen_backlog_(config.listen_backlog) {
 #ifndef _WIN32
   signal(SIGPIPE, SIG_IGN);
 #endif
@@ -6143,7 +6155,7 @@ bool Server::read_content(Stream &strm, Request &req, Response &res) {
           },
           // Multipart FormData
           [&](const FormData &file) {
-            if (count++ == CPPHTTPLIB_MULTIPART_FORM_DATA_FILE_MAX_COUNT) {
+            if (count++ == Defaults::get().limits().multipart_file_max) {
               output_error_log(Error::TooManyFormDataFiles, &req);
               return false;
             }
@@ -6172,7 +6184,7 @@ bool Server::read_content(Stream &strm, Request &req, Response &res) {
           })) {
     const auto &content_type = req.get_header_value("Content-Type");
     if (!content_type.find("application/x-www-form-urlencoded")) {
-      if (req.body.size() > CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH) {
+      if (req.body.size() > Defaults::get().limits().form_urlencoded_payload_max) {
         res.status = StatusCode::PayloadTooLarge_413; // NOTE: should be 414?
         output_error_log(Error::ExceedMaxPayloadSize, &req);
         return false;
@@ -6432,7 +6444,7 @@ Server::create_server_socket(const std::string &host, int port,
           output_error_log(Error::BindIPAddress, nullptr);
           return false;
         }
-        if (::listen(sock, CPPHTTPLIB_LISTEN_BACKLOG)) {
+        if (::listen(sock, listen_backlog_)) {
           output_error_log(Error::Listen, nullptr);
           return false;
         }
@@ -6855,7 +6867,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
   }
 
   // Check if the request URI doesn't exceed the limit
-  if (req.target.size() > CPPHTTPLIB_REQUEST_URI_MAX_LENGTH) {
+  if (req.target.size() > Defaults::get().limits().request_uri_max) {
     res.status = StatusCode::UriTooLong_414;
     output_error_log(Error::ExceedUriMaxLength, &req);
     return write_response(strm, close_connection, req, res);
@@ -6985,7 +6997,7 @@ Server::process_request(Stream &strm, const std::string &remote_addr,
 
         {
           // Use WebSocket-specific read timeout instead of HTTP timeout
-          strm.set_read_timeout(CPPHTTPLIB_WEBSOCKET_READ_TIMEOUT_SECOND, 0);
+          strm.set_read_timeout(Defaults::get().websocket.timeouts.websocket_read_sec, 0);
           ws::WebSocket ws(strm, req, true);
           entry.handler(req, ws);
         }
@@ -7134,17 +7146,29 @@ void Server::output_error_log(const Error &err,
  * Group 5: ClientImpl and Client (Universal) implementation
  */
 // HTTP client implementation
-ClientImpl::ClientImpl(const std::string &host)
-    : ClientImpl(host, 80, std::string(), std::string()) {}
+ClientImpl::ClientImpl(const std::string &host, const ClientConfig &config)
+    : ClientImpl(host, 80, std::string(), std::string(), config) {}
 
-ClientImpl::ClientImpl(const std::string &host, int port)
-    : ClientImpl(host, port, std::string(), std::string()) {}
+ClientImpl::ClientImpl(const std::string &host, int port,
+                       const ClientConfig &config)
+    : ClientImpl(host, port, std::string(), std::string(), config) {}
 
 ClientImpl::ClientImpl(const std::string &host, int port,
                               const std::string &client_cert_path,
-                              const std::string &client_key_path)
+                              const std::string &client_key_path,
+                              const ClientConfig &config)
     : host_(detail::escape_abstract_namespace_unix_domain(host)), port_(port),
-      client_cert_path_(client_cert_path), client_key_path_(client_key_path) {}
+      client_cert_path_(client_cert_path), client_key_path_(client_key_path),
+      connection_timeout_sec_(config.timeouts.connection_sec),
+      connection_timeout_usec_(config.timeouts.connection_usec),
+      read_timeout_sec_(config.timeouts.client_read_sec),
+      read_timeout_usec_(config.timeouts.client_read_usec),
+      write_timeout_sec_(config.timeouts.client_write_sec),
+      write_timeout_usec_(config.timeouts.client_write_usec),
+      max_timeout_msec_(config.timeouts.client_max_msec),
+      tcp_nodelay_(config.tcp_nodelay),
+      ipv6_v6only_(config.ipv6_v6only),
+      payload_max_length_(config.limits.payload_max) {}
 
 ClientImpl::~ClientImpl() {
   // Wait until all the requests in flight are handled.
@@ -8227,8 +8251,8 @@ bool ClientImpl::write_request(Stream &strm, Request &req,
   // handles early responses properly.
 #if defined(_WIN32)
   if (!skip_body &&
-      req.body.size() > CPPHTTPLIB_WAIT_EARLY_SERVER_RESPONSE_THRESHOLD &&
-      req.path.size() > CPPHTTPLIB_REQUEST_URI_MAX_LENGTH) {
+      req.body.size() > Defaults::get().timeouts().wait_early_server_response_threshold &&
+      req.path.size() > Defaults::get().limits().request_uri_max) {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (;;) {
@@ -8250,7 +8274,7 @@ bool ClientImpl::write_request(Stream &strm, Request &req,
       auto elapsed =
           std::chrono::duration_cast<std::chrono::milliseconds>(now - start)
               .count();
-      if (elapsed >= CPPHTTPLIB_WAIT_EARLY_SERVER_RESPONSE_TIMEOUT_MSECOND) {
+      if (elapsed >= Defaults::get().timeouts().wait_early_server_response_timeout_msec) {
         break;
       }
 
@@ -8277,7 +8301,7 @@ bool ClientImpl::write_request_body(Stream &strm, Request &req,
     auto data = req.body.data();
 
     while (written < body_size) {
-      size_t to_write = (std::min)(CPPHTTPLIB_SEND_BUFSIZ, body_size - written);
+      size_t to_write = (std::min)(IoBuffers::send, body_size - written);
       if (!detail::write_data(strm, data + written, to_write)) {
         error = Error::Write;
         output_error_log(error, &req);
@@ -8443,9 +8467,9 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
                                         Response &res, bool close_connection,
                                         Error &error) {
   // Auto-add Expect: 100-continue for large bodies
-  if (CPPHTTPLIB_EXPECT_100_THRESHOLD > 0 && !req.has_header("Expect")) {
+  if (Defaults::get().timeouts().expect_100_threshold > 0 && !req.has_header("Expect")) {
     auto body_size = req.body.empty() ? req.content_length_ : req.body.size();
-    if (body_size >= CPPHTTPLIB_EXPECT_100_THRESHOLD) {
+    if (body_size >= Defaults::get().timeouts().expect_100_threshold) {
       req.set_header("Expect", "100-continue");
     }
   }
@@ -8471,9 +8495,9 @@ bool ClientImpl::process_request(Stream &strm, Request &req,
 #endif
 
   // Handle Expect: 100-continue with timeout
-  if (expect_100_continue && CPPHTTPLIB_EXPECT_100_TIMEOUT_MSECOND > 0) {
-    time_t sec = CPPHTTPLIB_EXPECT_100_TIMEOUT_MSECOND / 1000;
-    time_t usec = (CPPHTTPLIB_EXPECT_100_TIMEOUT_MSECOND % 1000) * 1000;
+  if (expect_100_continue && Defaults::get().timeouts().expect_100_timeout_msec > 0) {
+    time_t sec = Defaults::get().timeouts().expect_100_timeout_msec / 1000;
+    time_t usec = (Defaults::get().timeouts().expect_100_timeout_msec % 1000) * 1000;
     auto ret = detail::select_read(strm.socket(), sec, usec);
     if (ret <= 0) {
       // Timeout or error: send body anyway (server didn't respond in time)

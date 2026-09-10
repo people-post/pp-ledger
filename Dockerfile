@@ -49,5 +49,5 @@ WORKDIR /data
 
 # Select a role at runtime, e.g.:
 #   docker run ... pp-beacon -d /data
-#   docker run ... pp-http --bind 0.0.0.0 --beacon beacon:8517 --miner miner:8518
+#   docker run ... pp-http --bind 0.0.0.0 --beacon '<beacon-adp-multiaddr>' --miner '<miner-adp-multiaddr>'
 CMD ["pp-client", "--help"]

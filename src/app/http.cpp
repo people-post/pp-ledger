@@ -6,6 +6,8 @@
 #include "Client.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
+#include "network/LedgerAmpRuntime.h"
+#include "network/amp/AmpIdentity.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "common/Logger.h"
@@ -339,17 +341,6 @@ static std::optional<Object> handleMcpRpc(const Object &req,
 }
 
 // ── existing helpers ────────────────────────────────────────────────────────
-
-static void parseEndpoint(const std::string& spec, std::string& host, uint16_t& port,
-                          const std::string& defaultHost, uint16_t defaultPort) {
-  host = defaultHost;
-  port = defaultPort;
-  uint16_t extracted = 0;
-  if (pp::utl::parseHostPort(spec, host, extracted)) {
-    if (extracted != 0)
-      port = extracted;
-  }
-}
 
 static void setJsonError(httplib::Response& res, int status, const std::string& message) {
   res.status = status;
@@ -980,33 +971,64 @@ int main(int argc, char** argv) {
   CLI::App app{"HTTP API server for pp-ledger (client interfaces)"};
   uint16_t httpPort = 8080;
   std::string httpHost = "0.0.0.0";
-  std::string beaconSpec = "localhost:8517";
-  std::string minerSpec = "localhost:8518";
+  std::string beaconMultiaddr;
+  std::string minerMultiaddr;
   app.add_option("--port", httpPort, "HTTP server port")->default_val(8080);
   app.add_option("--bind", httpHost, "HTTP bind address")->default_val("0.0.0.0");
-  app.add_option("--beacon", beaconSpec, "Beacon endpoint (host:port)")->default_str("localhost:8517");
-  app.add_option("--miner", minerSpec, "Miner endpoint (host:port)")->default_str("localhost:8518");
+  app.add_option("--beacon", beaconMultiaddr,
+                 "Beacon ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
+      ->required();
+  app.add_option("--miner", minerMultiaddr,
+                 "Miner ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
+      ->required();
   CLI11_PARSE(app, argc, argv);
 
-  std::string beaconHost;
-  uint16_t beaconPort = pp::Client::DEFAULT_BEACON_PORT;
-  parseEndpoint(beaconSpec, beaconHost, beaconPort, "localhost", pp::Client::DEFAULT_BEACON_PORT);
-  std::string minerHost;
-  uint16_t minerPort = pp::Client::DEFAULT_MINER_PORT;
-  parseEndpoint(minerSpec, minerHost, minerPort, "localhost", pp::Client::DEFAULT_MINER_PORT);
+  if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' ||
+      minerMultiaddr.empty() || minerMultiaddr.front() != '/') {
+    std::cerr << "Error: --beacon and --miner must be ADP multiaddrs "
+                 "(/ip4/.../udp/.../adp/1.0.0/p2p/...).\n";
+    return 1;
+  }
+
+  auto ephemeralKeys = pp::utl::mlDsaGenerate();
+  if (!ephemeralKeys) {
+    std::cerr << "Error: failed to generate ephemeral AMP identity: "
+              << ephemeralKeys.error().message << "\n";
+    return 1;
+  }
+  auto ampCfg = pp::network::LedgerAmpConfigFromPrivateKey(ephemeralKeys->privateKey, 0);
+  if (!ampCfg) {
+    std::cerr << "Error: failed to configure AMP client: " << ampCfg.error().message << "\n";
+    return 1;
+  }
+  pp::network::LedgerAmpRuntime ampRuntime;
+  if (auto started = ampRuntime.Start(*ampCfg); !started) {
+    std::cerr << "Error: failed to start AMP runtime: " << started.error().message << "\n";
+    return 1;
+  }
 
   pp::Client beaconClient;
-  beaconClient.setEndpoint(pp::network::IpEndpoint{beaconHost, beaconPort});
+  beaconClient.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "beacon");
+  if (auto dial = beaconClient.setAmpPeer("beacon", beaconMultiaddr); !dial) {
+    std::cerr << "Error: failed to dial beacon: " << dial.error().message << "\n";
+    return 1;
+  }
+
   pp::Client minerClient;
-  minerClient.setEndpoint(pp::network::IpEndpoint{minerHost, minerPort});
+  minerClient.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "miner");
+  if (auto dial = minerClient.setAmpPeer("miner", minerMultiaddr); !dial) {
+    std::cerr << "Error: failed to dial miner: " << dial.error().message << "\n";
+    return 1;
+  }
 
   // MCP session registry
   std::map<std::string, std::shared_ptr<McpSession>> mcpSessions;
   std::mutex mcpSessionsMutex;
 
-  httplib::Server svr;
+  httplib::ServerConfig httpCfg;
   // API requests here are small JSON payloads; keep a tighter cap than httplib default.
-  svr.set_payload_max_length(HTTP_PAYLOAD_MAX_LENGTH);
+  httpCfg.limits.payload_max = HTTP_PAYLOAD_MAX_LENGTH;
+  httplib::Server svr(httpCfg);
   auto httpLog = pp::logging::getLogger("HttpServer");
   svr.set_logger([&httpLog](const httplib::Request& req, const httplib::Response& res) {
     httpLog.info << req.method << " " << req.path << " " << res.status
@@ -1191,7 +1213,8 @@ int main(int argc, char** argv) {
   });
 
   httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
-  httpLog.info << "Beacon: " << beaconHost << ":" << beaconPort << "  Miner: " << minerHost << ":" << minerPort;
+  httpLog.info << "Beacon: " << beaconMultiaddr;
+  httpLog.info << "Miner:  " << minerMultiaddr;
   httpLog.info << "Routes: GET /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
   httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
   httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
