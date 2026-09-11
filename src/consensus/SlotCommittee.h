@@ -2,11 +2,11 @@
 
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
+#include "EpochSeed.h"
 #include "Types.hpp"
 #include <cstdint>
 #include <map>
 #include <optional>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,7 +20,8 @@ namespace consensus {
  * - Fixed slots and epochs from genesis config
  * - Stakeholder cache refreshed per epoch from native balances
  * - Eligible committee = all positive-stake accounts if ≤ N, else top N by stake
- * - Equal-weight lottery within that committee (hash(slot, epoch) mod |pool|)
+ * - Equal-weight lottery within that committee:
+ *   SHA-256("pp-ledger/slot-committee/v2" || slot || epoch || epochSeed)
  * - Beacon-centered chain authority; this type schedules proposers, it does not
  *   implement multi-beacon BFT or fork choice
  *
@@ -70,6 +71,12 @@ public:
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   int64_t getTimestamp() const;
 
+  /** Active epoch seed (32 raw bytes) for leader election; empty if unset. */
+  const std::string &getEpochSeed() const { return epochSeed_; }
+  /** Epoch that `getEpochSeed()` applies to; undefined if seed empty. */
+  uint64_t getEpochSeedEpoch() const { return epochSeedEpoch_; }
+  bool hasEpochSeedFor(uint64_t epoch) const;
+
   /** Set stakeholders and record update epoch (live: use getCurrentEpoch()). */
   void setStakeholders(const std::vector<Stakeholder>& stakeholders);
   /** Set stakeholders for a specific epoch (load-from-ledger: use block slot). */
@@ -80,6 +87,13 @@ public:
   void init(const Config& config);
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
+
+  /**
+   * Install the lottery seed for `epoch` (must be 32 raw bytes).
+   * Production: Chain derives and sets; tests may call directly.
+   */
+  void setEpochSeed(uint64_t epoch, const std::string &seed32);
+  void clearEpochSeed();
 
   /**
    * Test/sim injectors — pin wall clock and/or override elected leaders.
@@ -103,17 +117,17 @@ private:
    */
   std::vector<uint64_t> getEligibleLeaderPool() const;
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
-  uint64_t calculateStakeThreshold(uint64_t stakeholderId,
-                                   uint64_t totalStake) const;
-  std::string hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const;
+  std::string hashSlotElection(uint64_t slot, uint64_t epoch,
+                               const std::string &epochSeed) const;
 
   static constexpr size_t kMaxLeaderPoolSize = 100;
 
-  // Data members
   Config config_;
   Cache cache_;
   std::optional<int64_t> clockOverride_;
   std::map<uint64_t, uint64_t> forcedLeaders_;  // slot -> stakeholderId
+  std::string epochSeed_;
+  uint64_t epochSeedEpoch_{ 0 };
 };
 
 } // namespace consensus

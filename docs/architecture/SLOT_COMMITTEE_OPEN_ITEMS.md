@@ -13,9 +13,10 @@ Ouroboros remains a **literature reference** only (not a product goal).
 
 | Item | Outcome |
 |------|---------|
-| Naming | Live type/docs use **`SlotCommittee`**; hash domain `pp-ledger/slot-committee/v1:…` |
+| Naming | Live type/docs use **`SlotCommittee`**; hash domain `pp-ledger/slot-committee/v2` |
 | Equal-weight top‑N | **Designed behavior** — stake gates committee *entry*, not weight inside the pool |
 | Authority model (intent) | **One active beacon at a time**; relays may be promoted if beacon is lost — *mechanism still TBD* (see E) |
+| Epoch seed (D) | Header `epochSeed` (Block v5); derivation in `EpochSeed.*`; election mixes seed — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#epoch-seed) |
 
 ---
 
@@ -75,15 +76,13 @@ Ouroboros remains a **literature reference** only (not a product goal).
 
 ---
 
-### D. Leader predictability / epoch nonce
+### D. Leader predictability / epoch nonce — **done (public seed)**
 
-**Today:** `hash(slot, epoch)` over known stake snapshot ⇒ leaders for the epoch are **publicly predictable**.
+**Shipped:** Block header `epochSeed` (32 bytes, `CURRENT_VERSION` **5**). Epoch‑0 seed from genesis config digest; later epochs from prior seed + lookback tip material (K=8) + stake snapshot. Lottery domain `pp-ledger/slot-committee/v2` mixes `slot`, `epoch`, and `epochSeed`.
 
-Acceptable for a small trusted miner set; weaker if the committee is large and adversarial (targeted DoS).
+Leaders for an epoch become knowable once that epoch’s seed is public (still not private VRF). Further hardening (private leader proofs) remains optional later.
 
-**Ladder:** accept → epoch nonce / seed (still public schedule) → private leader proofs (VRF-like) later.
-
-**Recommendation:** **Defer.** Not required for rename, top‑N policy, or single-beacon model. Revisit if miner set grows or public DoS becomes in scope. Full Ouroboros-style VRF is **not** a goal.
+Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epoch-seed) / [Leader election](../contracts/WIRE_SCHEMA.md#leader-election-live).
 
 ---
 
@@ -119,7 +118,7 @@ Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded comm
 2. **B** widen production window (cheap, local change)  
 3. **C** empty/heartbeat policy (product call)  
 4. **E** beacon failover mechanism doc → then code  
-5. **F** / **D** as needed  
+5. **F** as needed (D shipped)  
 
 ---
 

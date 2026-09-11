@@ -172,7 +172,7 @@ public:
    * Body (`records`) is committed indirectly via `txRoot`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 4;
+    static constexpr uint16_t CURRENT_VERSION = 5;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
@@ -194,13 +194,19 @@ public:
      * in this epoch (see chain_block::calculateStakeSnapshotHash).
      */
     std::string stakeSnapshotHash;
+    /**
+     * Raw 32-byte epoch lottery seed for this block's epoch (SlotCommittee v2).
+     * Epoch-stable; derived at epoch boundary — see docs/contracts/WIRE_SCHEMA.md.
+     */
+    std::string epochSeed;
 
     // --- Body (not hashed directly; committed via txRoot) ---
     std::vector<Record> records;
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & previousHash & slot & slotLeader & epoch &
-          txIndex & txRoot & stateRoot & stakeSnapshotHash & records;
+          txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed &
+          records;
     }
 
     /** Binary LTS of header fields only (used for block hash). */

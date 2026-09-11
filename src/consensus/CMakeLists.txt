@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Source files
 set(CONSENSUS_SOURCES
     SlotCommittee.cpp
+    EpochSeed.cpp
     SlotLeaderSelection.cpp
     EpochManager.cpp
     SlotTimer.cpp
@@ -17,6 +18,7 @@ set(CONSENSUS_SOURCES
 # Header files
 set(CONSENSUS_HEADERS
     SlotCommittee.h
+    EpochSeed.h
     Types.hpp
     SlotLeaderSelection.h
     EpochManager.h

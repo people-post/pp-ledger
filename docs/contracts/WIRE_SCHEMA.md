@@ -41,6 +41,7 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `txRoot` | 32 bytes | Commitment to body |
 | `stateRoot` | 32 bytes | Post-apply account state |
 | `stakeSnapshotHash` | 32 bytes | Stake set used for leader election |
+| `epochSeed` | 32 bytes | Epoch lottery seed (same for all blocks in an epoch) |
 
 Full block LTS for disk also appends `records` after the header fields
 (`Block::ltsToString`). Hash does **not** include `records` bytes directly.
@@ -56,14 +57,15 @@ Full block LTS for disk also appends `records` after the header fields
 | `txRoot` | `SHA-256("pp-ledger/txroot/v1" \|\| pack(each binaryPack(record)))` |
 | `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v1" \|\| pack(id, wallet, blockId))`. Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
 | `stakeSnapshotHash` | `SHA-256("pp-ledger/stake/v1" \|\| pack(id, stake)…)` stakeholders sorted by id |
+| `epochSeed` | See [Epoch seed](#epoch-seed) |
 
 `Chain::sealBlock` applies records once to the tip `AccountBuffer`, then sets
 `stateRoot` and `hash`. The matching `addBlock` persists without re-applying.
 Validation of received blocks still applies on `addBlock` and checks `stateRoot`
 against the live tree root (O(1)).
 
-Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, four records
-(`T_GENESIS` + fee/reserve/recycle `T_NEW_USER`).
+Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
+`epochSeed`, four records (`T_GENESIS` + fee/reserve/recycle `T_NEW_USER`).
 
 ## Transaction record
 
@@ -110,6 +112,28 @@ not installed in `RecordHandler`.
 `BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION`) includes
 slot timing, fees, checkpoint policy, and `networkId`.
 
+## Epoch seed
+
+Public 32-byte seed for the SlotCommittee lottery, committed on every block
+header (`epochSeed`). Same value for all blocks in an epoch; derived at the
+epoch boundary so leaders are not predictable from stake alone until the
+previous epoch’s tip material is known.
+
+Implemented in `consensus::EpochSeed` + `Chain::ensureEpochSeed` / `sealBlock`:
+
+| Epoch | Derivation |
+|-------|------------|
+| `0` | `SHA-256("pp-ledger/epoch-seed/genesis/v1" \|\| len(networkId) \|\| networkId \|\| genesisConfigDigest \|\| 32×0)` |
+| `E>0` | `SHA-256("pp-ledger/epoch-seed/v1" \|\| E \|\| len(networkId) \|\| networkId \|\| prevEpochSeed \|\| tipMaterial \|\| stakeSnapshotHash)` |
+
+`tipMaterial` = lookback over up to **K=8** block hashes from epoch `E-1`
+(oldest→newest): `SHA-256("pp-ledger/epoch-seed/lookback/v1" \|\| k \|\| hashes…)`.
+If epoch `E-1` produced no blocks:
+`SHA-256("pp-ledger/epoch-seed/empty-prev/v1" \|\| (E-1) \|\| prevEpochSeed)`.
+
+Validators reject blocks whose `epochSeed` ≠ the locally derived/installed seed
+for that epoch.
+
 ## Leader election (live)
 
 Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
@@ -118,17 +142,19 @@ classic Ouroboros / stake-weighted VRF on blocks):
 1. Stakeholders = accounts with positive native balance.
 2. Eligible **committee** = all if ≤100, else top 100 by stake (id tie-break).
    Stake gates **entry** into the committee only.
-3. Leader = committee member at index
-   `SHA-256("pp-ledger/slot-committee/v1:slot:N:epoch:M")` mod pool size
-   (**equal weight** within the committee — **designed behavior**, not a
-   temporary stand-in for stake-proportional sampling).
+3. Require `epochSeed` for the slot’s epoch (forced leaders in tests bypass).
+4. Leader = committee member at index from the first 8 bytes (BE) of
+   `SHA-256("pp-ledger/slot-committee/v2" \|\| u64be(slot) \|\| u64be(epoch) \|\| epochSeed)`
+   modulo pool size (**equal weight** within the committee — **designed
+   behavior**, not a temporary stand-in for stake-proportional sampling).
 
-Blocks commit `epoch` + `stakeSnapshotHash` so verifiers can check the election
-inputs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are **not** on the
-live `Chain` path. Ouroboros is a literature reference only.
+Blocks commit `epoch` + `stakeSnapshotHash` + `epochSeed` so verifiers can check
+the election inputs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
+**not** on the live `Chain` path. Ouroboros is a literature reference only.
 
-**Domain string note:** `slot-committee/v1` replaces legacy `ouroboros/v1`;
-election outputs for the same stake snapshot differ after this rename.
+**Domain string note:** `slot-committee/v2` (binary domain + seed) replaces
+`slot-committee/v1` string form and legacy `ouroboros/v1`; election outputs
+differ. Block `CURRENT_VERSION` is **5** (adds `epochSeed`).
 
 Open follow-ups (registration, production window, beacon failover, …):
 [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).

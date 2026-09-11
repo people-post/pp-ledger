@@ -33,7 +33,7 @@ std::string Ledger::Block::headerToString() const {
   OutputArchive ar(oss);
   uint16_t version = CURRENT_VERSION;
   ar & version & index & timestamp & previousHash & slot & slotLeader & epoch &
-      txIndex & txRoot & stateRoot & stakeSnapshotHash;
+      txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed;
   return oss.str();
 }
 
@@ -265,6 +265,7 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
   j.set("txRoot", utl::toJsonSafeString(txRoot));
   j.set("stateRoot", utl::toJsonSafeString(stateRoot));
   j.set("stakeSnapshotHash", utl::toJsonSafeString(stakeSnapshotHash));
+  j.set("epochSeed", utl::toJsonSafeString(epochSeed));
 
   std::vector<pp::common::Meta::Value> recVals;
   recVals.reserve(records.size());

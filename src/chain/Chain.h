@@ -107,6 +107,9 @@ public:
   uint64_t getCurrentEpoch() const;
   uint64_t getTotalStake() const;
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
+  uint64_t getEpochFromSlot(uint64_t slot) const {
+    return txContext_.consensus.getEpochFromSlot(slot);
+  }
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
   int64_t getConsensusTimestamp() const;
@@ -161,6 +164,11 @@ public:
   void setClockOverride(std::optional<int64_t> unixSeconds);
   void forceSlotLeader(uint64_t slot, uint64_t stakeholderId);
   void clearForcedSlotLeaders();
+  /** Install or derive SlotCommittee epoch seed for `epoch` (no-op if already set). */
+  Roe<void> ensureEpochSeed(uint64_t epoch);
+  const std::string &getEpochSeed() const {
+    return txContext_.consensus.getEpochSeed();
+  }
 
   Roe<void> initLedger(const Ledger::InitConfig &config);
   Roe<void> mountLedger(const std::string &workDir);
@@ -170,6 +178,15 @@ public:
   void refreshStakeholders();
   /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
   void refreshStakeholders(uint64_t blockSlot);
+
+  /**
+   * Collect up to kEpochSeedLookback block hashes from `prevEpoch`
+   * (oldest→newest) for epoch-seed tip material.
+   */
+  std::vector<std::string> collectPrevEpochLookbackHashes(uint64_t prevEpoch) const;
+
+  /** Previous epoch's seed from the latest block in that epoch (or empty). */
+  Roe<std::string> readPrevEpochSeed(uint64_t prevEpoch) const;
 
 protected:
   bool needsCheckpoint(const BlockChainConfig &config) const;

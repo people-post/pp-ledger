@@ -1,11 +1,11 @@
 #include "SlotCommittee.h"
+#include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
-#include <iomanip>
 #include <numeric>
 #include <sstream>
+#include <stdexcept>
 
 namespace pp {
 namespace consensus {
@@ -88,8 +88,12 @@ SlotCommittee::Roe<uint64_t> SlotCommittee::getSlotLeader(uint64_t slot) const {
   }
 
   uint64_t epoch = getEpochFromSlot(slot);
-  uint64_t leader = selectSlotLeader(slot, epoch);
+  auto forced = forcedLeaders_.find(slot);
+  if (forced == forcedLeaders_.end() && !hasEpochSeedFor(epoch)) {
+    return Error(2, "Epoch seed not set for epoch " + std::to_string(epoch));
+  }
 
+  uint64_t leader = selectSlotLeader(slot, epoch);
   return leader;
 }
 
@@ -145,6 +149,7 @@ void SlotCommittee::init(const Config& config) {
   cache_ = {};
   clockOverride_.reset();
   forcedLeaders_.clear();
+  clearEpochSeed();
 }
 
 void SlotCommittee::setClockOverride(std::optional<int64_t> unixSeconds) {
@@ -156,6 +161,26 @@ void SlotCommittee::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
 }
 
 void SlotCommittee::clearForcedSlotLeaders() { forcedLeaders_.clear(); }
+
+bool SlotCommittee::hasEpochSeedFor(uint64_t epoch) const {
+  return epochSeed_.size() == utl::SHA256_DIGEST_SIZE &&
+         epochSeedEpoch_ == epoch;
+}
+
+void SlotCommittee::setEpochSeed(uint64_t epoch, const std::string &seed32) {
+  if (seed32.size() != utl::SHA256_DIGEST_SIZE) {
+    log().error << "setEpochSeed: seed must be "
+                << utl::SHA256_DIGEST_SIZE << " bytes";
+    throw std::invalid_argument("epoch seed must be 32 bytes");
+  }
+  epochSeed_ = seed32;
+  epochSeedEpoch_ = epoch;
+}
+
+void SlotCommittee::clearEpochSeed() {
+  epochSeed_.clear();
+  epochSeedEpoch_ = 0;
+}
 
 void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
   setStakeholders(stakeholders, getCurrentEpoch());
@@ -209,32 +234,39 @@ uint64_t SlotCommittee::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
     return 0;
   }
 
-  // Cryptographic hash (SHA-256) for unpredictable, verifiable leader selection
-  std::string slotHash = hashSlotAndEpoch(slot, epoch);
-  if (slotHash.size() < 16) {
+  std::string slotHash = hashSlotElection(slot, epoch, epochSeed_);
+  if (slotHash.size() < 8) {
     return pool[0];
   }
 
-  // Use first 64 bits of hash; equal weight over eligible pool (normalized layer)
-  uint64_t hashValue = std::strtoull(slotHash.substr(0, 16).c_str(), nullptr, 16);
+  // First 8 bytes of raw SHA-256 as big-endian u64; equal weight in pool.
+  uint64_t hashValue = 0;
+  for (size_t i = 0; i < 8; ++i) {
+    hashValue = (hashValue << 8) |
+                static_cast<uint64_t>(static_cast<unsigned char>(slotHash[i]));
+  }
   size_t index = static_cast<size_t>(hashValue % pool.size());
   return pool[index];
 }
 
-std::string SlotCommittee::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
-  // Domain-separated input; v1 marks equal-weight top-N SlotCommittee lottery
-  // (replaces legacy pp-ledger/ouroboros/v1 domain — election outputs differ).
-  std::stringstream ss;
-  ss << "pp-ledger/slot-committee/v1:slot:" << slot << ":epoch:" << epoch;
-  std::string input = ss.str();
-  return pp::utl::sha256(input);
+std::string SlotCommittee::hashSlotElection(uint64_t slot, uint64_t epoch,
+                                            const std::string &epochSeed) const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  const std::string domain = "pp-ledger/slot-committee/v2";
+  oss.write(domain.data(), static_cast<std::streamsize>(domain.size()));
+  ar & slot & epoch;
+  oss.write(epochSeed.data(), static_cast<std::streamsize>(epochSeed.size()));
+  return utl::sha256Raw(oss.str());
 }
 
 bool SlotCommittee::validateSlotLeader(uint64_t slotLeader,
                                    uint64_t slot) const {
-  uint64_t epoch = getEpochFromSlot(slot);
-  uint64_t expectedLeader = selectSlotLeader(slot, epoch);
-  return slotLeader == expectedLeader;
+  auto result = getSlotLeader(slot);
+  if (!result.isOk()) {
+    return false;
+  }
+  return slotLeader == result.value();
 }
 
 bool SlotCommittee::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {

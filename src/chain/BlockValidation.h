@@ -27,6 +27,9 @@ std::string calculateTxRoot(const std::vector<Ledger::Record> &records);
 std::string calculateStakeSnapshotHash(
     const std::vector<consensus::Stakeholder> &stakeholders);
 
+/** SHA-256("pp-ledger/epoch-seed/genesis-config/v1" || LTS(config)). */
+std::string calculateGenesisConfigDigest(const BlockChainConfig &config);
+
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
                                         const RecordHandler &recordHandler);
 

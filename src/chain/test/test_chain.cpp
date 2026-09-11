@@ -200,8 +200,12 @@ Ledger::ChainNode makeNextBlock(
   block.block.previousHash = previous.hash;
   block.block.slot = previous.block.slot + 1;
   block.block.timestamp = validator.getSlotStartTime(block.block.slot);
+  const uint64_t epoch = validator.getEpochFromSlot(block.block.slot);
+  auto seedRoe = validator.ensureEpochSeed(epoch);
+  EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
   auto leaderResult = validator.getSlotLeader(block.block.slot);
-  EXPECT_TRUE(leaderResult.isOk());
+  EXPECT_TRUE(leaderResult.isOk())
+      << (leaderResult.isOk() ? "" : leaderResult.error().message);
   block.block.slotLeader = leaderResult.isOk() ? leaderResult.value() : 0;
   block.block.txIndex =
       previous.block.txIndex + previous.block.records.size();
@@ -1160,6 +1164,8 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   bad.block.txRoot = chain_block::calculateTxRoot(bad.block.records);
   bad.block.stakeSnapshotHash =
       chain_block::calculateStakeSnapshotHash(producer.getStakeholders());
+  ASSERT_TRUE(producer.ensureEpochSeed(bad.block.epoch).isOk());
+  bad.block.epochSeed = producer.getEpochSeed();
   // Empty body: state unchanged; peer/producer tip root after genesis.
   // Hash must match header fields (including wrong leader) for validation to
   // reach the slot-leader check.

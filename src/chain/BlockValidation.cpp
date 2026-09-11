@@ -5,6 +5,7 @@
 #include "common/Serialize.hpp"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
+#include "../consensus/EpochSeed.h"
 
 #include <algorithm>
 #include <limits>
@@ -122,6 +123,14 @@ std::string calculateStakeSnapshotHash(
   return utl::sha256Raw(std::string("pp-ledger/stake/v1") + oss.str());
 }
 
+std::string calculateGenesisConfigDigest(const BlockChainConfig &config) {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & config;
+  return utl::sha256Raw(std::string("pp-ledger/epoch-seed/genesis-config/v1") +
+                        oss.str());
+}
+
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
                                         const RecordHandler &recordHandler) {
   if (block.block.index != 0) {
@@ -155,6 +164,10 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
         chain_err::E_BLOCK_GENESIS,
         "Genesis block must commit empty stake snapshot");
   }
+  if (block.block.epochSeed.size() != utl::SHA256_DIGEST_SIZE) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Genesis block must commit 32-byte epochSeed");
+  }
   if (block.block.records.size() != 4) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
@@ -185,6 +198,15 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Failed to deserialize genesis checkpoint meta");
+  }
+  {
+    const std::string cfgDigest = calculateGenesisConfigDigest(gm.config);
+    const std::string expectedSeed = consensus::deriveGenesisEpochSeed(
+        gm.config.networkId, cfgDigest);
+    if (block.block.epochSeed != expectedSeed) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                               "Genesis block epochSeed mismatch");
+    }
   }
 
   auto feeTxRoe = loadGenesisNewUserWithExactFee(
@@ -571,6 +593,18 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
     if (block.block.stakeSnapshotHash != expectedStakeHash) {
       return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
                                "Block stakeSnapshotHash mismatch");
+    }
+    if (block.block.epochSeed.size() != utl::SHA256_DIGEST_SIZE) {
+      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                               "Block epochSeed must be 32 bytes");
+    }
+    if (!consensus.hasEpochSeedFor(expectedEpoch)) {
+      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                               "Consensus epoch seed not installed for block epoch");
+    }
+    if (block.block.epochSeed != consensus.getEpochSeed()) {
+      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                               "Block epochSeed mismatch");
     }
     if (!consensus.validateSlotLeader(slotLeader, slot)) {
       return chain_tx::TxError(

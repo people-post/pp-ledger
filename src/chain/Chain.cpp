@@ -5,10 +5,14 @@
 #include "TxLedgerMeta.h"
 #include "TxSignatures.h"
 #include "common/Logger.h"
+#include "lib/common/BinaryPack.hpp"
+#include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
+#include "../consensus/EpochSeed.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 
@@ -444,11 +448,37 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
     block.block.epoch = 0;
     block.block.stakeSnapshotHash =
         chain_block::calculateStakeSnapshotHash({});
+    if (block.block.records.empty() ||
+        block.block.records[0].type != Ledger::T_GENESIS) {
+      return Error(E_BLOCK_VALIDATION,
+                   "Genesis seal requires T_GENESIS as first record");
+    }
+    auto genesisTx =
+        utl::binaryUnpack<Ledger::TxGenesis>(block.block.records[0].data);
+    if (!genesisTx) {
+      return Error(E_BLOCK_VALIDATION, "Failed to unpack genesis tx for epochSeed");
+    }
+    GenesisAccountMeta gm;
+    if (!gm.ltsFromString(genesisTx->meta)) {
+      return Error(E_BLOCK_VALIDATION, "Failed to unpack genesis meta for epochSeed");
+    }
+    const std::string cfgDigest =
+        chain_block::calculateGenesisConfigDigest(gm.config);
+    block.block.epochSeed =
+        consensus::deriveGenesisEpochSeed(gm.config.networkId, cfgDigest);
+    // Do not setEpochSeed yet — processGenesisTxRecord → GenesisTxHandler
+    // calls consensus.init() and would clear it.
   } else {
     block.block.epoch =
         txContext_.consensus.getEpochFromSlot(block.block.slot);
+    refreshStakeholders(block.block.slot);
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
+    auto seedRoe = ensureEpochSeed(block.block.epoch);
+    if (!seedRoe) {
+      return seedRoe;
+    }
+    block.block.epochSeed = txContext_.consensus.getEpochSeed();
   }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 
@@ -469,6 +499,11 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
     }
   }
 
+  if (block.block.index == 0) {
+    // Install after genesis apply (init clears any earlier seed).
+    txContext_.consensus.setEpochSeed(0, block.block.epochSeed);
+  }
+
   block.block.stateRoot = txContext_.bank.calculateStateRoot();
   block.hash = calculateHash(block.block);
   pendingSeal_ = PendingSeal{block.block.index, block.hash};
@@ -480,6 +515,24 @@ void Chain::refreshStakeholders() {
     auto stakeholders = txContext_.bank.getStakeholders();
     txContext_.consensus.setStakeholders(stakeholders);
   }
+  // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
+  // late-start nodes with mismatched genesisTime still keep a usable seed.
+  uint64_t tipEpoch = 0;
+  const uint64_t nextId = txContext_.ledger.getNextBlockId();
+  if (nextId > 0) {
+    auto tip = txContext_.ledger.readBlock(nextId - 1);
+    if (tip) {
+      tipEpoch = tip->block.epoch;
+    }
+  }
+  if (!txContext_.consensus.hasEpochSeedFor(tipEpoch)) {
+    (void)ensureEpochSeed(tipEpoch);
+  }
+  const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
+  if (clockEpoch != tipEpoch &&
+      !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
+    (void)ensureEpochSeed(clockEpoch);
+  }
 }
 
 void Chain::refreshStakeholders(uint64_t blockSlot) {
@@ -488,6 +541,92 @@ void Chain::refreshStakeholders(uint64_t blockSlot) {
     auto stakeholders = txContext_.bank.getStakeholders();
     txContext_.consensus.setStakeholders(stakeholders, epoch);
   }
+}
+
+std::vector<std::string>
+Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch) const {
+  std::vector<std::string> newestFirst;
+  const uint64_t nextId = txContext_.ledger.getNextBlockId();
+  if (nextId == 0) {
+    return {};
+  }
+  for (uint64_t id = nextId; id > 0; --id) {
+    auto blockRoe = txContext_.ledger.readBlock(id - 1);
+    if (!blockRoe) {
+      break;
+    }
+    if (blockRoe->block.epoch > prevEpoch) {
+      continue;
+    }
+    if (blockRoe->block.epoch < prevEpoch) {
+      break;
+    }
+    newestFirst.push_back(blockRoe->hash);
+    if (newestFirst.size() >= consensus::kEpochSeedLookback) {
+      break;
+    }
+  }
+  std::reverse(newestFirst.begin(), newestFirst.end());
+  return newestFirst;
+}
+
+Chain::Roe<std::string> Chain::readPrevEpochSeed(uint64_t prevEpoch) const {
+  const uint64_t nextId = txContext_.ledger.getNextBlockId();
+  for (uint64_t id = nextId; id > 0; --id) {
+    auto blockRoe = txContext_.ledger.readBlock(id - 1);
+    if (!blockRoe) {
+      break;
+    }
+    if (blockRoe->block.epoch == prevEpoch &&
+        blockRoe->block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+      return blockRoe->block.epochSeed;
+    }
+    if (blockRoe->block.epoch < prevEpoch) {
+      break;
+    }
+  }
+  return Error(E_STATE_INIT,
+               "No epochSeed found for previous epoch " +
+                   std::to_string(prevEpoch));
+}
+
+Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
+  if (txContext_.consensus.hasEpochSeedFor(epoch)) {
+    return {};
+  }
+
+  const std::string networkId =
+      txContext_.optChainConfig.has_value()
+          ? txContext_.optChainConfig->networkId
+          : std::string{};
+
+  if (epoch == 0) {
+    if (!txContext_.optChainConfig.has_value()) {
+      return Error(E_STATE_INIT,
+                   "Cannot derive genesis epoch seed without chain config");
+    }
+    const std::string cfgDigest =
+        chain_block::calculateGenesisConfigDigest(*txContext_.optChainConfig);
+    const std::string seed =
+        consensus::deriveGenesisEpochSeed(networkId, cfgDigest);
+    txContext_.consensus.setEpochSeed(0, seed);
+    return {};
+  }
+
+  auto prevSeedRoe = readPrevEpochSeed(epoch - 1);
+  if (!prevSeedRoe) {
+    return Error(prevSeedRoe.error().code, prevSeedRoe.error().message);
+  }
+  const std::string &prevSeed = prevSeedRoe.value();
+  auto lookback = collectPrevEpochLookbackHashes(epoch - 1);
+  const std::string tipMaterial = consensus::lookbackTipMaterial(
+      epoch - 1, prevSeed, lookback);
+  const std::string stakeHash = chain_block::calculateStakeSnapshotHash(
+      txContext_.consensus.getStakeholders());
+  const std::string seed = consensus::deriveEpochSeed(
+      epoch, networkId, prevSeed, tipMaterial, stakeHash);
+  txContext_.consensus.setEpochSeed(epoch, seed);
+  return {};
 }
 
 void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
@@ -561,6 +700,13 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
     //   transaction.
     if (blockId > 0) {
       refreshStakeholders(block.block.slot);
+      auto seedRoe = ensureEpochSeed(block.block.epoch);
+      if (!seedRoe) {
+        return Error(E_BLOCK_VALIDATION,
+                     "Failed to ensure epoch seed for block " +
+                         std::to_string(blockId) + ": " +
+                         seedRoe.error().message);
+      }
     }
 
     auto processResult = processBlock(block, isStrictMode);
@@ -568,6 +714,10 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
       return Error(E_BLOCK_VALIDATION, "Failed to process block " +
                                            std::to_string(blockId) + ": " +
                                            processResult.error().message);
+    }
+    if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+      txContext_.consensus.setEpochSeed(block.block.epoch,
+                                        block.block.epochSeed);
     }
 
     blockId++;
@@ -594,10 +744,21 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
   }
 
   bool isStrictMode = shouldUseStrictMode(block.block.index);
+  if (block.block.index > 0) {
+    refreshStakeholders(block.block.slot);
+    auto seedRoe = ensureEpochSeed(block.block.epoch);
+    if (!seedRoe) {
+      return Error(E_BLOCK_VALIDATION,
+                   "Failed to ensure epoch seed: " + seedRoe.error().message);
+    }
+  }
   auto processResult = processBlock(block, isStrictMode);
   if (!processResult) {
     return Error(E_BLOCK_VALIDATION,
                  "Failed to process block: " + processResult.error().message);
+  }
+  if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+    txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
   }
 
   auto ledgerResult = txContext_.ledger.addBlock(block);
@@ -648,6 +809,10 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
   if (!ledgerResult) {
     return Error(E_LEDGER_WRITE,
                  "Failed to persist block: " + ledgerResult.error().message);
+  }
+
+  if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+    txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
   }
 
   pendingSeal_.reset();

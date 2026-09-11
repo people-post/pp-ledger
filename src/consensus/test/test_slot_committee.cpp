@@ -19,6 +19,9 @@ protected:
             .slotDuration = 5,
             .slotsPerEpoch = 10,
         });
+        // Pin clock so slots stay in epoch 0 with a stable seed.
+        consensus->setClockOverride(0);
+        consensus->setEpochSeed(0, std::string(32, '\x11'));
     }
 
     void TearDown() override {
@@ -197,14 +200,15 @@ protected:
 
 TEST_F(SlotCommitteeWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     uint64_t slot1 = 0;
-    uint64_t slot2 = 100;  // Different epoch
-    
+    uint64_t slot2 = 100;  // Different epoch (slotsPerEpoch=10 → epoch 10)
+
     auto leader1 = consensus->getSlotLeader(slot1);
-    auto leader2 = consensus->getSlotLeader(slot2);
-    
     ASSERT_TRUE(leader1.isOk());
+
+    consensus->setEpochSeed(10, std::string(32, '\x22'));
+    auto leader2 = consensus->getSlotLeader(slot2);
     ASSERT_TRUE(leader2.isOk());
-    
+
     // Leaders might be different, but should be from our stakeholder set
     EXPECT_THAT(leader1.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
     EXPECT_THAT(leader2.value(), AnyOf(Eq(1), Eq(2), Eq(3)));
@@ -222,9 +226,8 @@ TEST_F(SlotCommitteeTest, ClockOverridePinsCurrentSlot) {
     EXPECT_EQ(consensus->getCurrentSlot(), 10u);
     EXPECT_EQ(consensus->getCurrentEpoch(), 1u);
 
-    consensus->setClockOverride(std::nullopt);
-    // Live clock is non-deterministic; just ensure override cleared without throw.
-    EXPECT_GE(consensus->getTimestamp(), 0);
+    consensus->setClockOverride(0);
+    EXPECT_EQ(consensus->getCurrentSlot(), 0u);
 }
 
 TEST_F(SlotCommitteeWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
@@ -259,6 +262,8 @@ TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
         .slotsPerEpoch = 10,
     });
     consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
+    consensus->setClockOverride(0);
+    consensus->setEpochSeed(0, std::string(32, '\x11'));
 
     // Clock override cleared → not pinned at 100 unless wall clock happens to match.
     // Forced leader cleared → slot 3 uses natural election again.
