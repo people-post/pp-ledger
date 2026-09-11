@@ -2,7 +2,7 @@
 
 **Status:** v2 (2026-09-01) — AMP-only fleet transport.
 
-Cross-repo context: [platform-integration.md](platform-integration.md).
+Cross-repo context: [platform-integration.md](../architecture/PLATFORM_INTEGRATION.md).
 
 ## Planes
 
@@ -39,7 +39,7 @@ participants do **not** distinguish relay from beacon on the wire — config fie
 Ops chooses what sits behind each multiaddr; miners and clients validate **chain state**
 (crypto, checkpoints, consistency across multiple upstreams), not peer role.
 
-Full design guidance: [ledger-topology.md](ledger-topology.md).
+Full design guidance: [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md).
 
 ## Dependency
 
@@ -92,7 +92,7 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
 
 `beacons[]` lists one or more upstream ledger endpoints (relay or terminal beacon). Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
 
-Optional network anchor (see [ledger-topology.md](ledger-topology.md#8-network-anchor-participant-config)):
+Optional network anchor (see [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md#8-network-anchor-participant-config)):
 
 ```json
 "networkAnchor": {
@@ -127,7 +127,7 @@ pp-client -b -H '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/...' status
 
 ## Related
 
-- [ledger-topology.md](ledger-topology.md) — long-term network design (uniform upstream, realization, sync)
+- [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md) — long-term network design (uniform upstream, realization, sync)
 - pp-cpp-amp [KEEPALIVE.md](https://github.com/people-post/pp-cpp-amp/blob/main/docs/KEEPALIVE.md) — NAT link maintenance (v0.1.2+)
 - pp-cpp-amp `MemoryDatagramIo::SetReorderWindow` — in-process datagram reorder (v0.1.3+)
 - Fleet integration (pp-browser / pp-node): deferred to WS3+

@@ -16,7 +16,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 
 ## Features
 
-- ✅ **SlotCommittee:** Slot/epoch schedule + equal-weight top‑N leader lottery (see [docs/wire-schema.md](docs/wire-schema.md))
+- ✅ **SlotCommittee:** Slot/epoch schedule + equal-weight top‑N leader lottery (see [docs/contracts/WIRE_SCHEMA.md](docs/contracts/WIRE_SCHEMA.md))
 - ✅ **Blockchain & Ledger:** Account-based multi-token ledger with header commitments (`txRoot` / `stateRoot`)
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
 - ✅ **Relay Server:** Trusted gateway — same ledger RPC as beacon; miners use opaque upstream endpoints
@@ -56,7 +56,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 
 ### Consensus Mechanism
 
-**SlotCommittee** (live; see [docs/wire-schema.md](docs/wire-schema.md)):
+**SlotCommittee** (live; see [docs/contracts/WIRE_SCHEMA.md](docs/contracts/WIRE_SCHEMA.md)):
 - Time divided into **slots** (default: 5 seconds)
 - Slots grouped into **epochs**
 - Eligible committee = top N stakeholders by stake (N≤100), then **equal-weight**
@@ -117,8 +117,8 @@ The script initializes a beacon on port 8517 and miners on ports 8518+. Stop wit
 
 The network topology is `Beacon ← Relay ← Miners` (relays may chain). Miners configure
 opaque upstream multiaddrs in `beacons[]` — same RPC whether the hop is a relay or the
-terminal beacon. See [docs/amp-transport.md](docs/amp-transport.md) and
-[docs/ledger-topology.md](docs/ledger-topology.md).
+terminal beacon. See [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md) and
+[docs/architecture/LEDGER_TOPOLOGY.md](docs/architecture/LEDGER_TOPOLOGY.md).
 
 **Test the network** (in another terminal):
 ```bash
@@ -127,7 +127,7 @@ terminal beacon. See [docs/amp-transport.md](docs/amp-transport.md) and
 ./build/app/pp-client -b status
 ```
 
-For detailed server setup, configuration, and troubleshooting, see **[docs/SETUP.md](docs/SETUP.md)**.
+For detailed server setup, configuration, and troubleshooting, see **[docs/ops/SETUP.md](docs/ops/SETUP.md)**.
 
 ### Docker
 
@@ -173,10 +173,11 @@ pp-ledger/
 
 ## Documentation
 
-- **[Setup Guide](docs/SETUP.md)** — Full beacon/miner/client setup, configuration reference, and troubleshooting
+- **[Documentation map](docs/README.md)** — architecture / contracts / product / ops index
+- **[Setup Guide](docs/ops/SETUP.md)** — Full beacon/miner/client setup, configuration reference, and troubleshooting
 - **[Docker deployment](deploy/README.md)** — GHCR image and Compose quick start
-- **[Server Architecture](src/server/SERVER.md)** — Server components, APIs, and usage guide
-- **[GitHub Actions Setup](docs/GITHUB_ACTIONS_SETUP.md)** — CI/CD configuration
+- **[Server Architecture](docs/architecture/SERVER.md)** — Server components, APIs, and usage guide
+- **[GitHub Actions Setup](docs/ops/GITHUB_ACTIONS.md)** — CI/CD configuration
 
 ## Contributing
 

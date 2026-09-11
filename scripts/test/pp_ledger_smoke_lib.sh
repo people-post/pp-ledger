@@ -1,6 +1,6 @@
 # Shared helpers for pp-ledger multi-process smoke (source only).
 # Ports: smoke profile 8617+ (avoids dogfood 8517+).
-# Dial: ADP multiaddrs via pp-client --host (see docs/amp-transport.md).
+# Dial: ADP multiaddrs via pp-client --host (see docs/contracts/AMP_TRANSPORT.md).
 
 : "${PP_LEDGER_SMOKE_LIB_LOADED:=}"
 if [[ -n "${PP_LEDGER_SMOKE_LIB_LOADED}" ]]; then

@@ -13,7 +13,7 @@ namespace pp {
 /**
  * Versioned multi-profile account attachment stored in UserAccount.meta and on
  * live AccountBuffer accounts. Hard-cut: non-empty meta must decode as this
- * envelope (empty string == empty profiles). See docs/name-directory.md.
+ * envelope (empty string == empty profiles). See docs/product/NAME_DIRECTORY.md.
  */
 struct AccountAttachment {
   constexpr static uint32_t VERSION = 1;

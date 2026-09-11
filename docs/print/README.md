@@ -1,34 +1,36 @@
 # Printable design doc assets
 
-This folder contains pre-rendered Mermaid diagrams as PNGs and the source `.mmd` files, used by `design.md` for printing.
+Mermaid sources (`.mmd`), PNGs, and print CSS used by product design docs.
+HTML exports live under [`html/`](html/).
 
 ## Generating printable output
 
-From the **docs** directory (parent of `print/`):
+From the **docs** directory:
 
 ```bash
 cd docs
-pandoc design.md -o design.html --standalone --css=print/design-print.css
+pandoc product/DESIGN.md -o print/html/design.html --standalone --css=print/design-print.css
 ```
-Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P) to print. Layout is controlled by `print/design-print.css`: edit the `:root` variables at the top to change print margins (`--print-margin-*`), paper size (`--print-paper`), fonts (`--font-sans`, `--font-serif`), font size (`--font-size-body`), and line height (`--line-height`). Requires only [pandoc](https://pandoc.org/).
 
-For **Chinese (简体中文)** use `design-zh.md` instead of `design.md`; the same diagram images are reused. Requires Noto CJK fonts: `sudo apt install fonts-noto-cjk`.
+Opens in any browser. Use **File → Print** (or Ctrl/Cmd+P). Layout:
+`print/design-print.css` (`:root` variables for margins, paper, fonts).
 
-### Encrypted token extension (简体中文 only)
+For **Chinese (简体中文)** use `product/DESIGN.zh.md`. Requires Noto CJK:
+`sudo apt install fonts-noto-cjk`.
 
-From **`docs/`**:
+### Encrypted token extension (简体中文)
 
 ```bash
 cd docs
-pandoc encrypted-token-extension-zh.md -o encrypted-token-extension-zh.html \
+pandoc product/ENCRYPTED_TOKEN.zh.md -o print/html/encrypted-token-extension-zh.html \
   --standalone \
   --css=print/encrypted-token-extension-print-zh.css \
   -V lang=zh-CN
 ```
 
-Open `encrypted-token-extension-zh.html` in a browser. Use **File → Print** (or Ctrl/Cmd+P) to print or **Save as PDF**. Layout uses `print/encrypted-token-extension-print-zh.css` (imports `design-print.css` and sets Noto CJK fonts). Edit `:root` in either file to adjust margins and typography.
+Image paths in product markdown are `../print/…` relative to `product/`.
 
-To re-render the diagram images (requires Node and `@mermaid-js/mermaid-cli`):
+### Re-render diagrams
 
 ```bash
 cd docs/print
@@ -37,11 +39,4 @@ for f in slots-and-rounds block-contents beacon-relays-miners checkpoints reserv
 done
 ```
 
-To regenerate a **single** diagram (for example `reserved-accounts.png`):
-
-```bash
-cd docs/print
-npx -y @mermaid-js/mermaid-cli -i reserved-accounts.mmd -o reserved-accounts.png -b transparent
-# Chinese version
-npx -y @mermaid-js/mermaid-cli -i reserved-accounts-zh.mmd -o reserved-accounts-zh.png -b transparent
-```
+See also the documentation map: [../README.md](../README.md).

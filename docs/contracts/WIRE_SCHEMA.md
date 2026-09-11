@@ -5,8 +5,8 @@ format. This document matches the code under `src/ledger/` and `src/chain/`.
 There is **no backward compatibility** with earlier block versions; operators
 must re-init work directories after schema bumps.
 
-Related: [design.md](design.md) (product overview), [ledger-storage.md](ledger-storage.md)
-(on-disk volumes), [ledger-topology.md](ledger-topology.md) (RPC / STATUS).
+Related: [DESIGN.md](../product/DESIGN.md) (product overview), [LEDGER_STORAGE.md](LEDGER_STORAGE.md)
+(on-disk volumes), [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md) (RPC / STATUS).
 
 ## Encoding
 
@@ -97,7 +97,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 5 | `T_RENEWAL` | Miner renew |
 | 6 | `T_END_USER` | Miner close |
 
-Ids 7–15 are reserved for name-directory / attachment (`docs/name-directory.md`);
+Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
 
 ## Account / ledger model
@@ -130,6 +130,9 @@ live `Chain` path. Ouroboros is a literature reference only.
 **Domain string note:** `slot-committee/v1` replaces legacy `ouroboros/v1`;
 election outputs for the same stake snapshot differ after this rename.
 
+Open follow-ups (registration, production window, beacon failover, …):
+[architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
+
 ## ChainNode / storage envelope
 
 ```text
@@ -137,4 +140,4 @@ ChainNode { block, hash }  // hash = SHA-256(header)
 RawBlock  { data = Block::ltsToString(), hash }
 ```
 
-Persisted via `VolumeStore` / `FileDirStore` / `FileStore` — see [ledger-storage.md](ledger-storage.md).
+Persisted via `VolumeStore` / `FileDirStore` / `FileStore` — see [LEDGER_STORAGE.md](LEDGER_STORAGE.md).

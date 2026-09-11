@@ -91,7 +91,7 @@ public:
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
-  // Reserved for name-directory (docs/name-directory.md); not wired yet.
+  // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
   static constexpr const uint32_t T_REQ_DOMAIN_GET = 2101;
   static constexpr const uint32_t T_REQ_NAME_GET = 2102;
   static constexpr const uint32_t T_REQ_NAME_GET_BY_WALLET = 2103;
@@ -169,7 +169,7 @@ public:
     uint64_t currentSlot { 0 };
     uint64_t currentEpoch { 0 };
     uint64_t nStakeholders { 0 };
-    /** Optional STATUS v2 fields (see docs/ledger-topology.md). */
+    /** Optional STATUS v2 fields (see docs/architecture/LEDGER_TOPOLOGY.md). */
     std::string networkId;
     std::string headHash;
     uint64_t registryVersion{ 0 };

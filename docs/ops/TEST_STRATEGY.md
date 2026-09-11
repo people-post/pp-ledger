@@ -5,8 +5,8 @@
 Purpose IDs (`L-*`) are the vocabulary for ledger qualification. Doctrine:
 [TESTING.md](../architecture/TESTING.md).
 
-Related: [AGENTS.md](../../AGENTS.md), [amp-transport.md](../amp-transport.md),
-[development-budget-plan.md](../development-budget-plan.md) (Phase A: adversarial
+Related: [AGENTS.md](../../AGENTS.md), [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md),
+[development-budget-plan.md](DEVELOPMENT_BUDGET.md) (Phase A: adversarial
 ingress / invariants).
 
 ---
@@ -98,7 +98,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
-| **L-MULTI-BEACON** | Inter-beacon sync / BFT | — | `non-goal` (see SERVER.md future) |
+| **L-MULTI-BEACON** | Inter-beacon sync / BFT | — | `non-goal` (see [SERVER.md](../architecture/SERVER.md) future) |
 
 ---
 

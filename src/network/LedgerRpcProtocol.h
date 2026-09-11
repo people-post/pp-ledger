@@ -9,7 +9,7 @@ namespace pp {
 namespace ledger {
 namespace rpc {
 
-/** L4 protocol id for blockchain RPC over AMP (see docs/amp-transport.md). */
+/** L4 protocol id for blockchain RPC over AMP (see docs/contracts/AMP_TRANSPORT.md). */
 inline constexpr const char* kProtocolId = "/pp-ledger/rpc/1.0.0";
 
 /** Max unframed request/response body (matches public TCP SecurityConfig default). */

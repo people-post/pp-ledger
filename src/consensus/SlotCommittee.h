@@ -24,7 +24,7 @@ namespace consensus {
  * - Beacon-centered chain authority; this type schedules proposers, it does not
  *   implement multi-beacon BFT or fork choice
  *
- * Ouroboros remains a literature reference only (see docs/wire-schema.md).
+ * Ouroboros remains a literature reference only (see docs/contracts/WIRE_SCHEMA.md).
  */
 class SlotCommittee : public Module {
 public:

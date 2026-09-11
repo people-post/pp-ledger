@@ -7,7 +7,7 @@ from sibling repos when convenient.
 
 **Status:** agreed design (2026-08-26). Implementation is phased; see [Roadmap](#roadmap).
 
-**Related:** [name-directory.md](name-directory.md) — on-chain domains / memorable names (schema only; eventual phone book for mesh).
+**Related:** [NAME_DIRECTORY.md](../product/NAME_DIRECTORY.md) — on-chain domains / memorable names (schema only; eventual phone book for mesh).
 
 **Related repos:**
 
@@ -91,7 +91,7 @@ pp-node relay stays **on** regardless of whether any pp-browser instance is mini
 **Do not embed libp2p inside pp-ledger core.** pp-ledger owns the **RPC contract**;
 transports are pluggable.
 
-Standalone fleet wire contract (see [amp-transport.md](amp-transport.md)):
+Standalone fleet wire contract (see [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)):
 
 ```text
 AMP/UDP associate → /pp-ledger/rpc/1.0.0 channel → binaryPack(Request/Response)
@@ -323,7 +323,7 @@ binaries serve migration and ops.
 When editing other repos, add a one-line link at the top of the relevant doc:
 
 ```markdown
-Cross-repo architecture: [pp-ledger docs/platform-integration.md](https://github.com/people-post/pp-ledger/blob/develop/docs/platform-integration.md)
+Cross-repo architecture: [pp-ledger docs/architecture/PLATFORM_INTEGRATION.md](https://github.com/people-post/pp-ledger/blob/develop/docs/architecture/PLATFORM_INTEGRATION.md)
 ```
 
 Suggested locations:
@@ -356,4 +356,4 @@ Suggested locations:
 | 2026-08-27 | FetchContent-only deps (no sibling shortcut); optional `PP_CPP_*_SOURCE_DIR` override |
 | 2026-08-27 | In-process transport: no length prefix; libp2p ledger RPC uses u32 BE (not StreamFrameIo u64) |
 | 2026-08-28 | Public TCP abuse controls: tiered `SecurityConfig`, `ConnectionGuard`, bounded handler queue + worker pool on standalone servers |
-| 2026-09-03 | Name directory design: reserved accounts own domains; user `local@domain` via DomainGrant; no PostIndex v1 — see [name-directory.md](name-directory.md) |
+| 2026-09-03 | Name directory design: reserved accounts own domains; user `local@domain` via DomainGrant; no PostIndex v1 — see [NAME_DIRECTORY.md](../product/NAME_DIRECTORY.md) |

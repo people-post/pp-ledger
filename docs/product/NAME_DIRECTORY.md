@@ -2,7 +2,7 @@
 
 **Status:** Accepted design (schema / wire only; no runtime yet)  
 **Date:** 2026-09-03  
-**Related:** [design.md](design.md) (accounts & reserved band), [platform-integration.md](platform-integration.md) (pp-node `ledger_gateway`, mesh edge), [ledger-topology.md](ledger-topology.md) (terminal-owned indexes)
+**Related:** [design.md](DESIGN.md) (accounts & reserved band), [platform-integration.md](../architecture/PLATFORM_INTEGRATION.md) (pp-node `ledger_gateway`, mesh edge), [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md) (terminal-owned indexes)
 
 Cross-repo phone-book north star (pp-browser): N029 / `NAME_DIRECTORY_NORTH_STAR.md` — HTTP/Amp directory now; **this chain registry is eventual name authority**.
 
@@ -271,7 +271,7 @@ Hard cut (no dual decode): free-text meta is rejected; empty input canonicalizes
 
 ### Terminal-owned indexes
 
-Same freshness model as other terminal registries ([ledger-topology.md](ledger-topology.md)): gateways replicate; mutations write through to the terminal.
+Same freshness model as other terminal registries ([LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md)): gateways replicate; mutations write through to the terminal.
 
 ```text
 Terminal beacon state
@@ -335,7 +335,7 @@ Do not treat a non-attested `profiles[P]` as proof that P authored the tip — o
 
 HTTP/Amp directories become projectors/caches once chain tips exist. DHT must not store names.
 
-Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays scarce / often private ([platform-integration.md](platform-integration.md)).
+Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays scarce / often private ([platform-integration.md](../architecture/PLATFORM_INTEGRATION.md)).
 
 ---
 

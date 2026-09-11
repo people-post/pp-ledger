@@ -6,7 +6,8 @@ beacon authority.
 
 ## Live leader election (designed)
 
-Matches `Chain` / block validation (see [docs/wire-schema.md](../../docs/wire-schema.md)):
+Matches `Chain` / block validation (see
+[docs/contracts/WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md)):
 
 - Stakeholders refresh per epoch from account native balances.
 - Eligible **committee**: all positive-stake accounts if ≤100, else **top 100 by
@@ -28,3 +29,11 @@ for experiments and unit tests. They are **not** wired into `Chain`.
 ## Configuration
 
 Slot duration and slots per epoch come from genesis `BlockChainConfig`.
+
+## Open decisions
+
+Deferred product/protocol choices (miner-registered committee, production window,
+empty blocks, beacon failover, …):
+[docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
+
+Doc map: [docs/README.md](../../docs/README.md).

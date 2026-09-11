@@ -3,9 +3,9 @@
 **Status:** agreed long-term guidance (2026-09-02).  
 **Scope:** beacon / gateway / miner interaction over the fleet ledger RPC, independent of
 transport binding (AMP today; libp2p at the pp-browser edge per
-[platform-integration.md](platform-integration.md)).  
-**Related:** [design.md](design.md) (roles & consensus), [amp-transport.md](amp-transport.md)
-(wire format & config field names), [name-directory.md](name-directory.md) (DomainIndex /
+[platform-integration.md](PLATFORM_INTEGRATION.md)).  
+**Related:** [design.md](../product/DESIGN.md) (roles & consensus), [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)
+(wire format & config field names), [NAME_DIRECTORY.md](../product/NAME_DIRECTORY.md) (DomainIndex /
 NameIndex — future terminal-owned registries).
 
 This document is **normative guidance** for making the chain protocol robust, efficient, and
@@ -221,7 +221,7 @@ Replicas (gateways and participants) track:
 | Field | Use |
 |-------|-----|
 | `head_height` / `head_hash` | Highest contiguous validated block |
-| `checkpoint_id` | Latest stable checkpoint (see [design.md](design.md)) |
+| `checkpoint_id` | Latest stable checkpoint (see [design.md](../product/DESIGN.md)) |
 | `registry_version` | Generation of terminal miner/stake registry |
 | `replica_lag` | Estimated blocks (or ms) behind terminal |
 
@@ -258,7 +258,7 @@ chains, consider:
 
 ### 9.5 Checkpoints
 
-Align with the checkpoint model in [design.md](design.md): new participants may join from a
+Align with the checkpoint model in [design.md](../product/DESIGN.md): new participants may join from a
 trusted checkpoint and replay only subsequent blocks. Sync logic should treat checkpoint
 boundaries as first-class (fast join, pruning compatibility).
 
@@ -453,7 +453,7 @@ Order matters: P0 before optimizing read paths.
 
 - Exposing relay vs terminal role on the wire or in participant config semantics.
 - DHT or open peer discovery for fleet infrastructure nodes (curated multiaddrs instead).
-- Embedding libp2p inside pp-ledger core ([platform-integration.md](platform-integration.md)).
+- Embedding libp2p inside pp-ledger core ([platform-integration.md](PLATFORM_INTEGRATION.md)).
 - Gateways committing canonical state without terminal realization.
 - Trusting upstream IP or DNS instead of chain anchors and hashes.
 

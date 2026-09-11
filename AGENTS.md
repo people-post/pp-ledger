@@ -11,9 +11,9 @@ Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-mi
 Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfile` and
 `deploy/README.md`. See `README.md` for the full quick-start guide.
 
-**Cross-repo work** (pp-cpp-common, pp-browser, pp-node integration, libp2p transport, role matrix): see [`docs/platform-integration.md`](docs/platform-integration.md).
+**Cross-repo work** (pp-cpp-common, pp-browser, pp-node integration, libp2p transport, role matrix): see [`docs/architecture/PLATFORM_INTEGRATION.md`](docs/architecture/PLATFORM_INTEGRATION.md).
 
-**Name directory / domains** (memorable `local@domain`, reserved-account domain ownership — design only): see [`docs/name-directory.md`](docs/name-directory.md).
+**Name directory / domains** (memorable `local@domain`, reserved-account domain ownership — design only): see [`docs/product/NAME_DIRECTORY.md`](docs/product/NAME_DIRECTORY.md).
 
 ### System dependencies
 
@@ -24,7 +24,7 @@ The following **system packages** must be present (pre-installed in the VM snaps
 - `libstdc++-14-dev` (required for Clang to link against libstdc++)
 - `clang-tidy` (linter)
 
-Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.2.0` / `v0.1.0`). **pp-cpp-amp** (`v0.1.6`) is required for fleet networking — see [docs/amp-transport.md](docs/amp-transport.md). Amp is transport-only; ledger RPC/sync stay in this repo. Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
+Value/Meta JSON IO lives in **pp-cpp-common** (`common/Value.h`, `common/io/Json.h`). Shared foundation and crypto come from **pp-cpp-common** and **pp-cpp-crypto** via CMake FetchContent (tags `v0.2.0` / `v0.1.0`). **pp-cpp-amp** (`v0.1.6`) is required for fleet networking — see [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md). Amp is transport-only; ledger RPC/sync stay in this repo. Optional override: `-DPP_CPP_COMMON_SOURCE_DIR=` / `-DPP_CPP_CRYPTO_SOURCE_DIR=` / `-DPP_CPP_AMP_SOURCE_DIR=`. Do not install `nlohmann-json3-dev` or `libsodium-dev` for this project. GoogleTest is vendored under `third_party/googletest`.
 
 ### Build
 
@@ -86,7 +86,7 @@ Prefer the smoke harness for local fleets:
 ./scripts/test/pp_ledger_local_test.sh clear
 ```
 
-Manual bring-up gotchas (see also [docs/amp-transport.md](docs/amp-transport.md)):
+Manual bring-up gotchas (see also [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSPORT.md)):
 
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
 - Peer dialing uses **ADP multiaddrs** (`/ip4/.../udp/.../adp/1.0.0/p2p/<peer-id>`), not host:port alone. Each server logs `AMP ledger listener: ...` on start — copy that into relay `beacon`, miner `beacons[]`, and `pp-client --host`.

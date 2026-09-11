@@ -8,7 +8,7 @@ date: ""
 
 The Block Chain organises activity into a fixed heartbeat. Every **5 seconds** one "tick" (called a **slot**) passes. During each tick, one elected participant may add a bundle of activity (a **block**) to the chain. A fixed number of ticks (currently about **7 days** of slots) forms a **round** (called an **epoch**) at the end of which participants for the next round are elected.
 
-![Slots and rounds (time)](print/slots-and-rounds.png)
+![Slots and rounds (time)](../print/slots-and-rounds.png)
 
 | Concept | Plain meaning |
 |---------|---------------|
@@ -22,7 +22,7 @@ The Block Chain organises activity into a fixed heartbeat. Every **5 seconds** o
 
 Each block is a tamper-proof envelope. Once added to the chain it cannot be changed.
 
-![Block contents](print/block-contents.png)
+![Block contents](../print/block-contents.png)
 
 **Types of activity a block can record**
 
@@ -41,7 +41,7 @@ Each block is a tamper-proof envelope. Once added to the chain it cannot be chan
 
 Three types of node keep the network running. They have distinct, non-overlapping roles so that no single participant can act alone to alter the chain. In the rare event that the original Beacon is permanently lost, a Relay that already holds the full chain can be promoted to become the new Beacon, preserving continuity.
 
-![Beacon, Relays, and Miners](print/beacon-relays-miners.png)
+![Beacon, Relays, and Miners](../print/beacon-relays-miners.png)
 
 | Role | What they do | Adds blocks? | Sees full history? |
 |------|-------------|:---:|:---:|
@@ -49,18 +49,18 @@ Three types of node keep the network running. They have distinct, non-overlappin
 | **Relay** | Trusted gateway — distributes the chain to miners, shields the Beacon | No | Yes |
 | **Miner** | Elected participant who packages and adds new blocks; earns fees | Yes | partial |
 
-Network interaction (uniform upstream, realization, sync): [ledger-topology.md](ledger-topology.md).
+Network interaction (uniform upstream, realization, sync): [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md).
 
 Miners and clients use the **same RPC** against any upstream endpoint (`beacons[]` in config).
 They do not learn whether the peer is a relay or the terminal beacon. Relays likewise treat
 their configured upstream as opaque. Only the terminal beacon **realizes** authoritative
-writes; gateways forward or cache per [amp-transport.md](amp-transport.md#topology-uniform-upstream).
+writes; gateways forward or cache per [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md#topology-uniform-upstream).
 
-> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block. Live election is **`SlotCommittee`**: top‑N stakeholders by stake form a committee, then an **equal-weight** deterministic hash lottery picks the slot leader (see [wire-schema.md](wire-schema.md#leader-election-live)). Stake gates committee *entry*, not weight inside the committee. Classic Ouroboros / stake-weighted VRF is a design reference only, not the live path.
+> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block. Live election is **`SlotCommittee`**: top‑N stakeholders by stake form a committee, then an **equal-weight** deterministic hash lottery picks the slot leader (see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#leader-election-live)). Stake gates committee *entry*, not weight inside the committee. Classic Ouroboros / stake-weighted VRF is a design reference only, not the live path.
 
 Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.
 
-Block and transaction byte layouts: [wire-schema.md](wire-schema.md).
+Block and transaction byte layouts: [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md).
 
 ---
 
@@ -71,10 +71,10 @@ As the chain grows over months and years, storing every block from the very begi
 The first checkpoint is the network launch itself; later checkpoints cover ranges between two neighbouring marks.
 New participants can join from a checkpoint and only need to read the blocks between that checkpoint and the previous one, instead of replaying the entire history.
 
-On-disk block layout (volumes of flat file dirs): [ledger-storage.md](ledger-storage.md).
-Wire formats and commitments: [wire-schema.md](wire-schema.md).
+On-disk block layout (volumes of flat file dirs): [LEDGER_STORAGE.md](../contracts/LEDGER_STORAGE.md).
+Wire formats and commitments: [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md).
 
-![How checkpoints work (time)](print/checkpoints.png)
+![How checkpoints work (time)](../print/checkpoints.png)
 
 | Term | Meaning |
 |------|---------|
@@ -87,7 +87,7 @@ Wire formats and commitments: [wire-schema.md](wire-schema.md).
 
 The network reserves a range of special accounts for issuing and managing tokens. These accounts are allowed to show negative balances as an accounting device (similar to a central bank's balance sheet) and can create new token types.
 
-![Reserved Accounts](print/reserved-accounts.png)
+![Reserved Accounts](../print/reserved-accounts.png)
 
 | Account | Purpose |
 |---------|---------|
@@ -105,9 +105,9 @@ The network reserves a range of special accounts for issuing and managing tokens
 
 Every person or organisation on the network has a **user account**. Account identities are separate from cryptographic keys: users can rotate keys and switch algorithms without changing their account, enabling a path to post-quantum security. An account can hold any mix of tokens (native coin, stablecoins, equity, bonds, etc.) and carry a personal data attachment that can grow to include digital collectibles and self-executing contracts.
 
-Memorable handles (`local@domain`) and reserved-account **domain** ownership are designed in [name-directory.md](name-directory.md) (schema only; not yet in the live tx set).
+Memorable handles (`local@domain`) and reserved-account **domain** ownership are designed in [NAME_DIRECTORY.md](NAME_DIRECTORY.md) (schema only; not yet in the live tx set).
 
-![User Account](print/user-account.png){width=50%}
+![User Account](../print/user-account.png){width=50%}
 
 | Capability | Available today |
 |------------|:---:|
@@ -184,7 +184,7 @@ This section summarises how our design differs from many other blockchain system
 | **Block production** | Only **Miners** add blocks; Beacon and Relays never produce blocks. Miners are elected per slot and connect via Relays (or optionally to Beacon). | Validators or miners usually talk to each other in a flat or mesh topology; no dedicated "authority + gateway" split. |
 | **Visibility** | Miners see only a **partial** history (needed for proposing blocks); full chain lives at Beacon and Relays. | Full nodes and validators typically store and validate the full chain. |
 | **Recovery** | A Relay that holds the full chain can be **promoted to Beacon** if the original Beacon is lost, preserving continuity without changing the protocol. | Failover is usually handled by out-of-band replacement or social consensus, not a defined "next Beacon" role. |
-| **Time and slots** | Fixed slots and at most one block per slot; leader election is equal-weight lottery over the top‑N stake committee (`SlotCommittee`; see [wire-schema.md](wire-schema.md)). Classic Ouroboros VRF is a reference, not live. | Variable block times or multiple blocks per "round" are common; leader selection varies by chain. |
+| **Time and slots** | Fixed slots and at most one block per slot; leader election is equal-weight lottery over the top‑N stake committee (`SlotCommittee`; see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md)). Classic Ouroboros VRF is a reference, not live. | Variable block times or multiple blocks per "round" are common; leader selection varies by chain. |
 
 In short: our design separates **who keeps the truth** (Beacon), **who distributes it** (Relays), and **who extends it** (Miners), instead of merging these into one validator set.
 
