@@ -2,6 +2,10 @@
 
 This file provides context for GitHub Copilot and Copilot coding agents working on `pp-ledger`.
 
+## Documentation
+
+Canonical map: [`docs/README.md`](../docs/README.md) — tiers `architecture/` · `contracts/` · `product/` · `ops/` · `print/`.
+
 ## Project Summary
 
 `pp-ledger` is a C++20 blockchain with SlotCommittee leader election (beacon-centered), written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
@@ -21,7 +25,7 @@ pp-ledger/
 │   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DPP_LEDGER_BUILD_HTTP=ON
 │   └── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts
-├── docs/         # Documentation
+├── docs/         # architecture / contracts / product / ops / print — see docs/README.md
 ├── AGENTS.md     # Cursor Cloud agent instructions
 └── .aicodeguide  # General AI coding conventions
 ```

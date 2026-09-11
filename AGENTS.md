@@ -9,7 +9,8 @@ top‑N stake committee under beacon authority; Ouroboros is a design reference 
 Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner`
 (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy). It builds with CMake.
 Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfile` and
-`deploy/README.md`. See `README.md` for the full quick-start guide.
+`deploy/README.md`. See `README.md` for the full quick-start guide. Documentation map:
+[`docs/README.md`](docs/README.md).
 
 **Cross-repo work** (pp-cpp-common, pp-browser, pp-node integration, libp2p transport, role matrix): see [`docs/architecture/PLATFORM_INTEGRATION.md`](docs/architecture/PLATFORM_INTEGRATION.md).
 
