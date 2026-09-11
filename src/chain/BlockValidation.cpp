@@ -16,12 +16,12 @@ namespace pp::chain_block {
 
 namespace {
 
-bool isValidSlotLeader(const consensus::Ouroboros &consensus,
+bool isValidSlotLeader(const consensus::SlotCommittee &consensus,
                        const Ledger::ChainNode &block) {
   return consensus.isSlotLeader(block.block.slot, block.block.slotLeader);
 }
 
-bool isValidTimestamp(const consensus::Ouroboros &consensus,
+bool isValidTimestamp(const consensus::SlotCommittee &consensus,
                       const Ledger::ChainNode &block) {
   int64_t slotStartTime = consensus.getSlotStartTime(block.block.slot);
   int64_t slotEndTime = consensus.getSlotEndTime(block.block.slot);
@@ -383,7 +383,7 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block,
 }
 
 uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
-                            const consensus::Ouroboros &consensus) {
+                            const consensus::SlotCommittee &consensus) {
   auto blockResult = ledger.readBlock(blockId);
   if (!blockResult) {
     return 0;
@@ -413,7 +413,7 @@ bool needsCheckpoint(const BlockChainConfig &config,
 }
 
 chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, uint64_t atBlockId) {
   if (!optChainConfig.has_value()) {
@@ -453,7 +453,7 @@ chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
 
 chain_tx::Roe<void> validateAccountRenewals(
     const Ledger::ChainNode &block, const AccountBuffer &bank,
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(
@@ -535,7 +535,7 @@ chain_tx::Roe<void> validateAccountRenewals(
 
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
-                     const Ledger &ledger, const consensus::Ouroboros &consensus,
+                     const Ledger &ledger, const consensus::SlotCommittee &consensus,
                      const AccountBuffer &bank,
                      const std::optional<BlockChainConfig> &optChainConfig,
                      const Checkpoint &checkpoint,

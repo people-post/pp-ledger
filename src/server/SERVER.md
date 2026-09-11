@@ -58,7 +58,7 @@ The Chain class provides common functionality for both Beacon and Miner:
 **Responsibilities:**
 - Block validation
 - Chain management (in-memory BlockChain)
-- Consensus integration (Ouroboros)
+- Consensus integration (SlotCommittee)
 - Ledger operations (persistent storage)
 - Base configuration
 
@@ -75,7 +75,7 @@ The Chain class provides common functionality for both Beacon and Miner:
 
 **Beacon (Core Logic) Responsibilities:**
 - Maintain full blockchain history from genesis (block 0)
-- Manage Ouroboros consensus protocol
+- Manage SlotCommittee schedule
 - Track stakeholders and their stake amounts
 - Determine checkpoint locations for data pruning
 - Validate blocks (but does NOT produce them)
@@ -829,7 +829,7 @@ workDir/
 
 ## References
 
-- **Ouroboros Paper**: [Ouroboros: A Provably Secure Proof-of-Stake Blockchain Protocol](https://eprint.iacr.org/2016/889.pdf)
+- **Design reference (Ouroboros paper; not live path)**: [Ouroboros: A Provably Secure Proof-of-Stake Blockchain Protocol](https://eprint.iacr.org/2016/889.pdf)
 - **Consensus Module**: `/src/consensus/`
 - **Ledger Module**: `/src/ledger/`
 - **Network Module**: `/src/network/`

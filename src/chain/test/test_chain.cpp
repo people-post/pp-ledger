@@ -297,7 +297,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -329,7 +329,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
 TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   Chain validator;
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -369,7 +369,7 @@ TEST(ChainTest,
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -469,7 +469,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -570,7 +570,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -613,7 +613,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -651,7 +651,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
 TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenNoBlocks) {
   Chain validator;
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -687,7 +687,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -730,7 +730,7 @@ TEST(ChainTest,
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -831,7 +831,7 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   chainConfig.checkpoint.minBlocks = 1;
   chainConfig.checkpoint.minAgeSeconds = 0;
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -908,7 +908,7 @@ TEST(ChainTest,
   auto recycleKey = makeKeyPair();
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
 
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 5;
@@ -954,7 +954,7 @@ TEST(ChainTest,
   // Now create a new validator instance and replay from the existing ledger.
   Chain replayValidator;
 
-  consensus::Ouroboros::Config consensusConfig2;
+  consensus::SlotCommittee::Config consensusConfig2;
   consensusConfig2.genesisTime = 0;
   consensusConfig2.timeOffset = 0;
   consensusConfig2.slotDuration = 5;
@@ -978,7 +978,7 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
   Chain validator;
 
   // Minimal consensus: late joiner init with timeOffset only (no genesis processed)
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 1000;
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = 1;
@@ -1038,7 +1038,7 @@ struct ComposeHarness {
     chainConfig.checkpoint.minBlocks = 100;
     chainConfig.checkpoint.minAgeSeconds = 0;
 
-    consensus::Ouroboros::Config consensusConfig;
+    consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
     consensusConfig.timeOffset = 0;
     consensusConfig.slotDuration = 5;

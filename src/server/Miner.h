@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
@@ -29,10 +29,10 @@ namespace pp {
  *
  * Design:
  * - Miners are the primary block producers in the network
- * - Multiple miners compete to produce blocks based on stake
+ * - Multiple miners compete via SlotCommittee (top‑N, equal-weight lottery)
  * - Can sync from checkpoints to reduce initial sync time
  * - Maintains transaction pool for pending transactions
- * - Uses Ouroboros consensus for slot leader selection
+ * - Uses SlotCommittee consensus for slot leader selection
  */
 class Miner : public Module {
 public:

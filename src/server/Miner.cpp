@@ -118,7 +118,7 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   log().info << "  Work directory: " << config.workDir;
 
   // Initialize consensus(timeOffset only, full config from genesis block when loading)
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.timeOffset = config.timeOffset;
   chain_.initConsensus(consensusConfig);
 

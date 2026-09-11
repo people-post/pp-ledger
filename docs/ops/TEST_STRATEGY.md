@@ -81,7 +81,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 
 | ID | Question | Home tier | Skip / notes |
 |----|----------|-----------|--------------|
-| **L-CONSENSUS-ELECT** | Same stakeholders + slot ⇒ same leader | Unit (`test_ouroboros_consensus`) | |
+| **L-CONSENSUS-ELECT** | Same stakeholders + slot ⇒ same leader | Unit (`test_slot_committee`) | |
 | **L-CONSENSUS-CLOCK** | Injected clock pins slot/epoch | Unit (`ClockOverridePinsCurrentSlot`) | |
 | **L-CONSENSUS-FORCE** | Forced leader overrides election + validate | Unit (`ForceSlotLeaderOverridesElection`) + Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | Unlocks smokes without empty-slot lottery |
 | **L-CONSENSUS-WRONG-LEADER** | Non-leader rejected on unsealed `addBlock` | Integration (`WrongLeader_UnsealedAddBlockRejected`) | |

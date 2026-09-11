@@ -1,4 +1,4 @@
-#include "Ouroboros.h"
+#include "SlotCommittee.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
@@ -10,9 +10,9 @@
 namespace pp {
 namespace consensus {
 
-Ouroboros::Ouroboros() {}
+SlotCommittee::SlotCommittee() {}
 
-bool Ouroboros::isSlotLeader(uint64_t slot,
+bool SlotCommittee::isSlotLeader(uint64_t slot,
                              uint64_t stakeholderId) const {
   auto result = getSlotLeader(slot);
   if (!result.isOk()) {
@@ -22,23 +22,23 @@ bool Ouroboros::isSlotLeader(uint64_t slot,
   return result.value() == stakeholderId;
 }
 
-bool Ouroboros::isStakeUpdateNeeded() const {
+bool SlotCommittee::isStakeUpdateNeeded() const {
   uint64_t currentEpoch = getCurrentEpoch();
   return currentEpoch != cache_.lastStakeUpdateEpoch;
 }
 
-bool Ouroboros::isStakeUpdateNeeded(uint64_t forEpoch) const {
+bool SlotCommittee::isStakeUpdateNeeded(uint64_t forEpoch) const {
   return forEpoch != cache_.lastStakeUpdateEpoch;
 }
 
-bool Ouroboros::isSlotBlockProductionTime(uint64_t slot) const {
+bool SlotCommittee::isSlotBlockProductionTime(uint64_t slot) const {
   int64_t currentTime = getTimestamp();
   int64_t slotEndTime = getSlotEndTime(slot);
   // Block production time is within the last second of the slot
   return currentTime >= slotEndTime - 1;
 }
 
-int64_t Ouroboros::getTimestamp() const {
+int64_t SlotCommittee::getTimestamp() const {
   if (clockOverride_.has_value()) {
     return *clockOverride_;
   }
@@ -49,11 +49,11 @@ int64_t Ouroboros::getTimestamp() const {
   return localTime + config_.timeOffset;
 }
 
-uint64_t Ouroboros::getCurrentSlot() const {
+uint64_t SlotCommittee::getCurrentSlot() const {
   return getSlotFromTimestamp(getTimestamp());
 }
 
-uint64_t Ouroboros::getSlotFromTimestamp(int64_t timestamp) const {
+uint64_t SlotCommittee::getSlotFromTimestamp(int64_t timestamp) const {
   assertConfigIsSet();
   if (timestamp < config_.genesisTime) {
     return 0;
@@ -62,7 +62,7 @@ uint64_t Ouroboros::getSlotFromTimestamp(int64_t timestamp) const {
   return static_cast<uint64_t>(elapsed / config_.slotDuration);
 }
 
-uint64_t Ouroboros::getCurrentEpoch() const {
+uint64_t SlotCommittee::getCurrentEpoch() const {
   uint64_t slot = getCurrentSlot();
   if (config_.slotsPerEpoch == 0) {
     log().error << "Slots per epoch is 0";
@@ -70,19 +70,19 @@ uint64_t Ouroboros::getCurrentEpoch() const {
   return slot / config_.slotsPerEpoch;
 }
 
-uint64_t Ouroboros::getSlotInEpoch(uint64_t slot) const {
+uint64_t SlotCommittee::getSlotInEpoch(uint64_t slot) const {
   return slot % config_.slotsPerEpoch;
 }
 
-int64_t Ouroboros::getSlotStartTime(uint64_t slot) const {
+int64_t SlotCommittee::getSlotStartTime(uint64_t slot) const {
   return config_.genesisTime + static_cast<int64_t>(slot * config_.slotDuration);
 }
 
-int64_t Ouroboros::getSlotEndTime(uint64_t slot) const {
+int64_t SlotCommittee::getSlotEndTime(uint64_t slot) const {
   return getSlotStartTime(slot) + static_cast<int64_t>(config_.slotDuration);
 }
 
-Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
+SlotCommittee::Roe<uint64_t> SlotCommittee::getSlotLeader(uint64_t slot) const {
   if (cache_.mStakeholders.empty()) {
     return Error(1, "No stakeholders registered");
   }
@@ -93,14 +93,14 @@ Ouroboros::Roe<uint64_t> Ouroboros::getSlotLeader(uint64_t slot) const {
   return leader;
 }
 
-uint64_t Ouroboros::getEpochFromSlot(uint64_t slot) const {
+uint64_t SlotCommittee::getEpochFromSlot(uint64_t slot) const {
   if (config_.slotsPerEpoch == 0) {
     log().error << "Slots per epoch is 0";
   }
   return slot / config_.slotsPerEpoch;
 }
 
-uint64_t Ouroboros::getStake(uint64_t stakeholderId) const {
+uint64_t SlotCommittee::getStake(uint64_t stakeholderId) const {
   auto it = cache_.mStakeholders.find(stakeholderId);
   if (it == cache_.mStakeholders.end()) {
     return 0;
@@ -108,15 +108,15 @@ uint64_t Ouroboros::getStake(uint64_t stakeholderId) const {
   return it->second;
 }
 
-uint64_t Ouroboros::getTotalStake() const {
+uint64_t SlotCommittee::getTotalStake() const {
   return std::accumulate(
       cache_.mStakeholders.begin(), cache_.mStakeholders.end(), uint64_t(0),
       [](uint64_t sum, const auto &pair) { return sum + pair.second; });
 }
 
-size_t Ouroboros::getStakeholderCount() const { return cache_.mStakeholders.size(); }
+size_t SlotCommittee::getStakeholderCount() const { return cache_.mStakeholders.size(); }
 
-std::vector<Stakeholder> Ouroboros::getStakeholders() const {
+std::vector<Stakeholder> SlotCommittee::getStakeholders() const {
   std::vector<Stakeholder> result;
   result.reserve(cache_.mStakeholders.size());
 
@@ -129,7 +129,7 @@ std::vector<Stakeholder> Ouroboros::getStakeholders() const {
   return result;
 }
 
-void Ouroboros::assertConfigIsSet() const {
+void SlotCommittee::assertConfigIsSet() const {
   if (config_.slotDuration == 0) {
     log().error << "Config is not set. Slot duration is 0";
     throw std::runtime_error("Config is not set. Slot duration is 0");
@@ -140,28 +140,28 @@ void Ouroboros::assertConfigIsSet() const {
   }
 }
 
-void Ouroboros::init(const Config& config) {
+void SlotCommittee::init(const Config& config) {
   config_ = config;
   cache_ = {};
   clockOverride_.reset();
   forcedLeaders_.clear();
 }
 
-void Ouroboros::setClockOverride(std::optional<int64_t> unixSeconds) {
+void SlotCommittee::setClockOverride(std::optional<int64_t> unixSeconds) {
   clockOverride_ = unixSeconds;
 }
 
-void Ouroboros::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
+void SlotCommittee::forceSlotLeader(uint64_t slot, uint64_t stakeholderId) {
   forcedLeaders_[slot] = stakeholderId;
 }
 
-void Ouroboros::clearForcedSlotLeaders() { forcedLeaders_.clear(); }
+void SlotCommittee::clearForcedSlotLeaders() { forcedLeaders_.clear(); }
 
-void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
+void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders) {
   setStakeholders(stakeholders, getCurrentEpoch());
 }
 
-void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders,
+void SlotCommittee::setStakeholders(const std::vector<Stakeholder>& stakeholders,
                                 uint64_t forEpoch) {
   cache_.mStakeholders.clear();
   for (const auto& stakeholder : stakeholders) {
@@ -170,7 +170,7 @@ void Ouroboros::setStakeholders(const std::vector<Stakeholder>& stakeholders,
   cache_.lastStakeUpdateEpoch = forEpoch;
 }
 
-std::vector<uint64_t> Ouroboros::getEligibleLeaderPool() const {
+std::vector<uint64_t> SlotCommittee::getEligibleLeaderPool() const {
   if (cache_.mStakeholders.empty()) {
     return {};
   }
@@ -198,7 +198,7 @@ std::vector<uint64_t> Ouroboros::getEligibleLeaderPool() const {
   return pool;
 }
 
-uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
+uint64_t SlotCommittee::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
   auto forced = forcedLeaders_.find(slot);
   if (forced != forcedLeaders_.end()) {
     return forced->second;
@@ -221,22 +221,23 @@ uint64_t Ouroboros::selectSlotLeader(uint64_t slot, uint64_t epoch) const {
   return pool[index];
 }
 
-std::string Ouroboros::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
-  // Domain-separated input for protocol versioning and cross-system uniqueness
+std::string SlotCommittee::hashSlotAndEpoch(uint64_t slot, uint64_t epoch) const {
+  // Domain-separated input; v1 marks equal-weight top-N SlotCommittee lottery
+  // (replaces legacy pp-ledger/ouroboros/v1 domain — election outputs differ).
   std::stringstream ss;
-  ss << "pp-ledger/ouroboros/v1:slot:" << slot << ":epoch:" << epoch;
+  ss << "pp-ledger/slot-committee/v1:slot:" << slot << ":epoch:" << epoch;
   std::string input = ss.str();
   return pp::utl::sha256(input);
 }
 
-bool Ouroboros::validateSlotLeader(uint64_t slotLeader,
+bool SlotCommittee::validateSlotLeader(uint64_t slotLeader,
                                    uint64_t slot) const {
   uint64_t epoch = getEpochFromSlot(slot);
   uint64_t expectedLeader = selectSlotLeader(slot, epoch);
   return slotLeader == expectedLeader;
 }
 
-bool Ouroboros::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {
+bool SlotCommittee::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {
   int64_t slotStart = getSlotStartTime(slot);
   int64_t slotEnd = slotStart + static_cast<int64_t>(config_.slotDuration);
 

@@ -120,7 +120,7 @@ Relay::Roe<void> Relay::init(const InitConfig &config) {
 
   // Initialize consensus (timeOffset only; full config from genesis block when
   // loading)
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.timeOffset = config.timeOffset;
   chain_.initConsensus(consensusConfig);
 

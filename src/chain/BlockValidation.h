@@ -4,7 +4,7 @@
 #include "AccountBuffer.h"
 #include "TxError.h"
 #include "Types.h"
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "RecordHandler.h"
 
@@ -37,26 +37,26 @@ chain_tx::Roe<void> validateIntraBlockIdempotency(
     const Ledger::ChainNode &block, const RecordHandler &recordHandler);
 
 uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
-                            const consensus::Ouroboros &consensus);
+                            const consensus::SlotCommittee &consensus);
 
 bool needsCheckpoint(const BlockChainConfig &config, const Checkpoint &checkpoint,
                      uint64_t nextBlockId,
                      uint64_t checkpointBlockAgeSeconds);
 
 chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, uint64_t atBlockId);
 
 chain_tx::Roe<void> validateAccountRenewals(
     const Ledger::ChainNode &block, const AccountBuffer &bank,
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, const RecordHandler &recordHandler);
 
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
-                    const Ledger &ledger, const consensus::Ouroboros &consensus,
+                    const Ledger &ledger, const consensus::SlotCommittee &consensus,
                     const AccountBuffer &bank,
                     const std::optional<BlockChainConfig> &optChainConfig,
                     const Checkpoint &checkpoint,

@@ -5,7 +5,7 @@
 #include "AccountBuffer.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/Crypto.h"
 
@@ -32,7 +32,7 @@ struct FnAccountMetaForRecord {
  */
 struct TxContext {
   Crypto crypto;
-  consensus::Ouroboros consensus;
+  consensus::SlotCommittee consensus;
   Ledger ledger;
   AccountBuffer bank;
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};

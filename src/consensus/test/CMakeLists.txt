@@ -3,21 +3,21 @@
 # Include GoogleTest
 include(GoogleTest)
 
-# Test for Ouroboros Consensus
-add_executable(test_ouroboros_consensus
-    test_ouroboros_consensus.cpp
+# Test for SlotCommittee (live path)
+add_executable(test_slot_committee
+    test_slot_committee.cpp
 )
 
-target_link_libraries(test_ouroboros_consensus PRIVATE
+target_link_libraries(test_slot_committee PRIVATE
     pp_ledger_common
     pp_consensus
     GTest::gtest_main
     GTest::gmock
 )
 
-gtest_discover_tests(test_ouroboros_consensus)
+gtest_discover_tests(test_slot_committee)
 
-# Test for Ouroboros Epoch Manager
+# EpochManager demo (not wired into Chain)
 add_executable(test_ouroboros_epoch
     test_ouroboros_epoch.cpp
 )
@@ -31,7 +31,7 @@ target_link_libraries(test_ouroboros_epoch PRIVATE
 
 gtest_discover_tests(test_ouroboros_epoch)
 
-# Test for Ouroboros VRF and Slot Leader Selection
+# VRF SlotLeaderSelection demo (not wired into Chain)
 add_executable(test_ouroboros_vrf
     test_ouroboros_vrf.cpp
 )

@@ -14,16 +14,19 @@ namespace pp {
 namespace consensus {
 
 /**
- * Ouroboros Consensus Protocol Implementation
+ * SlotCommittee — live slot/epoch schedule and leader election for pp-ledger.
  *
- * Implements the Ouroboros Proof-of-Stake consensus algorithm.
- * Key features:
- * - Slot-based block production
- * - Epoch management
- * - Stake-based slot leader selection
- * - Chain selection rules
+ * Designed behavior (not classic Ouroboros / stake-weighted VRF):
+ * - Fixed slots and epochs from genesis config
+ * - Stakeholder cache refreshed per epoch from native balances
+ * - Eligible committee = all positive-stake accounts if ≤ N, else top N by stake
+ * - Equal-weight lottery within that committee (hash(slot, epoch) mod |pool|)
+ * - Beacon-centered chain authority; this type schedules proposers, it does not
+ *   implement multi-beacon BFT or fork choice
+ *
+ * Ouroboros remains a literature reference only (see docs/wire-schema.md).
  */
-class Ouroboros : public Module {
+class SlotCommittee : public Module {
 public:
   struct Config {
     int64_t genesisTime{ 0 };    // timestamp of genesis block
@@ -38,14 +41,9 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  /**
-   * Constructor
-   * @param slotDuration Duration of each slot in seconds
-   * @param slotsPerEpoch Number of slots in each epoch
-   */
-  Ouroboros();
+  SlotCommittee();
 
-  ~Ouroboros() override = default;
+  ~SlotCommittee() override = default;
 
   // ----- accessors -----
   bool isSlotLeader(uint64_t slot, uint64_t stakeholderId) const;
@@ -99,8 +97,10 @@ private:
   };
 
   void assertConfigIsSet() const;
-  // Helper methods for slot leader selection
-  /** Eligible pool for leader selection: all if ≤kMaxLeaderPoolSize, else top by stake. */
+  /**
+   * Eligible committee: all positive-stake ids if ≤ kMaxLeaderPoolSize,
+   * else top N by stake (id ascending tie-break). Equal weight inside the pool.
+   */
   std::vector<uint64_t> getEligibleLeaderPool() const;
   uint64_t selectSlotLeader(uint64_t slot, uint64_t epoch) const;
   uint64_t calculateStakeThreshold(uint64_t stakeholderId,

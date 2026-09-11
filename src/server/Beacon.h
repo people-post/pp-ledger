@@ -3,7 +3,7 @@
 
 #include "Chain.h"
 
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/Meta.h"
 #include "common/Module.h"
@@ -24,7 +24,7 @@ namespace pp {
  *
  * Responsibilities:
  * - Maintain full blockchain history from genesis
- * - Manage Ouroboros consensus protocol
+ * - Manage SlotCommittee schedule and stakeholder registry
  * - Determine checkpoint locations for data pruning
  * - Verify blocks (but does not produce them)
  * - Serve as authoritative data source for the network

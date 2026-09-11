@@ -56,7 +56,7 @@ They do not learn whether the peer is a relay or the terminal beacon. Relays lik
 their configured upstream as opaque. Only the terminal beacon **realizes** authoritative
 writes; gateways forward or cache per [amp-transport.md](amp-transport.md#topology-uniform-upstream).
 
-> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block. Live election uses a deterministic, domain-separated hash over the epoch’s stakeholder pool (top stake holders, equal weight within the pool); see [wire-schema.md](wire-schema.md#leader-election-live). Stake-proportional VRF proofs are **not** on the live path yet.
+> **Why this matters:** Miners compete fairly — only the elected miner for a given tick may add a block. Live election is **`SlotCommittee`**: top‑N stakeholders by stake form a committee, then an **equal-weight** deterministic hash lottery picks the slot leader (see [wire-schema.md](wire-schema.md#leader-election-live)). Stake gates committee *entry*, not weight inside the committee. Classic Ouroboros / stake-weighted VRF is a design reference only, not the live path.
 
 Nodes may be operated by AI agents. The design allows the transport layer to be upgraded later to quantum-resistant communication.
 
@@ -126,8 +126,8 @@ Memorable handles (`local@domain`) and reserved-account **domain** ownership are
 | Capability | Status |
 |------------|--------|
 | Predictable, time-based block production | Live |
-| Deterministic slot leader election (stake pool + domain-separated hash) | Live |
-| Stake-weighted VRF leader proofs on blocks | Not live (demo code only) |
+| Deterministic slot leader election (`SlotCommittee`: top‑N + equal-weight lottery) | Live |
+| Stake-weighted VRF leader proofs on blocks | Not a product goal (Ouroboros-style reference / demo only) |
 | Immutable transaction records | Live |
 | Header commitments (`txRoot`, `stateRoot`, `stakeSnapshotHash`) | Live |
 | Multi-token balances | Live |
@@ -184,7 +184,7 @@ This section summarises how our design differs from many other blockchain system
 | **Block production** | Only **Miners** add blocks; Beacon and Relays never produce blocks. Miners are elected per slot and connect via Relays (or optionally to Beacon). | Validators or miners usually talk to each other in a flat or mesh topology; no dedicated "authority + gateway" split. |
 | **Visibility** | Miners see only a **partial** history (needed for proposing blocks); full chain lives at Beacon and Relays. | Full nodes and validators typically store and validate the full chain. |
 | **Recovery** | A Relay that holds the full chain can be **promoted to Beacon** if the original Beacon is lost, preserving continuity without changing the protocol. | Failover is usually handled by out-of-band replacement or social consensus, not a defined "next Beacon" role. |
-| **Time and slots** | Fixed slots and at most one block per slot; leader election is a deterministic hash over the epoch stakeholder pool (see [wire-schema.md](wire-schema.md)). VRF-style proofs are aspirational, not live. | Variable block times or multiple blocks per "round" are common; leader selection varies by chain. |
+| **Time and slots** | Fixed slots and at most one block per slot; leader election is equal-weight lottery over the top‑N stake committee (`SlotCommittee`; see [wire-schema.md](wire-schema.md)). Classic Ouroboros VRF is a reference, not live. | Variable block times or multiple blocks per "round" are common; leader selection varies by chain. |
 
 In short: our design separates **who keeps the truth** (Beacon), **who distributes it** (Relays), and **who extends it** (Miners), instead of merging these into one validator set.
 

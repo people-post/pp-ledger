@@ -3,7 +3,7 @@
 
 #include "../client/AccountIds.h"
 #include "../client/Client.h"
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "AccountStateTree.h"
 #include "common/ResultOrError.hpp"
 

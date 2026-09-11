@@ -4,7 +4,7 @@
 namespace pp::chain_tx {
 
 Roe<void> checkIdempotency(
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
     uint64_t slotMax, const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord) {
   if (idempotentId == 0) {
@@ -51,7 +51,7 @@ Roe<void> checkIdempotency(
 }
 
 Roe<void> validateIdempotencyRules(
-    const Ledger &ledger, const consensus::Ouroboros &consensus,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
     int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,

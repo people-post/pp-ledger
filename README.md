@@ -3,7 +3,8 @@
 [![Build pp-ledger](https://github.com/people-post/pp-ledger/actions/workflows/build-project.yml/badge.svg)](https://github.com/people-post/pp-ledger/actions/workflows/build-project.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A blockchain implementation with Ouroboros consensus algorithm, written in C++20.
+A blockchain implementation with **SlotCommittee** leader election (equal-weight
+top‑N stake committee under beacon authority), written in C++20.
 
 ## Vision
 
@@ -15,7 +16,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 
 ## Features
 
-- ✅ **Ouroboros Consensus:** Slot/epoch PoS with deterministic leader election (see [docs/wire-schema.md](docs/wire-schema.md))
+- ✅ **SlotCommittee:** Slot/epoch schedule + equal-weight top‑N leader lottery (see [docs/wire-schema.md](docs/wire-schema.md))
 - ✅ **Blockchain & Ledger:** Account-based multi-token ledger with header commitments (`txRoot` / `stateRoot`)
 - ✅ **Dual Server Architecture:** Beacon servers (validators) and Miner servers (block producers)
 - ✅ **Relay Server:** Trusted gateway — same ledger RPC as beacon; miners use opaque upstream endpoints
@@ -32,7 +33,7 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 **Beacon Servers:**
 - Network validators and authoritative data sources
 - Maintain full blockchain history from genesis (block 0)
-- Manage Ouroboros consensus protocol and stakeholder registry
+- Manage SlotCommittee schedule / stakeholder registry (equal-weight top‑N lottery)
 - Do NOT produce blocks (that's the miners' job)
 - Implement checkpoint system for data pruning (1GB threshold, 1 year age)
 - Limited in number (5-10 globally), run by network founders or elected stakeholders
@@ -46,21 +47,23 @@ By focusing on minimalism and purpose, PP-Ledger provides just what is needed to
 - Run `pp-relay` binary
 
 **Miner Servers:**
-- Block producers selected via Ouroboros proof-of-stake
+- Block producers selected via SlotCommittee (top‑N committee, equal-weight lottery)
 - Maintain transaction pools for pending transactions
 - Produce blocks when elected as slot leader
 - Stake is registered with and managed by beacon servers
-- Selection probability based on registered stake amount
+- Committee **entry** is by stake rank; weight **inside** the committee is equal
 - `beacons[]` lists opaque upstream endpoints (relay and/or beacon); sync and broadcast use this set
 
 ### Consensus Mechanism
 
-**Ouroboros Proof-of-Stake:**
+**SlotCommittee** (live; see [docs/wire-schema.md](docs/wire-schema.md)):
 - Time divided into **slots** (default: 5 seconds)
-- Slots grouped into **epochs** (default: 432 slots = ~36 minutes)
-- Slot leaders selected using VRF (Verifiable Random Function)
-- Selection is stake-weighted and deterministic but unpredictable
+- Slots grouped into **epochs**
+- Eligible committee = top N stakeholders by stake (N≤100), then **equal-weight**
+  deterministic hash lottery per slot
+- Stake gates committee entry, not per-slot weight inside the committee
 - Each slot can have at most one block
+- Classic **Ouroboros** / stake-weighted VRF is a literature reference and demo-only code path — not the live wire
 
 ## Quick Start
 
@@ -142,7 +145,7 @@ See **[deploy/README.md](deploy/README.md)** for Compose-based Beacon → Relay 
 pp-ledger/
 ├── src/
 │   ├── lib/          # Ledger common + http/cli; Value/JSON via pp-cpp-common; crypto via pp-cpp-crypto
-│   ├── consensus/    # Ouroboros PoS consensus (epochs, slots, VRF leader selection)
+│   ├── consensus/    # SlotCommittee (live) + demo VRF/epoch helpers
 │   ├── ledger/       # Blockchain storage and management
 │   ├── chain/        # Chain, AccountBuffer, and transaction helper modules
 │   ├── server/       # Beacon, Relay, and Miner server implementations
@@ -160,7 +163,7 @@ pp-ledger/
 | Component | Description | Status |
 |-----------|-------------|--------|
 | **lib** | Core utilities, logging, serialization | ✅ Working |
-| **consensus** | Ouroboros PoS consensus implementation | ✅ Working |
+| **consensus** | SlotCommittee leader election + demo helpers | ✅ Working |
 | **ledger** | Blockchain storage, ledger, wallet management | ✅ Working |
 | **chain** | Chain orchestration, AccountBuffer, tx validation helpers | ✅ Working |
 | **server** | Beacon, Relay, and Miner server implementations | ✅ Working |

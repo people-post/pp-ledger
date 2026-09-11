@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_RELAY_H
 #define PP_LEDGER_RELAY_H
 
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"

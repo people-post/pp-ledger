@@ -13,7 +13,7 @@ namespace consensus {
 /**
  * Verifiable Random Function (VRF) for slot leader election
  *
- * In production Ouroboros, VRF is used to:
+ * In classic Ouroboros (reference; demo SlotLeaderSelection only), VRF is used to:
  * 1. Prove slot leadership without revealing private keys
  * 2. Provide verifiable randomness for leader selection
  * 3. Enable anyone to verify the proof

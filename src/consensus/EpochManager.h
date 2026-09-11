@@ -13,7 +13,7 @@ namespace consensus {
  * Epoch Manager
  *
  * Manages epoch transitions, slot assignments, and epoch-specific state.
- * In Ouroboros:
+ * In classic Ouroboros (reference; not live SlotCommittee):
  * - Time is divided into epochs
  * - Each epoch contains a fixed number of slots
  * - Slot leaders are determined at the beginning of each epoch

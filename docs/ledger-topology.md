@@ -266,7 +266,7 @@ boundaries as first-class (fast join, pruning compatibility).
 
 ## 10. Miner coordination
 
-Ouroboros slot leadership requires more than “leader posts `BLOCK_ADD` upstream.”
+SlotCommittee slot leadership requires more than “leader posts `BLOCK_ADD` upstream.”
 
 ### 10.1 Block propagation — dual path
 
@@ -400,7 +400,7 @@ reason about than per-request dial.
 | Gateway down | Participant uses alternate upstream |
 | Terminal unavailable | Writes fail; reads from gateway within `max_read_lag` if policy allows |
 | Partition / fork | Hash mismatch → reject upstream; **do not mine** |
-| Missed slot | Empty slot; chain continues per Ouroboros |
+| Missed slot | Empty slot; chain continues per SlotCommittee |
 
 ---
 

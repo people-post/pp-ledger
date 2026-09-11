@@ -1,4 +1,4 @@
-#include "Ouroboros.h"
+#include "SlotCommittee.h"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include <set>
@@ -9,10 +9,10 @@ using ::testing::Le;
 using ::testing::AnyOf;
 using ::testing::Eq;
 
-class OuroborosTest : public ::testing::Test {
+class SlotCommitteeTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        consensus = std::make_unique<Ouroboros>();
+        consensus = std::make_unique<SlotCommittee>();
         consensus->init({
             .genesisTime = 0,
             .timeOffset = 0,
@@ -25,22 +25,22 @@ protected:
         consensus.reset();
     }
 
-    std::unique_ptr<Ouroboros> consensus;
+    std::unique_ptr<SlotCommittee> consensus;
 };
 
-TEST_F(OuroborosTest, CreatesWithCorrectConfiguration) {
+TEST_F(SlotCommitteeTest, CreatesWithCorrectConfiguration) {
     EXPECT_EQ(consensus->getConfig().slotDuration, 5);
     EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 10);
 }
 
-TEST_F(OuroborosTest, RegistersStakeholders) {
+TEST_F(SlotCommitteeTest, RegistersStakeholders) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
     
     EXPECT_EQ(consensus->getStakeholderCount(), 4);
     EXPECT_EQ(consensus->getTotalStake(), 5000);
 }
 
-TEST_F(OuroborosTest, AllowsZeroStake) {
+TEST_F(SlotCommitteeTest, AllowsZeroStake) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}, {100, 0}});
     
     EXPECT_EQ(consensus->getStakeholderCount(), 3);
@@ -48,7 +48,7 @@ TEST_F(OuroborosTest, AllowsZeroStake) {
     EXPECT_EQ(consensus->getStake(100), 0);
 }
 
-TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
+TEST_F(SlotCommitteeTest, CalculatesSlotAndEpoch) {
     uint64_t currentSlot = consensus->getCurrentSlot();
     uint64_t currentEpoch = consensus->getCurrentEpoch();
     uint64_t slotInEpoch = consensus->getSlotInEpoch(currentSlot);
@@ -57,7 +57,7 @@ TEST_F(OuroborosTest, CalculatesSlotAndEpoch) {
     EXPECT_EQ(currentEpoch, currentSlot / 10);
 }
 
-TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
+TEST_F(SlotCommitteeTest, SelectsSlotLeadersDeterministically) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}, {4, 1500}});
     
     uint64_t currentSlot = consensus->getCurrentSlot();
@@ -86,7 +86,7 @@ TEST_F(OuroborosTest, SelectsSlotLeadersDeterministically) {
     }
 }
 
-TEST_F(OuroborosTest, VerifiesSlotLeadership) {
+TEST_F(SlotCommitteeTest, VerifiesSlotLeadership) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}});
     
     uint64_t currentSlot = consensus->getCurrentSlot();
@@ -102,7 +102,7 @@ TEST_F(OuroborosTest, VerifiesSlotLeadership) {
     EXPECT_FALSE(consensus->isSlotLeader(currentSlot, nonLeader));
 }
 
-TEST_F(OuroborosTest, SetStakeholdersOverwritesPrevious) {
+TEST_F(SlotCommitteeTest, SetStakeholdersOverwritesPrevious) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}});
     EXPECT_EQ(consensus->getTotalStake(), 3000);
     
@@ -111,7 +111,7 @@ TEST_F(OuroborosTest, SetStakeholdersOverwritesPrevious) {
     EXPECT_EQ(consensus->getStake(1), 1500);
 }
 
-TEST_F(OuroborosTest, SetStakeholdersReplacesAll) {
+TEST_F(SlotCommitteeTest, SetStakeholdersReplacesAll) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}});
     EXPECT_EQ(consensus->getStakeholderCount(), 2);
     
@@ -121,7 +121,7 @@ TEST_F(OuroborosTest, SetStakeholdersReplacesAll) {
     EXPECT_EQ(consensus->getStake(1), 0);
 }
 
-TEST_F(OuroborosTest, SetStakeholdersCanShrink) {
+TEST_F(SlotCommitteeTest, SetStakeholdersCanShrink) {
     consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
     EXPECT_EQ(consensus->getStakeholderCount(), 3);
     
@@ -130,7 +130,7 @@ TEST_F(OuroborosTest, SetStakeholdersCanShrink) {
     EXPECT_EQ(consensus->getStake(3), 0);
 }
 
-TEST_F(OuroborosTest, ReturnsAllStakeholders) {
+TEST_F(SlotCommitteeTest, ReturnsAllStakeholders) {
     consensus->setStakeholders({{1, 1500}, {2, 2000}, {3, 1500}});
     
     auto stakeholders = consensus->getStakeholders();
@@ -148,37 +148,37 @@ TEST_F(OuroborosTest, ReturnsAllStakeholders) {
     EXPECT_TRUE(ids.count(3));
 }
 
-TEST_F(OuroborosTest, UpdatesSlotDuration) {
-    Ouroboros::Config cfg = consensus->getConfig();
+TEST_F(SlotCommitteeTest, UpdatesSlotDuration) {
+    SlotCommittee::Config cfg = consensus->getConfig();
     cfg.slotDuration = 10;
     consensus->init(cfg);
     EXPECT_EQ(consensus->getConfig().slotDuration, 10);
 }
 
-TEST_F(OuroborosTest, UpdatesSlotsPerEpoch) {
-    Ouroboros::Config cfg = consensus->getConfig();
+TEST_F(SlotCommitteeTest, UpdatesSlotsPerEpoch) {
+    SlotCommittee::Config cfg = consensus->getConfig();
     cfg.slotsPerEpoch = 20;
     consensus->init(cfg);
     EXPECT_EQ(consensus->getConfig().slotsPerEpoch, 20);
 }
 
-TEST_F(OuroborosTest, SetsGenesisTime) {
+TEST_F(SlotCommitteeTest, SetsGenesisTime) {
     int64_t genesisTime = 1234567890;
-    Ouroboros::Config cfg = consensus->getConfig();
+    SlotCommittee::Config cfg = consensus->getConfig();
     cfg.genesisTime = genesisTime;
     consensus->init(cfg);
     EXPECT_EQ(consensus->getConfig().genesisTime, genesisTime);
 }
 
-TEST_F(OuroborosTest, SetsTimeOffset) {
-    Ouroboros::Config cfg = consensus->getConfig();
+TEST_F(SlotCommitteeTest, SetsTimeOffset) {
+    SlotCommittee::Config cfg = consensus->getConfig();
     cfg.timeOffset = 60;  // local 60s behind beacon
     consensus->init(cfg);
     EXPECT_EQ(consensus->getConfig().timeOffset, 60);
 }
 
-TEST_F(OuroborosTest, ReturnsErrorWhenNoStakeholders) {
-    Ouroboros emptyConsensus;
+TEST_F(SlotCommitteeTest, ReturnsErrorWhenNoStakeholders) {
+    SlotCommittee emptyConsensus;
     auto result = emptyConsensus.getSlotLeader(0);
     
     EXPECT_TRUE(result.isError());
@@ -187,15 +187,15 @@ TEST_F(OuroborosTest, ReturnsErrorWhenNoStakeholders) {
 }
 
 // Test fixture for tests that need stakeholders
-class OuroborosWithStakeholdersTest : public OuroborosTest {
+class SlotCommitteeWithStakeholdersTest : public SlotCommitteeTest {
 protected:
     void SetUp() override {
-        OuroborosTest::SetUp();
+        SlotCommitteeTest::SetUp();
         consensus->setStakeholders({{1, 1000}, {2, 2000}, {3, 500}});
     }
 };
 
-TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
+TEST_F(SlotCommitteeWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
     uint64_t slot1 = 0;
     uint64_t slot2 = 100;  // Different epoch
     
@@ -211,7 +211,7 @@ TEST_F(OuroborosWithStakeholdersTest, ProducesConsistentLeaderAcrossEpochs) {
 }
 
 
-TEST_F(OuroborosTest, ClockOverridePinsCurrentSlot) {
+TEST_F(SlotCommitteeTest, ClockOverridePinsCurrentSlot) {
     // genesisTime=0, slotDuration=5 → timestamp 17 is slot 3
     consensus->setClockOverride(17);
     EXPECT_EQ(consensus->getTimestamp(), 17);
@@ -227,7 +227,7 @@ TEST_F(OuroborosTest, ClockOverridePinsCurrentSlot) {
     EXPECT_GE(consensus->getTimestamp(), 0);
 }
 
-TEST_F(OuroborosWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
+TEST_F(SlotCommitteeWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
     const uint64_t slot = 7;
     auto natural = consensus->getSlotLeader(slot);
     ASSERT_TRUE(natural.isOk());
@@ -249,7 +249,7 @@ TEST_F(OuroborosWithStakeholdersTest, ForceSlotLeaderOverridesElection) {
     EXPECT_EQ(restored.value(), natural.value());
 }
 
-TEST_F(OuroborosWithStakeholdersTest, InitClearsInjectors) {
+TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
     consensus->setClockOverride(100);
     consensus->forceSlotLeader(3, 2);
     consensus->init({

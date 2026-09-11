@@ -24,7 +24,7 @@ topology that cheaper tiers cannot see.
 1. **Cheapest layer that answers the question** — name the purpose (`L-*`), then
    pick unit → in-process compose → multi-process smoke.
 2. **Push complexity down** — put election, validation, codecs, and state-transition
-   rules behind seams that gtests can own (e.g. `Ouroboros` clock/leader inject).
+   rules behind seams that gtests can own (e.g. `SlotCommittee` clock/leader inject).
 3. **Higher tiers verify wiring and environment** — they do not re-prove leader
    election math, fee rules, or hash commitments already locked below.
 4. **Promote failures downward** — if a smoke script finds a policy bug, add a
@@ -69,7 +69,7 @@ Every high-risk behavior needs a home tier **or** an explicit skip:
 
 ## Injectors and in-process fabric
 
-- **`Ouroboros::setClockOverride` / `forceSlotLeader` / `clearForcedSlotLeaders`**
+- **`SlotCommittee::setClockOverride` / `forceSlotLeader` / `clearForcedSlotLeaders`**
   (also forwarded on `Chain`) — deterministic slots and leaders so tests are
   not hostage to wall clock or empty-slot lottery. In-process tip compose:
   `ChainComposeTest` in `src/chain/test/test_chain.cpp`.

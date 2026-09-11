@@ -490,7 +490,7 @@ void Chain::refreshStakeholders(uint64_t blockSlot) {
   }
 }
 
-void Chain::initConsensus(const consensus::Ouroboros::Config &config) {
+void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
   txContext_.consensus.init(config);
 }
 

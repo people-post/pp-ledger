@@ -2,7 +2,7 @@
 #define PP_LEDGER_CHAIN_H
 
 #include "../client/Client.h"
-#include "../consensus/Ouroboros.h"
+#include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
 #include "ErrorCodes.h"
@@ -152,10 +152,10 @@ public:
                        const Ledger::Record &record,
                        uint64_t slotLeaderId) const;
 
-  void initConsensus(const consensus::Ouroboros::Config &config);
+  void initConsensus(const consensus::SlotCommittee::Config &config);
 
   /**
-   * Test/sim injectors forwarded to Ouroboros (see docs/architecture/TESTING.md).
+   * Test/sim injectors forwarded to SlotCommittee (see docs/architecture/TESTING.md).
    * Production binaries must not call these.
    */
   void setClockOverride(std::optional<int64_t> unixSeconds);

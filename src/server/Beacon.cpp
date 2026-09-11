@@ -138,7 +138,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   log().info << "  Work directory created: " << config.workDir;
 
   // Initialize consensus
-  consensus::Ouroboros::Config consensusConfig;
+  consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = utl::getCurrentTime();
   consensusConfig.timeOffset = 0;
   consensusConfig.slotDuration = config.chain.slotDuration;

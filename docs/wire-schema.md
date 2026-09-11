@@ -112,15 +112,23 @@ slot timing, fees, checkpoint policy, and `networkId`.
 
 ## Leader election (live)
 
-Implemented in `consensus::Ouroboros` (not VRF proofs on blocks):
+Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
+classic Ouroboros / stake-weighted VRF on blocks):
 
 1. Stakeholders = accounts with positive native balance.
-2. Eligible pool = all if ≤100, else top 100 by stake (id tie-break).
-3. Leader = pool member at index `SHA-256("pp-ledger/ouroboros/v1:slot:N:epoch:M")` mod pool size (**equal weight** within the pool).
+2. Eligible **committee** = all if ≤100, else top 100 by stake (id tie-break).
+   Stake gates **entry** into the committee only.
+3. Leader = committee member at index
+   `SHA-256("pp-ledger/slot-committee/v1:slot:N:epoch:M")` mod pool size
+   (**equal weight** within the committee — **designed behavior**, not a
+   temporary stand-in for stake-proportional sampling).
 
 Blocks commit `epoch` + `stakeSnapshotHash` so verifiers can check the election
 inputs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are **not** on the
-live `Chain` path.
+live `Chain` path. Ouroboros is a literature reference only.
+
+**Domain string note:** `slot-committee/v1` replaces legacy `ouroboros/v1`;
+election outputs for the same stake snapshot differ after this rename.
 
 ## ChainNode / storage envelope
 

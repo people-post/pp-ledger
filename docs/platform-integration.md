@@ -219,7 +219,7 @@ no wire version bump).
 Remaining:
 
 1. Optional `ICryptoProvider` if embedders need injection; `keyType` remains on wallets.
-2. Migrate Ouroboros VRF / slot leader logic explicitly (hybrid or PQ-VRF — TBD).
+2. Live path is SlotCommittee (equal-weight top-N). Optional future: private leader proofs / epoch nonce — Ouroboros VRF remains a reference only.
 3. **Stabilize libp2p RPC and ledger wire formats** now that signature/key sizes are PQ.
 4. pp-browser: ledger keys live in `ProfileSecretsService`; avoid long-term plaintext
    `key.txt` files on disk.

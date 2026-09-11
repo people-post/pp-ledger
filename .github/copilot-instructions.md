@@ -4,7 +4,7 @@ This file provides context for GitHub Copilot and Copilot coding agents working 
 
 ## Project Summary
 
-`pp-ledger` is a C++20 blockchain with Ouroboros Proof-of-Stake consensus, written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
+`pp-ledger` is a C++20 blockchain with SlotCommittee leader election (beacon-centered), written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
 
 ## Repository Layout
 
@@ -12,7 +12,7 @@ This file provides context for GitHub Copilot and Copilot coding agents working 
 pp-ledger/
 ├── src/
 │   ├── lib/          # Core utilities: Logger, Serialize, BinaryPack, ResultOrError
-│   ├── consensus/    # Ouroboros PoS: Ouroboros, EpochManager, SlotLeaderSelection, SlotTimer
+│   ├── consensus/    # SlotCommittee + EpochManager, SlotLeaderSelection, SlotTimer
 │   ├── ledger/       # Blockchain storage: Ledger, FileStore, DirStore, etc.
 │   ├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
 │   ├── chain/        # Chain, AccountBuffer, tx helpers

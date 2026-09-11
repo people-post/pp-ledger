@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Source files
 set(CONSENSUS_SOURCES
-    Ouroboros.cpp
+    SlotCommittee.cpp
     SlotLeaderSelection.cpp
     EpochManager.cpp
     SlotTimer.cpp
@@ -16,7 +16,7 @@ set(CONSENSUS_SOURCES
 
 # Header files
 set(CONSENSUS_HEADERS
-    Ouroboros.h
+    SlotCommittee.h
     Types.hpp
     SlotLeaderSelection.h
     EpochManager.h
