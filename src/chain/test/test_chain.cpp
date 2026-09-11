@@ -49,6 +49,7 @@ Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   cfg.checkpoint.minBlocks = 10;
   cfg.checkpoint.minAgeSeconds = 20;
   cfg.maxValidationTimespanSeconds = 86400;
+  cfg.heartbeatSlots = 10; // == slotsPerEpoch default policy
   return cfg;
 }
 
@@ -236,6 +237,7 @@ TEST(ChainTest, GenesisAccountMeta_RoundTrip) {
   EXPECT_EQ(parsed.config.checkpoint.minBlocks, gm.config.checkpoint.minBlocks);
   EXPECT_EQ(parsed.config.checkpoint.minAgeSeconds,
             gm.config.checkpoint.minAgeSeconds);
+  EXPECT_EQ(parsed.config.heartbeatSlots, gm.config.heartbeatSlots);
   EXPECT_EQ(parsed.genesis.wallet.publicKeys, gm.genesis.wallet.publicKeys);
   EXPECT_EQ(parsed.genesis.wallet.minSignatures,
             gm.genesis.wallet.minSignatures);
@@ -1181,5 +1183,35 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   EXPECT_NE(add.error().message.find("slot leader"), std::string::npos)
       << add.error().message;
   EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
+}
+
+TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
+  EXPECT_FALSE(shouldSealEmptyHeartbeat(/*slot=*/10, /*tip=*/0, /*hb=*/0));
+  EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 0, 10));
+  EXPECT_FALSE(shouldSealEmptyHeartbeat(9, 0, 10));
+  EXPECT_TRUE(shouldSealEmptyHeartbeat(10, 0, 10));
+  EXPECT_TRUE(shouldSealEmptyHeartbeat(15, 5, 10));
+  EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 10, 1)); // tip ahead of clock
+}
+
+TEST_F(ChainComposeTest, EmptyHeartbeat_ForcedLeaderSealAccepted) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  ASSERT_FALSE(producer.getStakeholders().empty());
+  EXPECT_EQ(producer.getHeartbeatSlots(), 10u);
+
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  producer.forceSlotLeader(slot, leaderId);
+  peer.forceSlotLeader(slot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  peer.setClockOverride(peer.getSlotStartTime(slot));
+
+  Ledger::ChainNode empty = makeNextBlock(producer, harness_.genesis, {});
+  ASSERT_TRUE(empty.block.records.empty());
+  ASSERT_TRUE(producer.addBlock(empty).isOk()) << "producer commit";
+  ASSERT_TRUE(peer.addBlock(empty).isOk()) << "peer validate empty";
+  EXPECT_EQ(producer.getNextBlockId(), empty.block.index + 1);
+  EXPECT_EQ(peer.getNextBlockId(), empty.block.index + 1);
 }
 

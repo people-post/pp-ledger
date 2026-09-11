@@ -229,15 +229,32 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   if (!slotCache_.isLeader) {
     return false;
   }
-  if (slotCache_.txRenewals.empty() && pendingTxes_.empty()) {
-    return false;
+
+  const bool hasWork =
+      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
+  uint64_t tipSlot = 0;
+  if (!hasWork) {
+    auto tipRoe = chain_.readLastBlock();
+    if (!tipRoe) {
+      return Error(12, "Failed to read tip for heartbeat: " +
+                           tipRoe.error().message);
+    }
+    tipSlot = tipRoe->block.slot;
+    if (!shouldSealEmptyHeartbeat(slot, tipSlot, chain_.getHeartbeatSlots())) {
+      return false;
+    }
   }
 
   if (!chain_.isSlotBlockProductionTime(slot)) {
     return false;
   }
 
-  log().info << "Producing block for slot " << slot;
+  if (hasWork) {
+    log().info << "Producing block for slot " << slot;
+  } else {
+    log().info << "Producing heartbeat empty block for slot " << slot
+               << " (tip slot " << tipSlot << ")";
+  }
 
   Miner::BlockTxSet txSet = getBlockTransactionSet();
   auto createResult = createBlock(slot, txSet.records);

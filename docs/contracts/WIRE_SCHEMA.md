@@ -109,8 +109,9 @@ not installed in `RecordHandler`.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
 - Checkpoints mark chain ranges from which account state can be reconstructed.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION`) includes
-slot timing, fees, checkpoint policy, and `networkId`.
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **3**)
+includes slot timing, fees, checkpoint policy, `networkId`, and
+`heartbeatSlots` (empty-seal lag; `0` disables).
 
 ## Epoch seed
 
@@ -158,6 +159,20 @@ differ. Block `CURRENT_VERSION` is **5** (adds `epochSeed`).
 
 Open follow-ups (registration, production window, beacon failover, …):
 [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
+
+## Empty heartbeat blocks
+
+When a slot leader has **no** renewals and **no** pending txs, they may still
+seal a normal block with empty `records` if:
+
+`currentSlot - tip.slot >= BlockChainConfig.heartbeatSlots`
+
+(`heartbeatSlots == 0` disables). Default at beacon `--init` when the field is
+omitted: `heartbeatSlots = slotsPerEpoch` (about one empty seal per idle epoch).
+
+No special record type; fees are zero for the empty body. Beacon validation is
+unchanged (leader + time window + header commitments). Policy helper:
+`shouldSealEmptyHeartbeat` in `chain/Types.h`; miner gate in `Miner::produceBlock`.
 
 ## ChainNode / storage envelope
 

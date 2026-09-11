@@ -618,7 +618,8 @@ The miner will:
 - Create `miner1/ledger/` directory for blockchain data
 - Create `miner1/miner.log` for detailed logs
 - Listen on `localhost:8518` for connections
-- Automatically produce blocks when elected as slot leader (only if there are pending transactions)
+- Automatically produce blocks when elected as slot leader (pending txs /
+  renewals, or an empty **heartbeat** when tip lag ≥ genesis `heartbeatSlots`)
 
 ### Using the Client
 

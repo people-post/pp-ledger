@@ -132,6 +132,12 @@ uint64_t Chain::getMaxTransactionsPerBlock() const {
              : 0;
 }
 
+uint64_t Chain::getHeartbeatSlots() const {
+  return txContext_.optChainConfig.has_value()
+             ? txContext_.optChainConfig.value().heartbeatSlots
+             : 0;
+}
+
 std::string Chain::getNetworkId() const {
   return txContext_.optChainConfig.has_value()
              ? txContext_.optChainConfig.value().networkId

@@ -40,16 +40,39 @@ struct BlockChainConfig {
   uint64_t maxValidationTimespanSeconds{0};
   /** Chain identity included in every transaction signing message. */
   std::string networkId;
+  /**
+   * Empty-block heartbeat: when the mempool/renewals are idle, a slot leader
+   * may seal an empty block if `currentSlot - tip.slot >= heartbeatSlots`.
+   * `0` disables empty seals (work-only production).
+   */
+  uint64_t heartbeatSlots{0};
 
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
-            &checkpoint &maxValidationTimespanSeconds &networkId;
+            &checkpoint &maxValidationTimespanSeconds &networkId
+                &heartbeatSlots;
   }
 };
 
+/**
+ * Miner empty-seal policy (genesis `heartbeatSlots`).
+ * Requires `currentSlot >= tipSlot` and lag of at least `heartbeatSlots`.
+ * `heartbeatSlots == 0` disables.
+ */
+inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot,
+                                     uint64_t heartbeatSlots) {
+  if (heartbeatSlots == 0) {
+    return false;
+  }
+  if (currentSlot < tipSlot) {
+    return false;
+  }
+  return (currentSlot - tipSlot) >= heartbeatSlots;
+}
+
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 2;
+  constexpr static const uint32_t VERSION = 3;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

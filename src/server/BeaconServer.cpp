@@ -50,6 +50,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   j.setJsonUInt("checkpointMinBlocks", checkpointMinBlocks);
   j.setJsonUInt("checkpointMinAgeSeconds", checkpointMinAgeSeconds);
   j.setJsonUInt("maxValidationTimespanSeconds", maxValidationTimespanSeconds);
+  j.setJsonUInt("heartbeatSlots", heartbeatSlots);
   return j;
 }
 
@@ -186,6 +187,15 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
       return r;
   } else {
     maxValidationTimespanSeconds = DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS;
+  }
+
+  if (jd.contains("heartbeatSlots")) {
+    // Zero allowed: disables empty heartbeats.
+    if (auto r = readU64("heartbeatSlots", heartbeatSlots, true, true); !r)
+      return r;
+  } else {
+    // Default: at most ~one empty seal per idle epoch.
+    heartbeatSlots = slotsPerEpoch;
   }
 
   return {};
@@ -337,6 +347,7 @@ BeaconServer::init(const std::string &workDir) {
              << initFileConfig.maxCustomMetaSize;
   log().info << "  Max transactions per block: "
              << initFileConfig.maxTransactionsPerBlock;
+  log().info << "  Heartbeat slots: " << initFileConfig.heartbeatSlots;
 
   // Prepare init configuration
   Beacon::InitConfig initConfig;
@@ -358,6 +369,7 @@ BeaconServer::init(const std::string &workDir) {
       initFileConfig.checkpointMinAgeSeconds;
   initConfig.chain.maxValidationTimespanSeconds =
       initFileConfig.maxValidationTimespanSeconds;
+  initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
   initConfig.chain.networkId = config_.network_id;
 
   // Generate keypairs; pass KeyPairs to beacon for genesis signing and

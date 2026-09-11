@@ -94,6 +94,8 @@ private:
     uint64_t checkpointMinBlocks{ DEFAULT_CHECKPOINT_MIN_BLOCKS };
     uint64_t checkpointMinAgeSeconds{ DEFAULT_CHECKPOINT_MIN_AGE_SECONDS };
     uint64_t maxValidationTimespanSeconds{ DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS };
+    /** Empty-seal lag; default at parse time = slotsPerEpoch when omitted. */
+    uint64_t heartbeatSlots{0};
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);

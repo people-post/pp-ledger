@@ -17,6 +17,7 @@ Ouroboros remains a **literature reference** only (not a product goal).
 | Equal-weight top‑N | **Designed behavior** — stake gates committee *entry*, not weight inside the pool |
 | Authority model (intent) | **One active beacon at a time**; relays may be promoted if beacon is lost — *mechanism still TBD* (see E) |
 | Epoch seed (D) | Header `epochSeed` (Block v5); derivation in `EpochSeed.*`; election mixes seed — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#epoch-seed) |
+| Empty heartbeats (C) | Genesis `heartbeatSlots`; idle leaders seal empty blocks when tip lag ≥ threshold — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks) |
 
 ---
 
@@ -63,16 +64,17 @@ Ouroboros remains a **literature reference** only (not a product goal).
 
 ---
 
-### C. Empty / heartbeat blocks
+### C. Empty / heartbeat blocks — **done**
 
-**Today:** Leader with no pending txs and no renewals does **not** seal → tip can stall while leadership is healthy.
+**Shipped:** Genesis `BlockChainConfig.heartbeatSlots` (`GenesisAccountMeta` v3). Idle
+slot leaders (no renewals / mempool) seal a normal empty block when
+`currentSlot - tip.slot >= heartbeatSlots`. `0` disables. Beacon `--init` default
+when omitted: `heartbeatSlots = slotsPerEpoch`.
 
-| Allow empty seals (or rare heartbeats) | Keep “block only with work” |
-|----------------------------------------|-----------------------------|
-| Clear liveness; simpler tip smokes | Leaner history; tip ≈ economic activity |
-| Need policy for empty-block fees/storage | Smoke/tip monitors stay mempool-coupled |
+Normative: [WIRE_SCHEMA.md — Empty heartbeat blocks](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks).
+Miner gate: `Miner::produceBlock`.
 
-**Recommendation:** Decide explicitly. For beacon-centered ops, a **rare heartbeat** or “empty seal allowed when leader” is the usual fix; alternatively keep lean history and treat tip progress as `covered-below` + force-leader for multi-process tests.
+Still separate: widen production window (**B**).
 
 ---
 
@@ -106,7 +108,7 @@ Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epo
 
 In-process: `SlotCommittee::forceSlotLeader` / `setClockOverride` (tests only).
 
-Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded committee), **B/C** (window / empty seals), or a **test-only RPC/flag** to force leaders on running binaries.
+Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded committee), **B** (window), heartbeats (**C** shipped), or a **test-only RPC/flag** to force leaders on running binaries.
 
 **Recommendation:** Prefer product fixes (A1 + B and/or C) for real liveness; add out-of-process force-leader only if smoke must be deterministic before those land.
 
@@ -116,9 +118,8 @@ Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded comm
 
 1. **A1** miner registration filter (highest ops/smoke leverage)  
 2. **B** widen production window (cheap, local change)  
-3. **C** empty/heartbeat policy (product call)  
-4. **E** beacon failover mechanism doc → then code  
-5. **F** as needed (D shipped)  
+3. **E** beacon failover mechanism doc → then code  
+4. **F** as needed (C/D shipped)  
 
 ---
 

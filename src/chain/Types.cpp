@@ -23,7 +23,8 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << "checkpoint: " << config.checkpoint << ", "
      << "maxValidationTimespanSeconds: " << config.maxValidationTimespanSeconds
      << ", "
-     << "networkId: " << config.networkId << "}";
+     << "networkId: " << config.networkId << ", "
+     << "heartbeatSlots: " << config.heartbeatSlots << "}";
   return os;
 }
 

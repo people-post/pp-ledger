@@ -121,6 +121,10 @@ public:
   /** Max transactions per block (0 = no limit). Renewals are not counted toward
    * this cap. */
   uint64_t getMaxTransactionsPerBlock() const;
+  /**
+   * Empty heartbeat lag in slots from genesis config (`0` = empty seals off).
+   */
+  uint64_t getHeartbeatSlots() const;
   /** networkId from loaded chain config (empty if config not ready). */
   std::string getNetworkId() const;
 

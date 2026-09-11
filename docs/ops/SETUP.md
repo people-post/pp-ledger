@@ -24,6 +24,7 @@ You can customize `beacon/init-config.json` before initialization:
 {
   "slotDuration": 5,           // Slot duration in seconds (default: 5)
   "slotsPerEpoch": 432,        // Slots per epoch (default: 432 = ~36 minutes)
+  "heartbeatSlots": 432,       // Empty seal when tip lag ≥ this (default: slotsPerEpoch; 0=off)
   "checkpointSize": 1073741824,  // Checkpoint size in bytes (default: 1GB)
   "checkpointAge": 31536000    // Checkpoint age in seconds (default: 1 year)
 }
