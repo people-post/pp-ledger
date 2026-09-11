@@ -42,13 +42,15 @@ services:
 
   http:
     image: *image
+    # Peer dialing uses ADP multiaddrs (replace peer IDs after listeners publish).
+    # Bare host:port is not sufficient for Amp.
     command:
       [
         "pp-http",
         "--bind", "0.0.0.0",
         "--port", "8080",
-        "--beacon", "relay:8519",
-        "--miner", "miner:8518",
+        "--beacon", "/ip4/relay/udp/8519/adp/1.0.0/p2p/REPLACE_RELAY_PEER_ID",
+        "--miner", "/ip4/miner/udp/8518/adp/1.0.0/p2p/REPLACE_MINER_PEER_ID",
       ]
     ports:
       - "8080:8080"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# L-SMOKE-L0: binaries up; pp-client status reaches beacon (via relay) and a miner.
-# Hard-fails on RPC / parse errors.
+# L-SMOKE-L0: fail-fast layers L0a (PIDs) → L0b (beacon RPC) → L0c (miner RPC).
+# Hard-fails on process death / RPC / parse errors; dumps artifacts under $TEST_DIR/artifacts.
 #
 # Usage:
 #   ./scripts/test/pp_ledger_l0_smoke.sh
@@ -22,16 +22,8 @@ fi
 verify_build
 [[ -f "$PID_FILE" ]] || die "network not up (no PID file); run pp_ledger_network.sh up"
 
-wait_for_beacon_rpc "$TIMEOUT_SEC"
-state=$(fetch_beacon_state)
-tip=$(parse_next_block_id "$state")
-[[ -n "$tip" ]] || die "L-SMOKE-L0: beacon status missing nextBlockId"
-echo -e "${GREEN}✓ Beacon status OK (nextBlockId=$tip)${NC}"
-
-miner_id=$(wait_for_miner_ready "$TIMEOUT_SEC")
-mstate=$(fetch_miner_status "$miner_id")
-mtip=$(parse_next_block_id "$mstate")
-[[ -n "$mtip" ]] || die "L-SMOKE-L0: miner status missing nextBlockId"
-echo -e "${GREEN}✓ Miner${miner_id} status OK (nextBlockId=$mtip)${NC}"
+assert_l0a_pids_alive
+assert_l0b_beacon_rpc "$TIMEOUT_SEC"
+assert_l0c_miner_rpc "$TIMEOUT_SEC"
 
 echo -e "${GREEN}L-SMOKE-L0 PASSED${NC}"

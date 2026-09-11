@@ -21,6 +21,20 @@ bool PastDeadline(const std::chrono::steady_clock::time_point deadline) {
   return std::chrono::steady_clock::now() >= deadline;
 }
 
+/** Unbind safely: if the PeerLink/Mux was torn down during pump, do not touch dangling mux_. */
+void DetachSession(pp::amp::PeerLinkManager& links, const std::string& peer_key,
+                   pp::amp::ChannelMux* bound_mux, const std::shared_ptr<pp::amp::ChannelSession>& session) {
+  if (!session) {
+    return;
+  }
+  auto* live = links.FindLink(peer_key);
+  if (bound_mux && live && live->Mux() == bound_mux) {
+    session->ReleaseHandlers();
+  } else {
+    session->OrphanFromMux();
+  }
+}
+
 } // namespace
 
 AmpLedgerTransport::AmpLedgerTransport(pp::amp::PeerLinkManager& links, std::string peer_key, IoPump io_pump)
@@ -101,7 +115,8 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
   std::string frame_error;
 
   auto session = std::make_shared<pp::amp::ChannelSession>();
-  session->Bind(*link->Mux(), channel_id, LedgerRpcChannelPolicy(),
+  pp::amp::ChannelMux* bound_mux = link->Mux();
+  session->Bind(*bound_mux, channel_id, LedgerRpcChannelPolicy(),
                 [&](pp::Roe<std::vector<uint8_t>> body) {
                   if (!body) {
                     frame_error = body.error().message;
@@ -115,6 +130,7 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
 
   std::vector<uint8_t> request(requestBody.begin(), requestBody.end());
   if (!session->EnqueueOutbound(std::move(request))) {
+    DetachSession(links_, peer_key_, bound_mux, session);
     return LedgerTransportError(-1, "AmpLedgerTransport: failed to enqueue request");
   }
   Pump(io_pump_);
@@ -122,6 +138,7 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
   while (!response_done && !PastDeadline(deadline)) {
     Pump(io_pump_);
   }
+  DetachSession(links_, peer_key_, bound_mux, session);
   if (!response_done) {
     return LedgerTransportError(-1, "AmpLedgerTransport: response timeout");
   }

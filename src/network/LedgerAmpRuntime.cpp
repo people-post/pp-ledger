@@ -38,6 +38,9 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   }
   stack_ = std::move(*created);
   stack_->Start();
+  // Amp UDP accept is required for inbound dials (beacon/relay/miner peers and client RPC).
+  // PeerLinkManager installs accept key + handler but leaves accept_enabled_ false by default.
+  stack_->GetEndpoint().SetAcceptEnabled(true);
 
   auto ma = pp::amp::FormatAdpMultiaddr(io_->LocalEndpoint(), stack_->LocalPeerId());
   if (!ma) {

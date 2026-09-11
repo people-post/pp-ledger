@@ -16,8 +16,11 @@ class AmpLedgerServer {
 public:
   using Handler = std::function<std::string(const std::string& requestBody)>;
   using WorkerPost = std::function<void(std::function<void()>)>;
+  /** Queue work onto the Amp IO / pump thread (MeshRuntime::PostToIo). */
+  using IoPost = std::function<void(std::function<void()>)>;
 
-  static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {});
+  static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {},
+                   IoPost post_io = {});
 
   static void Unbind(pp::amp::PeerLinkManager& links);
 };

@@ -63,12 +63,13 @@ Multi-process smoke (L0 / L1 / LATEJOIN):
 ```bash
 ./scripts/test/pp_ledger_local_test.sh run --suite unit
 ./scripts/test/pp_ledger_local_test.sh run --suite l0
-./scripts/test/pp_ledger_local_test.sh run --suite smoke --down
+./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # == l0 until Amp dial green
 ```
 
 See [docs/ops/TEST_STRATEGY.md](docs/ops/TEST_STRATEGY.md) for purpose IDs and script map.
-Harness is in place; multi-process green currently waits on Amp OsUdp localhost dial
-(see TEST_STRATEGY “Known blocker”).
+L0 multi-process smoke is green on localhost OsUdp; L1/LATEJOIN remain slot-lottery flaky
+until out-of-process forced-leader exists. L0 fail-fast layers: PIDs → beacon RPC → miner RPC;
+artifacts under `build/test-smoke/artifacts/` on failure.
 
 ### Running the network
 
@@ -147,6 +148,8 @@ EOF
 | Relay   | 8519 | 8622 |
 | Miner   | 8518 | 8618+ |
 | HTTP API| 8080 | 8680 |
+
+Image smoke scaffold: `deploy/compose.smoke.yml` (ports 8617+; Amp multiaddr placeholders).
 
 ### HTTP API routes
 

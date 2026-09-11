@@ -1,0 +1,67 @@
+# Local / CI image smoke scaffold (ports 8617+; Amp multiaddrs required).
+#
+# This file is intentionally incomplete for first `up`: after beacon --init and
+# process start, copy each service's `AMP ledger listener:` multiaddr into the
+# role configs (relay.beacon, miner.beacons[], http --beacon/--miner).
+#
+# Local harness remains preferred: ./scripts/test/pp_ledger_local_test.sh
+# Suite stub: ./scripts/test/pp_ledger_local_test.sh run --suite image
+#
+# Image: set PP_LEDGER_IMAGE to a local tag while developing.
+
+name: pp-ledger-smoke
+
+x-image: &image ${PP_LEDGER_IMAGE:-ghcr.io/people-post/pp-ledger:latest}
+
+services:
+  beacon:
+    image: *image
+    command: ["pp-beacon", "-d", "/data"]
+    volumes:
+      - ./data-smoke/beacon:/data
+      - ./configs/smoke/beacon-config.json:/data/config.json:ro
+    ports:
+      - "8617:8617/udp"
+    restart: "no"
+
+  relay:
+    image: *image
+    command: ["pp-relay", "-d", "/data"]
+    volumes:
+      - ./data-smoke/relay:/data
+      - ./configs/smoke/relay-config.json:/data/config.json:ro
+    ports:
+      - "8622:8622/udp"
+    depends_on:
+      - beacon
+    restart: "no"
+
+  miner:
+    image: *image
+    command: ["pp-miner", "-d", "/data"]
+    volumes:
+      - ./data-smoke/miner:/data
+      - ./configs/smoke/miner-config.json:/data/config.json:ro
+    ports:
+      - "8618:8618/udp"
+    depends_on:
+      - relay
+    restart: "no"
+
+  http:
+    image: *image
+    # Replace REPLACE_* multiaddrs after containers publish AMP ledger listener lines.
+    command:
+      [
+        "pp-http",
+        "--bind", "0.0.0.0",
+        "--port", "8680",
+        "--beacon", "/ip4/relay/udp/8622/adp/1.0.0/p2p/REPLACE_RELAY_PEER_ID",
+        "--miner", "/ip4/miner/udp/8618/adp/1.0.0/p2p/REPLACE_MINER_PEER_ID",
+      ]
+    ports:
+      - "8680:8680"
+    depends_on:
+      - relay
+      - miner
+    restart: "no"

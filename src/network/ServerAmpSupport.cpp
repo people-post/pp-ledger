@@ -20,8 +20,12 @@ pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchF
       handler_pool_->Post(WorkerLane::Normal, std::move(task));
     };
   }
+  // ChannelSession / Mux are io-thread affine — enqueue replies on the Amp pump.
+  AmpLedgerServer::IoPost post_io = [this](std::function<void()> task) {
+    runtime_.runtime().PostToIo(std::move(task));
+  };
 
-  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker));
+  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io));
   return {};
 }
 

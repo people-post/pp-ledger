@@ -1,10 +1,5 @@
 {
-  "host": "0.0.0.0",
   "port": 8519,
-  "dhtPort": 0,
-  "beacon": {
-    "host": "beacon",
-    "port": 8517,
-    "dhtPort": 0
-  }
+  "keys": ["keys/amp-identity.txt"],
+  "beacon": "/ip4/beacon/udp/8517/adp/1.0.0/p2p/REPLACE_BEACON_PEER_ID"
 }

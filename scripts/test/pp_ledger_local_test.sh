@@ -3,7 +3,8 @@
 #
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
-# Suites: unit | l0 | l1 | latejoin | smoke
+# Suites: unit | l0 | l1 | latejoin | smoke | image
+#   smoke == l0 only until Amp OsUdp dial is green (l1/latejoin stay explicit).
 # See docs/ops/TEST_STRATEGY.md
 set -euo pipefail
 
@@ -29,13 +30,14 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke
+  --suite unit|l0|l1|latejoin|smoke|image
   --down                       stop network after run
 
 Examples:
   $(basename "$0") run --suite unit
   $(basename "$0") run --suite l0
   $(basename "$0") run --suite smoke --down
+  $(basename "$0") run --suite image
 EOF
 }
 
@@ -55,11 +57,15 @@ run_unit() {
 }
 
 ensure_network() {
-  if [[ -f "$PID_FILE" ]]; then
-    echo -e "${CYAN}Reusing existing smoke network${NC}"
-  else
-    network_up
+  if pids_tree_healthy; then
+    echo -e "${CYAN}Reusing healthy smoke network${NC}"
+    return 0
   fi
+  if [[ -f "$PID_FILE" ]]; then
+    echo -e "${YELLOW}Stale/dead PID tree; restarting smoke network${NC}"
+    stop_network || true
+  fi
+  network_up
 }
 
 run_l0() {
@@ -81,10 +87,32 @@ run_latejoin() {
 }
 
 run_smoke() {
-  ensure_network
+  # Until Amp OsUdp localhost dial is green, default smoke is L0 only.
+  # Run --suite l1 / latejoin explicitly for deeper checks.
+  echo -e "${CYAN}suite smoke → l0 (l1/latejoin are separate until Amp dial is green)${NC}"
   run_l0
-  run_l1
-  run_latejoin
+}
+
+run_image() {
+  echo -e "${BLUE}═══ suite image (compose smoke scaffold) ═══${NC}"
+  local compose="${ROOT}/deploy/compose.smoke.yml"
+  [[ -f "$compose" ]] || die "missing $compose"
+  if [[ "${PP_LEDGER_SMOKE_IMAGE_RUN:-0}" != "1" ]]; then
+    echo -e "${YELLOW}SKIPPED: image suite scaffold only.${NC}"
+    echo "  Compose file: $compose"
+    echo "  Set PP_LEDGER_SMOKE_IMAGE_RUN=1 after filling Amp multiaddrs / peer IDs."
+    echo "  See deploy/configs/smoke/README.md and docs/ops/TEST_STRATEGY.md"
+    return 0
+  fi
+  if ! command -v docker >/dev/null 2>&1; then
+    die "docker required for --suite image"
+  fi
+  (
+    cd "${ROOT}/deploy"
+    docker compose -f compose.smoke.yml config >/dev/null
+    echo -e "${GREEN}✓ compose.smoke.yml validates${NC}"
+    echo -e "${YELLOW}Full image bring-up is still manual (Amp multiaddrs after init).${NC}"
+  )
 }
 
 CMD=${1:-}
@@ -121,9 +149,10 @@ case "$CMD" in
       l1) run_l1 ;;
       latejoin) run_latejoin ;;
       smoke) run_smoke ;;
+      image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
     esac
-    if [[ "$DOWN_AFTER" == "1" && "$SUITE" != "unit" ]]; then
+    if [[ "$DOWN_AFTER" == "1" && "$SUITE" != "unit" && "$SUITE" != "image" ]]; then
       stop_network
     fi
     ;;

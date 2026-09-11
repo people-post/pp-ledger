@@ -13,6 +13,10 @@ BUILD_DIR="${PP_LEDGER_BUILD_DIR:-${BUILD_DIR:-${PP_LEDGER_SMOKE_ROOT}/build}}"
 TEST_DIR="${PP_LEDGER_SMOKE_DIR:-${BUILD_DIR}/test-smoke}"
 PID_FILE="${TEST_DIR}/network.pids"
 MULTIADDR_DIR="${TEST_DIR}/multiaddrs"
+ARTIFACTS_DIR="${TEST_DIR}/artifacts"
+FIXTURES_DIR="${PP_LEDGER_SMOKE_FIXTURES:-${PP_LEDGER_SMOKE_ROOT}/scripts/test/fixtures}"
+# Amp identities / generated miner keys survive stop and clear (peer IDs stay stable).
+LAB_KEYS_DIR="${PP_LEDGER_SMOKE_LAB_KEYS:-${BUILD_DIR}/test-smoke-lab-keys}"
 
 NUM_MINERS="${PP_LEDGER_SMOKE_MINERS:-3}"
 BEACON_PORT="${PP_LEDGER_SMOKE_BEACON_PORT:-8617}"
@@ -28,6 +32,104 @@ CHECKPOINT_MIN_AGE_SECONDS="${PP_LEDGER_SMOKE_CHECKPOINT_MIN_AGE_SECONDS:-0}"
 LISTEN_HOST="${PP_LEDGER_SMOKE_LISTEN_HOST:-127.0.0.1}"
 : "${PP_LEDGER_SMOKE_DEBUG:=--debug}"
 DEBUG_FLAG="${PP_LEDGER_SMOKE_DEBUG}"
+
+# ---- Fixtures / artifacts / lab keys ----
+
+render_fixture() {
+  local tmpl_name=$1
+  local out_path=$2
+  shift 2
+  local tmpl="${FIXTURES_DIR}/${tmpl_name}"
+  [[ -f "$tmpl" ]] || die "fixture missing: $tmpl"
+  mkdir -p "$(dirname "$out_path")"
+  python3 - "$tmpl" "$out_path" "$@" <<'PY'
+import sys
+path_in, path_out = sys.argv[1], sys.argv[2]
+text = open(path_in, encoding="utf-8").read()
+for arg in sys.argv[3:]:
+    key, _, val = arg.partition("=")
+    text = text.replace("__" + key + "__", val)
+open(path_out, "w", encoding="utf-8").write(text)
+PY
+}
+
+lab_keys_wipe() {
+  if [[ -d "$LAB_KEYS_DIR" ]]; then
+    rm -rf "$LAB_KEYS_DIR"
+    echo -e "${GREEN}✓ Lab keys cleared ($LAB_KEYS_DIR)${NC}"
+  fi
+}
+
+persist_lab_key() {
+  local src=$1
+  local name=$2
+  [[ -f "$src" ]] || return 0
+  mkdir -p "$LAB_KEYS_DIR"
+  cp -f "$src" "${LAB_KEYS_DIR}/${name}"
+}
+
+restore_lab_key() {
+  local name=$1
+  local dest=$2
+  [[ -f "${LAB_KEYS_DIR}/${name}" ]] || return 1
+  mkdir -p "$(dirname "$dest")"
+  cp -f "${LAB_KEYS_DIR}/${name}" "$dest"
+  return 0
+}
+
+dump_smoke_artifacts() {
+  local stamp
+  stamp=$(date +%Y%m%d-%H%M%S 2>/dev/null || echo "fail")
+  local dest="${ARTIFACTS_DIR}/${stamp}"
+  mkdir -p "$dest"
+  [[ -f "$PID_FILE" ]] && cp -f "$PID_FILE" "$dest/network.pids" 2>/dev/null || true
+  [[ -d "$MULTIADDR_DIR" ]] && cp -a "$MULTIADDR_DIR" "$dest/multiaddrs" 2>/dev/null || true
+  local d
+  for d in beacon relay http; do
+    [[ -f "${TEST_DIR}/${d}/console.log" ]] && cp -f "${TEST_DIR}/${d}/console.log" "$dest/${d}.console.log" 2>/dev/null || true
+    [[ -f "${TEST_DIR}/${d}/config.json" ]] && cp -f "${TEST_DIR}/${d}/config.json" "$dest/${d}.config.json" 2>/dev/null || true
+  done
+  local i
+  for i in $(seq 1 "$NUM_MINERS"); do
+    [[ -f "${TEST_DIR}/miner${i}/console.log" ]] && cp -f "${TEST_DIR}/miner${i}/console.log" "$dest/miner${i}.console.log" 2>/dev/null || true
+    [[ -f "${TEST_DIR}/miner${i}/config.json" ]] && cp -f "${TEST_DIR}/miner${i}/config.json" "$dest/miner${i}.config.json" 2>/dev/null || true
+  done
+  {
+    echo "TEST_DIR=$TEST_DIR"
+    echo "LAB_KEYS_DIR=$LAB_KEYS_DIR"
+    echo "BUILD_DIR=$BUILD_DIR"
+    date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true
+  } >"$dest/meta.txt"
+  echo -e "${YELLOW}Smoke artifacts: $dest${NC}" >&2
+}
+
+pids_tree_healthy() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local name pid any=0
+  while IFS=: read -r name pid; do
+    [[ -n "$name" && -n "$pid" ]] || continue
+    any=1
+    kill -0 "$pid" 2>/dev/null || return 1
+  done <"$PID_FILE"
+  [[ "$any" -eq 1 ]] || return 1
+  # Core roles must be present and alive.
+  local role
+  for role in beacon relay; do
+    pid=$(pid_for_name "$role" 2>/dev/null || true)
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+  done
+  local i found_miner=0
+  for i in $(seq 1 "$NUM_MINERS"); do
+    pid=$(pid_for_name "miner${i}" 2>/dev/null || true)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      found_miner=1
+      break
+    fi
+  done
+  [[ "$found_miner" -eq 1 ]] || return 1
+  return 0
+}
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -125,6 +227,10 @@ clear_network() {
   else
     echo -e "${BLUE}No smoke data to clear${NC}"
   fi
+  # Lab Amp identities survive clear by default (stable peer IDs across fleets).
+  if [[ "${PP_LEDGER_SMOKE_WIPE_LAB_KEYS:-0}" == "1" ]]; then
+    lab_keys_wipe
+  fi
 }
 
 wait_for_listen_multiaddr() {
@@ -172,20 +278,16 @@ miner_multiaddr() {
 initialize_beacon_with_test_config() {
   local beacon_dir="${TEST_DIR}/beacon"
   rm -rf "$beacon_dir"
-  mkdir -p "$beacon_dir"
+  mkdir -p "$beacon_dir/keys"
   touch "$beacon_dir/.signature"
-  cat >"$beacon_dir/init-config.json" <<EOF
-{
-  "slotDuration": ${SLOT_DURATION},
-  "slotsPerEpoch": ${SLOTS_PER_EPOCH},
-  "maxCustomMetaSize": 10000,
-  "maxTransactionsPerBlock": 100,
-  "minFeeCoefficients": [1, 1, 0],
-  "freeCustomMetaSize": 1024,
-  "checkpointMinBlocks": ${CHECKPOINT_MIN_BLOCKS},
-  "checkpointMinAgeSeconds": ${CHECKPOINT_MIN_AGE_SECONDS}
-}
-EOF
+  if restore_lab_key "beacon-amp-identity.txt" "$beacon_dir/keys/amp-identity.txt"; then
+    echo -e "${CYAN}Restored lab beacon Amp identity${NC}"
+  fi
+  render_fixture "init-config.json.tmpl" "$beacon_dir/init-config.json" \
+    "SLOT_DURATION=${SLOT_DURATION}" \
+    "SLOTS_PER_EPOCH=${SLOTS_PER_EPOCH}" \
+    "CHECKPOINT_MIN_BLOCKS=${CHECKPOINT_MIN_BLOCKS}" \
+    "CHECKPOINT_MIN_AGE_SECONDS=${CHECKPOINT_MIN_AGE_SECONDS}"
 
   echo -e "${CYAN}Created init-config.json (slot=${SLOT_DURATION}s, epoch=${SLOTS_PER_EPOCH})${NC}"
 
@@ -196,6 +298,7 @@ EOF
   }
   # Avoid SIGPIPE under pipefail: print a short prefix without head closing early.
   printf '%s\n' "${init_output}" | awk 'NR<=3 {print}' || true
+  persist_lab_key "$beacon_dir/keys/amp-identity.txt" "beacon-amp-identity.txt"
   echo -e "${GREEN}✓ Beacon initialized${NC}"
 
   local key_dir="${TEST_DIR}/keys"
@@ -235,12 +338,9 @@ PYEOF
 
 create_beacon_config() {
   local beacon_dir="${TEST_DIR}/beacon"
-  cat >"$beacon_dir/config.json" <<EOF
-{
-  "host": "${LISTEN_HOST}",
-  "port": ${BEACON_PORT}
-}
-EOF
+  render_fixture "beacon-config.json.tmpl" "$beacon_dir/config.json" \
+    "LISTEN_HOST=${LISTEN_HOST}" \
+    "BEACON_PORT=${BEACON_PORT}"
 }
 
 create_relay_config() {
@@ -250,33 +350,40 @@ create_relay_config() {
   local relay_dir="${TEST_DIR}/relay"
   mkdir -p "$relay_dir/keys"
   if [[ ! -f "$relay_dir/keys/amp-identity.txt" ]]; then
-    write_amp_identity_key "$relay_dir/keys/amp-identity.txt"
+    if restore_lab_key "relay-amp-identity.txt" "$relay_dir/keys/amp-identity.txt"; then
+      echo -e "${CYAN}Restored lab relay Amp identity${NC}"
+    else
+      write_amp_identity_key "$relay_dir/keys/amp-identity.txt"
+    fi
   fi
+  persist_lab_key "$relay_dir/keys/amp-identity.txt" "relay-amp-identity.txt"
   if [[ ! -f "$relay_dir/.signature" ]]; then
     touch "$relay_dir/.signature"
   fi
-  cat >"$relay_dir/config.json" <<EOF
-{
-  "port": ${RELAY_PORT},
-  "keys": ["keys/amp-identity.txt"],
-  "beacon": "${beacon_ma}"
-}
-EOF
+  render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
+    "RELAY_PORT=${RELAY_PORT}" \
+    "BEACON_MULTIADDR=${beacon_ma}"
 }
 
 generate_miner_key() {
   local miner_id=$1
   local key_dir="${TEST_DIR}/keys"
   local key_file="${key_dir}/miner${miner_id}.key"
+  local lab_name="miner${miner_id}.key"
   mkdir -p "$key_dir"
   if [[ ! -f "$key_file" ]]; then
-    local output hex
-    output=$("$BUILD_DIR/app/pp-client" keygen 2>&1) || {
-      echo "$output" >&2
-      die "pp-client keygen failed"
-    }
-    hex=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
-    hex_to_bin_file "$hex" "$key_file"
+    if restore_lab_key "$lab_name" "$key_file"; then
+      :
+    else
+      local output hex
+      output=$("$BUILD_DIR/app/pp-client" keygen 2>&1) || {
+        echo "$output" >&2
+        die "pp-client keygen failed"
+      }
+      hex=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
+      hex_to_bin_file "$hex" "$key_file"
+      persist_lab_key "$key_file" "$lab_name"
+    fi
   fi
   echo "$key_file"
 }
@@ -311,15 +418,12 @@ create_miner_config() {
     keys_json='["key.txt"]'
   fi
 
-  cat >"$miner_dir/config.json" <<EOF
-{
-  "minerId": ${miner_id},
-  "keys": ${keys_json},
-  "host": "${LISTEN_HOST}",
-  "port": ${miner_port},
-  "beacons": ["${relay_ma}"]
-}
-EOF
+  render_fixture "miner-config.json.tmpl" "$miner_dir/config.json" \
+    "MINER_ID=${miner_id}" \
+    "KEYS_JSON=${keys_json}" \
+    "LISTEN_HOST=${LISTEN_HOST}" \
+    "MINER_PORT=${miner_port}" \
+    "RELAY_MULTIADDR=${relay_ma}"
 }
 
 pid_for_name() {
@@ -531,7 +635,34 @@ fetch_miner_status() {
 
 parse_next_block_id() {
   local text=$1
-  echo "$text" | grep -o '"nextBlockId"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' | head -1
+  local id=""
+  id=$(printf '%s' "$text" | python3 -c '
+import json, sys
+text = sys.stdin.read()
+dec = json.JSONDecoder()
+i = 0
+last = None
+while i < len(text):
+    if text[i] == "{":
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and "nextBlockId" in obj:
+            last = obj["nextBlockId"]
+        i = end
+    else:
+        i += 1
+if last is None:
+    sys.exit(1)
+print(last)
+' 2>/dev/null || true)
+  if [[ -z "$id" ]]; then
+    # Fallback for non-JSON / partial prints.
+    id=$(printf '%s' "$text" | grep -oE '"nextBlockId"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | tail -1 || true)
+  fi
+  printf '%s' "$id"
 }
 
 get_next_block_id() {
@@ -565,6 +696,7 @@ wait_for_beacon_rpc() {
     sleep 2
     elapsed=$((elapsed + 2))
   done
+  dump_smoke_artifacts || true
   die "beacon RPC not ready within ${max_wait}s"
 }
 
@@ -584,7 +716,61 @@ wait_for_miner_ready() {
     sleep 2
     elapsed=$((elapsed + 2))
   done
+  dump_smoke_artifacts || true
   die "no miner RPC ready within ${max_wait}s"
+}
+
+# ---- L0 ready-gate layers (fail-fast) ----
+
+assert_l0a_pids_alive() {
+  echo -e "${CYAN}L0a: process PIDs alive${NC}"
+  pids_tree_healthy || {
+    dump_smoke_artifacts || true
+    die "L0a failed: smoke PID tree unhealthy (beacon/relay/miner)"
+  }
+  echo -e "${GREEN}✓ L0a: core processes alive${NC}"
+}
+
+assert_l0b_beacon_rpc() {
+  local timeout_sec=${1:-60}
+  echo -e "${CYAN}L0b: beacon RPC via relay${NC}"
+  wait_for_beacon_rpc "$timeout_sec"
+  local state tip
+  state=$(fetch_beacon_state) || {
+    dump_smoke_artifacts || true
+    die "L0b failed: beacon status RPC"
+  }
+  tip=$(parse_next_block_id "$state")
+  [[ -n "$tip" ]] || {
+    dump_smoke_artifacts || true
+    die "L0b failed: beacon status missing nextBlockId"
+  }
+  echo -e "${GREEN}✓ L0b: beacon status OK (nextBlockId=$tip)${NC}"
+}
+
+assert_l0c_miner_rpc() {
+  local timeout_sec=${1:-60}
+  echo -e "${CYAN}L0c: miner RPC${NC}"
+  local miner_id mstate mtip
+  miner_id=$(wait_for_miner_ready "$timeout_sec")
+  mstate=$(fetch_miner_status "$miner_id") || {
+    dump_smoke_artifacts || true
+    die "L0c failed: miner${miner_id} status RPC"
+  }
+  mtip=$(parse_next_block_id "$mstate")
+  [[ -n "$mtip" ]] || {
+    dump_smoke_artifacts || true
+    die "L0c failed: miner${miner_id} status missing nextBlockId"
+  }
+  echo -e "${GREEN}✓ L0c: miner${miner_id} status OK (nextBlockId=$mtip)${NC}"
+}
+
+network_ready() {
+  local timeout_sec=${1:-60}
+  assert_l0a_pids_alive
+  assert_l0b_beacon_rpc "$timeout_sec"
+  assert_l0c_miner_rpc "$timeout_sec"
+  echo -e "${GREEN}✓ network_ready${NC}"
 }
 
 wait_for_blocks() {

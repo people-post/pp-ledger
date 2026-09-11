@@ -1,0 +1,9 @@
+{
+  "minerId": 1,
+  "keys": ["key.txt"],
+  "host": "0.0.0.0",
+  "port": 8618,
+  "beacons": [
+    "/ip4/relay/udp/8622/adp/1.0.0/p2p/REPLACE_RELAY_PEER_ID"
+  ]
+}
