@@ -22,12 +22,43 @@ ingress / invariants).
 
 ---
 
+## Local driver
+
+Preferred entry point (mirrors pp-browser `pp_local_test.sh`):
+
+```bash
+./scripts/test/pp_ledger_local_test.sh run --suite unit
+./scripts/test/pp_ledger_local_test.sh run --suite l0
+./scripts/test/pp_ledger_local_test.sh run --suite l1
+./scripts/test/pp_ledger_local_test.sh run --suite latejoin
+./scripts/test/pp_ledger_local_test.sh run --suite smoke --down
+./scripts/test/pp_ledger_local_test.sh stop   # or clear | status
+```
+
+Lifecycle only: `./scripts/test/pp_ledger_network.sh up|stop|clear|status`.
+
+Root `test-network.sh` / `test-checkpoint-cycles.sh` are thin compatibility wrappers.
+
+Smoke profile uses UDP ports **8617+** (beacon 8617, miners 8618+, relay 8622) and
+dials via **ADP multiaddrs** (`pp-client --host '/ip4/.../adp/.../p2p/...'`).
+Listen multiaddrs are scraped from `AMP ledger listener:` lines (`0.0.0.0` rewritten to
+`127.0.0.1` for dialing).
+
+**Known blocker (not owned by this harness):** packaged Amp **OsUdp** peer dial currently
+times out on localhost (`amp link manager: dial timeout`), so relay sync / miner upstream
+connect / `pp-client status` fail after listen multiaddrs are published. In-process Amp
+memory fabric gtests still own RPC correctness (`L-NET-*`). Treat multi-process L0/L1/LATEJOIN
+as harness-ready / `cost/flake` until OsUdp dial is fixed — discuss separately from this
+script layout.
+
+---
+
 ## CI ladder (target)
 
 | Gate | Contents | Status |
 |------|----------|--------|
 | **PR** | `ctest` (unit + Amp RPC compose) | Wired today via `scripts/ci-build.sh --with-tests` |
-| **Nightly / manual** | L0/L1 multi-process smoke (`test-network.sh`, hardened `test-checkpoint-cycles.sh`) | Scripts exist; not CI-gated yet |
+| **Nightly / manual** | `--suite l0` / `l1` / `latejoin` via `pp_ledger_local_test.sh` | Harness done; green blocked on Amp OsUdp dial; **not CI-gated** |
 | **Weekly / manual** | Chaos restart, soak, capacity curves | Planned (`cost/flake` until green) |
 
 Do **not** PR-block on probabilistic empty-slot waits. Use clock/leader inject in
@@ -48,10 +79,10 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-NET-RPC** | Amp ledger RPC echo + Client framing | Integration (`test_amp_ledger_rpc`) | |
 | **L-NET-LOSS** | RPC fails clean under total datagram loss | Integration (`RoundTripFailsWhenDatagramsDropped`, `SuccessThenLossFailsSecondRoundTrip`) | Docker netem = `covered-above` later |
 | **L-NET-REORDER** | RPC survives reorder window | Integration (`RoundTripSurvivesReorderWindow`) | Amp `MemoryDatagramIo::SetReorderWindow` (random release) |
-| **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`test-network.sh`) | Not CI-gated yet |
+| **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`scripts/test/pp_ledger_l0_smoke.sh`) | Harness ready; `cost/flake` until Amp OsUdp dial works |
 | **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
-| **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke | Assert tip progress (not only process up) |
-| **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`test-checkpoint-cycles.sh` scenario 3) | Hard `nextBlockId` equality assert |
+| **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke (`scripts/test/pp_ledger_l1_smoke.sh`) | Short slots + tx inject; `cost/flake` (OsUdp dial + empty-slot lottery) |
+| **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; `cost/flake` until OsUdp dial |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
@@ -63,8 +94,13 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 
 | Script | Role |
 |--------|------|
-| `test-network.sh` | L0/L1 local testnet bring-up (beacon + miners; optional HTTP) |
-| `test-checkpoint-cycles.sh` | Checkpoint / late-joiner scenarios; **must assert tip equality** on late join |
+| `scripts/test/pp_ledger_local_test.sh` | Suite driver (`unit` / `l0` / `l1` / `latejoin` / `smoke`) |
+| `scripts/test/pp_ledger_network.sh` | Lifecycle `up` / `stop` / `clear` / `status` |
+| `scripts/test/pp_ledger_smoke_lib.sh` | Shared bring-up + hard-fail `pp-client` helpers |
+| `scripts/test/pp_ledger_l0_smoke.sh` | L-SMOKE-L0 |
+| `scripts/test/pp_ledger_l1_smoke.sh` | L-SMOKE-L1 |
+| `scripts/test/pp_ledger_latejoin_smoke.sh` | L-SMOKE-LATEJOIN |
+| `test-network.sh` / `test-checkpoint-cycles.sh` | Thin root wrappers |
 | `deploy/` compose | Manual image smoke |
 
 When adding a scenario: give it a purpose ID, a hard assert, and a skip reason if

@@ -78,6 +78,8 @@ Every high-risk behavior needs a home tier **or** an explicit skip:
   `src/network/amp/test/test_amp_ledger_rpc.cpp`. Reorder/dup are covered in-process
   (`covered-above` for Docker netem until needed).
 - Prefer thin `pp-client` probes over ad-hoc `curl` for smoke asserts.
+- Multi-process smoke driver: [`scripts/test/pp_ledger_local_test.sh`](../../scripts/test/pp_ledger_local_test.sh)
+  (ops inventory in [TEST_STRATEGY.md](../ops/TEST_STRATEGY.md)).
 
 ---
 

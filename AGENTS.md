@@ -54,39 +54,56 @@ Doctrine + purpose catalog: [docs/architecture/TESTING.md](docs/architecture/TES
 
 ```bash
 cd /workspace/build && ctest --output-on-failure
+# or:
+./scripts/ci-build.sh --test
 ```
 
-326 tests across lib, consensus, ledger, network, and server components.
+Multi-process smoke (L0 / L1 / LATEJOIN):
+
+```bash
+./scripts/test/pp_ledger_local_test.sh run --suite unit
+./scripts/test/pp_ledger_local_test.sh run --suite l0
+./scripts/test/pp_ledger_local_test.sh run --suite smoke --down
+```
+
+See [docs/ops/TEST_STRATEGY.md](docs/ops/TEST_STRATEGY.md) for purpose IDs and script map.
+Harness is in place; multi-process green currently waits on Amp OsUdp localhost dial
+(see TEST_STRATEGY “Known blocker”).
 
 ### Running the network
 
-See `README.md` "Quick Start" section. Key gotchas:
+Prefer the smoke harness for local fleets:
+
+```bash
+./scripts/test/pp_ledger_local_test.sh up
+./scripts/test/pp_ledger_local_test.sh status
+./scripts/test/pp_ledger_local_test.sh clear
+```
+
+Manual bring-up gotchas (see also [docs/amp-transport.md](docs/amp-transport.md)):
 
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
-- **Miner config** requires `"keys"` (array of key-file paths) pointing to files containing hex-encoded ML-DSA-65 private keys (8064 hex chars), and `"beacons"` (array of `{ "host", "port", "dhtPort" }` objects).
-- The `test-network.sh` script uses `"key"` (singular string) in miner configs instead of `"keys"` (array). If this hasn't been fixed, set up miners manually — see the manual setup example below.
-- Slot leader election is **VRF-based and probabilistic**; a single miner may not be elected for many consecutive slots. This is normal.
+- Peer dialing uses **ADP multiaddrs** (`/ip4/.../udp/.../adp/1.0.0/p2p/<peer-id>`), not host:port alone. Each server logs `AMP ledger listener: ...` on start — copy that into relay `beacon`, miner `beacons[]`, and `pp-client --host`.
+- **Miner config** requires `"keys"` (array of key-file paths) and `"beacons"` (array of multiaddr strings or `{host,port,peerId}` objects).
+- Slot leader election is probabilistic; empty slots are normal. Smoke L1 uses short slots + tx inject and may be flaky until forced-leader is available out-of-process.
 
 #### Relay server
 
-The **relay server** (`pp-relay`) sits between the beacon and miners. Miners connect to the relay instead of the beacon directly. Start with:
+The **relay server** (`pp-relay`) sits between the beacon and miners. Start with:
 
 ```bash
 ./app/pp-relay -d relay1
 ```
 
-Config (`relay1/config.json`) is auto-created on first run. Edit it to set the upstream `beacon` endpoint:
+Config example (multiaddr form):
 
 ```json
 {
-  "host": "localhost",
   "port": 8519,
-  "dhtPort": 0,
-  "beacon": { "host": "localhost", "port": 8517, "dhtPort": 0 }
+  "keys": ["keys/amp-identity.txt"],
+  "beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"
 }
 ```
-
-Point miners' `beacons` config entries at the relay endpoint (e.g. `localhost:8519`) rather than directly at the beacon.
 
 #### Manual test network
 
@@ -96,27 +113,27 @@ cd /workspace/build
 # 1. Initialize beacon
 ./app/pp-beacon -d test-manual/beacon --init
 
-# 2. Start beacon
+# 2. Start beacon; copy AMP ledger listener multiaddr from logs
 ./app/pp-beacon -d test-manual/beacon &
 
-# 3. Create miner key and config
+# 3. Create miner key and config (beacons[] = relay or beacon multiaddr)
 mkdir -p test-manual/miner1
 ./app/pp-client keygen | tee /tmp/keygen.out
 grep 'Private key' /tmp/keygen.out | sed 's/.*: *//' | tr -d ' \n' > test-manual/miner1/key.txt
 cat > test-manual/miner1/config.json << 'EOF'
 {
   "minerId": 1,
-  "keys": ["/workspace/build/test-manual/miner1/key.txt"],
-  "host": "localhost",
+  "keys": ["key.txt"],
+  "host": "127.0.0.1",
   "port": 8518,
-  "beacons": [{"host":"localhost","port":8517,"dhtPort":0}]
+  "beacons": ["/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>"]
 }
 EOF
 
 # 4. Start miner
 ./app/pp-miner -d test-manual/miner1 &
 
-# 5. Start HTTP API (optional)
+# 5. HTTP API (optional; needs ADP multiaddrs)
 ./app/pp-http --port 8080 \
   --beacon '/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon-peer-id>' \
   --miner '/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/<miner-peer-id>' &
@@ -124,12 +141,12 @@ EOF
 
 ### Default ports
 
-| Service | Port |
-|---------|------|
-| Beacon  | 8517 |
-| Relay   | 8519 (configure to avoid conflict with beacon/miner) |
-| Miner   | 8518 |
-| HTTP API| 8080 |
+| Service | Port (dogfood) | Smoke harness |
+|---------|----------------|---------------|
+| Beacon  | 8517 | 8617 |
+| Relay   | 8519 | 8622 |
+| Miner   | 8518 | 8618+ |
+| HTTP API| 8080 | 8680 |
 
 ### HTTP API routes
 
