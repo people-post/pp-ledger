@@ -196,21 +196,15 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
 Ledger::ChainNode makeNextBlockAtSlot(
     Chain &validator, const Ledger::ChainNode &previous, uint64_t slot,
     const std::vector<Ledger::Record> &records) {
-  Ledger::ChainNode block;
-  block.block.index = previous.block.index + 1;
-  block.block.previousHash = previous.hash;
-  block.block.slot = slot;
-  block.block.timestamp = validator.getSlotStartTime(block.block.slot);
-  const uint64_t epoch = validator.getEpochFromSlot(block.block.slot);
+  const uint64_t epoch = validator.getEpochFromSlot(slot);
   auto seedRoe = validator.ensureEpochSeed(epoch);
   EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
-  auto leaderResult = validator.getSlotLeader(block.block.slot);
+  auto leaderResult = validator.getSlotLeader(slot);
   EXPECT_TRUE(leaderResult.isOk())
       << (leaderResult.isOk() ? "" : leaderResult.error().message);
-  block.block.slotLeader = leaderResult.isOk() ? leaderResult.value() : 0;
-  block.block.txIndex =
-      previous.block.txIndex + previous.block.records.size();
-  block.block.records = records;
+  auto block = validator.linkNextBlock(
+      previous, slot, leaderResult.isOk() ? leaderResult.value() : 0,
+      validator.getSlotStartTime(slot), records);
   auto sealResult = validator.sealBlock(block);
   EXPECT_TRUE(sealResult.isOk())
       << (sealResult.isOk() ? "" : sealResult.error().message);

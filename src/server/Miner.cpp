@@ -359,23 +359,14 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
                          latestBlockResult.error().message);
   }
   auto latestBlock = latestBlockResult.value();
-  const uint64_t blockIndex = latestBlock.block.index + 1;
-
-  Ledger::ChainNode block;
-  block.block.index = blockIndex;
-  block.block.timestamp = timestamp;
-  block.block.previousHash = latestBlock.hash;
-  block.block.slot = slot;
-  block.block.slotLeader = config_.minerId;
-  block.block.txIndex =
-      latestBlock.block.txIndex + latestBlock.block.records.size();
-  block.block.records = records;
+  auto block = chain_.linkNextBlock(latestBlock, slot, config_.minerId,
+                                    timestamp, records);
   auto sealResult = chain_.sealBlock(block);
   if (!sealResult) {
     return Error(12, "Failed to seal block: " + sealResult.error().message);
   }
 
-  log().debug << "Created block " << blockIndex << " with "
+  log().debug << "Created block " << block.block.index << " with "
               << block.block.records.size() << " transactions";
 
   return block;

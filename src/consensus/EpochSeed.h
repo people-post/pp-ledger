@@ -8,7 +8,8 @@
 namespace pp {
 namespace consensus {
 
-/** Lookback window for prior-epoch tip material (anti-grind). */
+/** Lookback window for prior-epoch tip material (anti-grind). Protocol constant;
+ * see docs/architecture/BLOCK_PIPELINE.md — not BlockChainConfig. */
 inline constexpr size_t kEpochSeedLookback = 8;
 
 /**

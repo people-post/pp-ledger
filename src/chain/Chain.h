@@ -140,6 +140,16 @@ public:
    */
   Roe<void> sealBlock(Ledger::ChainNode &block);
 
+  /**
+   * Assemble (producer half): next-block link fields from `previous`.
+   * Does not fill epoch / stake / seed / txRoot — `sealBlock` →
+   * `assembleBlockHeader` does that. See BLOCK_PIPELINE.md.
+   */
+  Ledger::ChainNode linkNextBlock(const Ledger::ChainNode &previous,
+                                  uint64_t slot, uint64_t slotLeader,
+                                  int64_t timestamp,
+                                  std::vector<Ledger::Record> records) const;
+
   Roe<std::vector<Ledger::Record>>
   collectRenewals(uint64_t slot) const;
 

@@ -2,7 +2,7 @@
 
 **Status:** normative for `Chain` admission / apply / persist  
 **Code:** `chain/BlockAdmission.h`, `chain/BlockValidation.*` (`checkBlock*`),
-`Chain::{assembleBlockHeader,sealBlock,addBlock,commitSealedBlock,loadFromLedger}`,
+`Chain::{linkNextBlock,assembleBlockHeader,sealBlock,addBlock,commitSealedBlock,loadFromLedger}`,
 `Miner::{shouldAttemptProduction,produceBlock,createBlock}`
 
 Production, peer ingest, seal-commit, and ledger replay share one **apply** path
@@ -13,14 +13,14 @@ which `BlockAdmissionMode` they select.
 
 | Stage | Mutates tip bank? | Persist? | Responsibility |
 |-------|-------------------|----------|----------------|
-| **Assemble** | no | no | Producer picks txs; fills slot/leader/timestamp; `assembleBlockHeader` fills epoch / stake / seed / txRoot |
+| **Assemble** | no | no | (1) Producer: `linkNextBlock` — index / previousHash / slot / leader / timestamp / txIndex / records. (2) `assembleBlockHeader` (inside seal) — epoch / stake / seed / txRoot |
 | **Check** | no | no | `checkBlock` layers (mode-selected) |
 | **Apply** | **once** | no | Tx handlers → tip `AccountBuffer`; seal computes `stateRoot` + hash |
 | **Commit** | no | yes | Ledger write; clear `pendingSeal_` |
 
-`sealBlock` = Assemble → Check (non-genesis Full layers) → Apply (**always Full**) → pending seal.  
+`sealBlock` = `assembleBlockHeader` → Check (non-genesis Full) → Apply (**always Full**) → pending seal.  
 Seal is refused while `admissionModeFor` is `CheckpointReplay` (catch-up mount).  
-`createBlock` fills index/links then calls `sealBlock`.  
+`createBlock` / tests: `linkNextBlock` then `sealBlock`.  
 On Check/Apply failure after Assemble, the caller's `ChainNode` may retain
 partial header fields; callers should discard it (miner builds a fresh node).
 
@@ -64,13 +64,27 @@ beacon (or equivalent). Do not treat arbitrary peer feed as Full-equivalent.
 `checkBlock(mode)` runs structural always; consensus + body only for **Full**.
 
 Empty-heartbeat lag applies only when `records` is empty; any non-empty body
-bypasses that rate limit (renewals / mempool work). That is intentional.
+bypasses that rate limit (renewals / mempool work). That is intentional
+(liveness signal: chain is active).
+
+## Protocol constants (fork-critical if changed)
+
+Live code keeps these as **compile-time** constants (not `BlockChainConfig`):
+
+| Constant | Value | Location |
+|----------|-------|----------|
+| Committee max pool size | `100` | `SlotCommittee::kMaxLeaderPoolSize` |
+| Epoch-seed tip lookback | `8` | `consensus::kEpochSeedLookback` |
+
+If either is ever exposed as a network knob, it **must** move into genesis
+`BlockChainConfig` (and bump `GenesisAccountMeta` / wire docs): diverging values
+fork leader election / `epochSeed`. Prefer leaving them hardcoded until then.
 
 ## Role map
 
 | Role | Pipeline |
 |------|----------|
-| **Produce** | Assemble (miner txs + `createBlock`) → UX gate `shouldAttemptProduction` → `sealBlock` (Assemble + Full Check + Full Apply) → broadcast → `addBlock` → `commitSealedBlock` |
+| **Produce** | txs → `linkNextBlock` → UX `shouldAttemptProduction` → `sealBlock` → broadcast → `addBlock` → `commitSealedBlock` |
 | **Peer / beacon ingest** | `addBlock` → Check(`admissionModeFor`) → Apply → Commit |
 | **Replay** | `loadFromLedger` → Check(Full or CheckpointReplay) → Apply (no persist) |
 | **Late join** | Mount at checkpoint → CheckpointReplay until tip advances past checkpoint → then Full; no seal until Full |
@@ -85,6 +99,32 @@ structural Check.
   admission still enforces heartbeat via `checkBlockBodyPolicy`.
 - Tx fee / signature / idempotency windows stay in handlers, keyed by
   `admissionTxStrict(admissionMode)` on the apply context.
+
+## Open design discussions (deferred)
+
+Capture for a later design pass — not scheduled implementation.
+
+### A. CheckpointReplay trust model
+
+Soft catch-up skips consensus/body and may soft-skip signatures when the signer
+account is missing. Today that assumes a **trusted beacon** (or equivalent) feed.
+Alternatives if peers can supply catch-up blocks: require Full after N blocks,
+attested checkpoint blobs, or a distinct `TrustedReplay` mode with explicit
+source binding. See Late join above.
+
+### B. `T_CONFIG` mutation policy for `heartbeatSlots` (and kin)
+
+`T_CONFIG` can replace `heartbeatSlots` (including `0` / `1`) with no
+monotonicity or delay. Decide whether liveness knobs are free governance
+updates, need floors/ceilings, or epoch-delayed activation — same class of
+question as other mutable `BlockChainConfig` fields.
+
+### C. Slot production window
+
+`isSlotBlockProductionTime` is still ~last 1s of the slot (local UX). Open
+product choice: widen for ops/smoke, keep local-only, or (only if mandated
+network-wide) put a window parameter in chain config. See also
+[SLOT_COMMITTEE_OPEN_ITEMS.md](SLOT_COMMITTEE_OPEN_ITEMS.md) item B.
 
 ## Related
 

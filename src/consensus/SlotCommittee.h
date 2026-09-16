@@ -120,7 +120,8 @@ private:
   std::string hashSlotElection(uint64_t slot, uint64_t epoch,
                                const std::string &epochSeed) const;
 
-  static constexpr size_t kMaxLeaderPoolSize = 100;
+  static constexpr size_t kMaxLeaderPoolSize = 100; // protocol constant; see BLOCK_PIPELINE.md
+
 
   Config config_;
   Cache cache_;

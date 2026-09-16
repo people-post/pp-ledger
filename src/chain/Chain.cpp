@@ -451,6 +451,21 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
   return chain_block::calculateBlockHash(block);
 }
 
+Ledger::ChainNode Chain::linkNextBlock(
+    const Ledger::ChainNode &previous, uint64_t slot, uint64_t slotLeader,
+    int64_t timestamp, std::vector<Ledger::Record> records) const {
+  Ledger::ChainNode block;
+  block.block.index = previous.block.index + 1;
+  block.block.previousHash = previous.hash;
+  block.block.slot = slot;
+  block.block.slotLeader = slotLeader;
+  block.block.timestamp = timestamp;
+  block.block.txIndex =
+      previous.block.txIndex + previous.block.records.size();
+  block.block.records = std::move(records);
+  return block;
+}
+
 Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   if (block.block.index == 0) {
     block.block.epoch = 0;
