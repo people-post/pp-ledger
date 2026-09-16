@@ -1,7 +1,8 @@
 # Block pipeline
 
 **Status:** normative for `Chain` admission / apply / persist  
-**Code:** `chain/BlockValidation.*` (`checkBlock*`), `Chain::{sealBlock,addBlock,commitSealedBlock,loadFromLedger}`
+**Code:** `chain/BlockAdmission.h`, `chain/BlockValidation.*` (`checkBlock*`),
+`Chain::{sealBlock,addBlock,commitSealedBlock,loadFromLedger}`
 
 Production, peer ingest, seal-commit, and ledger replay share one **apply** path
 and one **admission** helper. Roles differ only by which stages they run and
