@@ -18,14 +18,17 @@ which `BlockAdmissionMode` they select.
 | **Apply** | **once** | no | Tx handlers → tip `AccountBuffer`; seal computes `stateRoot` + hash |
 | **Commit** | no | yes | Ledger write; clear `pendingSeal_` |
 
-`sealBlock` = Assemble → Check (non-genesis Full layers) → Apply → pending seal.
-`createBlock` fills index/links then calls `sealBlock`.
+`sealBlock` = Assemble → Check (non-genesis Full layers) → Apply (**always Full**) → pending seal.  
+Seal is refused while `admissionModeFor` is `CheckpointReplay` (catch-up mount).  
+`createBlock` fills index/links then calls `sealBlock`.  
+On Check/Apply failure after Assemble, the caller's `ChainNode` may retain
+partial header fields; callers should discard it (miner builds a fresh node).
 
 ## Modes (`BlockAdmissionMode`)
 
 | Mode | Layers | Tx apply | Used by |
 |------|--------|----------|---------|
-| **Full** | structural + consensus + body | strict | Tip ingest; live seal policy; genesis→tip replay (`startingBlockId == 0`) |
+| **Full** | structural + consensus + body | strict | Tip ingest; **all seals**; genesis→tip replay (`startingBlockId == 0`) |
 | **CheckpointReplay** | structural only | soft | `loadFromLedger` from checkpoint; live ingest while `currentId == lastId` |
 | **SealedCommitVerify** | structural only | n/a (already applied) | `commitSealedBlock` after `sealBlock` |
 
@@ -44,8 +47,11 @@ handlers call `admissionTxStrict(mode)` instead of a parallel bool.
    (`admissionModeFor`) — soft sync catch-up after mount.
 4. After checkpoint rotation advances `currentId` past `lastId`, blocks with
    `index >= currentId` use **Full**.
+5. **Produce/seal** requires Full; soft catch-up must not mint tip state.
 
-This is intentional softness for catch-up, not a second validation engine.
+**Trust:** CheckpointReplay skips consensus/body and may soft-skip signatures when
+the signer account is missing. Safe only if catch-up blocks come from a trusted
+beacon (or equivalent). Do not treat arbitrary peer feed as Full-equivalent.
 
 ## Layers (`checkBlock*`)
 
@@ -57,14 +63,17 @@ This is intentional softness for catch-up, not a second validation engine.
 
 `checkBlock(mode)` runs structural always; consensus + body only for **Full**.
 
+Empty-heartbeat lag applies only when `records` is empty; any non-empty body
+bypasses that rate limit (renewals / mempool work). That is intentional.
+
 ## Role map
 
 | Role | Pipeline |
 |------|----------|
-| **Produce** | Assemble (miner txs + `createBlock`) → UX gate `shouldAttemptProduction` → `sealBlock` (Assemble header + Check + Apply) → broadcast → `addBlock` → `commitSealedBlock` |
+| **Produce** | Assemble (miner txs + `createBlock`) → UX gate `shouldAttemptProduction` → `sealBlock` (Assemble + Full Check + Full Apply) → broadcast → `addBlock` → `commitSealedBlock` |
 | **Peer / beacon ingest** | `addBlock` → Check(`admissionModeFor`) → Apply → Commit |
 | **Replay** | `loadFromLedger` → Check(Full or CheckpointReplay) → Apply (no persist) |
-| **Late join** | Mount at checkpoint → CheckpointReplay until tip advances past checkpoint → then Full |
+| **Late join** | Mount at checkpoint → CheckpointReplay until tip advances past checkpoint → then Full; no seal until Full |
 
 Seal cannot run structural Check before Apply (hash needs `stateRoot`). It runs
 consensus + body on the assembled header, Applies once, then commit runs

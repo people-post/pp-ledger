@@ -498,13 +498,21 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
                  "Cannot seal while a previous sealed block is uncommitted");
   }
 
-  // Assemble → Check (non-genesis) → Apply → Commit-hold (pendingSeal).
+  // Assemble → Check (non-genesis Full layers) → Apply (always Full) →
+  // Commit-hold (pendingSeal). Do not use admissionModeFor for seal apply:
+  // late-join CheckpointReplay is for trusted catch-up ingest only.
   auto assembled = assembleBlockHeader(block);
   if (!assembled) {
     return assembled;
   }
 
   if (block.block.index > 0) {
+    if (admissionModeFor(block.block.index) !=
+        chain_block::BlockAdmissionMode::Full) {
+      return Error(E_BLOCK_VALIDATION,
+                   "Cannot seal under CheckpointReplay; finish tip catch-up "
+                   "first");
+    }
     // Shared Full policy before apply (peers run the same layers via checkBlock).
     // Structural (hash) waits until stateRoot is known after apply.
     auto consensusCheck = mapTxVoid(
@@ -522,14 +530,14 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
 
   // Single apply on the tip bank (same path addBlock would use). Matching
   // addBlock persists only — no second apply, no AccountBuffer overlay.
-  const auto admissionMode = admissionModeFor(block.block.index);
   for (const auto &rec : block.block.records) {
     Roe<void> applied;
     if (block.block.index == 0) {
       applied = processGenesisTxRecord(rec);
     } else {
-      applied = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                      block.block.slotLeader, admissionMode);
+      applied = processNormalTxRecord(
+          rec, block.block.index, block.block.slot, block.block.slotLeader,
+          chain_block::BlockAdmissionMode::Full);
     }
     if (!applied) {
       return Error(E_TX_VALIDATION,
@@ -1028,7 +1036,8 @@ Chain::Roe<void> Chain::validateTxSignatures(
           "Failed to get account when validating transaction signatures: " +
               accountResult.error().message);
     } else {
-      // CheckpointReplay: account may not be created before their transactions
+      // CheckpointReplay: account may not exist yet in the catch-up bank.
+      // Soft skip is only safe when the block source is trusted (beacon).
       return {};
     }
   }
