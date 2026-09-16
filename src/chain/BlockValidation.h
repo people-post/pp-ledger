@@ -14,6 +14,28 @@
 
 namespace pp::chain_block {
 
+/**
+ * How thoroughly to admit a block before apply / persist.
+ * See docs/architecture/BLOCK_PIPELINE.md.
+ */
+enum class BlockAdmissionMode : uint8_t {
+  /** Tip ingest and seal policy: structural + consensus + body. */
+  Full = 0,
+  /** Replay from a checkpoint start: structural only; soft tx apply. */
+  CheckpointReplay = 1,
+  /** Persist after seal: structural only (effects already on tip bank). */
+  SealedCommitVerify = 2,
+};
+
+constexpr bool admissionRunsConsensusAndBody(BlockAdmissionMode mode) {
+  return mode == BlockAdmissionMode::Full;
+}
+
+/** Tx handlers use strict fee/idempotency/signature rules under Full only. */
+constexpr bool admissionTxStrict(BlockAdmissionMode mode) {
+  return mode == BlockAdmissionMode::Full;
+}
+
 /** Block hash: SHA-256 of header LTS only (records committed via txRoot). */
 std::string calculateBlockHash(const Ledger::Block &block);
 
@@ -66,6 +88,43 @@ chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
                                                  uint64_t tipSlot,
                                                  const BlockChainConfig &config);
 
+/** Layer: txRoot, header hash, sequence / previousHash / txIndex. */
+chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
+                                         const Ledger &ledger);
+
+/**
+ * Layer: epoch, stake snapshot, epochSeed, slot leader, slot timing.
+ * Requires consensus stake/seed already installed for the block's epoch.
+ */
+chain_tx::Roe<void>
+checkBlockConsensus(const Ledger::ChainNode &block,
+                    const consensus::SlotCommittee &consensus);
+
+/**
+ * Layer: renewals, maxTx, empty heartbeat, intra-block idempotency.
+ * Requires chain config in Full tip contexts.
+ */
+chain_tx::Roe<void> checkBlockBodyPolicy(
+    const Ledger::ChainNode &block, const AccountBuffer &bank,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
+    const std::optional<BlockChainConfig> &optChainConfig,
+    const Checkpoint &checkpoint, const RecordHandler &recordHandler);
+
+/**
+ * Mode-selected admission check (no bank mutation).
+ * Full = structural + consensus + body; other modes = structural only.
+ */
+chain_tx::Roe<void>
+checkBlock(const Ledger::ChainNode &block, BlockAdmissionMode mode,
+           const Ledger &ledger, const consensus::SlotCommittee &consensus,
+           const AccountBuffer &bank,
+           const std::optional<BlockChainConfig> &optChainConfig,
+           const Checkpoint &checkpoint, const RecordHandler &recordHandler);
+
+/**
+ * Compatibility wrapper: strict → Full, else CheckpointReplay.
+ * Prefer `checkBlock` at new call sites.
+ */
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                     const Ledger &ledger, const consensus::SlotCommittee &consensus,

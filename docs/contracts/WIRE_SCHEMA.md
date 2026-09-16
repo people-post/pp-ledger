@@ -171,11 +171,12 @@ seal a normal block with empty `records` if:
 omitted: `heartbeatSlots = slotsPerEpoch` (about one empty seal per idle epoch).
 
 No special record type; fees are zero for the empty body. **Validators enforce**
-the lag threshold on empty bodies (seal path + strict `validateNormalBlock`);
-premature empties and all empties when `heartbeatSlots == 0` are rejected.
-Leader, time window, and header commitments still apply. Policy helper:
-`shouldSealEmptyHeartbeat` / `validateEmptyHeartbeatPolicy` in `chain/`; miner
-gate in `Miner::produceBlock`.
+the lag threshold on empty bodies via `checkBlockBodyPolicy` (seal pre-apply +
+strict/`Full` `checkBlock`); premature empties and all empties when
+`heartbeatSlots == 0` are rejected. Leader, time window, and header commitments
+still apply. Policy helper: `shouldSealEmptyHeartbeat` /
+`validateEmptyHeartbeatPolicy`; miner gate in `Miner::produceBlock`. Pipeline:
+[BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md).
 
 ## ChainNode / storage envelope
 

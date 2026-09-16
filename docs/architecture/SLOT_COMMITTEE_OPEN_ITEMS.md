@@ -73,7 +73,8 @@ when omitted: `heartbeatSlots = slotsPerEpoch`. Validators reject premature
 empties (and all empties when disabled).
 
 Normative: [WIRE_SCHEMA.md — Empty heartbeat blocks](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks).
-Miner gate: `Miner::produceBlock`; validation: `validateEmptyHeartbeatPolicy`.
+Miner gate: `Miner::produceBlock`; validation: `checkBlockBodyPolicy` /
+`validateEmptyHeartbeatPolicy`. Pipeline: [BLOCK_PIPELINE.md](BLOCK_PIPELINE.md).
 
 Still separate: widen production window (**B**).
 

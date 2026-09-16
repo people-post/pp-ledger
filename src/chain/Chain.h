@@ -5,6 +5,7 @@
 #include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
+#include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "RecordHandler.h"
 #include "TxContext.h"
@@ -202,6 +203,7 @@ private:
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
   bool shouldUseStrictMode(uint64_t blockIndex) const;
+  chain_block::BlockAdmissionMode admissionModeFor(uint64_t blockIndex) const;
 
   /** Account metadata for renewal: user accounts get genesis balance adjusted
    * to post-renewal (current - fee) since verifyBalance expects that. Uses
@@ -226,10 +228,11 @@ private:
   Roe<Ledger::Record>
   createRenewalTx(uint64_t accountId) const;
 
-  Roe<void> processBlock(const Ledger::ChainNode &block, bool isStrictMode);
+  Roe<void> processBlock(const Ledger::ChainNode &block,
+                         chain_block::BlockAdmissionMode mode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
-                               bool isStrictMode);
+                               chain_block::BlockAdmissionMode mode);
   /** Persist a block whose effects were already applied by sealBlock. */
   Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
   void maybeRotateCheckpoint(const Ledger::ChainNode &block);
