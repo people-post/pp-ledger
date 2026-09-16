@@ -104,7 +104,7 @@ fork leader election / `epochSeed`. Prefer leaving them hardcoded until then.
 | **Produce** | txs → `linkNextBlock` → UX `shouldAttemptProduction` → `sealBlock` → broadcast → `addBlock` → `commitSealedBlock` |
 | **Peer / beacon ingest** | `addBlock` → Check(`admissionModeFor`) → Apply → Commit |
 | **Replay** | `loadFromLedger` → Check(Full or CheckpointReplay) → Apply (no persist) |
-| **Late join** | Mount at checkpoint → CheckpointReplay until tip advances past checkpoint → then Full; no seal until Full |
+| **Late join** | Mount at checkpoint → CheckpointReplay until **checkpoint rotation** advances `currentId` → then Full on new blocks only; no seal until Full; soft history not re-Full-verified |
 
 Seal cannot run structural Check before Apply (hash needs `stateRoot`). It runs
 consensus + body on the assembled header, Applies once, then commit runs
