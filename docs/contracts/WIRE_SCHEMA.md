@@ -170,9 +170,12 @@ seal a normal block with empty `records` if:
 (`heartbeatSlots == 0` disables). Default at beacon `--init` when the field is
 omitted: `heartbeatSlots = slotsPerEpoch` (about one empty seal per idle epoch).
 
-No special record type; fees are zero for the empty body. Beacon validation is
-unchanged (leader + time window + header commitments). Policy helper:
-`shouldSealEmptyHeartbeat` in `chain/Types.h`; miner gate in `Miner::produceBlock`.
+No special record type; fees are zero for the empty body. **Validators enforce**
+the lag threshold on empty bodies (seal path + strict `validateNormalBlock`);
+premature empties and all empties when `heartbeatSlots == 0` are rejected.
+Leader, time window, and header commitments still apply. Policy helper:
+`shouldSealEmptyHeartbeat` / `validateEmptyHeartbeatPolicy` in `chain/`; miner
+gate in `Miner::produceBlock`.
 
 ## ChainNode / storage envelope
 

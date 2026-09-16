@@ -57,6 +57,15 @@ chain_tx::Roe<void> validateAccountRenewals(
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, const RecordHandler &recordHandler);
 
+/**
+ * Empty-body policy from genesis `heartbeatSlots`.
+ * Non-empty blocks always pass. Empty blocks require tip lag ≥ threshold;
+ * `heartbeatSlots == 0` rejects all empty bodies.
+ */
+chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
+                                                 uint64_t tipSlot,
+                                                 const BlockChainConfig &config);
+
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                     const Ledger &ledger, const consensus::SlotCommittee &consensus,

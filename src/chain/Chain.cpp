@@ -485,6 +485,27 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
       return seedRoe;
     }
     block.block.epochSeed = txContext_.consensus.getEpochSeed();
+
+    // Enforce empty-heartbeat policy on the seal path (peers check via
+    // validateNormalBlock). Without this, a local seal could commit an early
+    // empty that remote validators reject.
+    if (block.block.records.empty()) {
+      if (!txContext_.optChainConfig.has_value()) {
+        return Error(E_BLOCK_VALIDATION,
+                     "Chain config required to seal empty heartbeat block");
+      }
+      auto tipRoe = txContext_.ledger.readLastBlock();
+      if (!tipRoe) {
+        return Error(E_BLOCK_NOT_FOUND,
+                     "Failed to read tip for empty heartbeat seal: " +
+                         tipRoe.error().message);
+      }
+      auto heartbeat = mapTxVoid(chain_block::validateEmptyHeartbeatPolicy(
+          block, tipRoe->block.slot, txContext_.optChainConfig.value()));
+      if (!heartbeat) {
+        return Error(E_BLOCK_VALIDATION, heartbeat.error().message);
+      }
+    }
   }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 

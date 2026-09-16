@@ -555,6 +555,25 @@ chain_tx::Roe<void> validateAccountRenewals(
   return {};
 }
 
+chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
+                                                 uint64_t tipSlot,
+                                                 const BlockChainConfig &config) {
+  if (!block.block.records.empty()) {
+    return {};
+  }
+  if (shouldSealEmptyHeartbeat(block.block.slot, tipSlot,
+                               config.heartbeatSlots)) {
+    return {};
+  }
+  if (config.heartbeatSlots == 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Empty blocks disabled (heartbeatSlots=0)");
+  }
+  return chain_tx::TxError(
+      chain_err::E_BLOCK_VALIDATION,
+      "Empty heartbeat premature: slot lag below heartbeatSlots");
+}
+
 chain_tx::Roe<void>
 validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                      const Ledger &ledger, const consensus::SlotCommittee &consensus,
@@ -654,6 +673,19 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                   std::to_string(maxTx) +
                   ") but contains non-renewal transaction");
         }
+      }
+    }
+    if (block.block.records.empty()) {
+      auto prevRoe = ledger.readBlock(block.block.index - 1);
+      if (!prevRoe) {
+        return chain_tx::TxError(
+            chain_err::E_BLOCK_NOT_FOUND,
+            "Previous block not found for empty heartbeat check");
+      }
+      auto heartbeat = validateEmptyHeartbeatPolicy(
+          block, prevRoe->block.slot, optChainConfig.value());
+      if (!heartbeat) {
+        return heartbeat;
       }
     }
     auto intraBlockIdem = validateIntraBlockIdempotency(block, recordHandler);
