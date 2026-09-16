@@ -71,15 +71,22 @@ bool Chain::isChainConfigReady() const {
   return txContext_.optChainConfig.has_value();
 }
 
-bool Chain::shouldUseStrictMode(uint64_t blockIndex) const {
+chain_block::BlockAdmissionMode
+Chain::admissionModeFor(uint64_t blockIndex) const {
+  // Live tip from genesis (or never mounted at a later checkpoint).
   if (txContext_.checkpoint.currentId == 0) {
-    return true;
+    return chain_block::BlockAdmissionMode::Full;
   }
+  // Late join: loadFromLedger(startingBlockId) sets lastId == currentId ==
+  // startingBlockId. Until a later checkpoint rotates currentId forward,
+  // ingest stays CheckpointReplay (structural + soft txs). Tip peers that
+  // started from genesis keep Full for index >= currentId.
   if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
-    // Not fully initialized yet
-    return false;
+    return chain_block::BlockAdmissionMode::CheckpointReplay;
   }
-  return blockIndex >= txContext_.checkpoint.currentId;
+  return blockIndex >= txContext_.checkpoint.currentId
+             ? chain_block::BlockAdmissionMode::Full
+             : chain_block::BlockAdmissionMode::CheckpointReplay;
 }
 
 bool Chain::needsCheckpoint(const BlockChainConfig &config) const {
@@ -444,12 +451,22 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
   return chain_block::calculateBlockHash(block);
 }
 
-Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
-  if (pendingSeal_.has_value()) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Cannot seal while a previous sealed block is uncommitted");
-  }
+Ledger::ChainNode Chain::linkNextBlock(
+    const Ledger::ChainNode &previous, uint64_t slot, uint64_t slotLeader,
+    int64_t timestamp, std::vector<Ledger::Record> records) const {
+  Ledger::ChainNode block;
+  block.block.index = previous.block.index + 1;
+  block.block.previousHash = previous.hash;
+  block.block.slot = slot;
+  block.block.slotLeader = slotLeader;
+  block.block.timestamp = timestamp;
+  block.block.txIndex =
+      previous.block.txIndex + previous.block.records.size();
+  block.block.records = std::move(records);
+  return block;
+}
 
+Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   if (block.block.index == 0) {
     block.block.epoch = 0;
     block.block.stakeSnapshotHash =
@@ -487,17 +504,55 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
     block.block.epochSeed = txContext_.consensus.getEpochSeed();
   }
   block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
+  return {};
+}
+
+Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+  if (pendingSeal_.has_value()) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Cannot seal while a previous sealed block is uncommitted");
+  }
+
+  // Assemble → Check (non-genesis Full layers) → Apply (always Full) →
+  // Commit-hold (pendingSeal). Do not use admissionModeFor for seal apply:
+  // late-join CheckpointReplay is for trusted catch-up ingest only.
+  auto assembled = assembleBlockHeader(block);
+  if (!assembled) {
+    return assembled;
+  }
+
+  if (block.block.index > 0) {
+    if (admissionModeFor(block.block.index) !=
+        chain_block::BlockAdmissionMode::Full) {
+      return Error(E_BLOCK_VALIDATION,
+                   "Cannot seal under CheckpointReplay; finish tip catch-up "
+                   "first");
+    }
+    // Shared Full policy before apply (peers run the same layers via checkBlock).
+    // Structural (hash) waits until stateRoot is known after apply.
+    auto consensusCheck = mapTxVoid(
+        chain_block::checkBlockConsensus(block, txContext_.consensus));
+    if (!consensusCheck) {
+      return Error(E_BLOCK_VALIDATION, consensusCheck.error().message);
+    }
+    auto bodyCheck = mapTxVoid(chain_block::checkBlockBodyPolicy(
+        block, txContext_.bank, txContext_.ledger, txContext_.consensus,
+        txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
+    if (!bodyCheck) {
+      return Error(E_BLOCK_VALIDATION, bodyCheck.error().message);
+    }
+  }
 
   // Single apply on the tip bank (same path addBlock would use). Matching
   // addBlock persists only — no second apply, no AccountBuffer overlay.
-  const bool isStrictMode = shouldUseStrictMode(block.block.index);
   for (const auto &rec : block.block.records) {
     Roe<void> applied;
     if (block.block.index == 0) {
       applied = processGenesisTxRecord(rec);
     } else {
-      applied = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                      block.block.slotLeader, isStrictMode);
+      applied = processNormalTxRecord(
+          rec, block.block.index, block.block.slot, block.block.slotLeader,
+          chain_block::BlockAdmissionMode::Full);
     }
     if (!applied) {
       return Error(E_TX_VALIDATION,
@@ -682,8 +737,12 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  // Strict validatation if we are loading from the beginning
-  bool isStrictMode = startingBlockId == 0;
+  // Same mode matrix as live late join: genesis→tip is Full; mount at a
+  // checkpoint is CheckpointReplay for the whole replay loop (see
+  // admissionModeFor / BLOCK_PIPELINE.md).
+  const auto replayMode =
+      startingBlockId == 0 ? chain_block::BlockAdmissionMode::Full
+                           : chain_block::BlockAdmissionMode::CheckpointReplay;
   while (true) {
     auto blockResult = txContext_.ledger.readBlock(blockId);
     if (!blockResult) {
@@ -701,7 +760,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
     // Refresh stakeholders per epoch (so slot leader validation uses correct
     // stake for this block's epoch; no-op when still in same epoch).
     // Skip block 0 because:
-    //   1. 0 block is using strict mode by default.
+    //   1. Genesis installs consensus during T_GENESIS apply.
     //   2. Consensus parameters are initialized while processing the genesis
     //   transaction.
     if (blockId > 0) {
@@ -715,7 +774,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
       }
     }
 
-    auto processResult = processBlock(block, isStrictMode);
+    auto processResult = processBlock(block, replayMode);
     if (!processResult) {
       return Error(E_BLOCK_VALIDATION, "Failed to process block " +
                                            std::to_string(blockId) + ": " +
@@ -749,7 +808,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
     return commitSealedBlock(block);
   }
 
-  bool isStrictMode = shouldUseStrictMode(block.block.index);
+  const auto admissionMode = admissionModeFor(block.block.index);
   if (block.block.index > 0) {
     refreshStakeholders(block.block.slot);
     auto seedRoe = ensureEpochSeed(block.block.epoch);
@@ -758,7 +817,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
                    "Failed to ensure epoch seed: " + seedRoe.error().message);
     }
   }
-  auto processResult = processBlock(block, isStrictMode);
+  auto processResult = processBlock(block, admissionMode);
   if (!processResult) {
     return Error(E_BLOCK_VALIDATION,
                  "Failed to process block: " + processResult.error().message);
@@ -788,18 +847,12 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
       return Error(E_BLOCK_VALIDATION, genesisValidation.error().message);
     }
   } else {
-    const std::string expectedTxRoot =
-        chain_block::calculateTxRoot(block.block.records);
-    if (block.block.txRoot != expectedTxRoot) {
-      return Error(E_BLOCK_HASH, "Block txRoot mismatch");
-    }
-    if (calculateHash(block.block) != block.hash) {
-      return Error(E_BLOCK_HASH, "Block hash validation failed");
-    }
-    auto sequenceValidation =
-        mapTxVoid(chain_block::validateBlockSequence(txContext_.ledger, block));
-    if (!sequenceValidation) {
-      return Error(E_BLOCK_VALIDATION, sequenceValidation.error().message);
+    auto structural = mapTxVoid(chain_block::checkBlock(
+        block, chain_block::BlockAdmissionMode::SealedCommitVerify,
+        txContext_.ledger, txContext_.consensus, txContext_.bank,
+        txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
+    if (!structural) {
+      return Error(E_BLOCK_VALIDATION, structural.error().message);
     }
   }
 
@@ -844,11 +897,11 @@ void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
 }
 
 Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
-                                     bool isStrictMode) {
+                                     chain_block::BlockAdmissionMode mode) {
   if (block.block.index == 0) {
     return processGenesisBlock(block);
   } else {
-    return processNormalBlock(block, isStrictMode);
+    return processNormalBlock(block, mode);
   }
 }
 
@@ -876,12 +929,11 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
-                                           bool isStrictMode) {
-  auto roe = mapTxVoid(chain_block::validateNormalBlock(
-      block, isStrictMode, txContext_.ledger, txContext_.consensus,
-      txContext_.bank, txContext_.optChainConfig, txContext_.checkpoint,
-      recordHandler_));
+Chain::Roe<void> Chain::processNormalBlock(
+    const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+  auto roe = mapTxVoid(chain_block::checkBlock(
+      block, mode, txContext_.ledger, txContext_.consensus, txContext_.bank,
+      txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));
   if (!roe) {
     return Error(E_BLOCK_VALIDATION, "Block validation failed for block " +
                                          std::to_string(block.block.index) +
@@ -890,7 +942,7 @@ Chain::Roe<void> Chain::processNormalBlock(const Ledger::ChainNode &block,
 
   for (const auto &rec : block.block.records) {
     auto result = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                        block.block.slotLeader, isStrictMode);
+                                        block.block.slotLeader, mode);
     if (!result) {
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
@@ -911,7 +963,8 @@ Chain::Roe<void> Chain::addBufferTransaction(
     AccountBuffer &bank,
     const Ledger::Record &record,
     uint64_t slotLeaderId) const {
-  auto roe = validateTxSignatures(record, slotLeaderId, true);
+  auto roe = validateTxSignatures(record, slotLeaderId,
+                                  chain_block::BlockAdmissionMode::Full);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
                                      roe.error().message);
@@ -922,13 +975,14 @@ Chain::Roe<void> Chain::addBufferTransaction(
   BufferApplyContext ctx{ txContext_,
                           blockId,
                           currentSlot,
-                          true };
+                          chain_block::BlockAdmissionMode::Full };
   return mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
     const Ledger::Record &record) {
-  auto roe = validateTxSignatures(record, 0, true);
+  auto roe =
+      validateTxSignatures(record, 0, chain_block::BlockAdmissionMode::Full);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
@@ -936,14 +990,16 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
 
   // Genesis records are applied as if they are in the genesis block (blockId=0).
   // Slot leader is not applicable for genesis init.
-  BlockApplyContext ctx{ txContext_, 0, 0, 0, true };
+  BlockApplyContext ctx{ txContext_, 0, 0, 0,
+                         chain_block::BlockAdmissionMode::Full };
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
 Chain::Roe<void> Chain::processNormalTxRecord(
     const Ledger::Record &record, uint64_t blockId,
-    uint64_t blockSlot, uint64_t slotLeaderId, bool isStrictMode) {
-  auto roe = validateTxSignatures(record, slotLeaderId, isStrictMode);
+    uint64_t blockSlot, uint64_t slotLeaderId,
+    chain_block::BlockAdmissionMode admissionMode) {
+  auto roe = validateTxSignatures(record, slotLeaderId, admissionMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
@@ -953,7 +1009,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                          blockId,
                          blockSlot,
                          slotLeaderId,
-                         isStrictMode };
+                         admissionMode };
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
@@ -966,7 +1022,8 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
 
 Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
-    uint64_t slotLeaderId, bool isStrictMode) const {
+    uint64_t slotLeaderId,
+    chain_block::BlockAdmissionMode admissionMode) const {
   if (record.signatures.size() < 1) {
     return Error(E_TX_SIGNATURE,
                  "Transaction must have at least one signature");
@@ -981,7 +1038,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
 
   auto accountResult = txContext_.bank.getAccount(signerAccountId);
   if (!accountResult) {
-    if (isStrictMode) {
+    if (chain_block::admissionTxStrict(admissionMode)) {
       if (txContext_.bank.isEmpty() &&
           signerAccountId == AccountBuffer::ID_GENESIS) {
         // Genesis account is created by the system checkpoint, this is not very
@@ -994,7 +1051,8 @@ Chain::Roe<void> Chain::validateTxSignatures(
           "Failed to get account when validating transaction signatures: " +
               accountResult.error().message);
     } else {
-      // In loose mode, account may not be created before their transactions
+      // CheckpointReplay: account may not exist yet in the catch-up bank.
+      // Soft skip is only safe when the block source is trusted (beacon).
       return {};
     }
   }

@@ -54,8 +54,9 @@ namespace {
 chain_tx::Roe<void> applyConfigUpdateCore(
     const Ledger::TxConfig &tx, logging::Logger &logger,
     const std::optional<BlockChainConfig> &chainConfigBaseline,
-    AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
-    bool commitOptChainConfig, std::optional<BlockChainConfig> *commitTarget) {
+    AccountBuffer &bank, uint64_t blockId,
+    chain_block::BlockAdmissionMode admissionMode, bool commitOptChainConfig,
+    std::optional<BlockChainConfig> *commitTarget) {
   if (commitOptChainConfig && commitTarget == nullptr) {
     return chain_tx::TxError(chain_err::E_INTERNAL,
                              "commitTarget required when committing chain config");
@@ -82,10 +83,10 @@ chain_tx::Roe<void> applyConfigUpdateCore(
     return shape;
   }
 
-  if (isStrictMode) {
+  if (chain_block::admissionTxStrict(admissionMode)) {
     if (!chainConfigBaseline.has_value()) {
       return chain_tx::TxError(chain_err::E_STATE_INIT,
-                               "Chain config not initialized for strict update");
+                               "Chain config not initialized for Full-mode update");
     }
     if (gm.config.genesisTime != chainConfigBaseline.value().genesisTime) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
@@ -149,7 +150,7 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.isStrictMode);
+          p->validationTsMax, c.effectiveSlot, c.admissionMode);
       !idem) {
     return idem;
   }
@@ -158,7 +159,8 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !seeded) {
     return seeded;
   }
-  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, true);
+  return applyConfigUpdate(*p, c.ctx, bank, c.blockId,
+                           chain_block::BlockAdmissionMode::Full);
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
@@ -172,28 +174,29 @@ chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, AccountBuffer::ID_GENESIS, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.isStrictMode);
+          p->validationTsMax, c.blockSlot, c.admissionMode);
       !idem) {
     return idem;
   }
-  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.isStrictMode,
+  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.admissionMode,
                            true);
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isStrictMode) const {
+    uint64_t blockId, chain_block::BlockAdmissionMode admissionMode) const {
   return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
-                               isStrictMode, false, nullptr);
+                               admissionMode, false, nullptr);
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isStrictMode, bool commitOptChainConfig) const {
+    uint64_t blockId, chain_block::BlockAdmissionMode admissionMode,
+    bool commitOptChainConfig) const {
   std::optional<BlockChainConfig> *commitTarget =
       commitOptChainConfig ? &ctx.optChainConfig : nullptr;
   return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
-                               isStrictMode, commitOptChainConfig,
+                               admissionMode, commitOptChainConfig,
                                commitTarget);
 }
 

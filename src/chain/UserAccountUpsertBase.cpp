@@ -16,12 +16,12 @@ UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const BlockApplyContext &c) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.blockSlot, c.isStrictMode);
+          tx.validationTsMax, c.blockSlot, c.admissionMode);
       !idem) {
     return idem;
   }
   return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, false,
-                                c.isStrictMode);
+                                c.admissionMode);
 }
 
 chain_tx::Roe<void>
@@ -30,7 +30,7 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const BufferApplyContext &c) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.effectiveSlot, c.isStrictMode);
+          tx.validationTsMax, c.effectiveSlot, c.admissionMode);
       !idem) {
     return idem;
   }
@@ -48,18 +48,20 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
     }
   }
 
-  // Preserve existing semantics: buffer-path user-update applies in strict mode.
-  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true, true);
+  // Preserve existing semantics: buffer-path user-update applies in Full mode.
+  return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true,
+                                chain_block::BlockAdmissionMode::Full);
 }
 
 chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     const Ledger::TxUserUpdate &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, bool isBufferMode, bool isStrictMode) const {
-  if (isStrictMode) {
+    uint64_t blockId, bool isBufferMode,
+    chain_block::BlockAdmissionMode admissionMode) const {
+  if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
             Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for strict user-update fee validation",
+            "Chain config required for Full-mode user-update fee validation",
             "User update transaction fee below minimum: ");
         !feeGate) {
       return feeGate;
@@ -80,7 +82,7 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
 
   auto bufferAccountResult = bank.getAccount(tx.walletId);
   if (!bufferAccountResult) {
-    if (isStrictMode) {
+    if (chain_block::admissionTxStrict(admissionMode)) {
       return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND,
                                "User account not found in buffer: " +
                                    std::to_string(tx.walletId));

@@ -1,7 +1,6 @@
 #include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
-#include "common/Logger.h"
 #include "common/Serialize.hpp"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
@@ -16,23 +15,6 @@
 namespace pp::chain_block {
 
 namespace {
-
-bool isValidSlotLeader(const consensus::SlotCommittee &consensus,
-                       const Ledger::ChainNode &block) {
-  return consensus.isSlotLeader(block.block.slot, block.block.slotLeader);
-}
-
-bool isValidTimestamp(const consensus::SlotCommittee &consensus,
-                      const Ledger::ChainNode &block) {
-  int64_t slotStartTime = consensus.getSlotStartTime(block.block.slot);
-  int64_t slotEndTime = consensus.getSlotEndTime(block.block.slot);
-  int64_t blockTime = block.block.timestamp;
-  if (blockTime < slotStartTime || blockTime > slotEndTime) {
-    pp::logging::getLogger("Chain").warning << "Block timestamp out of slot range";
-    return false;
-  }
-  return true;
-}
 
 /** Unpack a genesis bootstrap T_NEW_USER record and require exact min fee. */
 chain_tx::Roe<Ledger::TxNewUser> loadGenesisNewUserWithExactFee(
@@ -555,13 +537,27 @@ chain_tx::Roe<void> validateAccountRenewals(
   return {};
 }
 
-chain_tx::Roe<void>
-validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
-                     const Ledger &ledger, const consensus::SlotCommittee &consensus,
-                     const AccountBuffer &bank,
-                     const std::optional<BlockChainConfig> &optChainConfig,
-                     const Checkpoint &checkpoint,
-                     const RecordHandler &recordHandler) {
+chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
+                                                 uint64_t tipSlot,
+                                                 const BlockChainConfig &config) {
+  if (!block.block.records.empty()) {
+    return {};
+  }
+  if (shouldSealEmptyHeartbeat(block.block.slot, tipSlot,
+                               config.heartbeatSlots)) {
+    return {};
+  }
+  if (config.heartbeatSlots == 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Empty blocks disabled (heartbeatSlots=0)");
+  }
+  return chain_tx::TxError(
+      chain_err::E_BLOCK_VALIDATION,
+      "Empty heartbeat premature: slot lag below heartbeatSlots");
+}
+
+chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
+                                         const Ledger &ledger) {
   const std::string expectedTxRoot = calculateTxRoot(block.block.records);
   if (block.block.txRoot != expectedTxRoot) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH, "Block txRoot mismatch");
@@ -573,96 +569,118 @@ validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
                              "Block hash validation failed");
   }
 
-  auto sequenceValidation = validateBlockSequence(ledger, block);
-  if (!sequenceValidation) {
-    return sequenceValidation;
+  return validateBlockSequence(ledger, block);
+}
+
+chain_tx::Roe<void>
+checkBlockConsensus(const Ledger::ChainNode &block,
+                    const consensus::SlotCommittee &consensus) {
+  const uint64_t slot = block.block.slot;
+  const uint64_t slotLeader = block.block.slotLeader;
+  const uint64_t expectedEpoch = consensus.getEpochFromSlot(slot);
+  if (block.block.epoch != expectedEpoch) {
+    return chain_tx::TxError(
+        chain_err::E_CONSENSUS_SLOT_LEADER,
+        "Block epoch mismatch: expected " + std::to_string(expectedEpoch) +
+            " got " + std::to_string(block.block.epoch));
+  }
+  const std::string expectedStakeHash =
+      calculateStakeSnapshotHash(consensus.getStakeholders());
+  if (block.block.stakeSnapshotHash != expectedStakeHash) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                             "Block stakeSnapshotHash mismatch");
+  }
+  if (block.block.epochSeed.size() != utl::SHA256_DIGEST_SIZE) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                             "Block epochSeed must be 32 bytes");
+  }
+  if (!consensus.hasEpochSeedFor(expectedEpoch)) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                             "Consensus epoch seed not installed for block epoch");
+  }
+  if (block.block.epochSeed != consensus.getEpochSeed()) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
+                             "Block epochSeed mismatch");
+  }
+  if (!consensus.validateSlotLeader(slotLeader, slot)) {
+    return chain_tx::TxError(
+        chain_err::E_CONSENSUS_SLOT_LEADER,
+        "Invalid slot leader for block at slot " + std::to_string(slot));
+  }
+  if (!consensus.validateBlockTiming(block.block.timestamp, slot)) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
+                             "Block timestamp outside valid slot range");
+  }
+  return {};
+}
+
+chain_tx::Roe<void> checkBlockBodyPolicy(
+    const Ledger::ChainNode &block, const AccountBuffer &bank,
+    const Ledger &ledger, const consensus::SlotCommittee &consensus,
+    const std::optional<BlockChainConfig> &optChainConfig,
+    const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
+  auto renewalValidation = validateAccountRenewals(
+      block, bank, ledger, consensus, optChainConfig, checkpoint, recordHandler);
+  if (!renewalValidation) {
+    return renewalValidation;
   }
 
-  if (isStrictMode) {
-    uint64_t slot = block.block.slot;
-    uint64_t slotLeader = block.block.slotLeader;
-    const uint64_t expectedEpoch = consensus.getEpochFromSlot(slot);
-    if (block.block.epoch != expectedEpoch) {
-      return chain_tx::TxError(
-          chain_err::E_CONSENSUS_SLOT_LEADER,
-          "Block epoch mismatch: expected " + std::to_string(expectedEpoch) +
-              " got " + std::to_string(block.block.epoch));
-    }
-    const std::string expectedStakeHash =
-        calculateStakeSnapshotHash(consensus.getStakeholders());
-    if (block.block.stakeSnapshotHash != expectedStakeHash) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
-                               "Block stakeSnapshotHash mismatch");
-    }
-    if (block.block.epochSeed.size() != utl::SHA256_DIGEST_SIZE) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
-                               "Block epochSeed must be 32 bytes");
-    }
-    if (!consensus.hasEpochSeedFor(expectedEpoch)) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
-                               "Consensus epoch seed not installed for block epoch");
-    }
-    if (block.block.epochSeed != consensus.getEpochSeed()) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
-                               "Block epochSeed mismatch");
-    }
-    if (!consensus.validateSlotLeader(slotLeader, slot)) {
-      return chain_tx::TxError(
-          chain_err::E_CONSENSUS_SLOT_LEADER,
-          "Invalid slot leader for block at slot " + std::to_string(slot));
-    }
-    if (!consensus.validateBlockTiming(block.block.timestamp, slot)) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
-                               "Block timestamp outside valid slot range");
-    }
-
-    if (!isValidSlotLeader(consensus, block)) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_SLOT_LEADER,
-                               "Invalid slot leader");
-    }
-
-    if (!isValidTimestamp(consensus, block)) {
-      return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
-                               "Invalid timestamp");
-    }
-
-    auto renewalValidation = validateAccountRenewals(
-        block, bank, ledger, consensus, optChainConfig, checkpoint,
-        recordHandler);
-    if (!renewalValidation) {
-      return renewalValidation;
-    }
-
-    if (!optChainConfig.has_value()) {
-      return chain_tx::TxError(
-          chain_err::E_INTERNAL,
-          "Chain config not initialized; expected config in strict mode");
-    }
-    const uint64_t maxTx =
-        optChainConfig.value().maxTransactionsPerBlock;
-    if (maxTx > 0 && block.block.records.size() > maxTx) {
-      for (const auto &rec : block.block.records) {
-        const ITxHandler *h =
-            rec.type < RecordHandler::kNumTxTypes
-                ? recordHandler.get(rec.type)
-                : nullptr;
-        if (h == nullptr || !h->isRenewalTx()) {
-          return chain_tx::TxError(
-              chain_err::E_BLOCK_VALIDATION,
-              "Block has more than max transactions per block (" +
-                  std::to_string(block.block.records.size()) + " > " +
-                  std::to_string(maxTx) +
-                  ") but contains non-renewal transaction");
-        }
+  if (!optChainConfig.has_value()) {
+    return chain_tx::TxError(
+        chain_err::E_INTERNAL,
+        "Chain config not initialized; expected config for body policy");
+  }
+  const uint64_t maxTx = optChainConfig.value().maxTransactionsPerBlock;
+  if (maxTx > 0 && block.block.records.size() > maxTx) {
+    for (const auto &rec : block.block.records) {
+      const ITxHandler *h =
+          rec.type < RecordHandler::kNumTxTypes ? recordHandler.get(rec.type)
+                                                : nullptr;
+      if (h == nullptr || !h->isRenewalTx()) {
+        return chain_tx::TxError(
+            chain_err::E_BLOCK_VALIDATION,
+            "Block has more than max transactions per block (" +
+                std::to_string(block.block.records.size()) + " > " +
+                std::to_string(maxTx) +
+                ") but contains non-renewal transaction");
       }
     }
-    auto intraBlockIdem = validateIntraBlockIdempotency(block, recordHandler);
-    if (!intraBlockIdem) {
-      return intraBlockIdem;
+  }
+  if (block.block.records.empty()) {
+    auto prevRoe = ledger.readBlock(block.block.index - 1);
+    if (!prevRoe) {
+      return chain_tx::TxError(
+          chain_err::E_BLOCK_NOT_FOUND,
+          "Previous block not found for empty heartbeat check");
+    }
+    auto heartbeat = validateEmptyHeartbeatPolicy(
+        block, prevRoe->block.slot, optChainConfig.value());
+    if (!heartbeat) {
+      return heartbeat;
     }
   }
+  return validateIntraBlockIdempotency(block, recordHandler);
+}
 
-  return {};
+chain_tx::Roe<void>
+checkBlock(const Ledger::ChainNode &block, BlockAdmissionMode mode,
+           const Ledger &ledger, const consensus::SlotCommittee &consensus,
+           const AccountBuffer &bank,
+           const std::optional<BlockChainConfig> &optChainConfig,
+           const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
+  auto structural = checkBlockStructural(block, ledger);
+  if (!structural) {
+    return structural;
+  }
+  if (!admissionRunsConsensusAndBody(mode)) {
+    return {};
+  }
+  auto consensusCheck = checkBlockConsensus(block, consensus);
+  if (!consensusCheck) {
+    return consensusCheck;
+  }
+  return checkBlockBodyPolicy(block, bank, ledger, consensus, optChainConfig,
+                              checkpoint, recordHandler);
 }
 
 } // namespace pp::chain_block

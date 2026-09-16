@@ -127,8 +127,11 @@ Implemented in `consensus::EpochSeed` + `Chain::ensureEpochSeed` / `sealBlock`:
 | `0` | `SHA-256("pp-ledger/epoch-seed/genesis/v1" \|\| len(networkId) \|\| networkId \|\| genesisConfigDigest \|\| 32×0)` |
 | `E>0` | `SHA-256("pp-ledger/epoch-seed/v1" \|\| E \|\| len(networkId) \|\| networkId \|\| prevEpochSeed \|\| tipMaterial \|\| stakeSnapshotHash)` |
 
-`tipMaterial` = lookback over up to **K=8** block hashes from epoch `E-1`
-(oldest→newest): `SHA-256("pp-ledger/epoch-seed/lookback/v1" \|\| k \|\| hashes…)`.
+`tipMaterial` = lookback over up to **K=`kEpochSeedLookback` (8)** block hashes
+from epoch `E-1` (oldest→newest):
+`SHA-256("pp-ledger/epoch-seed/lookback/v1" || k || hashes…)`.
+Constant lives in `consensus::kEpochSeedLookback` (not chain config; see
+[BLOCK_PIPELINE.md — Protocol constants](../architecture/BLOCK_PIPELINE.md#protocol-constants-fork-critical-if-changed)).
 If epoch `E-1` produced no blocks:
 `SHA-256("pp-ledger/epoch-seed/empty-prev/v1" \|\| (E-1) \|\| prevEpochSeed)`.
 
@@ -141,7 +144,11 @@ Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
 classic Ouroboros / stake-weighted VRF on blocks):
 
 1. Stakeholders = accounts with positive native balance.
-2. Eligible **committee** = all if ≤100, else top 100 by stake (id tie-break).
+2. Eligible **committee** = all if ≤`kMaxLeaderPoolSize` (**100**), else top
+   **100** by stake (id tie-break). Constant:
+   `SlotCommittee::kMaxLeaderPoolSize` — not chain config; parameterizing later
+   requires genesis config (fork-critical). See
+   [BLOCK_PIPELINE.md — Protocol constants](../architecture/BLOCK_PIPELINE.md#protocol-constants-fork-critical-if-changed).
    Stake gates **entry** into the committee only.
 3. Require `epochSeed` for the slot’s epoch (forced leaders in tests bypass).
 4. Leader = committee member at index from the first 8 bytes (BE) of
@@ -162,6 +169,9 @@ Open follow-ups (registration, production window, beacon failover, …):
 
 ## Empty heartbeat blocks
 
+**Settled policy:** heartbeat proves the chain is **active**. Any tip-advancing
+work counts; the lag rule applies only to **empty** bodies.
+
 When a slot leader has **no** renewals and **no** pending txs, they may still
 seal a normal block with empty `records` if:
 
@@ -170,9 +180,16 @@ seal a normal block with empty `records` if:
 (`heartbeatSlots == 0` disables). Default at beacon `--init` when the field is
 omitted: `heartbeatSlots = slotsPerEpoch` (about one empty seal per idle epoch).
 
-No special record type; fees are zero for the empty body. Beacon validation is
-unchanged (leader + time window + header commitments). Policy helper:
-`shouldSealEmptyHeartbeat` in `chain/Types.h`; miner gate in `Miner::produceBlock`.
+No special record type; fees are zero for the empty body. **Validators enforce**
+the lag threshold on empty bodies via `checkBlockBodyPolicy` (seal pre-apply +
+`Full` `checkBlock`); premature empties and all empties when
+`heartbeatSlots == 0` are rejected. Non-empty bodies (including renewals) are
+**not** subject to the lag rule — they already demonstrate liveness. Leader,
+time window, and header commitments still apply. Policy helper:
+`shouldSealEmptyHeartbeat` / `validateEmptyHeartbeatPolicy`; miner UX gate in
+`Miner::shouldAttemptProduction`. Pipeline:
+[BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md)
+(Empty heartbeat settled note + Late join Full gate).
 
 ## ChainNode / storage envelope
 

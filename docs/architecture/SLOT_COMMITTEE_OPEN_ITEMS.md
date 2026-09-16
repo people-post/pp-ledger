@@ -69,10 +69,16 @@ Ouroboros remains a **literature reference** only (not a product goal).
 **Shipped:** Genesis `BlockChainConfig.heartbeatSlots` (`GenesisAccountMeta` v3). Idle
 slot leaders (no renewals / mempool) seal a normal empty block when
 `currentSlot - tip.slot >= heartbeatSlots`. `0` disables. Beacon `--init` default
-when omitted: `heartbeatSlots = slotsPerEpoch`.
+when omitted: `heartbeatSlots = slotsPerEpoch`. Validators reject premature
+empties (and all empties when disabled).
+
+**Settled interpretation:** any non-empty body (txs or renewals) counts as
+liveness and bypasses the empty-lag rule; heartbeat is not an empty-only duty
+cycle. See [BLOCK_PIPELINE.md](BLOCK_PIPELINE.md#empty-heartbeat-settled-any-work-counts).
 
 Normative: [WIRE_SCHEMA.md — Empty heartbeat blocks](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks).
-Miner gate: `Miner::produceBlock`.
+Miner gate: `Miner::produceBlock`; validation: `checkBlockBodyPolicy` /
+`validateEmptyHeartbeatPolicy`. Pipeline: [BLOCK_PIPELINE.md](BLOCK_PIPELINE.md).
 
 Still separate: widen production window (**B**).
 

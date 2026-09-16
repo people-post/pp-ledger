@@ -193,27 +193,29 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   return genesis;
 }
 
+Ledger::ChainNode makeNextBlockAtSlot(
+    Chain &validator, const Ledger::ChainNode &previous, uint64_t slot,
+    const std::vector<Ledger::Record> &records) {
+  const uint64_t epoch = validator.getEpochFromSlot(slot);
+  auto seedRoe = validator.ensureEpochSeed(epoch);
+  EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
+  auto leaderResult = validator.getSlotLeader(slot);
+  EXPECT_TRUE(leaderResult.isOk())
+      << (leaderResult.isOk() ? "" : leaderResult.error().message);
+  auto block = validator.linkNextBlock(
+      previous, slot, leaderResult.isOk() ? leaderResult.value() : 0,
+      validator.getSlotStartTime(slot), records);
+  auto sealResult = validator.sealBlock(block);
+  EXPECT_TRUE(sealResult.isOk())
+      << (sealResult.isOk() ? "" : sealResult.error().message);
+  return block;
+}
+
 Ledger::ChainNode makeNextBlock(
     Chain &validator, const Ledger::ChainNode &previous,
     const std::vector<Ledger::Record> &records) {
-  Ledger::ChainNode block;
-  block.block.index = previous.block.index + 1;
-  block.block.previousHash = previous.hash;
-  block.block.slot = previous.block.slot + 1;
-  block.block.timestamp = validator.getSlotStartTime(block.block.slot);
-  const uint64_t epoch = validator.getEpochFromSlot(block.block.slot);
-  auto seedRoe = validator.ensureEpochSeed(epoch);
-  EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
-  auto leaderResult = validator.getSlotLeader(block.block.slot);
-  EXPECT_TRUE(leaderResult.isOk())
-      << (leaderResult.isOk() ? "" : leaderResult.error().message);
-  block.block.slotLeader = leaderResult.isOk() ? leaderResult.value() : 0;
-  block.block.txIndex =
-      previous.block.txIndex + previous.block.records.size();
-  block.block.records = records;
-  auto sealResult = validator.sealBlock(block);
-  EXPECT_TRUE(sealResult.isOk());
-  return block;
+  return makeNextBlockAtSlot(validator, previous, previous.block.slot + 1,
+                             records);
 }
 
 } // namespace
@@ -836,6 +838,8 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
   chainConfig.checkpoint.minBlocks = 1;
   chainConfig.checkpoint.minAgeSeconds = 0;
+  // Consecutive empty seals advance one slot each; allow lag of 1.
+  chainConfig.heartbeatSlots = 1;
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
@@ -1104,12 +1108,15 @@ protected:
 };
 
 // L-CONSENSUS-FORCE + L-SMOKE-L1 (in-process): forced leader block is accepted
-// by producer (seal path) and by a peer (validateNormalBlock path).
+// by producer (seal path) and by a peer (checkBlock Full path).
 TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;
 
-  const uint64_t slot = harness_.genesis.block.slot + 1;
+  // Empty body: use heartbeat threshold so seal/validate allow the empty.
+  const uint64_t tipSlot = harness_.genesis.block.slot;
+  const uint64_t slot = tipSlot + producer.getHeartbeatSlots();
+  ASSERT_GE(slot, tipSlot + 1);
   const auto stakeholders = producer.getStakeholders();
   ASSERT_FALSE(stakeholders.empty());
   const uint64_t forced = stakeholders.front().id;
@@ -1120,12 +1127,13 @@ TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode block1 = makeNextBlock(producer, harness_.genesis, {});
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
   EXPECT_EQ(block1.block.slot, slot);
   EXPECT_EQ(block1.block.slotLeader, forced);
   ASSERT_TRUE(producer.addBlock(block1).isOk());
 
-  // Peer did not seal — full validateNormalBlock including slot-leader check.
+  // Peer did not seal — full checkBlock(Full) including slot-leader check.
   auto peerAdd = peer.addBlock(block1);
   ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
 
@@ -1142,7 +1150,9 @@ TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
 TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   auto &producer = harness_.producer;
 
-  const uint64_t slot = harness_.genesis.block.slot + 1;
+  // Slot at heartbeat threshold so empty-body policy does not fire first.
+  const uint64_t tipSlot = harness_.genesis.block.slot;
+  const uint64_t slot = tipSlot + producer.getHeartbeatSlots();
   const auto stakeholders = producer.getStakeholders();
   ASSERT_FALSE(stakeholders.empty());
   const uint64_t forced = stakeholders.front().id;
@@ -1178,7 +1188,7 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
 
   auto add = producer.addBlock(bad);
   ASSERT_TRUE(add.isError()) << "wrong leader must be rejected";
-  // processNormalBlock maps validateNormalBlock failures to E_BLOCK_VALIDATION.
+  // processNormalBlock maps checkBlock failures to E_BLOCK_VALIDATION.
   EXPECT_EQ(add.error().code, Chain::E_BLOCK_VALIDATION) << add.error().message;
   EXPECT_NE(add.error().message.find("slot leader"), std::string::npos)
       << add.error().message;
@@ -1200,18 +1210,70 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_ForcedLeaderSealAccepted) {
   ASSERT_FALSE(producer.getStakeholders().empty());
   EXPECT_EQ(producer.getHeartbeatSlots(), 10u);
 
-  const uint64_t slot = harness_.genesis.block.slot + 1;
+  const uint64_t tipSlot = harness_.genesis.block.slot;
+  const uint64_t slot = tipSlot + producer.getHeartbeatSlots();
   const uint64_t leaderId = producer.getStakeholders().front().id;
   producer.forceSlotLeader(slot, leaderId);
   peer.forceSlotLeader(slot, leaderId);
   producer.setClockOverride(producer.getSlotStartTime(slot));
   peer.setClockOverride(peer.getSlotStartTime(slot));
 
-  Ledger::ChainNode empty = makeNextBlock(producer, harness_.genesis, {});
+  Ledger::ChainNode empty =
+      makeNextBlockAtSlot(producer, harness_.genesis, slot, {});
   ASSERT_TRUE(empty.block.records.empty());
   ASSERT_TRUE(producer.addBlock(empty).isOk()) << "producer commit";
   ASSERT_TRUE(peer.addBlock(empty).isOk()) << "peer validate empty";
   EXPECT_EQ(producer.getNextBlockId(), empty.block.index + 1);
   EXPECT_EQ(peer.getNextBlockId(), empty.block.index + 1);
+}
+
+TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  ASSERT_EQ(producer.getHeartbeatSlots(), 10u);
+
+  const uint64_t tipSlot = harness_.genesis.block.slot;
+  const uint64_t earlySlot = tipSlot + 1; // lag 1 < heartbeatSlots 10
+  ASSERT_LT(earlySlot - tipSlot, producer.getHeartbeatSlots());
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  producer.forceSlotLeader(earlySlot, leaderId);
+  peer.forceSlotLeader(earlySlot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(earlySlot));
+  peer.setClockOverride(peer.getSlotStartTime(earlySlot));
+
+  // Seal path must refuse premature empties.
+  Ledger::ChainNode early;
+  early.block.index = harness_.genesis.block.index + 1;
+  early.block.previousHash = harness_.genesis.hash;
+  early.block.slot = earlySlot;
+  early.block.timestamp = producer.getSlotStartTime(earlySlot);
+  early.block.slotLeader = leaderId;
+  early.block.txIndex =
+      harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
+  early.block.records = {};
+  auto seal = producer.sealBlock(early);
+  ASSERT_TRUE(seal.isError()) << "seal must reject premature empty";
+  EXPECT_NE(seal.error().message.find("Empty heartbeat"), std::string::npos)
+      << seal.error().message;
+
+  // Peer unsealed path: forge a well-formed early empty (skip seal).
+  early.block.epoch = earlySlot / 10;
+  early.block.txRoot = chain_block::calculateTxRoot(early.block.records);
+  early.block.stakeSnapshotHash =
+      chain_block::calculateStakeSnapshotHash(peer.getStakeholders());
+  ASSERT_TRUE(peer.ensureEpochSeed(early.block.epoch).isOk());
+  early.block.epochSeed = peer.getEpochSeed();
+  auto tip = peer.readLastBlock();
+  ASSERT_TRUE(tip.isOk());
+  early.block.stateRoot = tip->block.stateRoot;
+  early.hash = peer.calculateHash(early.block);
+
+  auto peerAdd = peer.addBlock(early);
+  ASSERT_TRUE(peerAdd.isError()) << "peer must reject premature empty";
+  EXPECT_EQ(peerAdd.error().code, Chain::E_BLOCK_VALIDATION)
+      << peerAdd.error().message;
+  EXPECT_NE(peerAdd.error().message.find("Empty heartbeat"), std::string::npos)
+      << peerAdd.error().message;
+  EXPECT_EQ(peer.getNextBlockId(), harness_.genesis.block.index + 1);
 }
 

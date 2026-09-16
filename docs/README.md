@@ -28,6 +28,7 @@ Agent entry: [`AGENTS.md`](../AGENTS.md). Deploy howto: [`deploy/README.md`](../
 | [architecture/FOLDER_DEPENDENCY.md](architecture/FOLDER_DEPENDENCY.md) | Source folder dependency graph |
 | [architecture/TESTING.md](architecture/TESTING.md) | Testing doctrine (tiers, push-down, skip taxonomy) |
 | [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](architecture/SLOT_COMMITTEE_OPEN_ITEMS.md) | Deferred SlotCommittee product decisions |
+| [architecture/BLOCK_PIPELINE.md](architecture/BLOCK_PIPELINE.md) | Seal / ingest / replay admission modes and check layers |
 
 ---
 

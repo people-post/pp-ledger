@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_TX_CONTEXT_H
 #define PP_LEDGER_TX_CONTEXT_H
 
+#include "BlockAdmission.h"
 #include "Types.h"
 #include "AccountBuffer.h"
 #include "TxFees.h"
@@ -49,7 +50,8 @@ struct BufferApplyContext {
   const TxContext &ctx;
   uint64_t blockId{0};
   uint64_t effectiveSlot{0};
-  bool isStrictMode{true};
+  chain_block::BlockAdmissionMode admissionMode{
+      chain_block::BlockAdmissionMode::Full};
 };
 
 /** Committed-chain (block replay) path after signature validation. */
@@ -58,7 +60,8 @@ struct BlockApplyContext {
   uint64_t blockId{0};
   uint64_t blockSlot{0};
   uint64_t slotLeaderId{0};
-  bool isStrictMode{true};
+  chain_block::BlockAdmissionMode admissionMode{
+      chain_block::BlockAdmissionMode::Full};
 };
 
 } // namespace pp

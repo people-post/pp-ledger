@@ -5,6 +5,7 @@
 #include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
 #include "AccountBuffer.h"
+#include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "RecordHandler.h"
 #include "TxContext.h"
@@ -139,6 +140,16 @@ public:
    */
   Roe<void> sealBlock(Ledger::ChainNode &block);
 
+  /**
+   * Assemble (producer half): next-block link fields from `previous`.
+   * Does not fill epoch / stake / seed / txRoot — `sealBlock` →
+   * `assembleBlockHeader` does that. See BLOCK_PIPELINE.md.
+   */
+  Ledger::ChainNode linkNextBlock(const Ledger::ChainNode &previous,
+                                  uint64_t slot, uint64_t slotLeader,
+                                  int64_t timestamp,
+                                  std::vector<Ledger::Record> records) const;
+
   Roe<std::vector<Ledger::Record>>
   collectRenewals(uint64_t slot) const;
 
@@ -201,7 +212,7 @@ private:
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
-  bool shouldUseStrictMode(uint64_t blockIndex) const;
+  chain_block::BlockAdmissionMode admissionModeFor(uint64_t blockIndex) const;
 
   /** Account metadata for renewal: user accounts get genesis balance adjusted
    * to post-renewal (current - fee) since verifyBalance expects that. Uses
@@ -226,10 +237,16 @@ private:
   Roe<Ledger::Record>
   createRenewalTx(uint64_t accountId) const;
 
-  Roe<void> processBlock(const Ledger::ChainNode &block, bool isStrictMode);
+  Roe<void> processBlock(const Ledger::ChainNode &block,
+                         chain_block::BlockAdmissionMode mode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
-                               bool isStrictMode);
+                               chain_block::BlockAdmissionMode mode);
+  /**
+   * Assemble stage: fill epoch / stakeSnapshotHash / epochSeed / txRoot.
+   * Does not apply txs or set stateRoot/hash (those happen after Check/Apply).
+   */
+  Roe<void> assembleBlockHeader(Ledger::ChainNode &block);
   /** Persist a block whose effects were already applied by sealBlock. */
   Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
   void maybeRotateCheckpoint(const Ledger::ChainNode &block);
@@ -239,10 +256,12 @@ private:
   Roe<void>
   processNormalTxRecord(const Ledger::Record &record,
                         uint64_t blockId, uint64_t blockSlot,
-                        uint64_t slotLeaderId, bool isStrictMode);
+                        uint64_t slotLeaderId,
+                        chain_block::BlockAdmissionMode admissionMode);
   Roe<void>
   validateTxSignatures(const Ledger::Record &record,
-                       uint64_t slotLeaderId, bool isStrictMode) const;
+                       uint64_t slotLeaderId,
+                       chain_block::BlockAdmissionMode admissionMode) const;
 
   TxContext txContext_{};
 

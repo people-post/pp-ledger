@@ -13,6 +13,7 @@ add_library(pp_chain STATIC
     Types.cpp
     Types.h
     ErrorCodes.h
+    BlockAdmission.h
     TxContext.h
     TxError.h
     TxFees.cpp

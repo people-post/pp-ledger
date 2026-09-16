@@ -43,7 +43,8 @@ struct BlockChainConfig {
   /**
    * Empty-block heartbeat: when the mempool/renewals are idle, a slot leader
    * may seal an empty block if `currentSlot - tip.slot >= heartbeatSlots`.
-   * `0` disables empty seals (work-only production).
+   * `0` disables empty seals (work-only production). Enforced in
+   * `checkBlockBodyPolicy` (seal + Full admission); see BLOCK_PIPELINE.md.
    */
   uint64_t heartbeatSlots{0};
 
@@ -56,9 +57,9 @@ struct BlockChainConfig {
 };
 
 /**
- * Miner empty-seal policy (genesis `heartbeatSlots`).
+ * Empty-seal policy (genesis `heartbeatSlots`).
  * Requires `currentSlot >= tipSlot` and lag of at least `heartbeatSlots`.
- * `heartbeatSlots == 0` disables.
+ * `heartbeatSlots == 0` disables. Used by miner production and validators.
  */
 inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot,
                                      uint64_t heartbeatSlots) {

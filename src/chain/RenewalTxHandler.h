@@ -44,9 +44,8 @@ private:
   chain_tx::Roe<void>
   applyRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
                AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-               bool isStrictMode) const;
+               chain_block::BlockAdmissionMode admissionMode) const;
 };
-
 } // namespace pp
 
 #endif
