@@ -71,10 +71,6 @@ bool Chain::isChainConfigReady() const {
   return txContext_.optChainConfig.has_value();
 }
 
-bool Chain::shouldUseStrictMode(uint64_t blockIndex) const {
-  return chain_block::admissionTxStrict(admissionModeFor(blockIndex));
-}
-
 chain_block::BlockAdmissionMode
 Chain::admissionModeFor(uint64_t blockIndex) const {
   if (txContext_.checkpoint.currentId == 0) {
@@ -512,14 +508,13 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
   // Single apply on the tip bank (same path addBlock would use). Matching
   // addBlock persists only — no second apply, no AccountBuffer overlay.
   const auto admissionMode = admissionModeFor(block.block.index);
-  const bool isStrictMode = chain_block::admissionTxStrict(admissionMode);
   for (const auto &rec : block.block.records) {
     Roe<void> applied;
     if (block.block.index == 0) {
       applied = processGenesisTxRecord(rec);
     } else {
       applied = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                      block.block.slotLeader, isStrictMode);
+                                      block.block.slotLeader, admissionMode);
     }
     if (!applied) {
       return Error(E_TX_VALIDATION,
@@ -905,10 +900,9 @@ Chain::Roe<void> Chain::processNormalBlock(
                                          ": " + roe.error().message);
   }
 
-  const bool isStrictMode = chain_block::admissionTxStrict(mode);
   for (const auto &rec : block.block.records) {
     auto result = processNormalTxRecord(rec, block.block.index, block.block.slot,
-                                        block.block.slotLeader, isStrictMode);
+                                        block.block.slotLeader, mode);
     if (!result) {
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
@@ -929,7 +923,8 @@ Chain::Roe<void> Chain::addBufferTransaction(
     AccountBuffer &bank,
     const Ledger::Record &record,
     uint64_t slotLeaderId) const {
-  auto roe = validateTxSignatures(record, slotLeaderId, true);
+  auto roe = validateTxSignatures(record, slotLeaderId,
+                                  chain_block::BlockAdmissionMode::Full);
   if (!roe) {
     return Error(E_TX_SIGNATURE, "Failed to validate buffer transaction: " +
                                      roe.error().message);
@@ -940,13 +935,14 @@ Chain::Roe<void> Chain::addBufferTransaction(
   BufferApplyContext ctx{ txContext_,
                           blockId,
                           currentSlot,
-                          true };
+                          chain_block::BlockAdmissionMode::Full };
   return mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
     const Ledger::Record &record) {
-  auto roe = validateTxSignatures(record, 0, true);
+  auto roe =
+      validateTxSignatures(record, 0, chain_block::BlockAdmissionMode::Full);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
@@ -954,14 +950,16 @@ Chain::Roe<void> Chain::processGenesisTxRecord(
 
   // Genesis records are applied as if they are in the genesis block (blockId=0).
   // Slot leader is not applicable for genesis init.
-  BlockApplyContext ctx{ txContext_, 0, 0, 0, true };
+  BlockApplyContext ctx{ txContext_, 0, 0, 0,
+                         chain_block::BlockAdmissionMode::Full };
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
 Chain::Roe<void> Chain::processNormalTxRecord(
     const Ledger::Record &record, uint64_t blockId,
-    uint64_t blockSlot, uint64_t slotLeaderId, bool isStrictMode) {
-  auto roe = validateTxSignatures(record, slotLeaderId, isStrictMode);
+    uint64_t blockSlot, uint64_t slotLeaderId,
+    chain_block::BlockAdmissionMode admissionMode) {
+  auto roe = validateTxSignatures(record, slotLeaderId, admissionMode);
   if (!roe) {
     return Error(E_TX_SIGNATURE,
                  "Failed to validate transaction: " + roe.error().message);
@@ -971,7 +969,7 @@ Chain::Roe<void> Chain::processNormalTxRecord(
                          blockId,
                          blockSlot,
                          slotLeaderId,
-                         isStrictMode };
+                         admissionMode };
   return mapTxVoid(recordHandler_.applyBlock(record, txContext_.bank, ctx));
 }
 
@@ -984,7 +982,8 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
 
 Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
-    uint64_t slotLeaderId, bool isStrictMode) const {
+    uint64_t slotLeaderId,
+    chain_block::BlockAdmissionMode admissionMode) const {
   if (record.signatures.size() < 1) {
     return Error(E_TX_SIGNATURE,
                  "Transaction must have at least one signature");
@@ -999,7 +998,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
 
   auto accountResult = txContext_.bank.getAccount(signerAccountId);
   if (!accountResult) {
-    if (isStrictMode) {
+    if (chain_block::admissionTxStrict(admissionMode)) {
       if (txContext_.bank.isEmpty() &&
           signerAccountId == AccountBuffer::ID_GENESIS) {
         // Genesis account is created by the system checkpoint, this is not very
@@ -1012,7 +1011,7 @@ Chain::Roe<void> Chain::validateTxSignatures(
           "Failed to get account when validating transaction signatures: " +
               accountResult.error().message);
     } else {
-      // In loose mode, account may not be created before their transactions
+      // CheckpointReplay: account may not be created before their transactions
       return {};
     }
   }

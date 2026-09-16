@@ -99,7 +99,8 @@ chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
         !seeded) {
       return seeded;
     }
-    return applyRenewal(*p, c.ctx, bank, c.blockId, true, true);
+    return applyRenewal(*p, c.ctx, bank, c.blockId, true,
+                        chain_block::BlockAdmissionMode::Full);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
   return applyUserUpdateBufferCommon(userUpsert, bank, c);
@@ -115,7 +116,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
   }
   const auto *p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
-    return applyRenewal(*p, c.ctx, bank, c.blockId, false, c.isStrictMode);
+    return applyRenewal(*p, c.ctx, bank, c.blockId, false, c.admissionMode);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
   return applyUserUpdateBlockCommon(userUpsert, bank, c);
@@ -124,7 +125,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     const Ledger::TxRenewal &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
-    bool isStrictMode) const {
+    chain_block::BlockAdmissionMode admissionMode) const {
   if (tx.walletId != AccountBuffer::ID_GENESIS) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
@@ -144,11 +145,11 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     return shape;
   }
 
-  if (isStrictMode) {
+  if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
             Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for strict genesis renewal fee validation",
+            "Chain config required for Full-mode genesis renewal fee validation",
             "Genesis renewal fee below minimum: ");
         !feeGate) {
       return feeGate;
@@ -157,7 +158,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
 
   auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
   if (!genesisAccountResult) {
-    if (isStrictMode) {
+    if (chain_block::admissionTxStrict(admissionMode)) {
       return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND,
                                "Genesis account not found for renewal");
     }

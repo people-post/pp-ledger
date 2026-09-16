@@ -54,9 +54,10 @@ Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
-    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,
+    int64_t validationTsMax, uint64_t effectiveSlot,
+    chain_block::BlockAdmissionMode admissionMode,
     const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord) {
-  if (!isStrictMode) {
+  if (!chain_block::admissionTxStrict(admissionMode)) {
     return {};
   }
   if (idempotentId == 0) {
@@ -68,7 +69,7 @@ Roe<void> validateIdempotencyRules(
   }
   if (!optChainConfig.has_value()) {
     return TxError(chain_err::E_TX_VALIDATION,
-                   "Chain config not initialized; expected config in strict mode");
+                   "Chain config not initialized; expected config in Full mode");
   }
   const uint64_t spanSeconds =
       static_cast<uint64_t>(validationTsMax - validationTsMin);

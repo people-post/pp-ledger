@@ -26,9 +26,9 @@ which `BlockAdmissionMode` they select.
 
 Helpers: `admissionRunsConsensusAndBody`, `admissionTxStrict`.
 
-Live tip selection: `Chain::admissionModeFor(index)` (replaces ad-hoc
-`shouldUseStrictMode` boolean as the source of truth; the bool remains as
-`admissionTxStrict(admissionModeFor(...))` for tx handlers).
+Live tip selection: `Chain::admissionModeFor(index)`. Tx apply contexts carry
+the same `BlockAdmissionMode` (`BufferApplyContext` / `BlockApplyContext`);
+handlers call `admissionTxStrict(mode)` instead of a parallel bool.
 
 ## Layers (`checkBlock*`)
 
@@ -58,7 +58,7 @@ structural Check.
 - Miner `produceBlock` empty-seal gate is UX only; admission still enforces
   heartbeat via body policy.
 - Tx fee / signature / idempotency windows stay in handlers, keyed by
-  `admissionTxStrict(mode)`.
+  `admissionTxStrict(admissionMode)` on the apply context.
 
 ## Related
 

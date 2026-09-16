@@ -1114,7 +1114,7 @@ protected:
 };
 
 // L-CONSENSUS-FORCE + L-SMOKE-L1 (in-process): forced leader block is accepted
-// by producer (seal path) and by a peer (validateNormalBlock path).
+// by producer (seal path) and by a peer (checkBlock Full path).
 TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;

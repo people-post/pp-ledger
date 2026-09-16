@@ -683,18 +683,4 @@ checkBlock(const Ledger::ChainNode &block, BlockAdmissionMode mode,
                               checkpoint, recordHandler);
 }
 
-chain_tx::Roe<void>
-validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
-                    const Ledger &ledger, const consensus::SlotCommittee &consensus,
-                    const AccountBuffer &bank,
-                    const std::optional<BlockChainConfig> &optChainConfig,
-                    const Checkpoint &checkpoint,
-                    const RecordHandler &recordHandler) {
-  const BlockAdmissionMode mode =
-      isStrictMode ? BlockAdmissionMode::Full
-                   : BlockAdmissionMode::CheckpointReplay;
-  return checkBlock(block, mode, ledger, consensus, bank, optChainConfig,
-                    checkpoint, recordHandler);
-}
-
 } // namespace pp::chain_block

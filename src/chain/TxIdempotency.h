@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_TX_IDEMPOTENCY_H
 #define PP_LEDGER_TX_IDEMPOTENCY_H
 
+#include "BlockAdmission.h"
 #include "TxError.h"
 #include "Types.h"
 #include "../consensus/SlotCommittee.h"
@@ -27,7 +28,8 @@ Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
-    int64_t validationTsMax, uint64_t effectiveSlot, bool isStrictMode,
+    int64_t validationTsMax, uint64_t effectiveSlot,
+    chain_block::BlockAdmissionMode admissionMode,
     const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord);
 
 } // namespace pp::chain_tx

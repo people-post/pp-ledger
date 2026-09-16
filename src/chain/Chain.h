@@ -202,7 +202,6 @@ private:
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;
   constexpr static const uint64_t THRESHOLD_TXES_FOR_WALLET_TX = 32;
 
-  bool shouldUseStrictMode(uint64_t blockIndex) const;
   chain_block::BlockAdmissionMode admissionModeFor(uint64_t blockIndex) const;
 
   /** Account metadata for renewal: user accounts get genesis balance adjusted
@@ -242,10 +241,12 @@ private:
   Roe<void>
   processNormalTxRecord(const Ledger::Record &record,
                         uint64_t blockId, uint64_t blockSlot,
-                        uint64_t slotLeaderId, bool isStrictMode);
+                        uint64_t slotLeaderId,
+                        chain_block::BlockAdmissionMode admissionMode);
   Roe<void>
   validateTxSignatures(const Ledger::Record &record,
-                       uint64_t slotLeaderId, bool isStrictMode) const;
+                       uint64_t slotLeaderId,
+                       chain_block::BlockAdmissionMode admissionMode) const;
 
   TxContext txContext_{};
 

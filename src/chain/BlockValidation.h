@@ -2,6 +2,7 @@
 #define PP_LEDGER_BLOCK_VALIDATION_H
 
 #include "AccountBuffer.h"
+#include "BlockAdmission.h"
 #include "TxError.h"
 #include "Types.h"
 #include "../consensus/SlotCommittee.h"
@@ -13,28 +14,6 @@
 #include <string>
 
 namespace pp::chain_block {
-
-/**
- * How thoroughly to admit a block before apply / persist.
- * See docs/architecture/BLOCK_PIPELINE.md.
- */
-enum class BlockAdmissionMode : uint8_t {
-  /** Tip ingest and seal policy: structural + consensus + body. */
-  Full = 0,
-  /** Replay from a checkpoint start: structural only; soft tx apply. */
-  CheckpointReplay = 1,
-  /** Persist after seal: structural only (effects already on tip bank). */
-  SealedCommitVerify = 2,
-};
-
-constexpr bool admissionRunsConsensusAndBody(BlockAdmissionMode mode) {
-  return mode == BlockAdmissionMode::Full;
-}
-
-/** Tx handlers use strict fee/idempotency/signature rules under Full only. */
-constexpr bool admissionTxStrict(BlockAdmissionMode mode) {
-  return mode == BlockAdmissionMode::Full;
-}
 
 /** Block hash: SHA-256 of header LTS only (records committed via txRoot). */
 std::string calculateBlockHash(const Ledger::Block &block);
@@ -120,18 +99,6 @@ checkBlock(const Ledger::ChainNode &block, BlockAdmissionMode mode,
            const AccountBuffer &bank,
            const std::optional<BlockChainConfig> &optChainConfig,
            const Checkpoint &checkpoint, const RecordHandler &recordHandler);
-
-/**
- * Compatibility wrapper: strict → Full, else CheckpointReplay.
- * Prefer `checkBlock` at new call sites.
- */
-chain_tx::Roe<void>
-validateNormalBlock(const Ledger::ChainNode &block, bool isStrictMode,
-                    const Ledger &ledger, const consensus::SlotCommittee &consensus,
-                    const AccountBuffer &bank,
-                    const std::optional<BlockChainConfig> &optChainConfig,
-                    const Checkpoint &checkpoint,
-                    const RecordHandler &recordHandler);
 
 } // namespace pp::chain_block
 

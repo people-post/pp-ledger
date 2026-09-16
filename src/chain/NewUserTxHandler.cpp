@@ -72,11 +72,11 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.isStrictMode);
+          p->validationTsMax, c.blockSlot, c.admissionMode);
       !idem) {
     return idem;
   }
-  return applyNewUser(*p, c.ctx, bank, c.blockId, false, c.isStrictMode);
+  return applyNewUser(*p, c.ctx, bank, c.blockId, false, c.admissionMode);
 }
 
 chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
@@ -90,7 +90,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.isStrictMode);
+          p->validationTsMax, c.effectiveSlot, c.admissionMode);
       !idem) {
     return idem;
   }
@@ -104,18 +104,19 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !seeded) {
     return seeded;
   }
-  return applyNewUser(*p, c.ctx, bank, c.blockId, true, true);
+  return applyNewUser(*p, c.ctx, bank, c.blockId, true,
+                      chain_block::BlockAdmissionMode::Full);
 }
 
 chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     const Ledger::TxNewUser &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
-    bool isStrictMode) const {
-  if (isStrictMode) {
+    chain_block::BlockAdmissionMode admissionMode) const {
+  if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
             Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for strict new-user fee validation",
+            "Chain config required for Full-mode new-user fee validation",
             "New user transaction fee below minimum: ");
         !feeGate) {
       return feeGate;

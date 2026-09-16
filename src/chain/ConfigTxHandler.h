@@ -32,14 +32,14 @@ private:
   chain_tx::Roe<void>
   applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,
                     AccountBuffer &bank, uint64_t blockId,
-                    bool isStrictMode) const;
+                    chain_block::BlockAdmissionMode admissionMode) const;
 
   chain_tx::Roe<void>
   applyConfigUpdate(const Ledger::TxConfig &tx, TxContext &ctx,
-                    AccountBuffer &bank, uint64_t blockId, bool isStrictMode,
+                    AccountBuffer &bank, uint64_t blockId,
+                    chain_block::BlockAdmissionMode admissionMode,
                     bool commitOptChainConfig) const;
 };
-
 } // namespace pp
 
 #endif
