@@ -2,7 +2,8 @@
 
 **Status:** normative for `Chain` admission / apply / persist  
 **Code:** `chain/BlockAdmission.h`, `chain/BlockValidation.*` (`checkBlock*`),
-`Chain::{sealBlock,addBlock,commitSealedBlock,loadFromLedger}`
+`Chain::{assembleBlockHeader,sealBlock,addBlock,commitSealedBlock,loadFromLedger}`,
+`Miner::{shouldAttemptProduction,produceBlock,createBlock}`
 
 Production, peer ingest, seal-commit, and ledger replay share one **apply** path
 and one **admission** helper. Roles differ only by which stages they run and
@@ -12,10 +13,13 @@ which `BlockAdmissionMode` they select.
 
 | Stage | Mutates tip bank? | Persist? | Responsibility |
 |-------|-------------------|----------|----------------|
-| **Assemble** | no | no | Producer picks txs / renewals; fills slot, leader, timestamp |
+| **Assemble** | no | no | Producer picks txs; fills slot/leader/timestamp; `assembleBlockHeader` fills epoch / stake / seed / txRoot |
 | **Check** | no | no | `checkBlock` layers (mode-selected) |
 | **Apply** | **once** | no | Tx handlers → tip `AccountBuffer`; seal computes `stateRoot` + hash |
 | **Commit** | no | yes | Ledger write; clear `pendingSeal_` |
+
+`sealBlock` = Assemble → Check (non-genesis Full layers) → Apply → pending seal.
+`createBlock` fills index/links then calls `sealBlock`.
 
 ## Modes (`BlockAdmissionMode`)
 
@@ -31,6 +35,18 @@ Live tip selection: `Chain::admissionModeFor(index)`. Tx apply contexts carry
 the same `BlockAdmissionMode` (`BufferApplyContext` / `BlockApplyContext`);
 handlers call `admissionTxStrict(mode)` instead of a parallel bool.
 
+## Late join (mode matrix)
+
+1. Miner/relay mounts with `startingBlockId = checkpointId` from beacon STATUS.
+2. `loadFromLedger(startingBlockId)` sets `lastId == currentId == startingBlockId`
+   and replays with **CheckpointReplay** (structural + soft txs).
+3. While `currentId == lastId`, live `addBlock` also uses **CheckpointReplay**
+   (`admissionModeFor`) — soft sync catch-up after mount.
+4. After checkpoint rotation advances `currentId` past `lastId`, blocks with
+   `index >= currentId` use **Full**.
+
+This is intentional softness for catch-up, not a second validation engine.
+
 ## Layers (`checkBlock*`)
 
 1. **Structural** — `txRoot`, header hash, sequence / `previousHash` / `txIndex`
@@ -45,7 +61,7 @@ handlers call `admissionTxStrict(mode)` instead of a parallel bool.
 
 | Role | Pipeline |
 |------|----------|
-| **Produce** | Assemble → miner gates (mempool / heartbeat UX) → `sealBlock` (consensus+body → Apply → hash) → broadcast → `addBlock` → `commitSealedBlock` (SealedCommitVerify + stateRoot) |
+| **Produce** | Assemble (miner txs + `createBlock`) → UX gate `shouldAttemptProduction` → `sealBlock` (Assemble header + Check + Apply) → broadcast → `addBlock` → `commitSealedBlock` |
 | **Peer / beacon ingest** | `addBlock` → Check(`admissionModeFor`) → Apply → Commit |
 | **Replay** | `loadFromLedger` → Check(Full or CheckpointReplay) → Apply (no persist) |
 | **Late join** | Mount at checkpoint → CheckpointReplay until tip advances past checkpoint → then Full |
@@ -56,8 +72,8 @@ structural Check.
 
 ## Intentionally not duplicated
 
-- Miner `produceBlock` empty-seal gate is UX only; admission still enforces
-  heartbeat via body policy.
+- `Miner::shouldAttemptProduction` (empty heartbeat + production window) is UX only;
+  admission still enforces heartbeat via `checkBlockBodyPolicy`.
 - Tx fee / signature / idempotency windows stay in handlers, keyed by
   `admissionTxStrict(admissionMode)` on the apply context.
 

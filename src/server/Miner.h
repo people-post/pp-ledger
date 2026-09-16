@@ -126,6 +126,13 @@ private:
 
   BlockTxSet getBlockTransactionSet() const;
 
+  /**
+   * Local UX gate only: whether this leader should attempt Assemble/seal now.
+   * Admission (seal checkBlockBodyPolicy) still enforces empty-heartbeat rules.
+   * On success with empty body, tipSlotOut is the tip slot used for the lag check.
+   */
+  Roe<bool> shouldAttemptProduction(uint64_t slot, uint64_t &tipSlotOut) const;
+
   Roe<void> initSlotCache(uint64_t slot);
   Roe<Ledger::ChainNode> createBlock(
       uint64_t slot,
@@ -145,4 +152,4 @@ private:
 
 } // namespace pp
 
-#endif // PP_LEDGER_MINER_H} // namespace pp
+#endif // PP_LEDGER_MINER_H

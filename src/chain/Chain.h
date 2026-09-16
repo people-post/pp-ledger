@@ -232,6 +232,11 @@ private:
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                chain_block::BlockAdmissionMode mode);
+  /**
+   * Assemble stage: fill epoch / stakeSnapshotHash / epochSeed / txRoot.
+   * Does not apply txs or set stateRoot/hash (those happen after Check/Apply).
+   */
+  Roe<void> assembleBlockHeader(Ledger::ChainNode &block);
   /** Persist a block whose effects were already applied by sealBlock. */
   Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
   void maybeRotateCheckpoint(const Ledger::ChainNode &block);

@@ -214,6 +214,29 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
   return {};
 }
 
+Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
+                                                uint64_t &tipSlotOut) const {
+  tipSlotOut = 0;
+  const bool hasWork =
+      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
+  if (!hasWork) {
+    auto tipRoe = chain_.readLastBlock();
+    if (!tipRoe) {
+      return Error(12, "Failed to read tip for heartbeat: " +
+                           tipRoe.error().message);
+    }
+    tipSlotOut = tipRoe->block.slot;
+    if (!shouldSealEmptyHeartbeat(slot, tipSlotOut,
+                                  chain_.getHeartbeatSlots())) {
+      return false;
+    }
+  }
+  if (!chain_.isSlotBlockProductionTime(slot)) {
+    return false;
+  }
+  return true;
+}
+
 Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   const uint64_t slot = getCurrentSlot();
   if (lastProducedSlot_ == slot) {
@@ -230,25 +253,18 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     return false;
   }
 
-  const bool hasWork =
-      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
+  // Local UX gate only; seal still runs Full admission (incl. heartbeat).
   uint64_t tipSlot = 0;
-  if (!hasWork) {
-    auto tipRoe = chain_.readLastBlock();
-    if (!tipRoe) {
-      return Error(12, "Failed to read tip for heartbeat: " +
-                           tipRoe.error().message);
-    }
-    tipSlot = tipRoe->block.slot;
-    if (!shouldSealEmptyHeartbeat(slot, tipSlot, chain_.getHeartbeatSlots())) {
-      return false;
-    }
+  auto attempt = shouldAttemptProduction(slot, tipSlot);
+  if (!attempt) {
+    return attempt;
   }
-
-  if (!chain_.isSlotBlockProductionTime(slot)) {
+  if (!attempt.value()) {
     return false;
   }
 
+  const bool hasWork =
+      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
   if (hasWork) {
     log().info << "Producing block for slot " << slot;
   } else {

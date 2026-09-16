@@ -73,11 +73,15 @@ bool Chain::isChainConfigReady() const {
 
 chain_block::BlockAdmissionMode
 Chain::admissionModeFor(uint64_t blockIndex) const {
+  // Live tip from genesis (or never mounted at a later checkpoint).
   if (txContext_.checkpoint.currentId == 0) {
     return chain_block::BlockAdmissionMode::Full;
   }
+  // Late join: loadFromLedger(startingBlockId) sets lastId == currentId ==
+  // startingBlockId. Until a later checkpoint rotates currentId forward,
+  // ingest stays CheckpointReplay (structural + soft txs). Tip peers that
+  // started from genesis keep Full for index >= currentId.
   if (txContext_.checkpoint.currentId == txContext_.checkpoint.lastId) {
-    // Mounted at a checkpoint; tip sync has not advanced past it yet.
     return chain_block::BlockAdmissionMode::CheckpointReplay;
   }
   return blockIndex >= txContext_.checkpoint.currentId
@@ -447,12 +451,7 @@ std::string Chain::calculateHash(const Ledger::Block &block) const {
   return chain_block::calculateBlockHash(block);
 }
 
-Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
-  if (pendingSeal_.has_value()) {
-    return Error(E_BLOCK_VALIDATION,
-                 "Cannot seal while a previous sealed block is uncommitted");
-  }
-
+Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
   if (block.block.index == 0) {
     block.block.epoch = 0;
     block.block.stakeSnapshotHash =
@@ -488,7 +487,24 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
       return seedRoe;
     }
     block.block.epochSeed = txContext_.consensus.getEpochSeed();
+  }
+  block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
+  return {};
+}
 
+Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
+  if (pendingSeal_.has_value()) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Cannot seal while a previous sealed block is uncommitted");
+  }
+
+  // Assemble → Check (non-genesis) → Apply → Commit-hold (pendingSeal).
+  auto assembled = assembleBlockHeader(block);
+  if (!assembled) {
+    return assembled;
+  }
+
+  if (block.block.index > 0) {
     // Shared Full policy before apply (peers run the same layers via checkBlock).
     // Structural (hash) waits until stateRoot is known after apply.
     auto consensusCheck = mapTxVoid(
@@ -503,7 +519,6 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
       return Error(E_BLOCK_VALIDATION, bodyCheck.error().message);
     }
   }
-  block.block.txRoot = chain_block::calculateTxRoot(block.block.records);
 
   // Single apply on the tip bank (same path addBlock would use). Matching
   // addBlock persists only — no second apply, no AccountBuffer overlay.
@@ -699,7 +714,9 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.checkpoint.currentId = startingBlockId;
   uint64_t blockId = startingBlockId;
   uint64_t logInterval = 1000; // Log every 1000 blocks
-  // Genesis replay is Full; checkpoint mount is structural + soft txs.
+  // Same mode matrix as live late join: genesis→tip is Full; mount at a
+  // checkpoint is CheckpointReplay for the whole replay loop (see
+  // admissionModeFor / BLOCK_PIPELINE.md).
   const auto replayMode =
       startingBlockId == 0 ? chain_block::BlockAdmissionMode::Full
                            : chain_block::BlockAdmissionMode::CheckpointReplay;
