@@ -1139,7 +1139,7 @@ TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   EXPECT_EQ(block1.block.slotLeader, forced);
   ASSERT_TRUE(producer.addBlock(block1).isOk());
 
-  // Peer did not seal — full validateNormalBlock including slot-leader check.
+  // Peer did not seal — full checkBlock(Full) including slot-leader check.
   auto peerAdd = peer.addBlock(block1);
   ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
 
@@ -1194,7 +1194,7 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
 
   auto add = producer.addBlock(bad);
   ASSERT_TRUE(add.isError()) << "wrong leader must be rejected";
-  // processNormalBlock maps validateNormalBlock failures to E_BLOCK_VALIDATION.
+  // processNormalBlock maps checkBlock failures to E_BLOCK_VALIDATION.
   EXPECT_EQ(add.error().code, Chain::E_BLOCK_VALIDATION) << add.error().message;
   EXPECT_NE(add.error().message.find("slot leader"), std::string::npos)
       << add.error().message;
