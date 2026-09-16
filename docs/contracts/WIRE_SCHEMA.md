@@ -169,6 +169,9 @@ Open follow-ups (registration, production window, beacon failover, …):
 
 ## Empty heartbeat blocks
 
+**Settled policy:** heartbeat proves the chain is **active**. Any tip-advancing
+work counts; the lag rule applies only to **empty** bodies.
+
 When a slot leader has **no** renewals and **no** pending txs, they may still
 seal a normal block with empty `records` if:
 
@@ -181,10 +184,12 @@ No special record type; fees are zero for the empty body. **Validators enforce**
 the lag threshold on empty bodies via `checkBlockBodyPolicy` (seal pre-apply +
 `Full` `checkBlock`); premature empties and all empties when
 `heartbeatSlots == 0` are rejected. Non-empty bodies (including renewals) are
-not subject to the lag rule. Leader, time window, and header commitments still
-apply. Policy helper: `shouldSealEmptyHeartbeat` /
-`validateEmptyHeartbeatPolicy`; miner UX gate in `Miner::shouldAttemptProduction`.
-Pipeline: [BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md).
+**not** subject to the lag rule — they already demonstrate liveness. Leader,
+time window, and header commitments still apply. Policy helper:
+`shouldSealEmptyHeartbeat` / `validateEmptyHeartbeatPolicy`; miner UX gate in
+`Miner::shouldAttemptProduction`. Pipeline:
+[BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md)
+(Empty heartbeat settled note + Late join Full gate).
 
 ## ChainNode / storage envelope
 

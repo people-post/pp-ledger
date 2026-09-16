@@ -45,13 +45,18 @@ handlers call `admissionTxStrict(mode)` instead of a parallel bool.
    and replays with **CheckpointReplay** (structural + soft txs).
 3. While `currentId == lastId`, live `addBlock` also uses **CheckpointReplay**
    (`admissionModeFor`) — soft sync catch-up after mount.
-4. After checkpoint rotation advances `currentId` past `lastId`, blocks with
+4. After **checkpoint rotation** advances `currentId` past `lastId`, blocks with
    `index >= currentId` use **Full**.
 5. **Produce/seal** requires Full; soft catch-up must not mint tip state.
 
-**Trust:** CheckpointReplay skips consensus/body and may soft-skip signatures when
-the signer account is missing. Safe only if catch-up blocks come from a trusted
-beacon (or equivalent). Do not treat arbitrary peer feed as Full-equivalent.
+**Full gate (settled):** checkpoint-id rotation is the intentional switch out of
+soft catch-up. It means “trusted catch-up finished / beacon published a newer
+snapshot,” **not** “soft-applied history was re-verified as Full.” Only **new**
+blocks at/after the advanced `currentId` run Full; soft history is not replayed
+under Full. That stays safe only while catch-up comes from a trusted beacon (or
+equivalent) — see open discussion A. Do not treat an arbitrary peer feed as
+Full-equivalent. Until rotation, a late joiner may stay on CheckpointReplay for
+a long time; that is acceptable because seal is refused in that mode.
 
 ## Layers (`checkBlock*`)
 
@@ -63,9 +68,21 @@ beacon (or equivalent). Do not treat arbitrary peer feed as Full-equivalent.
 
 `checkBlock(mode)` runs structural always; consensus + body only for **Full**.
 
-Empty-heartbeat lag applies only when `records` is empty; any non-empty body
-bypasses that rate limit (renewals / mempool work). That is intentional
-(liveness signal: chain is active).
+### Empty heartbeat (settled: any work counts)
+
+`heartbeatSlots` rate-limits **empty** seals only (`records` empty). Goal: prove
+the chain is **active**, not that idle leaders must emit empties on a duty cycle.
+
+- Any non-empty body (mempool txs **or renewals**) bypasses the empty-lag rule —
+  tip advance already shows liveness.
+- Empty bodies still need `currentSlot - tip.slot >= heartbeatSlots`
+  (`0` disables empties entirely).
+- Anti-spam stays in Full admission (fees, size, signatures), not in heartbeat.
+- Ops / STATUS liveness should prefer **last tip advance**, not “last empty
+  heartbeat,” because renewals-only or mempool blocks can move the tip without
+  an empty seal.
+
+Normative wire text: [WIRE_SCHEMA.md — Empty heartbeat blocks](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks).
 
 ## Protocol constants (fork-critical if changed)
 
@@ -107,10 +124,10 @@ Capture for a later design pass — not scheduled implementation.
 ### A. CheckpointReplay trust model
 
 Soft catch-up skips consensus/body and may soft-skip signatures when the signer
-account is missing. Today that assumes a **trusted beacon** (or equivalent) feed.
-Alternatives if peers can supply catch-up blocks: require Full after N blocks,
-attested checkpoint blobs, or a distinct `TrustedReplay` mode with explicit
-source binding. See Late join above.
+account is missing. The Full gate after checkpoint rotation (Late join above)
+assumes a **trusted beacon** (or equivalent) feed. Alternatives if peers can
+supply catch-up blocks: require Full after N blocks, attested checkpoint blobs,
+or a distinct `TrustedReplay` mode with explicit source binding.
 
 ### B. `T_CONFIG` mutation policy for `heartbeatSlots` (and kin)
 
