@@ -7,7 +7,8 @@ namespace network {
 
 ServerAmpSupport::~ServerAmpSupport() { Stop(); }
 
-pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool) {
+pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool,
+                                               PeerAllowed peer_allowed) {
   handler_pool_ = handler_pool;
   auto started = runtime_.Start(std::move(config));
   if (!started) {
@@ -25,7 +26,8 @@ pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchF
     runtime_.runtime().PostToIo(std::move(task));
   };
 
-  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io));
+  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io),
+                       std::move(peer_allowed));
   return {};
 }
 

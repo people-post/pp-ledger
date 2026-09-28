@@ -19,11 +19,13 @@ namespace network {
 class ServerAmpSupport {
 public:
   using DispatchFn = std::function<std::string(const std::string& requestBody)>;
+  using PeerAllowed = AmpLedgerServer::PeerAllowed;
 
   ServerAmpSupport() = default;
   ~ServerAmpSupport();
 
-  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool = nullptr);
+  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool = nullptr,
+                               PeerAllowed peer_allowed = {});
   void Stop();
 
   bool isRunning() const { return runtime_.isRunning(); }

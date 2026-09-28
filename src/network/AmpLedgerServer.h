@@ -18,9 +18,11 @@ public:
   using WorkerPost = std::function<void(std::function<void()>)>;
   /** Queue work onto the Amp IO / pump thread (MeshRuntime::PostToIo). */
   using IoPost = std::function<void(std::function<void()>)>;
+  /** Return true to accept an inbound channel from this remote PeerId. Empty (default): allow all. */
+  using PeerAllowed = std::function<bool(const std::string& remotePeerId)>;
 
   static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {},
-                   IoPost post_io = {});
+                   IoPost post_io = {}, PeerAllowed peer_allowed = {});
 
   static void Unbind(pp::amp::PeerLinkManager& links);
 };

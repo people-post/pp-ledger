@@ -11,8 +11,12 @@ using pp::ledger::rpc::kProtocolId;
 using pp::ledger::rpc::LedgerRpcChannelPolicy;
 
 void HandleInboundChannel(pp::amp::PeerLink& link, const uint32_t channel_id, AmpLedgerServer::Handler handler,
-                          AmpLedgerServer::WorkerPost post_worker, AmpLedgerServer::IoPost post_io) {
+                          AmpLedgerServer::WorkerPost post_worker, AmpLedgerServer::IoPost post_io,
+                          const AmpLedgerServer::PeerAllowed& peer_allowed) {
   if (!link.Mux()) {
+    return;
+  }
+  if (peer_allowed && !peer_allowed(link.RemotePeerId())) {
     return;
   }
   auto session = std::make_shared<pp::amp::ChannelSession>();
@@ -55,7 +59,7 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const uint32_t channel_id, Am
 } // namespace
 
 void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker,
-                           IoPost post_io) {
+                           IoPost post_io, PeerAllowed peer_allowed) {
   auto protocols = links.LocalCapability().protocols;
   bool found = false;
   for (const auto& id : protocols) {
@@ -69,12 +73,13 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
     links.SetAdvertisedProtocols(std::move(protocols));
   }
 
-  links.SetProtocolHandler(kProtocolId, [handler = std::move(handler), post_worker = std::move(post_worker),
-                                         post_io = std::move(post_io)](pp::amp::PeerLink& link,
-                                                                      const uint32_t channel_id) {
-    // Copy handler/post_* per channel — moving would break the second inbound RPC.
-    HandleInboundChannel(link, channel_id, handler, post_worker, post_io);
-  });
+  links.SetProtocolHandler(
+      kProtocolId, [handler = std::move(handler), post_worker = std::move(post_worker),
+                    post_io = std::move(post_io), peer_allowed = std::move(peer_allowed)](
+                       pp::amp::PeerLink& link, const uint32_t channel_id) {
+        // Copy handler/post_* per channel — moving would break the second inbound RPC.
+        HandleInboundChannel(link, channel_id, handler, post_worker, post_io, peer_allowed);
+      });
 }
 
 void AmpLedgerServer::Unbind(pp::amp::PeerLinkManager& links) { links.RemoveProtocolHandler(kProtocolId); }

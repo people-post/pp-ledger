@@ -145,6 +145,27 @@ TEST_F(AmpLedgerRpcTest, RoundTripEcho) {
   EXPECT_EQ(response.value(), payload);
 }
 
+// Regression: AmpLedgerServer::Bind's optional peer_allowed predicate must
+// actually gate inbound channels (this backs BeaconServer's AMP whitelist,
+// which previously only worked over the legacy TCP path).
+TEST_F(AmpLedgerRpcTest, PeerAllowedRejectsDisallowedPeer) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(
+      h->runtime_b->Links(), [](const std::string& body) { return body; },
+      /*post_worker=*/{}, /*post_io=*/{},
+      [](const std::string& remotePeerId) { return remotePeerId == "not-the-real-peer-id"; });
+
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+
+  const std::string payload = "should-not-be-echoed";
+  auto response = transport.roundTrip(payload, std::chrono::milliseconds(500));
+  EXPECT_FALSE(response.isOk());
+}
+
 TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   auto created = RpcHarness::Create();
   ASSERT_TRUE(created.isOk());

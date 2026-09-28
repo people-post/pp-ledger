@@ -4,6 +4,7 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -524,7 +525,19 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);
   }
 
-  auto serverStarted = startAmpServer(*ampCfg);
+  // AMP-side whitelist enforcement: config_.network.whitelist previously only
+  // gated the legacy TCP path (FetchServer, IP-based); it was silently
+  // ignored for AMP connections. Entries here are matched against the
+  // remote's AMP PeerId.
+  network::ServerAmpSupport::PeerAllowed peerAllowed;
+  if (!config_.network.whitelist.empty()) {
+    std::vector<std::string> whitelist = config_.network.whitelist;
+    peerAllowed = [whitelist](const std::string& remotePeerId) {
+      return std::find(whitelist.begin(), whitelist.end(), remotePeerId) != whitelist.end();
+    };
+  }
+
+  auto serverStarted = startAmpServer(*ampCfg, peerAllowed);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }

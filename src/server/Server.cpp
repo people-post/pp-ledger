@@ -163,7 +163,8 @@ pp::amp::PeerLinkManager* Server::peerLinks() {
   return ampSupport_ ? &ampSupport_->links() : nullptr;
 }
 
-Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
+Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config,
+                                          network::ServerAmpSupport::PeerAllowed peer_allowed) {
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");
   }
@@ -171,7 +172,7 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   startRequestHandlers();
   auto started = ampSupport_->Start(
       config, [this](const std::string& body) { return dispatchUnframedRequest(body); },
-      handlerPool_.get());
+      handlerPool_.get(), std::move(peer_allowed));
   if (!started) {
     ampSupport_.reset();
     return started;

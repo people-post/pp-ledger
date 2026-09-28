@@ -44,7 +44,8 @@ protected:
   std::string dispatchUnframedRequest(const std::string& requestBody);
   virtual std::string handleParsedRequest(const Client::Request& request) = 0;
 
-  Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
+  Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config,
+                                    network::ServerAmpSupport::PeerAllowed peer_allowed = {});
   void stopAmpServer();
   bool isAmpServerRunning() const { return ampSupport_ && ampSupport_->isRunning(); }
 
