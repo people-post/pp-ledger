@@ -1,4 +1,5 @@
 #include "MinerServer.h"
+#include "../chain/BlockValidation.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "../network/amp/AmpIdentity.h"
@@ -177,8 +178,14 @@ MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
                  "Failed to fetch genesis block for anchor verification: " +
                      block.error().message);
   }
+  // Recompute the hash from the block body instead of trusting the upstream
+  // peer's self-reported `hash` field, which a malicious/compromised
+  // upstream could set to match the pinned anchor while serving a forged
+  // genesis body.
+  const std::string calculatedHash =
+      chain_block::calculateBlockHash(block.value().block);
   return NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor,
-                                                 block.value().hash);
+                                                 calculatedHash);
 }
 
 MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
