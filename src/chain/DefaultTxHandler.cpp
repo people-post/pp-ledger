@@ -59,7 +59,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.admissionMode);
+          p->validationTsMax, c.effectiveSlot, c.admissionMode, /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }
@@ -92,7 +92,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.admissionMode);
+          p->validationTsMax, c.blockSlot, c.admissionMode, /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }

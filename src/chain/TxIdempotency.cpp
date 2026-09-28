@@ -56,11 +56,17 @@ Roe<void> validateIdempotencyRules(
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
     int64_t validationTsMax, uint64_t effectiveSlot,
     chain_block::BlockAdmissionMode admissionMode,
-    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord) {
+    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord,
+    bool requireNonZeroId) {
   if (!chain_block::admissionTxStrict(admissionMode)) {
     return {};
   }
   if (idempotentId == 0) {
+    if (requireNonZeroId) {
+      return TxError(chain_err::E_TX_IDEMPOTENCY,
+                     "idempotentId must be non-zero for wallet: " +
+                         std::to_string(fromWalletId));
+    }
     return {};
   }
   if (validationTsMax < validationTsMin) {

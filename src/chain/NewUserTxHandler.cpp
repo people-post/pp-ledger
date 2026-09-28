@@ -70,9 +70,13 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
     return pRoe.error();
   }
   const auto *p = pRoe.value();
+  // Genesis bootstrap (fee/reserve/recycle account creation) runs as block 0
+  // with idempotentId == 0 by construction; every other new-user tx must
+  // carry a non-zero id so it can't be replayed onto a later block.
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.blockSlot, c.admissionMode);
+          p->validationTsMax, c.blockSlot, c.admissionMode,
+          /*requireNonZeroId=*/c.blockId != 0);
       !idem) {
     return idem;
   }
@@ -90,7 +94,8 @@ chain_tx::Roe<void> NewUserTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   const auto *p = pRoe.value();
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, p->idempotentId, p->fromWalletId, p->validationTsMin,
-          p->validationTsMax, c.effectiveSlot, c.admissionMode);
+          p->validationTsMax, c.effectiveSlot, c.admissionMode,
+          /*requireNonZeroId=*/c.blockId != 0);
       !idem) {
     return idem;
   }

@@ -168,7 +168,8 @@ protected:
                                   int64_t validationTsMin,
                                   int64_t validationTsMax,
                                   uint64_t effectiveSlot,
-                                  chain_block::BlockAdmissionMode admissionMode) const {
+                                  chain_block::BlockAdmissionMode admissionMode,
+                                  bool requireNonZeroId = false) const {
     if (!ctx.fnIdempotencyKeyForRecord.has_value()) {
       return chain_tx::TxError(
           chain_err::E_INTERNAL,
@@ -177,7 +178,7 @@ protected:
     return chain_tx::validateIdempotencyRules(
         ctx.ledger, ctx.consensus, ctx.optChainConfig, idempotentId,
         walletIdForIdempotency, validationTsMin, validationTsMax, effectiveSlot,
-        admissionMode, *ctx.fnIdempotencyKeyForRecord);
+        admissionMode, *ctx.fnIdempotencyKeyForRecord, requireNonZeroId);
   }
 };
 } // namespace pp
