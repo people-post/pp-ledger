@@ -393,6 +393,17 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 }
 
 Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
+  // Storage is append-only and indexes blocks by physical append order
+  // (startingBlockId + position). The block's own index field must match
+  // the next slot exactly, or the store's implicit indexing and the
+  // block's declared index would silently diverge.
+  const uint64_t expectedIndex = getNextBlockId();
+  if (block.block.index != expectedIndex) {
+    return Error("Block index mismatch: expected " +
+                 std::to_string(expectedIndex) + ", got " +
+                 std::to_string(block.block.index));
+  }
+
   // Serialize Block using Block::ltsToString()
   std::string blockData = block.block.ltsToString();
   
