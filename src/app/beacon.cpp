@@ -32,8 +32,21 @@ int initBeacon(const std::string& workDir) {
   }
   
   std::cout << "Beacon initialized successfully (to reinitialize, edit the init config file and run the same command)\n";
-  std::cout << "Please save the private keys, they are not recoverable: "
-            << pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2) << "\n";
+
+  // Private keys are not recoverable; write them to a 0600 file instead of
+  // stdout, where they'd end up in shell history/terminal scrollback/logs.
+  const std::string keysPath =
+      (std::filesystem::path(workDir) / "init-keys.json").string();
+  const std::string keysJson =
+      pp::common::io::metaToJsonString(result.value().ltsToMeta(), 2);
+  auto writeResult = pp::utl::writeToNewFile(keysPath, keysJson + "\n");
+  if (!writeResult) {
+    std::cerr << "Error: Failed to write private keys to " << keysPath << ": "
+              << writeResult.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Please save and then delete the private keys written to: "
+            << keysPath << " (not recoverable if lost)\n";
   std::cout << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
   return 0;
 }
