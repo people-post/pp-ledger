@@ -24,13 +24,21 @@ Roe<void> checkIdempotency(
     uint64_t idempotentId, uint64_t fromWalletId, uint64_t slotMin,
     uint64_t slotMax, const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord);
 
+/**
+ * `requireNonZeroId`: in strict (Full) admission, reject idempotentId == 0
+ * instead of skipping the replay check for it. Fund-moving transaction types
+ * (transfer / new-user / end-user / renewal) must pass true here -- an id of
+ * 0 would otherwise bypass cross-block replay protection entirely. Types
+ * with no fund movement (e.g. T_CONFIG) may keep the default.
+ */
 Roe<void> validateIdempotencyRules(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
     uint64_t idempotentId, uint64_t fromWalletId, int64_t validationTsMin,
     int64_t validationTsMax, uint64_t effectiveSlot,
     chain_block::BlockAdmissionMode admissionMode,
-    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord);
+    const FnIdempotencyKeyForRecord &fnIdempotencyKeyForRecord,
+    bool requireNonZeroId = false);
 
 } // namespace pp::chain_tx
 

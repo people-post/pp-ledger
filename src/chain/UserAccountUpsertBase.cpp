@@ -14,9 +14,12 @@ chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
     const BlockApplyContext &c) const {
+  // EndUser/Renewal/UserUpdate never run as genesis bootstrap, so an id of 0
+  // would only ever mean "skip replay protection" -- reject it outright.
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.blockSlot, c.admissionMode);
+          tx.validationTsMax, c.blockSlot, c.admissionMode,
+          /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }
@@ -30,7 +33,8 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const BufferApplyContext &c) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.effectiveSlot, c.admissionMode);
+          tx.validationTsMax, c.effectiveSlot, c.admissionMode,
+          /*requireNonZeroId=*/true);
       !idem) {
     return idem;
   }

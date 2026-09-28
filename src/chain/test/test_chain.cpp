@@ -912,6 +912,70 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
 // block index, even when the resubmitted block is byte-for-byte the original
 // (structurally valid) one. Without this, an old block could be replayed on
 // top of the advanced tip and double-apply its transactions.
+// Regression: a zero idempotentId used to skip cross-block replay
+// protection entirely (chain_tx::checkIdempotency short-circuits on 0).
+// Fund-moving tx types must now reject id 0 outright in Full mode.
+TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() /
+      "pp-ledger-chain-test-zero-idempotent-id";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(validator.addBlock(genesis).isOk());
+
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 100;
+  tx.fee = 1;
+  tx.idempotentId = 0; // must be rejected, not silently skip replay checks
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  tx.meta.clear();
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+
+  validator.refreshStakeholders();
+  const uint64_t slot = genesis.block.slot + 1;
+  const uint64_t epoch = validator.getEpochFromSlot(slot);
+  ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
+  auto leaderResult = validator.getSlotLeader(slot);
+  ASSERT_TRUE(leaderResult.isOk());
+  auto block1 = validator.linkNextBlock(
+      genesis, slot, leaderResult.value(), validator.getSlotStartTime(slot),
+      {rec});
+  auto sealResult = validator.sealBlock(block1);
+  ASSERT_FALSE(sealResult.isOk());
+  EXPECT_NE(sealResult.error().message.find("idempotentId"), std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
 TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
   Chain validator;
 

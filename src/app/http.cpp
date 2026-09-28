@@ -709,8 +709,11 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   uint64_t idempotentId = 0;
   int64_t validationTsMin = 0;
   int64_t validationTsMax = 0;
+  const bool callerGaveIdempotentId = body.contains("idempotentId");
+  const bool callerGaveWindow =
+      body.contains("validationTsMin") || body.contains("validationTsMax");
 
-  if (body.contains("idempotentId")) {
+  if (callerGaveIdempotentId) {
     idempotentId = objectUint64(body, "idempotentId", 0);
   }
   if (body.contains("validationTsMin")) {
@@ -719,9 +722,18 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   if (body.contains("validationTsMax")) {
     validationTsMax = static_cast<int64_t>(objectUint64(body, "validationTsMax", 0));
   }
-  if (!body.contains("validationTsMin") && !body.contains("validationTsMax")) {
+  if (!callerGaveWindow) {
     // Only apply a default window for tx types that support it.
     setValidationWindow(idempotentId, validationTsMin, validationTsMax);
+  } else if (!callerGaveIdempotentId) {
+    // Caller picked a custom validation window but left idempotentId out:
+    // still need a non-zero id, or Full-mode replay protection is skipped
+    // entirely for this transaction (chain_tx::validateIdempotencyRules).
+    idempotentId = static_cast<uint64_t>(std::chrono::duration_cast<
+        std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count()) ^
+        (randomAccountId() & 0xFFFFFFFFULL);
+    if (idempotentId == 0) idempotentId = 1;
   }
 
   auto packTyped = [&](uint16_t t) -> std::string {
