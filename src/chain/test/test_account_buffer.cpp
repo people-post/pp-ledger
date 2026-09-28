@@ -292,6 +292,19 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
     EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 50, 10).isOk());
 }
 
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisToken_AmountPlusFeeOverflow_ReturnsFalse) {
+    // amount and fee are each individually within int64_t range, but their
+    // sum overflows int64_t. Regression for a check-bypass via signed
+    // overflow wraparound.
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    const uint64_t nearMax = static_cast<uint64_t>(INT64_MAX) - 5;
+    EXPECT_FALSE(
+        buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, nearMax, nearMax)
+            .isOk());
+}
+
 // --- transferBalance with fee parameter ---
 
 TEST_F(AccountBufferTest, TransferBalance_WithFee_GenesisToken_Success) {

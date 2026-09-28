@@ -9,6 +9,20 @@
 
 namespace pp {
 
+namespace {
+
+/** Add two int64_t values, returning false (instead of wrapping) on overflow. */
+bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
+  if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+      (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
+    return false;
+  }
+  out = a + b;
+  return true;
+}
+
+} // namespace
+
 AccountBuffer::AccountBuffer() = default;
 
 std::string AccountBuffer::accountLeafHash(const Account &account) {
@@ -175,14 +189,22 @@ AccountBuffer::Roe<void> AccountBuffer::verifySpendingPower(uint64_t accountId,
   bool allowNegativeTokenBalance = isNegativeBalanceAllowed(account, tokenId);
 
   if (tokenId == ID_GENESIS) {
+    int64_t amountPlusFee = 0;
+    if (!safeAddI64(amountSigned, feeSigned, amountPlusFee)) {
+      return Error(E_BALANCE, "Amount and fee overflow");
+    }
     if (allowNegativeTokenBalance) {
-      if (amountSigned + feeSigned + INT64_MIN > tokenBalance) {
+      int64_t floor = 0;
+      if (!safeAddI64(amountPlusFee, INT64_MIN, floor)) {
+        return Error(E_BALANCE, "Amount and fee overflow");
+      }
+      if (floor > tokenBalance) {
         return Error(E_BALANCE,
                      "Transfer amount and fee would cause balance underflow");
       }
       return {};
     }
-    if (tokenBalance < amountSigned + feeSigned) {
+    if (tokenBalance < amountPlusFee) {
       return Error(E_BALANCE, "Insufficient balance for transfer and fee");
     }
   } else {
@@ -231,15 +253,6 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
     return balanceIt->second;
   };
 
-  auto safeAdd = [](int64_t a, int64_t b, int64_t &out) -> bool {
-    if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
-        (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
-      return false;
-    }
-    out = a + b;
-    return true;
-  };
-
   for (const auto &[tokenId, bufferBalance] : bufferBalances) {
     if (tokenId == ID_GENESIS) {
       continue;
@@ -263,13 +276,13 @@ AccountBuffer::Roe<void> AccountBuffer::verifyBalance(
   }
 
   int64_t delta = 0;
-  if (!safeAdd(amountSigned, feeSigned, delta)) {
+  if (!safeAddI64(amountSigned, feeSigned, delta)) {
     return Error(E_BALANCE, "Amount and fee overflow");
   }
 
   int64_t expectedGenesis = getBalanceOrZero(expectedBalances, ID_GENESIS);
   int64_t expectedBufferGenesis = 0;
-  if (!safeAdd(expectedGenesis, delta, expectedBufferGenesis)) {
+  if (!safeAddI64(expectedGenesis, delta, expectedBufferGenesis)) {
     return Error(E_BALANCE,
                  "Genesis token balance overflow when adding amount and fee");
   }
