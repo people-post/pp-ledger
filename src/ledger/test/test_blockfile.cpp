@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <vector>
 
@@ -283,6 +284,44 @@ TEST_F(FileStoreTest, CannotWriteBeyondMaxSize) {
     auto result = fileStore.write(dummyData.data(), oversized);
     EXPECT_FALSE(result.isOk());
   }
+}
+
+// Regression: a corrupted (or maliciously crafted) block-size prefix near
+// UINT64_MAX used to overflow the `offset + size` bounds check and could
+// leave buildBlockIndex() looping without making progress. The scan must
+// bail out cleanly and getBlockCount()/readBlock() must stay usable.
+TEST_F(FileStoreTest, BuildBlockIndexRejectsCorruptedHugeBlockSize) {
+  fileStore.init(config);
+
+  const char *testData = "valid block";
+  size_t dataSize = strlen(testData) + 1;
+  ASSERT_TRUE(fileStore.write(testData, dataSize).isOk());
+  fileStore.close();
+
+  // Append a corrupted block: a size prefix that claims far more data than
+  // remains in the file, followed by a little garbage.
+  {
+    std::fstream raw(testFile, std::ios::binary | std::ios::in | std::ios::out |
+                                    std::ios::ate);
+    ASSERT_TRUE(raw.is_open());
+    uint64_t hugeSize = UINT64_MAX - 3;
+    raw.write(reinterpret_cast<const char *>(&hugeSize), sizeof(hugeSize));
+    raw.write("junk", 4);
+  }
+
+  pp::FileStore fileStore2;
+  auto mountResult = fileStore2.mount(testFile, 1024 * 1024);
+  ASSERT_TRUE(mountResult.isOk());
+
+  // Reading must complete (not hang) and must not see the corrupted second
+  // "block" as valid data.
+  char readBuffer[256] = {0};
+  auto readResult0 = fileStore2.readBlock(0, readBuffer, sizeof(readBuffer));
+  ASSERT_TRUE(readResult0.isOk());
+  EXPECT_STREQ(readBuffer, testData);
+
+  auto readResult1 = fileStore2.readBlock(1, readBuffer, sizeof(readBuffer));
+  EXPECT_FALSE(readResult1.isOk());
 }
 
 TEST_F(FileStoreTest, RequiresMinimumMaxSize) {
