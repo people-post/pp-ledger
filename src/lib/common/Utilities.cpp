@@ -232,6 +232,19 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
     return Error(4, "Failed to write content to file: " + filePath);
   }
 
+  // Restrict to owner read/write. This helper is used for private key
+  // material (e.g. AMP identity keys); the default ofstream-created mode
+  // (subject to umask) can leave the file group/world readable. Harmless
+  // to apply to non-secret files written the same way.
+  std::error_code permEc;
+  std::filesystem::permissions(
+      filePath, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+      std::filesystem::perm_options::replace, permEc);
+  if (permEc) {
+    return Error(5, "Failed to set restrictive permissions on " + filePath +
+                        ": " + permEc.message());
+  }
+
   return {};
 }
 
