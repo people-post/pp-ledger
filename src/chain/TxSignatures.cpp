@@ -2,6 +2,8 @@
 #include "ErrorCodes.h"
 #include "lib/common/Utilities.h"
 
+#include <algorithm>
+
 namespace pp::chain_tx {
 
 Roe<void> verifySignaturesAgainstAccount(
@@ -14,6 +16,26 @@ Roe<void> verifySignaturesAgainstAccount(
         "Account " + std::to_string(account.id) + " must have at least " +
             std::to_string(int(account.wallet.minSignatures)) +
             " signatures, but has " + std::to_string(signatures.size()));
+  }
+  if (account.wallet.publicKeys.size() > kMaxSignatureCount) {
+    return TxError(chain_err::E_TX_SIGNATURE,
+                   "Account " + std::to_string(account.id) +
+                       " has more public keys than allowed (" +
+                       std::to_string(account.wallet.publicKeys.size()) +
+                       " > " + std::to_string(kMaxSignatureCount) + ")");
+  }
+  // No valid multisig ever needs more signatures than the account has keys;
+  // reject early instead of burning a verify() call per extra signature.
+  if (signatures.size() > account.wallet.publicKeys.size() ||
+      signatures.size() > kMaxSignatureCount) {
+    return TxError(chain_err::E_TX_SIGNATURE,
+                   "Account " + std::to_string(account.id) +
+                       " received more signatures (" +
+                       std::to_string(signatures.size()) +
+                       ") than allowed (" +
+                       std::to_string(std::min(account.wallet.publicKeys.size(),
+                                               kMaxSignatureCount)) +
+                       ")");
   }
   std::vector<bool> keyUsed(account.wallet.publicKeys.size(), false);
   for (const auto &signature : signatures) {
@@ -30,19 +52,14 @@ Roe<void> verifySignaturesAgainstAccount(
       }
     }
     if (!matched) {
-      logger.error << "Invalid signature for account " +
-                          std::to_string(account.id) + ": " +
-                          utl::toJsonSafeString(signature);
-      logger.error << "Expected signatures: "
-                   << int(account.wallet.minSignatures);
-      for (size_t i = 0; i < account.wallet.publicKeys.size(); ++i) {
-        logger.error << "Public key " << i << ": "
-                     << utl::toJsonSafeString(account.wallet.publicKeys[i]);
-        logger.error << "Key used: " << keyUsed[i];
-      }
-      for (const auto &sig : signatures) {
-        logger.error << "Signature: " << utl::toJsonSafeString(sig);
-      }
+      // Summary only: dumping every public key and signature on each
+      // failure is log spam and needlessly puts raw key/signature bytes in
+      // the log for every rejected transaction.
+      logger.error << "Invalid or duplicate signature for account "
+                   << account.id << " (minSignatures="
+                   << int(account.wallet.minSignatures)
+                   << ", publicKeys=" << account.wallet.publicKeys.size()
+                   << ", signaturesProvided=" << signatures.size() << ")";
       return TxError(chain_err::E_TX_SIGNATURE,
                      "Invalid or duplicate signature for account " +
                          std::to_string(account.id));
