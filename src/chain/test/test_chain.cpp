@@ -976,6 +976,151 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+// Regression: a block's slot must strictly increase over its predecessor.
+// validateBlockTiming only checked that the timestamp matched the block's
+// own claimed slot, so a leader (or forged block) could reuse or rewind the
+// slot number as long as it self-reported a matching timestamp.
+TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
+                                  "pp-ledger-chain-test-nonincreasing-slot";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(validator.addBlock(genesis).isOk());
+
+  // Non-empty so the heartbeat-lag policy doesn't also reject it.
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 10;
+  tx.fee = 1;
+  tx.idempotentId = 1;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  tx.meta.clear();
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+
+  validator.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {rec});
+  ASSERT_TRUE(validator.addBlock(block1).isOk());
+
+  // Attempt a block2 that reuses block1's own slot instead of advancing.
+  // Built manually (not via makeNextBlockAtSlot, which asserts seal
+  // success). sealBlock's pre-apply Check only runs consensus + body (slot
+  // reuse alone doesn't violate either), so seal succeeds; the structural
+  // slot-monotonicity check runs later, at commit (addBlock) time.
+  Ledger::TxDefault tx2;
+  tx2.tokenId = AccountBuffer::ID_GENESIS;
+  tx2.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx2.toWalletId = AccountBuffer::ID_FEE;
+  tx2.amount = 10;
+  tx2.fee = 1;
+  tx2.idempotentId = 2;
+  tx2.validationTsMin = chainConfig.genesisTime;
+  tx2.validationTsMax = chainConfig.genesisTime + 3600;
+  tx2.meta.clear();
+  Ledger::Record rec2 = makeRecord(Ledger::T_DEFAULT, tx2, reserveKey);
+
+  validator.refreshStakeholders();
+  const uint64_t badSlot = block1.block.slot;
+  const uint64_t epoch = validator.getEpochFromSlot(badSlot);
+  ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
+  auto leaderResult = validator.getSlotLeader(badSlot);
+  ASSERT_TRUE(leaderResult.isOk());
+  auto badBlock = validator.linkNextBlock(
+      block1, badSlot, leaderResult.value(),
+      validator.getSlotStartTime(badSlot), {rec2});
+  ASSERT_TRUE(validator.sealBlock(badBlock).isOk());
+
+  auto addResult = validator.addBlock(badBlock);
+  ASSERT_FALSE(addResult.isOk());
+  EXPECT_NE(addResult.error().message.find("Invalid block slot"),
+            std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// Regression: a block's slot must not be far beyond the local clock's
+// current slot -- otherwise a block could claim an arbitrarily-future slot
+// (with a self-consistent timestamp) and be accepted.
+TEST(ChainTest, Seal_RejectsFarFutureSlot) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
+                                  "pp-ledger-chain-test-far-future-slot";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(validator.addBlock(genesis).isOk());
+
+  // Pin the clock to slot 0's start so the check is deterministic, and stay
+  // within epoch 0 (slotsPerEpoch=10) so genesis's epoch seed still covers
+  // it -- only the future-slot bound is under test here.
+  validator.setClockOverride(validator.getSlotStartTime(0));
+  validator.refreshStakeholders();
+  const uint64_t farFutureSlot = 5; // > currentSlot(0) + tolerance(2)
+  // Built manually (not via makeNextBlockAtSlot, which asserts seal
+  // success) since this seal is expected to fail.
+  const uint64_t epoch = validator.getEpochFromSlot(farFutureSlot);
+  ASSERT_TRUE(validator.ensureEpochSeed(epoch).isOk());
+  auto leaderResult = validator.getSlotLeader(farFutureSlot);
+  ASSERT_TRUE(leaderResult.isOk());
+  auto badBlock = validator.linkNextBlock(
+      genesis, farFutureSlot, leaderResult.value(),
+      validator.getSlotStartTime(farFutureSlot), {});
+  auto sealResult = validator.sealBlock(badBlock);
+  ASSERT_FALSE(sealResult.isOk());
+  EXPECT_NE(sealResult.error().message.find("too far in the future"),
+            std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
 TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
   Chain validator;
 
