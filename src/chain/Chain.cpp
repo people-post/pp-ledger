@@ -808,6 +808,21 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
     return commitSealedBlock(block);
   }
 
+  // Live tip admission only ever advances the chain by exactly one block.
+  // Accepting index < nextBlockId here would let an already-committed (or
+  // forged) historical index be re-applied on top of the current, more
+  // advanced tip state -- a replay that double-applies old transactions.
+  // (checkBlockStructural's validateBlockSequence stays permissive because
+  // it is shared with full-history replay from disk, where every block
+  // legitimately has index < the ledger's final block count.)
+  const uint64_t expectedIndex = txContext_.ledger.getNextBlockId();
+  if (block.block.index != expectedIndex) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Invalid block index: expected " +
+                     std::to_string(expectedIndex) + " got " +
+                     std::to_string(block.block.index));
+  }
+
   const auto admissionMode = admissionModeFor(block.block.index);
   if (block.block.index > 0) {
     refreshStakeholders(block.block.slot);

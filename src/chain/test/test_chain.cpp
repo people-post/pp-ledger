@@ -908,6 +908,99 @@ TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+// Regression: live tip admission must reject re-adding an already-committed
+// block index, even when the resubmitted block is byte-for-byte the original
+// (structurally valid) one. Without this, an old block could be replayed on
+// top of the advanced tip and double-apply its transactions.
+TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() /
+      "pp-ledger-chain-test-replay-old-index";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  ASSERT_FALSE(ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  auto initResult = validator.initLedger(ledgerConfig);
+  ASSERT_TRUE(initResult.isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(validator.addBlock(genesis).isOk());
+
+  // block1 moves funds from RESERVE to FEE.
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 100;
+  tx.fee = 1;
+  tx.idempotentId = 7;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  tx.meta.clear();
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+
+  validator.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {rec});
+  ASSERT_TRUE(validator.addBlock(block1).isOk());
+
+  // Advance the tip past block1 with an unrelated non-empty block (heartbeat
+  // policy would otherwise reject an empty block this soon after block1).
+  Ledger::TxDefault tx2;
+  tx2.tokenId = AccountBuffer::ID_GENESIS;
+  tx2.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx2.toWalletId = AccountBuffer::ID_FEE;
+  tx2.amount = 50;
+  tx2.fee = 1;
+  tx2.idempotentId = 8;
+  tx2.validationTsMin = chainConfig.genesisTime;
+  tx2.validationTsMax = chainConfig.genesisTime + 3600;
+  tx2.meta.clear();
+  Ledger::Record rec2 = makeRecord(Ledger::T_DEFAULT, tx2, reserveKey);
+
+  validator.refreshStakeholders();
+  Ledger::ChainNode block2 = makeNextBlock(validator, block1, {rec2});
+  ASSERT_TRUE(validator.addBlock(block2).isOk());
+
+  auto feeAfterBlock2 = validator.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAfterBlock2.isOk());
+  const int64_t feeBalanceAfterBlock2 =
+      feeAfterBlock2.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+
+  // Resubmitting the already-committed block1 (index 1, tip is now at 2)
+  // must be rejected outright, not re-applied on top of the current tip.
+  auto replayResult = validator.addBlock(block1);
+  ASSERT_FALSE(replayResult.isOk());
+  EXPECT_NE(replayResult.error().message.find("Invalid block index"),
+            std::string::npos);
+
+  // block1's RESERVE->FEE transfer must not have been double-applied.
+  auto feeAfterReplay = validator.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(feeAfterReplay.isOk());
+  EXPECT_EQ(feeAfterReplay.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
+            feeBalanceAfterBlock2);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
 TEST(ChainTest,
      ValidateIdempotencyRules_OnlyScansPreviousBlocksOnReplay) {
   Chain validator;
