@@ -3,6 +3,8 @@
 #include "LedgerRpcProtocol.h"
 #include "amp/L3/ChannelSession.h"
 
+#include <algorithm>
+
 namespace pp {
 namespace network {
 namespace {
@@ -83,6 +85,15 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
 }
 
 void AmpLedgerServer::Unbind(pp::amp::PeerLinkManager& links) { links.RemoveProtocolHandler(kProtocolId); }
+
+AmpLedgerServer::PeerAllowed AmpLedgerServer::AllowPeerIds(std::vector<std::string> peer_ids) {
+  if (peer_ids.empty()) {
+    return {};
+  }
+  return [ids = std::move(peer_ids)](const std::string& remotePeerId) {
+    return std::find(ids.begin(), ids.end(), remotePeerId) != ids.end();
+  };
+}
 
 } // namespace network
 } // namespace pp

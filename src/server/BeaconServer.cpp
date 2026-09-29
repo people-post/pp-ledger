@@ -217,6 +217,11 @@ Object BeaconServer::RunFileConfig::ltsToJson() {
     wl.push_back(w);
   }
   j.set("whitelist", Object::array(std::move(wl)));
+  std::vector<Value> awl;
+  for (const auto &w : ampPeerWhitelist) {
+    awl.push_back(w);
+  }
+  j.set("ampPeerWhitelist", Object::array(std::move(awl)));
   return j;
 }
 
@@ -271,6 +276,22 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
         return Error(E_CONFIG, "Field 'whitelist' elements must be strings");
       }
       whitelist.push_back(*s);
+    }
+  }
+
+  if (jd.contains("ampPeerWhitelist")) {
+    const Array *arr = jd.getArray("ampPeerWhitelist");
+    if (!arr) {
+      return Error(E_CONFIG, "Field 'ampPeerWhitelist' must be an array");
+    }
+    ampPeerWhitelist.clear();
+    for (const auto &el : arr->elements) {
+      auto s = asString(el);
+      if (!s || s->empty()) {
+        return Error(E_CONFIG,
+                     "Field 'ampPeerWhitelist' elements must be non-empty strings");
+      }
+      ampPeerWhitelist.push_back(*s);
     }
   }
 
@@ -496,6 +517,7 @@ Service::Roe<void> BeaconServer::onStart() {
   config_.network.udp_port = runFileConfig.port;
   config_.network.amp_key_path = runFileConfig.ampKey;
   config_.network.whitelist = runFileConfig.whitelist;
+  config_.network.amp_peer_whitelist = runFileConfig.ampPeerWhitelist;
   config_.network_id = runFileConfig.networkId;
 
   log().info << "Configuration loaded";
@@ -503,6 +525,8 @@ Service::Roe<void> BeaconServer::onStart() {
   log().info << "  AMP key: " << config_.network.amp_key_path;
   log().info << "  Whitelisted beacons: "
              << utl::join(config_.network.whitelist, ", ");
+  log().info << "  AMP peer whitelist: "
+             << utl::join(config_.network.amp_peer_whitelist, ", ");
 
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;
@@ -525,19 +549,10 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);
   }
 
-  // AMP-side whitelist enforcement: config_.network.whitelist previously only
-  // gated the legacy TCP path (FetchServer, IP-based); it was silently
-  // ignored for AMP connections. Entries here are matched against the
-  // remote's AMP PeerId.
-  network::ServerAmpSupport::PeerAllowed peerAllowed;
-  if (!config_.network.whitelist.empty()) {
-    std::vector<std::string> whitelist = config_.network.whitelist;
-    peerAllowed = [whitelist](const std::string& remotePeerId) {
-      return std::find(whitelist.begin(), whitelist.end(), remotePeerId) != whitelist.end();
-    };
-  }
-
-  auto serverStarted = startAmpServer(*ampCfg, peerAllowed);
+  // `whitelist` keeps its IP meaning; AMP channels are filtered by PeerId
+  // via `ampPeerWhitelist` (empty = allow all).
+  auto serverStarted = startAmpServer(
+      *ampCfg, network::AmpLedgerServer::AllowPeerIds(config_.network.amp_peer_whitelist));
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }

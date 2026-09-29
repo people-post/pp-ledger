@@ -171,6 +171,27 @@ TEST_F(AmpLedgerRpcTest, PeerAllowedRejectsDisallowedPeer) {
   EXPECT_FALSE(response.isOk());
 }
 
+// AllowPeerIds backs BeaconServer's ampPeerWhitelist: listed PeerIds pass,
+// an empty list yields no predicate (allow all).
+TEST_F(AmpLedgerRpcTest, AllowPeerIdsAcceptsListedPeer) {
+  EXPECT_FALSE(static_cast<bool>(pp::network::AmpLedgerServer::AllowPeerIds({})));
+
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+
+  pp::network::AmpLedgerServer::Bind(
+      h->runtime_b->Links(), [](const std::string& body) { return body; },
+      /*post_worker=*/{}, /*post_io=*/{},
+      pp::network::AmpLedgerServer::AllowPeerIds({"other-peer", h->peer_id_a}));
+
+  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  auto response = transport.roundTrip("allowed", std::chrono::seconds(5));
+  ASSERT_TRUE(response.isOk()) << response.error().message;
+  EXPECT_EQ(response.value(), "allowed");
+}
+
 // Several caller threads share one running LedgerAmpRuntime (pump thread
 // live): link access goes through ioExclusive(), so concurrent round trips
 // must all complete with their own response.

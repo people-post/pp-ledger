@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace pp {
 namespace network {
@@ -25,6 +26,9 @@ public:
                    IoPost post_io = {}, PeerAllowed peer_allowed = {});
 
   static void Unbind(pp::amp::PeerLinkManager& links);
+
+  /** Predicate accepting exactly these PeerIds; empty list gives an empty (allow-all) predicate. */
+  static PeerAllowed AllowPeerIds(std::vector<std::string> peer_ids);
 };
 
 } // namespace network

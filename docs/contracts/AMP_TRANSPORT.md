@@ -70,9 +70,14 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
   "port": 8517,
   "ampKey": "keys/amp-identity.txt",
   "networkId": "pp-testnet-1",
-  "whitelist": []
+  "whitelist": [],
+  "ampPeerWhitelist": []
 }
 ```
+
+`whitelist` holds IP addresses and is not applied to AMP channels.
+`ampPeerWhitelist` lists AMP PeerIds allowed to open ledger RPC channels
+(empty = allow all).
 
 `port` is the **UDP** listen port. `amp-identity.txt` is created on `pp-beacon --init`.
 
