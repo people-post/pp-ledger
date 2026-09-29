@@ -422,6 +422,14 @@ BeaconServer::init(const std::string &workDir) {
     initConfig.key.recycle.push_back(result.value());
   }
 
+  // Persist the new keys before (re)creating the chain that depends on them.
+  auto keysPath = writeInitKeysFile(workDir, initConfig.key);
+  if (!keysPath) {
+    return Error("Failed to write private keys: " + keysPath.error().message);
+  }
+  initKeysPath_ = keysPath.value();
+  log().info << "Wrote private keys: " << initKeysPath_;
+
   auto result = initFromWorkDir(initConfig);
   if (!result) {
     return Error("Failed to initialize beacon: " + result.error().message);
@@ -444,6 +452,30 @@ BeaconServer::init(const std::string &workDir) {
 
   log().info << "Beacon initialized successfully";
   return initConfig.key;
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::writeInitKeysFile(const std::string &workDir,
+                                const Beacon::InitKeyConfig &keys) {
+  const std::string json =
+      pp::common::io::metaToJsonString(keys.ltsToMeta(), 2) + "\n";
+  constexpr int kMaxAttempts = 1000;
+  for (int n = 1; n <= kMaxAttempts; ++n) {
+    const std::string name = std::string(FILE_INIT_KEYS_STEM) +
+                             (n == 1 ? "" : "-" + std::to_string(n)) + ".json";
+    const std::string path = (std::filesystem::path(workDir) / name).string();
+    if (std::filesystem::exists(path)) {
+      continue;
+    }
+    auto written = utl::writeToNewFile(path, json);
+    if (written) {
+      return path;
+    }
+    if (!std::filesystem::exists(path)) {
+      return Error(written.error().message);
+    }
+  }
+  return Error("No free init-keys file name in " + workDir);
 }
 
 BeaconServer::Roe<void>
