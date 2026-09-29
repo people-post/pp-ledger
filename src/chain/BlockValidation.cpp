@@ -16,14 +16,9 @@ namespace pp::chain_block {
 
 namespace {
 
-/**
- * Slack (in slots) allowed between a block's claimed slot and the local
- * clock's current slot, to absorb reasonable clock skew between nodes.
- * Applies both to fresh blocks and to genesis->tip replay (where the local
- * clock is always far ahead of historical slots, so this never rejects
- * legitimate history).
- */
-constexpr uint64_t kFutureSlotTolerance = 2;
+/** Future-slot slack for arriving blocks: max(2 slots, 15 s) of clock skew. */
+constexpr uint64_t kFutureSlotToleranceSlots = 2;
+constexpr uint64_t kFutureSlotToleranceSeconds = 15;
 
 /** Unpack a genesis bootstrap T_NEW_USER record and require exact min fee. */
 chain_tx::Roe<Ledger::TxNewUser> loadGenesisNewUserWithExactFee(
@@ -376,14 +371,6 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
               block.block.previousHash);
     }
 
-    if (block.block.slot <= prevBlock.block.slot) {
-      return chain_tx::TxError(
-          chain_err::E_BLOCK_SEQUENCE,
-          "Invalid block slot: expected > " +
-              std::to_string(prevBlock.block.slot) + " got " +
-              std::to_string(block.block.slot));
-    }
-
     const uint64_t expectedTxIndex =
         prevBlock.block.txIndex + prevBlock.block.records.size();
     if (block.block.txIndex != expectedTxIndex) {
@@ -654,17 +641,51 @@ checkBlockConsensus(const Ledger::ChainNode &block,
         chain_err::E_CONSENSUS_SLOT_LEADER,
         "Invalid slot leader for block at slot " + std::to_string(slot));
   }
+  if (!consensus.validateBlockTiming(block.block.timestamp, slot)) {
+    return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
+                             "Block timestamp outside valid slot range");
+  }
+  return {};
+}
+
+uint64_t futureSlotToleranceSlots(uint64_t slotDuration) {
+  if (slotDuration == 0) {
+    return kFutureSlotToleranceSlots;
+  }
+  const uint64_t bySeconds =
+      (kFutureSlotToleranceSeconds + slotDuration - 1) / slotDuration;
+  return std::max(kFutureSlotToleranceSlots, bySeconds);
+}
+
+chain_tx::Roe<void>
+checkBlockArrival(const Ledger::ChainNode &block, const Ledger &ledger,
+                  const consensus::SlotCommittee &consensus) {
+  const uint64_t slot = block.block.slot;
+  if (block.block.index > ledger.getStartingBlockId()) {
+    auto prevBlockResult = ledger.readBlock(block.block.index - 1);
+    if (!prevBlockResult) {
+      return chain_tx::TxError(
+          chain_err::E_BLOCK_NOT_FOUND,
+          "Latest block not found: " + std::to_string(block.block.index - 1));
+    }
+    const uint64_t prevSlot = prevBlockResult.value().block.slot;
+    if (slot <= prevSlot) {
+      return chain_tx::TxError(chain_err::E_BLOCK_SEQUENCE,
+                               "Invalid block slot: expected > " +
+                                   std::to_string(prevSlot) + " got " +
+                                   std::to_string(slot));
+    }
+  }
+
   const uint64_t currentSlot = consensus.getCurrentSlot();
-  if (slot > currentSlot + kFutureSlotTolerance) {
+  const uint64_t tolerance =
+      futureSlotToleranceSlots(consensus.getConfig().slotDuration);
+  if (slot > currentSlot + tolerance) {
     return chain_tx::TxError(
         chain_err::E_CONSENSUS_TIMING,
         "Block slot " + std::to_string(slot) +
             " is too far in the future (current slot " +
             std::to_string(currentSlot) + ")");
-  }
-  if (!consensus.validateBlockTiming(block.block.timestamp, slot)) {
-    return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
-                             "Block timestamp outside valid slot range");
   }
   return {};
 }

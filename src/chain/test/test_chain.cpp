@@ -1031,9 +1031,7 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
 
   // Attempt a block2 that reuses block1's own slot instead of advancing.
   // Built manually (not via makeNextBlockAtSlot, which asserts seal
-  // success). sealBlock's pre-apply Check only runs consensus + body (slot
-  // reuse alone doesn't violate either), so seal succeeds; the structural
-  // slot-monotonicity check runs later, at commit (addBlock) time.
+  // success). The slot check runs before seal applies anything.
   Ledger::TxDefault tx2;
   tx2.tokenId = AccountBuffer::ID_GENESIS;
   tx2.fromWalletId = AccountBuffer::ID_RESERVE;
@@ -1055,12 +1053,22 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
   auto badBlock = validator.linkNextBlock(
       block1, badSlot, leaderResult.value(),
       validator.getSlotStartTime(badSlot), {rec2});
-  ASSERT_TRUE(validator.sealBlock(badBlock).isOk());
-
-  auto addResult = validator.addBlock(badBlock);
-  ASSERT_FALSE(addResult.isOk());
-  EXPECT_NE(addResult.error().message.find("Invalid block slot"),
+  auto reserveBefore = validator.getAccount(AccountBuffer::ID_RESERVE);
+  ASSERT_TRUE(reserveBefore.isOk());
+  auto sealResult = validator.sealBlock(badBlock);
+  ASSERT_FALSE(sealResult.isOk());
+  EXPECT_NE(sealResult.error().message.find("Invalid block slot"),
             std::string::npos);
+
+  // Failed seal left no pending seal and no applied effects.
+  auto reserveAfter = validator.getAccount(AccountBuffer::ID_RESERVE);
+  ASSERT_TRUE(reserveAfter.isOk());
+  EXPECT_EQ(reserveAfter.value().wallet.mBalances,
+            reserveBefore.value().wallet.mBalances);
+  Ledger::ChainNode next =
+      makeNextBlockAtSlot(validator, block1, badSlot + 1, {rec2});
+  auto addResult = validator.addBlock(next);
+  ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
 
   std::filesystem::remove_all(tempDir, ec);
 }
@@ -1118,6 +1126,127 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   ASSERT_FALSE(sealResult.isOk());
   EXPECT_NE(sealResult.error().message.find("too far in the future"),
             std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(ChainTest, FutureSlotTolerance_IsMaxOfTwoSlotsAndFifteenSeconds) {
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(0), 2u);
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(1), 15u);
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(5), 3u);
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(4), 4u);
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(10), 2u);
+  EXPECT_EQ(chain_block::futureSlotToleranceSlots(60), 2u);
+}
+
+// Slot monotonicity is an arrival rule only: the structural layer used by
+// ledger replay accepts a same-slot successor, checkBlockArrival rejects it.
+TEST(ChainTest, SlotMonotonicity_ArrivalOnlyNotStructural) {
+  std::filesystem::path tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-arrival";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+
+  Ledger ledger;
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  ASSERT_TRUE(ledger.init(ledgerConfig).isOk());
+
+  auto makeBlock = [](uint64_t index, uint64_t slot,
+                      const std::string &previousHash) {
+    Ledger::ChainNode node;
+    node.block.index = index;
+    node.block.slot = slot;
+    node.block.previousHash = previousHash;
+    node.block.txRoot = chain_block::calculateTxRoot(node.block.records);
+    node.hash = chain_block::calculateBlockHash(node.block);
+    return node;
+  };
+  Ledger::ChainNode b0 = makeBlock(0, 0, utl::zeroHash());
+  ASSERT_TRUE(ledger.addBlock(b0).isOk());
+  Ledger::ChainNode b1 = makeBlock(1, 4, b0.hash);
+  ASSERT_TRUE(ledger.addBlock(b1).isOk());
+  Ledger::ChainNode sameSlot = makeBlock(2, 4, b1.hash);
+
+  EXPECT_TRUE(chain_block::checkBlockStructural(sameSlot, ledger).isOk());
+
+  consensus::SlotCommittee consensus;
+  consensus::SlotCommittee::Config config;
+  config.genesisTime = 0;
+  config.slotDuration = 5;
+  config.slotsPerEpoch = 10;
+  consensus.init(config);
+  consensus.setClockOverride(consensus.getSlotStartTime(4));
+  auto arrival = chain_block::checkBlockArrival(sameSlot, ledger, consensus);
+  ASSERT_FALSE(arrival.isOk());
+  EXPECT_NE(arrival.error().message.find("Invalid block slot"),
+            std::string::npos);
+  EXPECT_TRUE(chain_block::checkBlockArrival(makeBlock(2, 5, b1.hash), ledger,
+                                             consensus)
+                  .isOk());
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// Reload must not apply the future-slot bound: a node whose clock is behind
+// the stored history (skew, restored backup) still loads its own ledger.
+TEST(ChainTest, LoadFromLedger_IgnoresFutureSlotBound) {
+  Chain validator;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
+                                  "pp-ledger-chain-test-reload-future";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ledgerConfig.startingBlockId = 0;
+  ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(validator.addBlock(genesis).isOk());
+
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 10;
+  tx.fee = 1;
+  tx.idempotentId = 1;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+
+  const uint64_t slot = 5;
+  const int64_t slot0Start = validator.getSlotStartTime(0);
+  validator.setClockOverride(validator.getSlotStartTime(slot));
+  validator.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(validator, genesis, slot, {rec});
+  ASSERT_TRUE(validator.addBlock(block1).isOk());
+
+  // Replay with the clock at slot 0: slot 5 > 0 + tolerance(3) for arrivals.
+  Chain replay;
+  replay.initConsensus(consensusConfig);
+  replay.setClockOverride(slot0Start);
+  ASSERT_TRUE(replay.mountLedger(tempDir.string()).isOk());
+  auto loaded = replay.loadFromLedger(0);
+  ASSERT_TRUE(loaded.isOk()) << loaded.error().message;
+  EXPECT_EQ(loaded.value(), 2u);
 
   std::filesystem::remove_all(tempDir, ec);
 }
@@ -1686,6 +1815,77 @@ TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
   auto add = producer.addBlock(next);
   ASSERT_TRUE(add.isOk()) << add.error().message;
   EXPECT_EQ(reserveBalance(producer), balanceBefore - 51);
+}
+
+// Unsealed peer path applies the arrival checks before touching the tip.
+TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  const uint64_t slot1 = harness_.genesis.block.slot + 2;
+  producer.forceSlotLeader(slot1, leaderId);
+  peer.forceSlotLeader(slot1, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot1));
+  peer.setClockOverride(peer.getSlotStartTime(slot1));
+
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 10, 1)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  ASSERT_TRUE(peer.addBlock(block1).isOk());
+
+  const int64_t balanceBefore = reserveBalance(peer);
+  auto relabel = [&](uint64_t slot) {
+    Ledger::ChainNode forged = block1;
+    forged.block.index = block1.block.index + 1;
+    forged.block.previousHash = block1.hash;
+    forged.block.slot = slot;
+    forged.block.timestamp = peer.getSlotStartTime(slot);
+    forged.hash = peer.calculateHash(forged.block);
+    return forged;
+  };
+
+  auto regress = peer.addBlock(relabel(slot1));
+  ASSERT_TRUE(regress.isError());
+  EXPECT_NE(regress.error().message.find("Invalid block slot"),
+            std::string::npos) << regress.error().message;
+
+  // slotDuration 5 -> tolerance 3 slots.
+  auto future = peer.addBlock(relabel(slot1 + 4));
+  ASSERT_TRUE(future.isError());
+  EXPECT_NE(future.error().message.find("too far in the future"),
+            std::string::npos) << future.error().message;
+
+  EXPECT_EQ(reserveBalance(peer), balanceBefore);
+  EXPECT_EQ(peer.getNextBlockId(), block1.block.index + 1);
+}
+
+// A seal that is never committed (e.g. broadcast failed) can be abandoned;
+// the tip is restored and the producer seals the next slot.
+TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
+  auto &producer = harness_.producer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  producer.forceSlotLeader(slot, leaderId);
+  producer.forceSlotLeader(slot + 1, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  const int64_t balanceBefore = reserveBalance(producer);
+
+  Ledger::ChainNode sealed = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 20, 1)});
+  EXPECT_EQ(reserveBalance(producer), balanceBefore - 21);
+
+  producer.abandonSeal();
+  EXPECT_EQ(reserveBalance(producer), balanceBefore);
+  EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
+
+  producer.setClockOverride(producer.getSlotStartTime(slot + 1));
+  Ledger::ChainNode next = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot + 1,
+      {makeReserveTransfer(harness_, 20, 1)});
+  auto add = producer.addBlock(next);
+  ASSERT_TRUE(add.isOk()) << add.error().message;
+  EXPECT_EQ(reserveBalance(producer), balanceBefore - 21);
+  (void)sealed;
 }
 
 TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {

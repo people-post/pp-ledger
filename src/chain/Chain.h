@@ -140,6 +140,8 @@ public:
    * On failure (here or in the matching commit) tip state is rolled back.
    */
   Roe<void> sealBlock(Ledger::ChainNode &block);
+  /** Drop an uncommitted seal (e.g. broadcast failed) and restore the tip. */
+  void abandonSeal();
 
   /**
    * Assemble (producer half): next-block link fields from `previous`.
