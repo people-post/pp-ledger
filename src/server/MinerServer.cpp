@@ -850,6 +850,8 @@ void MinerServer::handleSlotLeaderRole() {
   if (!broadcastResult) {
     log().warning << "Failed to broadcast block: " +
                          broadcastResult.error().message;
+    // Release the uncommitted seal, or every later seal/addBlock is refused.
+    miner_.abandonBlock(block);
     return;
   }
 

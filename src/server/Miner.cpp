@@ -294,6 +294,17 @@ void Miner::markBlockProduction(const Ledger::ChainNode &block) {
   lastProducedSlot_ = block.block.slot;
 }
 
+void Miner::abandonBlock(const Ledger::ChainNode &block) {
+  chain_.abandonSeal();
+  // Renewals lead the record list and are rebuilt per slot; keep the rest.
+  const size_t renewals =
+      std::min(slotCache_.txRenewals.size(), block.block.records.size());
+  pendingTxes_.insert(pendingTxes_.begin(),
+                      block.block.records.begin() +
+                          static_cast<std::ptrdiff_t>(renewals),
+                      block.block.records.end());
+}
+
 Miner::Roe<void>
 Miner::addTransaction(const Ledger::Record &record) {
   auto result =

@@ -1888,6 +1888,42 @@ TEST_F(ChainComposeTest, AbandonSeal_RestoresTipAndAllowsNextSeal) {
   (void)sealed;
 }
 
+// Two leaders seal the same height; the peer's broadcast loses. Until the peer
+// abandons its own seal it cannot take the winning block from sync (L1 smoke:
+// a miner stuck forever after one failed broadcast).
+TEST_F(ChainComposeTest, AbandonSeal_LetsLosingProducerAcceptWinningBlock) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  producer.forceSlotLeader(slot, leaderId);
+  peer.forceSlotLeader(slot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  peer.setClockOverride(peer.getSlotStartTime(slot));
+
+  Ledger::ChainNode winner = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
+  Ledger::ChainNode loser = makeNextBlockAtSlot(
+      peer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 2)});
+  ASSERT_EQ(loser.block.index, winner.block.index);
+  ASSERT_NE(loser.hash, winner.hash);
+  ASSERT_TRUE(producer.addBlock(winner).isOk());
+
+  auto refused = peer.addBlock(winner);
+  ASSERT_TRUE(refused.isError());
+  EXPECT_NE(refused.error().message.find("uncommitted sealed block"), std::string::npos)
+      << refused.error().message;
+
+  peer.abandonSeal();
+  auto accepted = peer.addBlock(winner);
+  ASSERT_TRUE(accepted.isOk()) << accepted.error().message;
+  EXPECT_EQ(reserveBalance(peer), reserveBalance(producer));
+  auto tipP = producer.readLastBlock();
+  auto tipQ = peer.readLastBlock();
+  ASSERT_TRUE(tipP.isOk() && tipQ.isOk());
+  EXPECT_EQ(tipP->hash, tipQ->hash);
+}
+
 TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
   EXPECT_FALSE(shouldSealEmptyHeartbeat(/*slot=*/10, /*tip=*/0, /*hb=*/0));
   EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 0, 10));
