@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <map>
 
 using namespace pp;
 
@@ -1117,6 +1118,101 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   ASSERT_FALSE(sealResult.isOk());
   EXPECT_NE(sealResult.error().message.find("too far in the future"),
             std::string::npos);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// Regression: chain-generated renewals map to idempotentId == 0 and
+// must stay exempt from the non-zero rule, or the first renewal-due block
+// can never be produced and the chain stalls.
+TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
+  Chain producer;
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(0);
+  chainConfig.checkpoint.minBlocks = 2;
+  chainConfig.checkpoint.minAgeSeconds = 0;
+
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  producer.initConsensus(consensusConfig);
+
+  const auto tempDir =
+      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-renewal";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.startingBlockId = 0;
+  ledgerConfig.workDir = tempDir.string();
+  ASSERT_TRUE(producer.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis = makeGenesisBlock(
+      producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(producer.addBlock(genesis).isOk());
+
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 10;
+  tx.fee = 1;
+  tx.idempotentId = 1;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  Ledger::Record rec = makeRecord(Ledger::T_DEFAULT, tx, reserveKey);
+
+  producer.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(producer, genesis, {rec});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+
+  // minBlocks = 2: the genesis-era accounts are now due for renewal.
+  const uint64_t slot2 = block1.block.slot + 1;
+  auto renewals = producer.collectRenewals(slot2);
+  ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
+  ASSERT_FALSE(renewals.value().empty());
+
+  // Renewals are signed by the slot leader (as Miner::initSlotCache does).
+  ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot2)).isOk());
+  auto leader = producer.getSlotLeader(slot2);
+  ASSERT_TRUE(leader.isOk());
+  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {
+      {AccountBuffer::ID_GENESIS, &genesisKey},
+      {AccountBuffer::ID_FEE, &feeKey},
+      {AccountBuffer::ID_RESERVE, &reserveKey},
+      {AccountBuffer::ID_RECYCLE, &recycleKey}};
+  ASSERT_EQ(keys.count(leader.value()), 1u);
+
+  // Same admission path the slot leader uses for renewals; block apply goes
+  // through the same UserAccountUpsertBase flag. Genesis (own handler path,
+  // fixture has a single key) and fee (self-paid fee) are not covered here.
+  size_t userRenewals = 0;
+  for (auto r : renewals.value()) {
+    if (r.type != Ledger::T_RENEWAL) {
+      continue;
+    }
+    auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data);
+    ASSERT_TRUE(renewal.isOk());
+    if (renewal.value().walletId == AccountBuffer::ID_GENESIS ||
+        renewal.value().walletId == AccountBuffer::ID_FEE) {
+      continue;
+    }
+    auto sig = utl::mlDsaSign(keys.at(leader.value())->privateKey,
+                              r.signingMessage(producer.getNetworkId()));
+    ASSERT_TRUE(sig.isOk());
+    r.signatures.push_back(sig.value());
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(scratch, r, leader.value());
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+    ++userRenewals;
+  }
+  EXPECT_GT(userRenewals, 0u);
 
   std::filesystem::remove_all(tempDir, ec);
 }
