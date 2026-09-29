@@ -229,6 +229,8 @@ public:
   /** Attach AMP transport using an existing local link manager (servers / CLI). */
   void attachAmpTransport(pp::amp::PeerLinkManager& links, network::LedgerAmpRuntime::IoPump io_pump,
                           std::string default_peer_key = "remote");
+  /** Attach to a running LedgerAmpRuntime; link access goes through its exclusive section. */
+  void attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key = "remote");
 
   /** Replace default TCP transport (e.g. in-process for embedded UI). */
   void setTransport(std::unique_ptr<ILedgerTransport> transport);

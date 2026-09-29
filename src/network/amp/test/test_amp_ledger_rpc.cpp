@@ -1,5 +1,6 @@
 #include "AmpLedgerServer.h"
 #include "AmpLedgerTransport.h"
+#include "LedgerAmpRuntime.h"
 #include "LedgerRpcProtocol.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/Endpoint.h"
@@ -13,6 +14,10 @@
 
 #include <gtest/gtest.h>
 #include <sodium.h>
+
+#include <atomic>
+#include <thread>
+#include <vector>
 
 namespace {
 using pp::utl::binaryUnpack;
@@ -164,6 +169,79 @@ TEST_F(AmpLedgerRpcTest, PeerAllowedRejectsDisallowedPeer) {
   const std::string payload = "should-not-be-echoed";
   auto response = transport.roundTrip(payload, std::chrono::milliseconds(500));
   EXPECT_FALSE(response.isOk());
+}
+
+// Several caller threads share one running LedgerAmpRuntime (pump thread
+// live): link access goes through ioExclusive(), so concurrent round trips
+// must all complete with their own response.
+TEST_F(AmpLedgerRpcTest, ConcurrentRoundTripsOnRunningRuntime) {
+  auto alice_keys = pp::MlDsa::GenerateKeyPair();
+  auto bob_keys = pp::MlDsa::GenerateKeyPair();
+  ASSERT_TRUE(alice_keys && bob_keys);
+  auto id_a = DeriveTestPeerId(alice_keys->public_key);
+  auto id_b = DeriveTestPeerId(bob_keys->public_key);
+  ASSERT_TRUE(id_a && id_b);
+
+  pp::amp::PeerLinkConfig link_cfg;
+  link_cfg.peer_id_from_identity = [](const pp::amp::ByteVector& pk) {
+    auto id = DeriveTestPeerId(pk);
+    return id ? *id : std::string{};
+  };
+
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  auto io_a = std::make_shared<pp::adp::MemoryDatagramIo>(hub, pp::adp::IpEndpoint::V4(10, 0, 0, 1, 1000));
+  auto io_b = std::make_shared<pp::adp::MemoryDatagramIo>(hub, pp::adp::IpEndpoint::V4(10, 0, 0, 2, 2000));
+
+  pp::network::LedgerAmpConfig cfg_a;
+  cfg_a.identity.ml_dsa_secret_key = std::move(alice_keys->secret_key);
+  cfg_a.identity.ml_dsa_public_key = std::move(alice_keys->public_key);
+  cfg_a.local_peer_id = *id_a;
+  cfg_a.link_config = link_cfg;
+  pp::network::LedgerAmpConfig cfg_b;
+  cfg_b.identity.ml_dsa_secret_key = std::move(bob_keys->secret_key);
+  cfg_b.identity.ml_dsa_public_key = std::move(bob_keys->public_key);
+  cfg_b.local_peer_id = *id_b;
+  cfg_b.link_config = link_cfg;
+
+  pp::network::LedgerAmpRuntime server;
+  pp::network::LedgerAmpRuntime client;
+  ASSERT_TRUE(server.StartForTest(io_b, std::make_shared<pp::adp::WallClock>(), std::move(cfg_b)).isOk());
+  server.runExclusive([&]() {
+    pp::network::AmpLedgerServer::Bind(server.links(), [](const std::string& body) { return body; });
+  });
+  ASSERT_TRUE(client.StartForTest(io_a, std::make_shared<pp::adp::WallClock>(), std::move(cfg_a)).isOk());
+
+  {
+    pp::AmpLedgerTransport warmup(client.links(), "b", client.ioPump(), client.ioExclusive());
+    ASSERT_TRUE(warmup.registerEndpoint("b", server.listenMultiaddr()));
+    auto first = warmup.roundTrip("warmup", std::chrono::seconds(5));
+    ASSERT_TRUE(first.isOk()) << first.error().message;
+  }
+
+  constexpr int kThreads = 4;
+  constexpr int kCallsPerThread = 8;
+  std::atomic<int> ok{0};
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      pp::AmpLedgerTransport transport(client.links(), "b", client.ioPump(), client.ioExclusive());
+      for (int i = 0; i < kCallsPerThread; ++i) {
+        const std::string payload = "t" + std::to_string(t) + "-" + std::to_string(i);
+        auto response = transport.roundTrip(payload, std::chrono::seconds(5));
+        if (response && response.value() == payload) {
+          ok++;
+        }
+      }
+    });
+  }
+  for (auto& th : threads) {
+    th.join();
+  }
+  EXPECT_EQ(ok.load(), kThreads * kCallsPerThread);
+
+  server.runExclusive([&]() { pp::network::AmpLedgerServer::Unbind(server.links()); });
+  client.Stop();
+  server.Stop();
 }
 
 TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {

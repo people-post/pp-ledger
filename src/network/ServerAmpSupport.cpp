@@ -26,14 +26,16 @@ pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchF
     runtime_.runtime().PostToIo(std::move(task));
   };
 
-  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io),
-                       std::move(peer_allowed));
+  runtime_.runExclusive([&]() {
+    AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io),
+                         std::move(peer_allowed));
+  });
   return {};
 }
 
 void ServerAmpSupport::Stop() {
   if (runtime_.isRunning()) {
-    AmpLedgerServer::Unbind(runtime_.links());
+    runtime_.runExclusive([this]() { AmpLedgerServer::Unbind(runtime_.links()); });
   }
   runtime_.Stop();
   handler_pool_ = nullptr;

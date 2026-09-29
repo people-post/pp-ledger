@@ -33,6 +33,7 @@ public:
   LedgerAmpRuntime& runtime() { return runtime_; }
   pp::amp::PeerLinkManager& links() { return runtime_.links(); }
   LedgerAmpRuntime::IoPump ioPump() const { return runtime_.ioPump(); }
+  LedgerAmpRuntime::IoExclusive ioExclusive() const { return runtime_.ioExclusive(); }
 
 private:
   LedgerAmpRuntime runtime_;

@@ -574,7 +574,7 @@ int main(int argc, char *argv[]) {
   }
 
   pp::Client client;
-  client.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "remote");
+  client.attachAmpTransport(ampRuntime, "remote");
   if (auto dial = client.setAmpPeer("remote", multiaddr); !dial) {
     std::cerr << "Error: failed to dial server: " << dial.error().message << "\n";
     return 1;

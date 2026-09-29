@@ -58,16 +58,19 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
 
 void LedgerAmpRuntime::Stop() {
   stop_ = true;
+  Wake();
   if (pump_thread_.joinable()) {
     pump_thread_.join();
   }
+  pump_thread_id_ = std::thread::id{};
+  running_ = false;
+  std::lock_guard<std::recursive_mutex> lock(stack_mu_);
   if (stack_) {
     stack_->Stop();
     stack_.reset();
   }
   io_.reset();
   clock_.reset();
-  running_ = false;
   listen_multiaddr_.clear();
 }
 
@@ -77,6 +80,12 @@ pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
 
 LedgerAmpRuntime::IoPump LedgerAmpRuntime::ioPump() const {
   return [this]() {
+    if (running_.load() && std::this_thread::get_id() != pump_thread_id_.load()) {
+      Wake();
+      std::this_thread::sleep_for(std::chrono::microseconds(200));
+      return;
+    }
+    std::lock_guard<std::recursive_mutex> lock(stack_mu_);
     if (stack_) {
       stack_->Pump();
       stack_->Tick();
@@ -84,13 +93,36 @@ LedgerAmpRuntime::IoPump LedgerAmpRuntime::ioPump() const {
   };
 }
 
+LedgerAmpRuntime::IoExclusive LedgerAmpRuntime::ioExclusive() const {
+  return [this](const std::function<void()>& fn) { runExclusive(fn); };
+}
+
+void LedgerAmpRuntime::runExclusive(const std::function<void()>& fn) const {
+  std::lock_guard<std::recursive_mutex> lock(stack_mu_);
+  fn();
+}
+
+void LedgerAmpRuntime::Wake() const {
+  {
+    std::lock_guard<std::mutex> lock(wake_mu_);
+    wake_ = true;
+  }
+  wake_cv_.notify_one();
+}
+
 void LedgerAmpRuntime::PumpLoop() {
+  pump_thread_id_ = std::this_thread::get_id();
   while (!stop_.load()) {
-    if (stack_) {
-      stack_->Pump();
-      stack_->Tick();
+    {
+      std::lock_guard<std::recursive_mutex> lock(stack_mu_);
+      if (stack_) {
+        stack_->Pump();
+        stack_->Tick();
+      }
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    std::unique_lock<std::mutex> lock(wake_mu_);
+    wake_cv_.wait_for(lock, std::chrono::milliseconds(5), [this]() { return wake_ || stop_.load(); });
+    wake_ = false;
   }
 }
 
