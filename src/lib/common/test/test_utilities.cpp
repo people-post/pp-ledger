@@ -2,6 +2,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 namespace pp {
 namespace utl {
@@ -213,6 +215,24 @@ TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
            std::filesystem::perms::none);
   EXPECT_NE(perms & std::filesystem::perms::owner_write,
            std::filesystem::perms::none);
+
+  std::filesystem::remove(path, ec);
+}
+
+TEST(WriteToNewFileTest, NeverOverwritesExistingFile) {
+  std::filesystem::path path = std::filesystem::temp_directory_path() /
+                               "pp-ledger-write-to-new-file-exists-test.txt";
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  ASSERT_TRUE(writeToNewFile(path.string(), "first\n").isOk());
+  auto second = writeToNewFile(path.string(), "second\n");
+  EXPECT_FALSE(second.isOk());
+
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  EXPECT_EQ(line, "first");
 
   std::filesystem::remove(path, ec);
 }

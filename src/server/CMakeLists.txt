@@ -32,3 +32,7 @@ target_link_libraries(pp_server PUBLIC
 )
 
 message(STATUS "Server configured with AMP network support")
+
+if(PP_LEDGER_BUILD_TESTS)
+    add_subdirectory(test)
+endif()

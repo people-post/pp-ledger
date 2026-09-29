@@ -35,7 +35,15 @@ public:
   BeaconServer();
   ~BeaconServer() override = default;
 
+  /**
+   * Initialize (or reinitialize) the beacon. New private keys are written to
+   * a fresh init-keys*.json file before the chain is (re)created; existing
+   * key files are never overwritten. See initKeysPath().
+   */
   Roe<Beacon::InitKeyConfig> init(const std::string& workDir);
+  /** Key file written by the last successful init(). */
+  const std::string& initKeysPath() const { return initKeysPath_; }
+
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);
   }
@@ -66,6 +74,7 @@ private:
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
   constexpr static const char* FILE_AMP_IDENTITY = "keys/amp-identity.txt";
+  constexpr static const char* FILE_INIT_KEYS_STEM = "init-keys";
 
   // Default configuration values
   constexpr static const uint64_t DEFAULT_SLOT_DURATION = 7; // 7 seconds per slot
@@ -153,6 +162,11 @@ private:
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
   uint64_t registryVersion_{0};
+  std::string initKeysPath_;
+
+  /** Write keys to the first free init-keys[-N].json in workDir (0600). */
+  static Roe<std::string> writeInitKeysFile(const std::string& workDir,
+                                            const Beacon::InitKeyConfig& keys);
 };
 
 } // namespace pp
