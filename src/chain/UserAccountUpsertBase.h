@@ -17,12 +17,14 @@ protected:
   chain_tx::Roe<void>
   applyUserUpdateBufferCommon(const Ledger::TxUserUpdate &tx,
                               AccountBuffer &bank,
-                              const BufferApplyContext &c) const;
+                              const BufferApplyContext &c,
+                              bool requireNonZeroId = true) const;
 
   chain_tx::Roe<void>
   applyUserUpdateBlockCommon(const Ledger::TxUserUpdate &tx,
                              AccountBuffer &bank,
-                             const BlockApplyContext &c) const;
+                             const BlockApplyContext &c,
+                             bool requireNonZeroId = true) const;
 
   chain_tx::Roe<void>
   applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
