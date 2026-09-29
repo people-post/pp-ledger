@@ -100,6 +100,11 @@ public:
 
   Roe<bool> produceBlock(Ledger::ChainNode &block);
   void markBlockProduction(const Ledger::ChainNode &block);
+  /**
+   * Drop a produced block that will not be committed (e.g. broadcast failed):
+   * roll back the tip seal and return its pool transactions to the pending set.
+   */
+  void abandonBlock(const Ledger::ChainNode &block);
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
