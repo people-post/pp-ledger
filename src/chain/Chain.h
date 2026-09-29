@@ -137,6 +137,7 @@ public:
    * (`epoch`, `stakeSnapshotHash`, `txRoot`, `stateRoot`) and `hash`.
    * Does not persist; the matching `addBlock` only writes the ledger.
    * Must not be called again until that `addBlock` (or the tip is reset).
+   * On failure (here or in the matching commit) tip state is rolled back.
    */
   Roe<void> sealBlock(Ledger::ChainNode &block);
 
@@ -237,6 +238,20 @@ private:
   Roe<Ledger::Record>
   createRenewalTx(uint64_t accountId) const;
 
+  /** Tip state outside the bank that block admission may change. */
+  struct TipSnapshot {
+    consensus::SlotCommittee::TipState consensus;
+    std::optional<BlockChainConfig> optChainConfig;
+    Checkpoint checkpoint;
+  };
+  /** Open a bank overlay and snapshot the rest of the tip state. */
+  TipSnapshot beginTipUpdate();
+  void commitTipUpdate();
+  void rollbackTipUpdate(TipSnapshot snapshot);
+
+  Roe<void> applyNextBlock(const Ledger::ChainNode &block);
+  Roe<void> sealOnTip(Ledger::ChainNode &block);
+
   Roe<void> processBlock(const Ledger::ChainNode &block,
                          chain_block::BlockAdmissionMode mode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
@@ -249,6 +264,7 @@ private:
   Roe<void> assembleBlockHeader(Ledger::ChainNode &block);
   /** Persist a block whose effects were already applied by sealBlock. */
   Roe<void> commitSealedBlock(const Ledger::ChainNode &block);
+  Roe<void> commitSealedOnTip(const Ledger::ChainNode &block);
   void maybeRotateCheckpoint(const Ledger::ChainNode &block);
 
   Roe<void> processGenesisTxRecord(
@@ -273,6 +289,8 @@ private:
     std::string hash;
   };
   std::optional<PendingSeal> pendingSeal_;
+  /** Pre-seal tip state; the bank overlay stays open until commit/rollback. */
+  std::optional<TipSnapshot> sealSnapshot_;
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);

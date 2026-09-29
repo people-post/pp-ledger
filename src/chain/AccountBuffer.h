@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,8 +19,9 @@ namespace pp {
  * AccountBuffer - committed account state for the chain tip.
  *
  * Maintains an incremental sparse Merkle tree updated only for touched
- * accounts. `calculateStateRoot()` is O(1). There is no overlay/scratch mode:
- * block sealing applies once to this buffer; see Chain::sealBlock.
+ * accounts. `calculateStateRoot()` is O(1). beginOverlay() starts an undo
+ * journal (nestable) so a failed block or tx can be rolled back in
+ * O(touched accounts).
  */
 class AccountBuffer {
 public:
@@ -105,6 +107,14 @@ public:
   /** Remove account by id. No-op if id does not exist. */
   void remove(uint64_t id);
 
+  /** Start recording undo entries for every mutation (nestable). */
+  void beginOverlay();
+  /** Keep changes since the matching beginOverlay(). */
+  void commitOverlay();
+  /** Revert every change since the matching beginOverlay(). */
+  void rollbackOverlay();
+  size_t overlayDepth() const { return journals_.size(); }
+
   void clear();
   void reset();
 
@@ -125,9 +135,18 @@ private:
    * mutators use Account* rather than Roe<Account&>.
    */
   Roe<Account *> mutableAccount(uint64_t id);
+  /** Save the pre-mutation value of `id` into the innermost open journal. */
+  void recordUndo(uint64_t id);
+
+  struct Journal {
+    AccountStateTree tree;
+    /** Account value before first mutation; nullopt = did not exist. */
+    std::map<uint64_t, std::optional<Account>> saved;
+  };
 
   std::map<uint64_t, Account> mAccounts_;
   AccountStateTree stateTree_;
+  std::vector<Journal> journals_;
 };
 
 } // namespace pp
