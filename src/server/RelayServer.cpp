@@ -203,9 +203,10 @@ Service::Roe<void> RelayServer::onStart() {
   if (!ampRuntime()) {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  client_.attachAmpTransport(ampRuntime()->links(), ampRuntime()->ioPump(), "beacon");
+  client_.attachAmpTransport(*ampRuntime(), "beacon");
 
   if (!config_.network.beacon_multiaddr.empty()) {
+    std::lock_guard<std::mutex> upstream(upstreamMutex_);
     if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
       return Service::Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
     }
@@ -230,10 +231,13 @@ Service::Roe<void> RelayServer::onStart() {
     }
   }
 
-  auto relayInit = relay_.init(relayConfig);
-  if (!relayInit) {
-    return Service::Error(E_RELAY, "Failed to initialize Relay: " +
-                                       relayInit.error().message);
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto relayInit = relay_.init(relayConfig);
+    if (!relayInit) {
+      return Service::Error(E_RELAY, "Failed to initialize Relay: " +
+                                         relayInit.error().message);
+    }
   }
 
   auto syncResult = syncBlocksFromBeacon();
@@ -241,6 +245,8 @@ Service::Roe<void> RelayServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " +
                                          syncResult.error().message);
   }
+
+  std::lock_guard<std::mutex> lock(stateMutex_);
   lastBlockSyncTime_ = std::chrono::steady_clock::now();
   lastSyncedEpoch_ = relay_.getCurrentEpoch();
 
@@ -259,6 +265,7 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
 
   log().info << "Syncing blocks from beacon: " << config_.network.beacon_multiaddr;
 
+  std::lock_guard<std::mutex> upstream(upstreamMutex_);
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
@@ -270,7 +277,11 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
   }
 
   uint64_t latestBlockId = calibrationResult.value().nextBlockId;
-  uint64_t nextBlockId = relay_.getNextBlockId();
+  uint64_t nextBlockId = 0;
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    nextBlockId = relay_.getNextBlockId();
+  }
 
   if (nextBlockId >= latestBlockId) {
     log().info << "Already in sync: next block " << nextBlockId
@@ -287,6 +298,7 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
       }
 
       Ledger::ChainNode block = blockResult.value();
+      std::lock_guard<std::mutex> lock(stateMutex_);
       block.hash = relay_.calculateHash(block.block);
 
       auto addResult = relay_.addBlock(block);
@@ -303,6 +315,7 @@ RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
   }
 
   if (auto status = client_.fetchBeaconState()) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
     registryVersion_ = status.value().registryVersion;
     if (!status.value().networkId.empty()) {
       networkId_ = status.value().networkId;
@@ -316,22 +329,37 @@ void RelayServer::initHandlers() {
   requestHandlers_.clear();
 
   auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
-  hgs = [this](const Client::Request &request) { return hStatus(request); };
+  hgs = [this](const Client::Request &request) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return hStatus(request);
+  };
 
   auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
-  hcs = [this](const Client::Request &request) { return hCalibration(request); };
+  hcs = [this](const Client::Request &request) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return hCalibration(request);
+  };
 
   auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
   auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
-  hga = [this](const Client::Request &request) { return hAccountGet(request); };
+  hga = [this](const Client::Request &request) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return hAccountGet(request);
+  };
 
   auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
-  htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
+  htx = [this](const Client::Request &request) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return hTxGetByWallet(request);
+  };
 
   auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
-  htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
+  htxi = [this](const Client::Request &request) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return hTxGetByIndex(request);
+  };
 
   auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
@@ -384,7 +412,10 @@ void RelayServer::runLoop() {
 
   while (!isStopSet()) {
     try {
-      relay_.refresh();
+      {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        relay_.refresh();
+      }
       syncBlocksPeriodically();
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
@@ -397,16 +428,20 @@ void RelayServer::runLoop() {
 }
 
 void RelayServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
-  const uint64_t slotDurationSec = relay_.getSlotDuration();
-  if (!bypassRateLimit && slotDurationSec > 0) {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(
-        now - lastBlockSyncTime_).count();
-    if (elapsedSec < static_cast<int64_t>(slotDurationSec)) {
-      return; // Rate limit: at most one sync per slot time
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    const uint64_t slotDurationSec = relay_.getSlotDuration();
+    if (!bypassRateLimit && slotDurationSec > 0) {
+      auto now = std::chrono::steady_clock::now();
+      auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(
+          now - lastBlockSyncTime_).count();
+      if (elapsedSec < static_cast<int64_t>(slotDurationSec)) {
+        return; // Rate limit: at most one sync per slot time
+      }
     }
   }
   auto syncResult = syncBlocksFromBeacon();
+  std::lock_guard<std::mutex> lock(stateMutex_);
   if (syncResult) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = relay_.getCurrentEpoch();
@@ -416,14 +451,17 @@ void RelayServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
 }
 
 void RelayServer::syncBlocksPeriodically() {
-  const uint64_t currentEpoch = relay_.getCurrentEpoch();
-  const uint64_t slotDurationSec = relay_.getSlotDuration();
-  if (slotDurationSec == 0) {
-    return;
+  bool needSyncForEpoch = false;
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    const uint64_t currentEpoch = relay_.getCurrentEpoch();
+    const uint64_t slotDurationSec = relay_.getSlotDuration();
+    if (slotDurationSec == 0) {
+      return;
+    }
+    // At beginning of each epoch: sync to update stakeholders (relay never produces blocks)
+    needSyncForEpoch = (currentEpoch > lastSyncedEpoch_);
   }
-
-  // At beginning of each epoch: sync to update stakeholders (relay never produces blocks)
-  const bool needSyncForEpoch = (currentEpoch > lastSyncedEpoch_);
   if (!needSyncForEpoch) {
     return;
   }
@@ -432,10 +470,16 @@ void RelayServer::syncBlocksPeriodically() {
 }
 
 std::string RelayServer::handleParsedRequest(const Client::Request &request) {
-  auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end())
-                                ? it->second(request)
-                                : hUnsupported(request);
+  // Handlers take stateMutex_ themselves; network handlers release it around RPCs.
+  Handler handler;
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    auto it = requestHandlers_.find(request.type);
+    if (it != requestHandlers_.end()) {
+      handler = it->second;
+    }
+  }
+  Roe<std::string> result = handler ? handler(request) : hUnsupported(request);
   if (!result) {
     return Server::packResponse(1, result.error().message);
   }
@@ -450,11 +494,14 @@ RelayServer::hBlockGet(const Client::Request &request) {
   }
 
   uint64_t blockId = idResult.value();
+  std::unique_lock<std::mutex> lock(stateMutex_);
   auto result = relay_.readBlock(blockId);
   if (!result) {
     // User requested block we don't have: sync from beacon then retry
     if (blockId >= relay_.getNextBlockId()) {
+      lock.unlock();
       trySyncBlocksFromBeacon(true);
+      lock.lock();
       result = relay_.readBlock(blockId);
     }
     if (!result) {
@@ -471,13 +518,17 @@ RelayServer::hBlockAdd(const Client::Request &request) {
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
   }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
+  {
+    std::lock_guard<std::mutex> upstream(upstreamMutex_);
+    if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+      return Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
+    }
+    auto result = client_.addBlock(block);
+    if (!result) {
+      return Error(E_NETWORK, result.error().message);
+    }
   }
-  auto result = client_.addBlock(block);
-  if (!result) {
-    return Error(E_NETWORK, result.error().message);
-  }
+  std::lock_guard<std::mutex> lock(stateMutex_);
   relay_.addBlock(block); // Don't care about the result
   return {"Block added"};
 }
@@ -543,13 +594,16 @@ RelayServer::hRegister(const Client::Request &request) {
   if (config_.network.beacon_multiaddr.empty()) {
     return Error(E_CONFIG, "No upstream configured");
   }
+  std::unique_lock<std::mutex> upstream(upstreamMutex_);
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
   }
   auto stateResult = client_.registerMinerServer(minerInfo);
+  upstream.unlock();
   if (!stateResult) {
     return Error(E_NETWORK, "Upstream register failed: " + stateResult.error().message);
   }
+  std::lock_guard<std::mutex> lock(stateMutex_);
   registerServer(minerInfo);
   registryVersion_ = stateResult.value().registryVersion;
   if (!stateResult.value().networkId.empty()) {
@@ -578,6 +632,7 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
   if (config_.network.beacon_multiaddr.empty()) {
     return Error(E_CONFIG, "No beacon server configured");
   }
+  std::lock_guard<std::mutex> upstream(upstreamMutex_);
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
@@ -625,15 +680,18 @@ RelayServer::hMinerList(const Client::Request & /*request*/) {
   if (config_.network.beacon_multiaddr.empty()) {
     return Error(E_CONFIG, "No upstream configured");
   }
+  std::unique_lock<std::mutex> upstream(upstreamMutex_);
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
   }
   auto minerListResult = client_.fetchMinerList();
+  upstream.unlock();
   if (!minerListResult) {
     return Error(E_NETWORK,
                  "Failed to fetch miner list from upstream: " +
                      minerListResult.error().message);
   }
+  std::lock_guard<std::mutex> lock(stateMutex_);
   mMiners_.clear();
   std::vector<pp::common::Meta> list;
   list.reserve(minerListResult.value().size());

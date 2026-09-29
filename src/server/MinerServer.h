@@ -109,7 +109,13 @@ private:
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
+  /** Upstream (beacon) client; guarded by upstreamMutex_. */
   Client client_;
+  /** Slot-leader tx forwarding client; guarded by forwardMutex_. */
+  Client forwardClient_;
+  /** Network mutexes: acquire before stateMutex_, never while holding it. */
+  std::mutex upstreamMutex_;
+  std::mutex forwardMutex_;
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};

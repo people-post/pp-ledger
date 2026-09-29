@@ -542,7 +542,10 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }
 
-  initHandlers();
+  {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    initHandlers();
+  }
   return {};
 }
 
@@ -622,7 +625,10 @@ void BeaconServer::runLoop() {
 
   while (!isStopSet()) {
     try {
-      beacon_.refresh();
+      {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        beacon_.refresh();
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
@@ -635,6 +641,7 @@ void BeaconServer::runLoop() {
 
 std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
   log().debug << "Handling request: " << request.type;
+  std::lock_guard<std::mutex> lock(stateMutex_);
   auto it = requestHandlers_.find(request.type);
   Roe<std::string> result = (it != requestHandlers_.end())
                                 ? it->second(request)

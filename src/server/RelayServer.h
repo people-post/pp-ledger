@@ -121,7 +121,10 @@ private:
 
   Config config_;
   Relay relay_;
+  /** Upstream (beacon) client; guarded by upstreamMutex_. */
   Client client_;
+  /** Serializes client_ target + RPCs. Acquire before stateMutex_, never after. */
+  std::mutex upstreamMutex_;
 
   /** RTT above this (ms) triggers multiple calibration samples. */
   static constexpr int64_t RTT_THRESHOLD_MS = 200;

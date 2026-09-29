@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace pp {
@@ -54,6 +55,12 @@ protected:
   }
 
   void onStop() override;
+
+  /**
+   * Serializes RPC handlers and runLoop over server state. Lock order: any
+   * per-client network mutex first, then this; never hold it across an RPC.
+   */
+  mutable std::mutex stateMutex_;
 
 private:
   std::string handleRequest(const std::string& request);
