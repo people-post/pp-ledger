@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <variant>
 
@@ -318,6 +319,8 @@ private:
 
   /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
   mutable std::optional<ChainNode> latestBlockCache_;
+  /** Guards store_, meta_ and latestBlockCache_ (const reads fill the cache). */
+  mutable std::recursive_mutex mutex_;
 
   bool loadIndex();
   bool saveIndex();

@@ -289,6 +289,7 @@ Ledger::Ledger() {
 }
 
 uint64_t Ledger::getNextBlockId() const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   uint64_t blockCount = store_.getBlockCount();
   // Next block ID = startingBlockId + blockCount
   // This handles both cases:
@@ -298,10 +299,12 @@ uint64_t Ledger::getNextBlockId() const {
 }
 
 uint64_t Ledger::getStartingBlockId() const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   return meta_.startingBlockId;
 }
 
 Ledger::Roe<void> Ledger::init(const InitConfig& config) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   workDir_ = config.workDir;
   volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
@@ -346,6 +349,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
 }
 
 Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   workDir_ = workDir;
   volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
@@ -393,6 +397,7 @@ Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
 }
 
 Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Storage is append-only and indexes blocks by physical append order
   // (startingBlockId + position). The block's own index field must match
   // the next slot exactly, or the store's implicit indexing and the
@@ -428,6 +433,7 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
 }
 
 Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockIds) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Verify input is sorted in ascending order
   if (!std::is_sorted(blockIds.begin(), blockIds.end())) {
     return Error("Checkpoint IDs must be sorted in ascending order");
@@ -474,6 +480,7 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
 }
 
 Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
@@ -642,10 +649,12 @@ bool Ledger::saveIndex() {
 }
 
 uint64_t Ledger::countSizeFromBlockId(uint64_t blockId) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   return store_.countSizeFromBlockId(blockId);
 }
 
 Ledger::Roe<Ledger::ChainNode> Ledger::readLastBlock() const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   uint64_t nextBlockId = getNextBlockId();
   if (nextBlockId <= getStartingBlockId()) {
     return Error("No blocks in ledger");
@@ -657,6 +666,7 @@ Ledger::Roe<Ledger::ChainNode> Ledger::readLastBlock() const {
 }
 
 Ledger::Roe<Ledger::ChainNode> Ledger::findBlockByTimestamp(int64_t timestamp) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   const uint64_t start = meta_.startingBlockId;
   const uint64_t nextBlockId = getNextBlockId();
   if (start >= nextBlockId) {

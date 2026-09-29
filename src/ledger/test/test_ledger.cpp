@@ -1,7 +1,10 @@
 #include "../Ledger.h"
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <atomic>
 #include <fstream>
+#include <thread>
+#include <vector>
 
 using namespace pp;
 
@@ -711,4 +714,61 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+}
+
+// Readers (RPC threads) run concurrently with the appending writer (main
+// loop); every read must see a fully written block.
+TEST_F(LedgerTest, ConcurrentReadsDuringAppend) {
+  ensureTestDirDoesNotExist();
+  Ledger ledger;
+  Ledger::InitConfig config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 0;
+  ASSERT_TRUE(ledger.init(config).isOk());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(0, "0")).isOk());
+
+  constexpr uint64_t kBlocks = 300;
+  std::atomic<bool> done{false};
+  std::atomic<int> badReads{0};
+  std::atomic<uint64_t> reads{0};
+
+  auto reader = [&](uint64_t seed) {
+    uint64_t i = seed;
+    while (!done.load()) {
+      const uint64_t next = ledger.getNextBlockId();
+      if (next == 0) {
+        continue;
+      }
+      const uint64_t id = (i++ * 7919) % next;
+      auto block = ledger.readBlock(id);
+      if (!block || block->hash != "hash_" + std::to_string(id)) {
+        badReads++;
+      }
+      auto last = ledger.readLastBlock();
+      if (!last || last->hash != "hash_" + std::to_string(last->block.index)) {
+        badReads++;
+      }
+      reads++;
+    }
+  };
+
+  std::vector<std::thread> readers;
+  for (uint64_t t = 0; t < 3; ++t) {
+    readers.emplace_back(reader, t);
+  }
+  for (uint64_t i = 1; i < kBlocks; ++i) {
+    auto added = ledger.addBlock(createTestBlock(i, std::to_string(i)));
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+    if (!added) {
+      break;
+    }
+  }
+  done = true;
+  for (auto &t : readers) {
+    t.join();
+  }
+
+  EXPECT_EQ(badReads.load(), 0);
+  EXPECT_GT(reads.load(), 0u);
+  EXPECT_EQ(ledger.getNextBlockId(), kBlocks);
 }

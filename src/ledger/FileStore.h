@@ -4,6 +4,7 @@
 #include "common/ResultOrError.hpp"
 #include <cstdint>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -100,7 +101,10 @@ public:
    * Get the number of blocks stored in this file
    * @return Number of blocks
    */
-  uint64_t getBlockCount() const { return blockCount_; }
+  uint64_t getBlockCount() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return blockCount_;
+  }
 
   /**
    * Check if the file can accommodate more data
@@ -112,7 +116,10 @@ public:
   /**
    * Get current file size (including header)
    */
-  size_t getCurrentSize() const { return currentSize_; }
+  size_t getCurrentSize() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return currentSize_;
+  }
 
   /**
    * Get maximum file size
@@ -224,6 +231,8 @@ private:
   static constexpr int64_t getDataOffset() { return HEADER_SIZE; }
 
   // ------ Private members ------
+  /** Guards file_ position/state and the block index; const reads seek too. */
+  mutable std::recursive_mutex mutex_;
   std::string filepath_;
   size_t maxSize_{ 0 };
   size_t currentSize_{ 0 };

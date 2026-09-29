@@ -1,6 +1,7 @@
 #include "FileStore.h"
 #include "common/Logger.h"
 #include <filesystem>
+#include <mutex>
 
 namespace pp {
 
@@ -9,6 +10,7 @@ FileStore::FileStore() {}
 FileStore::~FileStore() { close(); }
 
 FileStore::Roe<void> FileStore::init(const InitConfig &config) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   filepath_ = config.filepath;
   maxSize_ = config.maxSize;
   currentSize_ = 0;
@@ -49,6 +51,7 @@ FileStore::Roe<void> FileStore::init(const InitConfig &config) {
 }
 
 FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSize) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   filepath_ = filepath;
   maxSize_ = maxSize;
   currentSize_ = 0;
@@ -123,6 +126,7 @@ FileStore::Roe<void> FileStore::open() {
 }
 
 FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -196,6 +200,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
 
 FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
                                              size_t maxSize) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!isOpen()) {
     log().error << "File is not open: " << filepath_;
     return Error("File is not open: " + filepath_);
@@ -252,6 +257,7 @@ FileStore::Roe<int64_t> FileStore::readBlock(uint64_t index, void *data,
 }
 
 FileStore::Roe<uint64_t> FileStore::getBlockSize(uint64_t index) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Ensure block index is built
   auto indexResult = ensureBlockIndex();
   if (!indexResult.isOk()) {
@@ -267,13 +273,18 @@ FileStore::Roe<uint64_t> FileStore::getBlockSize(uint64_t index) {
 }
 
 bool FileStore::canFit(uint64_t size) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // currentSize_ already includes header, add size prefix overhead
   return (currentSize_ + SIZE_PREFIX_BYTES + size) <= maxSize_;
 }
 
-bool FileStore::isOpen() const { return file_.is_open() && file_.good(); }
+bool FileStore::isOpen() const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  return file_.is_open() && file_.good();
+}
 
 void FileStore::close() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (file_.is_open()) {
     // Update block count in header before closing
     auto result = updateHeaderBlockCount();
@@ -467,6 +478,7 @@ FileStore::Roe<void> FileStore::ensureBlockIndex() {
 
 // Block store interface
 FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Need to cast away const for internal operations
   FileStore* nonConstThis = const_cast<FileStore*>(this);
   
@@ -510,6 +522,7 @@ FileStore::Roe<std::string> FileStore::readBlock(uint64_t index) const {
 }
 
 FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string &block) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   auto result = write(block.data(), block.size());
   if (!result.isOk()) {
     return Error(result.error().message);
@@ -518,6 +531,7 @@ FileStore::Roe<uint64_t> FileStore::appendBlock(const std::string &block) {
 }
 
 FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   // Ensure block index is built
   auto indexResult = ensureBlockIndex();
   if (!indexResult.isOk()) {
