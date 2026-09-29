@@ -79,6 +79,18 @@ chain_tx::Roe<void>
 checkBlockConsensus(const Ledger::ChainNode &block,
                     const consensus::SlotCommittee &consensus);
 
+/** Future-slot slack in slots: max(2 slots, 15 seconds). */
+uint64_t futureSlotToleranceSlots(uint64_t slotDuration);
+
+/**
+ * Layer for newly arriving or freshly sealed blocks only (never ledger
+ * reload / history replay): slot strictly above the previous block's slot
+ * and not beyond the local current slot + futureSlotToleranceSlots.
+ */
+chain_tx::Roe<void>
+checkBlockArrival(const Ledger::ChainNode &block, const Ledger &ledger,
+                  const consensus::SlotCommittee &consensus);
+
 /**
  * Layer: renewals, maxTx, empty heartbeat, intra-block idempotency.
  * Requires chain config in Full tip contexts.

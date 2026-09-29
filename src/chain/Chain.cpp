@@ -513,6 +513,15 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
                  "Cannot seal while a previous sealed block is uncommitted");
   }
 
+  // Slot checks run before any tip mutation so a bad slot fails cleanly.
+  if (block.block.index > 0) {
+    auto arrival = mapTxVoid(chain_block::checkBlockArrival(
+        block, txContext_.ledger, txContext_.consensus));
+    if (!arrival) {
+      return Error(E_BLOCK_VALIDATION, arrival.error().message);
+    }
+  }
+
   auto snapshot = beginTipUpdate();
   auto sealed = sealOnTip(block);
   if (!sealed) {
@@ -522,6 +531,14 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
   sealSnapshot_ = std::move(snapshot);
   pendingSeal_ = PendingSeal{block.block.index, block.hash};
   return {};
+}
+
+void Chain::abandonSeal() {
+  if (sealSnapshot_.has_value()) {
+    rollbackTipUpdate(std::move(*sealSnapshot_));
+    sealSnapshot_.reset();
+  }
+  pendingSeal_.reset();
 }
 
 Chain::TipSnapshot Chain::beginTipUpdate() {
@@ -851,6 +868,19 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
                  "Invalid block index: expected " +
                      std::to_string(expectedIndex) + " got " +
                      std::to_string(block.block.index));
+  }
+
+  // Slot monotonicity / future bound: arriving blocks under Full admission
+  // only. loadFromLedger and CheckpointReplay catch-up skip them so history
+  // written before these rules still loads.
+  if (block.block.index > 0 &&
+      admissionModeFor(block.block.index) ==
+          chain_block::BlockAdmissionMode::Full) {
+    auto arrival = mapTxVoid(chain_block::checkBlockArrival(
+        block, txContext_.ledger, txContext_.consensus));
+    if (!arrival) {
+      return Error(E_BLOCK_VALIDATION, arrival.error().message);
+    }
   }
 
   // Stake/seed refresh, apply and stateRoot check all run on the tip; any
