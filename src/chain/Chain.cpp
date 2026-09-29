@@ -513,6 +513,33 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
                  "Cannot seal while a previous sealed block is uncommitted");
   }
 
+  auto snapshot = beginTipUpdate();
+  auto sealed = sealOnTip(block);
+  if (!sealed) {
+    rollbackTipUpdate(std::move(snapshot));
+    return sealed;
+  }
+  sealSnapshot_ = std::move(snapshot);
+  pendingSeal_ = PendingSeal{block.block.index, block.hash};
+  return {};
+}
+
+Chain::TipSnapshot Chain::beginTipUpdate() {
+  txContext_.bank.beginOverlay();
+  return TipSnapshot{txContext_.consensus.saveTipState(),
+                     txContext_.optChainConfig, txContext_.checkpoint};
+}
+
+void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
+
+void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
+  txContext_.bank.rollbackOverlay();
+  txContext_.consensus.restoreTipState(std::move(snapshot.consensus));
+  txContext_.optChainConfig = std::move(snapshot.optChainConfig);
+  txContext_.checkpoint = snapshot.checkpoint;
+}
+
+Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   // Assemble → Check (non-genesis Full layers) → Apply (always Full) →
   // Commit-hold (pendingSeal). Do not use admissionModeFor for seal apply:
   // late-join CheckpointReplay is for trusted catch-up ingest only.
@@ -567,7 +594,6 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
 
   block.block.stateRoot = txContext_.bank.calculateStateRoot();
   block.hash = calculateHash(block.block);
-  pendingSeal_ = PendingSeal{block.block.index, block.hash};
   return {};
 }
 
@@ -727,6 +753,10 @@ Chain::Roe<void> Chain::mountLedger(const std::string &workDir) {
 Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   log().info << "Loading from ledger starting at block ID " << startingBlockId;
 
+  if (sealSnapshot_.has_value()) {
+    rollbackTipUpdate(std::move(*sealSnapshot_));
+    sealSnapshot_.reset();
+  }
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
   pendingSeal_.reset();
@@ -823,6 +853,23 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
                      std::to_string(block.block.index));
   }
 
+  // Stake/seed refresh, apply and stateRoot check all run on the tip; any
+  // failure restores the pre-block state.
+  auto snapshot = beginTipUpdate();
+  auto applied = applyNextBlock(block);
+  if (!applied) {
+    rollbackTipUpdate(std::move(snapshot));
+    return applied;
+  }
+  commitTipUpdate();
+
+  log().info << "Block added: " << block.block.index
+             << " from slot leader: " << block.block.slotLeader;
+
+  return {};
+}
+
+Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode &block) {
   const auto admissionMode = admissionModeFor(block.block.index);
   if (block.block.index > 0) {
     refreshStakeholders(block.block.slot);
@@ -846,14 +893,29 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
     return Error(E_LEDGER_WRITE,
                  "Failed to persist block: " + ledgerResult.error().message);
   }
-
-  log().info << "Block added: " << block.block.index
-             << " from slot leader: " << block.block.slotLeader;
-
   return {};
 }
 
 Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
+  auto committed = commitSealedOnTip(block);
+  pendingSeal_.reset();
+  if (sealSnapshot_.has_value()) {
+    if (committed) {
+      commitTipUpdate();
+    } else {
+      rollbackTipUpdate(std::move(*sealSnapshot_));
+    }
+    sealSnapshot_.reset();
+  }
+  if (!committed) {
+    return committed;
+  }
+  log().info << "Block added: " << block.block.index
+             << " from slot leader: " << block.block.slotLeader;
+  return {};
+}
+
+Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
   // Effects already applied in sealBlock; verify commitments then persist.
   if (block.block.index == 0) {
     auto genesisValidation =
@@ -888,12 +950,6 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
   if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
     txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
   }
-
-  pendingSeal_.reset();
-
-  log().info << "Block added: " << block.block.index
-             << " from slot leader: " << block.block.slotLeader;
-
   return {};
 }
 
@@ -991,7 +1047,15 @@ Chain::Roe<void> Chain::addBufferTransaction(
                           blockId,
                           currentSlot,
                           chain_block::BlockAdmissionMode::Full };
-  return mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
+  // A rejected tx must not leave partial effects in the scratch bank.
+  bank.beginOverlay();
+  auto applied = mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
+  if (applied) {
+    bank.commitOverlay();
+  } else {
+    bank.rollbackOverlay();
+  }
+  return applied;
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(

@@ -1497,6 +1497,101 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
 }
 
+namespace {
+
+Ledger::Record makeReserveTransfer(const ComposeHarness &h, uint64_t amount,
+                                   uint64_t idempotentId) {
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = amount;
+  tx.fee = 1;
+  tx.idempotentId = idempotentId;
+  tx.validationTsMin = h.chainConfig.genesisTime;
+  tx.validationTsMax = h.chainConfig.genesisTime + 3600;
+  return makeRecord(Ledger::T_DEFAULT, tx, h.reserveKey, h.chainConfig.networkId);
+}
+
+int64_t reserveBalance(const Chain &chain) {
+  auto acc = chain.getAccount(AccountBuffer::ID_RESERVE);
+  return acc ? acc->wallet.mBalances.at(AccountBuffer::ID_GENESIS) : -1;
+}
+
+} // namespace
+
+// A block with valid txs but a forged stateRoot is rejected without touching
+// tip state; the honest block for the same height is still accepted.
+TEST_F(ChainComposeTest, BadStateRoot_RejectedThenHonestBlockAccepted) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t slot = harness_.genesis.block.slot + 1;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  producer.forceSlotLeader(slot, leaderId);
+  peer.forceSlotLeader(slot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  peer.setClockOverride(peer.getSlotStartTime(slot));
+
+  Ledger::ChainNode honest = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 100, 1)});
+  ASSERT_EQ(honest.block.records.size(), 1u);
+
+  Ledger::ChainNode forged = honest;
+  forged.block.stateRoot = utl::sha256Raw("forged-state-root");
+  forged.hash = peer.calculateHash(forged.block);
+
+  const int64_t balanceBefore = reserveBalance(peer);
+  const auto stakeBefore = peer.getStakeholders();
+  auto bad = peer.addBlock(forged);
+  ASSERT_TRUE(bad.isError());
+  EXPECT_NE(bad.error().message.find("stateRoot"), std::string::npos)
+      << bad.error().message;
+  EXPECT_EQ(peer.getNextBlockId(), honest.block.index);
+  EXPECT_EQ(reserveBalance(peer), balanceBefore);
+  EXPECT_EQ(peer.getStakeholders().size(), stakeBefore.size());
+
+  ASSERT_TRUE(producer.addBlock(honest).isOk());
+  auto good = peer.addBlock(honest);
+  ASSERT_TRUE(good.isOk()) << good.error().message;
+  EXPECT_EQ(reserveBalance(peer), reserveBalance(producer));
+  auto tipP = producer.readLastBlock();
+  auto tipQ = peer.readLastBlock();
+  ASSERT_TRUE(tipP.isOk());
+  ASSERT_TRUE(tipQ.isOk());
+  EXPECT_EQ(tipP->hash, tipQ->hash);
+}
+
+// A seal whose commit is rejected rolls the tip back; the producer can then
+// seal and commit the next honest block.
+TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
+  auto &producer = harness_.producer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  const uint64_t tipSlot = harness_.genesis.block.slot;
+  const int64_t balanceBefore = reserveBalance(producer);
+
+  // Reuses the tip slot: rejected either at seal or at commit.
+  producer.forceSlotLeader(tipSlot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(tipSlot));
+  auto bad = producer.linkNextBlock(harness_.genesis, tipSlot, leaderId,
+                                    producer.getSlotStartTime(tipSlot),
+                                    {makeReserveTransfer(harness_, 50, 1)});
+  auto seal = producer.sealBlock(bad);
+  if (seal.isOk()) {
+    EXPECT_TRUE(producer.addBlock(bad).isError());
+  }
+  EXPECT_EQ(reserveBalance(producer), balanceBefore);
+  EXPECT_EQ(producer.getNextBlockId(), harness_.genesis.block.index + 1);
+
+  const uint64_t slot = tipSlot + 1;
+  producer.forceSlotLeader(slot, leaderId);
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  Ledger::ChainNode next = makeNextBlockAtSlot(
+      producer, harness_.genesis, slot, {makeReserveTransfer(harness_, 50, 1)});
+  auto add = producer.addBlock(next);
+  ASSERT_TRUE(add.isOk()) << add.error().message;
+  EXPECT_EQ(reserveBalance(producer), balanceBefore - 51);
+}
+
 TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
   EXPECT_FALSE(shouldSealEmptyHeartbeat(/*slot=*/10, /*tip=*/0, /*hb=*/0));
   EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 0, 10));

@@ -44,7 +44,60 @@ AccountBuffer::mutableAccount(uint64_t id) {
   if (it == mAccounts_.end()) {
     return Error(E_ACCOUNT, "Account not found: " + std::to_string(id));
   }
+  recordUndo(id);
   return &it->second;
+}
+
+void AccountBuffer::recordUndo(uint64_t id) {
+  if (journals_.empty()) {
+    return;
+  }
+  auto &saved = journals_.back().saved;
+  if (saved.count(id) != 0) {
+    return;
+  }
+  auto it = mAccounts_.find(id);
+  if (it == mAccounts_.end()) {
+    saved.emplace(id, std::nullopt);
+  } else {
+    saved.emplace(id, it->second);
+  }
+}
+
+void AccountBuffer::beginOverlay() {
+  journals_.push_back(Journal{stateTree_.clone(), {}});
+}
+
+void AccountBuffer::commitOverlay() {
+  if (journals_.empty()) {
+    return;
+  }
+  Journal inner = std::move(journals_.back());
+  journals_.pop_back();
+  if (journals_.empty()) {
+    return;
+  }
+  // Outer journal keeps its own (older) saved value when both touched an id.
+  auto &outer = journals_.back().saved;
+  for (auto &[id, value] : inner.saved) {
+    outer.emplace(id, std::move(value));
+  }
+}
+
+void AccountBuffer::rollbackOverlay() {
+  if (journals_.empty()) {
+    return;
+  }
+  Journal journal = std::move(journals_.back());
+  journals_.pop_back();
+  for (auto &[id, value] : journal.saved) {
+    if (value.has_value()) {
+      mAccounts_[id] = std::move(*value);
+    } else {
+      mAccounts_.erase(id);
+    }
+  }
+  stateTree_ = std::move(journal.tree);
 }
 
 bool AccountBuffer::hasAccount(uint64_t id) const {
@@ -110,6 +163,7 @@ AccountBuffer::Roe<void> AccountBuffer::add(const Account &account) {
     return Error(E_ACCOUNT, "Account already exists");
   }
 
+  recordUndo(account.id);
   mAccounts_[account.id] = account;
   touchTree(account);
   return {};
@@ -121,6 +175,7 @@ AccountBuffer::Roe<void> AccountBuffer::update(const AccountBuffer &other) {
       return Error(E_ACCOUNT,
                    "Account to update not found: " + std::to_string(id));
     }
+    recordUndo(id);
     mAccounts_[id] = account;
     touchTree(account);
   }
@@ -466,11 +521,15 @@ void AccountBuffer::remove(uint64_t id) {
   if (!hasAccount(id)) {
     return;
   }
+  recordUndo(id);
   mAccounts_.erase(id);
   clearTree(id);
 }
 
 void AccountBuffer::clear() {
+  for (const auto &[id, account] : mAccounts_) {
+    recordUndo(id);
+  }
   mAccounts_.clear();
   stateTree_ = AccountStateTree{};
 }
