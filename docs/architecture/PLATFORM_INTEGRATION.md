@@ -34,7 +34,7 @@ from sibling repos when convenient.
 ```
 
 - **pp-cpp-common** is fetched once at the **top-level consumer** (pp-browser root
-  `cmake/PpCppCommon.cmake`, pin release tag e.g. `v0.2.0`).
+  `cmake/PpCppCommon.cmake`, pin release tag e.g. `v0.3.1`).
 - **pp-ledger** is fetched by pp-browser via FetchContent only (`cmake/PpLedger.cmake`,
   planned — git tag pin, no sibling checkout shortcut).
 - When pp-ledger is embedded, it must **not** re-fetch crypto if the parent already
@@ -265,7 +265,7 @@ Legacy standalone miners continue to use TCP `beacons[]` / `host:port` in
 
 As of **pp-browser `develop`** (FetchContent migration merged):
 
-- `cmake/PpCppCommon.cmake` — fetches pp-cpp-common, pin `v0.2.0`.
+- `cmake/PpCppCommon.cmake` — fetches pp-cpp-common, pin `v0.3.1`.
 - Duplicated `src/common/*.cpp` removed; `src/common/PbrCompat.h` force-included on
   `pp_common` for `pbr::` aliases.
 - Root order: `PpCppCommon` → `dependencies` (json, sodium, …) → `add_subdirectory(src)`.
