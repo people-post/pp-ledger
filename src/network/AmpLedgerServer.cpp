@@ -69,11 +69,14 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
     links.SetAdvertisedProtocols(std::move(protocols));
   }
 
-  links.SetProtocolHandler(kProtocolId, [handler = std::move(handler), post_worker = std::move(post_worker),
-                                         post_io = std::move(post_io)](pp::amp::PeerLink& link,
+  links.SetProtocolHandler(kProtocolId, [&links, handler = std::move(handler), post_worker = std::move(post_worker),
+                                         post_io = std::move(post_io)](pp::amp::LinkHandle link_handle,
+                                                                      const std::string& /*remote_peer_id*/,
                                                                       const uint32_t channel_id) {
     // Copy handler/post_* per channel — moving would break the second inbound RPC.
-    HandleInboundChannel(link, channel_id, handler, post_worker, post_io);
+    links.WithLiveLink(link_handle, [&](pp::amp::PeerLink& link) {
+      HandleInboundChannel(link, channel_id, handler, post_worker, post_io);
+    });
   });
 }
 
