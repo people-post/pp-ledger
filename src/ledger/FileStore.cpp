@@ -423,14 +423,13 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
       break;
     }
 
-    // Validate block size. Compare via subtraction (not offset + size) so a
-    // corrupted/malicious huge blockSize can't wrap the addition around and
-    // slip past the check -- remaining is exact since the while-condition
-    // above already guarantees offset + SIZE_PREFIX_BYTES <= fileEnd.
-    const uint64_t remaining =
-        static_cast<uint64_t>(fileEnd) - static_cast<uint64_t>(offset) -
-        SIZE_PREFIX_BYTES;
-    if (blockSize > remaining) {
+    // Validate block size. Compare against the space left (not offset + size)
+    // so a corrupted/malicious huge blockSize can't wrap the addition around
+    // and slip past the check. Each subtraction is guarded locally rather than
+    // relying on the while-condition, so an edit to the loop fails closed.
+    const uint64_t avail =
+        offset < fileEnd ? static_cast<uint64_t>(fileEnd - offset) : 0;
+    if (avail < SIZE_PREFIX_BYTES || blockSize > avail - SIZE_PREFIX_BYTES) {
       log().warning << "Block at offset " << offset
                     << " has invalid size " << blockSize;
       break;
@@ -439,8 +438,8 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
     // Add to index
     blockIndex_.push_back(BlockEntry(offset, blockSize));
 
-    // Move to next block. Safe: blockSize <= remaining <= fileEnd, so the
-    // sum cannot exceed fileEnd (which already fits in int64_t).
+    // Move to next block. Safe: SIZE_PREFIX_BYTES + blockSize <= avail, so the
+    // new offset cannot exceed fileEnd (which already fits in int64_t).
     offset += static_cast<int64_t>(SIZE_PREFIX_BYTES) +
              static_cast<int64_t>(blockSize);
   }
