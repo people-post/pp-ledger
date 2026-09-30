@@ -33,29 +33,44 @@ TEST(BeaconServerInitTest, SecondInitWritesNewKeyFileAndKeepsFirst) {
   std::error_code ec;
   std::filesystem::remove_all(workDir, ec);
 
-  BeaconServer first;
-  auto r1 = first.init(workDir.string());
-  ASSERT_TRUE(r1.isOk()) << r1.error().message;
-  const std::filesystem::path path1 = first.initKeysPath();
+  // Each init runs in its own scope, like separate `pp-beacon --init` runs:
+  // a live server keeps ledger files open, which blocks the next init's
+  // cleanup on Windows.
+  std::filesystem::path path1;
+  std::string content1;
+  {
+    BeaconServer first;
+    auto r1 = first.init(workDir.string());
+    ASSERT_TRUE(r1.isOk()) << r1.error().message;
+    path1 = first.initKeysPath();
+    content1 = keysJson(r1.value());
+  }
   EXPECT_EQ(path1, workDir / "init-keys.json");
   ASSERT_TRUE(std::filesystem::exists(path1));
-  const std::string content1 = readFile(path1);
-  EXPECT_EQ(content1, keysJson(r1.value()));
-
-  BeaconServer second;
-  auto r2 = second.init(workDir.string());
-  ASSERT_TRUE(r2.isOk()) << r2.error().message;
-  const std::filesystem::path path2 = second.initKeysPath();
-  EXPECT_EQ(path2, workDir / "init-keys-2.json");
-  ASSERT_TRUE(std::filesystem::exists(path2));
-  EXPECT_EQ(readFile(path2), keysJson(r2.value()));
-  EXPECT_NE(readFile(path2), content1);
   EXPECT_EQ(readFile(path1), content1);
 
+  std::filesystem::path path2;
+  std::string content2;
+  {
+    BeaconServer second;
+    auto r2 = second.init(workDir.string());
+    ASSERT_TRUE(r2.isOk()) << r2.error().message;
+    path2 = second.initKeysPath();
+    content2 = keysJson(r2.value());
+  }
+  EXPECT_EQ(path2, workDir / "init-keys-2.json");
+  ASSERT_TRUE(std::filesystem::exists(path2));
+  EXPECT_EQ(readFile(path2), content2);
+  EXPECT_NE(content2, content1);
+  EXPECT_EQ(readFile(path1), content1);
+
+#if !defined(_WIN32)
+  // 0600 is POSIX-only (see writeToNewFile).
   const auto perms = std::filesystem::status(path2).permissions();
   EXPECT_EQ(perms & (std::filesystem::perms::group_all |
                      std::filesystem::perms::others_all),
             std::filesystem::perms::none);
+#endif
 
   std::filesystem::remove_all(workDir, ec);
 }

@@ -194,6 +194,9 @@ TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsInvalidHex) {
 // --- writeToNewFile ---
 
 TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
+#if defined(_WIN32)
+  GTEST_SKIP() << "0600 is POSIX-only; std::filesystem has no group/others on Windows";
+#endif
   std::filesystem::path path = std::filesystem::temp_directory_path() /
                                "pp-ledger-write-to-new-file-perms-test.txt";
   std::error_code ec;
