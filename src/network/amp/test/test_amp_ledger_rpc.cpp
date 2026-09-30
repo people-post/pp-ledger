@@ -1,5 +1,6 @@
 #include "AmpLedgerServer.h"
 #include "AmpLedgerTransport.h"
+#include "LedgerAmpRuntime.h"
 #include "LedgerRpcProtocol.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/Endpoint.h"
@@ -13,6 +14,11 @@
 
 #include <gtest/gtest.h>
 #include <sodium.h>
+
+#include <atomic>
+#include <future>
+#include <thread>
+#include <vector>
 
 namespace {
 using pp::utl::binaryUnpack;
@@ -137,7 +143,7 @@ TEST_F(AmpLedgerRpcTest, RoundTripEcho) {
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
 
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
   const std::string payload = "ledger-rpc-payload";
   auto response = transport.roundTrip(payload, std::chrono::seconds(5));
@@ -172,7 +178,7 @@ TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   request.type = 42;
   request.payload = "hello-ledger";
 
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   auto framed = transport.roundTrip(pp::utl::binaryPack(request), std::chrono::seconds(5));
   ASSERT_TRUE(framed.isOk()) << framed.error().message;
 
@@ -195,7 +201,7 @@ TEST_F(AmpLedgerRpcTest, RoundTripFailsWhenDatagramsDropped) {
   // cannot complete — in-process stand-in for L-NET-LOSS (purpose catalog).
   h->io_a->SetDropRate(1.0);
 
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   auto response = transport.roundTrip("should-not-arrive", std::chrono::milliseconds(200));
   EXPECT_TRUE(response.isError()) << "expected timeout/failure under total loss";
 }
@@ -208,7 +214,7 @@ TEST_F(AmpLedgerRpcTest, SuccessThenLossFailsSecondRoundTrip) {
   ASSERT_TRUE(h->Associate());
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
   auto first = transport.roundTrip("ok-before-loss", std::chrono::seconds(5));
   ASSERT_TRUE(first.isOk()) << first.error().message;
@@ -232,7 +238,7 @@ TEST_F(AmpLedgerRpcTest, RoundTripSurvivesReorderWindow) {
   h->io_b->SetRngSeed(1);
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() {
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() {
     h->PumpBoth();
     // Drive may emit several datagrams; flush after so held packets still make progress.
     h->io_a->FlushReorder();
@@ -258,7 +264,7 @@ TEST_F(AmpLedgerRpcTest, RoundTripSurvivesDatagramDuplication) {
   h->io_b->SetRngSeed(4);
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
   auto response = transport.roundTrip("dup-datagram-payload", std::chrono::seconds(5));
   ASSERT_TRUE(response.isOk()) << response.error().message;
@@ -279,7 +285,7 @@ TEST_F(AmpLedgerRpcTest, ClientRejectsOversizeRequest) {
 
   // L-ADV-INGRESS: AmpLedgerTransport refuses bodies above kMaxPayloadBytes.
   const std::string huge(pp::ledger::rpc::kMaxPayloadBytes + 1, 'x');
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   auto response = transport.roundTrip(huge, std::chrono::seconds(2));
   EXPECT_TRUE(response.isError());
   EXPECT_FALSE(handler_called);
@@ -308,7 +314,7 @@ TEST_F(AmpLedgerRpcTest, TruncatedClientRequestReturnsErrorResponse) {
     return pp::utl::binaryPack(resp);
   });
 
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   auto framed = transport.roundTrip(std::string("\x01\x02\x03", 3), std::chrono::seconds(5));
   ASSERT_TRUE(framed.isOk()) << framed.error().message;
 
@@ -330,7 +336,7 @@ TEST_F(AmpLedgerRpcTest, IdenticalRequestReplayIsIdempotentEcho) {
     return body;
   });
 
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   const std::string payload = "replay-same-body";
   auto first = transport.roundTrip(payload, std::chrono::seconds(5));
   auto second = transport.roundTrip(payload, std::chrono::seconds(5));
@@ -373,7 +379,7 @@ TEST_F(AmpLedgerRpcTest, EmptyRequestBodyReturnsErrorResponse) {
   ASSERT_TRUE(h->Associate());
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), DispatchClientRequestOrReject);
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
   auto framed = transport.roundTrip(std::string{}, std::chrono::seconds(5));
   ASSERT_TRUE(framed.isOk()) << framed.error().message;
@@ -390,7 +396,7 @@ TEST_F(AmpLedgerRpcTest, UnknownRequestTypeReturnsErrorResponse) {
   ASSERT_TRUE(h->Associate());
 
   pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), DispatchClientRequestOrReject);
-  pp::AmpLedgerTransport transport(h->runtime_a->Links(), "b", [&h]() { h->PumpBoth(); });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
 
   pp::Client::Request request;
   request.version = pp::Client::Request::VERSION;
@@ -406,3 +412,134 @@ TEST_F(AmpLedgerRpcTest, UnknownRequestTypeReturnsErrorResponse) {
 }
 
 } // namespace
+
+// --- Threaded mode: LedgerAmpRuntime pump threads own the stacks ---
+
+namespace {
+
+pp::amp::PeerLinkConfig TestLinkConfig() {
+  pp::amp::PeerLinkConfig link_cfg;
+  link_cfg.peer_id_from_identity = [](const pp::amp::ByteVector& pk) {
+    auto id = DeriveTestPeerId(pk);
+    return id ? *id : std::string{};
+  };
+  return link_cfg;
+}
+
+pp::Roe<pp::network::LedgerAmpConfig> TestAmpConfig() {
+  auto keys = pp::MlDsa::GenerateKeyPair();
+  if (!keys) {
+    return pp::Error("keygen failed");
+  }
+  pp::network::LedgerAmpConfig cfg;
+  cfg.identity.ml_dsa_secret_key = std::move(keys->secret_key);
+  cfg.identity.ml_dsa_public_key = std::move(keys->public_key);
+  auto id = DeriveTestPeerId(cfg.identity.ml_dsa_public_key);
+  if (!id) {
+    return id.error();
+  }
+  cfg.local_peer_id = *id;
+  cfg.link_config = TestLinkConfig();
+  return cfg;
+}
+
+/** Two LedgerAmpRuntimes on an in-memory hub with wall clocks; B serves an echo. */
+struct ThreadedPair {
+  std::shared_ptr<pp::adp::MemoryDatagramHub> hub = pp::adp::MemoryDatagramIo::MakeHub();
+  std::shared_ptr<pp::adp::MemoryDatagramIo> io_a;
+  std::shared_ptr<pp::adp::MemoryDatagramIo> io_b;
+  pp::network::LedgerAmpRuntime a;
+  pp::network::LedgerAmpRuntime b;
+
+  pp::Roe<void> Start() {
+    io_a = std::make_shared<pp::adp::MemoryDatagramIo>(hub, pp::adp::IpEndpoint::V4(10, 1, 0, 1, 1000));
+    io_b = std::make_shared<pp::adp::MemoryDatagramIo>(hub, pp::adp::IpEndpoint::V4(10, 1, 0, 2, 2000));
+    auto cfg_a = TestAmpConfig();
+    auto cfg_b = TestAmpConfig();
+    if (!cfg_a || !cfg_b) {
+      return pp::Error("config failed");
+    }
+    if (auto r = b.StartForTest(io_b, std::make_shared<pp::adp::WallClock>(), std::move(*cfg_b)); !r) {
+      return r;
+    }
+    pp::network::AmpLedgerServer::Bind(
+        b.links(), [](const std::string& body) { return body; }, {},
+        [this](std::function<void()> task) { b.post(std::move(task)); });
+    return a.StartForTest(io_a, std::make_shared<pp::adp::WallClock>(), std::move(*cfg_a));
+  }
+
+  /** MemoryDatagramIo knobs are io-thread state: change them on A's pump thread. */
+  void SetClientDropRate(double rate) {
+    std::promise<void> done;
+    a.post([&]() {
+      io_a->SetDropRate(rate);
+      done.set_value();
+    });
+    done.get_future().wait();
+  }
+};
+
+} // namespace
+
+TEST_F(AmpLedgerRpcTest, ThreadedRoundTripsFromManyCallerThreads) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+
+  constexpr int kThreads = 4;
+  constexpr int kCallsPerThread = 10;
+  std::atomic<int> failures{0};
+  std::vector<std::thread> callers;
+  for (int t = 0; t < kThreads; ++t) {
+    callers.emplace_back([&, t]() {
+      for (int i = 0; i < kCallsPerThread; ++i) {
+        const std::string payload = "t" + std::to_string(t) + "-" + std::to_string(i);
+        auto response = transport.roundTrip(payload, std::chrono::seconds(5));
+        if (!response || response.value() != payload) {
+          failures++;
+        }
+      }
+    });
+  }
+  for (auto& c : callers) {
+    c.join();
+  }
+  EXPECT_EQ(failures.load(), 0);
+}
+
+// Callbacks that land after a timeout must not touch the caller's (gone) stack
+// frame, and the transport must stay usable once the link recovers.
+TEST_F(AmpLedgerRpcTest, ThreadedTimeoutThenRecovery) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+  ASSERT_TRUE(transport.roundTrip("warm-up", std::chrono::seconds(5)).isOk());
+
+  pair.SetClientDropRate(1.0);
+  auto lost = transport.roundTrip("lost", std::chrono::milliseconds(200));
+  EXPECT_TRUE(lost.isError());
+
+  pair.SetClientDropRate(0.0);
+  auto response = transport.roundTrip("after-loss", std::chrono::seconds(5));
+  ASSERT_TRUE(response.isOk()) << response.error().message;
+  EXPECT_EQ(response.value(), "after-loss");
+}
+
+// The pump thread is the only driver: blocking on io work from it would deadlock.
+TEST_F(AmpLedgerRpcTest, ThreadedRoundTripOnPumpThreadIsRefused) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+
+  std::promise<std::string> error;
+  pair.a.post([&]() {
+    auto r = transport.roundTrip("from-pump", std::chrono::seconds(1));
+    error.set_value(r ? std::string{} : r.error().message);
+  });
+  auto f = error.get_future();
+  ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_NE(f.get().find("pump thread"), std::string::npos);
+}

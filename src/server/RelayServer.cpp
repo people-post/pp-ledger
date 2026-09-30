@@ -203,7 +203,7 @@ Service::Roe<void> RelayServer::onStart() {
   if (!ampRuntime()) {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  client_.attachAmpTransport(ampRuntime()->links(), ampRuntime()->ioPump(), "beacon");
+  client_.attachAmpTransport(*ampRuntime(), "beacon");
 
   if (!config_.network.beacon_multiaddr.empty()) {
     if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {

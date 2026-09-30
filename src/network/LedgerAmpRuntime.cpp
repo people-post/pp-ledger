@@ -58,16 +58,25 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
 
 void LedgerAmpRuntime::Stop() {
   stop_ = true;
+  Wake();
   if (pump_thread_.joinable()) {
     pump_thread_.join();
   }
-  if (stack_) {
-    stack_->Stop();
-    stack_.reset();
+  pump_thread_id_ = std::thread::id{};
+  std::unique_ptr<pp::amp::AmpStack> stack;
+  {
+    // After this, post() is a no-op. Tear down outside post_mu_: the stack takes
+    // its own io lock, and the pump thread takes post_mu_ while holding that.
+    std::lock_guard<std::mutex> lock(post_mu_);
+    running_ = false;
+    stack = std::move(stack_);
+  }
+  if (stack) {
+    stack->Stop();
+    stack.reset();
   }
   io_.reset();
   clock_.reset();
-  running_ = false;
   listen_multiaddr_.clear();
 }
 
@@ -75,22 +84,33 @@ pp::amp::PeerLinkManager& LedgerAmpRuntime::links() { return stack_->Links(); }
 
 pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
 
-LedgerAmpRuntime::IoPump LedgerAmpRuntime::ioPump() const {
-  return [this]() {
-    if (stack_) {
-      stack_->Pump();
-      stack_->Tick();
-    }
-  };
+void LedgerAmpRuntime::post(IoTask task) {
+  std::lock_guard<std::mutex> lock(post_mu_);
+  if (!running_ || !stack_) {
+    return;
+  }
+  stack_->PostToIo(std::move(task));
+  Wake();
+}
+
+bool LedgerAmpRuntime::onPumpThread() const { return std::this_thread::get_id() == pump_thread_id_.load(); }
+
+void LedgerAmpRuntime::Wake() {
+  {
+    std::lock_guard<std::mutex> lock(wake_mu_);
+    wake_ = true;
+  }
+  wake_cv_.notify_one();
 }
 
 void LedgerAmpRuntime::PumpLoop() {
+  pump_thread_id_ = std::this_thread::get_id();
   while (!stop_.load()) {
-    if (stack_) {
-      stack_->Pump();
-      stack_->Tick();
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    stack_->Runtime().Drive();
+    // Idle cadence for timers/retransmits; post() wakes us early for new work.
+    std::unique_lock<std::mutex> lock(wake_mu_);
+    wake_cv_.wait_for(lock, std::chrono::milliseconds(5), [this]() { return wake_ || stop_.load(); });
+    wake_ = false;
   }
 }
 

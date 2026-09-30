@@ -1030,14 +1030,14 @@ int main(int argc, char** argv) {
   }
 
   pp::Client beaconClient;
-  beaconClient.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "beacon");
+  beaconClient.attachAmpTransport(ampRuntime, "beacon");
   if (auto dial = beaconClient.setAmpPeer("beacon", beaconMultiaddr); !dial) {
     std::cerr << "Error: failed to dial beacon: " << dial.error().message << "\n";
     return 1;
   }
 
   pp::Client minerClient;
-  minerClient.attachAmpTransport(ampRuntime.links(), ampRuntime.ioPump(), "miner");
+  minerClient.attachAmpTransport(ampRuntime, "miner");
   if (auto dial = minerClient.setAmpPeer("miner", minerMultiaddr); !dial) {
     std::cerr << "Error: failed to dial miner: " << dial.error().message << "\n";
     return 1;

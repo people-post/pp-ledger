@@ -302,7 +302,7 @@ Service::Roe<void> MinerServer::onStart() {
   if (!ampRuntime()) {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  client_.attachAmpTransport(ampRuntime()->links(), ampRuntime()->ioPump(), "beacon");
+  client_.attachAmpTransport(*ampRuntime(), "beacon");
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();

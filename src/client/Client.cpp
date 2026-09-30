@@ -186,10 +186,9 @@ Client::Client() = default;
 
 Client::~Client() = default;
 
-void Client::attachAmpTransport(pp::amp::PeerLinkManager& links, network::LedgerAmpRuntime::IoPump io_pump,
-                                std::string default_peer_key) {
+void Client::attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key) {
   amp_default_peer_key_ = std::move(default_peer_key);
-  transport_ = std::make_unique<AmpLedgerTransport>(links, amp_default_peer_key_, std::move(io_pump));
+  transport_ = std::make_unique<AmpLedgerTransport>(runtime, amp_default_peer_key_);
   if (auto* amp = dynamic_cast<AmpLedgerTransport*>(transport_.get())) {
     amp->redirectLogger(log().getFullName() + ".AmpLedgerTransport");
   }
@@ -200,7 +199,7 @@ Client::Roe<void> Client::setAmpPeer(const std::string& peer_key, const std::str
   if (!amp) {
     return Error(E_NOT_CONNECTED, "AMP transport not configured");
   }
-  if (!amp->links().RegisterEndpoint(peer_key, multiaddr)) {
+  if (!amp->registerEndpoint(peer_key, multiaddr)) {
     return Error(E_NOT_CONNECTED, "Failed to register peer endpoint: " + multiaddr);
   }
   amp->setPeerKey(peer_key);

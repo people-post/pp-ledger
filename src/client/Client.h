@@ -226,9 +226,8 @@ public:
 
   Roe<void> setAmpPeer(const std::string& peer_key, const std::string& multiaddr);
 
-  /** Attach AMP transport using an existing local link manager (servers / CLI). */
-  void attachAmpTransport(pp::amp::PeerLinkManager& links, network::LedgerAmpRuntime::IoPump io_pump,
-                          std::string default_peer_key = "remote");
+  /** Attach AMP transport driven by `runtime`'s pump thread (servers / CLI / pp-http). */
+  void attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key = "remote");
 
   /** Replace default TCP transport (e.g. in-process for embedded UI). */
   void setTransport(std::unique_ptr<ILedgerTransport> transport);
