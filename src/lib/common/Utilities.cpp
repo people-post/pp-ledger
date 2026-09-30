@@ -363,23 +363,6 @@ static std::string trimWhitespace(const std::string &s) {
   return s.substr(start, end - start + 1);
 }
 
-std::string readKey(const std::string &key) {
-  if (key.empty()) {
-    return "";
-  }
-  if (std::filesystem::exists(key)) {
-    std::ifstream file(key);
-    if (!file.is_open()) {
-      return "";
-    }
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
-    file.close();
-    return trimWhitespace(content);
-  }
-  return trimWhitespace(key);
-}
-
 namespace {
 
 bool isHexChar(char c) {
@@ -410,15 +393,35 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
           (std::filesystem::path(baseDir) / p).lexically_normal().string();
     }
   }
-  std::string content = readKey(resolvedPath);
-  if (content.empty()) {
-    return Error(2, "Failed to read key from: " + keyOrPath);
+
+  std::string content;
+  // Non-throwing: an inline hex key is far longer than a valid file name.
+  std::error_code ec;
+  if (std::filesystem::is_regular_file(resolvedPath, ec)) {
+    // Binary read: a raw key is arbitrary bytes, so text-mode translation or
+    // whitespace trimming would corrupt it (e.g. a key starting with 0x20).
+    std::ifstream file(resolvedPath, std::ios::binary);
+    if (!file.is_open()) {
+      return Error(2, "Failed to read key from: " + keyOrPath);
+    }
+    content.assign(std::istreambuf_iterator<char>(file),
+                   std::istreambuf_iterator<char>());
+    if (content.size() == kMlDsaPrivateKeyBytes) {
+      return content;
+    }
+  } else {
+    content = keyOrPath;
   }
+
+  // Otherwise hex text: tolerate surrounding whitespace and a 0x prefix.
+  content = trimWhitespace(content);
   if (content.size() >= 2 && content[0] == '0' &&
       (content[1] == 'x' || content[1] == 'X')) {
     content = content.substr(2);
   }
-  content = trimWhitespace(content);
+  if (content.empty()) {
+    return Error(2, "Failed to read key from: " + keyOrPath);
+  }
   const size_t hexLen = kMlDsaPrivateKeyBytes * 2;
   if (isHexString(content, hexLen)) {
     std::string raw = hexDecode(content);
@@ -427,9 +430,6 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
                           std::to_string(hexLen) + " hex chars)");
     }
     return raw;
-  }
-  if (content.size() == kMlDsaPrivateKeyBytes) {
-    return content;
   }
   return Error(4, "Private key must be " + std::to_string(kMlDsaPrivateKeyBytes) +
                       " bytes raw or " + std::to_string(hexLen) +
