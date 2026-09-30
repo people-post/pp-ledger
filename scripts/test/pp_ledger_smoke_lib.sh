@@ -301,22 +301,22 @@ initialize_beacon_with_test_config() {
   persist_lab_key "$beacon_dir/keys/amp-identity.txt" "beacon-amp-identity.txt"
   echo -e "${GREEN}✓ Beacon initialized${NC}"
 
+  # pp-beacon --init writes the private keys to a 0600 file and prints only its
+  # path ("...written to: <path> ..."); it may be init-keys-N.json on re-init.
+  local keys_file
+  keys_file=$(printf '%s\n' "$init_output" | sed -n 's/.*written to: \([^ ]*\).*/\1/p' | tail -n 1)
+  [[ -n "$keys_file" ]] || keys_file="$beacon_dir/init-keys.json"
+  [[ -f "$keys_file" ]] || die "beacon init keys file not found: $keys_file"
+
   local key_dir="${TEST_DIR}/keys"
   mkdir -p "$key_dir"
-  local json_file="${TEST_DIR}/keys_init.json"
-  echo "$init_output" >"$json_file"
-  if python3 - "$key_dir" "$json_file" <<'PYEOF'
-import json, sys, os, re
-key_dir, init_path = sys.argv[1], sys.argv[2]
-with open(init_path) as f:
-    text = f.read()
-# Beacon prints: Please save the private keys, they are not recoverable: { ... }
-m = re.search(r'not recoverable:\s*(\{[\s\S]*\})\s*$', text)
-if not m:
-    m = re.search(r'recoverable:\s*(\{[\s\S]*\})', text)
-if not m:
-    sys.exit(1)
-j = json.loads(m.group(1))
+  # Miners 1-3 are the fee/reserve/recycle system accounts (3-of-3 signatures);
+  # without these keys they cannot sign renewals and no block is ever produced.
+  python3 - "$key_dir" "$keys_file" <<'PYEOF' || die "could not extract reserve/fee/recycle keys from $keys_file"
+import json, os, sys
+key_dir, keys_path = sys.argv[1], sys.argv[2]
+with open(keys_path) as f:
+    j = json.load(f)
 for name in ("reserve", "fee", "recycle"):
     arr = j.get(name, [])
     if len(arr) != 3:
@@ -325,15 +325,12 @@ for name in ("reserve", "fee", "recycle"):
         pk = kp.get("privateKey", "")
         if not pk:
             sys.exit(1)
-        with open(os.path.join(key_dir, f"{name}{i}.key"), "w") as f:
-            f.write(pk)
+        path = os.path.join(key_dir, f"{name}{i}.key")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as out:
+            out.write(pk)
 PYEOF
-  then
-    echo -e "${CYAN}Saved reserve/fee/recycle keys from beacon init${NC}"
-  else
-    echo -e "${YELLOW}Could not parse init keys (tx inject may be limited)${NC}"
-  fi
-  rm -f "$json_file"
+  echo -e "${CYAN}Saved reserve/fee/recycle keys from ${keys_file}${NC}"
 }
 
 create_beacon_config() {
