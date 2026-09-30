@@ -211,13 +211,6 @@ inline bool isValidPublicKey(const std::string &str) {
 }
 
 /**
- * Read a key string or file containing hex-encoded private key
- * @param key String or file containing hex-encoded private key
- * @return Hex-encoded private key (trimmed)
- */
-std::string readKey(const std::string& key);
-
-/**
  * Read private key from file path (relative to baseDir if relative) or inline hex string.
  * A file of exactly kMlDsaPrivateKeyBytes is a raw key, used byte-for-byte (no
  * trimming). Otherwise the text is hex (2 * kMlDsaPrivateKeyBytes chars), with

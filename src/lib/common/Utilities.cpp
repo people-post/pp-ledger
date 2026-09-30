@@ -363,23 +363,6 @@ static std::string trimWhitespace(const std::string &s) {
   return s.substr(start, end - start + 1);
 }
 
-std::string readKey(const std::string &key) {
-  if (key.empty()) {
-    return "";
-  }
-  if (std::filesystem::exists(key)) {
-    std::ifstream file(key);
-    if (!file.is_open()) {
-      return "";
-    }
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
-    file.close();
-    return trimWhitespace(content);
-  }
-  return trimWhitespace(key);
-}
-
 namespace {
 
 bool isHexChar(char c) {
