@@ -550,9 +550,9 @@ See [THREADING.md](THREADING.md) for the model and its rollout.
 
 - **AMP**: the `LedgerAmpRuntime` pump thread is the only thread that drives the
   AMP stack; outbound calls post to it and wait
-- **All servers**: RPC handling runs on a dedicated `WorkerPool` (see `Server`)
-  alongside the role `runLoop` thread. Role state is not yet serialized between
-  them; a single server thread per role is the planned fix (THREADING.md phase 2)
+- **All servers**: the role `runLoop` thread is the server thread. RPC requests
+  are queued (`RequestQueue`, bounded) and handled one at a time on it between
+  duties, so role, chain and ledger state are single-threaded
 - **FetchServer**: I/O thread accepts connections and reads frames; completed requests
   are queued for handler workers; responses are written via fast path or `BulkWriter`
 

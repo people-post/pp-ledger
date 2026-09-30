@@ -4,7 +4,6 @@
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
 
-#include <algorithm>
 #include <filesystem>
 #include <thread>
 
@@ -25,19 +24,16 @@ bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry& entry) {
   return false;
 }
 
-size_t defaultHandlerWorkers() {
-  const unsigned hw = std::thread::hardware_concurrency();
-  if (hw == 0) {
-    return WorkerPool::kDefaultThreadCount;
-  }
-  return std::clamp(static_cast<size_t>(hw / 2), WorkerPool::kMinThreadCount,
-                    WorkerPool::kMaxThreadCount);
-}
-
 } // namespace
 
-Server::~Server() {
-  stopRequestHandlers();
+Server::Server() : requests_(std::make_unique<RequestQueue>(requestCapacity_)) {}
+
+Server::~Server() { stopAmpServer(); }
+
+void Server::setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait) {
+  requestCapacity_ = capacity;
+  maxRequestWait_ = maxWait;
+  requests_ = std::make_unique<RequestQueue>(requestCapacity_);
 }
 
 Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
@@ -109,37 +105,42 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
   return utl::binaryPack(resp);
 }
 
-void Server::startRequestHandlers() {
-  if (handlerPool_) {
-    return;
-  }
-
-  size_t workers = performanceConfig_.handlerWorkers;
-  if (workers == 0) {
-    workers = defaultHandlerWorkers();
-  }
-  workers = std::clamp(workers, WorkerPool::kMinThreadCount, WorkerPool::kMaxThreadCount);
-
-  handlerPool_ = std::make_unique<WorkerPool>(workers);
-  handlerStop_.store(false);
-
-  log().info << "Started " << workers << " RPC handler worker(s)";
-}
-
-void Server::stopRequestHandlers() {
-  handlerStop_.store(true);
-  if (handlerPool_) {
-    handlerPool_->Shutdown();
-    handlerPool_.reset();
-  }
-}
-
 void Server::onStop() {
   stopAmpServer();
 }
 
-std::string Server::dispatchUnframedRequest(const std::string& requestBody) {
-  return handleRequest(requestBody);
+void Server::enqueueRequest(std::string body, RequestQueue::Reply reply) {
+  if (!requests_->push(std::move(body), reply)) {
+    reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
+  }
+}
+
+void Server::serveRequestsFor(std::chrono::milliseconds budget) {
+  const auto deadline = RequestQueue::Clock::now() + budget;
+  while (!isStopSet()) {
+    auto item = requests_->popUntil(deadline);
+    if (!item) {
+      return;
+    }
+    if (RequestQueue::Clock::now() - item->enqueuedAt > maxRequestWait_) {
+      item->reply(packResponse(Client::E_SERVER_ERROR, "Request expired in server queue"));
+      continue;
+    }
+    std::string response;
+    try {
+      response = handleRequest(item->body);
+    } catch (const std::exception& e) {
+      log().error << "Request handler threw: " << e.what();
+      response = packResponse(Client::E_SERVER_ERROR, "Internal server error");
+    }
+    item->reply(std::move(response));
+  }
+}
+
+void Server::closeRequestQueue() {
+  for (auto& item : requests_->close()) {
+    item.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+  }
 }
 
 std::string Server::handleRequest(const std::string& request) {
@@ -167,11 +168,13 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");
   }
+  if (requests_->isClosed()) {
+    requests_ = std::make_unique<RequestQueue>(requestCapacity_);  // restart after a stop
+  }
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  startRequestHandlers();
-  auto started = ampSupport_->Start(
-      config, [this](const std::string& body) { return dispatchUnframedRequest(body); },
-      handlerPool_.get());
+  auto started = ampSupport_->Start(config, [this](std::string body, RequestQueue::Reply reply) {
+    enqueueRequest(std::move(body), std::move(reply));
+  });
   if (!started) {
     ampSupport_.reset();
     return started;
@@ -181,7 +184,7 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
 }
 
 void Server::stopAmpServer() {
-  stopRequestHandlers();
+  closeRequestQueue();
   if (ampSupport_) {
     ampSupport_->Stop();
     ampSupport_.reset();

@@ -522,11 +522,11 @@ void MinerServer::runLoop() {
       }
 
       // Sleep for a short time before checking again
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      serveRequestsFor(std::chrono::milliseconds(100));
 
     } catch (const std::exception &e) {
       log().error << "Exception in block production loop: " << e.what();
-      std::this_thread::sleep_for(std::chrono::seconds(1));
+      serveRequestsFor(std::chrono::seconds(1));
     }
   }
 
