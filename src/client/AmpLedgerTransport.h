@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ILedgerTransport.h"
-#include "amp/link/PeerLinkManager.h"
+#include "amp/link/MeshRuntime.h"
 #include "common/Module.h"
 
 #include <functional>
@@ -9,27 +9,44 @@
 
 namespace pp {
 
-/** AMP channel transport for ledger RPC (unframed binaryPack on L3 DATA). */
+namespace network {
+class LedgerAmpRuntime;
+}
+
+/**
+ * AMP channel transport for ledger RPC (unframed binaryPack on L3 DATA).
+ *
+ * All link and channel work runs on the AMP io lane; the calling thread never
+ * drives the stack. Two modes:
+ * - Threaded: a LedgerAmpRuntime pump thread drives. roundTrip() posts the call
+ *   and blocks on its result. Must not be called from the pump thread.
+ * - Caller-driven: no driver thread (tests / single-threaded tools). roundTrip()
+ *   posts the call, then runs `drive` on the calling thread until it completes,
+ *   so the caller is the only driver.
+ */
 class AmpLedgerTransport : public ILedgerTransport, public Module {
 public:
-  using IoPump = std::function<void()>;
+  using DriveFn = std::function<void()>;
 
-  AmpLedgerTransport(pp::amp::PeerLinkManager& links, std::string peer_key, IoPump io_pump = {});
+  AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::string peer_key);
+  AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive);
 
   void setPeerKey(std::string peer_key) { peer_key_ = std::move(peer_key); }
   const std::string& peerKey() const { return peer_key_; }
 
-  pp::amp::PeerLinkManager& links() { return links_; }
-  const pp::amp::PeerLinkManager& links() const { return links_; }
-
-  void setIoPump(IoPump pump) { io_pump_ = std::move(pump); }
+  /** RegisterEndpoint on the io lane. */
+  bool registerEndpoint(const std::string& peer_key, const std::string& multiaddr);
 
   Roe<std::string> roundTrip(const std::string& requestBody, std::chrono::milliseconds timeout) override;
 
 private:
-  pp::amp::PeerLinkManager& links_;
+  /** Run `task` on the io lane (posts; wakes the pump thread in threaded mode). */
+  void post(std::function<void()> task);
+
+  pp::amp::MeshRuntime& mesh_;
+  network::LedgerAmpRuntime* runtime_{nullptr};
+  DriveFn drive_;
   std::string peer_key_;
-  IoPump io_pump_;
 };
 
 } // namespace pp
