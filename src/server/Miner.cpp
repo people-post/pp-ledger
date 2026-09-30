@@ -303,6 +303,8 @@ void Miner::abandonBlock(const Ledger::ChainNode &block) {
                       block.block.records.begin() +
                           static_cast<std::ptrdiff_t>(renewals),
                       block.block.records.end());
+  // Renewals and the buffer were built on the abandoned tip; rebuild next time.
+  slotCache_ = {};
 }
 
 Miner::Roe<void>
@@ -333,7 +335,8 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   if (!result) {
     return Error(10, result.error().message);
   }
-
+  // The tip moved: this slot's renewals and buffer are stale.
+  slotCache_ = {};
   return {};
 }
 
