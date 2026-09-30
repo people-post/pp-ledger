@@ -17,6 +17,9 @@ mkdir -p beacon
 This will:
 - Create `beacon/init-config.json` with default consensus parameters if it doesn't exist
 - Initialize the beacon with genesis block (block 0)
+- Write the new genesis/fee/reserve/recycle private keys to `beacon/init-keys.json`
+  (mode 0600; `init-keys-2.json`, … on re-init — existing files are never
+  overwritten). Only the path is printed. Save the keys, then delete the file
 - Create `beacon/config.json` for runtime configuration
 
 You can customize `beacon/init-config.json` before initialization:
