@@ -542,8 +542,8 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   userAccount.meta = pp::AccountAttachment::emptySerialized();
 
   // The HTTP "key" field must be the literal hex private key, never a file
-  // path: unlike the CLI, pp::utl::readKey() would happily read any local
-  // file the server process can access if the value happens to name one.
+  // path: unlike the CLI, pp::utl::readPrivateKey() would happily read any
+  // local file the server process can access if the value happens to name one.
   std::string keyStr = objectString(body, "key");
   if (keyStr.size() >= 2 && (keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X')))
     keyStr = keyStr.substr(2);

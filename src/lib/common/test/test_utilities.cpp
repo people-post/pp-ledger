@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace pp {
 namespace utl {
@@ -189,6 +191,77 @@ TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsAllZero) {
 
 TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsInvalidHex) {
   EXPECT_FALSE(isValidMlDsaPublicKey("0xgg" + std::string(kMlDsaPublicKeyBytes * 2 - 2, 'a')));
+}
+
+// --- readPrivateKey ---
+
+namespace {
+
+/** A raw key with chosen edge bytes; the middle is a fixed non-whitespace byte. */
+std::string rawKeyWithEdges(const std::string &head, const std::string &tail) {
+  std::string key(kMlDsaPrivateKeyBytes, '\x5a');
+  key.replace(0, head.size(), head);
+  key.replace(key.size() - tail.size(), tail.size(), tail);
+  return key;
+}
+
+std::filesystem::path writeKeyFile(const std::string &name,
+                                   const std::string &bytes) {
+  const auto path = std::filesystem::temp_directory_path() / name;
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  return path;
+}
+
+} // namespace
+
+// Regression: raw keys were whitespace-trimmed / 0x-stripped as if they were
+// text, so a random key starting or ending with such bytes failed to load.
+TEST(ReadPrivateKeyTest, RawKeyWithWhitespaceOrHexPrefixEdgesLoadsIntact) {
+  const std::vector<std::pair<std::string, std::string>> edges = {
+      {" ", "x"}, {"x", "\n"}, {"\t\r", " \n"}, {"0x", "y"}, {"\x1a", "z"}};
+  for (const auto &[head, tail] : edges) {
+    const std::string key = rawKeyWithEdges(head, tail);
+    const auto path = writeKeyFile("pp-ledger-raw-key-test.bin", key);
+    auto result = readPrivateKey(path.string(), "");
+    ASSERT_TRUE(result.isOk()) << result.error().message;
+    EXPECT_EQ(result.value(), key);
+    std::filesystem::remove(path);
+  }
+}
+
+TEST(ReadPrivateKeyTest, HexKeyFileWithPrefixAndNewlineLoads) {
+  const std::string key = rawKeyWithEdges(" ", "\n");
+  const auto path =
+      writeKeyFile("pp-ledger-hex-key-test.txt", "0x" + hexEncode(key) + "\n");
+  auto result = readPrivateKey(path.string(), "");
+  ASSERT_TRUE(result.isOk()) << result.error().message;
+  EXPECT_EQ(result.value(), key);
+  std::filesystem::remove(path);
+}
+
+TEST(ReadPrivateKeyTest, RelativePathResolvesAgainstBaseDir) {
+  const std::string key = rawKeyWithEdges("a", "b");
+  const auto path = writeKeyFile("pp-ledger-relative-key-test.bin", key);
+  auto result = readPrivateKey(path.filename().string(),
+                               path.parent_path().string());
+  ASSERT_TRUE(result.isOk()) << result.error().message;
+  EXPECT_EQ(result.value(), key);
+  std::filesystem::remove(path);
+}
+
+TEST(ReadPrivateKeyTest, InlineHexKeyLoads) {
+  const std::string key = rawKeyWithEdges("a", "b");
+  auto result = readPrivateKey(" " + hexEncode(key) + " ", "");
+  ASSERT_TRUE(result.isOk()) << result.error().message;
+  EXPECT_EQ(result.value(), key);
+}
+
+TEST(ReadPrivateKeyTest, WrongSizeRawFileIsRejected) {
+  const auto path = writeKeyFile("pp-ledger-short-key-test.bin",
+                                 std::string(kMlDsaPrivateKeyBytes - 1, '\x5a'));
+  EXPECT_TRUE(readPrivateKey(path.string(), "").isError());
+  std::filesystem::remove(path);
 }
 
 // --- writeToNewFile ---

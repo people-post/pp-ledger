@@ -73,14 +73,12 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
                     uint64_t amount, uint64_t fee, const std::string& key) {
-  std::string keyStr = pp::utl::readKey(key);
-  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
-    keyStr = keyStr.substr(2);
-  std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
-    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
+  auto keyResult = pp::utl::readPrivateKey(key, "");
+  if (!keyResult) {
+    std::cerr << "Error: --key: " << keyResult.error().message << "\n";
     return 1;
   }
+  const std::string privateKey = keyResult.value();
   pp::Ledger::TxDefault tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
@@ -231,14 +229,12 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   userAccount.wallet.mBalances[ID_GENESIS] = static_cast<int64_t>(amount);
   (void)metaDesc;
   userAccount.meta = pp::AccountAttachment::emptySerialized();
-  std::string keyStr = pp::utl::readKey(key);
-  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
-    keyStr = keyStr.substr(2);
-  std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
-    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
+  auto keyResult = pp::utl::readPrivateKey(key, "");
+  if (!keyResult) {
+    std::cerr << "Error: --key: " << keyResult.error().message << "\n";
     return 1;
   }
+  const std::string privateKey = keyResult.value();
   pp::Ledger::TxNewUser tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
@@ -291,14 +287,12 @@ static int runSignTx(const std::string& filePath, const std::string& key,
     return 1;
   }
   TxRecord rec = *recResult;
-  std::string keyStr = pp::utl::readKey(key);
-  if (keyStr.size() >= 2 && keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X'))
-    keyStr = keyStr.substr(2);
-  std::string privateKey = pp::utl::hexDecode(keyStr);
-  if (privateKey.size() != pp::utl::kMlDsaPrivateKeyBytes) {
-    std::cerr << "Error: --key must be ML-DSA-65 private key (4032 bytes / 8064 hex chars).\n";
+  auto keyResult = pp::utl::readPrivateKey(key, "");
+  if (!keyResult) {
+    std::cerr << "Error: --key: " << keyResult.error().message << "\n";
     return 1;
   }
+  const std::string privateKey = keyResult.value();
   std::string message = rec.signingMessage(networkId);
   auto sigResult = pp::utl::mlDsaSign(privateKey, message);
   if (!sigResult) {
