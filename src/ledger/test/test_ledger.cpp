@@ -31,14 +31,15 @@ protected:
     }
   }
 
-  Ledger::ChainNode createTestBlock(uint64_t id, const std::string& /*data*/) {
+  // `index` must be the ledger's real next block ID: Ledger::addBlock now
+  // rejects any block whose index doesn't match getNextBlockId(). `label`
+  // is only used to make the hash/previousHash strings distinguishable.
+  Ledger::ChainNode createTestBlock(uint64_t index, const std::string& label) {
     Ledger::ChainNode block;
-    block.block.index = id;
-    block.block.previousHash = "prev_hash_" + std::to_string(id);
+    block.block.index = index;
+    block.block.previousHash = "prev_hash_" + label;
     block.block.timestamp = static_cast<int64_t>(std::time(nullptr));
-    // Note: data parameter is kept for API compatibility but not used
-    // Blocks now use signedTxes instead of data field
-    block.hash = "hash_" + std::to_string(id);
+    block.hash = "hash_" + label;
     return block;
   }
 
@@ -85,11 +86,40 @@ TEST_F(LedgerTest, AddBlocksAndGetCurrentBlockId) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk()) << addResult.error().message;
     EXPECT_EQ(ledger.getNextBlockId(), i);
   }
+}
+
+TEST_F(LedgerTest, AddBlockRejectsIndexMismatch) {
+  ensureTestDirDoesNotExist();
+  Ledger ledger;
+  Ledger::InitConfig config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 0;
+
+  auto result = ledger.init(config);
+  ASSERT_TRUE(result.isOk());
+
+  // Skipping ahead of nextBlockId (0) must be rejected.
+  Ledger::ChainNode aheadBlock = createTestBlock(5, "ahead");
+  auto aheadResult = ledger.addBlock(aheadBlock);
+  ASSERT_FALSE(aheadResult.isOk());
+  EXPECT_NE(aheadResult.error().message.find("index mismatch"), std::string::npos);
+  EXPECT_EQ(ledger.getNextBlockId(), 0);
+
+  // Add the real next block, then try to replay an already-committed index.
+  Ledger::ChainNode block0 = createTestBlock(ledger.getNextBlockId(), "block0");
+  ASSERT_TRUE(ledger.addBlock(block0).isOk());
+  EXPECT_EQ(ledger.getNextBlockId(), 1);
+
+  Ledger::ChainNode replay = createTestBlock(0, "replay");
+  auto replayResult = ledger.addBlock(replay);
+  ASSERT_FALSE(replayResult.isOk());
+  EXPECT_NE(replayResult.error().message.find("index mismatch"), std::string::npos);
+  EXPECT_EQ(ledger.getNextBlockId(), 1);
 }
 
 TEST_F(LedgerTest, ReopenExistingLedger) {
@@ -105,7 +135,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -121,7 +151,7 @@ TEST_F(LedgerTest, ReopenExistingLedger) {
 
     // Add more blocks
     for (uint64_t i = 4; i <= 5; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -142,7 +172,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -162,7 +192,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdIsNewer) {
     EXPECT_EQ(ledger.getNextBlockId(), 10); // Should be startingBlockId (fresh init)
 
     // Can add new blocks
-    Ledger::ChainNode block = createTestBlock(1, "new_data");
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "new_data");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 11); // startingBlockId + blockCount = 10 + 1 = 11
@@ -182,7 +212,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -197,7 +227,7 @@ TEST_F(LedgerTest, WorkOnExistingDataWhenStartingBlockIdIsOlder) {
     EXPECT_EQ(ledger.getNextBlockId(), 5); // Should keep existing data
 
     // Can continue adding blocks
-    Ledger::ChainNode block = createTestBlock(6, "data_6");
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_6");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 6);
@@ -216,7 +246,7 @@ TEST_F(LedgerTest, UpdateCheckpointsSorted) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -239,7 +269,7 @@ TEST_F(LedgerTest, UpdateCheckpointsNotSortedFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -263,7 +293,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithDuplicatesFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -287,7 +317,7 @@ TEST_F(LedgerTest, UpdateCheckpointsExceedingCurrentBlockIdFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -311,7 +341,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMatches) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -339,7 +369,7 @@ TEST_F(LedgerTest, UpdateCheckpointsWithOverlappingDataMismatchFails) {
 
   // Add blocks
   for (uint64_t i = 1; i <= 10; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -370,7 +400,7 @@ TEST_F(LedgerTest, CheckpointsPersistAcrossReopens) {
 
     // Add blocks
     for (uint64_t i = 1; i <= 10; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -412,7 +442,7 @@ TEST_F(LedgerTest, ReadBlockSuccessfully) {
   // Add test blocks
   std::vector<Ledger::ChainNode> testBlocks;
   for (uint64_t i = 1; i <= 5; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     testBlocks.push_back(block);
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
@@ -443,7 +473,7 @@ TEST_F(LedgerTest, ReadBlockWithInvalidIdFails) {
 
   // Add some blocks
   for (uint64_t i = 1; i <= 3; ++i) {
-    Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
   }
@@ -483,7 +513,7 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
     ASSERT_TRUE(result.isOk());
 
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -503,7 +533,7 @@ TEST_F(LedgerTest, ReadBlockAfterReopen) {
                                       << readResult.error().message;
       
       const Ledger::ChainNode& readBlock = readResult.value();
-      EXPECT_EQ(readBlock.block.index, i + 1);
+      EXPECT_EQ(readBlock.block.index, i);
     }
   }
 }
@@ -522,7 +552,7 @@ TEST_F(LedgerTest, CleanupWhenStartingBlockIdGreaterThanExistingNextBlockId) {
 
     // Add 3 blocks, so nextBlockId = 10 + 3 = 13
     for (uint64_t i = 1; i <= 3; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -568,7 +598,7 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
 
     // Add 2 blocks, so nextBlockId = 5 + 2 = 7
     for (uint64_t i = 1; i <= 2; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -586,14 +616,14 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenNotCleaningUp) {
     // Verify existing blocks are still accessible
     auto readResult1 = ledger.readBlock(5);
     ASSERT_TRUE(readResult1.isOk());
-    EXPECT_EQ(readResult1.value().block.index, 1);
+    EXPECT_EQ(readResult1.value().block.index, 5);
 
     auto readResult2 = ledger.readBlock(6);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().block.index, 2);
+    EXPECT_EQ(readResult2.value().block.index, 6);
 
     // Add a new block - should get ID 7 (nextBlockId)
-    Ledger::ChainNode block = createTestBlock(3, "data_3");
+    Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_3");
     auto addResult = ledger.addBlock(block);
     ASSERT_TRUE(addResult.isOk());
     EXPECT_EQ(ledger.getNextBlockId(), 8); // 5 + 3 = 8
@@ -614,7 +644,7 @@ TEST_F(LedgerTest, PreserveExistingStartingBlockIdWhenEqual) {
 
     // Add 4 blocks, so nextBlockId = 20 + 4 = 24
     for (uint64_t i = 1; i <= 4; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -652,7 +682,7 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
 
     // Add 5 blocks
     for (uint64_t i = 1; i <= 5; ++i) {
-      Ledger::ChainNode block = createTestBlock(i, "data_" + std::to_string(i));
+      Ledger::ChainNode block = createTestBlock(ledger.getNextBlockId(), "data_" + std::to_string(i));
       auto addResult = ledger.addBlock(block);
       ASSERT_TRUE(addResult.isOk());
     }
@@ -670,11 +700,11 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
     // Verify blocks are accessible with correct IDs
     auto readResult = ledger.readBlock(100);
     ASSERT_TRUE(readResult.isOk());
-    EXPECT_EQ(readResult.value().block.index, 1);
+    EXPECT_EQ(readResult.value().block.index, 100);
 
     auto readResult2 = ledger.readBlock(104);
     ASSERT_TRUE(readResult2.isOk());
-    EXPECT_EQ(readResult2.value().block.index, 5);
+    EXPECT_EQ(readResult2.value().block.index, 104);
   }
 }
 
