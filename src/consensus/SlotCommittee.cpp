@@ -152,6 +152,19 @@ void SlotCommittee::init(const Config& config) {
   clearEpochSeed();
 }
 
+SlotCommittee::TipState SlotCommittee::saveTipState() const {
+  return TipState{config_, cache_.mStakeholders, cache_.lastStakeUpdateEpoch,
+                  epochSeed_, epochSeedEpoch_};
+}
+
+void SlotCommittee::restoreTipState(TipState state) {
+  config_ = state.config;
+  cache_.mStakeholders = std::move(state.stakeholders);
+  cache_.lastStakeUpdateEpoch = state.lastStakeUpdateEpoch;
+  epochSeed_ = std::move(state.epochSeed);
+  epochSeedEpoch_ = state.epochSeedEpoch;
+}
+
 void SlotCommittee::setClockOverride(std::optional<int64_t> unixSeconds) {
   clockOverride_ = unixSeconds;
 }

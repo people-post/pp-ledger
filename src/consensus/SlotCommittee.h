@@ -83,6 +83,17 @@ public:
   void setStakeholders(const std::vector<Stakeholder>& stakeholders,
                        uint64_t forEpoch);
 
+  /** Chain-derived state (config, stake cache, seed); excludes test injectors. */
+  struct TipState {
+    Config config;
+    std::map<uint64_t, uint64_t> stakeholders;
+    uint64_t lastStakeUpdateEpoch{ 0 };
+    std::string epochSeed;
+    uint64_t epochSeedEpoch{ 0 };
+  };
+  TipState saveTipState() const;
+  void restoreTipState(TipState state);
+
   // ----- methods -----
   void init(const Config& config);
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;

@@ -68,6 +68,11 @@ a long time; that is acceptable because seal is refused in that mode.
 
 `checkBlock(mode)` runs structural always; consensus + body only for **Full**.
 
+`checkBlockArrival` (slot > previous slot; slot <= current slot +
+max(2 slots, 15 s)) runs only for new blocks: before seal applies anything and
+in `Chain::addBlock` under Full. `loadFromLedger` and CheckpointReplay catch-up
+skip it, so history written before these rules still loads.
+
 ### Empty heartbeat (settled: any work counts)
 
 `heartbeatSlots` rate-limits **empty** seals only (`records` empty). Goal: prove

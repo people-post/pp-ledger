@@ -16,6 +16,10 @@ namespace pp::chain_block {
 
 namespace {
 
+/** Future-slot slack for arriving blocks: max(2 slots, 15 s) of clock skew. */
+constexpr uint64_t kFutureSlotToleranceSlots = 2;
+constexpr uint64_t kFutureSlotToleranceSeconds = 15;
+
 /** Unpack a genesis bootstrap T_NEW_USER record and require exact min fee. */
 chain_tx::Roe<Ledger::TxNewUser> loadGenesisNewUserWithExactFee(
     const Ledger::Record &rec, const BlockChainConfig &config,
@@ -73,6 +77,16 @@ chain_tx::Roe<int64_t> requireFeeFitsInt64(uint64_t fee,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, overflowMsg);
   }
   return static_cast<int64_t>(fee);
+}
+
+/** Add two int64_t values, returning false (instead of wrapping) on overflow. */
+bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
+  if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+      (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
+    return false;
+  }
+  out = a + b;
+  return true;
 }
 
 } // namespace
@@ -262,9 +276,20 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
   }
   const int64_t feeWalletFeeSigned = feeWalletFeeSignedRoe.value();
 
-  if (minerTx.amount + feeWalletFeeSigned + minerFeeSigned +
-          recycleFeeSigned !=
-      AccountBuffer::INITIAL_TOKEN_SUPPLY) {
+  auto minerAmountSignedRoe = requireFeeFitsInt64(
+      minerTx.amount, "Genesis reserve transaction amount exceeds int64_t range");
+  if (!minerAmountSignedRoe) {
+    return minerAmountSignedRoe.error();
+  }
+  int64_t genesisTotal = minerAmountSignedRoe.value();
+  const char *genesisOverflowMsg =
+      "Genesis reserve+recycle transactions amount/fee sum overflowed";
+  if (!safeAddI64(genesisTotal, feeWalletFeeSigned, genesisTotal) ||
+      !safeAddI64(genesisTotal, minerFeeSigned, genesisTotal) ||
+      !safeAddI64(genesisTotal, recycleFeeSigned, genesisTotal)) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, genesisOverflowMsg);
+  }
+  if (genesisTotal != static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY)) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
         "Genesis reserve+recycle transactions must satisfy amount + "
@@ -297,6 +322,15 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
 
 chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
                                           const Ledger::ChainNode &block) {
+  // NOTE: this structural check is shared by live tip admission, sealed-block
+  // commit verification, and full-history replay from disk (loadFromLedger).
+  // During replay, ledger.getNextBlockId() already reflects the final,
+  // fully-persisted block count -- not "the next index to admit" -- so it
+  // cannot be used here to reject index < nextBlockId. That stricter
+  // live-admission-only invariant (a new block's index must equal the
+  // ledger's current next-block-id) is enforced by the caller in
+  // Chain::addBlock instead; Ledger::addBlock enforces it again at persist
+  // time as a final backstop.
   const uint64_t startingBlockId = ledger.getStartingBlockId();
   if (block.block.index < startingBlockId) {
     return chain_tx::TxError(
@@ -610,6 +644,48 @@ checkBlockConsensus(const Ledger::ChainNode &block,
   if (!consensus.validateBlockTiming(block.block.timestamp, slot)) {
     return chain_tx::TxError(chain_err::E_CONSENSUS_TIMING,
                              "Block timestamp outside valid slot range");
+  }
+  return {};
+}
+
+uint64_t futureSlotToleranceSlots(uint64_t slotDuration) {
+  if (slotDuration == 0) {
+    return kFutureSlotToleranceSlots;
+  }
+  const uint64_t bySeconds =
+      (kFutureSlotToleranceSeconds + slotDuration - 1) / slotDuration;
+  return std::max(kFutureSlotToleranceSlots, bySeconds);
+}
+
+chain_tx::Roe<void>
+checkBlockArrival(const Ledger::ChainNode &block, const Ledger &ledger,
+                  const consensus::SlotCommittee &consensus) {
+  const uint64_t slot = block.block.slot;
+  if (block.block.index > ledger.getStartingBlockId()) {
+    auto prevBlockResult = ledger.readBlock(block.block.index - 1);
+    if (!prevBlockResult) {
+      return chain_tx::TxError(
+          chain_err::E_BLOCK_NOT_FOUND,
+          "Latest block not found: " + std::to_string(block.block.index - 1));
+    }
+    const uint64_t prevSlot = prevBlockResult.value().block.slot;
+    if (slot <= prevSlot) {
+      return chain_tx::TxError(chain_err::E_BLOCK_SEQUENCE,
+                               "Invalid block slot: expected > " +
+                                   std::to_string(prevSlot) + " got " +
+                                   std::to_string(slot));
+    }
+  }
+
+  const uint64_t currentSlot = consensus.getCurrentSlot();
+  const uint64_t tolerance =
+      futureSlotToleranceSlots(consensus.getConfig().slotDuration);
+  if (slot > currentSlot + tolerance) {
+    return chain_tx::TxError(
+        chain_err::E_CONSENSUS_TIMING,
+        "Block slot " + std::to_string(slot) +
+            " is too far in the future (current slot " +
+            std::to_string(currentSlot) + ")");
   }
   return {};
 }

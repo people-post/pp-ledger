@@ -151,7 +151,8 @@ std::string fromJsonSafeString(const std::string &s);
 
 /**
  * Write a string to a non-existent file
- * Creates parent directories if needed. Fails if the file already exists.
+ * Creates parent directories if needed. Fails if the file already exists
+ * (never overwrites). On POSIX the file is created with mode 0600.
  * @param filePath Path to the file to write
  * @param content String content to write to the file
  * @return Roe<void> indicating success or error

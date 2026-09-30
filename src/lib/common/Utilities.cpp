@@ -16,6 +16,12 @@
 #include <stdexcept>
 #include <vector>
 
+#if !defined(_WIN32)
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace pp {
 namespace utl {
 
@@ -220,6 +226,34 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
     }
   }
 
+#if !defined(_WIN32)
+  // O_EXCL: never replace a file created since the check above. Mode 0600 at
+  // creation: this helper writes private key material.
+  const int fd = ::open(filePath.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+  if (fd < 0) {
+    if (errno == EEXIST) {
+      return Error(1, "File already exists: " + filePath);
+    }
+    return Error(3, "Failed to open file for writing: " + filePath);
+  }
+  const char *data = content.data();
+  size_t remaining = content.size();
+  while (remaining > 0) {
+    const ssize_t n = ::write(fd, data, remaining);
+    if (n < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      ::close(fd);
+      return Error(4, "Failed to write content to file: " + filePath);
+    }
+    data += n;
+    remaining -= static_cast<size_t>(n);
+  }
+  if (::close(fd) != 0) {
+    return Error(4, "Failed to write content to file: " + filePath);
+  }
+#else
   std::ofstream file(filePath);
   if (!file.is_open()) {
     return Error(3, "Failed to open file for writing: " + filePath);
@@ -231,6 +265,16 @@ pp::Roe<void> writeToNewFile(const std::string &filePath, const std::string &con
   if (!file.good()) {
     return Error(4, "Failed to write content to file: " + filePath);
   }
+
+  std::error_code permEc;
+  std::filesystem::permissions(
+      filePath, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+      std::filesystem::perm_options::replace, permEc);
+  if (permEc) {
+    return Error(5, "Failed to set restrictive permissions on " + filePath +
+                        ": " + permEc.message());
+  }
+#endif
 
   return {};
 }

@@ -541,7 +541,10 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   (void)metaDesc;
   userAccount.meta = pp::AccountAttachment::emptySerialized();
 
-  std::string keyStr = pp::utl::readKey(objectString(body, "key"));
+  // The HTTP "key" field must be the literal hex private key, never a file
+  // path: unlike the CLI, pp::utl::readKey() would happily read any local
+  // file the server process can access if the value happens to name one.
+  std::string keyStr = objectString(body, "key");
   if (keyStr.size() >= 2 && (keyStr[0] == '0' && (keyStr[1] == 'x' || keyStr[1] == 'X')))
     keyStr = keyStr.substr(2);
   std::string privateKey = pp::utl::hexDecode(keyStr);
@@ -706,8 +709,11 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   uint64_t idempotentId = 0;
   int64_t validationTsMin = 0;
   int64_t validationTsMax = 0;
+  const bool callerGaveIdempotentId = body.contains("idempotentId");
+  const bool callerGaveWindow =
+      body.contains("validationTsMin") || body.contains("validationTsMax");
 
-  if (body.contains("idempotentId")) {
+  if (callerGaveIdempotentId) {
     idempotentId = objectUint64(body, "idempotentId", 0);
   }
   if (body.contains("validationTsMin")) {
@@ -716,9 +722,18 @@ static void handleTxBuild(const httplib::Request& req, httplib::Response& res,
   if (body.contains("validationTsMax")) {
     validationTsMax = static_cast<int64_t>(objectUint64(body, "validationTsMax", 0));
   }
-  if (!body.contains("validationTsMin") && !body.contains("validationTsMax")) {
+  if (!callerGaveWindow) {
     // Only apply a default window for tx types that support it.
     setValidationWindow(idempotentId, validationTsMin, validationTsMax);
+  } else if (!callerGaveIdempotentId) {
+    // Caller picked a custom validation window but left idempotentId out:
+    // still need a non-zero id, or Full-mode replay protection is skipped
+    // entirely for this transaction (chain_tx::validateIdempotencyRules).
+    idempotentId = static_cast<uint64_t>(std::chrono::duration_cast<
+        std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count()) ^
+        (randomAccountId() & 0xFFFFFFFFULL);
+    if (idempotentId == 0) idempotentId = 1;
   }
 
   auto packTyped = [&](uint16_t t) -> std::string {
@@ -970,11 +985,18 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
 int main(int argc, char** argv) {
   CLI::App app{"HTTP API server for pp-ledger (client interfaces)"};
   uint16_t httpPort = 8080;
-  std::string httpHost = "0.0.0.0";
+  // Default to loopback-only: this API signs/broadcasts transactions and
+  // should not be reachable from the network unless explicitly opened up.
+  std::string httpHost = "127.0.0.1";
+  std::string corsOrigin;
   std::string beaconMultiaddr;
   std::string minerMultiaddr;
   app.add_option("--port", httpPort, "HTTP server port")->default_val(8080);
-  app.add_option("--bind", httpHost, "HTTP bind address")->default_val("0.0.0.0");
+  app.add_option("--bind", httpHost,
+                "HTTP bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
+      ->default_val("127.0.0.1");
+  app.add_option("--cors-origin", corsOrigin,
+                "Value for Access-Control-Allow-Origin (default: CORS disabled)");
   app.add_option("--beacon", beaconMultiaddr,
                  "Beacon ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
       ->required();
@@ -1039,13 +1061,18 @@ int main(int argc, char** argv) {
     httpLog.error << "HTTP error " << httplib::to_string(err) << " path=" << path;
   });
 
-  // CORS: allow cross-origin requests
-  svr.set_default_headers(httplib::Headers{
-      {"Access-Control-Allow-Origin", "*"},
-      {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
-      {"Access-Control-Allow-Headers", "Content-Type, Authorization"},
-      {"Access-Control-Max-Age", "86400"},
-  });
+  // CORS is opt-in: this API can sign/broadcast transactions, so silently
+  // allowing any browser origin by default would let a malicious page drive
+  // it via the operator's local network access. Pass --cors-origin to allow
+  // a specific origin (or "*" if you really want any origin).
+  if (!corsOrigin.empty()) {
+    svr.set_default_headers(httplib::Headers{
+        {"Access-Control-Allow-Origin", corsOrigin},
+        {"Access-Control-Allow-Methods", "GET, POST, OPTIONS"},
+        {"Access-Control-Allow-Headers", "Content-Type, Authorization"},
+        {"Access-Control-Max-Age", "86400"},
+    });
+  }
   svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
     if (req.method == "OPTIONS") {
       res.status = 204;

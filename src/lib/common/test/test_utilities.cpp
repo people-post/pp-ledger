@@ -1,6 +1,10 @@
 #include "Utilities.h"
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <string>
+
 namespace pp {
 namespace utl {
 
@@ -185,6 +189,55 @@ TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsAllZero) {
 
 TEST(MlDsaTest, IsValidMlDsaPublicKeyRejectsInvalidHex) {
   EXPECT_FALSE(isValidMlDsaPublicKey("0xgg" + std::string(kMlDsaPublicKeyBytes * 2 - 2, 'a')));
+}
+
+// --- writeToNewFile ---
+
+TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
+#if defined(_WIN32)
+  GTEST_SKIP() << "0600 is POSIX-only; std::filesystem has no group/others on Windows";
+#endif
+  std::filesystem::path path = std::filesystem::temp_directory_path() /
+                               "pp-ledger-write-to-new-file-perms-test.txt";
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  auto result = writeToNewFile(path.string(), "secret content\n");
+  ASSERT_TRUE(result.isOk()) << result.error().message;
+
+  auto perms = std::filesystem::status(path, ec).permissions();
+  ASSERT_FALSE(ec);
+  const auto forbidden = std::filesystem::perms::group_read |
+                        std::filesystem::perms::group_write |
+                        std::filesystem::perms::group_exec |
+                        std::filesystem::perms::others_read |
+                        std::filesystem::perms::others_write |
+                        std::filesystem::perms::others_exec;
+  EXPECT_EQ(perms & forbidden, std::filesystem::perms::none);
+  EXPECT_NE(perms & std::filesystem::perms::owner_read,
+           std::filesystem::perms::none);
+  EXPECT_NE(perms & std::filesystem::perms::owner_write,
+           std::filesystem::perms::none);
+
+  std::filesystem::remove(path, ec);
+}
+
+TEST(WriteToNewFileTest, NeverOverwritesExistingFile) {
+  std::filesystem::path path = std::filesystem::temp_directory_path() /
+                               "pp-ledger-write-to-new-file-exists-test.txt";
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
+  ASSERT_TRUE(writeToNewFile(path.string(), "first\n").isOk());
+  auto second = writeToNewFile(path.string(), "second\n");
+  EXPECT_FALSE(second.isOk());
+
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  EXPECT_EQ(line, "first");
+
+  std::filesystem::remove(path, ec);
 }
 
 }  // namespace utl

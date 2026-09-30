@@ -13,10 +13,13 @@ namespace pp {
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BlockApplyContext &c) const {
+    const BlockApplyContext &c, bool requireNonZeroId) const {
+  // User-signed updates must carry a non-zero id (0 would skip replay
+  // protection). Chain-generated renewals pass false: their id is always 0
+  // and validateAccountRenewals bounds them per block instead.
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.blockSlot, c.admissionMode);
+          tx.validationTsMax, c.blockSlot, c.admissionMode, requireNonZeroId);
       !idem) {
     return idem;
   }
@@ -27,10 +30,11 @@ UserAccountUpsertBase::applyUserUpdateBlockCommon(
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BufferApplyContext &c) const {
+    const BufferApplyContext &c, bool requireNonZeroId) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.effectiveSlot, c.admissionMode);
+          tx.validationTsMax, c.effectiveSlot, c.admissionMode,
+          requireNonZeroId);
       !idem) {
     return idem;
   }

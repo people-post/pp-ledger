@@ -292,6 +292,19 @@ TEST_F(AccountBufferTest, HasEnoughSpendingPower_NoTokenBalance_ReturnsFalse) {
     EXPECT_FALSE(buf.verifySpendingPower(1, CUSTOM_TOKEN, 50, 10).isOk());
 }
 
+TEST_F(AccountBufferTest, HasEnoughSpendingPower_GenesisToken_AmountPlusFeeOverflow_ReturnsFalse) {
+    // amount and fee are each individually within int64_t range, but their
+    // sum overflows int64_t. Regression for a check-bypass via signed
+    // overflow wraparound.
+    auto a = makeAccount(1, 1000);
+    ASSERT_TRUE(buf.add(a).isOk());
+
+    const uint64_t nearMax = static_cast<uint64_t>(INT64_MAX) - 5;
+    EXPECT_FALSE(
+        buf.verifySpendingPower(1, AccountBuffer::ID_GENESIS, nearMax, nearMax)
+            .isOk());
+}
+
 // --- transferBalance with fee parameter ---
 
 TEST_F(AccountBufferTest, TransferBalance_WithFee_GenesisToken_Success) {
@@ -877,4 +890,58 @@ TEST_F(AccountBufferTest, VerifyBalance_MissingCustomTokenInExpected_Error) {
     auto r = buf.verifyBalance(1, 50, 50, expectedBalances);
     ASSERT_TRUE(r.isError());
     EXPECT_EQ(r.error().code, AccountBuffer::E_BALANCE);
+}
+
+// --- overlay (undo journal) ---
+
+TEST_F(AccountBufferTest, Overlay_RollbackRestoresAccountsAndRoot) {
+    addFeeAccount();
+    const uint64_t a = AccountBuffer::ID_FIRST_USER;
+    const uint64_t b = a + 1;
+    const uint64_t c = a + 2;
+    ASSERT_TRUE(buf.add(makeAccount(a, 100)).isOk());
+    ASSERT_TRUE(buf.add(makeAccount(b, 5)).isOk());
+    const std::string rootBefore = buf.calculateStateRoot();
+
+    buf.beginOverlay();
+    ASSERT_TRUE(buf.transferBalance(a, b, AccountBuffer::ID_GENESIS, 40, 1).isOk());
+    ASSERT_TRUE(buf.add(makeAccount(c, 0)).isOk());
+    buf.remove(b);
+    EXPECT_NE(buf.calculateStateRoot(), rootBefore);
+    buf.rollbackOverlay();
+
+    EXPECT_EQ(buf.overlayDepth(), 0u);
+    EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
+    EXPECT_EQ(buf.getBalance(a, AccountBuffer::ID_GENESIS), 100);
+    EXPECT_EQ(buf.getBalance(b, AccountBuffer::ID_GENESIS), 5);
+    EXPECT_EQ(buf.getBalance(AccountBuffer::ID_FEE, AccountBuffer::ID_GENESIS), 0);
+    EXPECT_FALSE(buf.hasAccount(c));
+}
+
+TEST_F(AccountBufferTest, Overlay_NestedCommitThenOuterRollback) {
+    ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
+    const std::string rootBefore = buf.calculateStateRoot();
+
+    buf.beginOverlay();
+    ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 10).isOk());
+    buf.beginOverlay();
+    ASSERT_TRUE(buf.depositBalance(1, AccountBuffer::ID_GENESIS, 5).isOk());
+    ASSERT_TRUE(buf.add(makeAccount(7, 1)).isOk());
+    buf.commitOverlay();
+    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 115);
+    buf.rollbackOverlay();
+
+    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 100);
+    EXPECT_FALSE(buf.hasAccount(7));
+    EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
+}
+
+TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
+    ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
+    buf.beginOverlay();
+    ASSERT_TRUE(buf.withdrawBalance(1, AccountBuffer::ID_GENESIS, 30).isOk());
+    const std::string rootAfter = buf.calculateStateRoot();
+    buf.commitOverlay();
+    EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 70);
+    EXPECT_EQ(buf.calculateStateRoot(), rootAfter);
 }
