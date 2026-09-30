@@ -219,8 +219,9 @@ std::string readKey(const std::string& key);
 
 /**
  * Read private key from file path (relative to baseDir if relative) or inline hex string.
- * Supports hex-encoded (2 * kMlDsaPrivateKeyBytes hex chars, optionally 0x prefix)
- * or raw kMlDsaPrivateKeyBytes.
+ * A file of exactly kMlDsaPrivateKeyBytes is a raw key, used byte-for-byte (no
+ * trimming). Otherwise the text is hex (2 * kMlDsaPrivateKeyBytes chars), with
+ * surrounding whitespace and an optional 0x prefix allowed.
  * @param keyOrPath File path (relative to baseDir) or inline hex private key
  * @param baseDir Base directory for resolving relative paths (e.g. config file directory)
  * @return Roe<std::string>: raw private key, or error
