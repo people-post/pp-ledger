@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -184,6 +185,12 @@ public:
   void clearForcedSlotLeaders();
   /** Install or derive SlotCommittee epoch seed for `epoch` (no-op if already set). */
   Roe<void> ensureEpochSeed(uint64_t epoch);
+  /**
+   * Block path: seed for the block's epoch. At the first block of an epoch the
+   * previous epoch is complete on this chain, so any cached seed (possibly
+   * derived early by the wall-clock refresh) is re-derived.
+   */
+  Roe<void> ensureBlockEpochSeed(const Ledger::ChainNode &block);
   const std::string &getEpochSeed() const {
     return txContext_.consensus.getEpochSeed();
   }
@@ -192,9 +199,16 @@ public:
   Roe<void> mountLedger(const std::string &workDir);
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
   Roe<void> addBlock(const Ledger::ChainNode &block);
-  /** Refresh stakeholders for live mode (uses current epoch). */
+  /**
+   * Live mode (wall-clock epoch): install the epoch's recorded stake snapshot,
+   * or a provisional one for leader election that is never recorded.
+   */
   void refreshStakeholders();
-  /** Refresh stakeholders for load-from-ledger (per epoch, uses block slot). */
+  /**
+   * Block path (seal / validate / replay): install the stake snapshot for the
+   * block's epoch. The first block of an epoch records it from the tip bank,
+   * so every node derives the same snapshot regardless of refresh timing.
+   */
   void refreshStakeholders(uint64_t blockSlot);
 
   /**
@@ -293,6 +307,11 @@ private:
   std::optional<PendingSeal> pendingSeal_;
   /** Pre-seal tip state; the bank overlay stays open until commit/rollback. */
   std::optional<TipSnapshot> sealSnapshot_;
+
+  /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
+  std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;
+  /** Recorded epochs kept behind the newest one processed. */
+  static constexpr uint64_t kStakeSnapshotsKept = 4;
 };
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
