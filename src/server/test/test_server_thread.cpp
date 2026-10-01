@@ -260,3 +260,38 @@ TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
 
 } // namespace
 
+
+// --- Transaction forward cap (receiver rule) ---
+
+#include "TxForwardPolicy.h"
+
+namespace {
+
+TEST(TxForwardPolicyTest, LeaderOfCurrentSlotPoolsAndOfUpcomingSlotHolds) {
+  EXPECT_EQ(decideTxForward(3, 3, 40, 40, true), TxForwardAction::AddToPool);
+  EXPECT_EQ(decideTxForward(3, 3, 40, 41, true), TxForwardAction::HoldForSlot);
+}
+
+// Clock skew at a slot boundary: A (still in slot 40) forwards to B, the leader
+// it sees for slot 40; B is already in slot 41. B must not send it back.
+TEST(TxForwardPolicyTest, ReceiverAheadOfTargetSlotCachesInsteadOfBouncing) {
+  EXPECT_EQ(decideTxForward(3, 3, /*currentSlot=*/41, /*targetSlot=*/40, /*leads=*/true),
+            TxForwardAction::CacheNotLeader);
+  EXPECT_EQ(decideTxForward(3, 3, 41, 40, false), TxForwardAction::CacheNotLeader);
+}
+
+TEST(TxForwardPolicyTest, NotLeaderCaches) {
+  EXPECT_EQ(decideTxForward(3, 3, 40, 40, false), TxForwardAction::CacheNotLeader);
+  EXPECT_EQ(decideTxForward(3, 3, 40, 42, false), TxForwardAction::CacheNotLeader);
+}
+
+// A receiver whose tip is in an earlier epoch may be using a provisional leader
+// schedule; it must not act on it (not even to pool), only cache and sync.
+TEST(TxForwardPolicyTest, ReceiverBehindSenderEpochCachesEvenIfItThinksItLeads) {
+  EXPECT_EQ(decideTxForward(/*tipEpoch=*/2, /*senderTipEpoch=*/3, 40, 40, true), TxForwardAction::CacheBehind);
+  EXPECT_EQ(decideTxForward(2, 3, 40, 40, false), TxForwardAction::CacheBehind);
+  // Ahead of the sender is fine.
+  EXPECT_EQ(decideTxForward(4, 3, 40, 40, true), TxForwardAction::AddToPool);
+}
+
+} // namespace

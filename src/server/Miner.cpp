@@ -23,12 +23,23 @@ bool Miner::isSlotLeaderForSlot(uint64_t slot) const {
 
 bool Miner::isConfigReady() const { return chain_.isChainConfigReady(); }
 
-Miner::Roe<uint64_t> Miner::getSlotLeaderId() const {
-  auto result = chain_.getSlotLeader(getCurrentSlot());
+Miner::Roe<uint64_t> Miner::getSlotLeaderId() const { return getSlotLeaderIdForSlot(getCurrentSlot()); }
+
+Miner::Roe<uint64_t> Miner::getSlotLeaderIdForSlot(uint64_t slot) const {
+  auto result = chain_.getSlotLeader(slot);
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
   return result.value();
+}
+
+uint64_t Miner::getTipEpoch() const {
+  const uint64_t next = chain_.getNextBlockId();
+  if (next == 0) {
+    return 0;
+  }
+  auto tip = chain_.readBlock(next - 1);
+  return tip ? tip.value().block.epoch : 0;
 }
 
 uint64_t Miner::getStake() const {
@@ -320,8 +331,12 @@ Miner::addTransaction(const Ledger::Record &record) {
   return {};
 }
 
-void Miner::addToForwardCache(const Ledger::Record &record) {
+bool Miner::addToForwardCache(const Ledger::Record &record) {
+  if (forwardCache_.size() >= kMaxForwardCache) {
+    return false;
+  }
   forwardCache_.push_back(record);
+  return true;
 }
 
 std::vector<Ledger::Record> Miner::drainForwardCache() {

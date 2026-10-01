@@ -99,6 +99,8 @@ public:
   static constexpr const uint32_t T_REQ_TX_GET_BY_WALLET = 3001;
   static constexpr const uint32_t T_REQ_TX_ADD = 3002;
   static constexpr const uint32_t T_REQ_TX_GET_BY_INDEX = 3003;
+  /** Miner→miner transaction forward (TxForwardRequest); never re-forwarded. */
+  static constexpr const uint32_t T_REQ_TX_FORWARD = 3004;
 
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
@@ -209,6 +211,23 @@ public:
     }
   };
 
+  /**
+   * A transaction forwarded to the leader of `targetSlot`. The receiver adds it
+   * to its pool or holds it for that slot if it leads it, else caches it for its
+   * own per-slot retry; it never forwards it on at once. `senderTipEpoch` lets a
+   * receiver whose chain is behind treat its leader schedule as provisional.
+   */
+  struct TxForwardRequest {
+    Ledger::Record record;
+    uint64_t targetSlot{ 0 };
+    uint64_t senderTipEpoch{ 0 };
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & record & targetSlot & senderTipEpoch;
+    }
+  };
+
   struct CalibrationResponse {
     int64_t msTimestamp{ 0 };
     uint64_t nextBlockId{ 0 };
@@ -259,6 +278,13 @@ public:
   void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
   void addTransactionAsync(const Ledger::Record &record, Done<void> done);
   void addBlockAsync(const Ledger::ChainNode &block, Done<bool> done);
+  /** Done gets the receiver's reply text (pooled / held / cached). */
+  void forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done);
+
+  /** True when the call failed before a server answered (worth retrying later). */
+  static bool isTransportError(uint16_t code) {
+    return code == E_NOT_CONNECTED || code == E_REQUEST_FAILED;
+  }
 
 private:
   static Roe<BeaconState> parseBeaconState(const std::string &payload);

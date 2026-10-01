@@ -162,6 +162,7 @@ For each RPC class, define **who may answer** and **what success means**:
 | `BLOCK_GET` | Gateway or terminal | Block verifies under pinned network + parent link | Serve locally if present; else fetch upstream |
 | `BLOCK_ADD` | Terminal | Block committed to canonical chain | **Write-through**; propagate terminal response |
 | `TX_ADD` | Current slot leader (miner) | Tx accepted to leader mempool | Gateway **routes** to leader endpoint from registry; terminal not involved until block inclusion |
+| `TX_FORWARD` | Leader of `targetSlot` (miner→miner only) | Pooled, held for its slot, or cached | Never forwarded on at once; see §10.3 |
 | `ACCOUNT_GET`, `TX_*` | Gateway OK | State at height ≤ terminal head − read_lag | Cache allowed |
 
 **Mutations that must reach the terminal:** chain commits (`BLOCK_ADD`), registry changes
@@ -307,12 +308,29 @@ current slot leader for low latency.
 
 | Step | Actor | Action |
 |------|-------|--------|
-| 1 | Client / miner | `TX_ADD` to **current slot leader** (from registry + slot) |
-| 2 | Leader | Mempool; include in block when elected |
-| 3 | Leader | `BLOCK_ADD` through upstream → terminal |
-| 4 | Others | Learn txs from blocks (and optional mempool gossip) |
+| 1 | Client | `TX_ADD` to any miner |
+| 2 | Miner (not leader) | `TX_FORWARD {record, targetSlot, senderTipEpoch}` to the leader of its **current slot** (from registry + slot) |
+| 3 | Leader | Mempool; include in block when elected |
+| 4 | Leader | `BLOCK_ADD` through upstream → terminal |
+| 5 | Others | Learn txs from blocks (and optional mempool gossip) |
 
 Gateways route `TX_ADD`; they do not substitute for the leader or terminal.
+
+**Forward cap.** A miner receiving `TX_FORWARD` never forwards it on at once
+(`decideTxForward` in `src/server/TxForwardPolicy.h`):
+
+| Receiver state | Action |
+|----------------|--------|
+| Tip epoch < `senderTipEpoch` | Cache and sync — its leader schedule for that epoch may be provisional |
+| Leads `targetSlot`, slot is current | Add to mempool |
+| Leads `targetSlot`, slot not started | Hold (cache); the slot-leader duty pools it when the slot starts |
+| Otherwise (not leader, or slot passed) | Cache |
+
+Cached transactions move on only through the once-per-slot retry, which targets
+a later slot, so clock skew at a slot boundary cannot bounce a transaction
+between miners. A transport failure keeps a transaction cached; a leader's
+rejection is final (reported to the client, or dropped from the cache). The
+forward cache is bounded; when full, new forwards are refused.
 
 ### 10.4 Registration and stake
 

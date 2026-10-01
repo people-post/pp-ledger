@@ -84,6 +84,14 @@ private:
   void refreshMinerListFromBeacon();
   /** Point forwardClient_ at a slot leader; one dial key per leader. */
   Client::Roe<void> dialLeader(uint64_t slotLeaderId, const std::string& multiaddr);
+  /**
+   * Forward `record` to the leader of `slot` (T_REQ_TX_FORWARD). Unknown
+   * leader address or a transport failure caches it for the next slot's retry
+   * (done gets a "cached" message); a leader's rejection is an error.
+   * `done` runs on the server thread.
+   */
+  void forwardToSlotLeader(const Ledger::Record& record, uint64_t slot,
+                           std::function<void(Roe<std::string>)> done);
   void syncBlocksPeriodically();
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   Roe<Client::BeaconState> connectToBeacon();
@@ -114,6 +122,7 @@ private:
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
+  Roe<std::string> hTxForward(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);

@@ -1,4 +1,5 @@
 #include "MinerServer.h"
+#include "TxForwardPolicy.h"
 #include "../chain/BlockValidation.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -493,6 +494,9 @@ void MinerServer::initHandlers() {
   hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
 
+  auto &htf = requestHandlers_[Client::T_REQ_TX_FORWARD];
+  htf = [this](const Client::Request &request) { return hTxForward(request); };
+
   // Handlers that need another server (or a sync) reply later; see handleDeferred.
   deferredHandlers_.clear();
   deferredHandlers_[Client::T_REQ_BLOCK_GET] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
@@ -786,29 +790,91 @@ void MinerServer::dTxAdd(const Client::Request &request, const RequestQueue::Rep
     return;
   }
 
-  auto slotLeaderIdResult = miner_.getSlotLeaderId();
-  if (!slotLeaderIdResult) {
-    replyWith(reply, Roe<std::string>(Error(E_REQUEST, slotLeaderIdResult.error().message)));
+  forwardToSlotLeader(record, miner_.getCurrentSlot(),
+                      [reply](Roe<std::string> result) { replyWith(reply, result); });
+}
+
+void MinerServer::forwardToSlotLeader(const Ledger::Record &record, uint64_t slot,
+                                      std::function<void(Roe<std::string>)> done) {
+  auto cacheForRetry = [this, &record](const std::string &why) -> Roe<std::string> {
+    if (!miner_.addToForwardCache(record)) {
+      return Error(E_REQUEST, "Forward cache full, please retry later");
+    }
+    log().info << "Transaction cached for retry in next slot: " << why;
+    return {"Transaction cached for retry in next slot"};
+  };
+  auto leaderIdResult = miner_.getSlotLeaderIdForSlot(slot);
+  if (!leaderIdResult) {
+    done(cacheForRetry("slot leader unknown: " + leaderIdResult.error().message));
     return;
   }
-  const uint64_t slotLeaderId = slotLeaderIdResult.value();
-  const std::string leaderAddr = lookupTxSubmitAddress(slotLeaderId);
+  const uint64_t leaderId = leaderIdResult.value();
+  const std::string leaderAddr = lookupTxSubmitAddress(leaderId);
   if (leaderAddr.empty()) {
-    miner_.addToForwardCache(record);
     requestMinerListRefresh();
-    log().info << "Slot leader " << slotLeaderId
-               << " address unknown, transaction cached for retry in next slot";
-    reply(packResponse("Transaction cached for retry in next slot"));
+    done(cacheForRetry("slot leader " + std::to_string(leaderId) + " address unknown"));
     return;
   }
-  if (auto dial = dialLeader(slotLeaderId, leaderAddr); !dial) {
-    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "Failed to dial slot leader: " + dial.error().message)));
+  if (auto dial = dialLeader(leaderId, leaderAddr); !dial) {
+    done(cacheForRetry("failed to dial slot leader: " + dial.error().message));
     return;
   }
-  forwardClient_.addTransactionAsync(record, completeOnServerThread<void>([reply](Client::Roe<void> result) {
-    replyWith(reply, result ? Roe<std::string>("Transaction submitted to slot leader")
-                            : Roe<std::string>(Error(E_REQUEST, result.error().message)));
-  }));
+  Client::TxForwardRequest forward;
+  forward.record = record;
+  forward.targetSlot = slot;
+  forward.senderTipEpoch = miner_.getTipEpoch();
+  forwardClient_.forwardTransactionAsync(
+      forward, completeOnServerThread<std::string>(
+                   [this, record, done = std::move(done)](Client::Roe<std::string> result) {
+                     if (result) {
+                       done(Roe<std::string>("Forwarded to slot leader: " + result.value()));
+                     } else if (Client::isTransportError(result.error().code)) {
+                       done(miner_.addToForwardCache(record)
+                                ? Roe<std::string>("Transaction cached for retry in next slot")
+                                : Roe<std::string>(Error(E_REQUEST, "Forward cache full, please retry later")));
+                     } else {
+                       done(Roe<std::string>(Error(E_REQUEST, result.error().message)));
+                     }
+                   }));
+}
+
+MinerServer::Roe<std::string>
+MinerServer::hTxForward(const Client::Request &request) {
+  if (!miner_.isConfigReady()) {
+    return Error(E_REQUEST, "Miner syncing, please retry later");
+  }
+  auto forwardResult = utl::binaryUnpack<Client::TxForwardRequest>(request.payload);
+  if (!forwardResult) {
+    return Error(E_REQUEST, "Failed to deserialize forwarded transaction: " + forwardResult.error().message);
+  }
+  const auto &forward = forwardResult.value();
+  auto cacheForward = [this](const Ledger::Record &record, std::string message) -> Roe<std::string> {
+    if (!miner_.addToForwardCache(record)) {
+      return Error(E_REQUEST, "Forward cache full, please retry later");
+    }
+    return message;
+  };
+  const uint64_t currentSlot = miner_.getCurrentSlot();
+  switch (decideTxForward(miner_.getTipEpoch(), forward.senderTipEpoch, currentSlot, forward.targetSlot,
+                          miner_.isSlotLeaderForSlot(forward.targetSlot))) {
+  case TxForwardAction::AddToPool: {
+    auto added = miner_.addTransaction(forward.record);
+    if (!added) {
+      return Error(E_REQUEST, added.error().message);
+    }
+    return {"Transaction added to pool"};
+  }
+  case TxForwardAction::HoldForSlot:
+    // The slot-leader duty drains the cache into our pool when our slot starts.
+    return cacheForward(forward.record, "Held for slot " + std::to_string(forward.targetSlot));
+  case TxForwardAction::CacheBehind:
+    blockSyncRequested_ = true;
+    return cacheForward(forward.record, "Cached: receiver chain behind sender, retrying after sync");
+  case TxForwardAction::CacheNotLeader:
+    break;
+  }
+  return cacheForward(forward.record,
+                      "Cached: not leader of slot " + std::to_string(forward.targetSlot) + ", retrying in next slot");
 }
 
 MinerServer::Roe<std::string>
@@ -931,37 +997,14 @@ void MinerServer::retryCachedTransactionForwards() {
     return;
   }
   lastForwardRetrySlot_ = currentSlot;
-  auto slotLeaderIdResult = miner_.getSlotLeaderId();
-  if (!slotLeaderIdResult) {
-    for (const auto &tx : cached) {
-      miner_.addToForwardCache(tx);
-    }
-    return;
-  }
-  const uint64_t slotLeaderId = slotLeaderIdResult.value();
-  const std::string leaderAddr = lookupTxSubmitAddress(slotLeaderId);
-  if (leaderAddr.empty() || !dialLeader(slotLeaderId, leaderAddr)) {
-    for (const auto &tx : cached) {
-      miner_.addToForwardCache(tx);
-    }
-    if (leaderAddr.empty()) {
-      requestMinerListRefresh();
-      log().debug << "Still cannot find slot leader " << slotLeaderId
-                  << " address, " << cached.size()
-                  << " transactions remain cached";
-    }
-    return;
-  }
-  // Fire and forget; a failed forward goes back into the cache for next slot.
-  for (const auto &signedTx : cached) {
-    forwardClient_.addTransactionAsync(
-        signedTx, completeOnServerThread<void>([this, signedTx, currentSlot](Client::Roe<void> result) {
-          if (!result) {
-            miner_.addToForwardCache(signedTx);
-            return;
-          }
-          log().debug << "Forwarded cached transaction to slot " << currentSlot << " leader";
-        }));
+  // Transport failures go back into the cache (inside forwardToSlotLeader);
+  // a leader's rejection is final, so an invalid transaction is not retried.
+  for (const auto &tx : cached) {
+    forwardToSlotLeader(tx, currentSlot, [this](Roe<std::string> result) {
+      if (!result) {
+        log().warning << "Dropping cached transaction rejected by slot leader: " << result.error().message;
+      }
+    });
   }
 }
 
