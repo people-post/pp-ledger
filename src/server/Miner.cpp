@@ -294,6 +294,19 @@ void Miner::markBlockProduction(const Ledger::ChainNode &block) {
   lastProducedSlot_ = block.block.slot;
 }
 
+void Miner::abandonBlock(const Ledger::ChainNode &block) {
+  chain_.abandonSeal();
+  // Renewals lead the record list and are rebuilt per slot; keep the rest.
+  const size_t renewals =
+      std::min(slotCache_.txRenewals.size(), block.block.records.size());
+  pendingTxes_.insert(pendingTxes_.begin(),
+                      block.block.records.begin() +
+                          static_cast<std::ptrdiff_t>(renewals),
+                      block.block.records.end());
+  // Renewals and the buffer were built on the abandoned tip; rebuild next time.
+  slotCache_ = {};
+}
+
 Miner::Roe<void>
 Miner::addTransaction(const Ledger::Record &record) {
   auto result =
@@ -322,7 +335,8 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   if (!result) {
     return Error(10, result.error().message);
   }
-
+  // The tip moved: this slot's renewals and buffer are stale.
+  slotCache_ = {};
   return {};
 }
 

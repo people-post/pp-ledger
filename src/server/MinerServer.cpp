@@ -850,6 +850,11 @@ void MinerServer::handleSlotLeaderRole() {
   if (!broadcastResult) {
     log().warning << "Failed to broadcast block: " +
                          broadcastResult.error().message;
+    // Release the uncommitted seal, or every later seal/addBlock is refused.
+    miner_.abandonBlock(block);
+    // Most often another leader's block won this height: take it now rather
+    // than re-sealing the same stale height until the next scheduled sync.
+    trySyncBlocksFromBeacon(true);
     return;
   }
 
