@@ -28,9 +28,15 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   "busy" reply. A request that waited longer than the client's read timeout gets
   an "expired" reply without running the handler. On stop, pending requests get
   a "stopping" reply.
-- **Outbound (server-initiated):** the caller posts the call to the io lane and
-  waits for its result (`AmpLedgerTransport::roundTrip`). The caller never drives
-  the stack itself. From the caller's side this is an ordinary blocking call.
+- **Outbound (server-initiated):** the caller posts the call to the io lane. It
+  either waits for the result (`AmpLedgerTransport::roundTrip`, an ordinary
+  blocking call) or gets it in a callback on the io lane (`roundTripAsync`,
+  `Client::*Async`). The caller never drives the stack itself.
+- **Deferred replies:** a handler that needs another server keeps the request's
+  `reply` (`Server::handleDeferred`), starts an async call, and returns. The
+  result hops back to the server thread (`postToServerThread` /
+  `completeOnServerThread`), which updates state and replies. Meanwhile the
+  server thread keeps serving other requests.
 
 ## Rules
 
@@ -66,15 +72,12 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 |-------|-------|-------|
 | 1 | Pump thread owns the AMP stack; outbound calls post and wait | Done |
 | 2 | Single server thread per role; inbound requests queued to it | Done |
-| 3 | Handlers that call out (`hTxAdd` forward, `hBlockGet` sync-on-miss, relay forwarding) reply later from a completion instead of blocking the server thread | Planned |
+| 3 | Handlers that call out reply later instead of blocking the server thread: relay forwards (block add, register, miner list) and miner tx forwarding go async; block gets beyond the tip wait for the run loop's next sync | Done |
 | 4 | Background sync as completions too, so the server thread never blocks | Planned |
 
-While a role duty runs (e.g. a miner syncing from the beacon), queued requests
-wait; handlers that call out (phase 3) also hold the server thread for a round trip.
-
-Phase 3 matters for liveness: while a server thread blocks on an outbound call it
-handles nothing else, and two miners forwarding to each other at a slot boundary
-would each wait for the other until timeout.
+Role duties still make blocking calls (sync from the beacon, calibration, block
+broadcast, miner-list refresh); queued requests wait while they run. Phase 4
+turns those into completions too.
 
 Still open: role timers (`refresh`, slot ticks) as queue events rather than the
 fixed serve budget between duties.
