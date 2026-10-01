@@ -59,6 +59,16 @@ protected:
   /** Any thread: run `task` on the server thread. Dropped once stopped. */
   void postToServerThread(std::function<void()> task);
 
+  /**
+   * Wrap a continuation for an async Client call: the result (delivered on the
+   * io lane) is handed to `fn` on the server thread.
+   */
+  template <typename T, typename Fn> std::function<void(Client::Roe<T>)> completeOnServerThread(Fn fn) {
+    return [this, fn = std::move(fn)](Client::Roe<T> result) {
+      postToServerThread([fn, result = std::move(result)]() mutable { fn(std::move(result)); });
+    };
+  }
+
   /** Pack a handler result (Roe<std::string>) into a response and send it. */
   template <typename R> static void replyWith(const RequestQueue::Reply& reply, const R& result) {
     reply(result ? packResponse(result.value()) : packResponse(1, result.error().message));
