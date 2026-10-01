@@ -597,3 +597,31 @@ TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripTimesOut) {
   EXPECT_TRUE(f.get());
   pair.SetClientDropRate(0.0);
 }
+
+// post() from the pump thread (inside Drive, holding amp's io lock) racing
+// posts from another thread must not deadlock (lock-order regression).
+TEST_F(AmpLedgerRpcTest, ThreadedPostFromPumpAndCallerConcurrently) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  constexpr int kPosts = 2000;
+  std::atomic<int> ran{0};
+  std::promise<void> pumpDone;
+  pair.a.post([&]() {
+    for (int i = 0; i < kPosts; ++i) {
+      pair.a.post([&]() { ++ran; });
+    }
+    pumpDone.set_value();
+  });
+  auto caller = std::async(std::launch::async, [&]() {
+    for (int i = 0; i < kPosts; ++i) {
+      pair.a.post([&]() { ++ran; });
+    }
+  });
+  ASSERT_EQ(caller.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  ASSERT_EQ(pumpDone.get_future().wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (ran.load() < 2 * kPosts && std::chrono::steady_clock::now() < until) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  EXPECT_EQ(ran.load(), 2 * kPosts);
+}

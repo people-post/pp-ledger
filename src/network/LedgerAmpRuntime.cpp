@@ -65,10 +65,11 @@ void LedgerAmpRuntime::Stop() {
   pump_thread_id_ = std::thread::id{};
   std::unique_ptr<pp::amp::AmpStack> stack;
   {
-    // After this, post() is a no-op. Tear down outside post_mu_: the stack takes
-    // its own io lock, and the pump thread takes post_mu_ while holding that.
-    std::lock_guard<std::mutex> lock(post_mu_);
+    // After this, post() is a no-op; wait out posts already past the gate.
+    // Tear down outside post_mu_: the stack takes its own io lock.
+    std::unique_lock<std::mutex> lock(post_mu_);
     running_ = false;
+    posts_drained_cv_.wait(lock, [this]() { return posts_in_flight_ == 0; });
     stack = std::move(stack_);
   }
   if (stack) {
@@ -85,12 +86,24 @@ pp::amp::PeerLinkManager& LedgerAmpRuntime::links() { return stack_->Links(); }
 pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
 
 void LedgerAmpRuntime::post(IoTask task) {
-  std::lock_guard<std::mutex> lock(post_mu_);
-  if (!running_ || !stack_) {
-    return;
+  pp::amp::AmpStack* stack = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(post_mu_);
+    if (!running_ || !stack_) {
+      return;
+    }
+    stack = stack_.get();
+    ++posts_in_flight_;
   }
-  stack_->PostToIo(std::move(task));
+  // No lock held: PostToIo takes amp's io lock, which the pump thread already
+  // holds when it posts from inside Drive().
+  stack->PostToIo(std::move(task));
   Wake();
+  {
+    std::lock_guard<std::mutex> lock(post_mu_);
+    --posts_in_flight_;
+  }
+  posts_drained_cv_.notify_all();
 }
 
 bool LedgerAmpRuntime::onPumpThread() const { return std::this_thread::get_id() == pump_thread_id_.load(); }
