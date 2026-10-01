@@ -2,6 +2,8 @@
 add_library(pp_server STATIC
     Server.cpp
     Server.h
+    RequestQueue.cpp
+    RequestQueue.h
     BeaconServer.cpp
     BeaconServer.h
     Beacon.cpp

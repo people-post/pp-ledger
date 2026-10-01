@@ -3,7 +3,6 @@
 #include "AmpLedgerServer.h"
 #include "LedgerAmpRuntime.h"
 #include "lib/common/Service.h"
-#include "common/WorkerPool.h"
 
 #include <functional>
 #include <memory>
@@ -18,12 +17,13 @@ namespace network {
 /** AMP ingress for pp-ledger Server. */
 class ServerAmpSupport {
 public:
-  using DispatchFn = std::function<std::string(const std::string& requestBody)>;
+  /** Runs on the io lane; must not block. Reply now or hand the request off. */
+  using DispatchFn = AmpLedgerServer::AsyncHandler;
 
   ServerAmpSupport() = default;
   ~ServerAmpSupport();
 
-  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool = nullptr);
+  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch);
   void Stop();
 
   bool isRunning() const { return runtime_.isRunning(); }
@@ -33,7 +33,6 @@ public:
 
 private:
   LedgerAmpRuntime runtime_;
-  WorkerPool* handler_pool_{nullptr};
 };
 
 } // namespace network

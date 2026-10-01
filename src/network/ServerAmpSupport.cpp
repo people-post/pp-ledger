@@ -7,25 +7,14 @@ namespace network {
 
 ServerAmpSupport::~ServerAmpSupport() { Stop(); }
 
-pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchFn dispatch, WorkerPool* handler_pool) {
-  handler_pool_ = handler_pool;
+pp::Service::Roe<void> ServerAmpSupport::Start(LedgerAmpConfig config, DispatchFn dispatch) {
   auto started = runtime_.Start(std::move(config));
   if (!started) {
     return pp::Service::Error(-1, started.error().message);
   }
-
-  AmpLedgerServer::WorkerPost post_worker;
-  if (handler_pool_) {
-    post_worker = [this](std::function<void()> task) {
-      handler_pool_->Post(WorkerLane::Normal, std::move(task));
-    };
-  }
-  // ChannelSession / Mux are io-thread affine — enqueue replies on the Amp pump.
-  AmpLedgerServer::IoPost post_io = [this](std::function<void()> task) {
-    runtime_.runtime().PostToIo(std::move(task));
-  };
-
-  AmpLedgerServer::Bind(runtime_.links(), std::move(dispatch), std::move(post_worker), std::move(post_io));
+  // ChannelSession / Mux are io-thread affine — send replies on the Amp pump (post() wakes it).
+  AmpLedgerServer::IoPost post_io = [this](std::function<void()> task) { runtime_.post(std::move(task)); };
+  AmpLedgerServer::BindAsync(runtime_.links(), std::move(dispatch), std::move(post_io));
   return {};
 }
 
@@ -34,7 +23,6 @@ void ServerAmpSupport::Stop() {
     AmpLedgerServer::Unbind(runtime_.links());
   }
   runtime_.Stop();
-  handler_pool_ = nullptr;
 }
 
 } // namespace network
