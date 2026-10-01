@@ -3,6 +3,7 @@
 #include "common/ResultOrError.hpp"
 
 #include <chrono>
+#include <functional>
 #include <string>
 
 namespace pp {
@@ -28,6 +29,18 @@ public:
 
   virtual Roe<std::string> roundTrip(const std::string &requestBody,
                                      std::chrono::milliseconds timeout) = 0;
+
+  using Done = std::function<void(Roe<std::string>)>;
+
+  /**
+   * Start a round trip and return; `done` runs exactly once with the result.
+   * It may run on a transport thread (AMP: the io lane), so it must not touch
+   * caller state directly. Default: blocking roundTrip(), `done` inline.
+   */
+  virtual void roundTripAsync(const std::string &requestBody,
+                              std::chrono::milliseconds timeout, Done done) {
+    done(roundTrip(requestBody, timeout));
+  }
 };
 
 } // namespace pp

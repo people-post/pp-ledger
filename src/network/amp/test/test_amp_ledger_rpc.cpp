@@ -543,3 +543,57 @@ TEST_F(AmpLedgerRpcTest, ThreadedRoundTripOnPumpThreadIsRefused) {
   ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready);
   EXPECT_NE(f.get().find("pump thread"), std::string::npos);
 }
+
+TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripCompletesOnIoLane) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+
+  std::promise<std::pair<std::string, bool>> done;
+  transport.roundTripAsync("async-payload", std::chrono::seconds(5),
+                           [&](pp::ILedgerTransport::Roe<std::string> r) {
+                             done.set_value({r ? r.value() : r.error().message, pair.a.onPumpThread()});
+                           });
+  auto f = done.get_future();
+  ASSERT_EQ(f.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  auto [body, onIoLane] = f.get();
+  EXPECT_EQ(body, "async-payload");
+  EXPECT_TRUE(onIoLane);
+}
+
+// Unlike the blocking call, the async one may start from the pump thread.
+TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripFromPumpThread) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+
+  std::promise<std::string> done;
+  pair.a.post([&]() {
+    transport.roundTripAsync("from-pump", std::chrono::seconds(5),
+                             [&](pp::ILedgerTransport::Roe<std::string> r) {
+                               done.set_value(r ? r.value() : r.error().message);
+                             });
+  });
+  auto f = done.get_future();
+  ASSERT_EQ(f.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  EXPECT_EQ(f.get(), "from-pump");
+}
+
+TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripTimesOut) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+  ASSERT_TRUE(transport.roundTrip("warm-up", std::chrono::seconds(5)).isOk());
+  pair.SetClientDropRate(1.0);
+
+  std::promise<bool> done;
+  transport.roundTripAsync("lost", std::chrono::milliseconds(200),
+                           [&](pp::ILedgerTransport::Roe<std::string> r) { done.set_value(r.isError()); });
+  auto f = done.get_future();
+  ASSERT_EQ(f.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_TRUE(f.get());
+  pair.SetClientDropRate(0.0);
+}

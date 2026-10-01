@@ -10,7 +10,20 @@ bool RequestQueue::push(std::string body, Reply reply) {
     if (closed_ || items_.size() >= capacity_) {
       return false;
     }
-    items_.push_back(Item{std::move(body), std::move(reply), Clock::now()});
+    items_.push_back(Item{std::move(body), std::move(reply), Clock::now(), {}});
+  }
+  cv_.notify_one();
+  return true;
+}
+
+bool RequestQueue::pushTask(std::function<void()> task) {
+  {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (closed_) {
+      return false;
+    }
+    // Not capacity-limited: a completion carries a reply some client waits on.
+    items_.push_back(Item{{}, {}, Clock::now(), std::move(task)});
   }
   cv_.notify_one();
   return true;

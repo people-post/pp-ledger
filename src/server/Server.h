@@ -50,6 +50,21 @@ protected:
   virtual std::string handleParsedRequest(const Client::Request& request) = 0;
 
   /**
+   * Server thread. A role returns true when it takes `request` and will call
+   * `reply` later (e.g. after an outbound call completes, via
+   * postToServerThread). False: handled synchronously by handleParsedRequest.
+   */
+  virtual bool handleDeferred(const Client::Request& request, const RequestQueue::Reply& reply);
+
+  /** Any thread: run `task` on the server thread. Dropped once stopped. */
+  void postToServerThread(std::function<void()> task);
+
+  /** Pack a handler result (Roe<std::string>) into a response and send it. */
+  template <typename R> static void replyWith(const RequestQueue::Reply& reply, const R& result) {
+    reply(result ? packResponse(result.value()) : packResponse(1, result.error().message));
+  }
+
+  /**
    * Server thread: handle queued requests until `budget` elapses (or stop is
    * set). Role runLoops call this in place of sleeping between duties.
    */
@@ -71,7 +86,8 @@ private:
   /** Queued requests beyond this are refused with a busy reply. */
   static constexpr size_t kRequestQueueCapacity = 1024;
 
-  std::string handleRequest(const std::string& request);
+  /** Server thread: one queued request — deferred, or handled now and replied. */
+  void serveRequest(const RequestQueue::Item& item);
   /** Refuse new requests and reply to pending ones; runs before AMP stops. */
   void closeRequestQueue();
 

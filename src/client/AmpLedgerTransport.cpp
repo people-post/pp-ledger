@@ -70,9 +70,12 @@ class RoundTripCall : public std::enable_shared_from_this<RoundTripCall> {
 public:
   enum class Stage { Association, ChannelOpen, ChannelReady, Response };
 
+  using Done = ILedgerTransport::Done;
+
   RoundTripCall(pp::amp::MeshRuntime& mesh, std::string peer_key, std::string body,
-                std::chrono::milliseconds timeout)
-      : mesh_(mesh), peer_key_(std::move(peer_key)), body_(std::move(body)), timeout_(timeout) {}
+                std::chrono::milliseconds timeout, Done done = {})
+      : mesh_(mesh), peer_key_(std::move(peer_key)), body_(std::move(body)), timeout_(timeout),
+        done_(std::move(done)) {}
 
   ResultSlot<TransportRoe>& result() { return result_; }
 
@@ -92,7 +95,7 @@ public:
 
   /** Any thread: the waiter gave up. Resolves the result, then cleans up on the io lane. */
   void abandon(const std::function<void(std::function<void()>)>& post) {
-    if (!result_.set(TransportError(timeoutMessage()))) {
+    if (!resolve(TransportError(timeoutMessage()))) {
       return;
     }
     auto self = shared_from_this();
@@ -184,9 +187,21 @@ private:
     return true;
   }
 
+  /** First result wins: store it for a waiter and hand it to `done_`. */
+  bool resolve(TransportRoe result) {
+    if (!done_) {
+      return result_.set(std::move(result));
+    }
+    if (!result_.set(result)) {
+      return false;
+    }
+    done_(std::move(result));
+    return true;
+  }
+
   /** io lane. */
   void finish(TransportRoe result) {
-    if (!result_.set(std::move(result))) {
+    if (!resolve(std::move(result))) {
       return;
     }
     cleanup();
@@ -230,6 +245,7 @@ private:
   const std::string peer_key_;
   const std::string body_;
   const std::chrono::milliseconds timeout_;
+  const Done done_;
   ResultSlot<TransportRoe> result_;
   // io-lane state (stage_ is also read by a waiter building its timeout message).
   std::atomic<Stage> stage_{Stage::Association};
@@ -315,6 +331,25 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
     call->abandon(postTask);
   }
   return call->result().take();
+}
+
+void AmpLedgerTransport::roundTripAsync(const std::string& requestBody, const std::chrono::milliseconds timeout,
+                                        Done done) {
+  if (peer_key_.empty()) {
+    done(TransportError("AmpLedgerTransport: peer_key not set"));
+    return;
+  }
+  if (requestBody.size() > pp::ledger::rpc::kMaxPayloadBytes) {
+    done(TransportError("AmpLedgerTransport: request too large"));
+    return;
+  }
+  if (runtime_ && !runtime_->isRunning()) {
+    done(TransportError("AmpLedgerTransport: AMP runtime not running"));
+    return;
+  }
+  // The io-lane amp timer bounds the call; no thread waits on it.
+  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, std::move(done));
+  post([call]() { call->start(); });
 }
 
 } // namespace pp
