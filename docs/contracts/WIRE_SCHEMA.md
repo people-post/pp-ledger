@@ -157,7 +157,14 @@ classic Ouroboros / stake-weighted VRF on blocks):
    behavior**, not a temporary stand-in for stake-proportional sampling).
 
 Blocks commit `epoch` + `stakeSnapshotHash` + `epochSeed` so verifiers can check
-the election inputs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
+the election inputs.
+
+**Snapshot point (fork-critical):** an epoch's stake snapshot and seed are
+taken from the chain as it stands just before that epoch's **first block** —
+after every block of earlier epochs. They never depend on when a node's clock
+crossed the epoch boundary: a node may elect leaders with a provisional
+snapshot/seed ahead of that block, but re-derives both at the first block, and
+a late block from an earlier epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
 **not** on the live `Chain` path. Ouroboros is a literature reference only.
 
 **Domain string note:** `slot-committee/v2` (binary domain + seed) replaces

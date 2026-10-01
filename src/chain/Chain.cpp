@@ -497,7 +497,7 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
     refreshStakeholders(block.block.slot);
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
-    auto seedRoe = ensureEpochSeed(block.block.epoch);
+    auto seedRoe = ensureBlockEpochSeed(block);
     if (!seedRoe) {
       return seedRoe;
     }
@@ -615,9 +615,13 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
 }
 
 void Chain::refreshStakeholders() {
-  if (txContext_.consensus.isStakeUpdateNeeded()) {
-    auto stakeholders = txContext_.bank.getStakeholders();
-    txContext_.consensus.setStakeholders(stakeholders);
+  const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
+  if (auto recorded = epochStakeSnapshots_.find(clockEpoch); recorded != epochStakeSnapshots_.end()) {
+    txContext_.consensus.setStakeholders(recorded->second, clockEpoch);
+  } else if (txContext_.consensus.isStakeUpdateNeeded()) {
+    // Provisional (leader election before this epoch's first block). Not
+    // recorded: blocks of earlier epochs may still arrive and change it.
+    txContext_.consensus.setStakeholders(txContext_.bank.getStakeholders(), clockEpoch);
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
   // late-start nodes with mismatched genesisTime still keep a usable seed.
@@ -632,7 +636,6 @@ void Chain::refreshStakeholders() {
   if (!txContext_.consensus.hasEpochSeedFor(tipEpoch)) {
     (void)ensureEpochSeed(tipEpoch);
   }
-  const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
   if (clockEpoch != tipEpoch &&
       !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
     (void)ensureEpochSeed(clockEpoch);
@@ -640,11 +643,20 @@ void Chain::refreshStakeholders() {
 }
 
 void Chain::refreshStakeholders(uint64_t blockSlot) {
-  uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
-  if (txContext_.consensus.isStakeUpdateNeeded(epoch)) {
-    auto stakeholders = txContext_.bank.getStakeholders();
-    txContext_.consensus.setStakeholders(stakeholders, epoch);
+  const uint64_t epoch = txContext_.consensus.getEpochFromSlot(blockSlot);
+  // Snapshots recorded for later epochs predate this block: drop them.
+  epochStakeSnapshots_.erase(epochStakeSnapshots_.upper_bound(epoch), epochStakeSnapshots_.end());
+  auto recorded = epochStakeSnapshots_.find(epoch);
+  if (recorded == epochStakeSnapshots_.end()) {
+    // First block of this epoch on this tip: the bank holds the state after
+    // the last block of earlier epochs — the same on every node.
+    recorded = epochStakeSnapshots_.emplace(epoch, txContext_.bank.getStakeholders()).first;
+    if (epoch > kStakeSnapshotsKept) {
+      epochStakeSnapshots_.erase(epochStakeSnapshots_.begin(),
+                                 epochStakeSnapshots_.lower_bound(epoch - kStakeSnapshotsKept));
+    }
   }
+  txContext_.consensus.setStakeholders(recorded->second, epoch);
 }
 
 std::vector<std::string>
@@ -733,8 +745,22 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
   return {};
 }
 
+Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
+  const uint64_t epoch = block.block.epoch;
+  bool firstOfEpoch = true;
+  if (block.block.index > 0) {
+    auto prev = txContext_.ledger.readBlock(block.block.index - 1);
+    firstOfEpoch = !prev || prev->block.epoch < epoch;
+  }
+  if (firstOfEpoch && txContext_.consensus.hasEpochSeedFor(epoch)) {
+    txContext_.consensus.clearEpochSeed();
+  }
+  return ensureEpochSeed(epoch);
+}
+
 void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {
   txContext_.consensus.init(config);
+  epochStakeSnapshots_.clear();
 }
 
 void Chain::setClockOverride(std::optional<int64_t> unixSeconds) {
@@ -776,6 +802,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   }
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
+  epochStakeSnapshots_.clear();
   pendingSeal_.reset();
 
   // Process blocks from ledger one by one (replay existing chain state)
@@ -812,7 +839,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
     //   transaction.
     if (blockId > 0) {
       refreshStakeholders(block.block.slot);
-      auto seedRoe = ensureEpochSeed(block.block.epoch);
+      auto seedRoe = ensureBlockEpochSeed(block);
       if (!seedRoe) {
         return Error(E_BLOCK_VALIDATION,
                      "Failed to ensure epoch seed for block " +
@@ -903,7 +930,7 @@ Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode &block) {
   const auto admissionMode = admissionModeFor(block.block.index);
   if (block.block.index > 0) {
     refreshStakeholders(block.block.slot);
-    auto seedRoe = ensureEpochSeed(block.block.epoch);
+    auto seedRoe = ensureBlockEpochSeed(block);
     if (!seedRoe) {
       return Error(E_BLOCK_VALIDATION,
                    "Failed to ensure epoch seed: " + seedRoe.error().message);
