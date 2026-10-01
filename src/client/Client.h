@@ -282,7 +282,7 @@ public:
   void forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done);
 
   /** True when the call failed before a server answered (worth retrying later). */
-  static bool isTransportError(uint16_t code) {
+  static bool isTransportError(int32_t code) {
     return code == E_NOT_CONNECTED || code == E_REQUEST_FAILED;
   }
 
