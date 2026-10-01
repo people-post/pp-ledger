@@ -77,8 +77,13 @@ private:
     std::map<uint64_t, Client::MinerInfo> mMiners;
   };
 
-  std::string findTxSubmitAddress(uint64_t slotLeaderId);
+  /** Known endpoint of a slot leader, or "" (never fetches). */
+  std::string lookupTxSubmitAddress(uint64_t slotLeaderId) const;
+  /** Ask the run loop to refetch the miner list (rate-limited). */
+  void requestMinerListRefresh();
   void refreshMinerListFromBeacon();
+  /** Point forwardClient_ at a slot leader; one dial key per leader. */
+  Client::Roe<void> dialLeader(uint64_t slotLeaderId, const std::string& multiaddr);
   void syncBlocksPeriodically();
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   Roe<Client::BeaconState> connectToBeacon();
@@ -97,19 +102,27 @@ private:
   Roe<void> verifyGenesisAnchor();
 
   std::string handleParsedRequest(const Client::Request &request) override;
+  bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
-  Roe<std::string> hBlockGet(const Client::Request &request);
+  // Deferred: reply after an outbound call or the next sync
+  void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** After a sync: answer block gets that were waiting for it. */
+  void resolvePendingBlockGets();
+
   Roe<std::string> hBlockAdd(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
-  Roe<std::string> hTxAdd(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
+  /** Upstream (beacon) client. */
   Client client_;
+  /** Transaction forwarding to slot leaders; never retargets client_. */
+  Client forwardClient_;
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
@@ -126,6 +139,18 @@ private:
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
+  using DeferredHandler =
+      std::function<void(const Client::Request &request, const RequestQueue::Reply &reply)>;
+  std::map<uint32_t, DeferredHandler> deferredHandlers_;
+
+  struct PendingBlockGet {
+    uint64_t blockId;
+    RequestQueue::Reply reply;
+  };
+  /** Block gets beyond our tip, answered after the next sync. */
+  std::vector<PendingBlockGet> pendingBlockGets_;
+  bool blockSyncRequested_{false};
+  bool minerListRefreshRequested_{false};
 };
 
 } // namespace pp

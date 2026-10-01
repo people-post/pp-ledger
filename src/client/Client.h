@@ -249,7 +249,24 @@ public:
   Roe<void> addTransaction(const Ledger::Record &record);
   Roe<bool> addBlock(const Ledger::ChainNode& block);
 
+  /**
+   * Async variants: start the call and return; `done` runs once with the
+   * result, possibly on a transport thread (AMP io lane) — hop to your own
+   * thread before touching state.
+   */
+  template <typename T> using Done = std::function<void(Roe<T>)>;
+  void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done);
+  void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
+  void addTransactionAsync(const Ledger::Record &record, Done<void> done);
+  void addBlockAsync(const Ledger::ChainNode &block, Done<bool> done);
+
 private:
+  static Roe<BeaconState> parseBeaconState(const std::string &payload);
+  static Roe<std::vector<MinerInfo>> parseMinerList(const std::string &payload);
+  std::string packRequest(uint32_t type, const std::string &payload);
+  static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);
+  void sendRequestAsync(uint32_t type, const std::string &payload,
+                        std::chrono::milliseconds timeout, Done<std::string> done);
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
                                std::chrono::milliseconds timeout = TIMEOUT_FAST);
 

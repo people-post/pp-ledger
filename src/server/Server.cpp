@@ -115,6 +115,16 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply) {
   }
 }
 
+void Server::postToServerThread(std::function<void()> task) {
+  if (!requests_->pushTask(std::move(task))) {
+    log().debug << "Dropped completion task: server stopping";
+  }
+}
+
+bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQueue::Reply& /*reply*/) {
+  return false;
+}
+
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
   const auto deadline = RequestQueue::Clock::now() + budget;
   while (!isStopSet()) {
@@ -122,34 +132,45 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
     if (!item) {
       return;
     }
+    if (item->task) {
+      try {
+        item->task();
+      } catch (const std::exception& e) {
+        log().error << "Completion task threw: " << e.what();
+      }
+      continue;
+    }
     if (RequestQueue::Clock::now() - item->enqueuedAt > maxRequestWait_) {
       item->reply(packResponse(Client::E_SERVER_ERROR, "Request expired in server queue"));
       continue;
     }
-    std::string response;
-    try {
-      response = handleRequest(item->body);
-    } catch (const std::exception& e) {
-      log().error << "Request handler threw: " << e.what();
-      response = packResponse(Client::E_SERVER_ERROR, "Internal server error");
+    serveRequest(*item);
+  }
+}
+
+void Server::serveRequest(const RequestQueue::Item& item) {
+  log().debug << "Received request (" << item.body.size() << " bytes)";
+  auto request = utl::binaryUnpack<Client::Request>(item.body);
+  if (!request) {
+    item.reply(packResponse(1, request.error().message));
+    return;
+  }
+  try {
+    if (!handleDeferred(request.value(), item.reply)) {
+      item.reply(handleParsedRequest(request.value()));
     }
-    item->reply(std::move(response));
+  } catch (const std::exception& e) {
+    log().error << "Request handler threw: " << e.what();
+    item.reply(packResponse(Client::E_SERVER_ERROR, "Internal server error"));
   }
 }
 
 void Server::closeRequestQueue() {
   for (auto& item : requests_->close()) {
-    item.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+    if (item.reply) {
+      item.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+    }
   }
-}
-
-std::string Server::handleRequest(const std::string& request) {
-  log().debug << "Received request (" << request.size() << " bytes)";
-  auto reqResult = utl::binaryUnpack<Client::Request>(request);
-  if (!reqResult) {
-    return packResponse(1, reqResult.error().message);
-  }
-  return handleParsedRequest(reqResult.value());
 }
 
 std::string Server::listenMultiaddr() const {

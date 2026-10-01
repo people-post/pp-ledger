@@ -81,8 +81,13 @@ private:
   std::atomic<bool> stop_{false};
   std::thread pump_thread_;
   std::atomic<std::thread::id> pump_thread_id_{};
-  /** Serializes post() against Stop() tearing down stack_. */
+  /**
+   * Gates post() against Stop() tearing down stack_. Never held while calling
+   * into the stack: the pump thread posts while holding amp's io lock.
+   */
   std::mutex post_mu_;
+  std::condition_variable posts_drained_cv_;
+  size_t posts_in_flight_{0};
   std::mutex wake_mu_;
   std::condition_variable wake_cv_;
   bool wake_{false};

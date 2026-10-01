@@ -39,6 +39,9 @@ public:
 
   Roe<std::string> roundTrip(const std::string& requestBody, std::chrono::milliseconds timeout) override;
 
+  /** `done` runs on the io lane. Safe to call from the pump thread. */
+  void roundTripAsync(const std::string& requestBody, std::chrono::milliseconds timeout, Done done) override;
+
 private:
   /** Run `task` on the io lane (posts; wakes the pump thread in threaded mode). */
   void post(std::function<void()> task);

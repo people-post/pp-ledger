@@ -49,6 +49,8 @@ TEST(RequestQueueTest, RefusesWhenFullOrClosed) {
 class EchoServer : public Server {
 public:
   using Server::enqueueRequest;
+  using Server::postToServerThread;
+  using Server::packResponse;
   using Server::serveRequestsFor;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
@@ -65,6 +67,21 @@ protected:
   std::string getServerName() const override { return "EchoServer"; }
   void runLoop() override {}
 
+  /** "defer": hold the reply until the test completes it (like an outbound call). */
+  bool handleDeferred(const Client::Request& request, const RequestQueue::Reply& reply) override {
+    if (request.payload != "defer") {
+      return false;
+    }
+    deferredReply = reply;
+    deferredThread = std::this_thread::get_id();
+    return true;
+  }
+
+public:
+  RequestQueue::Reply deferredReply;
+  std::thread::id deferredThread;
+
+protected:
   std::string handleParsedRequest(const Client::Request& request) override {
     const int now = ++active;
     int seen = maxActive.load();
@@ -201,4 +218,45 @@ TEST(ServerThreadTest, ThrowingHandlerStillReplies) {
   EXPECT_EQ(replies.items[1].payload, "after");
 }
 
+// Phase 3: a handler that waits on an outbound call does not block the server
+// thread; its completion comes back as a task and replies later.
+TEST(ServerThreadTest, DeferredRequestRepliesFromCompletionWhileOthersAreServed) {
+  EchoServer server;
+  Replies replies;
+  server.enqueueRequest(packRequest("defer"), replies.sink());
+  server.enqueueRequest(packRequest("other"), replies.sink());
+  server.serveRequestsFor(20ms);
+
+  // "other" was served while "defer" is still outstanding.
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_EQ(replies.items[0].payload, "other");
+  ASSERT_TRUE(server.deferredReply);
+  EXPECT_EQ(server.deferredThread, std::this_thread::get_id());
+
+  // The "outbound call" completes on another thread and hops back.
+  std::thread::id completionThread;
+  std::thread io([&]() {
+    server.postToServerThread([&]() {
+      completionThread = std::this_thread::get_id();
+      server.deferredReply(EchoServer::packResponse("deferred-done"));
+    });
+  });
+  io.join();
+  server.serveRequestsFor(20ms);
+
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_EQ(replies.items[1].payload, "deferred-done");
+  EXPECT_EQ(completionThread, std::this_thread::get_id());
+}
+
+TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
+  EchoServer server;
+  server.stopAmpServer();
+  bool ran = false;
+  server.postToServerThread([&]() { ran = true; });
+  server.serveRequestsFor(20ms);
+  EXPECT_FALSE(ran);
+}
+
 } // namespace
+

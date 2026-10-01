@@ -321,9 +321,6 @@ void RelayServer::initHandlers() {
   auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
   hcs = [this](const Client::Request &request) { return hCalibration(request); };
 
-  auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
-  hgb = [this](const Client::Request &request) { return hBlockGet(request); };
-
   auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
@@ -333,17 +330,38 @@ void RelayServer::initHandlers() {
   auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
   htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
 
-  auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
-  hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
-  auto &hreg = requestHandlers_[Client::T_REQ_REGISTER];
-  hreg = [this](const Client::Request &request) { return hRegister(request); };
+  // Handlers that need the beacon (or a sync) reply later; see handleDeferred.
+  deferredHandlers_.clear();
+  deferredHandlers_[Client::T_REQ_BLOCK_GET] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dBlockGet(r, reply);
+  };
+  deferredHandlers_[Client::T_REQ_BLOCK_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dBlockAdd(r, reply);
+  };
+  deferredHandlers_[Client::T_REQ_REGISTER] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dRegister(r, reply);
+  };
+  deferredHandlers_[Client::T_REQ_MINER_LIST] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dMinerList(r, reply);
+  };
+}
 
-  auto &hml = requestHandlers_[Client::T_REQ_MINER_LIST];
-  hml = [this](const Client::Request &request) { return hMinerList(request); };
-};
+bool RelayServer::handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) {
+  auto it = deferredHandlers_.find(request.type);
+  if (it == deferredHandlers_.end()) {
+    return false;
+  }
+  it->second(request, reply);
+  return true;
+}
 
 void RelayServer::onStop() {
+  // Reply before AMP stops (Server::onStop), while replies can still be sent.
+  for (auto &pending : pendingBlockGets_) {
+    pending.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+  }
+  pendingBlockGets_.clear();
   Server::onStop();
   log().info << "RelayServer resources cleaned up";
 }
@@ -386,6 +404,11 @@ void RelayServer::runLoop() {
     try {
       relay_.refresh();
       syncBlocksPeriodically();
+      if (blockSyncRequested_) {
+        blockSyncRequested_ = false;
+        trySyncBlocksFromBeacon(true);
+      }
+      resolvePendingBlockGets();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
@@ -442,44 +465,61 @@ std::string RelayServer::handleParsedRequest(const Client::Request &request) {
   return Server::packResponse(result.value());
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hBlockGet(const Client::Request &request) {
+void RelayServer::dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
-    return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid block get payload: " + request.payload)));
+    return;
   }
-
-  uint64_t blockId = idResult.value();
+  const uint64_t blockId = idResult.value();
   auto result = relay_.readBlock(blockId);
-  if (!result) {
-    // User requested block we don't have: sync from beacon then retry
-    if (blockId >= relay_.getNextBlockId()) {
-      trySyncBlocksFromBeacon(true);
-      result = relay_.readBlock(blockId);
-    }
-    if (!result) {
-      return Error(E_REQUEST, "Failed to get block: " + result.error().message);
-    }
+  if (result) {
+    reply(packResponse(result.value().ltsToString()));
+    return;
   }
-
-  return result.value().ltsToString();
+  if (blockId < relay_.getNextBlockId()) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to get block: " + result.error().message)));
+    return;
+  }
+  // Beyond our tip: answer after the run loop's next sync instead of syncing here.
+  pendingBlockGets_.push_back({blockId, reply});
+  blockSyncRequested_ = true;
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hBlockAdd(const Client::Request &request) {
+void RelayServer::resolvePendingBlockGets() {
+  if (pendingBlockGets_.empty()) {
+    return;
+  }
+  for (auto &pending : pendingBlockGets_) {
+    auto result = relay_.readBlock(pending.blockId);
+    if (result) {
+      pending.reply(packResponse(result.value().ltsToString()));
+    } else {
+      replyWith(pending.reply,
+                Roe<std::string>(Error(E_REQUEST, "Failed to get block: " + result.error().message)));
+    }
+  }
+  pendingBlockGets_.clear();
+}
+
+void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
-    return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize block: " + request.payload)));
+    return;
   }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
+    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message)));
+    return;
   }
-  auto result = client_.addBlock(block);
-  if (!result) {
-    return Error(E_NETWORK, result.error().message);
-  }
-  relay_.addBlock(block); // Don't care about the result
-  return {"Block added"};
+  client_.addBlockAsync(block, completeOnServerThread<bool>([this, block, reply](Client::Roe<bool> result) {
+    if (!result) {
+      replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
+      return;
+    }
+    relay_.addBlock(block); // Don't care about the result
+    reply(packResponse("Block added"));
+  }));
 }
 
 RelayServer::Roe<std::string>
@@ -528,34 +568,42 @@ RelayServer::hTxGetByIndex(const Client::Request &request) {
   return utl::binaryPack(result.value());
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hRegister(const Client::Request &request) {
+void RelayServer::dRegister(const Client::Request &request, const RequestQueue::Reply &reply) {
   auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
   if (!unpacked) {
-    return Error(E_REQUEST,
-                 "Failed to unpack miner info Meta: " + unpacked.error().message);
+    replyWith(reply, Roe<std::string>(
+                         Error(E_REQUEST, "Failed to unpack miner info Meta: " + unpacked.error().message)));
+    return;
   }
   Client::MinerInfo minerInfo;
   auto parsed = minerInfo.ltsFromMeta(unpacked.value());
   if (!parsed) {
-    return Error(E_REQUEST, parsed.error().message);
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, parsed.error().message)));
+    return;
   }
   if (config_.network.beacon_multiaddr.empty()) {
-    return Error(E_CONFIG, "No upstream configured");
+    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
+    return;
   }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
+    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
+    return;
   }
-  auto stateResult = client_.registerMinerServer(minerInfo);
-  if (!stateResult) {
-    return Error(E_NETWORK, "Upstream register failed: " + stateResult.error().message);
-  }
-  registerServer(minerInfo);
-  registryVersion_ = stateResult.value().registryVersion;
-  if (!stateResult.value().networkId.empty()) {
-    networkId_ = stateResult.value().networkId;
-  }
-  return utl::binaryPack(stateResult.value().ltsToMeta());
+  client_.registerMinerServerAsync(
+      minerInfo, completeOnServerThread<Client::BeaconState>(
+                     [this, minerInfo, reply](Client::Roe<Client::BeaconState> state) {
+                       if (!state) {
+                         replyWith(reply, Roe<std::string>(Error(
+                                              E_NETWORK, "Upstream register failed: " + state.error().message)));
+                         return;
+                       }
+                       registerServer(minerInfo);
+                       registryVersion_ = state.value().registryVersion;
+                       if (!state.value().networkId.empty()) {
+                         networkId_ = state.value().networkId;
+                       }
+                       reply(packResponse(utl::binaryPack(state.value().ltsToMeta())));
+                     }));
 }
 
 RelayServer::Roe<std::string>
@@ -620,28 +668,31 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
   return offsetMs;
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hMinerList(const Client::Request & /*request*/) {
+void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQueue::Reply &reply) {
   if (config_.network.beacon_multiaddr.empty()) {
-    return Error(E_CONFIG, "No upstream configured");
+    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
+    return;
   }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message);
+    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
+    return;
   }
-  auto minerListResult = client_.fetchMinerList();
-  if (!minerListResult) {
-    return Error(E_NETWORK,
-                 "Failed to fetch miner list from upstream: " +
-                     minerListResult.error().message);
-  }
-  mMiners_.clear();
-  std::vector<pp::common::Meta> list;
-  list.reserve(minerListResult.value().size());
-  for (const auto &miner : minerListResult.value()) {
-    mMiners_[miner.id] = miner;
-    list.push_back(miner.ltsToMeta());
-  }
-  return utl::binaryPack(list);
+  client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(
+      [this, reply](Client::Roe<std::vector<Client::MinerInfo>> miners) {
+        if (!miners) {
+          replyWith(reply, Roe<std::string>(Error(
+                               E_NETWORK, "Failed to fetch miner list from upstream: " + miners.error().message)));
+          return;
+        }
+        mMiners_.clear();
+        std::vector<pp::common::Meta> list;
+        list.reserve(miners.value().size());
+        for (const auto &miner : miners.value()) {
+          mMiners_[miner.id] = miner;
+          list.push_back(miner.ltsToMeta());
+        }
+        reply(packResponse(utl::binaryPack(list)));
+      }));
 }
 
 RelayServer::Roe<std::string>

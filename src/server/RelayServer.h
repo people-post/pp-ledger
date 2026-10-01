@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <vector>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -101,23 +102,26 @@ private:
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
 
   std::string handleParsedRequest(const Client::Request &request) override;
+  bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). */
   Roe<int64_t> calibrateTimeToBeacon();
 
+  // Deferred: reply after an outbound call or the next sync, off the server thread's back
+  void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dBlockAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dRegister(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dMinerList(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** After a sync: answer block gets that were waiting for it. */
+  void resolvePendingBlockGets();
+
   // Getters
-  Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hCalibration(const Client::Request &request);
-  Roe<std::string> hMinerList(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
-
-  // Modifiers
-  Roe<std::string> hBlockAdd(const Client::Request &request);
-  Roe<std::string> hRegister(const Client::Request &request);
 
   Config config_;
   Relay relay_;
@@ -137,6 +141,17 @@ private:
   using Handler =
       std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
+  using DeferredHandler =
+      std::function<void(const Client::Request &request, const RequestQueue::Reply &reply)>;
+  std::map<uint32_t, DeferredHandler> deferredHandlers_;
+
+  struct PendingBlockGet {
+    uint64_t blockId;
+    RequestQueue::Reply reply;
+  };
+  /** Block gets beyond our tip, answered after the next sync. */
+  std::vector<PendingBlockGet> pendingBlockGets_;
+  bool blockSyncRequested_{false};
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
   uint64_t registryVersion_{0};
