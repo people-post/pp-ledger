@@ -922,7 +922,9 @@ MinerServer::hUnsupported(const Client::Request &request) {
 }
 
 void MinerServer::handleSlotLeaderRole() {
-  // Add cached transactions to our own pool (we are slot leader, no need to forward)
+  // Add cached transactions to our own pool (we are slot leader, no need to
+  // forward). addTransaction checks against this slot's fresh state, so a
+  // rejection is final — re-caching would retry an invalid transaction forever.
   auto cached = miner_.drainForwardCache();
   size_t added = 0;
   for (const auto &signedTx : cached) {
@@ -930,7 +932,8 @@ void MinerServer::handleSlotLeaderRole() {
     if (result) {
       added++;
     } else {
-      miner_.addToForwardCache(signedTx);
+      log().warning << "Dropping cached transaction rejected by slot leader pool: "
+                    << result.error().message;
     }
   }
   if (added > 0) {

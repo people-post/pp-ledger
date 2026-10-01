@@ -212,16 +212,23 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
                              addResult.error().message);
       }
     }
-    // Re-apply pending txes so buffer matches block order (renewals then pending)
-    for (const auto &rec : pendingTxes_) {
+    // Re-apply pending txes so buffer matches block order (renewals then
+    // pending). One that no longer applies (included elsewhere, balance
+    // spent, window ended) is dropped: aborting here would stall every slot.
+    std::vector<Ledger::Record> stillValid;
+    stillValid.reserve(pendingTxes_.size());
+    for (auto &rec : pendingTxes_) {
       auto addResult = chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
-      if (!addResult) {
-        slotCache_ = {};
-        return Error(12, "Failed to add pending transaction: " +
-                             addResult.error().message);
+      if (addResult) {
+        stillValid.push_back(std::move(rec));
+      } else {
+        log().warning << "Dropping pending transaction that no longer applies: "
+                      << addResult.error().message;
       }
     }
+    pendingTxes_ = std::move(stillValid);
   }
+  slotCache_.ready = true;
   return {};
 }
 
@@ -254,7 +261,7 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     return false;
   }
 
-  if (slotCache_.slot != slot) {
+  if (!slotCache_.ready || slotCache_.slot != slot) {
     auto initResult = initSlotCache(slot);
     if (!initResult) {
       return Error(12, initResult.error().message);
@@ -320,6 +327,18 @@ void Miner::abandonBlock(const Ledger::ChainNode &block) {
 
 Miner::Roe<void>
 Miner::addTransaction(const Ledger::Record &record) {
+  // Validate against this slot's buffer rebuilt from the current tip, never a
+  // buffer left over from an earlier slot.
+  const uint64_t slot = getCurrentSlot();
+  if (!slotCache_.ready || slotCache_.slot != slot) {
+    auto initResult = initSlotCache(slot);
+    if (!initResult) {
+      return Error(12, initResult.error().message);
+    }
+  }
+  if (!slotCache_.isLeader) {
+    return Error(9, "Not slot leader for slot " + std::to_string(slot));
+  }
   auto result =
       chain_.addBufferTransaction(bufferBank_, record, config_.minerId);
   if (!result) {

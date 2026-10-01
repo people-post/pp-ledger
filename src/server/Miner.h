@@ -120,7 +120,9 @@ private:
     std::vector<std::string> privateKeys; // hex-encoded (multiple signatures)
   };
 
+  /** Per-slot leader state built from the tip; reset whenever the tip moves. */
   struct SlotCache {
+    bool ready{false};
     uint64_t slot{0};
     bool isLeader{false};
     std::vector<Ledger::Record> txRenewals;

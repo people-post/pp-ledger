@@ -332,6 +332,13 @@ between miners. A transport failure keeps a transaction cached; a leader's
 rejection is final (reported to the client, or dropped from the cache). The
 forward cache is bounded; when full, new forwards are refused.
 
+**Leader pool.** A leader validates every transaction it pools against its
+buffer for the current slot, rebuilt from the tip whenever the tip moves. When
+a slot rebuilds the pool, pending transactions that no longer apply (included
+elsewhere, balance spent, validity window ended) are dropped rather than
+aborting the slot. A rejection by the leader's pool is final, like a forward
+rejection; out-of-order dependent transactions must be resubmitted.
+
 ### 10.4 Registration and stake
 
 `REGISTER` must be **write-through** and **authenticated**:
