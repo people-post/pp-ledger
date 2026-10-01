@@ -1924,6 +1924,56 @@ TEST_F(ChainComposeTest, AbandonSeal_LetsLosingProducerAcceptWinningBlock) {
   EXPECT_EQ(tipP->hash, tipQ->hash);
 }
 
+// The stake snapshot for an epoch must depend only on the chain, never on when
+// a node's wall-clock refresh ran. A node that refreshes into the next epoch and
+// then receives a late block of the current epoch must still validate it with
+// the same snapshot as the producer (L-SMOKE-LATEJOIN stakeSnapshotHash mismatch).
+TEST_F(ChainComposeTest, StakeSnapshot_IndependentOfWallClockRefreshTiming) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  const uint64_t slotA = harness_.genesis.block.slot + 1;
+  const uint64_t slotA2 = slotA + 1;
+  ASSERT_EQ(producer.getEpochFromSlot(slotA), producer.getEpochFromSlot(slotA2));
+  uint64_t slotNextEpoch = slotA2 + 1;
+  while (producer.getEpochFromSlot(slotNextEpoch) == producer.getEpochFromSlot(slotA)) {
+    ++slotNextEpoch;
+  }
+  for (uint64_t slot : {slotA, slotA2, slotNextEpoch}) {
+    producer.forceSlotLeader(slot, leaderId);
+    peer.forceSlotLeader(slot, leaderId);
+  }
+
+  // Producer: two stake-changing blocks in one epoch, then the next epoch's first.
+  producer.setClockOverride(producer.getSlotStartTime(slotA));
+  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA,
+                                            {makeReserveTransfer(harness_, 100, 1)});
+  ASSERT_TRUE(producer.addBlock(a).isOk());
+  producer.setClockOverride(producer.getSlotStartTime(slotA2));
+  Ledger::ChainNode a2 = makeNextBlockAtSlot(producer, a, slotA2, {makeReserveTransfer(harness_, 50, 2)});
+  ASSERT_TRUE(producer.addBlock(a2).isOk());
+  producer.setClockOverride(producer.getSlotStartTime(slotNextEpoch));
+  Ledger::ChainNode b = makeNextBlockAtSlot(producer, a2, slotNextEpoch,
+                                            {makeReserveTransfer(harness_, 25, 3)});
+  ASSERT_TRUE(producer.addBlock(b).isOk());
+
+  // Peer: receives `a`, its clock crosses into the next epoch and its run loop
+  // refreshes, and only then does the late `a2` arrive.
+  peer.setClockOverride(peer.getSlotStartTime(slotA));
+  ASSERT_TRUE(peer.addBlock(a).isOk());
+  peer.setClockOverride(peer.getSlotStartTime(slotNextEpoch));
+  peer.refreshStakeholders();
+  auto lateA2 = peer.addBlock(a2);
+  ASSERT_TRUE(lateA2.isOk()) << lateA2.error().message;
+  peer.refreshStakeholders();
+  auto addB = peer.addBlock(b);
+  ASSERT_TRUE(addB.isOk()) << addB.error().message;
+  auto tipP = producer.readLastBlock();
+  auto tipQ = peer.readLastBlock();
+  ASSERT_TRUE(tipP.isOk() && tipQ.isOk());
+  EXPECT_EQ(tipP->hash, tipQ->hash);
+}
+
 TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
   EXPECT_FALSE(shouldSealEmptyHeartbeat(/*slot=*/10, /*tip=*/0, /*hb=*/0));
   EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 0, 10));
