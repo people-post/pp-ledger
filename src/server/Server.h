@@ -117,6 +117,12 @@ protected:
   static bool isAllowedFrom(uint32_t type, Origin origin);
 
   /**
+   * Central lane rule: reads (block sync, account and history queries) wait in
+   * the Low lane so they cannot crowd out the node's own work. See RequestQueue.
+   */
+  static RequestQueue::Lane laneFor(uint32_t type);
+
+  /**
    * Before start: this role's upstream endpoints (ADP multiaddrs ending in
    * /p2p/<PeerId>). Requests from those peers have Origin::Upstream.
    */

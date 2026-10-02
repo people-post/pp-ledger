@@ -329,7 +329,7 @@ refused at start, so a typo fails loudly instead of being ignored.
 ```json
 "network": {
   "rpcTimeoutMs": 15000,          // T: client wait for a light reply (default 15000, min 1000)
-  "requestQueueCapacity": 1024,   // requests queued for the server thread; more get "busy"
+  "requestQueueCapacity": 1024,   // requests queued for the server thread (reads get a quarter more); more get "busy"
   "startupSyncTimeoutMs": 300000, // relay / miner catch-up at start (>= rpcTimeoutMs)
   "amp": {                        // transport policy, see pp-cpp-amp docs/TUNING.md
     "reliableWindow": 128, "replayWindow": 128, "rtxIntervalMs": 50, "maxRtx": 20,
