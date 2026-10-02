@@ -191,7 +191,7 @@ All routes are prefixed with `/api/`.
 |--------|------|-------------|
 | GET | `/api/beacon/state` | Beacon state (checkpoint, block, slot, epoch, timestamp) |
 | GET | `/api/beacon/calibration` | Beacon calibration data |
-| GET | `/api/beacon/miners` | Miner list from beacon |
+| GET | `/api/beacon/miners` | Registered miner ids and last renewal (no network addresses) |
 | GET | `/api/miner/status` | Miner status (stake, nextBlockId, pending txs, etc.) |
 | GET | `/api/block/<id>` | Block by ID (JSON) |
 | GET | `/api/account/<id>` | User account by ID (JSON) |

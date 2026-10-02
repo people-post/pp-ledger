@@ -1,5 +1,6 @@
 #include "BlockAddPolicy.h"
 #include "BlockWaitList.h"
+#include "MinerRegistry.h"
 #include "RequestQueue.h"
 #include "Server.h"
 #include "lib/common/BinaryPack.hpp"
@@ -264,9 +265,11 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   server.enqueueRequest(packRequest("reg-up", Client::T_REQ_REGISTER), replies.sink(), "upstream-peer");
   server.enqueueRequest(packRequest("from-down", Client::T_REQ_BLOCK_ADD), replies.sink(), "miner-peer");
   server.enqueueRequest(packRequest("status-up", Client::T_REQ_STATUS), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("list-up", Client::T_REQ_MINER_LIST), replies.sink(), "upstream-peer");
   server.serveRequestsFor(50ms);
 
-  ASSERT_EQ(replies.size(), 4u);
+  ASSERT_EQ(replies.size(), 5u);
+  EXPECT_NE(replies.items[4].errorCode, 0); // the registry lives upstream
   EXPECT_NE(replies.items[0].errorCode, 0);
   EXPECT_NE(replies.items[0].payload.find("upstream"), std::string::npos);
   EXPECT_NE(replies.items[1].errorCode, 0);
@@ -292,6 +295,38 @@ TEST(ServerThreadTest, PeekRequestTypeMatchesThePackedRequest) {
   EXPECT_EQ(Client::peekRequestType(packRequest("payload", Client::T_REQ_BLOCK_GET)), Client::T_REQ_BLOCK_GET);
   EXPECT_EQ(Client::peekRequestType(packRequest("", 70000)), 70000u);
   EXPECT_FALSE(Client::peekRequestType("short"));
+}
+
+// --- Miner registry: renewals keep a record, silence drops it ---
+
+Client::MinerInfo minerInfo(uint64_t id, const std::string& endpoint) {
+  Client::MinerInfo m;
+  m.id = id;
+  m.endpoint = endpoint;
+  return m;
+}
+
+TEST(MinerRegistryTest, RenewalKeepsTheRecordWithoutChangingTheVersion) {
+  MinerRegistry registry;
+  registry.upsert(minerInfo(1, "/a"), 1000);
+  const uint64_t v = registry.version();
+  registry.upsert(minerInfo(1, "/a"), 1060); // renewal
+  EXPECT_EQ(registry.version(), v);
+  EXPECT_EQ(registry.miners().at(1).tLastMessage, 1060);
+  EXPECT_EQ(registry.expire(1300, 300), 0u); // renewed 240 s ago
+  registry.upsert(minerInfo(1, "/b"), 1310); // moved
+  EXPECT_GT(registry.version(), v);
+}
+
+TEST(MinerRegistryTest, RecordsNotRenewedWithinTheTtlAreDropped) {
+  MinerRegistry registry;
+  registry.upsert(minerInfo(1, "/a"), 1000);
+  registry.upsert(minerInfo(2, "/b"), 1200);
+  const uint64_t v = registry.version();
+  EXPECT_EQ(registry.expire(1301, 300), 1u);
+  EXPECT_FALSE(registry.miners().contains(1));
+  EXPECT_TRUE(registry.miners().contains(2));
+  EXPECT_GT(registry.version(), v);
 }
 
 // --- BLOCK_WAIT ---

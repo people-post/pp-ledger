@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_SERVER_H
 
 #include "Beacon.h"
+#include "MinerRegistry.h"
 #include "Server.h"
 #include "../client/Client.h"
 #include "../network/amp/AmpIdentity.h"
@@ -137,7 +138,13 @@ private:
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
   void initHandlers();
 
+  /**
+   * Record (or renew) a miner. Stamped with the beacon's clock; the registry
+   * version changes only when the list does, so renewals cost nothing.
+   */
   void registerServer(const Client::MinerInfo &minerInfo);
+  /** Drop miners that have not renewed within MINER_RECORD_TTL. */
+  void expireMinerRecords();
   Client::BeaconState buildStateResponse() const;
 
   std::string handleParsedRequest(const Client::Request &request) override;
@@ -162,8 +169,9 @@ private:
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;
 
-  std::map<uint64_t, Client::MinerInfo> mMiners_;
-  uint64_t registryVersion_{0};
+  MinerRegistry miners_;
+  /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
+  static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
   std::string initKeysPath_;
 
   /** Write keys to the first free init-keys[-N].json in workDir (0600). */

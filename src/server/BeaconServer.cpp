@@ -611,10 +611,23 @@ void BeaconServer::initHandlers() {
 };
 
 
+namespace {
+int64_t nowSeconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+} // namespace
+
 void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
-  mMiners_[minerInfo.id] = minerInfo;
-  ++registryVersion_;
-  log().debug << "Updated miner record: " << minerInfo.id << " " << minerInfo.endpoint;
+  miners_.upsert(minerInfo, nowSeconds());
+  log().debug << "Miner record: " << minerInfo.id << " " << minerInfo.endpoint;
+  expireMinerRecords();
+}
+
+void BeaconServer::expireMinerRecords() {
+  const int64_t ttl = std::chrono::duration_cast<std::chrono::seconds>(MINER_RECORD_TTL).count();
+  if (const size_t removed = miners_.expire(nowSeconds(), ttl); removed > 0) {
+    log().info << "Dropped " << removed << " miner record(s) not renewed in " << ttl << " s";
+  }
 }
 
 Client::BeaconState BeaconServer::buildStateResponse() const {
@@ -635,7 +648,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   if (state.networkId.empty()) {
     state.networkId = config_.network_id;
   }
-  state.registryVersion = registryVersion_;
+  state.registryVersion = miners_.version();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -789,9 +802,10 @@ BeaconServer::hCalibration(const Client::Request & /*request*/) {
 
 BeaconServer::Roe<std::string>
 BeaconServer::hMinerList(const Client::Request & /*request*/) {
+  expireMinerRecords();
   std::vector<pp::common::Meta> list;
-  list.reserve(mMiners_.size());
-  for (const auto &[id, info] : mMiners_) {
+  list.reserve(miners_.miners().size());
+  for (const auto &[id, info] : miners_.miners()) {
     list.push_back(info.ltsToMeta());
   }
   return utl::binaryPack(list);

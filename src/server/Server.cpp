@@ -132,6 +132,8 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
   case Client::T_REQ_REGISTER:
   // Blocks flow down: our upstream never waits on us for them.
   case Client::T_REQ_BLOCK_WAIT:
+  // The registry lives upstream: our upstream never asks us for it.
+  case Client::T_REQ_MINER_LIST:
     return origin == Origin::Downstream;
   default:
     return true;

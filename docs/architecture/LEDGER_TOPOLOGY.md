@@ -184,6 +184,7 @@ one table for all roles before any handler runs:
 |---------|-----------------|-------------------|
 | `BLOCK_ADD`, `REGISTER` (writes travelling up to the terminal) | Accepted | **Refused** |
 | `BLOCK_WAIT` (blocks travel down) | Accepted | **Refused** |
+| `MINER_LIST` (the registry lives upstream) | Accepted | **Refused** |
 | Everything else | Accepted | Accepted |
 
 Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
@@ -376,6 +377,15 @@ rejection; out-of-order dependent transactions must be resubmitted.
 - Registrant proves control of mining keys (signed payload or challenge/response).
 - Terminal records `{ miner_id, stake, listen_multiaddr, registry_version }`.
 - `MINER_LIST` includes `registry_version` so participants detect stale gateway cache.
+- **Renewal:** miners re-register every 60 s; the terminal stamps each record
+  and drops one not renewed within 5 min (`MinerRegistry`). `registry_version`
+  changes only when the list does (join, endpoint change, expiry), not on renewal.
+- **Address exposure:** miner network addresses are need-to-know. `MINER_LIST`
+  is accepted only from downstream (§7.1), and public surfaces (pp-http
+  `/api/beacon/miners`, MCP `list_miners`) show miner ids only, never addresses.
+  Target model: miners are reachable only through relays (sentry pattern), so
+  the leader schedule plus a public address list cannot be used to flood the
+  next slot leader.
 
 ---
 
@@ -410,6 +420,7 @@ explicitly synchronized to the terminal within ε.
 | Fake registration | Signed `REGISTER`; terminal verification |
 | Gateway censorship | Multiple upstreams; monitoring head lag |
 | Flooding / abuse | Per-PeerId rate limits on gateways (ops layer) |
+| Targeted flooding of the next slot leader | Miner addresses not published (§10.4); relay-only access |
 
 Participants do **not** authenticate “this peer is the real beacon.” They authenticate **chain
 continuity and network identity**.

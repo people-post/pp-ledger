@@ -529,6 +529,7 @@ void MinerServer::runLoop() {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
       }
+      renewRegistrationPeriodically();
       if (minerListRefreshRequested_) {
         minerListRefreshRequested_ = false;
         startMinerListRefresh();
@@ -1074,6 +1075,29 @@ void MinerServer::handleValidatorRole() {
   // The actual block reception would happen via network requests
 }
 
+void MinerServer::renewRegistrationPeriodically() {
+  const auto now = std::chrono::steady_clock::now();
+  if (registrationInFlight_ || now - lastRegistration_ < REGISTER_RENEW_INTERVAL) {
+    return;
+  }
+  lastRegistration_ = now; // a failure retries next interval, still inside the beacon's TTL
+  if (auto dial = dialActiveUpstream(); !dial) {
+    log().warning << "Registration renewal: " << dial.error().message;
+    return;
+  }
+  Client::MinerInfo minerInfo;
+  minerInfo.id = config_.minerId;
+  minerInfo.endpoint = listenMultiaddr();
+  registrationInFlight_ = true;
+  client_.registerMinerServerAsync(
+      minerInfo, completeOnServerThread<Client::BeaconState>([this](Client::Roe<Client::BeaconState> state) {
+        registrationInFlight_ = false;
+        if (!state) {
+          log().warning << "Registration renewal failed: " << state.error().message;
+        }
+      }));
+}
+
 MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   if (config_.network.beacon_multiaddrs.empty()) {
     return Error(E_CONFIG, "No beacon servers configured");
@@ -1109,6 +1133,7 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_NETWORK, genesis.error().message);
   }
 
+  lastRegistration_ = std::chrono::steady_clock::now();
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
   if (!state.networkId.empty()) {
