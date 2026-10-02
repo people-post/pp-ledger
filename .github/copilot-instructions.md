@@ -18,10 +18,10 @@ pp-ledger/
 │   ├── lib/          # Core utilities: Logger, Serialize, BinaryPack, ResultOrError
 │   ├── consensus/    # SlotCommittee + EpochManager, SlotLeaderSelection, SlotTimer
 │   ├── ledger/       # Blockchain storage: Ledger, FileStore, DirStore, etc.
-│   ├── network/      # TCP networking: FetchClient/Server, TcpClient/Server
+│   ├── network/      # AMP ledger RPC: runtime, server binding, network tuning
 │   ├── chain/        # Chain, AccountBuffer, tx helpers
 │   ├── server/       # Beacon + Relay + Miner server logic
-│   ├── client/       # TCP client library
+│   ├── client/       # Ledger RPC client library
 │   ├── lib/http/     # Vendored cpp-httplib (used by pp-http), built with -DPP_LEDGER_BUILD_HTTP=ON
 │   └── app/          # Entrypoints: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── scripts/      # Helper scripts

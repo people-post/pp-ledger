@@ -113,8 +113,8 @@ beacon on the wire.
                             │  ILedgerTransport (unframed RPC envelope bytes)
          ┌──────────────────┼──────────────────┐
          │                  │                  │
- TcpLedgerTransport   InProcessLedgerTransport   Libp2pLedgerTransport
- (u32 LedgerFrameCodec)  (no framing)           (pp-browser only; u32)
+ AmpLedgerTransport   InProcessLedgerTransport   Libp2pLedgerTransport
+ (no framing)          (no framing)             (pp-browser only; u32)
 ```
 
 | Path | Transport |
@@ -142,12 +142,11 @@ different sockets:
 ### Libp2p protocol (planned spec)
 
 - **Protocol ID:** `/pp-ledger/rpc/1.0.0`
-- **Framing:** **u32 BE** via `LedgerFrameCodec` (same as TCP). Do not reuse pp-browser
+- **Framing:** **u32 BE** length prefix. Do not reuse pp-browser
   general `StreamFrameIo` u64 framing for ledger RPC.
 - **Handler rule:** hop off libp2p IO thread before blocking work (same as
   `DialBackService` in pp-browser).
-- **Discovery:** libp2p on PP nodes; deprecate BitTorrent `DhtRunner` on PP fleet over
-  time. Standalone TCP miners may keep DHT until sunset.
+- **Discovery:** libp2p on PP nodes (the BitTorrent DHT is retired).
 
 ### Answer: miner ↔ pp-node
 
@@ -297,7 +296,7 @@ Continue to ship and support:
 
 - `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`, `pp-http`
 - Docker image / CI (`scripts/ci-build.sh`) on **Linux, macOS, and Windows** (`ubuntu-24.04`, `macos-14`, `windows-2022`)
-- TCP fetch + DHT for public internet deployment (Winsock on Windows via `src/network/platform/`)
+- AMP over UDP for public internet deployment
 
 Embedded PP fleet (pp-node / pp-browser) uses libp2p among themselves; standalone
 binaries serve migration and ops.

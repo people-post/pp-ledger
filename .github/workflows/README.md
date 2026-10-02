@@ -78,5 +78,4 @@ Fetched at configure time via CMake FetchContent (pp-cpp-common, pp-cpp-crypto).
 ## Troubleshooting
 
 - **FetchContent failures:** Check tag pins in `cmake/PpCppCommon.cmake` / `cmake/PpCppCrypto.cmake`.
-- **Windows socket errors:** Ensure `networkPlatformInit()` runs before socket use (tests call this via `SocketTestUtils.h`).
 - **Local repro:** `./scripts/ci-build.sh --test`

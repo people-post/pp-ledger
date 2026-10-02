@@ -12,7 +12,7 @@ namespace rpc {
 /** L4 protocol id for blockchain RPC over AMP (see docs/contracts/AMP_TRANSPORT.md). */
 inline constexpr const char* kProtocolId = "/pp-ledger/rpc/1.0.0";
 
-/** Max unframed request/response body (matches public TCP SecurityConfig default). */
+/** Max request/response body. */
 inline constexpr size_t kMaxPayloadBytes = 512 * 1024;
 
 inline constexpr std::chrono::milliseconds kDefaultReadTimeout{8000};
