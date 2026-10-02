@@ -1,4 +1,5 @@
 #include "BeaconServer.h"
+#include "BlockAddPolicy.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
@@ -724,6 +725,14 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
+  }
+  switch (checkBlockAdd(beacon_, block)) {
+  case BlockAddCheck::AlreadyHave:
+    return {"Block already added"};
+  case BlockAddCheck::Conflicts:
+    return Error(E_REQUEST, "Block " + std::to_string(block.block.index) + " conflicts with the stored block");
+  case BlockAddCheck::New:
+    break;
   }
   auto result = beacon_.addBlock(block);
   if (!result) {

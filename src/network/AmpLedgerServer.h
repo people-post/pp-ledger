@@ -18,8 +18,11 @@ class AmpLedgerServer {
 public:
   /** Sends the reply for one inbound request. Any thread; only the first call counts. */
   using Reply = std::function<void(std::string response)>;
-  /** Receives a request on the io lane; replies now or later via `reply`. */
-  using AsyncHandler = std::function<void(std::string requestBody, Reply reply)>;
+  /**
+   * Receives a request on the io lane; replies now or later via `reply`.
+   * `remotePeerId` is the sender's authenticated AMP peer id.
+   */
+  using AsyncHandler = std::function<void(std::string remotePeerId, std::string requestBody, Reply reply)>;
 
   using Handler = std::function<std::string(const std::string& requestBody)>;
   using WorkerPost = std::function<void(std::function<void()>)>;

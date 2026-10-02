@@ -27,8 +27,10 @@ public:
   using Clock = std::chrono::steady_clock;
   using Reply = network::AmpLedgerServer::Reply;
 
-  /** A request (body + reply), or a completion task when `task` is set. */
+  /** A request (sender, body, reply), or a completion task when `task` is set. */
   struct Item {
+    /** Sender's authenticated AMP peer id ("" when unknown, e.g. in-process). */
+    std::string peerId;
     std::string body;
     Reply reply;
     Clock::time_point enqueuedAt;
@@ -38,7 +40,7 @@ public:
   explicit RequestQueue(size_t capacity);
 
   /** Any thread. False when full or closed; the caller must still reply. */
-  bool push(std::string body, Reply reply);
+  bool push(std::string peerId, std::string body, Reply reply);
 
   /** Any thread. Completion task; not subject to capacity. False once closed. */
   bool pushTask(std::function<void()> task);
