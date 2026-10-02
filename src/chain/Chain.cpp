@@ -553,7 +553,7 @@ void Chain::abandonSeal() {
 Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
-                     txContext_.pendingChainConfig, txContext_.checkpoint};
+                     txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -563,6 +563,7 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.consensus.restoreTipState(std::move(snapshot.consensus));
   txContext_.optChainConfig = std::move(snapshot.optChainConfig);
   txContext_.pendingChainConfig = std::move(snapshot.pendingChainConfig);
+  txContext_.issuanceBaseline = snapshot.issuanceBaseline;
   txContext_.checkpoint = snapshot.checkpoint;
 }
 
@@ -576,7 +577,7 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   }
 
   if (block.block.index > 0) {
-    activatePendingConfig(block.block.epoch);
+    enterBlockEpoch(block.block.epoch);
     if (admissionModeFor(block.block.index) !=
         chain_block::BlockAdmissionMode::Full) {
       return Error(E_BLOCK_VALIDATION,
@@ -1079,21 +1080,24 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-void Chain::activatePendingConfig(uint64_t epoch) {
+void Chain::enterBlockEpoch(uint64_t epoch) {
   auto &pending = txContext_.pendingChainConfig;
-  if (!pending.has_value() || epoch < pending->activationEpoch) {
-    return;
+  if (pending.has_value() && epoch >= pending->activationEpoch) {
+    txContext_.optChainConfig = std::move(pending->config);
+    log().info << "Config update in force from epoch " << pending->activationEpoch << ": "
+               << txContext_.optChainConfig.value();
+    pending.reset();
   }
-  txContext_.optChainConfig = std::move(pending->config);
-  log().info << "Config update in force from epoch " << pending->activationEpoch << ": "
-             << txContext_.optChainConfig.value();
-  pending.reset();
+  auto &baseline = txContext_.issuanceBaseline;
+  if (!baseline.has_value() || baseline->epoch < epoch) {
+    baseline = IssuanceBaseline{epoch, txContext_.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS)};
+  }
 }
 
 Chain::Roe<void> Chain::processNormalBlock(
     const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
   // A block of a new epoch is checked and applied under that epoch's config.
-  activatePendingConfig(block.block.epoch);
+  enterBlockEpoch(block.block.epoch);
   auto roe = mapTxVoid(chain_block::checkBlock(
       block, mode, txContext_.ledger, txContext_.consensus, txContext_.bank,
       txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));

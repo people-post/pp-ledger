@@ -28,7 +28,7 @@ private:
   chain_tx::Roe<void>
   applyDefaultTransferStrict(const Ledger::TxDefault &tx,
                              const TxContext &ctx,
-                             AccountBuffer &bank) const;
+                             AccountBuffer &bank, uint64_t slot) const;
 
   chain_tx::Roe<void>
   applyDefaultTransferLoose(const Ledger::TxDefault &tx,

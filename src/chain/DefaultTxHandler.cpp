@@ -9,6 +9,47 @@
 
 namespace pp {
 
+namespace {
+
+/**
+ * Every transfer out of genesis mints: reserve is its only destination (one
+ * auditable path for new supply), and the epoch's net issuance (amount + fee)
+ * stays within the config's maxIssuancePerEpoch.
+ */
+chain_tx::Roe<void> checkGenesisIssuance(const Ledger::TxDefault &tx, const TxContext &ctx,
+                                         const AccountBuffer &bank, uint64_t slot) {
+  if (tx.toWalletId != AccountBuffer::ID_RESERVE) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis transfers only to reserve");
+  }
+  if (!ctx.optChainConfig.has_value()) {
+    return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for genesis issuance");
+  }
+  const uint64_t cap = ctx.optChainConfig->maxIssuancePerEpoch;
+  if (tx.amount > cap || tx.fee > cap - tx.amount) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis issuance exceeds maxIssuancePerEpoch: " + std::to_string(cap));
+  }
+  // Baseline: genesis's balance at this epoch's first block; before that block
+  // (mempool, new epoch) the committed balance.
+  const uint64_t epoch = ctx.consensus.getEpochFromSlot(slot);
+  const auto &baseline = ctx.issuanceBaseline;
+  const int64_t start = baseline.has_value() && baseline->epoch >= epoch
+                            ? baseline->genesisBalance
+                            : ctx.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS);
+  const int64_t now = bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS);
+  // Genesis mints by going negative: issued so far = start - now (0 if more
+  // came back than went out). Unsigned difference is exact when start > now.
+  const uint64_t issuedSoFar = now < start ? static_cast<uint64_t>(start) - static_cast<uint64_t>(now) : 0;
+  if (issuedSoFar > cap - tx.amount - tx.fee) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis issuance exceeds maxIssuancePerEpoch: " + std::to_string(cap) +
+                                 " (issued this epoch: " + std::to_string(issuedSoFar) + ")");
+  }
+  return {};
+}
+
+} // namespace
+
 chain_tx::Roe<uint64_t>
 DefaultTxHandler::getSignerAccountId(const Ledger::TypedTx &tx,
                                      uint64_t slotLeaderId) const {
@@ -78,7 +119,7 @@ chain_tx::Roe<void> DefaultTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !seeded) {
     return seeded;
   }
-  return applyDefaultTransferStrict(*p, c.ctx, bank);
+  return applyDefaultTransferStrict(*p, c.ctx, bank, c.effectiveSlot);
 }
 
 chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
@@ -97,20 +138,18 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
     return idem;
   }
   if (chain_block::admissionTxStrict(c.admissionMode)) {
-    return applyDefaultTransferStrict(*p, c.ctx, bank);
+    return applyDefaultTransferStrict(*p, c.ctx, bank, c.blockSlot);
   }
   return applyDefaultTransferLoose(*p, c.ctx, bank);
 }
 
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
-    AccountBuffer &bank) const {
-  // Every transfer out of genesis mints; reserve is its only destination, so
-  // new supply has one auditable path.
-  if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
-      tx.toWalletId != AccountBuffer::ID_RESERVE) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis transfers only to reserve");
+    AccountBuffer &bank, uint64_t slot) const {
+  if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+    if (auto issued = checkGenesisIssuance(tx, ctx, bank, slot); !issued) {
+      return issued;
+    }
   }
   if (auto feeGate = chain_tx::requireMinimumFee(
           ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
