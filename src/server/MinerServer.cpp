@@ -43,7 +43,6 @@ Object MinerServer::RunFileConfig::ltsToJson() const {
     keyVals.push_back(k);
   }
   j.set("keys", Object::array(std::move(keyVals)));
-  j.set("host", host);
   j.setJsonUInt("port", port);
   std::vector<Value> beaconVals;
   for (const auto &b : beacons) {
@@ -86,21 +85,13 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
   }
 
-  auto hostOpt = jd.getString("host");
-  if (!hostOpt) {
-    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
-                                               : "Field 'host' is required");
+  if (jd.contains("port")) {
+    auto portValue = jd.getNonNegInt("port");
+    if (!portValue || *portValue == 0 || *portValue > 65535) {
+      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
+    }
+    port = static_cast<uint16_t>(*portValue);
   }
-  host = *hostOpt;
-  if (host.empty()) {
-    return Error(E_CONFIG, "Field 'host' cannot be empty");
-  }
-
-  auto portValue = jd.getNonNegInt("port");
-  if (!portValue || *portValue == 0 || *portValue > 65535) {
-    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-  }
-  port = static_cast<uint16_t>(*portValue);
 
   const Array *beaconsArr = jd.getArray("beacons");
   if (!beaconsArr) {
@@ -112,30 +103,19 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   }
   beacons.clear();
   for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
-    if (auto s = asString(beaconsArr->elements[i])) {
-      beacons.push_back(*s);
-      continue;
+    auto s = asString(beaconsArr->elements[i]);
+    if (!s) {
+      return Error(E_CONFIG, "beacons[" + std::to_string(i) + "] must be an upstream multiaddr string");
     }
-    const Object *beacon = asObject(beaconsArr->elements[i]);
-    if (!beacon) {
-      return Error(E_CONFIG,
-                   "beacons[] entries must be multiaddr strings or objects (index " +
-                       std::to_string(i) + ")");
-    }
-    auto ma = network::ParseBeaconMultiaddr(*beacon);
+    auto ma = network::ParseBeaconMultiaddrString(*s);
     if (!ma) {
-      return Error(E_CONFIG, "Failed to parse beacon configuration: " + ma.error().message);
+      return Error(E_CONFIG, "beacons[" + std::to_string(i) + "]: " + ma.error().message);
     }
     beacons.push_back(std::move(*ma));
   }
   if (const Object* anchorObj = jd.getObject("networkAnchor")) {
     network_anchor = NetworkAnchor::fromJson(*anchorObj);
   }
-  auto tuningResult = network::NetworkTuning::fromConfig(jd);
-  if (!tuningResult) {
-    return Error(E_CONFIG, tuningResult.error().message);
-  }
-  tuning = std::move(*tuningResult);
   return {};
 }
 
@@ -296,12 +276,8 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacons: " << config_.network.beacon_multiaddrs.size();
 
-  setNetworkTuning(runFileConfig.tuning);
   if (auto upstreams = setUpstreams(config_.network.beacon_multiaddrs); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
-  }
-  for (Client *client : {&client_, &broadcastClient_}) {
-    client->setRequestTimeout(networkTuning().rpcTimeout);
   }
 
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.privateKeys.front(), config_.network.udp_port);

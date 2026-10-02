@@ -87,7 +87,7 @@ TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
     std::filesystem::create_directories(workDir);
     auto key = utl::mlDsaGenerate().value();
     std::ofstream(workDir / "init-config.json")
-        << R"({"genesisMiners": [{"id": )" << badId << R"(, "publicKeys": [")" << utl::hexEncode(key.publicKey)
+        << R"({"networkId": "test-net", "genesisMiners": [{"id": )" << badId << R"(, "publicKeys": [")" << utl::hexEncode(key.publicKey)
         << R"("]}]})";
     {
       BeaconServer server;
@@ -145,6 +145,22 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
     auto replayedLater = genuine;
     replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
     EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
+  }
+  std::filesystem::remove_all(workDir, ec);
+}
+
+// networkId is part of genesis: init refuses to make a chain without one.
+TEST(BeaconServerInitTest, InitRequiresNetworkId) {
+  const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-network-id-test";
+  std::error_code ec;
+  std::filesystem::remove_all(workDir, ec);
+  std::filesystem::create_directories(workDir);
+  std::ofstream(workDir / "init-config.json") << R"({"slotDuration": 5})";
+  {
+    BeaconServer server;
+    auto init = server.init(workDir.string());
+    ASSERT_FALSE(init.isOk());
+    EXPECT_NE(init.error().message.find("networkId"), std::string::npos) << init.error().message;
   }
   std::filesystem::remove_all(workDir, ec);
 }

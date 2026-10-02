@@ -57,11 +57,9 @@ private:
   struct RunFileConfig {
     uint64_t minerId{ 0 };
     std::vector<std::string> keys;
-    std::string host{ Client::DEFAULT_HOST };
     uint16_t port{ Client::DEFAULT_MINER_PORT };
     std::vector<std::string> beacons;
     NetworkAnchor network_anchor;
-    network::NetworkTuning tuning;
 
     pp::common::Object ltsToJson() const;
     Roe<void> ltsFromJson(const pp::common::Object& jd);

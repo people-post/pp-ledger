@@ -36,7 +36,7 @@ protected:
     auto minerKey = utl::mlDsaGenerate();
     ASSERT_TRUE(minerKey.isOk());
     std::ofstream(root_ / "beacon" / "init-config.json")
-        << R"({"slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
+        << R"({"networkId": "test-net", "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
         << R"( "maxTransactionsPerBlock": 100, "minFeeCoefficients": [1, 1, 0],)"
         << R"( "freeCustomMetaSize": 1024, "checkpointMinBlocks": 1000,)"
         << R"( "checkpointMinAgeSeconds": 0, "heartbeatSlots": 1000,)"
@@ -84,7 +84,7 @@ protected:
     rec.type = Ledger::T_DEFAULT;
     rec.data = utl::binaryPack(tx);
     for (const auto &k : reserveKeys_) {
-      auto sig = utl::mlDsaSign(k.privateKey, rec.signingMessage(""));
+      auto sig = utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net"));
       EXPECT_TRUE(sig.isOk());
       rec.signatures.push_back(sig.value());
     }

@@ -38,19 +38,7 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 Object RelayServer::RunFileConfig::ltsToJson() {
   Object j;
   j.setJsonUInt("port", port);
-  std::vector<Value> keyVals;
-  for (const auto &k : keys) {
-    keyVals.push_back(k);
-  }
-  j.set("keys", Object::array(std::move(keyVals)));
-  if (!beacon.empty()) {
-    j.set("beacon", beacon);
-  } else {
-    Object beaconObj;
-    beaconObj.set("host", Client::DEFAULT_HOST);
-    beaconObj.setJsonUInt("port", Client::DEFAULT_BEACON_PORT);
-    j.set("beacon", beaconObj);
-  }
+  j.set("beacon", beacon.empty() ? std::string("/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>") : beacon);
   return j;
 }
 
@@ -66,57 +54,15 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     port = DEFAULT_RELAY_PORT;
   }
 
-  if (jd.contains("keys")) {
-    const Array *keysArr = jd.getArray("keys");
-    if (!keysArr) {
-      return Error(E_CONFIG, "Field 'keys' must be an array");
-    }
-    keys.clear();
-    for (size_t i = 0; i < keysArr->elements.size(); ++i) {
-      auto keyFile = asString(keysArr->elements[i]);
-      if (!keyFile) {
-        return Error(E_CONFIG,
-                     "All elements in 'keys' array must be strings (index " +
-                         std::to_string(i) + " is not)");
-      }
-      if (keyFile->empty()) {
-        return Error(E_CONFIG, "Key file at index " + std::to_string(i) +
-                                   " cannot be empty");
-      }
-      keys.push_back(*keyFile);
-    }
-    if (keys.empty()) {
-      return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
-    }
-  } else {
-    keys = {FILE_AMP_IDENTITY};
+  auto beaconStr = jd.getString("beacon");
+  if (!beaconStr) {
+    return Error(E_CONFIG, "Field 'beacon' (upstream multiaddr) is required");
   }
-
-  if (auto beaconStr = jd.getString("beacon")) {
-    auto ma = network::ParseBeaconMultiaddrString(*beaconStr);
-    if (!ma) {
-      return Error(E_CONFIG, "Failed to parse beacon multiaddr: " + ma.error().message);
-    }
-    beacon = std::move(*ma);
-  } else {
-    const Object *beaconObj = jd.getObject("beacon");
-    if (!beaconObj) {
-      return Error(E_CONFIG, jd.contains("beacon")
-                                 ? "Field 'beacon' must be a multiaddr string or object"
-                                 : "Field 'beacon' is required");
-    }
-    auto ma = network::ParseBeaconMultiaddr(*beaconObj);
-    if (!ma) {
-      return Error(E_CONFIG, "Failed to parse beacon configuration: " + ma.error().message);
-    }
-    beacon = std::move(*ma);
+  auto ma = network::ParseBeaconMultiaddrString(*beaconStr);
+  if (!ma) {
+    return Error(E_CONFIG, "Field 'beacon': " + ma.error().message);
   }
-
-  auto tuningResult = network::NetworkTuning::fromConfig(jd);
-  if (!tuningResult) {
-    return Error(E_CONFIG, tuningResult.error().message);
-  }
-  tuning = std::move(*tuningResult);
+  beacon = std::move(*ma);
   return {};
 }
 
@@ -180,22 +126,15 @@ Service::Roe<void> RelayServer::onStart() {
   // Apply configuration from RunFileConfig
   config_.network.udp_port = runFileConfig.port;
   config_.network.beacon_multiaddr = runFileConfig.beacon;
-  config_.network.privateKeys.clear();
-  for (const auto &keyFile : runFileConfig.keys) {
-    auto keyResult = utl::readPrivateKey(keyFile, getWorkDir());
-    if (!keyResult) {
-      return Service::Error(E_CONFIG,
-                            "Failed to load key '" + keyFile + "': " +
-                                keyResult.error().message);
-    }
-    config_.network.privateKeys.push_back(keyResult.value());
+  auto identityKey = loadOrCreateIdentityKey();
+  if (!identityKey) {
+    return Service::Error(E_CONFIG, identityKey.error().message);
   }
 
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacon: " << config_.network.beacon_multiaddr;
 
-  setNetworkTuning(runFileConfig.tuning);
   std::vector<std::string> upstreamAddrs;
   if (!config_.network.beacon_multiaddr.empty()) {
     upstreamAddrs.push_back(config_.network.beacon_multiaddr);
@@ -203,9 +142,8 @@ Service::Roe<void> RelayServer::onStart() {
   if (auto upstreams = setUpstreams(upstreamAddrs); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
   }
-  client_.setRequestTimeout(networkTuning().rpcTimeout);
 
-  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.network.privateKeys.front(),
+  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(identityKey.value(),
                                                        config_.network.udp_port);
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);

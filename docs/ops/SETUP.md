@@ -20,34 +20,10 @@ This will:
 - Write the new genesis/fee/reserve/recycle private keys to `beacon/init-keys.json`
   (mode 0600; `init-keys-2.json`, … on re-init — existing files are never
   overwritten). Only the path is printed. Save the keys, then delete the file
-- Create `beacon/config.json` for runtime configuration
+- Create `beacon/config.json` for runtime configuration (`{"port": 8517}`)
 
-You can customize `beacon/init-config.json` before initialization:
-```json
-{
-  "slotDuration": 5,           // Slot duration in seconds (default: 5)
-  "slotsPerEpoch": 432,        // Slots per epoch (default: 432 = ~36 minutes)
-  "heartbeatSlots": 432,       // Empty seal when tip lag ≥ this (default: slotsPerEpoch; 0=off)
-  "checkpointSize": 1073741824,  // Checkpoint size in bytes (default: 1GB)
-  "checkpointAge": 31536000,   // Checkpoint age in seconds (default: 1 year)
-  "genesisMiners": [           // Miner accounts created at genesis (see below)
-    {"id": 1048576, "publicKeys": ["<hex ML-DSA-65 public key>"]}
-  ]
-}
-```
-
-**Genesis miners.** System accounts (genesis, fee, reserve, recycle) never lead
-slots, so a new chain needs miners from block 0. Each `genesisMiners` entry
-creates a miner account in the genesis block:
-
-- `id` — in the issued range `[1048576, 1073741824)` (2²⁰ ≤ id < 2³⁰)
-- `publicKeys` — hex ML-DSA-65 public keys; the miner keeps the private keys
-  (`pp-client keygen`), the beacon never sees them
-- `minSignatures` — optional, default: all keys
-- `stake` — optional initial balance taken from reserve; default an equal share
-  of 10% of the supply among miners without an explicit stake
-
-Run each miner with that `minerId` and its private key(s) in `keys`.
+Edit `beacon/init-config.json` before initialization; it must set `networkId`.
+Fields, defaults and genesis miners: [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Mode 2: Mount an existing beacon
 
@@ -59,7 +35,8 @@ cd build
 The beacon will:
 - Create `beacon/ledger/` directory for blockchain data
 - Create `beacon/beacon.log` for detailed logs
-- Listen on the configured host and port (default: `localhost:8517`)
+- Create its network identity `keys/amp-identity.txt` on first start and print its listen multiaddr
+- Listen on the configured UDP port (default: 8517)
 - Validate blocks (but does NOT produce blocks)
 
 ### Debug mode
@@ -82,30 +59,23 @@ mkdir -p miner1
 ./app/pp-miner -d miner1
 ```
 
-On first run, the miner creates a default `miner1/config.json`. Edit it to configure your miner:
+On first run, the miner creates a default `miner1/config.json`. Edit it:
 
 ```json
 {
-  "minerId": 1,
-  "keys": ["miner1/key.txt"],
-  "host": "localhost",
-  "port": 8518,
-  "beacons": [{"host":"127.0.0.1","port":8517,"dhtPort":0}]
+  "minerId": 1048576,
+  "keys": ["key.txt"],
+  "beacons": ["/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
 }
 ```
 
-Config fields:
-- `minerId` (required): Unique numeric miner identifier
-- `keys` (required): Array of key-file paths containing hex-encoded ML-DSA-65 private keys (8064 hex chars)
-- `host` (optional): Listen address, default: `"localhost"`
-- `port` (optional): Listen port, default: `8518`
-- `beacons` (required): List of beacon endpoints `{host, port, dhtPort}` to connect to
+Fields and defaults: [CONFIGURATION.md](CONFIGURATION.md).
 
 The miner will:
 - Connect to the beacon(s) specified in config
 - Create `miner1/ledger/` directory for blockchain data
 - Create `miner1/miner.log` for detailed logs
-- Listen on the configured host and port (default: `localhost:8518`)
+- Dial out to its upstream(s); nothing needs to reach the miner
 - Automatically produce blocks when elected as slot leader (if there are pending transactions)
 
 ### Debug mode
@@ -232,142 +202,57 @@ curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/js
 
 ## Multi-Node Setup
 
-To run multiple nodes for a distributed network:
+One beacon (the terminal), relays below it, miners below the relays. Miners
+only dial out; give them relay multiaddrs. `scripts/test/pp_ledger_local_test.sh`
+does all of this locally (`run --suite smoke`).
 
-**Beacon 1:**
+**1. Miner keys** (each miner operator, before genesis):
 ```bash
-mkdir -p beacon1
-./app/pp-beacon -d beacon1 --init
-cat > beacon1/config.json << EOF
-{
-  "host": "localhost",
-  "port": 8517,
-  "beacons": ["localhost:8527"]
-}
-EOF
-./app/pp-beacon -d beacon1
+./app/pp-client keygen        # keep the private key; send the public key to the beacon operator
 ```
 
-**Beacon 2:**
+**2. Beacon** — list the miners in `init-config.json`, then init and start:
 ```bash
-mkdir -p beacon2
-cp -r beacon1/ledger beacon2/
-cat > beacon2/config.json << EOF
+mkdir -p beacon
+cat > beacon/init-config.json << 'JSON'
 {
-  "host": "localhost",
-  "port": 8527,
-  "beacons": ["localhost:8517"]
+  "networkId": "my-network",
+  "genesisMiners": [
+    {"id": 1048576, "publicKeys": ["<miner 1 public key hex>"]},
+    {"id": 1048577, "publicKeys": ["<miner 2 public key hex>"]}
+  ]
 }
-EOF
-./app/pp-beacon -d beacon2
+JSON
+./app/pp-beacon -d beacon --init
+./app/pp-beacon -d beacon     # prints "AMP ledger listener: /ip4/.../p2p/<beacon peer id>"
 ```
 
-**Miner 1:**
+**3. Relay** — upstream is the beacon's multiaddr:
 ```bash
-mkdir -p miner1
-cat > miner1/config.json << EOF
+mkdir -p relay
+echo '{"beacon": "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>"}' > relay/config.json
+./app/pp-relay -d relay       # prints its own listen multiaddr
+```
+
+**4. Miners** — each with its account id, private key and the relay's multiaddr:
+```bash
+mkdir -p miner1 && cp <miner-1-private-key-file> miner1/key.txt
+cat > miner1/config.json << 'JSON'
 {
-  "minerId": 1,
-  "keys": ["miner1/key.txt"],
-  "host": "localhost",
-  "port": 8518,
-  "beacons": [{"host":"localhost","port":8517,"dhtPort":0},{"host":"localhost","port":8527,"dhtPort":0}]
+  "minerId": 1048576,
+  "keys": ["key.txt"],
+  "beacons": ["/ip4/127.0.0.1/udp/8519/adp/1.0.0/p2p/<relay peer id>"]
 }
-EOF
+JSON
 ./app/pp-miner -d miner1
-```
-
-**Miner 2:**
-```bash
-mkdir -p miner2
-cat > miner2/config.json << EOF
-{
-  "minerId": 2,
-  "keys": ["miner2/key.txt"],
-  "host": "localhost",
-  "port": 8528,
-  "beacons": [{"host":"localhost","port":8517,"dhtPort":0},{"host":"localhost","port":8527,"dhtPort":0}]
-}
-EOF
-./app/pp-miner -d miner2
 ```
 
 ---
 
 ## Configuration Reference
 
-### Beacon `init-config.json` (for `--init` mode)
-
-```json
-{
-  "slotDuration": 5,             // Slot duration in seconds (default: 5)
-  "slotsPerEpoch": 432,          // Slots per epoch (default: 432 = ~36 min)
-  "checkpointSize": 1073741824,  // Checkpoint size in bytes (default: 1GB)
-  "checkpointAge": 31536000      // Checkpoint age in seconds (default: 1 year)
-}
-```
-
-### Beacon `config.json` (runtime)
-
-```json
-{
-  "host": "localhost",           // Optional, default: "localhost"
-  "port": 8517,                  // Optional, default: 8517
-  "beacons": [                   // Optional, list of other beacon addresses
-    "host1:port1",
-    "host2:port2"
-  ],
-  "checkpointSize": 1073741824,  // Optional, default: 1GB
-  "checkpointAge": 31536000      // Optional, default: 1 year
-}
-```
-
-### Miner `config.json`
-
-```json
-{
-  "minerId": 1,                   // Required, unique numeric identifier
-  "keys": ["key.txt"],            // Required, key files for signing (multiple = multiple signatures)
-  "host": "localhost",            // Optional, default: "localhost"
-  "port": 8518,                   // Optional, default: 8518
-  "beacons": [                    // Required, list of beacon addresses to connect to
-    {"host":"localhost","port":8517,"dhtPort":0}
-  ]
-}
-```
-
-### Network tuning (`network`, any role)
-
-Optional in every role's `config.json` (beacon, relay, miner). Omit it, or any
-field, to keep the default. Unknown fields and values that cannot work are
-refused at start, so a typo fails loudly instead of being ignored.
-
-```json
-"network": {
-  "rpcTimeoutMs": 15000,          // T: client wait for a light reply (default 15000, min 1000)
-  "requestQueueCapacity": 1024,   // requests queued for the server thread (reads get a quarter more); more get "busy"
-  "startupSyncTimeoutMs": 300000, // relay / miner catch-up at start (>= rpcTimeoutMs)
-  "amp": {                        // transport policy, see pp-cpp-amp docs/TUNING.md
-    "reliableWindow": 128, "replayWindow": 128, "rtxIntervalMs": 50, "maxRtx": 20,
-    "skewMs": 60000, "aliveTimeoutMs": 5000,
-    "maxConcurrentChannels": 256, "maxQueuedBytes": 33554432, "fragAssemblyTimeoutMs": 30000
-  }
-}
-```
-
-One knob, `rpcTimeoutMs` (T), sets every request deadline so they cannot drift
-apart:
-
-| Deadline | Value |
-|----------|-------|
-| Light requests (status, calibration, register, miner list) | T |
-| Data requests (blocks, transactions, accounts) | 2T |
-| Server drops a request still queued after | T/2 (its client is about to give up; reply "expired" without doing the work) |
-| Server resets an RPC channel with nothing inbound for | 2T (the longest any client waits; also drops peers that open and never send) |
-
-Raise T for slow or distant links. A large chain may need a longer
-`startupSyncTimeoutMs`. Leave `amp` alone unless you are measuring the link;
-its rules (e.g. `replayWindow >= reliableWindow`) are checked at start.
+See [CONFIGURATION.md](CONFIGURATION.md) — every field of `init-config.json` and
+each role's `config.json`, and the fixed network timing.
 
 ---
 

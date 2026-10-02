@@ -132,15 +132,22 @@ protected:
   Origin originOf(const std::string& peerId) const;
 
   /**
-   * Before start: operator network policy (config.json `network`). Sizes the
-   * request queue, sets its expiry, and is applied to AMP and the role's
-   * clients. Roles read it back via networkTuning().
+   * Network policy: fixed defaults (NetworkTuning), not operator config; tests
+   * override it before start. Sizes the request queue and its expiry and is
+   * applied to AMP. Roles read it back via networkTuning().
    */
   void setNetworkTuning(const network::NetworkTuning& tuning);
   const network::NetworkTuning& networkTuning() const { return tuning_; }
 
   /** Before start only (tests): queue capacity and max time a request may wait. */
   void setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait);
+
+  /**
+   * This node's network identity key (`keys/amp-identity.txt` in the work
+   * dir), created on first start. Beacon and relay; a miner's identity is its
+   * account key.
+   */
+  Service::Roe<std::string> loadOrCreateIdentityKey();
 
   Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
   void stopAmpServer();
