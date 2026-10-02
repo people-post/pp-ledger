@@ -14,14 +14,15 @@ using pp::ledger::rpc::kProtocolId;
 using pp::ledger::rpc::LedgerRpcChannelPolicy;
 
 void HandleInboundChannel(pp::amp::PeerLink& link, const uint32_t channel_id,
-                          const AmpLedgerServer::AsyncHandler& handler, const AmpLedgerServer::IoPost& post_io) {
+                          const AmpLedgerServer::AsyncHandler& handler, const AmpLedgerServer::IoPost& post_io,
+                          const std::chrono::milliseconds read_timeout) {
   if (!link.Mux()) {
     return;
   }
   auto session = std::make_shared<pp::amp::ChannelSession>();
   // Server closes after the reply is enqueued. read_once would Close() immediately after the
   // request frame handler returns — before a deferred reply can EnqueueOutbound.
-  auto policy = LedgerRpcChannelPolicy();
+  auto policy = LedgerRpcChannelPolicy(read_timeout);
   policy.read_once = false;
   session->Bind(*link.Mux(), channel_id, std::move(policy),
                 [session, handler, post_io](pp::Roe<std::vector<uint8_t>> body) {
@@ -54,7 +55,8 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const uint32_t channel_id,
 
 } // namespace
 
-void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, IoPost post_io) {
+void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, IoPost post_io,
+                                const std::chrono::milliseconds read_timeout) {
   auto protocols = links.LocalCapability().protocols;
   bool found = false;
   for (const auto& id : protocols) {
@@ -68,16 +70,16 @@ void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler ha
     links.SetAdvertisedProtocols(std::move(protocols));
   }
 
-  links.SetProtocolHandler(kProtocolId, [&links, handler = std::move(handler), post_io = std::move(post_io)](
+  links.SetProtocolHandler(kProtocolId, [&links, handler = std::move(handler), post_io = std::move(post_io), read_timeout](
                                             pp::amp::LinkHandle link_handle, const std::string& /*remote_peer_id*/,
                                             const uint32_t channel_id) {
     links.WithLiveLink(link_handle,
-                       [&](pp::amp::PeerLink& link) { HandleInboundChannel(link, channel_id, handler, post_io); });
+                       [&](pp::amp::PeerLink& link) { HandleInboundChannel(link, channel_id, handler, post_io, read_timeout); });
   });
 }
 
 void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker,
-                           IoPost post_io) {
+                           IoPost post_io, const std::chrono::milliseconds read_timeout) {
   BindAsync(
       links,
       [handler = std::move(handler), post_worker = std::move(post_worker)](std::string request, Reply reply) {
@@ -88,7 +90,7 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
           run();
         }
       },
-      std::move(post_io));
+      std::move(post_io), read_timeout);
 }
 
 void AmpLedgerServer::Unbind(pp::amp::PeerLinkManager& links) { links.RemoveProtocolHandler(kProtocolId); }

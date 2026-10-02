@@ -347,6 +347,7 @@ apart:
 | Light requests (status, calibration, register, miner list) | T |
 | Data requests (blocks, transactions, accounts) | 2T |
 | Server drops a request still queued after | T/2 (its client is about to give up; reply "expired" without doing the work) |
+| Server resets an RPC channel with nothing inbound for | 2T (the longest any client waits; also drops peers that open and never send) |
 
 Raise T for slow or distant links. A large chain may need a longer
 `startupSyncTimeoutMs`. Leave `amp` alone unless you are measuring the link;

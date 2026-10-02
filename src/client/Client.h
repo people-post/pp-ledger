@@ -301,7 +301,7 @@ private:
                         std::chrono::milliseconds timeout, Done<std::string> done);
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
   std::chrono::milliseconds fastTimeout() const { return requestTimeout_; }
-  std::chrono::milliseconds dataTimeout() const { return requestTimeout_ * 2; }
+  std::chrono::milliseconds dataTimeout() const { return network::NetworkTuning::dataTimeoutFor(requestTimeout_); }
 
   std::string amp_default_peer_key_{"remote"};
   std::unique_ptr<ILedgerTransport> transport_;

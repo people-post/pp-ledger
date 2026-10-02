@@ -242,6 +242,7 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   }
   network::LedgerAmpConfig tuned = config;
   tuning_.applyTo(tuned.link_config);
+  tuned.rpc_read_timeout = tuning_.channelReadTimeout();
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
   auto started = ampSupport_->Start(tuned, [this](std::string body, RequestQueue::Reply reply) {
     enqueueRequest(std::move(body), std::move(reply));

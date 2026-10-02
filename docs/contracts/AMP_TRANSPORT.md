@@ -18,7 +18,7 @@ The former TCP fetch transport and BitTorrent DHT are retired and removed from t
 | Field | Value |
 |-------|-------|
 | `protocol_id` | `/pp-ledger/rpc/1.0.0` |
-| L3 policy | Control, `read_once=true`; the request deadline is the client's (`network.rpcTimeoutMs`, [SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)) |
+| L3 policy | Control, `read_once=true`; `read_timeout` = the call's deadline on the client, 2T on the server (`network.rpcTimeoutMs`, [SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)) |
 | Payload | Unframed `binaryPack(Client::Request/Response)` — no length prefix |
 | Max size | 512 KiB (`ledger::rpc::kMaxPayloadBytes`) |
 

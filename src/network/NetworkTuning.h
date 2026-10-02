@@ -37,6 +37,16 @@ struct NetworkTuning {
    */
   std::chrono::milliseconds serverQueueExpiry() const { return rpcTimeout / 2; }
 
+  /** Data requests (blocks, transactions, accounts) wait twice the RPC timeout. */
+  static constexpr std::chrono::milliseconds dataTimeoutFor(std::chrono::milliseconds rpc) { return rpc * 2; }
+
+  /**
+   * Read timeout of an inbound RPC channel (request in, reply out): the
+   * longest any client waits. Past it nobody is listening for the reply, and a
+   * peer that opened a channel and never sent is dropped.
+   */
+  std::chrono::milliseconds channelReadTimeout() const { return dataTimeoutFor(rpcTimeout); }
+
   /** Copy the amp policy into a link config. */
   void applyTo(pp::amp::PeerLinkConfig &config) const;
 

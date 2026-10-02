@@ -5,8 +5,10 @@
 #include "amp/L2/Types.h"
 #include "amp/link/AmpStack.h"
 #include "amp/link/MeshRuntime.h"
+#include "NetworkTuning.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -23,6 +25,8 @@ struct LedgerAmpConfig {
   std::string local_peer_id;
   pp::amp::PeerLinkConfig link_config{};
   uint16_t udp_port = 8519;
+  /** Servers: read timeout of inbound RPC channels (NetworkTuning::channelReadTimeout). */
+  std::chrono::milliseconds rpc_read_timeout{NetworkTuning::dataTimeoutFor(NetworkTuning::kDefaultRpcTimeout)};
 };
 
 /**

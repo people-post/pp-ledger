@@ -132,7 +132,7 @@ private:
     }
     stage_ = Stage::ChannelOpen;
     auto self = shared_from_this();
-    mesh_.OpenChannel(peer_key_, kProtocolId, LedgerRpcChannelPolicy(),
+    mesh_.OpenChannel(peer_key_, kProtocolId, LedgerRpcChannelPolicy(timeout_),
                       [self](pp::amp::PeerLinkManager::ChannelRoe ch) { self->onChannel(ch); });
   }
 
@@ -161,7 +161,7 @@ private:
     }
     stage_ = Stage::Response;
     auto self = shared_from_this();
-    session_ = mesh_.BindChannel(peer_key_, channel_id_, LedgerRpcChannelPolicy(),
+    session_ = mesh_.BindChannel(peer_key_, channel_id_, LedgerRpcChannelPolicy(timeout_),
                                  [self](pp::Roe<std::vector<uint8_t>> body) { return self->onFrame(std::move(body)); });
     if (!session_) {
       finish(TransportError("AmpLedgerTransport: link unavailable"));
