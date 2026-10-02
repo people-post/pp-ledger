@@ -140,7 +140,7 @@ The client connects to either the beacon server or miner server to query status 
 ./app/pp-client -m status
 
 # Add a transaction to the pending pool
-./app/pp-client -m add-tx alice bob 100
+./app/pp-client -b add-tx alice bob 100   # to a relay or the beacon
 
 # Manually trigger block production (for testing)
 ./app/pp-client -m produce-block
@@ -171,7 +171,7 @@ The client connects to either the beacon server or miner server to query status 
 ./app/pp-client -m status
 
 # Connect to miner on custom host
-./app/pp-client -h 192.168.1.100 -p 8518 -m add-tx wallet1 wallet2 500
+./app/pp-client -h 192.168.1.100 -p 8622 -b add-tx wallet1 wallet2 500   # relay
 ```
 
 ---

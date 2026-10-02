@@ -93,8 +93,7 @@ public:
   std::string getNetworkId() const;
   /**
    * A REGISTER is genuine only if the miner account's keys signed it (as for
-   * its transactions) and its endpoint's /p2p/ peer id is one of those keys:
-   * nobody can register an address for a miner id they do not control.
+   * its transactions): nobody can register a miner id they do not control.
    */
   Roe<void> verifyMinerRegistration(const Client::MinerInfo &miner, const std::string &networkId) const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */

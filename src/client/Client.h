@@ -100,8 +100,13 @@ public:
   static constexpr const uint32_t T_REQ_TX_GET_BY_WALLET = 3001;
   static constexpr const uint32_t T_REQ_TX_ADD = 3002;
   static constexpr const uint32_t T_REQ_TX_GET_BY_INDEX = 3003;
-  /** Miner→miner transaction forward (TxForwardRequest); never re-forwarded. */
-  static constexpr const uint32_t T_REQ_TX_FORWARD = 3004;
+  // 3004 retired (TX_FORWARD: miner→miner forward, replaced by TX_PULL).
+  /**
+   * Slot leader → upstream: payload binaryPack(uint64 slot); reply
+   * binaryPack(vector<Ledger::Record>) — pending transactions from the beacon's
+   * pool (TxPool). Relays pass it through.
+   */
+  static constexpr const uint32_t T_REQ_TX_PULL = 3005;
 
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
@@ -156,17 +161,20 @@ public:
   };
 
   // Response data structures
+  /**
+   * A registered miner. No network address: miners are reached only through
+   * their relays, and transactions reach the leader by TX_PULL.
+   */
   struct MinerInfo {
     uint64_t id{ 0 };
     /** Set by the beacon when it records the registration (its clock). */
     int64_t tLastMessage{ 0 };
-    std::string endpoint;
     /** Signer's clock (Unix seconds) when signed; the beacon refuses stale or replayed records. */
     int64_t issuedAt{ 0 };
     /** Miner account's signatures over signingMessage() (as for its transactions). */
     std::vector<std::string> signatures;
 
-    /** Domain-separated bytes the miner signs: network, id, endpoint, issuedAt. */
+    /** Domain-separated bytes the miner signs: network, id, issuedAt. */
     std::string signingMessage(const std::string &networkId) const;
 
     pp::common::Meta ltsToMeta() const;
@@ -235,23 +243,6 @@ public:
     }
   };
 
-  /**
-   * A transaction forwarded to the leader of `targetSlot`. The receiver adds it
-   * to its pool or holds it for that slot if it leads it, else caches it for its
-   * own per-slot retry; it never forwards it on at once. `senderTipEpoch` lets a
-   * receiver whose chain is behind treat its leader schedule as provisional.
-   */
-  struct TxForwardRequest {
-    Ledger::Record record;
-    uint64_t targetSlot{ 0 };
-    uint64_t senderTipEpoch{ 0 };
-
-    template <typename Archive>
-    void serialize(Archive &ar) {
-      ar & record & targetSlot & senderTipEpoch;
-    }
-  };
-
   struct CalibrationResponse {
     int64_t msTimestamp{ 0 };
     uint64_t nextBlockId{ 0 };
@@ -309,8 +300,8 @@ public:
   void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
   void addTransactionAsync(const Ledger::Record &record, Done<void> done);
   void addBlockAsync(const Ledger::ChainNode &block, Done<bool> done);
-  /** Done gets the receiver's reply text (pooled / held / cached). */
-  void forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done);
+  /** TX_PULL: pending transactions for the leader of `slot`. */
+  void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done);
   void fetchCalibrationAsync(Done<CalibrationResponse> done);
   void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
   void fetchBeaconStateAsync(Done<BeaconState> done);

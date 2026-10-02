@@ -1227,7 +1227,8 @@ int main(int argc, char** argv) {
     handleAccountGet(req, res, beaconClient);
   });
   svr.Post("/api/account/create", [&](const httplib::Request& req, httplib::Response& res) {
-    handleAccountCreate(req, res, minerClient);
+    // Submissions go up the tree to the beacon's pool (relay or beacon, never a miner).
+    handleAccountCreate(req, res, beaconClient);
   });
   svr.Get("/api/tx/by-wallet", [&](const httplib::Request& req, httplib::Response& res) {
     handleTxByWallet(req, res, beaconClient);
@@ -1236,10 +1237,10 @@ int main(int argc, char** argv) {
     handleTxByIndex(req, res, beaconClient);
   });
   svr.Post("/api/tx/build", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxBuild(req, res, minerClient);
+    handleTxBuild(req, res, beaconClient);
   });
   svr.Post("/api/tx/submit", [&](const httplib::Request& req, httplib::Response& res) {
-    handleTxSubmit(req, res, minerClient);
+    handleTxSubmit(req, res, beaconClient);
   });
 
   // MCP routes

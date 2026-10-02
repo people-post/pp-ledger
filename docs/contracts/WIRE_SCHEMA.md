@@ -215,20 +215,19 @@ time window, and header commitments still apply. Policy helper:
 
 ## Miner registration (`REGISTER`)
 
-`MinerInfo` (Meta, binary-packed in the request): `id`, `endpoint` (ADP
-multiaddr ending in `/p2p/<PeerId>`), `issuedAt` (signer's Unix seconds),
+`MinerInfo` (Meta, binary-packed in the request): `id`, `issuedAt` (signer's Unix seconds),
 `signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the
 beacon when recorded).
 
 Each signature is the miner account key's ML-DSA signature over:
 
 ```
-"pp-ledger/miner-register/v1" || pack(networkId) || pack(id) || pack(endpoint) || pack(issuedAt)
+"pp-ledger/miner-register/v2" || pack(networkId) || pack(id) || pack(issuedAt)
 ```
 
 `networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
-signatures satisfy the account's `publicKeys` / `minSignatures`, the endpoint's
-peer id derives from one of those keys, `|now − issuedAt| ≤ 5 min`, and
+signatures satisfy the account's `publicKeys` / `minSignatures` (not a system
+account), `|now − issuedAt| ≤ 5 min`, and
 `issuedAt` is newer than the recorded registration.
 
 ## ChainNode / storage envelope

@@ -94,6 +94,10 @@ private:
   };
 
   void initHandlers();
+  /** Point client_ at the upstream for a forwarded request; replies with the error if it cannot. */
+  bool dialUpstreamFor(const RequestQueue::Reply &reply);
+  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  void dTxPull(const Client::Request &request, const RequestQueue::Reply &reply);
   /** BlockSync wiring and completion (server thread). */
   void initBlockSync();
   void onBlockSyncFinished(const BlockSync::Result &result);

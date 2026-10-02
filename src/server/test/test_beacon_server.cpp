@@ -1,7 +1,5 @@
 #include "BeaconServer.h"
 #include "../chain/AccountBuffer.h"
-#include "../network/amp/LedgerPeerId.h"
-#include "amp/link/AdpMultiaddr.h"
 #include "lib/common/Utilities.h"
 #include "common/io/Json.h"
 
@@ -101,15 +99,9 @@ TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
   std::filesystem::remove_all(workDir, ec);
 }
 
-// --- Signed REGISTER: only the miner's own keys can register its address ---
+// --- Signed REGISTER: only the miner's own keys can register it ---
 
 namespace {
-
-std::string endpointFor(const std::string &publicKey) {
-  auto peerId = network::PeerIdFromMlDsaPublicKey(std::vector<uint8_t>(publicKey.begin(), publicKey.end()));
-  EXPECT_TRUE(peerId.isOk());
-  return pp::amp::FormatAdpMultiaddr(pp::adp::IpEndpoint::V4(127, 0, 0, 1, 9000), peerId.value()).value();
-}
 
 Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsaKeyPair> &keys,
                            const std::string &networkId) {
@@ -125,7 +117,7 @@ Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsa
 
 } // namespace
 
-TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMinerAndNameItsOwnPeerId) {
+TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
   const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-register-test";
   std::error_code ec;
   std::filesystem::remove_all(workDir, ec);
@@ -142,26 +134,17 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMinerAndNameItsOwnPeerId
     mount.workDir = (workDir / "data").string();
     ASSERT_TRUE(beacon.mount(mount).isOk());
     const std::string net = beacon.getNetworkId();
-    ASSERT_FALSE(keys.genesis.empty());
-    ASSERT_FALSE(keys.fee.empty());
 
     Client::MinerInfo miner;
     miner.id = AccountBuffer::ID_GENESIS;
-    miner.endpoint = endpointFor(keys.genesis.front().publicKey);
-
     auto genuine = signedBy(miner, keys.genesis, net);
     EXPECT_TRUE(beacon.verifyMinerRegistration(genuine, net).isOk());
     EXPECT_FALSE(beacon.verifyMinerRegistration(genuine, net + "-other").isOk()); // other network
-
     EXPECT_FALSE(beacon.verifyMinerRegistration(signedBy(miner, keys.fee, net), net).isOk()); // not its keys
 
-    auto tampered = genuine;
-    tampered.endpoint = endpointFor(keys.fee.front().publicKey); // swap the address after signing
-    EXPECT_FALSE(beacon.verifyMinerRegistration(tampered, net).isOk());
-
-    Client::MinerInfo otherPeer = miner; // signed by the miner, but naming someone else's peer id
-    otherPeer.endpoint = endpointFor(keys.fee.front().publicKey);
-    EXPECT_FALSE(beacon.verifyMinerRegistration(signedBy(otherPeer, keys.genesis, net), net).isOk());
+    auto replayedLater = genuine;
+    replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
+    EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
   }
   std::filesystem::remove_all(workDir, ec);
 }

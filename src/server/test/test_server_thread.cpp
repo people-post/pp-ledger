@@ -266,9 +266,13 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   server.enqueueRequest(packRequest("from-down", Client::T_REQ_BLOCK_ADD), replies.sink(), "miner-peer");
   server.enqueueRequest(packRequest("status-up", Client::T_REQ_STATUS), replies.sink(), "upstream-peer");
   server.enqueueRequest(packRequest("list-up", Client::T_REQ_MINER_LIST), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("tx-up", Client::T_REQ_TX_ADD), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("pull-up", Client::T_REQ_TX_PULL), replies.sink(), "upstream-peer");
   server.serveRequestsFor(50ms);
 
-  ASSERT_EQ(replies.size(), 5u);
+  ASSERT_EQ(replies.size(), 7u);
+  EXPECT_NE(replies.items[5].errorCode, 0); // transactions only travel up
+  EXPECT_NE(replies.items[6].errorCode, 0); // the pool lives upstream
   EXPECT_NE(replies.items[4].errorCode, 0); // the registry lives upstream
   EXPECT_NE(replies.items[0].errorCode, 0);
   EXPECT_NE(replies.items[0].payload.find("upstream"), std::string::npos);
@@ -287,7 +291,7 @@ TEST(ServerThreadTest, ReadsGoToTheLowLane) {
   EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_BLOCK_GET), kLow);
   EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_TX_GET_BY_WALLET), kLow);
   EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_BLOCK_ADD), RequestQueue::Lane::Normal);
-  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_TX_FORWARD), RequestQueue::Lane::Normal);
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_TX_PULL), RequestQueue::Lane::Normal); // leader-critical
   EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_CALIBRATION), RequestQueue::Lane::Normal);
 }
 
@@ -299,29 +303,28 @@ TEST(ServerThreadTest, PeekRequestTypeMatchesThePackedRequest) {
 
 // --- Miner registry: renewals keep a record, silence drops it ---
 
-Client::MinerInfo minerInfo(uint64_t id, const std::string& endpoint) {
+Client::MinerInfo minerInfo(uint64_t id) {
   Client::MinerInfo m;
   m.id = id;
-  m.endpoint = endpoint;
   return m;
 }
 
 TEST(MinerRegistryTest, RenewalKeepsTheRecordWithoutChangingTheVersion) {
   MinerRegistry registry;
-  registry.upsert(minerInfo(1, "/a"), 1000);
+  registry.upsert(minerInfo(1), 1000);
   const uint64_t v = registry.version();
-  registry.upsert(minerInfo(1, "/a"), 1060); // renewal
+  registry.upsert(minerInfo(1), 1060); // renewal
   EXPECT_EQ(registry.version(), v);
   EXPECT_EQ(registry.miners().at(1).tLastMessage, 1060);
   EXPECT_EQ(registry.expire(1300, 300), 0u); // renewed 240 s ago
-  registry.upsert(minerInfo(1, "/b"), 1310); // moved
+  registry.upsert(minerInfo(2), 1310); // joined
   EXPECT_GT(registry.version(), v);
 }
 
 TEST(MinerRegistryTest, RecordsNotRenewedWithinTheTtlAreDropped) {
   MinerRegistry registry;
-  registry.upsert(minerInfo(1, "/a"), 1000);
-  registry.upsert(minerInfo(2, "/b"), 1200);
+  registry.upsert(minerInfo(1), 1000);
+  registry.upsert(minerInfo(2), 1200);
   const uint64_t v = registry.version();
   EXPECT_EQ(registry.expire(1301, 300), 1u);
   EXPECT_FALSE(registry.miners().contains(1));
@@ -331,7 +334,7 @@ TEST(MinerRegistryTest, RecordsNotRenewedWithinTheTtlAreDropped) {
 
 TEST(MinerRegistryTest, OnlyANewerRegistrationIsAccepted) {
   MinerRegistry registry;
-  auto first = minerInfo(1, "/a");
+  auto first = minerInfo(1);
   first.issuedAt = 500;
   EXPECT_TRUE(registry.isNewer(first));
   registry.upsert(first, 1000);
@@ -342,7 +345,7 @@ TEST(MinerRegistryTest, OnlyANewerRegistrationIsAccepted) {
 }
 
 TEST(MinerRegistryTest, SignedRecordSurvivesTheWire) {
-  auto miner = minerInfo(7, "/ip4/127.0.0.1/udp/9000/adp/1.0.0/p2p/x");
+  auto miner = minerInfo(7);
   miner.issuedAt = 1234;
   miner.signatures = {"sig-a", std::string("sig\0b", 5)};
   Client::MinerInfo back;
@@ -518,9 +521,9 @@ TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
 } // namespace
 
 
-// --- Transaction forward cap (receiver rule) ---
+// --- Block add check, transaction pool ---
 
-#include "TxForwardPolicy.h"
+#include "TxPool.h"
 
 namespace {
 
@@ -554,31 +557,55 @@ TEST(BlockAddPolicyTest, RepeatSucceedsConflictIsRefusedTipIsNew) {
   EXPECT_EQ(checkBlockAdd(chain, makeBlock(9, 9)), BlockAddCheck::New); // addBlock reports the gap
 }
 
-TEST(TxForwardPolicyTest, LeaderOfCurrentSlotPoolsAndOfUpcomingSlotHolds) {
-  EXPECT_EQ(decideTxForward(3, 3, 40, 40, true), TxForwardAction::AddToPool);
-  EXPECT_EQ(decideTxForward(3, 3, 40, 41, true), TxForwardAction::HoldForSlot);
+Ledger::Record transfer(uint64_t idempotentId, int64_t validUntil) {
+  Ledger::TxDefault tx;
+  tx.tokenId = 0;
+  tx.fromWalletId = (1ULL << 30);
+  tx.toWalletId = (1ULL << 30) + 1;
+  tx.amount = 5;
+  tx.fee = 1;
+  tx.idempotentId = idempotentId;
+  tx.validationTsMax = validUntil;
+  Ledger::Record r;
+  r.type = Ledger::T_DEFAULT;
+  r.data = utl::binaryPack(tx);
+  r.signatures = {"sig"};
+  return r;
 }
 
-// Clock skew at a slot boundary: A (still in slot 40) forwards to B, the leader
-// it sees for slot 40; B is already in slot 41. B must not send it back.
-TEST(TxForwardPolicyTest, ReceiverAheadOfTargetSlotCachesInsteadOfBouncing) {
-  EXPECT_EQ(decideTxForward(3, 3, /*currentSlot=*/41, /*targetSlot=*/40, /*leads=*/true),
-            TxForwardAction::CacheNotLeader);
-  EXPECT_EQ(decideTxForward(3, 3, 41, 40, false), TxForwardAction::CacheNotLeader);
+TEST(TxPoolTest, DuplicatesAreHeldOnceAndIncludedOnesLeave) {
+  TxPool pool;
+  auto a = transfer(1, 2000), b = transfer(2, 2000);
+  EXPECT_EQ(pool.add(a, 1000), TxPool::Add::Added);
+  EXPECT_EQ(pool.add(a, 1000), TxPool::Add::Duplicate);
+  EXPECT_EQ(pool.add(b, 1000), TxPool::Add::Added);
+  ASSERT_EQ(pool.pending(10).size(), 2u);
+  EXPECT_EQ(pool.pending(1).front().data, a.data); // oldest first
+
+  pool.removeIncluded({a}); // a committed block included it
+  ASSERT_EQ(pool.size(), 1u);
+  EXPECT_EQ(pool.pending(10).front().data, b.data);
 }
 
-TEST(TxForwardPolicyTest, NotLeaderCaches) {
-  EXPECT_EQ(decideTxForward(3, 3, 40, 40, false), TxForwardAction::CacheNotLeader);
-  EXPECT_EQ(decideTxForward(3, 3, 40, 42, false), TxForwardAction::CacheNotLeader);
+TEST(TxPoolTest, ExpiresAtValidityWindowOrTtl) {
+  TxPool::Limits limits;
+  limits.ttlSeconds = 600;
+  TxPool pool(limits);
+  pool.add(transfer(1, /*validUntil=*/1100), 1000); // its own window ends first
+  pool.add(transfer(2, /*validUntil=*/0), 1000);    // no window: TTL
+  EXPECT_EQ(pool.expire(1100), 0u);
+  EXPECT_EQ(pool.expire(1101), 1u);
+  EXPECT_EQ(pool.expire(1600), 0u);
+  EXPECT_EQ(pool.expire(1601), 1u);
+  EXPECT_EQ(pool.size(), 0u);
 }
 
-// A receiver whose tip is in an earlier epoch may be using a provisional leader
-// schedule; it must not act on it (not even to pool), only cache and sync.
-TEST(TxForwardPolicyTest, ReceiverBehindSenderEpochCachesEvenIfItThinksItLeads) {
-  EXPECT_EQ(decideTxForward(/*tipEpoch=*/2, /*senderTipEpoch=*/3, 40, 40, true), TxForwardAction::CacheBehind);
-  EXPECT_EQ(decideTxForward(2, 3, 40, 40, false), TxForwardAction::CacheBehind);
-  // Ahead of the sender is fine.
-  EXPECT_EQ(decideTxForward(4, 3, 40, 40, true), TxForwardAction::AddToPool);
+TEST(TxPoolTest, FullPoolRefuses) {
+  TxPool::Limits limits;
+  limits.maxRecords = 1;
+  TxPool pool(limits);
+  EXPECT_EQ(pool.add(transfer(1, 2000), 1000), TxPool::Add::Added);
+  EXPECT_EQ(pool.add(transfer(2, 2000), 1000), TxPool::Add::Full);
 }
 
 } // namespace

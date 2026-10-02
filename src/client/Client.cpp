@@ -91,15 +91,14 @@ pp::common::Meta Client::UserAccount::ltsToMeta() const {
 }
 
 std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
-  return std::string("pp-ledger/miner-register/v1") + utl::binaryPack(networkId) + utl::binaryPack(id) +
-         utl::binaryPack(endpoint) + utl::binaryPack(issuedAt);
+  return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
+         utl::binaryPack(issuedAt);
 }
 
 pp::common::Meta Client::MinerInfo::ltsToMeta() const {
   pp::common::Meta m;
   m.setUIntForJson("id", id);
   m.set("tLastMessage", tLastMessage);
-  m.set("endpoint", endpoint);
   m.set("issuedAt", issuedAt);
   m.set("signatures", utl::binaryPack(signatures));
   return m;
@@ -108,7 +107,6 @@ pp::common::Meta Client::MinerInfo::ltsToMeta() const {
 Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
   id = meta.getNonNegInt("id").value_or(0);
   tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
-  endpoint = meta.getOrDefault("endpoint", std::string{});
   issuedAt = meta.getOrDefault("issuedAt", int64_t{0});
   signatures.clear();
   if (auto packed = meta.getOrDefault("signatures", std::string{}); !packed.empty()) {
@@ -361,7 +359,7 @@ Client::Roe<Client::BeaconState> Client::parseBeaconState(const std::string &pay
 }
 
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &minerInfo) {
-  log().debug << "Registering miner server: " << minerInfo.id << " " << minerInfo.endpoint;
+  log().debug << "Registering miner server: " << minerInfo.id;
 
   std::string payload = utl::binaryPack(minerInfo.ltsToMeta());
   auto result = sendRequest(T_REQ_REGISTER, payload, fastTimeout());
@@ -525,8 +523,16 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   return {};
 }
 
-void Client::forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done) {
-  sendRequestAsync(T_REQ_TX_FORWARD, utl::binaryPack(request), dataTimeout(), std::move(done));
+void Client::pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done) {
+  sendRequestAsync(T_REQ_TX_PULL, utl::binaryPack(slot), dataTimeout(), [done = std::move(done)](Roe<std::string> result) {
+    if (!result) {
+      done(Roe<std::vector<Ledger::Record>>(Error(result.error().code, result.error().message)));
+      return;
+    }
+    auto records = utl::binaryUnpack<std::vector<Ledger::Record>>(result.value());
+    done(records ? Roe<std::vector<Ledger::Record>>(std::move(records.value()))
+                 : Roe<std::vector<Ledger::Record>>(Error(E_INVALID_RESPONSE, "Invalid transaction pull reply")));
+  });
 }
 
 void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) {

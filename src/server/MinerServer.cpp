@@ -1,5 +1,4 @@
 #include "MinerServer.h"
-#include "TxForwardPolicy.h"
 #include "../chain/BlockValidation.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -146,7 +145,6 @@ MinerServer::MinerServer() {
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
   client_.redirectLogger(log().getFullName() + ".Client");
-  forwardClient_.redirectLogger(log().getFullName() + ".ForwardClient");
   broadcastClient_.redirectLogger(log().getFullName() + ".BroadcastClient");
 }
 
@@ -302,7 +300,7 @@ Service::Roe<void> MinerServer::onStart() {
   if (auto upstreams = setUpstreams(config_.network.beacon_multiaddrs); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
   }
-  for (Client *client : {&client_, &forwardClient_, &broadcastClient_}) {
+  for (Client *client : {&client_, &broadcastClient_}) {
     client->setRequestTimeout(networkTuning().rpcTimeout);
   }
 
@@ -319,7 +317,6 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
   client_.attachAmpTransport(*ampRuntime(), "beacon");
-  forwardClient_.attachAmpTransport(*ampRuntime(), "leader");
   broadcastClient_.attachAmpTransport(*ampRuntime(), "upstream:0");
 
   // Connect to beacon server and fetch initial state
@@ -363,8 +360,6 @@ Service::Roe<void> MinerServer::onStart() {
   if (auto error = runStartupSync(*blockSync_, lastSyncResult_, networkTuning().startupSyncTimeout); !error.empty()) {
     return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + error);
   }
-
-  refreshMinerListFromBeacon();
 
   initHandlers();
 
@@ -482,10 +477,6 @@ void MinerServer::initHandlers() {
   auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
   htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
 
-
-  auto &htf = requestHandlers_[Client::T_REQ_TX_FORWARD];
-  htf = [this](const Client::Request &request) { return hTxForward(request); };
-
   // Handlers that need another server (or a sync) reply later; see handleDeferred.
   deferredHandlers_.clear();
   deferredHandlers_[Client::T_REQ_BLOCK_GET] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
@@ -530,18 +521,11 @@ void MinerServer::runLoop() {
         trySyncBlocksFromBeacon(true);
       }
       renewRegistrationPeriodically();
-      if (minerListRefreshRequested_) {
-        minerListRefreshRequested_ = false;
-        startMinerListRefresh();
-      }
 
-      if (!miner_.isConfigReady()) {
-        // Config not loaded yet (late joiner waiting for T_CONFIG in synced blocks).
-        // Skip slot leader / validator roles; continue syncing only.
-      } else if (miner_.isSlotLeader()) {
+      // Until config is loaded (late joiner waiting for T_CONFIG in synced
+      // blocks) only sync; otherwise produce when we lead the slot.
+      if (miner_.isConfigReady() && miner_.isSlotLeader()) {
         handleSlotLeaderRole();
-      } else {
-        handleValidatorRole();
       }
 
       // Sleep for a short time before checking again
@@ -603,78 +587,6 @@ void MinerServer::syncBlocksPeriodically() {
   }
 
   trySyncBlocksFromBeacon(false);
-}
-
-void MinerServer::refreshMinerListFromBeacon() {
-  if (config_.network.beacon_multiaddrs.empty()) {
-    return;
-  }
-  if (auto dial = dialActiveUpstream(); !dial) {
-    auto best = selectBestUpstreamIndex();
-    if (!best) {
-      log().warning << "Failed to select upstream for miner list: "
-                    << best.error().message;
-      return;
-    }
-    active_upstream_index_ = best.value();
-    if (auto redial = dialActiveUpstream(); !redial) {
-      log().warning << "Failed to dial upstream for miner list: "
-                    << redial.error().message;
-      return;
-    }
-  }
-  auto minerListResult = client_.fetchMinerList();
-  if (minerListResult) {
-    for (const auto &miner : minerListResult.value()) {
-      config_.mMiners[miner.id] = miner;
-    }
-    lastMinerListFetchTime_ = std::chrono::steady_clock::now();
-    log().info << "Fetched miner list: " << config_.mMiners.size()
-               << " registered miners";
-  } else {
-    log().warning << "Failed to fetch miner list: "
-                  << minerListResult.error().message;
-  }
-}
-
-void MinerServer::startMinerListRefresh() {
-  if (minerListRefreshInFlight_ || config_.network.beacon_multiaddrs.empty()) {
-    return;
-  }
-  if (auto dial = dialActiveUpstream(); !dial) {
-    log().warning << "Failed to dial upstream for miner list: " << dial.error().message;
-    return;
-  }
-  minerListRefreshInFlight_ = true;
-  client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(
-      [this](Client::Roe<std::vector<Client::MinerInfo>> miners) {
-        minerListRefreshInFlight_ = false;
-        lastMinerListFetchTime_ = std::chrono::steady_clock::now();
-        if (!miners) {
-          log().warning << "Failed to fetch miner list: " << miners.error().message;
-          return;
-        }
-        for (const auto &miner : miners.value()) {
-          config_.mMiners[miner.id] = miner;
-        }
-        log().info << "Fetched miner list: " << config_.mMiners.size() << " registered miners";
-      }));
-}
-
-std::string MinerServer::lookupTxSubmitAddress(uint64_t slotLeaderId) const {
-  auto it = config_.mMiners.find(slotLeaderId);
-  return it != config_.mMiners.end() ? it->second.endpoint : std::string{};
-}
-
-void MinerServer::requestMinerListRefresh() {
-  const auto elapsed = std::chrono::steady_clock::now() - lastMinerListFetchTime_;
-  if (elapsed >= MINER_LIST_REFETCH_INTERVAL) {
-    minerListRefreshRequested_ = true;
-  }
-}
-
-Client::Roe<void> MinerServer::dialLeader(uint64_t slotLeaderId, const std::string &multiaddr) {
-  return forwardClient_.setAmpPeer("leader:" + std::to_string(slotLeaderId), multiaddr);
 }
 
 std::string MinerServer::handleParsedRequest(const Client::Request &request) {
@@ -773,110 +685,22 @@ MinerServer::hTxGetByIndex(const Client::Request &request) {
 }
 
 void MinerServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
-  if (!miner_.isConfigReady()) {
-    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Miner syncing, please retry later")));
-    return;
-  }
-  auto recResult = utl::binaryUnpack<Ledger::Record>(request.payload);
-  if (!recResult) {
+  auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
+  if (!record) {
     replyWith(reply, Roe<std::string>(
-                         Error(E_REQUEST, "Failed to deserialize transaction: " + recResult.error().message)));
+                         Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
     return;
   }
-
-  const auto &record = recResult.value();
-  if (miner_.isSlotLeader()) {
-    auto result = miner_.addTransaction(record);
-    replyWith(reply, result ? Roe<std::string>("Transaction added to pool")
-                            : Roe<std::string>(Error(E_REQUEST, result.error().message)));
+  // Up the tree to the beacon's pool, where the slot leader pulls it: miners
+  // never need each other's addresses.
+  if (auto dial = dialActiveUpstream(); !dial) {
+    replyWith(reply, Roe<std::string>(Error(E_NETWORK, dial.error().message)));
     return;
   }
-
-  forwardToSlotLeader(record, miner_.getCurrentSlot(),
-                      [reply](Roe<std::string> result) { replyWith(reply, result); });
-}
-
-void MinerServer::forwardToSlotLeader(const Ledger::Record &record, uint64_t slot,
-                                      std::function<void(Roe<std::string>)> done) {
-  auto cacheForRetry = [this, &record](const std::string &why) -> Roe<std::string> {
-    if (!miner_.addToForwardCache(record)) {
-      return Error(E_REQUEST, "Forward cache full, please retry later");
-    }
-    log().info << "Transaction cached for retry in next slot: " << why;
-    return {"Transaction cached for retry in next slot"};
-  };
-  auto leaderIdResult = miner_.getSlotLeaderIdForSlot(slot);
-  if (!leaderIdResult) {
-    done(cacheForRetry("slot leader unknown: " + leaderIdResult.error().message));
-    return;
-  }
-  const uint64_t leaderId = leaderIdResult.value();
-  const std::string leaderAddr = lookupTxSubmitAddress(leaderId);
-  if (leaderAddr.empty()) {
-    requestMinerListRefresh();
-    done(cacheForRetry("slot leader " + std::to_string(leaderId) + " address unknown"));
-    return;
-  }
-  if (auto dial = dialLeader(leaderId, leaderAddr); !dial) {
-    done(cacheForRetry("failed to dial slot leader: " + dial.error().message));
-    return;
-  }
-  Client::TxForwardRequest forward;
-  forward.record = record;
-  forward.targetSlot = slot;
-  forward.senderTipEpoch = miner_.getTipEpoch();
-  forwardClient_.forwardTransactionAsync(
-      forward, completeOnServerThread<std::string>(
-                   [this, record, done = std::move(done)](Client::Roe<std::string> result) {
-                     if (result) {
-                       done(Roe<std::string>("Forwarded to slot leader: " + result.value()));
-                     } else if (Client::isTransportError(result.error().code)) {
-                       done(miner_.addToForwardCache(record)
-                                ? Roe<std::string>("Transaction cached for retry in next slot")
-                                : Roe<std::string>(Error(E_REQUEST, "Forward cache full, please retry later")));
-                     } else {
-                       done(Roe<std::string>(Error(E_REQUEST, result.error().message)));
-                     }
-                   }));
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hTxForward(const Client::Request &request) {
-  if (!miner_.isConfigReady()) {
-    return Error(E_REQUEST, "Miner syncing, please retry later");
-  }
-  auto forwardResult = utl::binaryUnpack<Client::TxForwardRequest>(request.payload);
-  if (!forwardResult) {
-    return Error(E_REQUEST, "Failed to deserialize forwarded transaction: " + forwardResult.error().message);
-  }
-  const auto &forward = forwardResult.value();
-  auto cacheForward = [this](const Ledger::Record &record, std::string message) -> Roe<std::string> {
-    if (!miner_.addToForwardCache(record)) {
-      return Error(E_REQUEST, "Forward cache full, please retry later");
-    }
-    return message;
-  };
-  const uint64_t currentSlot = miner_.getCurrentSlot();
-  switch (decideTxForward(miner_.getTipEpoch(), forward.senderTipEpoch, currentSlot, forward.targetSlot,
-                          miner_.isSlotLeaderForSlot(forward.targetSlot))) {
-  case TxForwardAction::AddToPool: {
-    auto added = miner_.addTransaction(forward.record);
-    if (!added) {
-      return Error(E_REQUEST, added.error().message);
-    }
-    return {"Transaction added to pool"};
-  }
-  case TxForwardAction::HoldForSlot:
-    // The slot-leader duty drains the cache into our pool when our slot starts.
-    return cacheForward(forward.record, "Held for slot " + std::to_string(forward.targetSlot));
-  case TxForwardAction::CacheBehind:
-    blockSyncRequested_ = true;
-    return cacheForward(forward.record, "Cached: receiver chain behind sender, retrying after sync");
-  case TxForwardAction::CacheNotLeader:
-    break;
-  }
-  return cacheForward(forward.record,
-                      "Cached: not leader of slot " + std::to_string(forward.targetSlot) + ", retrying in next slot");
+  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply](Client::Roe<void> result) {
+    replyWith(reply, result ? Roe<std::string>("Transaction submitted")
+                            : Roe<std::string>(Error(E_NETWORK, result.error().message)));
+  }));
 }
 
 MinerServer::Roe<std::string>
@@ -923,26 +747,58 @@ MinerServer::hUnsupported(const Client::Request &request) {
                "Unsupported request type: " + std::to_string(request.type));
 }
 
+bool MinerServer::pullTransactionsForSlot(uint64_t slot) {
+  if (txPulledSlot_ == slot) {
+    return true;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (txPullInFlight_) {
+    // Do not miss the slot waiting for the pool: produce without it after a bit.
+    return now - txPullStarted_ >= txPullWait();
+  }
+  if (auto dial = dialActiveUpstream(); !dial) {
+    log().warning << "Transaction pull: " << dial.error().message;
+    txPulledSlot_ = slot;
+    return true;
+  }
+  txPullInFlight_ = true;
+  txPullStarted_ = now;
+  client_.pullTransactionsAsync(
+      slot, completeOnServerThread<std::vector<Ledger::Record>>(
+                [this, slot](Client::Roe<std::vector<Ledger::Record>> records) {
+                  txPullInFlight_ = false;
+                  txPulledSlot_ = slot;
+                  if (!records) {
+                    log().warning << "Transaction pull failed: " << records.error().message;
+                    return;
+                  }
+                  // A rejection is final for this slot (already included, invalid, ...);
+                  // the beacon keeps what no block included for the next leader.
+                  size_t added = 0;
+                  for (const auto &record : records.value()) {
+                    if (miner_.addTransaction(record)) {
+                      ++added;
+                    }
+                  }
+                  if (added > 0) {
+                    log().info << "Pulled " << added << " transaction(s) for slot " << slot;
+                  }
+                }));
+  return false;
+}
+
+std::chrono::milliseconds MinerServer::txPullWait() const {
+  const auto third = std::chrono::milliseconds(static_cast<int64_t>(miner_.getSlotDuration()) * 1000 / 3);
+  return std::min(TX_PULL_MAX_WAIT, third);
+}
+
 void MinerServer::handleSlotLeaderRole() {
   if (blockSync_->inFlight() || broadcast_) {
     return; // seal only on a settled tip; try again next loop
   }
-  // Add cached transactions to our own pool (we are slot leader, no need to
-  // forward). addTransaction checks against this slot's fresh state, so a
-  // rejection is final — re-caching would retry an invalid transaction forever.
-  auto cached = miner_.drainForwardCache();
-  size_t added = 0;
-  for (const auto &signedTx : cached) {
-    auto result = miner_.addTransaction(signedTx);
-    if (result) {
-      added++;
-    } else {
-      log().warning << "Dropping cached transaction rejected by slot leader pool: "
-                    << result.error().message;
-    }
-  }
-  if (added > 0) {
-    log().info << "Added " << added << " cached transactions to slot leader pool";
+  // Pending transactions live upstream (the beacon's pool): pull them first.
+  if (!pullTransactionsForSlot(miner_.getCurrentSlot())) {
+    return;
   }
 
   Ledger::ChainNode block;
@@ -1034,51 +890,9 @@ void MinerServer::commitProducedBlock(const Ledger::ChainNode &block) {
   log().info << "  Hash: " << block.hash;
 }
 
-void MinerServer::retryCachedTransactionForwards() {
-  // Only forward cached txes when in validator role; slot leader adds them itself
-  if (miner_.isSlotLeader()) {
-    return;
-  }
-  uint64_t currentSlot = miner_.getCurrentSlot();
-  if (currentSlot == lastForwardRetrySlot_) {
-    return;
-  }
-  auto cached = miner_.drainForwardCache();
-  if (cached.empty()) {
-    lastForwardRetrySlot_ = currentSlot;
-    return;
-  }
-  lastForwardRetrySlot_ = currentSlot;
-  // Transport failures go back into the cache (inside forwardToSlotLeader);
-  // a leader's rejection is final, so an invalid transaction is not retried.
-  for (const auto &tx : cached) {
-    forwardToSlotLeader(tx, currentSlot, [this](Roe<std::string> result) {
-      if (!result) {
-        log().warning << "Dropping cached transaction rejected by slot leader: " << result.error().message;
-      }
-    });
-  }
-}
-
-void MinerServer::handleValidatorRole() {
-  retryCachedTransactionForwards();
-  // Not slot leader - act as validator
-  // Monitor for new blocks from other miners and validate them
-
-  // In a full implementation, we would:
-  // 1. Listen for blocks from the current slot leader
-  // 2. Validate received blocks
-  // 3. Add valid blocks to our chain
-  // 4. Participate in consensus voting if required
-
-  // For now, this is a placeholder for validator behavior
-  // The actual block reception would happen via network requests
-}
-
 MinerServer::Roe<Client::MinerInfo> MinerServer::signedRegistration(const std::string &networkId) const {
   Client::MinerInfo minerInfo;
   minerInfo.id = config_.minerId;
-  minerInfo.endpoint = listenMultiaddr();
   minerInfo.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();

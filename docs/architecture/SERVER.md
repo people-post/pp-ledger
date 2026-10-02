@@ -650,7 +650,7 @@ The client can connect to either the beacon server or miner server.
 ./app/pp-client -m status
 
 # Add a transaction
-./app/pp-client -m add-tx alice bob 100
+./app/pp-client -b add-tx alice bob 100   # to a relay or the beacon
 
 # Get pending transaction count
 ./app/pp-client -m pending-txs
@@ -738,7 +738,7 @@ After starting a beacon and miner, you can test the system:
 ./app/pp-client -m -p 8518 status
 
 # Add a transaction
-./app/pp-client -m -p 8518 add-tx wallet1 wallet2 1000
+./app/pp-client -b -p 8622 add-tx wallet1 wallet2 1000   # relay
 
 # Wait for block production...
 # Check if block was created

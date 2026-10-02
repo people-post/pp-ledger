@@ -874,9 +874,6 @@ try_add_account() {
   local miner_id=${4:-1}
   local fee=${5:-1}
   local tx_file="${TEST_DIR}/tmp_account_${to}.dat"
-  local ma
-  ma=$(miner_multiaddr "$miner_id")
-  [[ -n "$ma" ]] || return 1
   [[ -f "$key1" && -f "$key2" && -f "$key3" ]] || return 1
 
   local mk_cmd=(run_pp_client ${DEBUG_FLAG} mk-account 2 "$amount" -t "$to" -f "$fee" -o "$tx_file")
@@ -889,16 +886,12 @@ try_add_account() {
       return 1
     }
   done
-  local i
-  for i in $(seq 1 "$NUM_MINERS"); do
-    ma=$(miner_multiaddr "$i")
-    [[ -n "$ma" ]] || continue
-    if run_pp_client ${DEBUG_FLAG} -m --host "$ma" submit-tx "$tx_file" >/dev/null 2>&1; then
-      echo -e "${GREEN}  ✓ Account created: id=$to amount=$amount${NC}"
-      rm -f "$tx_file"
-      return 0
-    fi
-  done
+  # Transactions go up the tree: submit to the relay; the slot leader pulls them.
+  if run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$tx_file" >/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓ Account submitted: id=$to amount=$amount${NC}"
+    rm -f "$tx_file"
+    return 0
+  fi
   rm -f "$tx_file"
   return 1
 }
@@ -911,15 +904,10 @@ try_add_tx() {
   local fee=${5:-1}
   local miner_id=${6:-1}
   [[ -f "$key_file" ]] || return 1
-  local i ma
-  for i in "$miner_id" $(seq 1 "$NUM_MINERS"); do
-    ma=$(miner_multiaddr "$i")
-    [[ -n "$ma" ]] || continue
-    if run_pp_client ${DEBUG_FLAG} -m --host "$ma" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" >/dev/null 2>&1; then
-      echo -e "${GREEN}  ✓ Tx $from → $to amount=$amount (miner${i})${NC}"
-      return 0
-    fi
-  done
+  if run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" add-tx "$from" "$to" "$amount" -f "$fee" -k "$key_file" >/dev/null 2>&1; then
+    echo -e "${GREEN}  ✓ Tx $from → $to amount=$amount${NC}"
+    return 0
+  fi
   return 1
 }
 

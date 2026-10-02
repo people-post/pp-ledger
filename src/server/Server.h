@@ -112,8 +112,8 @@ protected:
   /**
    * Central access rule, checked on the server thread before any handler:
    * may a request of `type` arrive from `origin`? Writes that travel up the
-   * tree (BLOCK_ADD, REGISTER) and requests for what lives upstream
-   * (BLOCK_WAIT, MINER_LIST) are refused from this node's own upstream.
+   * tree (BLOCK_ADD, REGISTER, TX_ADD) and requests for what lives upstream
+   * (BLOCK_WAIT, MINER_LIST, TX_PULL) are refused from this node's own upstream.
    * See docs/architecture/LEDGER_TOPOLOGY.md (request direction).
    */
   static bool isAllowedFrom(uint32_t type, Origin origin);

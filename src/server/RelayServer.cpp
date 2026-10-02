@@ -361,6 +361,12 @@ void RelayServer::initHandlers() {
   deferredHandlers_[Client::T_REQ_MINER_LIST] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
     dMinerList(r, reply);
   };
+  deferredHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dTxAdd(r, reply);
+  };
+  deferredHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
+    dTxPull(r, reply);
+  };
 }
 
 bool RelayServer::handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -683,6 +689,51 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
   log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, samples=" << samples.size()
              << ", min RTT=" << best->rttMs << " ms";
   return offsetMs;
+}
+
+bool RelayServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
+  if (config_.network.beacon_multiaddr.empty()) {
+    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
+    return false;
+  }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
+    return false;
+  }
+  return true;
+}
+
+void RelayServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+  auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
+  if (!record) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
+    return;
+  }
+  if (!dialUpstreamFor(reply)) {
+    return;
+  }
+  // Up the tree to the beacon's pool; the slot leader pulls it from there.
+  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply](Client::Roe<void> result) {
+    replyWith(reply, result ? Roe<std::string>("Transaction submitted")
+                            : Roe<std::string>(Error(E_NETWORK, result.error().message)));
+  }));
+}
+
+void RelayServer::dTxPull(const Client::Request &request, const RequestQueue::Reply &reply) {
+  auto slot = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!slot) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid transaction pull payload")));
+    return;
+  }
+  if (!dialUpstreamFor(reply)) {
+    return;
+  }
+  client_.pullTransactionsAsync(
+      slot.value(), completeOnServerThread<std::vector<Ledger::Record>>(
+                        [reply](Client::Roe<std::vector<Ledger::Record>> records) {
+                          replyWith(reply, records ? Roe<std::string>(utl::binaryPack(records.value()))
+                                                   : Roe<std::string>(Error(E_NETWORK, records.error().message)));
+                        }));
 }
 
 void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQueue::Reply &reply) {
