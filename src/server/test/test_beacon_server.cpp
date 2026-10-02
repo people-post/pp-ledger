@@ -1,107 +1,74 @@
 #include "BeaconServer.h"
 #include "../chain/AccountBuffer.h"
 #include "lib/common/Utilities.h"
-#include "common/io/Json.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <string>
+#include <vector>
 
 using namespace pp;
 
 namespace {
 
-std::string readFile(const std::filesystem::path &path) {
-  std::ifstream in(path);
-  std::stringstream ss;
-  ss << in.rdbuf();
-  return ss.str();
-}
+/**
+ * A beacon work dir whose init-config.json declares the system accounts by
+ * public key (genesis 3 keys, 2-of-3), with each holder's key pair on disk
+ * like `pp-client keygen -o` writes them.
+ */
+struct GenesisSetup {
+  std::filesystem::path dir;
+  std::vector<utl::MlDsaKeyPair> genesis, fee, reserve, recycle;
 
-std::string keysJson(const Beacon::InitKeyConfig &keys) {
-  return pp::common::io::metaToJsonString(keys.ltsToMeta(), 2) + "\n";
-}
-
-} // namespace
-
-// Regression: a second --init used to fail writing init-keys.json after the
-// chain was already recreated with new keys, losing them.
-TEST(BeaconServerInitTest, SecondInitWritesNewKeyFileAndKeepsFirst) {
-  const auto workDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-beacon-reinit-test";
-  std::error_code ec;
-  std::filesystem::remove_all(workDir, ec);
-
-  // Each init runs in its own scope, like separate `pp-beacon --init` runs:
-  // a live server keeps ledger files open, which blocks the next init's
-  // cleanup on Windows.
-  std::filesystem::path path1;
-  std::string content1;
-  {
-    BeaconServer first;
-    auto r1 = first.init(workDir.string());
-    ASSERT_TRUE(r1.isOk()) << r1.error().message;
-    path1 = first.initKeysPath();
-    content1 = keysJson(r1.value());
-  }
-  EXPECT_EQ(path1, workDir / "init-keys.json");
-  ASSERT_TRUE(std::filesystem::exists(path1));
-  EXPECT_EQ(readFile(path1), content1);
-
-  std::filesystem::path path2;
-  std::string content2;
-  {
-    BeaconServer second;
-    auto r2 = second.init(workDir.string());
-    ASSERT_TRUE(r2.isOk()) << r2.error().message;
-    path2 = second.initKeysPath();
-    content2 = keysJson(r2.value());
-  }
-  EXPECT_EQ(path2, workDir / "init-keys-2.json");
-  ASSERT_TRUE(std::filesystem::exists(path2));
-  EXPECT_EQ(readFile(path2), content2);
-  EXPECT_NE(content2, content1);
-  EXPECT_EQ(readFile(path1), content1);
-
-#if !defined(_WIN32)
-  // 0600 is POSIX-only (see writeToNewFile).
-  const auto perms = std::filesystem::status(path2).permissions();
-  EXPECT_EQ(perms & (std::filesystem::perms::group_all |
-                     std::filesystem::perms::others_all),
-            std::filesystem::perms::none);
-#endif
-
-  std::filesystem::remove_all(workDir, ec);
-}
-
-// Genesis miners must sit in the issued range; anything else is refused at init.
-TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
-  const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-genesis-miner-test";
-  std::error_code ec;
-  for (const uint64_t badId : {uint64_t{5}, AccountBuffer::ID_FIRST_USER}) {
-    std::filesystem::remove_all(workDir, ec);
-    std::filesystem::create_directories(workDir);
-    auto key = utl::mlDsaGenerate().value();
-    std::ofstream(workDir / "init-config.json")
-        << R"({"networkId": "test-net", "genesisMiners": [{"id": )" << badId << R"(, "publicKeys": [")" << utl::hexEncode(key.publicKey)
-        << R"("]}]})";
-    {
-      BeaconServer server;
-      auto init = server.init(workDir.string());
-      ASSERT_FALSE(init.isOk()) << badId;
-      EXPECT_NE(init.error().message.find("issued range"), std::string::npos) << init.error().message;
+  explicit GenesisSetup(const std::string &name) : dir(std::filesystem::temp_directory_path() / name) {
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir);
+    for (int i = 0; i < 3; ++i) {
+      genesis.push_back(utl::mlDsaGenerate().value());
     }
+    fee.push_back(utl::mlDsaGenerate().value());
+    reserve.push_back(utl::mlDsaGenerate().value());
+    recycle.push_back(utl::mlDsaGenerate().value());
   }
-  std::filesystem::remove_all(workDir, ec);
-}
+  ~GenesisSetup() {
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+  }
 
-// --- Signed REGISTER: only the miner's own keys can register it ---
+  static std::string pubs(const std::vector<utl::MlDsaKeyPair> &keys) {
+    std::string out;
+    for (const auto &k : keys) {
+      out += (out.empty() ? "\"" : ", \"") + utl::hexEncode(k.publicKey) + "\"";
+    }
+    return "[" + out + "]";
+  }
 
-namespace {
+  void writeInitConfig(const std::string &extra = "") const {
+    std::ofstream(dir / "init-config.json")
+        << R"({"networkId": "test-net", "systemAccounts": {)"
+        << R"("genesis": {"publicKeys": )" << pubs(genesis) << R"(, "minSignatures": 2},)"
+        << R"("fee": {"publicKeys": )" << pubs(fee) << R"(},)"
+        << R"("reserve": {"publicKeys": )" << pubs(reserve) << R"(},)"
+        << R"("recycle": {"publicKeys": )" << pubs(recycle) << R"(}})" << extra << "}";
+  }
+
+  /** Write `key`'s private key to a file, as `pp-client keygen -o` does. */
+  std::string keyFile(const utl::MlDsaKeyPair &key, const std::string &name) const {
+    const auto path = dir / (name + ".key");
+    std::ofstream(path) << utl::hexEncode(key.privateKey) << "\n";
+    return path.string();
+  }
+
+  /** Run --init in its own scope (a live server keeps ledger files open). */
+  BeaconServer::Roe<void> init(const std::vector<std::string> &genesisKeyFiles) const {
+    BeaconServer server;
+    return server.init(dir.string(), genesisKeyFiles);
+  }
+};
 
 Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsaKeyPair> &keys,
                            const std::string &networkId) {
@@ -117,50 +84,114 @@ Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsa
 
 } // namespace
 
-TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
-  const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-register-test";
-  std::error_code ec;
-  std::filesystem::remove_all(workDir, ec);
-  Beacon::InitKeyConfig keys;
-  {
-    BeaconServer server;
-    auto init = server.init(workDir.string());
-    ASSERT_TRUE(init.isOk()) << init.error().message;
-    keys = init.value();
-  }
-  {
-    Beacon beacon;
-    Beacon::MountConfig mount;
-    mount.workDir = (workDir / "data").string();
-    ASSERT_TRUE(beacon.mount(mount).isOk());
-    const std::string net = beacon.getNetworkId();
+// Genesis declares the system accounts by public key; the beacon writes no
+// private keys anywhere.
+TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
+  GenesisSetup setup("pp-ledger-beacon-pubkeys-test");
+  setup.writeInitConfig();
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
 
-    Client::MinerInfo miner;
-    miner.id = AccountBuffer::ID_GENESIS;
-    auto genuine = signedBy(miner, keys.genesis, net);
-    EXPECT_TRUE(beacon.verifyMinerRegistration(genuine, net).isOk());
-    EXPECT_FALSE(beacon.verifyMinerRegistration(genuine, net + "-other").isOk()); // other network
-    EXPECT_FALSE(beacon.verifyMinerRegistration(signedBy(miner, keys.fee, net), net).isOk()); // not its keys
-
-    auto replayedLater = genuine;
-    replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
-    EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
+  for (const auto &entry : std::filesystem::directory_iterator(setup.dir)) {
+    EXPECT_EQ(entry.path().filename().string().rfind("init-keys", 0), std::string::npos) << entry.path();
   }
-  std::filesystem::remove_all(workDir, ec);
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  EXPECT_EQ(beacon.getNetworkId(), "test-net");
+  auto fee = beacon.getAccount(AccountBuffer::ID_FEE);
+  ASSERT_TRUE(fee.isOk());
+  ASSERT_EQ(fee.value().wallet.publicKeys.size(), 1u);
+  EXPECT_EQ(fee.value().wallet.publicKeys[0], setup.fee[0].publicKey);
+}
+
+// The genesis key signs genesis M-of-N: too few, foreign or repeated keys fail.
+TEST(BeaconServerInitTest, GenesisMustBeSignedByEnoughGenesisKeys) {
+  GenesisSetup setup("pp-ledger-beacon-signers-test");
+  setup.writeInitConfig();
+  const auto g0 = setup.keyFile(setup.genesis[0], "g0");
+  const auto g1 = setup.keyFile(setup.genesis[1], "g1");
+  const auto foreign = setup.keyFile(setup.fee[0], "fee");
+
+  auto tooFew = setup.init({g0});
+  ASSERT_FALSE(tooFew.isOk());
+  EXPECT_NE(tooFew.error().message.find("needs 2"), std::string::npos) << tooFew.error().message;
+
+  auto wrong = setup.init({g0, foreign});
+  ASSERT_FALSE(wrong.isOk());
+  EXPECT_NE(wrong.error().message.find("does not match"), std::string::npos) << wrong.error().message;
+
+  auto repeated = setup.init({g0, g0});
+  ASSERT_FALSE(repeated.isOk());
+  EXPECT_NE(repeated.error().message.find("twice"), std::string::npos) << repeated.error().message;
+
+  EXPECT_TRUE(setup.init({g0, g1}).isOk());
+}
+
+// The genesis (admin) account must be M-of-N from the start (at least 3 keys,
+// 2 signatures): the shape its renewals and config updates are held to.
+TEST(BeaconServerInitTest, GenesisAccountMustBeMOfN) {
+  GenesisSetup setup("pp-ledger-beacon-genesis-shape-test");
+  setup.genesis.resize(2); // 2-of-2 parses, but is not the required shape
+  setup.writeInitConfig();
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_FALSE(init.isOk());
+  EXPECT_NE(init.error().message.find("at least 3"), std::string::npos) << init.error().message;
+}
+
+// Without init-config.json, --init writes a template to fill in and stops.
+TEST(BeaconServerInitTest, MissingInitConfigWritesATemplateAndStops) {
+  GenesisSetup setup("pp-ledger-beacon-template-test");
+  auto init = setup.init({});
+  ASSERT_FALSE(init.isOk());
+  EXPECT_NE(init.error().message.find("keygen"), std::string::npos) << init.error().message;
+  EXPECT_TRUE(std::filesystem::exists(setup.dir / "init-config.json"));
+}
+
+// Genesis miners must sit in the issued range; anything else is refused at init.
+TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
+  for (const uint64_t badId : {uint64_t{5}, AccountBuffer::ID_FIRST_USER}) {
+    GenesisSetup setup("pp-ledger-beacon-genesis-miner-test");
+    auto key = utl::mlDsaGenerate().value();
+    setup.writeInitConfig(R"(, "genesisMiners": [{"id": )" + std::to_string(badId) + R"(, "publicKeys": [")" +
+                          utl::hexEncode(key.publicKey) + R"("]}])");
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_FALSE(init.isOk()) << badId;
+    EXPECT_NE(init.error().message.find("issued range"), std::string::npos) << init.error().message;
+  }
 }
 
 // networkId is part of genesis: init refuses to make a chain without one.
 TEST(BeaconServerInitTest, InitRequiresNetworkId) {
-  const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-network-id-test";
-  std::error_code ec;
-  std::filesystem::remove_all(workDir, ec);
-  std::filesystem::create_directories(workDir);
-  std::ofstream(workDir / "init-config.json") << R"({"slotDuration": 5})";
-  {
-    BeaconServer server;
-    auto init = server.init(workDir.string());
-    ASSERT_FALSE(init.isOk());
-    EXPECT_NE(init.error().message.find("networkId"), std::string::npos) << init.error().message;
-  }
-  std::filesystem::remove_all(workDir, ec);
+  GenesisSetup setup("pp-ledger-beacon-network-id-test");
+  std::ofstream(setup.dir / "init-config.json") << R"({"slotDuration": 5})";
+  auto init = setup.init({});
+  ASSERT_FALSE(init.isOk());
+  EXPECT_NE(init.error().message.find("networkId"), std::string::npos) << init.error().message;
+}
+
+// --- Signed REGISTER: only the miner's own keys can register it ---
+
+TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
+  GenesisSetup setup("pp-ledger-beacon-register-test");
+  setup.writeInitConfig();
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  const std::string net = beacon.getNetworkId();
+
+  Client::MinerInfo miner;
+  miner.id = AccountBuffer::ID_FEE; // any account with keys works for the signature check
+  auto genuine = signedBy(miner, setup.fee, net);
+  EXPECT_TRUE(beacon.verifyMinerRegistration(genuine, net).isOk());
+  EXPECT_FALSE(beacon.verifyMinerRegistration(genuine, net + "-other").isOk());               // other network
+  EXPECT_FALSE(beacon.verifyMinerRegistration(signedBy(miner, setup.reserve, net), net).isOk()); // not its keys
+
+  auto replayedLater = genuine;
+  replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
+  EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
 }

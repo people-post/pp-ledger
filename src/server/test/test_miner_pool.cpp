@@ -35,18 +35,38 @@ protected:
     fs::create_directories(root_ / "beacon");
     auto minerKey = utl::mlDsaGenerate();
     ASSERT_TRUE(minerKey.isOk());
+    // Each system account's holder makes its own key; genesis signs genesis.
+    // The genesis (admin) account is 2-of-3; two of its keys sign genesis.
+    std::vector<utl::MlDsaKeyPair> genesisKeys = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(),
+                                                  utl::mlDsaGenerate().value()};
+    reserveKeys_ = {utl::mlDsaGenerate().value()};
+    auto pub = [](const utl::MlDsaKeyPair &k) { return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})"; };
+    std::vector<std::string> genesisKeyFiles;
+    std::string genesisPubs;
+    for (size_t i = 0; i < genesisKeys.size(); ++i) {
+      genesisPubs += (i ? R"(", ")" : "") + utl::hexEncode(genesisKeys[i].publicKey);
+      if (i < 2) {
+        genesisKeyFiles.push_back((root_ / ("genesis" + std::to_string(i) + ".key")).string());
+        std::ofstream(genesisKeyFiles.back()) << utl::hexEncode(genesisKeys[i].privateKey) << "\n";
+      }
+    }
     std::ofstream(root_ / "beacon" / "init-config.json")
-        << R"({"networkId": "test-net", "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
+        << R"({"networkId": "test-net", "systemAccounts": {"genesis": {"publicKeys": [")" << genesisPubs
+        << R"("], "minSignatures": 2})"
+        << R"(, "fee": )" << pub(utl::mlDsaGenerate().value()) << R"(, "reserve": )" << pub(reserveKeys_[0])
+        << R"(, "recycle": )" << pub(utl::mlDsaGenerate().value()) << "},"
+        << R"( "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
         << R"( "maxTransactionsPerBlock": 100, "minFeeCoefficients": [1, 1, 0],)"
         << R"( "freeCustomMetaSize": 1024, "checkpointMinBlocks": 1000,)"
         << R"( "checkpointMinAgeSeconds": 0, "heartbeatSlots": 1000,)"
         << R"( "genesisMiners": [{"id": )" << kMinerId << R"(, "publicKeys": [")"
         << utl::hexEncode(minerKey.value().publicKey) << R"("]}]})";
 
-    BeaconServer beacon;
-    auto keys = beacon.init((root_ / "beacon").string());
-    ASSERT_TRUE(keys.isOk()) << keys.error().message;
-    reserveKeys_ = keys.value().reserve;
+    {
+      BeaconServer beacon;
+      auto init = beacon.init((root_ / "beacon").string(), genesisKeyFiles);
+      ASSERT_TRUE(init.isOk()) << init.error().message;
+    }
 
     Ledger ledger;
     ASSERT_TRUE(ledger.mount((root_ / "beacon" / "data" / "ledger").string()).isOk());

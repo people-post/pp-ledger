@@ -170,72 +170,36 @@ Beacons serve a unique role in the pp-ledger network:
 `init-config.json` (genesis, `--init` only) and `config.json` (`{"port": 8517}`):
 see [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
-### Beacon API Endpoints
+### RPC requests
 
-All requests/responses use JSON format.
+Every role speaks the same binary ledger RPC (`/pp-ledger/rpc/1.0.0` over AMP:
+`binaryPack(Client::Request)` in, `Client::Response` out; types in
+`src/client/Client.h`, wire in [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)).
+There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 
-#### Server Management
-```json
-// Register server
-{"type": "register", "address": "host:port"}
+| Request | Beacon | Relay | Miner | Notes |
+|---------|--------|-------|-------|-------|
+| `STATUS`, `CALIBRATION` | serves | serves | serves | Chain tip, slot/epoch, network id, registry version; clock |
+| `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
+| `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
+| `BLOCK_ADD` | commits | forwards up | — | Slot leader's block; upward only, idempotent |
+| `TX_ADD` | pools | forwards up | forwards up | Into the beacon's pending pool |
+| `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions |
+| `REGISTER` | records | forwards up | — | Signed by the miner account's keys; renewed every 60 s |
+| `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
 
-// Heartbeat
-{"type": "heartbeat", "address": "host:port"}
+Which origins may send what (e.g. nothing travelling up is accepted from a
+node's own upstream) is one table in `Server::isAllowedFrom`; see
+[LEDGER_TOPOLOGY.md §7.1](LEDGER_TOPOLOGY.md).
 
-// Query active servers
-{"type": "query"}
-```
+### Stakeholders
 
-#### Block Operations
-```json
-// Get block
-{"type": "block", "action": "get", "blockId": 123}
-
-// Add block
-{"type": "block", "action": "add", "block": {...}}
-
-// Get current block ID
-{"type": "block", "action": "current"}
-```
-
-#### Checkpoint Operations
-```json
-// List checkpoints
-{"type": "checkpoint", "action": "list"}
-
-// Get current checkpoint
-{"type": "checkpoint", "action": "current"}
-
-// Evaluate checkpoints
-{"type": "checkpoint", "action": "evaluate"}
-```
-
-#### Stakeholder Operations
-```json
-// List stakeholders
-{"type": "stakeholder", "action": "list"}
-
-// Add stakeholder
-{"type": "stakeholder", "action": "add", "stakeholder": {"id": "...", "stake": 1000, ...}}
-
-// Remove stakeholder
-{"type": "stakeholder", "action": "remove", "id": "stakeholder1"}
-
-// Update stake
-{"type": "stakeholder", "action": "updateStake", "id": "stakeholder1", "stake": 2000}
-```
-
-#### Consensus Queries
-```json
-// Get current slot
-{"type": "consensus", "action": "currentSlot"}
-
-// Get current epoch
-{"type": "consensus", "action": "currentEpoch"}
-
-// Get slot leader
-{"type": "consensus", "action": "slotLeader", "slot": 123}
-```
+There is no stakeholder API: stake is account state. The stakeholders are the
+non-system accounts (id ≥ 2²⁰) with a positive native-token balance, snapshotted
+per epoch for leader election (WIRE_SCHEMA.md, Leader election). A new chain's
+stakeholders are its genesis miners (`genesisMiners` in init-config.json); after
+that, stake moves with ordinary transfers. `STATUS` reports `nStakeholders`;
+`MINER_LIST` lists which stakeholders run a miner.
 
 ## Relay Architecture
 
@@ -252,9 +216,11 @@ Relay servers sit between beacons and miners:
 `config.json`: `{"beacon": "<upstream multiaddr>"}`, optional `port` (8519); the
 identity key is created on first start. See [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
-### Relay API Endpoints
+### Relay requests
 
-The relay exposes the same API as the beacon to miners. Miners can use the relay transparently as if it were a beacon.
+The relay serves the same RPC as the beacon to its downstream (table above),
+answering reads from its synced chain and forwarding writes and pool requests
+up to the beacon.
 
 ## Miner Architecture
 
@@ -263,83 +229,11 @@ The relay exposes the same API as the beacon to miners. Miners can use the relay
 `config.json`: `{"minerId", "keys", "beacons": [<relay multiaddrs>]}`, optional
 `port`, `networkAnchor`. See [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
-### Miner API Endpoints
+### Miner requests
 
-All requests/responses use JSON format.
-
-#### Status
-```json
-// Get miner status
-{"type": "status"}
-
-// Response:
-{
-  "status": "ok",
-  "minerId": "miner1",
-  "stake": 1000000,
-  "currentBlockId": 456,
-  "currentSlot": 789,
-  "currentEpoch": 3,
-  "pendingTransactions": 42,
-  "isSlotLeader": true
-}
-```
-
-#### Transaction Operations
-```json
-// Add transaction
-{"type": "transaction", "action": "add", "transaction": {"from": "alice", "to": "bob", "amount": 100}}
-
-// Get pending transaction count
-{"type": "transaction", "action": "count"}
-
-// Clear transaction pool
-{"type": "transaction", "action": "clear"}
-```
-
-#### Block Operations
-```json
-// Get block
-{"type": "block", "action": "get", "blockId": 123}
-
-// Add block
-{"type": "block", "action": "add", "block": {...}}
-
-// Get current block ID
-{"type": "block", "action": "current"}
-```
-
-#### Mining Operations
-```json
-// Produce block (manual trigger)
-{"type": "mining", "action": "produce"}
-
-// Check if should produce
-{"type": "mining", "action": "shouldProduce"}
-```
-
-#### Checkpoint Operations
-```json
-// Reinitialize from checkpoint
-{"type": "checkpoint", "action": "reinit", "checkpoint": {"blockId": 1000, "stateData": [...]}}
-
-// Check if out of date
-{"type": "checkpoint", "action": "isOutOfDate", "checkpointId": 1000}
-```
-
-#### Consensus Queries
-```json
-// Get current slot
-{"type": "consensus", "action": "currentSlot"}
-
-// Get current epoch
-{"type": "consensus", "action": "currentEpoch"}
-
-// Check if slot leader
-{"type": "consensus", "action": "isSlotLeader"}
-// Or for specific slot:
-{"type": "consensus", "action": "isSlotLeader", "slot": 123}
-```
+See the RPC table above. A miner serves reads and passes `TX_ADD` up; as slot
+leader it pulls transactions (`TX_PULL`) and submits its block (`BLOCK_ADD`)
+to its upstream.
 
 ### Block Production Loop
 
@@ -446,37 +340,8 @@ Slot N:     Miner 1 (Leader)     Miner 2              Miner 3
 
 ## Configuration
 
-### Chain Base Configuration
-
-Common configuration for both Beacon and Miner:
-
-```cpp
-struct BaseConfig {
-    std::string workDir;              // Directory for data storage
-    uint64_t slotDuration = 1;        // Duration of each slot (seconds)
-    uint64_t slotsPerEpoch = 21600;   // Number of slots per epoch (~6 hours)
-};
-```
-
-### Beacon-Specific Configuration
-
-```cpp
-struct Config : public BaseConfig {
-    uint64_t checkpointMinSizeBytes = 1024ULL * 1024 * 1024; // 1GB default
-    uint64_t checkpointAgeSeconds = 365ULL * 24 * 3600;      // 1 year default
-};
-```
-
-### Miner-Specific Configuration
-
-```cpp
-struct Config : public BaseConfig {
-    std::string minerId;                       // Unique miner identifier
-    uint64_t stake;                            // Miner's stake in the network
-    size_t maxPendingTransactions = 10000;     // Max size of transaction pool
-    size_t maxTransactionsPerBlock = 100;      // Max transactions per block
-};
-```
+Every field (genesis `init-config.json`, each role's `config.json`) and the
+fixed network timing: [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 ## API Reference
 

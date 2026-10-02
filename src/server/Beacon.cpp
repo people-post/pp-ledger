@@ -1,4 +1,5 @@
 #include "Beacon.h"
+#include "../chain/AccountPolicy.h"
 #include "../chain/TxFees.h"
 #include "../client/AccountAttachment.h"
 #include "../client/Client.h"
@@ -17,16 +18,15 @@ namespace pp {
 namespace {
 
 Client::UserAccount
-makeUserAccountFromKeys(const std::vector<utl::MlDsaKeyPair> &keys,
+makeUserAccountFromKeys(const Beacon::AccountKeys &keys,
                         int64_t balance, const std::string &meta) {
   Client::UserAccount account;
   account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
-  for (const auto &kp : keys) {
-    account.wallet.publicKeys.push_back(kp.publicKey);
-  }
+  account.wallet.publicKeys = keys.publicKeys;
   account.wallet.minSignatures =
-      static_cast<uint8_t>(std::min<size_t>(
-          keys.size(), std::numeric_limits<uint8_t>::max()));
+      keys.minSignatures != 0
+          ? keys.minSignatures
+          : static_cast<uint8_t>(std::min<size_t>(keys.publicKeys.size(), std::numeric_limits<uint8_t>::max()));
   account.wallet.keyType = Crypto::TK_ML_DSA_65;
   account.meta = meta;
   return account;
@@ -116,23 +116,6 @@ Beacon::findTransactionByIndex(uint64_t txIndex) const {
     return Error(result.error().code, result.error().message);
   }
   return result.value();
-}
-
-pp::common::Meta Beacon::InitKeyConfig::ltsToMeta() const {
-  auto pairsToMeta = [](const std::vector<utl::MlDsaKeyPair> &pairs) {
-    std::vector<pp::common::Meta::Value> elems;
-    elems.reserve(pairs.size());
-    for (const auto &kp : pairs) {
-      elems.push_back(std::make_shared<pp::common::Meta>(kp.ltsToMeta()));
-    }
-    return pp::common::Meta::array(std::move(elems));
-  };
-  pp::common::Meta out;
-  out.set("genesis", pairsToMeta(genesis));
-  out.set("fee", pairsToMeta(fee));
-  out.set("reserve", pairsToMeta(reserve));
-  out.set("recycle", pairsToMeta(recycle));
-  return out;
 }
 
 Beacon::Roe<void> Beacon::init(const InitConfig &config) {
@@ -265,17 +248,74 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
 
 Beacon::Roe<void>
 Beacon::signWithGenesisKeys(Ledger::Record &record,
-                            const std::vector<utl::MlDsaKeyPair> &genesisKeys,
+                            const std::vector<std::string> &genesisSigners,
                             const std::string &networkId,
                             const std::string &errorContext) const {
   const std::string message = record.signingMessage(networkId);
-  for (const auto &kp : genesisKeys) {
-    auto result = utl::mlDsaSign(kp.privateKey, message);
+  for (const auto &privateKey : genesisSigners) {
+    auto result = utl::mlDsaSign(privateKey, message);
     if (!result) {
       return Error(18, "Failed to sign " + errorContext + ": " +
                            result.error().message);
     }
     record.signatures.push_back(*result);
+  }
+  return {};
+}
+
+Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
+  const std::pair<const char *, const AccountKeys *> accounts[] = {
+      {"genesis", &key.genesis}, {"fee", &key.fee}, {"reserve", &key.reserve}, {"recycle", &key.recycle}};
+  for (const auto &[name, keys] : accounts) {
+    if (keys->publicKeys.empty()) {
+      return Error(2, std::string("System account '") + name + "' needs public keys");
+    }
+    for (const auto &pk : keys->publicKeys) {
+      if (pk.size() != utl::kMlDsaPublicKeyBytes) {
+        return Error(2, std::string("System account '") + name + "' has a malformed public key");
+      }
+    }
+    if (keys->minSignatures > keys->publicKeys.size()) {
+      return Error(2, std::string("System account '") + name + "' minSignatures exceeds its key count");
+    }
+  }
+  // The genesis (admin) account is M-of-N from the start: the same shape its
+  // renewals and config updates are held to (at least 3 keys, 2 signatures).
+  Client::Wallet genesisWallet;
+  genesisWallet.publicKeys = key.genesis.publicKeys;
+  genesisWallet.minSignatures =
+      key.genesis.minSignatures != 0 ? key.genesis.minSignatures
+                                     : static_cast<uint8_t>(std::min<size_t>(key.genesis.publicKeys.size(), 255));
+  if (auto shape = chain_tx::validateGenesisWalletShape(genesisWallet); !shape) {
+    return Error(2, "systemAccounts.genesis: " + shape.error().message);
+  }
+
+  // Each signer must be a distinct genesis key: sign a probe and match it.
+  const std::string probe = "pp-ledger/genesis-signer-probe/v1";
+  std::set<size_t> matched;
+  for (const auto &privateKey : key.genesisSigners) {
+    auto sig = utl::mlDsaSign(privateKey, probe);
+    if (!sig) {
+      return Error(2, "Invalid genesis signing key: " + sig.error().message);
+    }
+    bool found = false;
+    for (size_t i = 0; i < key.genesis.publicKeys.size() && !found; ++i) {
+      if (utl::mlDsaVerify(key.genesis.publicKeys[i], probe, sig.value())) {
+        found = matched.insert(i).second;
+        if (!found) {
+          return Error(2, "The same genesis signing key was given twice");
+        }
+      }
+    }
+    if (!found) {
+      return Error(2, "A genesis signing key does not match any genesis public key");
+    }
+  }
+  const size_t needed =
+      key.genesis.minSignatures != 0 ? key.genesis.minSignatures : key.genesis.publicKeys.size();
+  if (matched.size() < needed) {
+    return Error(2, "Genesis needs " + std::to_string(needed) + " signing key(s) (--genesis-key), got " +
+                        std::to_string(matched.size()));
   }
   return {};
 }
@@ -323,7 +363,7 @@ Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const I
     Ledger::Record rec;
     rec.type = Ledger::T_NEW_USER;
     rec.data = utl::binaryPack(tx);
-    auto signedRec = signWithGenesisKeys(rec, key.genesis, config.networkId, "genesis miner transaction");
+    auto signedRec = signWithGenesisKeys(rec, key.genesisSigners, config.networkId, "genesis miner transaction");
     if (!signedRec) {
       return signedRec.error();
     }
@@ -348,6 +388,9 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   // 2. Create fee, reserve, and recycle accounts
   // 3. Create genesis miner accounts (their stake comes out of reserve)
   log().info << "Creating genesis block";
+  if (auto keysOk = checkInitKeys(key); !keysOk) {
+    return keysOk.error();
+  }
 
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
@@ -372,7 +415,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txGenesis);
   rec.signatures = {};
   auto roeGenesis =
-      signWithGenesisKeys(rec, key.genesis, config.networkId,
+      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
                           "checkpoint transaction");
   if (!roeGenesis) {
     return roeGenesis.error();
@@ -402,7 +445,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.type = Ledger::T_NEW_USER;
   rec.data = utl::binaryPack(txFee);
   rec.signatures = {};
-  auto roeFee = signWithGenesisKeys(rec, key.genesis, config.networkId,
+  auto roeFee = signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
                                     "fee transaction");
   if (!roeFee) {
     return roeFee.error();
@@ -474,7 +517,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txReserve);
   rec.signatures = {};
   auto roeReserve =
-      signWithGenesisKeys(rec, key.genesis, config.networkId,
+      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
                           "reserve transaction");
   if (!roeReserve) {
     return roeReserve.error();
@@ -494,7 +537,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   rec.data = utl::binaryPack(txRecycle);
   rec.signatures = {};
   auto roeRecycle =
-      signWithGenesisKeys(rec, key.genesis, config.networkId,
+      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
                           "recycle transaction");
   if (!roeRecycle) {
     return roeRecycle.error();
