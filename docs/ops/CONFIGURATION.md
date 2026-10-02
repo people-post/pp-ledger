@@ -43,6 +43,21 @@ least 3 keys and 2 signatures (the shape its renewals and updates are held to).
 Keep its keys offline with different people; the beacon needs them only for
 `--init`. A config update can replace the genesis keys (rotation).
 
+**Key custody: keep hot keys away from supply.** Creating user accounts
+(id ≥ 2³⁰) needs no system key: any funded account signs its own `NEW_USER`
+and pays the new account's balance and fee. Recommended tiers (a practice, not
+a chain rule):
+
+| Tier | Account | Signs | Keys |
+|------|---------|-------|------|
+| Admin | genesis | config (`T_CONFIG`), issuance to reserve, issued-range accounts, key rotation | cold, M-of-N |
+| Treasury | reserve | occasional top-ups of onboarding accounts | cold or warm, M-of-N |
+| Onboarding | an ordinary user or issued account | every `NEW_USER` | hot, small balance |
+
+A leaked onboarding key loses at most that account's balance; stop refilling it
+and create another. Run several (per region or service) with separate keys and
+budgets rather than signing onboarding with reserve or genesis.
+
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `networkId` | **required** | This chain's name. Part of genesis: every signature and the epoch seed bind to it; offline signing (`pp-client sign-tx --network-id`) must name it |
