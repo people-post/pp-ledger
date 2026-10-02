@@ -737,12 +737,23 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
   auto lookback = collectPrevEpochLookbackHashes(epoch - 1);
   const std::string tipMaterial = consensus::lookbackTipMaterial(
       epoch - 1, prevSeed, lookback);
-  const std::string stakeHash = chain_block::calculateStakeSnapshotHash(
-      txContext_.consensus.getStakeholders());
+  // The epoch's own snapshot, not whatever is installed: the wall-clock refresh
+  // installs the clock epoch's (provisional) stakes before deriving the tip
+  // epoch's seed.
+  const std::string stakeHash =
+      chain_block::calculateStakeSnapshotHash(stakeSnapshotForEpoch(epoch));
   const std::string seed = consensus::deriveEpochSeed(
       epoch, networkId, prevSeed, tipMaterial, stakeHash);
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};
+}
+
+std::vector<consensus::Stakeholder> Chain::stakeSnapshotForEpoch(uint64_t epoch) const {
+  auto recorded = epochStakeSnapshots_.find(epoch);
+  if (recorded != epochStakeSnapshots_.end()) {
+    return recorded->second;
+  }
+  return txContext_.bank.getStakeholders(); // provisional (no block of this epoch yet)
 }
 
 Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {

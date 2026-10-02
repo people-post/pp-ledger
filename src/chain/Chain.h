@@ -191,6 +191,8 @@ public:
    * derived early by the wall-clock refresh) is re-derived.
    */
   Roe<void> ensureBlockEpochSeed(const Ledger::ChainNode &block);
+  /** Recorded stake snapshot for `epoch`, else the current bank (provisional). */
+  std::vector<consensus::Stakeholder> stakeSnapshotForEpoch(uint64_t epoch) const;
   const std::string &getEpochSeed() const {
     return txContext_.consensus.getEpochSeed();
   }
