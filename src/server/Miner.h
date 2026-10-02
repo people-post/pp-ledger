@@ -60,6 +60,9 @@ public:
   /** True when chain config is ready (from T_GENESIS or T_CONFIG). */
   bool isConfigReady() const;
   Roe<uint64_t> getSlotLeaderId() const;
+  Roe<uint64_t> getSlotLeaderIdForSlot(uint64_t slot) const;
+  /** Epoch of the tip block (0 before any block). */
+  uint64_t getTipEpoch() const;
 
   uint64_t getStake() const;
   size_t getPendingTransactionCount() const;
@@ -93,8 +96,8 @@ public:
   addTransaction(const Ledger::Record &record);
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
-  /** Cache a transaction for forwarding retry when slot leader address is unknown. */
-  void addToForwardCache(const Ledger::Record &record);
+  /** Cache a transaction for the next slot's forward retry. False when full (dropped). */
+  bool addToForwardCache(const Ledger::Record &record);
   /** Take all cached transactions for retry; returns and clears the cache. */
   std::vector<Ledger::Record> drainForwardCache();
 
@@ -117,7 +120,9 @@ private:
     std::vector<std::string> privateKeys; // hex-encoded (multiple signatures)
   };
 
+  /** Per-slot leader state built from the tip; reset whenever the tip moves. */
   struct SlotCache {
+    bool ready{false};
     uint64_t slot{0};
     bool isLeader{false};
     std::vector<Ledger::Record> txRenewals;
@@ -148,6 +153,8 @@ private:
   AccountBuffer bufferBank_;
   std::vector<Ledger::Record> pendingTxes_;
   std::vector<Ledger::Record> forwardCache_;
+  /** Bounds memory: forwarded transactions are cached before any validation. */
+  constexpr static size_t kMaxForwardCache = 4096;
 
   uint64_t lastProducedBlockId_{0};
   // slot last produced block in (at most one per slot)

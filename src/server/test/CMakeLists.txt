@@ -7,3 +7,7 @@ gtest_discover_tests(test_beacon_server)
 add_executable(test_server_thread test_server_thread.cpp)
 target_link_libraries(test_server_thread PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_server_thread)
+
+add_executable(test_miner_pool test_miner_pool.cpp)
+target_link_libraries(test_miner_pool PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_miner_pool)

@@ -479,6 +479,10 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   return {};
 }
 
+void Client::forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done) {
+  sendRequestAsync(T_REQ_TX_FORWARD, utl::binaryPack(request), TIMEOUT_DATA, std::move(done));
+}
+
 void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) {
   sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), TIMEOUT_DATA,
                    [done = std::move(done)](Roe<std::string> result) {
