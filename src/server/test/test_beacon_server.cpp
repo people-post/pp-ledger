@@ -74,3 +74,24 @@ TEST(BeaconServerInitTest, SecondInitWritesNewKeyFileAndKeepsFirst) {
 
   std::filesystem::remove_all(workDir, ec);
 }
+
+// Genesis miners must sit in the issued range; anything else is refused at init.
+TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
+  const auto workDir = std::filesystem::temp_directory_path() / "pp-ledger-beacon-genesis-miner-test";
+  std::error_code ec;
+  for (const uint64_t badId : {uint64_t{5}, AccountBuffer::ID_FIRST_USER}) {
+    std::filesystem::remove_all(workDir, ec);
+    std::filesystem::create_directories(workDir);
+    auto key = utl::mlDsaGenerate().value();
+    std::ofstream(workDir / "init-config.json")
+        << R"({"genesisMiners": [{"id": )" << badId << R"(, "publicKeys": [")" << utl::hexEncode(key.publicKey)
+        << R"("]}]})";
+    {
+      BeaconServer server;
+      auto init = server.init(workDir.string());
+      ASSERT_FALSE(init.isOk()) << badId;
+      EXPECT_NE(init.error().message.find("issued range"), std::string::npos) << init.error().message;
+    }
+  }
+  std::filesystem::remove_all(workDir, ec);
+}

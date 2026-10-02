@@ -164,10 +164,12 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must commit 32-byte epochSeed");
   }
-  if (block.block.records.size() != 4) {
+  // Four system records (config, fee, reserve, recycle), then any genesis
+  // miner accounts.
+  if (block.block.records.size() < 4) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
-        "Genesis block must have exactly four transactions");
+        "Genesis block must have at least four transactions");
   }
 
   const std::string expectedTxRoot =
@@ -289,10 +291,49 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
       !safeAddI64(genesisTotal, recycleFeeSigned, genesisTotal)) {
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, genesisOverflowMsg);
   }
+
+  // Genesis miners: funded from genesis into the issued range; their stake
+  // and fees come out of the same initial supply.
+  std::set<uint64_t> genesisMinerIds;
+  for (size_t i = 4; i < block.block.records.size(); ++i) {
+    auto minerRoe = loadGenesisNewUserWithExactFee(
+        block.block.records[i], gm.config, recordHandler,
+        "Genesis miner transaction must be new user transaction",
+        "Failed to deserialize genesis miner tx payload",
+        "Genesis miner account creation transaction must have fee: ");
+    if (!minerRoe) {
+      return minerRoe.error();
+    }
+    const auto &minerAccountTx = minerRoe.value();
+    if (minerAccountTx.fromWalletId != AccountBuffer::ID_GENESIS ||
+        minerAccountTx.toWalletId < AccountBuffer::ID_FIRST_ISSUED ||
+        minerAccountTx.toWalletId >= AccountBuffer::ID_FIRST_USER) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                               "Genesis miner must be funded from genesis into the issued id range");
+    }
+    if (!genesisMinerIds.insert(minerAccountTx.toWalletId).second) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Duplicate genesis miner account");
+    }
+    auto amountRoe = requireFeeFitsInt64(minerAccountTx.amount, "Genesis miner stake exceeds int64_t range");
+    auto feeRoe = requireFeeFitsInt64(minerAccountTx.fee, "Genesis miner fee exceeds int64_t range");
+    if (!amountRoe) {
+      return amountRoe.error();
+    }
+    if (!feeRoe) {
+      return feeRoe.error();
+    }
+    if (amountRoe.value() <= 0) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis miner must have a positive stake");
+    }
+    if (!safeAddI64(genesisTotal, amountRoe.value(), genesisTotal) ||
+        !safeAddI64(genesisTotal, feeRoe.value(), genesisTotal)) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, genesisOverflowMsg);
+    }
+  }
   if (genesisTotal != static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY)) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
-        "Genesis reserve+recycle transactions must satisfy amount + "
+        "Genesis reserve, recycle and miner transactions must satisfy amount + "
         "fees: " +
             std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
   }

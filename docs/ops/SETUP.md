@@ -29,9 +29,25 @@ You can customize `beacon/init-config.json` before initialization:
   "slotsPerEpoch": 432,        // Slots per epoch (default: 432 = ~36 minutes)
   "heartbeatSlots": 432,       // Empty seal when tip lag ≥ this (default: slotsPerEpoch; 0=off)
   "checkpointSize": 1073741824,  // Checkpoint size in bytes (default: 1GB)
-  "checkpointAge": 31536000    // Checkpoint age in seconds (default: 1 year)
+  "checkpointAge": 31536000,   // Checkpoint age in seconds (default: 1 year)
+  "genesisMiners": [           // Miner accounts created at genesis (see below)
+    {"id": 1048576, "publicKeys": ["<hex ML-DSA-65 public key>"]}
+  ]
 }
 ```
+
+**Genesis miners.** System accounts (genesis, fee, reserve, recycle) never lead
+slots, so a new chain needs miners from block 0. Each `genesisMiners` entry
+creates a miner account in the genesis block:
+
+- `id` — in the issued range `[1048576, 1073741824)` (2²⁰ ≤ id < 2³⁰)
+- `publicKeys` — hex ML-DSA-65 public keys; the miner keeps the private keys
+  (`pp-client keygen`), the beacon never sees them
+- `minSignatures` — optional, default: all keys
+- `stake` — optional initial balance taken from reserve; default an equal share
+  of 10% of the supply among miners without an explicit stake
+
+Run each miner with that `minerId` and its private key(s) in `keys`.
 
 ### Mode 2: Mount an existing beacon
 

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <limits>
+#include <set>
 
 namespace pp {
 
@@ -161,7 +162,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   chainConfig.genesisTime = consensusConfig.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key);
+  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key, config.miners);
   if (!genesisBlockResult) {
     return Error(2, "Failed to create genesis block: " +
                         genesisBlockResult.error().message);
@@ -268,12 +269,73 @@ Beacon::signWithGenesisKeys(Ledger::Record &record,
   return {};
 }
 
+Beacon::Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
+Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
+                                  const std::vector<GenesisMiner> &miners) {
+  std::vector<Ledger::Record> records;
+  int64_t total = 0;
+  std::set<uint64_t> seen;
+  for (const auto &miner : miners) {
+    if (miner.id < AccountBuffer::ID_FIRST_ISSUED || miner.id >= AccountBuffer::ID_FIRST_USER) {
+      return Error(2, "Genesis miner id " + std::to_string(miner.id) + " must be in the issued range [" +
+                          std::to_string(AccountBuffer::ID_FIRST_ISSUED) + ", " +
+                          std::to_string(AccountBuffer::ID_FIRST_USER) + ")");
+    }
+    if (!seen.insert(miner.id).second) {
+      return Error(2, "Duplicate genesis miner id " + std::to_string(miner.id));
+    }
+    if (miner.publicKeys.empty() || miner.minSignatures == 0 || miner.minSignatures > miner.publicKeys.size()) {
+      return Error(2, "Genesis miner " + std::to_string(miner.id) +
+                          " needs public keys and 1 <= minSignatures <= key count");
+    }
+    if (miner.stake == 0 || miner.stake > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+      return Error(2, "Genesis miner " + std::to_string(miner.id) + " needs a positive stake");
+    }
+    Client::UserAccount account;
+    account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(miner.stake);
+    account.wallet.publicKeys = miner.publicKeys;
+    account.wallet.minSignatures = miner.minSignatures;
+    account.wallet.keyType = Crypto::TK_ML_DSA_65;
+    account.meta = AccountAttachment::emptySerialized();
+
+    Ledger::TxNewUser tx;
+    tx.fromWalletId = AccountBuffer::ID_GENESIS;
+    tx.toWalletId = miner.id;
+    tx.amount = miner.stake;
+    tx.meta = account.ltsToString();
+    auto fee = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx));
+    if (!fee) {
+      return Error(2, "Failed to calculate genesis miner fee: " + fee.error().message);
+    }
+    tx.fee = fee.value();
+
+    Ledger::Record rec;
+    rec.type = Ledger::T_NEW_USER;
+    rec.data = utl::binaryPack(tx);
+    auto signedRec = signWithGenesisKeys(rec, key.genesis, config.networkId, "genesis miner transaction");
+    if (!signedRec) {
+      return signedRec.error();
+    }
+    // All non-negative: overflow-checked sum (portable; no compiler builtins).
+    const int64_t add = static_cast<int64_t>(miner.stake);
+    const int64_t feeAmount = static_cast<int64_t>(tx.fee);
+    if (add > std::numeric_limits<int64_t>::max() - total - feeAmount) {
+      return Error(2, "Genesis miner stakes overflow");
+    }
+    total += add + feeAmount;
+    records.push_back(std::move(rec));
+  }
+  return std::make_pair(std::move(records), total);
+}
+
 Beacon::Roe<Ledger::ChainNode>
 Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
-                           const InitKeyConfig &key) {
+                           const InitKeyConfig &key,
+                           const std::vector<GenesisMiner> &miners) {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create fee, reserve, and recycle accounts
+  // 3. Create genesis miner accounts (their stake comes out of reserve)
   log().info << "Creating genesis block";
 
   Ledger::ChainNode genesisBlock;
@@ -357,6 +419,12 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   }
   const int64_t recycleFee = static_cast<int64_t>(recycleFeeResult.value());
 
+  auto minerRecords = createGenesisMinerRecords(config, key, miners);
+  if (!minerRecords) {
+    return minerRecords.error();
+  }
+  const int64_t minerTotal = minerRecords.value().second;
+
   int64_t reserveAmount =
       static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
   int64_t reserveFee = 0;
@@ -372,7 +440,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
 
     const int64_t updatedReserveAmount =
         static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-        feeWalletFee - reserveFee - recycleFee;
+        feeWalletFee - reserveFee - recycleFee - minerTotal;
     if (updatedReserveAmount < 0) {
       return Error(2, "Initial token supply is insufficient for genesis fees");
     }
@@ -421,6 +489,10 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
     return roeRecycle.error();
   }
   genesisBlock.block.records.push_back(rec);
+
+  for (auto &minerRec : minerRecords.value().first) {
+    genesisBlock.block.records.push_back(std::move(minerRec));
+  }
 
   auto sealResult = chain_.sealBlock(genesisBlock);
   if (!sealResult) {

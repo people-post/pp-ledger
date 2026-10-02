@@ -199,6 +199,71 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     heartbeatSlots = slotsPerEpoch;
   }
 
+  return parseGenesisMiners(jd);
+}
+
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const Object &jd) {
+  genesisMiners.clear();
+  if (!jd.contains("genesisMiners")) {
+    return {};
+  }
+  const Array *list = jd.getArray("genesisMiners");
+  if (!list) {
+    return Error(E_CONFIG, "Field 'genesisMiners' must be an array");
+  }
+  size_t withoutStake = 0;
+  for (size_t i = 0; i < list->elements.size(); ++i) {
+    const std::string where = "genesisMiners[" + std::to_string(i) + "]";
+    const Object *entry = asObject(list->elements[i]);
+    if (!entry) {
+      return Error(E_CONFIG, where + " must be an object");
+    }
+    Beacon::GenesisMiner miner;
+    auto id = entry->getNonNegInt("id");
+    if (!id) {
+      return Error(E_CONFIG, where + ".id is required");
+    }
+    miner.id = *id;
+    const Array *keys = entry->getArray("publicKeys");
+    if (!keys || keys->elements.empty()) {
+      return Error(E_CONFIG, where + ".publicKeys must be a non-empty array of hex keys");
+    }
+    for (const auto &keyValue : keys->elements) {
+      auto hex = asString(keyValue);
+      std::string text = hex ? *hex : std::string{};
+      if (text.rfind("0x", 0) == 0) {
+        text = text.substr(2);
+      }
+      std::string key = utl::hexDecode(text);
+      if (key.size() != utl::kMlDsaPublicKeyBytes) {
+        return Error(E_CONFIG, where + ".publicKeys entries must be hex ML-DSA-65 public keys");
+      }
+      miner.publicKeys.push_back(std::move(key));
+    }
+    const uint64_t minSignatures = entry->getNonNegInt("minSignatures").value_or(miner.publicKeys.size());
+    if (minSignatures == 0 || minSignatures > miner.publicKeys.size()) {
+      return Error(E_CONFIG, where + ".minSignatures must be 1..number of keys");
+    }
+    miner.minSignatures = static_cast<uint8_t>(minSignatures);
+    if (entry->contains("stake")) {
+      auto stake = entry->getNonNegInt("stake");
+      if (!stake || *stake == 0) {
+        return Error(E_CONFIG, where + ".stake must be a positive integer");
+      }
+      miner.stake = *stake;
+    } else {
+      ++withoutStake;
+    }
+    genesisMiners.push_back(std::move(miner));
+  }
+  if (withoutStake > 0) {
+    const uint64_t share = AccountBuffer::INITIAL_TOKEN_SUPPLY / GENESIS_MINER_STAKE_SHARE / withoutStake;
+    for (auto &miner : genesisMiners) {
+      if (miner.stake == 0) {
+        miner.stake = share;
+      }
+    }
+  }
   return {};
 }
 
@@ -377,6 +442,8 @@ BeaconServer::init(const std::string &workDir) {
       initFileConfig.maxValidationTimespanSeconds;
   initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
   initConfig.chain.networkId = config_.network_id;
+  initConfig.miners = initFileConfig.genesisMiners;
+  log().info << "  Genesis miners: " << initConfig.miners.size();
 
   // Generate keypairs; pass KeyPairs to beacon for genesis signing and
   // checkpoint public keys
@@ -780,6 +847,10 @@ BeaconServer::hRegister(const Client::Request &request) {
   auto parsed = minerInfo.ltsFromMeta(unpacked.value());
   if (!parsed) {
     return Error(E_REQUEST, parsed.error().message);
+  }
+  if (AccountIds::isSystemAccount(minerInfo.id)) {
+    // System accounts hold protocol funds and never lead slots.
+    return Error(E_REQUEST, "System account " + std::to_string(minerInfo.id) + " cannot register as a miner");
   }
   registerServer(minerInfo);
   return utl::binaryPack(buildStateResponse().ltsToMeta());
