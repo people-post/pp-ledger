@@ -70,7 +70,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyBlock(const Ledger::TypedTx &tx,
     return pRoe.error();
   }
   const auto *p = pRoe.value();
-  // Genesis bootstrap (fee/reserve/recycle account creation) runs as block 0
+  // Genesis bootstrap (system and genesis miner accounts) runs as block 0
   // with idempotentId == 0 by construction; every other new-user tx must
   // carry a non-zero id so it can't be replayed onto a later block.
   if (auto idem = validateIdempotencyUsingContext(
@@ -154,12 +154,21 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
             spendingResult.error().message);
   }
 
-  if (tx.fromWalletId != AccountBuffer::ID_GENESIS &&
-      tx.toWalletId < AccountBuffer::ID_FIRST_USER) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "New user account id must be larger than: " +
-            std::to_string(AccountBuffer::ID_FIRST_USER));
+  // After genesis, genesis creates no accounts (each would mint its balance
+  // and fee); issued ids come only from the registrar, user ids from anyone.
+  if (blockId != 0) {
+    if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
+      return chain_tx::TxError(
+          chain_err::E_TX_VALIDATION,
+          "Genesis creates no accounts after the genesis block");
+    }
+    if (tx.toWalletId < AccountBuffer::ID_FIRST_USER &&
+        tx.fromWalletId != AccountBuffer::ID_REGISTRAR) {
+      return chain_tx::TxError(
+          chain_err::E_TX_VALIDATION,
+          "Issued account ids (< " + std::to_string(AccountBuffer::ID_FIRST_USER) +
+              ") are created only by the registrar");
+    }
   }
 
   auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(

@@ -16,10 +16,11 @@ anything not listed here is fixed in code.
 {
   "networkId": "my-network",
   "systemAccounts": {
-    "genesis": {"publicKeys": ["<hex>", "<hex>", "<hex>"], "minSignatures": 2},
-    "fee":     {"publicKeys": ["<hex>"]},
-    "reserve": {"publicKeys": ["<hex>"]},
-    "recycle": {"publicKeys": ["<hex>"]}
+    "genesis":   {"publicKeys": ["<hex>", "<hex>", "<hex>"], "minSignatures": 2},
+    "reserve":   {"publicKeys": ["<hex>"]},
+    "registrar": {"publicKeys": ["<hex>"]},
+    "fee":       {"publicKeys": ["<hex>"]},
+    "recycle":   {"publicKeys": ["<hex>"]}
   },
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<hex ML-DSA-65 public key>"]}
@@ -37,16 +38,37 @@ never generates or stores an account's private key. `--genesis-key` (repeat
 for M-of-N) signs the genesis block; the keys must be distinct genesis keys and
 at least its `minSignatures`.
 
-**The genesis account is the admin key.** It signs config updates (`T_CONFIG`)
-and issues to reserve after genesis, so it must be M-of-N from the start: at
+**The genesis account is the admin key.** After genesis it only signs config
+updates (`T_CONFIG`) and issues new supply to reserve (it may transfer to no
+other account and creates no accounts), so it must be M-of-N from the start: at
 least 3 keys and 2 signatures (the shape its renewals and updates are held to).
 Keep its keys offline with different people; the beacon needs them only for
 `--init`. A config update can replace the genesis keys (rotation).
 
+**The registrar creates issued accounts** (2²⁰ ≤ id < 2³⁰: token issuers,
+operator accounts); no other account can. It starts empty and spends real
+tokens that reserve sends it, so its balance bounds what it can create.
+
+**Key custody: keep hot keys away from supply.** Creating user accounts
+(id ≥ 2³⁰) needs no system key: any funded account signs its own `NEW_USER`
+and pays the new account's balance and fee. Recommended tiers (the accounts'
+powers are chain rules; the custody is a practice):
+
+| Tier | Account | Signs | Keys |
+|------|---------|-------|------|
+| Admin | genesis | config (`T_CONFIG`), issuance to reserve, key rotation | cold, M-of-N |
+| Treasury | reserve | occasional top-ups of the registrar and onboarding accounts | cold or warm, M-of-N |
+| Registrar | registrar | every issued-range `NEW_USER` | warm, M-of-N |
+| Onboarding | an ordinary user or issued account | every user-range `NEW_USER` | hot, small balance |
+
+A leaked onboarding key loses at most that account's balance; stop refilling it
+and create another. Run several (per region or service) with separate keys and
+budgets rather than signing onboarding with reserve or genesis.
+
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `networkId` | **required** | This chain's name. Part of genesis: every signature and the epoch seed bind to it; offline signing (`pp-client sign-tx --network-id`) must name it |
-| `systemAccounts` | **required** | `genesis`, `fee`, `reserve`, `recycle`: each `{publicKeys, minSignatures?}` (default: all keys must sign). Genesis: ≥ 3 keys, ≥ 2 signatures |
+| `systemAccounts` | **required** | `genesis`, `reserve`, `registrar`, `fee`, `recycle`: each `{publicKeys, minSignatures?}` (default: all keys must sign). Genesis: ≥ 3 keys, ≥ 2 signatures |
 | `slotDuration` | 7 | Seconds per slot |
 | `slotsPerEpoch` | 86400 | Slots per epoch |
 | `heartbeatSlots` | `slotsPerEpoch` | Empty block when the tip lags this many slots (0 = off) |
@@ -57,7 +79,7 @@ Keep its keys offline with different people; the beacon needs them only for
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
 | `genesisMiners` | none | Miner accounts created at genesis (below) |
 
-**Genesis miners.** System accounts (genesis, fee, reserve, recycle) never
+**Genesis miners.** System accounts (genesis, reserve, registrar, fee, recycle) never
 lead slots, so a new chain needs miners from block 0. Each entry creates one:
 
 - `id` — in the issued range `[1048576, 1073741824)` (2²⁰ ≤ id < 2³⁰)

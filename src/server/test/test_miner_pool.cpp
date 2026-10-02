@@ -54,6 +54,7 @@ protected:
         << R"({"networkId": "test-net", "systemAccounts": {"genesis": {"publicKeys": [")" << genesisPubs
         << R"("], "minSignatures": 2})"
         << R"(, "fee": )" << pub(utl::mlDsaGenerate().value()) << R"(, "reserve": )" << pub(reserveKeys_[0])
+        << R"(, "registrar": )" << pub(utl::mlDsaGenerate().value())
         << R"(, "recycle": )" << pub(utl::mlDsaGenerate().value()) << "},"
         << R"( "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
         << R"( "maxTransactionsPerBlock": 100, "minFeeCoefficients": [1, 1, 0],)"

@@ -73,7 +73,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
     // Placeholders: each holder creates its key pair (pp-client keygen -o <name>)
     // and fills in the public key; the beacon never sees their private keys.
     Object accounts;
-    for (const char *name : {"genesis", "fee", "reserve", "recycle"}) {
+    for (const char *name : {"genesis", "reserve", "registrar", "fee", "recycle"}) {
       Object entry;
       std::vector<Value> keys{Value(std::string("<hex public key from ") + name + ".pub>")};
       entry.set("publicKeys", Object::array(std::move(keys)));
@@ -230,11 +230,12 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
 BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const Object &jd) {
   const Object *accounts = jd.getObject("systemAccounts");
   if (!accounts) {
-    return Error(E_CONFIG, "Field 'systemAccounts' {genesis, fee, reserve, recycle} with public keys is required");
+    return Error(E_CONFIG, "Field 'systemAccounts' {genesis, reserve, registrar, fee, recycle} with public keys is required");
   }
   const std::pair<const char *, Beacon::AccountKeys *> slots[] = {{"genesis", &systemAccounts.genesis},
-                                                                  {"fee", &systemAccounts.fee},
                                                                   {"reserve", &systemAccounts.reserve},
+                                                                  {"registrar", &systemAccounts.registrar},
+                                                                  {"fee", &systemAccounts.fee},
                                                                   {"recycle", &systemAccounts.recycle}};
   for (const auto &[name, slot] : slots) {
     const Object *entry = accounts->getObject(name);

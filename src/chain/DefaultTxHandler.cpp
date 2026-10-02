@@ -105,6 +105,13 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
     AccountBuffer &bank) const {
+  // Every transfer out of genesis mints; reserve is its only destination, so
+  // new supply has one auditable path.
+  if (tx.fromWalletId == AccountBuffer::ID_GENESIS &&
+      tx.toWalletId != AccountBuffer::ID_RESERVE) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis transfers only to reserve");
+  }
   if (auto feeGate = chain_tx::requireMinimumFee(
           ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
           Ledger::TypedTx(tx), tx.fee,

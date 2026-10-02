@@ -57,8 +57,9 @@ public:
    */
   struct InitKeyConfig {
     AccountKeys genesis;
-    AccountKeys fee;
     AccountKeys reserve;
+    AccountKeys registrar;
+    AccountKeys fee;
     AccountKeys recycle;
     std::vector<std::string> genesisSigners; ///< raw ML-DSA-65 private keys
   };
@@ -132,7 +133,17 @@ private:
   createGenesisBlock(const Chain::BlockChainConfig &config,
                      const InitKeyConfig &key,
                      const std::vector<GenesisMiner> &miners);
-  /** Genesis miner NEW_USER records (after the four system records) and their total stake + fees. */
+  /**
+   * A genesis-signed NEW_USER record creating `account` at `toId`. `fee` 0
+   * means "the minimum fee for this record"; the fee used is written back.
+   */
+  Roe<Ledger::Record> createSystemAccountRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
+                                                uint64_t toId, const Client::UserAccount &account,
+                                                uint64_t &fee, const std::string &label);
+  /** Reserve's NEW_USER record: the supply left after `otherCosts` (other records' fees and stakes). */
+  Roe<Ledger::Record> createReserveRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
+                                          int64_t otherCosts);
+  /** Genesis miner NEW_USER records (after the system records) and their total stake + fees. */
   Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
   createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
                             const std::vector<GenesisMiner> &miners);

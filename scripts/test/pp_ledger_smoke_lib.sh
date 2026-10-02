@@ -297,7 +297,7 @@ initialize_beacon_with_test_config() {
   # keys sign genesis (--genesis-key). Reserve keys later fund test accounts.
   local key_dir="${TEST_DIR}/keys" name i sep="" system_accounts="" genesis_args=()
   mkdir -p "$key_dir"
-  for name in genesis fee reserve recycle; do
+  for name in genesis reserve registrar fee recycle; do
     local pubs="" psep=""
     for i in 1 2 3; do
       if [[ ! -f "$key_dir/${name}${i}.key" ]]; then
@@ -858,6 +858,9 @@ generate_tx_keypair() {
   echo "$key_file"
 }
 
+# Reserve (system account 1) funds the smoke test accounts.
+RESERVE_ACCOUNT_ID=1
+
 try_add_account() {
   local to=$1
   local amount=$2
@@ -869,7 +872,7 @@ try_add_account() {
   local tx_file="${TEST_DIR}/tmp_account_${to}.dat"
   [[ -f "$key1" && -f "$key2" && -f "$key3" ]] || return 1
 
-  local mk_cmd=(run_pp_client ${DEBUG_FLAG} mk-account 2 "$amount" -t "$to" -f "$fee" -o "$tx_file")
+  local mk_cmd=(run_pp_client ${DEBUG_FLAG} mk-account "$RESERVE_ACCOUNT_ID" "$amount" -t "$to" -f "$fee" -o "$tx_file")
   [[ -n "$new_pubkey_hex" ]] && mk_cmd+=(--new-pubkey "$new_pubkey_hex")
   "${mk_cmd[@]}" >/dev/null 2>&1 || return 1
   local k

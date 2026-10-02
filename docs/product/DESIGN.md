@@ -91,11 +91,12 @@ The network reserves a range of special accounts for issuing and managing tokens
 
 | Account | Purpose |
 |---------|---------|
-| Genesis (account 0) | Issues the network's native coin; sets initial supply |
-| Fee collector (account 1) | Receives small upkeep fees paid by all accounts |
-| Reserve (account 2) | Holds unallocated supply |
-| Recycle (account 3) | Receives balances from closed accounts |
-| Accounts 4 and above | Available for currency, stock, bond, RWA, and other token classes |
+| Genesis (account 0) | Issues the network's native coin (only into reserve); updates network settings |
+| Reserve (account 1) | Holds unallocated supply |
+| Registrar (account 2) | Creates issued accounts, funded from reserve |
+| Fee collector (account 3) | Receives small upkeep fees paid by all accounts |
+| Recycle (account 4) | Receives balances from closed accounts |
+| Issued accounts (2²⁰ to 2³⁰) | Created by the registrar for currency, stock, bond, RWA, and other token classes |
 
 > Each token type is issued from its own dedicated reserved account, giving issuance a clear, auditable home on-chain.
 

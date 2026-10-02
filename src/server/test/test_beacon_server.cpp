@@ -21,7 +21,7 @@ namespace {
  */
 struct GenesisSetup {
   std::filesystem::path dir;
-  std::vector<utl::MlDsaKeyPair> genesis, fee, reserve, recycle;
+  std::vector<utl::MlDsaKeyPair> genesis, reserve, registrar, fee, recycle;
 
   explicit GenesisSetup(const std::string &name) : dir(std::filesystem::temp_directory_path() / name) {
     std::error_code ec;
@@ -32,6 +32,7 @@ struct GenesisSetup {
     }
     fee.push_back(utl::mlDsaGenerate().value());
     reserve.push_back(utl::mlDsaGenerate().value());
+    registrar.push_back(utl::mlDsaGenerate().value());
     recycle.push_back(utl::mlDsaGenerate().value());
   }
   ~GenesisSetup() {
@@ -53,6 +54,7 @@ struct GenesisSetup {
         << R"("genesis": {"publicKeys": )" << pubs(genesis) << R"(, "minSignatures": 2},)"
         << R"("fee": {"publicKeys": )" << pubs(fee) << R"(},)"
         << R"("reserve": {"publicKeys": )" << pubs(reserve) << R"(},)"
+        << R"("registrar": {"publicKeys": )" << pubs(registrar) << R"(},)"
         << R"("recycle": {"publicKeys": )" << pubs(recycle) << R"(}})" << extra << "}";
   }
 
@@ -104,6 +106,12 @@ TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
   ASSERT_TRUE(fee.isOk());
   ASSERT_EQ(fee.value().wallet.publicKeys.size(), 1u);
   EXPECT_EQ(fee.value().wallet.publicKeys[0], setup.fee[0].publicKey);
+  // The registrar starts empty; reserve funds it later.
+  auto registrar = beacon.getAccount(AccountBuffer::ID_REGISTRAR);
+  ASSERT_TRUE(registrar.isOk());
+  EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{setup.registrar[0].publicKey});
+  const auto &balances = registrar.value().wallet.mBalances;
+  EXPECT_TRUE(balances.empty() || balances.at(AccountBuffer::ID_GENESIS) == 0);
 }
 
 // The genesis key signs genesis M-of-N: too few, foreign or repeated keys fail.

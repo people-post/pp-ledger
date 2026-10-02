@@ -7,6 +7,7 @@
 #include "../consensus/EpochSeed.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <sstream>
@@ -60,17 +61,6 @@ chain_tx::Roe<void> requireGenesisBootstrapRouting(
   return {};
 }
 
-chain_tx::Roe<void> requireGenesisBootstrapZeroAmountMeta(
-    const Ledger::TxNewUser &tx, const char *amountMsg, const char *metaMsg) {
-  if (tx.amount != 0) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, amountMsg);
-  }
-  if (tx.meta.empty()) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, metaMsg);
-  }
-  return {};
-}
-
 chain_tx::Roe<int64_t> requireFeeFitsInt64(uint64_t fee,
                                           const char *overflowMsg) {
   if (fee > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
@@ -87,6 +77,99 @@ bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
   }
   out = a + b;
   return true;
+}
+
+/**
+ * System account records after the config record. Fee is created first: the
+ * others pay their fees into it. Only reserve is funded (the rest of supply).
+ */
+struct GenesisSystemRecord {
+  uint64_t id;
+  bool funded;
+  const char *name;
+};
+constexpr GenesisSystemRecord kGenesisSystemRecords[] = {
+    {AccountBuffer::ID_FEE, false, "fee"},
+    {AccountBuffer::ID_RESERVE, true, "reserve"},
+    {AccountBuffer::ID_REGISTRAR, false, "registrar"},
+    {AccountBuffer::ID_RECYCLE, false, "recycle"},
+};
+
+/** Add a record's amount and fee to `total`, refusing int64 overflow. */
+chain_tx::Roe<void> addGenesisSpend(const Ledger::TxNewUser &tx, int64_t &total) {
+  auto amount = requireFeeFitsInt64(tx.amount, "Genesis transaction amount exceeds int64_t range");
+  if (!amount) {
+    return amount.error();
+  }
+  auto fee = requireFeeFitsInt64(tx.fee, "Genesis transaction fee exceeds int64_t range");
+  if (!fee) {
+    return fee.error();
+  }
+  if (!safeAddI64(total, amount.value(), total) || !safeAddI64(total, fee.value(), total)) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis transactions amount/fee sum overflowed");
+  }
+  return {};
+}
+
+chain_tx::Roe<void> validateGenesisSystemRecord(const Ledger::TxNewUser &tx, const GenesisSystemRecord &expected) {
+  const std::string name = expected.name;
+  if (auto routing = requireGenesisBootstrapRouting(
+          tx, expected.id, ("Genesis " + name + " account must be created from genesis at its id").c_str());
+      !routing) {
+    return routing;
+  }
+  if (tx.meta.empty()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis " + name + " account creation must have meta");
+  }
+  if (!expected.funded && tx.amount != 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis " + name + " account must start with amount 0");
+  }
+  return {};
+}
+
+chain_tx::Roe<void> validateGenesisMinerRecord(const Ledger::TxNewUser &tx, std::set<uint64_t> &seen) {
+  if (tx.fromWalletId != AccountBuffer::ID_GENESIS || tx.toWalletId < AccountBuffer::ID_FIRST_ISSUED ||
+      tx.toWalletId >= AccountBuffer::ID_FIRST_USER) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                             "Genesis miner must be funded from genesis into the issued id range");
+  }
+  if (!seen.insert(tx.toWalletId).second) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Duplicate genesis miner account");
+  }
+  if (tx.amount == 0) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis miner must have a positive stake");
+  }
+  return {};
+}
+
+/**
+ * Check the system and genesis miner records (records 1..n) and return what
+ * they spend from genesis in total (amounts + fees).
+ */
+chain_tx::Roe<int64_t> validateGenesisAccountRecords(const Ledger::ChainNode &block,
+                                                     const BlockChainConfig &config,
+                                                     const RecordHandler &recordHandler) {
+  int64_t total = 0;
+  const auto &records = block.block.records;
+  std::set<uint64_t> minerIds;
+  for (size_t i = 1; i < records.size(); ++i) {
+    auto txRoe = loadGenesisNewUserWithExactFee(
+        records[i], config, recordHandler, "Genesis account record must be a new user transaction",
+        "Failed to deserialize genesis account tx payload", "Genesis account creation must have fee: ");
+    if (!txRoe) {
+      return txRoe.error();
+    }
+    const auto &tx = txRoe.value();
+    auto shape = i <= std::size(kGenesisSystemRecords) ? validateGenesisSystemRecord(tx, kGenesisSystemRecords[i - 1])
+                                                       : validateGenesisMinerRecord(tx, minerIds);
+    if (!shape) {
+      return shape.error();
+    }
+    if (auto spent = addGenesisSpend(tx, total); !spent) {
+      return spent.error();
+    }
+  }
+  return total;
 }
 
 } // namespace
@@ -164,12 +247,12 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must commit 32-byte epochSeed");
   }
-  // Four system records (config, fee, reserve, recycle), then any genesis
-  // miner accounts.
-  if (block.block.records.size() < 4) {
+  // Config, then the system accounts in kGenesisSystemRecords order, then any
+  // genesis miner accounts.
+  if (block.block.records.size() < 1 + std::size(kGenesisSystemRecords)) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
-        "Genesis block must have at least four transactions");
+        "Genesis block must have the config and system account transactions");
   }
 
   const std::string expectedTxRoot =
@@ -207,150 +290,15 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     }
   }
 
-  auto feeTxRoe = loadGenesisNewUserWithExactFee(
-      block.block.records[1], gm.config, recordHandler,
-      "Second genesis transaction must be new user transaction",
-      "Failed to deserialize fee tx payload",
-      "Genesis fee account creation transaction must have fee: ");
-  if (!feeTxRoe) {
-    return feeTxRoe.error();
+  auto supplyRoe = validateGenesisAccountRecords(block, gm.config, recordHandler);
+  if (!supplyRoe) {
+    return supplyRoe.error();
   }
-  const auto &feeTx = feeTxRoe.value();
-  if (auto routing = requireGenesisBootstrapRouting(
-          feeTx, AccountBuffer::ID_FEE,
-          "Genesis fee account creation transaction "
-          "must transfer from genesis to fee wallet");
-      !routing) {
-    return routing;
-  }
-  if (auto shape = requireGenesisBootstrapZeroAmountMeta(
-          feeTx,
-          "Genesis fee account creation transaction must have amount 0",
-          "Genesis fee account creation transaction must have meta");
-      !shape) {
-    return shape;
-  }
-
-  auto minerTxRoe = loadGenesisNewUserWithExactFee(
-      block.block.records[2], gm.config, recordHandler,
-      "Third genesis transaction must be new user transaction",
-      "Failed to deserialize reserve tx payload",
-      "Genesis reserve transaction must have fee: ");
-  if (!minerTxRoe) {
-    return minerTxRoe.error();
-  }
-  const auto &minerTx = minerTxRoe.value();
-  if (auto routing = requireGenesisBootstrapRouting(
-          minerTx, AccountBuffer::ID_RESERVE,
-          "Genesis miner transaction must transfer "
-          "from genesis to new user wallet");
-      !routing) {
-    return routing;
-  }
-
-  auto recycleTxRoe = loadGenesisNewUserWithExactFee(
-      block.block.records[3], gm.config, recordHandler,
-      "Fourth genesis transaction must be new user transaction",
-      "Failed to deserialize recycle tx payload",
-      "Genesis recycle account creation transaction must have fee: ");
-  if (!recycleTxRoe) {
-    return recycleTxRoe.error();
-  }
-  const auto &recycleTx = recycleTxRoe.value();
-
-  auto minerFeeSignedRoe = requireFeeFitsInt64(
-      minerTx.fee, "Genesis transaction fee exceeds int64_t range");
-  if (!minerFeeSignedRoe) {
-    return minerFeeSignedRoe.error();
-  }
-  auto recycleFeeSignedRoe = requireFeeFitsInt64(
-      recycleTx.fee, "Genesis transaction fee exceeds int64_t range");
-  if (!recycleFeeSignedRoe) {
-    return recycleFeeSignedRoe.error();
-  }
-  const int64_t minerFeeSigned = minerFeeSignedRoe.value();
-  const int64_t recycleFeeSigned = recycleFeeSignedRoe.value();
-
-  auto feeWalletFeeSignedRoe = requireFeeFitsInt64(
-      feeTx.fee, "Genesis fee-wallet transaction fee exceeds int64_t range");
-  if (!feeWalletFeeSignedRoe) {
-    return feeWalletFeeSignedRoe.error();
-  }
-  const int64_t feeWalletFeeSigned = feeWalletFeeSignedRoe.value();
-
-  auto minerAmountSignedRoe = requireFeeFitsInt64(
-      minerTx.amount, "Genesis reserve transaction amount exceeds int64_t range");
-  if (!minerAmountSignedRoe) {
-    return minerAmountSignedRoe.error();
-  }
-  int64_t genesisTotal = minerAmountSignedRoe.value();
-  const char *genesisOverflowMsg =
-      "Genesis reserve+recycle transactions amount/fee sum overflowed";
-  if (!safeAddI64(genesisTotal, feeWalletFeeSigned, genesisTotal) ||
-      !safeAddI64(genesisTotal, minerFeeSigned, genesisTotal) ||
-      !safeAddI64(genesisTotal, recycleFeeSigned, genesisTotal)) {
-    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, genesisOverflowMsg);
-  }
-
-  // Genesis miners: funded from genesis into the issued range; their stake
-  // and fees come out of the same initial supply.
-  std::set<uint64_t> genesisMinerIds;
-  for (size_t i = 4; i < block.block.records.size(); ++i) {
-    auto minerRoe = loadGenesisNewUserWithExactFee(
-        block.block.records[i], gm.config, recordHandler,
-        "Genesis miner transaction must be new user transaction",
-        "Failed to deserialize genesis miner tx payload",
-        "Genesis miner account creation transaction must have fee: ");
-    if (!minerRoe) {
-      return minerRoe.error();
-    }
-    const auto &minerAccountTx = minerRoe.value();
-    if (minerAccountTx.fromWalletId != AccountBuffer::ID_GENESIS ||
-        minerAccountTx.toWalletId < AccountBuffer::ID_FIRST_ISSUED ||
-        minerAccountTx.toWalletId >= AccountBuffer::ID_FIRST_USER) {
-      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
-                               "Genesis miner must be funded from genesis into the issued id range");
-    }
-    if (!genesisMinerIds.insert(minerAccountTx.toWalletId).second) {
-      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Duplicate genesis miner account");
-    }
-    auto amountRoe = requireFeeFitsInt64(minerAccountTx.amount, "Genesis miner stake exceeds int64_t range");
-    auto feeRoe = requireFeeFitsInt64(minerAccountTx.fee, "Genesis miner fee exceeds int64_t range");
-    if (!amountRoe) {
-      return amountRoe.error();
-    }
-    if (!feeRoe) {
-      return feeRoe.error();
-    }
-    if (amountRoe.value() <= 0) {
-      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis miner must have a positive stake");
-    }
-    if (!safeAddI64(genesisTotal, amountRoe.value(), genesisTotal) ||
-        !safeAddI64(genesisTotal, feeRoe.value(), genesisTotal)) {
-      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, genesisOverflowMsg);
-    }
-  }
-  if (genesisTotal != static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY)) {
+  if (supplyRoe.value() != static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY)) {
     return chain_tx::TxError(
         chain_err::E_BLOCK_GENESIS,
-        "Genesis reserve, recycle and miner transactions must satisfy amount + "
-        "fees: " +
+        "Genesis account transactions must spend exactly the initial supply (amounts + fees): " +
             std::to_string(AccountBuffer::INITIAL_TOKEN_SUPPLY));
-  }
-
-  if (auto routing = requireGenesisBootstrapRouting(
-          recycleTx, AccountBuffer::ID_RECYCLE,
-          "Genesis recycle account creation transaction must transfer "
-          "from genesis to recycle wallet");
-      !routing) {
-    return routing;
-  }
-  if (auto shape = requireGenesisBootstrapZeroAmountMeta(
-          recycleTx,
-          "Genesis recycle account creation transaction must have amount 0",
-          "Genesis recycle account creation transaction must have meta");
-      !shape) {
-    return shape;
   }
 
   std::string calculatedHash = calculateBlockHash(block.block);

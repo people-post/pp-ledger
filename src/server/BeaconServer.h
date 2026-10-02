@@ -111,7 +111,7 @@ private:
      * equal share of GENESIS_MINER_STAKE_SHARE of the supply.
      */
     std::vector<Beacon::GenesisMiner> genesisMiners;
-    /** Genesis, fee, reserve, recycle by public key (`systemAccounts`). */
+    /** Genesis, reserve, registrar, fee, recycle by public key (`systemAccounts`). */
     Beacon::InitKeyConfig systemAccounts;
 
     pp::common::Object ltsToJson();
