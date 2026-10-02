@@ -3,6 +3,7 @@
 
 #include "Beacon.h"
 #include "MinerRegistry.h"
+#include "TxPool.h"
 #include "Server.h"
 #include "../client/Client.h"
 #include "../network/amp/AmpIdentity.h"
@@ -170,6 +171,10 @@ private:
   Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
+  /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader. */
+  Roe<std::string> hTxAdd(const Client::Request &request);
+  /** TX_PULL: pending transactions for the slot leader (through its relay). */
+  Roe<std::string> hTxPull(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Config config_;
@@ -180,6 +185,9 @@ private:
   std::map<uint32_t, Handler> requestHandlers_;
 
   MinerRegistry miners_;
+  TxPool txPool_;
+  /** Most records one TX_PULL returns (a leader still caps what fits its block). */
+  static constexpr size_t TX_PULL_MAX_RECORDS = 1000;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
   static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
   /** A registration's issuedAt may differ from the beacon's clock by at most this much. */

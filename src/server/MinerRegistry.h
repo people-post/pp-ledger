@@ -11,7 +11,7 @@ namespace pp {
 /**
  * The beacon's registry of miners. Miners renew their record periodically;
  * one not renewed within the TTL is dropped. `version` changes only when the
- * list does (a miner joins, changes endpoint, or expires), not on renewals.
+ * list does (a miner joins or expires), not on renewals.
  */
 class MinerRegistry {
 public:
@@ -19,7 +19,7 @@ public:
   void upsert(Client::MinerInfo miner, int64_t nowSec) {
     miner.tLastMessage = nowSec;
     auto it = miners_.find(miner.id);
-    const bool changed = it == miners_.end() || it->second.endpoint != miner.endpoint;
+    const bool changed = it == miners_.end();
     miners_[miner.id] = std::move(miner);
     if (changed) {
       ++version_;

@@ -130,10 +130,13 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
   // upstream never sends them down, so one from there is misuse.
   case Client::T_REQ_BLOCK_ADD:
   case Client::T_REQ_REGISTER:
+  case Client::T_REQ_TX_ADD:
   // Blocks flow down: our upstream never waits on us for them.
   case Client::T_REQ_BLOCK_WAIT:
-  // The registry lives upstream: our upstream never asks us for it.
+  // The registry and the transaction pool live upstream: our upstream never
+  // asks us for them.
   case Client::T_REQ_MINER_LIST:
+  case Client::T_REQ_TX_PULL:
     return origin == Origin::Downstream;
   default:
     return true;

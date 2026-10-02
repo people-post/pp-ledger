@@ -77,32 +77,21 @@ private:
     uint64_t minerId{ 0 };
     std::vector<std::string> privateKeys;
     NetworkConfig network;
-    std::map<uint64_t, Client::MinerInfo> mMiners;
   };
 
-  /** Known endpoint of a slot leader, or "" (never fetches). */
-  std::string lookupTxSubmitAddress(uint64_t slotLeaderId) const;
-  /** Ask the run loop to refetch the miner list (rate-limited). */
-  void requestMinerListRefresh();
-  void refreshMinerListFromBeacon();
-  /** Point forwardClient_ at a slot leader; one dial key per leader. */
-  Client::Roe<void> dialLeader(uint64_t slotLeaderId, const std::string& multiaddr);
   /**
-   * Forward `record` to the leader of `slot` (T_REQ_TX_FORWARD). Unknown
-   * leader address or a transport failure caches it for the next slot's retry
-   * (done gets a "cached" message); a leader's rejection is an error.
-   * `done` runs on the server thread.
+   * Leader, at the start of `slot`: pull pending transactions from upstream
+   * (TX_PULL) into the pool. True once they are in, or after txPullWait() so
+   * the slot is not missed; false while still waiting.
    */
-  void forwardToSlotLeader(const Ledger::Record& record, uint64_t slot,
-                           std::function<void(Roe<std::string>)> done);
+  bool pullTransactionsForSlot(uint64_t slot);
+  std::chrono::milliseconds txPullWait() const;
   void syncBlocksPeriodically();
   /** Start a background sync (rate-limited to one per slot unless bypassed). */
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   /** BlockSync wiring and completion (server thread). */
   void initBlockSync();
   void onBlockSyncFinished(const BlockSync::Result &result);
-  /** Run-time miner list refresh without blocking (startup uses the blocking one). */
-  void startMinerListRefresh();
   /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
   void renewRegistrationPeriodically();
   /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
@@ -111,8 +100,6 @@ private:
   Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
-  void handleValidatorRole();
-  void retryCachedTransactionForwards();
   /** Send a produced (sealed) block to every upstream in parallel. */
   void startBroadcast(const Ledger::ChainNode& block);
   void onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<bool> result);
@@ -137,7 +124,6 @@ private:
   Roe<std::string> hAccountGet(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
-  Roe<std::string> hTxForward(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hCalibration(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);
@@ -145,8 +131,6 @@ private:
   Miner miner_;
   /** Upstream (beacon) client. */
   Client client_;
-  /** Transaction forwarding to slot leaders; never retargets client_. */
-  Client forwardClient_;
   /** Block broadcast to upstreams (one dial key per upstream). */
   Client broadcastClient_;
 
@@ -160,7 +144,11 @@ private:
   uint64_t nextBroadcastId_{1};
   Config config_;
 
-  static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
+  /** Longest a leader waits for its transaction pull before producing without it. */
+  static constexpr std::chrono::milliseconds TX_PULL_MAX_WAIT{1000};
+  uint64_t txPulledSlot_{UINT64_MAX};
+  bool txPullInFlight_{false};
+  std::chrono::steady_clock::time_point txPullStarted_{};
   /** Well inside the beacon's record TTL (BeaconServer::MINER_RECORD_TTL, 5 min). */
   static constexpr std::chrono::seconds REGISTER_RENEW_INTERVAL{60};
   std::chrono::steady_clock::time_point lastRegistration_{};
@@ -172,10 +160,8 @@ private:
   static constexpr int CALIBRATION_SAMPLES = 5;
   int64_t timeOffsetToBeaconMs_{0};
 
-  std::chrono::steady_clock::time_point lastMinerListFetchTime_{};
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};
-  uint64_t lastForwardRetrySlot_{0};
   size_t active_upstream_index_{0};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
@@ -195,8 +181,6 @@ private:
   /** BLOCK_WAIT on the upstream: requests a sync as soon as it has a new block. */
   std::unique_ptr<UpstreamTipWatch> tipWatch_;
   std::optional<BlockSync::Result> lastSyncResult_;
-  bool minerListRefreshInFlight_{false};
-  bool minerListRefreshRequested_{false};
 };
 
 } // namespace pp

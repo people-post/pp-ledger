@@ -675,6 +675,9 @@ void BeaconServer::initHandlers() {
 
   auto &hml = requestHandlers_[Client::T_REQ_MINER_LIST];
   hml = [this](const Client::Request &request) { return hMinerList(request); };
+
+  requestHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &request) { return hTxAdd(request); };
+  requestHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &request) { return hTxPull(request); };
 };
 
 
@@ -686,7 +689,7 @@ int64_t nowSeconds() {
 
 void BeaconServer::registerServer(const Client::MinerInfo &minerInfo) {
   miners_.upsert(minerInfo, nowSeconds());
-  log().debug << "Miner record: " << minerInfo.id << " " << minerInfo.endpoint;
+  log().debug << "Miner record: " << minerInfo.id;
   expireMinerRecords();
 }
 
@@ -818,7 +821,36 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   if (!result) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
+  txPool_.removeIncluded(block.block.records);
   return {"Block added"};
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::hTxAdd(const Client::Request &request) {
+  auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
+  if (!record) {
+    return Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message);
+  }
+  if (!record.value().decode()) {
+    return Error(E_REQUEST, "Unknown or malformed transaction payload");
+  }
+  const int64_t now = nowSeconds();
+  txPool_.expire(now);
+  switch (txPool_.add(record.value(), now)) {
+  case TxPool::Add::Added:
+    return {"Transaction submitted"};
+  case TxPool::Add::Duplicate:
+    return {"Transaction already submitted"};
+  case TxPool::Add::Full:
+    return Error(E_REQUEST, "Transaction pool full, please retry later");
+  }
+  return Error(E_REQUEST, "Transaction not accepted");
+}
+
+BeaconServer::Roe<std::string>
+BeaconServer::hTxPull(const Client::Request & /*request*/) {
+  txPool_.expire(nowSeconds());
+  return utl::binaryPack(txPool_.pending(TX_PULL_MAX_RECORDS));
 }
 
 BeaconServer::Roe<std::string>

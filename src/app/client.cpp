@@ -386,7 +386,7 @@ int main(int argc, char *argv[]) {
   tx_cmd->add_option("index", tx_index, "Transaction index (0-based)")->required();
 
   // Miner commands
-  auto* add_tx_cmd = app.add_subcommand("add-tx", "Add a transaction to the miner");
+  auto* add_tx_cmd = app.add_subcommand("add-tx", "Submit a transaction (to a relay or the beacon, -b)");
   uint64_t fromWalletId = 0, toWalletId = 0;
   uint64_t amount = 0;
   uint64_t fee = 0;
@@ -475,8 +475,8 @@ int main(int argc, char *argv[]) {
   sign_tx_cmd->add_option("--network-id", sign_network_id,
                           "Chain networkId for the signing message (must match genesis)");
 
-  // submit-tx: submit signed tx file to miner
-  auto* submit_tx_cmd = app.add_subcommand("submit-tx", "Submit signed transaction file to miner");
+  // submit-tx: submit signed tx file (relay / beacon)
+  auto* submit_tx_cmd = app.add_subcommand("submit-tx", "Submit a signed transaction file (to a relay or the beacon, -b)");
   std::string submit_tx_file;
   submit_tx_cmd->add_option("file", submit_tx_file, "Signed transaction file")->required();
 
@@ -645,19 +645,19 @@ int main(int argc, char *argv[]) {
       exitCode = 1;
     }
   }
-  // Handle add-tx command (miner only)
+  // Handle add-tx command (relay / beacon: transactions go up the tree)
   else if (add_tx_cmd->parsed()) {
-    if (!connectToMiner) {
-      std::cerr << "Error: add-tx command requires -m/--miner flag.\n";
+    if (!connectToBeacon) {
+      std::cerr << "Error: add-tx submits to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
       exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key);
     }
   }
-  // Handle add-account command (miner only)
+  // Handle add-account command (relay / beacon)
   else if (add_account_cmd->parsed()) {
-    if (!connectToMiner) {
-      std::cerr << "Error: add-account command requires -m/--miner flag.\n";
+    if (!connectToBeacon) {
+      std::cerr << "Error: add-account submits to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
       uint64_t add_acc_to_resolved = add_acc_to;
@@ -667,10 +667,10 @@ int main(int argc, char *argv[]) {
                                add_account_key, add_acc_to == 0);
     }
   }
-  // Handle submit-tx command (miner only)
+  // Handle submit-tx command (relay / beacon)
   else if (submit_tx_cmd->parsed()) {
-    if (!connectToMiner) {
-      std::cerr << "Error: submit-tx command requires -m/--miner flag.\n";
+    if (!connectToBeacon) {
+      std::cerr << "Error: submit-tx submits to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
       exitCode = runSubmitTx(client, submit_tx_file);

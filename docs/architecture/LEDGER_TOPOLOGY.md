@@ -162,13 +162,13 @@ For each RPC class, define **who may answer** and **what success means**:
 | `BLOCK_GET` | Gateway or terminal | Block verifies under pinned network + parent link | Serve locally if present; else fetch upstream |
 | `BLOCK_ADD` | Terminal | Block committed to canonical chain | **Write-through**; propagate terminal response |
 | `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` | Serve from own tip; a gateway's tip follows its own `BLOCK_WAIT` upstream (§10.2) |
-| `TX_ADD` | Current slot leader (miner) | Tx accepted to leader mempool | Gateway **routes** to leader endpoint from registry; terminal not involved until block inclusion |
-| `TX_FORWARD` | Leader of `targetSlot` (miner→miner only) | Pooled, held for its slot, or cached | Never forwarded on at once; see §10.3 |
+| `TX_ADD` | Terminal pending pool | Tx held for the slot leader | **Write-through** up the tree; §10.3 |
+| `TX_PULL` | Terminal pending pool | Pending txs for the leader's slot | Pass through to the terminal |
 | `ACCOUNT_GET`, `TX_*` | Gateway OK | State at height ≤ terminal head − read_lag | Cache allowed |
 
 **Mutations that must reach the terminal:** chain commits (`BLOCK_ADD`), registry changes
 (`REGISTER`, stake updates). All other participant-facing writes either route to the slot
-leader (`TX_ADD`) or are reads.
+pool (`TX_ADD`) or are reads.
 
 Gateways must **forward terminal errors verbatim** (e.g. `FORK_DETECTED`, `WRONG_NETWORK`,
 `STALE_REGISTRY`) so participants can react without knowing hop count.
@@ -182,9 +182,9 @@ one table for all roles before any handler runs:
 
 | Request | From downstream | From own upstream |
 |---------|-----------------|-------------------|
-| `BLOCK_ADD`, `REGISTER` (writes travelling up to the terminal) | Accepted | **Refused** |
+| `BLOCK_ADD`, `REGISTER`, `TX_ADD` (writes travelling up to the terminal) | Accepted | **Refused** |
 | `BLOCK_WAIT` (blocks travel down) | Accepted | **Refused** |
-| `MINER_LIST` (the registry lives upstream) | Accepted | **Refused** |
+| `MINER_LIST`, `TX_PULL` (the registry and pool live upstream) | Accepted | **Refused** |
 | Everything else | Accepted | Accepted |
 
 Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
@@ -335,33 +335,21 @@ sequenceDiagram
 - Miners do not serve `BLOCK_WAIT`. An upstream that does not serve it makes the
   watch back off (1 s → 30 s); path C keeps the node in sync.
 
-### 10.3 Transactions
+### 10.3 Transactions — up to the terminal pool, pulled by the leader
 
 | Step | Actor | Action |
 |------|-------|--------|
-| 1 | Client | `TX_ADD` to any miner |
-| 2 | Miner (not leader) | `TX_FORWARD {record, targetSlot, senderTipEpoch}` to the leader of its **current slot** (from registry + slot) |
-| 3 | Leader | Mempool; include in block when elected |
-| 4 | Leader | `BLOCK_ADD` through upstream → terminal |
-| 5 | Others | Learn txs from blocks (and optional mempool gossip) |
+| 1 | Client | `TX_ADD` to a relay or the terminal (pp-client `-b`, pp-http) |
+| 2 | Relay / miner | Pass `TX_ADD` up to its upstream (write-through); never to another miner |
+| 3 | Terminal | Hold it in the pending pool (`TxPool`: bounded, deduplicated, expires at the tx's validity window or after 10 min) |
+| 4 | Slot leader | At its slot's start, `TX_PULL {slot}` through its upstream (relays pass it through); waits up to min(1 s, slot/3) before producing |
+| 5 | Leader | Pool what applies; include in the block; `BLOCK_ADD` up to the terminal |
+| 6 | Terminal | Drop the block's records from the pending pool |
 
-Gateways route `TX_ADD`; they do not substitute for the leader or terminal.
-
-**Forward cap.** A miner receiving `TX_FORWARD` never forwards it on at once
-(`decideTxForward` in `src/server/TxForwardPolicy.h`):
-
-| Receiver state | Action |
-|----------------|--------|
-| Tip epoch < `senderTipEpoch` | Cache and sync — its leader schedule for that epoch may be provisional |
-| Leads `targetSlot`, slot is current | Add to mempool |
-| Leads `targetSlot`, slot not started | Hold (cache); the slot-leader duty pools it when the slot starts |
-| Otherwise (not leader, or slot passed) | Cache |
-
-Cached transactions move on only through the once-per-slot retry, which targets
-a later slot, so clock skew at a slot boundary cannot bounce a transaction
-between miners. A transport failure keeps a transaction cached; a leader's
-rejection is final (reported to the client, or dropped from the cache). The
-forward cache is bounded; when full, new forwards are refused.
+No miner learns another miner's address: a transaction never goes miner →
+miner. The terminal drops a transaction only once a committed block includes it
+(or it expires), so one a leader missed or could not fit reaches the next
+leader. `TX_ADD` and `TX_PULL` are refused from a node's own upstream (§7.1).
 
 **Leader pool.** A leader validates every transaction it pools against its
 buffer for the current slot, rebuilt from the tip whenever the tip moves. When
@@ -376,21 +364,20 @@ rejection; out-of-order dependent transactions must be resubmitted.
 
 - Registrant proves control of mining keys: the record is signed by the miner
   account's keys (same rule as its transactions: on-chain `publicKeys` /
-  `minSignatures`) and its endpoint's `/p2p/` peer id must derive from one of
-  those keys. The terminal also refuses an `issuedAt` more than 5 min from its
+  `minSignatures`). The terminal also refuses an `issuedAt` more than 5 min from its
   clock or not newer than the recorded one (replay). Gateways pass records on
   unchanged and cannot forge them. Signing format: WIRE_SCHEMA.md.
-- Terminal records `{ miner_id, stake, listen_multiaddr, registry_version }`.
+- Terminal records `{ miner_id, last renewal }` (no network address) and a `registry_version`.
 - `MINER_LIST` includes `registry_version` so participants detect stale gateway cache.
 - **Renewal:** miners re-register every 60 s; the terminal stamps each record
   and drops one not renewed within 5 min (`MinerRegistry`). `registry_version`
-  changes only when the list does (join, endpoint change, expiry), not on renewal.
-- **Address exposure:** miner network addresses are need-to-know. `MINER_LIST`
-  is accepted only from downstream (§7.1), and public surfaces (pp-http
-  `/api/beacon/miners`, MCP `list_miners`) show miner ids only, never addresses.
-  Target model: miners are reachable only through relays (sentry pattern), so
-  the leader schedule plus a public address list cannot be used to flood the
-  next slot leader.
+  changes only when the list does (join, expiry), not on renewal.
+- **Address exposure:** miners have no published address. Registrations
+  carry none, `MINER_LIST` returns ids only and is accepted only from
+  downstream (§7.1), and transactions reach the leader by `TX_PULL` (§10.3).
+  Miners dial out to their relays (sentry pattern) and need no public listen
+  address, so the public leader schedule cannot be used to flood the next slot
+  leader.
 
 ---
 
@@ -453,7 +440,7 @@ source selection, calibration, and ordered write retry.
 |-----------|-------------|------|
 | `BLOCK_ADD` (same hash) | Yes | Terminal and gateways answer a block they already hold (same id and hash) with success, without validating it again; a gateway does not forward it again. A different block at that id is refused (`BlockAddPolicy.h`) |
 | `REGISTER` (same miner_id) | Yes | Upsert semantics |
-| `TX_ADD` | No | Leader dedupes by tx identity |
+| `TX_ADD` | Yes (pool) | The terminal pool holds one copy per record; the chain refuses a repeated idempotent id |
 
 Gateways should safely forward retries.
 

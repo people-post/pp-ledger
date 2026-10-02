@@ -296,11 +296,8 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
     return Error(7, "Failed to create block: " + createResult.error().message);
   }
 
-  if (txSet.nPendingIncluded < pendingTxes_.size()) {
-    forwardCache_.insert(forwardCache_.end(),
-                         pendingTxes_.begin() + static_cast<std::ptrdiff_t>(txSet.nPendingIncluded),
-                         pendingTxes_.end());
-  }
+  // What did not fit stays in the beacon's pool (it drops only included
+  // transactions) for the next leader to pull.
   pendingTxes_.clear();
 
   block = createResult.value();
@@ -348,20 +345,6 @@ Miner::addTransaction(const Ledger::Record &record) {
   pendingTxes_.push_back(record);
 
   return {};
-}
-
-bool Miner::addToForwardCache(const Ledger::Record &record) {
-  if (forwardCache_.size() >= kMaxForwardCache) {
-    return false;
-  }
-  forwardCache_.push_back(record);
-  return true;
-}
-
-std::vector<Ledger::Record> Miner::drainForwardCache() {
-  std::vector<Ledger::Record> result;
-  result.swap(forwardCache_);
-  return result;
 }
 
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {

@@ -123,7 +123,7 @@ terminal beacon. See [docs/contracts/AMP_TRANSPORT.md](docs/contracts/AMP_TRANSP
 **Test the network** (in another terminal):
 ```bash
 ./build/app/pp-client -b status
-./build/app/pp-client -m add-tx alice bob 100
+./build/app/pp-client -b add-tx alice bob 100   # to a relay or the beacon
 ./build/app/pp-client -b status
 ```
 
