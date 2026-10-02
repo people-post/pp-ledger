@@ -112,7 +112,7 @@ not installed in `RecordHandler`.
 
   | Range | Kind | Created by | Rules |
   |-------|------|------------|-------|
-  | `[0, 1<<20)` | **System** — Genesis `0`, Fee `1`, Reserve `2`, Recycle `3`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis keeps its own renewal) |
+  | `[0, 1<<20)` | **System** — Genesis `0`, Fee `1`, Reserve `2`, Recycle `3`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
   | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Genesis wallet | Normal renewal / termination |
   | `[1<<30, …)` | **Users** | Anyone | Normal renewal / termination |
 

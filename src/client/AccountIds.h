@@ -19,7 +19,6 @@ struct AccountIds {
    * Account id ranges:
    *   [0, ID_FIRST_ISSUED)              system accounts — protocol-owned, created only in
    *                                     the genesis block; never terminated, renew fee-free
-   *                                     (genesis keeps its own renewal path)
    *   [ID_FIRST_ISSUED, ID_FIRST_USER)  issued accounts — created by the genesis wallet
    *                                     after genesis (e.g. token issuers, genesis miners)
    *   [ID_FIRST_USER, ...)              user accounts
