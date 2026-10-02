@@ -65,7 +65,10 @@ Validation of received blocks still applies on `addBlock` and checks `stateRoot`
 against the live tree root (O(1)).
 
 Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
-`epochSeed`, four records (`T_GENESIS` + fee/reserve/recycle `T_NEW_USER`).
+`epochSeed`, then records: `T_GENESIS`, fee / reserve / recycle `T_NEW_USER`, and
+any **genesis miners** — `T_NEW_USER` from genesis into the issued range with a
+positive stake and the exact fee. Reserve amount + all stakes + all fees equal the
+initial supply. Genesis miners are the stake at start: system accounts never count.
 
 ## Transaction record
 
@@ -153,7 +156,9 @@ for that epoch.
 Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
 classic Ouroboros / stake-weighted VRF on blocks):
 
-1. Stakeholders = accounts with positive native balance.
+1. Stakeholders = non-system accounts (`!isSystemAccount`, id ≥ `1<<20`) with
+   positive native balance. Reserve, fee and recycle hold protocol funds and never
+   lead; a new chain's committee is its genesis miners.
 2. Eligible **committee** = all if ≤`kMaxLeaderPoolSize` (**100**), else top
    **100** by stake (id tie-break). Constant:
    `SlotCommittee::kMaxLeaderPoolSize` — not chain config; parameterizing later

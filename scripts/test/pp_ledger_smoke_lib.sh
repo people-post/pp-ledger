@@ -291,7 +291,16 @@ initialize_beacon_with_test_config() {
   if restore_lab_key "beacon-amp-identity.txt" "$beacon_dir/keys/amp-identity.txt"; then
     echo -e "${CYAN}Restored lab beacon Amp identity${NC}"
   fi
+  # Miners are genesis miner accounts (issued range) with their own keys;
+  # system accounts never lead slots.
+  local i genesis_miners="" sep=""
+  for i in $(seq 1 "$NUM_MINERS"); do
+    generate_miner_key "$i" >/dev/null
+    genesis_miners+="${sep}{\"id\": $(miner_account_id "$i"), \"publicKeys\": [\"$(cat "${TEST_DIR}/keys/miner${i}.pub")\"]}"
+    sep=", "
+  done
   render_fixture "init-config.json.tmpl" "$beacon_dir/init-config.json" \
+    "GENESIS_MINERS=[${genesis_miners}]" \
     "SLOT_DURATION=${SLOT_DURATION}" \
     "SLOTS_PER_EPOCH=${SLOTS_PER_EPOCH}" \
     "CHECKPOINT_MIN_BLOCKS=${CHECKPOINT_MIN_BLOCKS}" \
@@ -318,8 +327,7 @@ initialize_beacon_with_test_config() {
 
   local key_dir="${TEST_DIR}/keys"
   mkdir -p "$key_dir"
-  # Miners 1-3 are the fee/reserve/recycle system accounts (3-of-3 signatures);
-  # without these keys they cannot sign renewals and no block is ever produced.
+  # The reserve keys fund test accounts (inject_transactions_for_block_production).
   python3 - "$key_dir" "$keys_file" <<'PYEOF' || die "could not extract reserve/fee/recycle keys from $keys_file"
 import json, os, sys
 key_dir, keys_path = sys.argv[1], sys.argv[2]
@@ -370,24 +378,34 @@ create_relay_config() {
     "BEACON_MULTIADDR=${beacon_ma}"
 }
 
+# Miner N (1-based smoke index) runs as genesis miner account 2^20 + N - 1.
+miner_account_id() {
+  echo $(((1 << 20) + $1 - 1))
+}
+
+# Miner N's own key pair: miner N.key (binary private key) and minerN.pub
+# (hex public key, listed in genesisMiners). Kept as lab keys across clears.
 generate_miner_key() {
   local miner_id=$1
   local key_dir="${TEST_DIR}/keys"
   local key_file="${key_dir}/miner${miner_id}.key"
-  local lab_name="miner${miner_id}.key"
+  local pub_file="${key_dir}/miner${miner_id}.pub"
   mkdir -p "$key_dir"
-  if [[ ! -f "$key_file" ]]; then
-    if restore_lab_key "$lab_name" "$key_file"; then
+  if [[ ! -f "$key_file" || ! -f "$pub_file" ]]; then
+    if restore_lab_key "miner${miner_id}.key" "$key_file" && restore_lab_key "miner${miner_id}.pub" "$pub_file"; then
       :
     else
-      local output hex
+      local output priv pub
       output=$("$BUILD_DIR/app/pp-client" keygen 2>&1) || {
         echo "$output" >&2
         die "pp-client keygen failed"
       }
-      hex=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
-      hex_to_bin_file "$hex" "$key_file"
-      persist_lab_key "$key_file" "$lab_name"
+      priv=$(echo "$output" | grep "Private key" | sed 's/.*: *//' | tr -d ' \n')
+      pub=$(echo "$output" | grep "Public key" | sed 's/.*: *//' | tr -d ' \n')
+      hex_to_bin_file "$priv" "$key_file"
+      printf '%s' "$pub" >"$pub_file"
+      persist_lab_key "$key_file" "miner${miner_id}.key"
+      persist_lab_key "$pub_file" "miner${miner_id}.pub"
     fi
   fi
   echo "$key_file"
@@ -402,29 +420,11 @@ create_miner_config() {
   relay_ma=$(relay_multiaddr)
   [[ -n "$relay_ma" ]] || die "relay multiaddr missing; start relay first"
 
-  local keys_json
-  if [[ "$miner_id" -eq 1 ]] &&
-    [[ -f "$key_dir/fee1.key" && -f "$key_dir/fee2.key" && -f "$key_dir/fee3.key" ]]; then
-    cp "$key_dir/fee1.key" "$key_dir/fee2.key" "$key_dir/fee3.key" "$miner_dir/"
-    keys_json='["fee1.key", "fee2.key", "fee3.key"]'
-    echo -e "${CYAN}Miner 1 using 3 fee keys${NC}"
-  elif [[ "$miner_id" -eq 2 ]] &&
-    [[ -f "$key_dir/reserve1.key" && -f "$key_dir/reserve2.key" && -f "$key_dir/reserve3.key" ]]; then
-    cp "$key_dir/reserve1.key" "$key_dir/reserve2.key" "$key_dir/reserve3.key" "$miner_dir/"
-    keys_json='["reserve1.key", "reserve2.key", "reserve3.key"]'
-    echo -e "${CYAN}Miner 2 using 3 reserve keys${NC}"
-  elif [[ "$miner_id" -eq 3 ]] &&
-    [[ -f "$key_dir/recycle1.key" && -f "$key_dir/recycle2.key" && -f "$key_dir/recycle3.key" ]]; then
-    cp "$key_dir/recycle1.key" "$key_dir/recycle2.key" "$key_dir/recycle3.key" "$miner_dir/"
-    keys_json='["recycle1.key", "recycle2.key", "recycle3.key"]'
-    echo -e "${CYAN}Miner 3 using 3 recycle keys${NC}"
-  else
-    cp "$(generate_miner_key "$miner_id")" "$miner_dir/key.txt"
-    keys_json='["key.txt"]'
-  fi
+  cp "$(generate_miner_key "$miner_id")" "$miner_dir/key.txt"
+  local keys_json='["key.txt"]'
 
   render_fixture "miner-config.json.tmpl" "$miner_dir/config.json" \
-    "MINER_ID=${miner_id}" \
+    "MINER_ID=$(miner_account_id "$miner_id")" \
     "KEYS_JSON=${keys_json}" \
     "LISTEN_HOST=${LISTEN_HOST}" \
     "MINER_PORT=${miner_port}" \

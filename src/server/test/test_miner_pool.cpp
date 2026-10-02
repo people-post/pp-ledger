@@ -20,22 +20,28 @@ namespace {
 namespace fs = std::filesystem;
 
 /**
- * Fresh beacon genesis (1 s slots) and a Miner running as the reserve account.
- * After genesis the committee is {fee, reserve} with equal weight, so the
- * reserve leads about half the slots; tests wait for slots it leads.
+ * Fresh beacon genesis (1 s slots) with one genesis miner, and a Miner running
+ * as it. System accounts never lead, so it is the whole committee; tests still
+ * wait for slots it leads. Transactions are reserve -> fee transfers.
  */
 class MinerPoolTest : public ::testing::Test {
 protected:
+  static constexpr uint64_t kMinerId = AccountBuffer::ID_FIRST_ISSUED;
+
   void SetUp() override {
     root_ = fs::temp_directory_path() / "pp-ledger-miner-pool-test";
     std::error_code ec;
     fs::remove_all(root_, ec);
     fs::create_directories(root_ / "beacon");
+    auto minerKey = utl::mlDsaGenerate();
+    ASSERT_TRUE(minerKey.isOk());
     std::ofstream(root_ / "beacon" / "init-config.json")
         << R"({"slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
         << R"( "maxTransactionsPerBlock": 100, "minFeeCoefficients": [1, 1, 0],)"
         << R"( "freeCustomMetaSize": 1024, "checkpointMinBlocks": 1000,)"
-        << R"( "checkpointMinAgeSeconds": 0, "heartbeatSlots": 1000})";
+        << R"( "checkpointMinAgeSeconds": 0, "heartbeatSlots": 1000,)"
+        << R"( "genesisMiners": [{"id": )" << kMinerId << R"(, "publicKeys": [")"
+        << utl::hexEncode(minerKey.value().publicKey) << R"("]}]})";
 
     BeaconServer beacon;
     auto keys = beacon.init((root_ / "beacon").string());
@@ -50,10 +56,8 @@ protected:
     miner_ = std::make_unique<Miner>();
     Miner::InitConfig config;
     config.workDir = (root_ / "miner").string();
-    config.minerId = AccountBuffer::ID_RESERVE;
-    for (const auto &k : reserveKeys_) {
-      config.privateKeys.push_back(k.privateKey);
-    }
+    config.minerId = kMinerId;
+    config.privateKeys.push_back(minerKey.value().privateKey);
     ASSERT_TRUE(miner_->init(config).isOk());
     ASSERT_TRUE(miner_->addBlock(genesis.value()).isOk());
     miner_->refresh();

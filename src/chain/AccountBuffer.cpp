@@ -147,6 +147,11 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
 std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
   std::vector<consensus::Stakeholder> stakeholders;
   for (const auto &[id, account] : mAccounts_) {
+    // System accounts hold protocol funds (reserve supply, fees, write-offs),
+    // not stake anyone put at risk: they never lead slots.
+    if (AccountIds::isSystemAccount(id)) {
+      continue;
+    }
     auto balanceIt = account.wallet.mBalances.find(ID_GENESIS);
     if (balanceIt == account.wallet.mBalances.end()) {
       continue;

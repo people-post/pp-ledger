@@ -52,11 +52,24 @@ public:
     pp::common::Meta ltsToMeta() const;
   };
 
+  /**
+   * A miner account created in the genesis block, so the chain has real stake
+   * from block 0 (system accounts never count as stake). Id in the issued
+   * range; the operator supplies only public keys (miners keep their keys).
+   */
+  struct GenesisMiner {
+    uint64_t id{0};
+    std::vector<std::string> publicKeys; ///< raw ML-DSA-65 public keys
+    uint8_t minSignatures{1};
+    uint64_t stake{0}; ///< initial native-token balance, taken from reserve
+  };
+
   struct InitConfig {
     // Base configuration
     std::string workDir;
     Chain::BlockChainConfig chain;
     InitKeyConfig key;
+    std::vector<GenesisMiner> miners;
   };
 
   struct MountConfig {
@@ -101,7 +114,12 @@ private:
 
   Roe<Ledger::ChainNode>
   createGenesisBlock(const Chain::BlockChainConfig &config,
-                     const InitKeyConfig &key);
+                     const InitKeyConfig &key,
+                     const std::vector<GenesisMiner> &miners);
+  /** Genesis miner NEW_USER records (after the four system records) and their total stake + fees. */
+  Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
+  createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
+                            const std::vector<GenesisMiner> &miners);
 
   /** Signs transaction with genesis keys and adds signatures. Returns error on
    * sign failure. */

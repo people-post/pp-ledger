@@ -96,12 +96,20 @@ Ledger::Record makeRecord(uint16_t type, const TxT &tx,
   return rec;
 }
 
+/** The fixture's genesis miner: the only stakeholder (system accounts never are). */
+constexpr uint64_t kTestMinerId = AccountBuffer::ID_FIRST_ISSUED;
+constexpr int64_t kTestMinerStake = 1000000;
+
 Ledger::ChainNode makeGenesisBlock(Chain &validator,
                                    const Chain::BlockChainConfig &chainConfig,
                                    const utl::MlDsaKeyPair &genesisKey,
                                    const utl::MlDsaKeyPair &feeKey,
                                    const utl::MlDsaKeyPair &reserveKey,
-                                   const utl::MlDsaKeyPair &recycleKey) {
+                                   const utl::MlDsaKeyPair &recycleKey,
+                                   const utl::MlDsaKeyPair *minerKey = nullptr) {
+  // Genesis miner kTestMinerId signs with `minerKey` (default: the reserve key
+  // pair, so tests signing as the slot leader keep using one key).
+  const utl::MlDsaKeyPair &minerSigner = minerKey ? *minerKey : reserveKey;
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -153,6 +161,18 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   const int64_t recycleFee = static_cast<int64_t>(
       calculateMinimumFeeFromNonFreeMetaSize(chainConfig, recycleNonFreeBytes));
 
+  Client::UserAccount minerAccount = makeUserAccount(minerSigner.publicKey, kTestMinerStake);
+  Ledger::TxNewUser minerTx;
+  minerTx.fromWalletId = AccountBuffer::ID_GENESIS;
+  minerTx.toWalletId = kTestMinerId;
+  minerTx.amount = static_cast<uint64_t>(kTestMinerStake);
+  minerTx.meta = minerAccount.ltsToString();
+  const uint64_t minerNonFreeBytes =
+      minerAccount.meta.size() > chainConfig.freeCustomMetaSize
+          ? static_cast<uint64_t>(minerAccount.meta.size()) - chainConfig.freeCustomMetaSize
+          : 0ULL;
+  minerTx.fee = calculateMinimumFeeFromNonFreeMetaSize(chainConfig, minerNonFreeBytes);
+
   int64_t reserveAmount =
       static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
   int64_t reserveFee = 0;
@@ -166,7 +186,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
     reserveFee = static_cast<int64_t>(calculateMinimumFeeFromNonFreeMetaSize(
         chainConfig, reserveNonFreeBytes));
     reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-                    feeWalletFee - reserveFee - recycleFee;
+                    feeWalletFee - reserveFee - recycleFee - kTestMinerStake -
+                    static_cast<int64_t>(minerTx.fee);
   }
   reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
@@ -189,6 +210,8 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   genesis.block.records.push_back(
       makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey,
                  chainConfig.networkId));
+  genesis.block.records.push_back(
+      makeRecord(Ledger::T_NEW_USER, minerTx, genesisKey, chainConfig.networkId));
 
   auto sealResult = validator.sealBlock(genesis);
   EXPECT_TRUE(sealResult.isOk());
@@ -721,8 +744,8 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   auto addResult = validator.addBlock(genesis);
   ASSERT_TRUE(addResult.isOk());
 
-  // Genesis has 4 transactions (indices 0..3). Index 4 is out of range.
-  auto result = validator.findTransactionByIndex(4);
+  // Indices 0..n-1 are genesis transactions; index n is out of range.
+  auto result = validator.findTransactionByIndex(genesis.block.records.size());
   ASSERT_TRUE(result.isError());
   EXPECT_EQ(result.error().code, Chain::E_INVALID_ARGUMENT);
   EXPECT_NE(result.error().message.find("out of range"), std::string::npos);
@@ -1316,7 +1339,8 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
       {AccountBuffer::ID_GENESIS, &genesisKey},
       {AccountBuffer::ID_FEE, &feeKey},
       {AccountBuffer::ID_RESERVE, &reserveKey},
-      {AccountBuffer::ID_RECYCLE, &recycleKey}};
+      {AccountBuffer::ID_RECYCLE, &recycleKey},
+      {kTestMinerId, &reserveKey}};
   ASSERT_EQ(keys.count(leader.value()), 1u);
 
   // Same admission path the slot leader uses for renewals; block apply goes
@@ -1404,7 +1428,8 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
                                                              {AccountBuffer::ID_FEE, &feeKey},
                                                              {AccountBuffer::ID_RESERVE, &reserveKey},
-                                                             {AccountBuffer::ID_RECYCLE, &recycleKey}};
+                                                             {AccountBuffer::ID_RECYCLE, &recycleKey},
+      {kTestMinerId, &reserveKey}};
   const auto &leaderKey = *keys.at(leader.value());
   auto signByLeader = [&](Ledger::Record r) {
     r.signatures = {utl::mlDsaSign(leaderKey.privateKey, r.signingMessage(producer.getNetworkId())).value()};
@@ -1779,6 +1804,15 @@ protected:
 };
 
 // L-CONSENSUS-FORCE + L-SMOKE-L1 (in-process): forced leader block is accepted
+// System accounts hold protocol funds (reserve holds nearly the whole supply)
+// and never count as stake; the genesis miner is the committee.
+TEST_F(ChainComposeTest, StakeExcludesSystemAccounts) {
+  const auto stakeholders = harness_.producer.getStakeholders();
+  ASSERT_EQ(stakeholders.size(), 1u);
+  EXPECT_EQ(stakeholders.front().id, kTestMinerId);
+  EXPECT_EQ(stakeholders.front().stake, static_cast<uint64_t>(kTestMinerStake));
+}
+
 // by producer (seal path) and by a peer (checkBlock Full path).
 TEST_F(ChainComposeTest, ForcedLeader_ProducerAndPeerAcceptTip) {
   auto &producer = harness_.producer;
