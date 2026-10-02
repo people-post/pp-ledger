@@ -1,8 +1,6 @@
 #pragma once
 
 #include "amp/link/Types.h"
-#include "common/ResultOrError.hpp"
-#include "common/Value.h"
 
 #include <chrono>
 #include <cstddef>
@@ -11,10 +9,9 @@ namespace pp {
 namespace network {
 
 /**
- * Operator-tunable network policy: the optional `network` section of a role's
- * config.json. Every field defaults to the built-in value, so an absent
- * section changes nothing. Timeouts derive from the one `rpcTimeout`; see
- * docs/ops/SETUP.md (Network tuning).
+ * pp-ledger's network policy, fixed in code (not operator config): every
+ * deadline derives from one RPC timeout so they cannot drift apart, and the
+ * amp transport policy is passed through. Tests may override fields.
  */
 struct NetworkTuning {
   static constexpr std::chrono::milliseconds kDefaultRpcTimeout{15000};
@@ -53,13 +50,6 @@ struct NetworkTuning {
   /** Copy the amp policy into a link config. */
   void applyTo(pp::amp::PeerLinkConfig &config) const;
 
-  /**
-   * Read the optional `network` section of a role's config.json. Omitted
-   * fields keep their defaults; unknown or invalid ones fail.
-   */
-  static pp::Roe<NetworkTuning> fromConfig(const pp::common::Object &config);
-  /** Reject values that cannot work, including amp's own rules. */
-  pp::Roe<void> validate() const;
 };
 
 } // namespace network

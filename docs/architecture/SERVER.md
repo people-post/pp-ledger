@@ -167,20 +167,8 @@ Beacons serve a unique role in the pp-ledger network:
 
 ### Beacon Configuration
 
-**File:** `config.json` in work directory
-
-```json
-{
-  "host": "localhost",
-  "port": 8517,
-  "beacons": ["host1:port1", "host2:port2"]
-}
-```
-
-**Fields:**
-- `host` (optional): Listen address, default: "localhost"
-- `port` (optional): Listen port, default: 8517
-- `beacons` (optional): List of other beacon addresses for network coordination
+`init-config.json` (genesis, `--init` only) and `config.json` (`{"port": 8517}`):
+see [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 ### Beacon API Endpoints
 
@@ -261,26 +249,8 @@ Relay servers sit between beacons and miners:
 
 ### Relay Configuration
 
-**File:** `config.json` in work directory (auto-created on first run — no `--init` flag needed)
-
-```json
-{
-  "host": "localhost",
-  "port": 8519,
-  "dhtPort": 0,
-  "beacon": {
-    "host": "localhost",
-    "port": 8517,
-    "dhtPort": 0
-  }
-}
-```
-
-**Fields:**
-- `host` (optional): Listen address, default: "localhost"
-- `port` (optional): Listen port — configure to avoid conflict with beacon (8517) and miner (8518)
-- `dhtPort` (optional): DHT port, default: 0
-- `beacon` (required): Single upstream beacon endpoint `{host, port, dhtPort}`
+`config.json`: `{"beacon": "<upstream multiaddr>"}`, optional `port` (8519); the
+identity key is created on first start. See [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 ### Relay API Endpoints
 
@@ -290,23 +260,8 @@ The relay exposes the same API as the beacon to miners. Miners can use the relay
 
 ### Miner Configuration
 
-**File:** `config.json` in work directory
-
-```json
-{
-  "minerId": "miner1",
-  "host": "localhost",
-  "port": 8518,
-  "beacons": [{"host":"127.0.0.1","port":8517,"dhtPort":0}]
-}
-```
-
-**Fields:**
-- `minerId` (required): Unique miner identifier
-- `stake` (required): Stake amount (affects slot leader probability)
-- `host` (optional): Listen address, default: "localhost"
-- `port` (optional): Listen port, default: 8518
-- `beacons` (required): List of relay (or beacon) endpoints `{host, port, dhtPort}` to connect to — miners typically point this to relay endpoints
+`config.json`: `{"minerId", "keys", "beacons": [<relay multiaddrs>]}`, optional
+`port`, `networkAnchor`. See [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 ### Miner API Endpoints
 
@@ -558,173 +513,14 @@ See [THREADING.md](THREADING.md) for the model and its rollout.
 
 Requests wait in a bounded queue for the server thread; when it is full a request gets
 an immediate "busy" reply, and one that waited past half the RPC timeout gets "expired".
-Payloads are capped at 512 KiB. Limits come from config.json `network`
-([SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)).
+Payloads are capped at 512 KiB. These limits are fixed
+([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)).
 
 ## Usage Examples
 
-### Running a Beacon Server
-
-1. **Create the work directory and config:**
-
-```bash
-mkdir -p beacon
-cat > beacon/config.json << EOF
-{
-  "host": "localhost",
-  "port": 8517,
-  "beacons": []
-}
-EOF
-```
-
-2. **Start the beacon:**
-
-```bash
-./app/pp-beacon -d beacon
-```
-
-The beacon will:
-- Create `beacon/ledger/` directory for blockchain data
-- Create `beacon/beacon.log` for detailed logs
-- Listen on `localhost:8517` for connections
-
-### Running a Miner Server
-
-1. **Create the work directory and config:**
-
-```bash
-mkdir -p miner1
-cat > miner1/config.json << EOF
-{
-  "minerId": "miner1",
-  "stake": 1000000,
-  "host": "localhost",
-  "port": 8518,
-  "beacons": ["localhost:8517"]
-}
-EOF
-```
-
-2. **Start the miner:**
-
-```bash
-./app/pp-miner -d miner1
-```
-
-The miner will:
-- Connect to the beacon at `localhost:8517`
-- Create `miner1/ledger/` directory for blockchain data
-- Create `miner1/miner.log` for detailed logs
-- Listen on `localhost:8518` for connections
-- Automatically produce blocks when elected as slot leader (pending txs /
-  renewals, or an empty **heartbeat** when tip lag ≥ genesis `heartbeatSlots`)
-
-### Using the Client
-
-The client can connect to either the beacon server or miner server.
-
-**Connect to Beacon Server:**
-
-```bash
-# Get current block ID
-./app/pp-client -b current-block
-
-# List stakeholders
-./app/pp-client -b stakeholders
-
-# Get current slot
-./app/pp-client -b current-slot
-
-# Get current epoch
-./app/pp-client -b current-epoch
-
-# Get block by ID
-./app/pp-client -b block 0
-```
-
-**Connect to Miner Server:**
-
-```bash
-# Get miner status
-./app/pp-client -m status
-
-# Add a transaction
-./app/pp-client -b add-tx alice bob 100   # to a relay or the beacon
-
-# Get pending transaction count
-./app/pp-client -m pending-txs
-
-# Manually trigger block production
-./app/pp-client -m produce-block
-```
-
-**Client Options:**
-- `-h <host>` - Server host (default: localhost)
-- `-h <host:port>` - Server host and port in one argument (alternative format)
-- `-p <port>` - Server port
-- `-b` - Connect to BeaconServer (default port: 8517)
-- `-m` - Connect to MinerServer (default port: 8518)
-
-### Multi-Node Setup
-
-To run multiple nodes:
-
-**Beacon 1:**
-```bash
-mkdir -p beacon1
-cat > beacon1/config.json << EOF
-{
-  "host": "localhost",
-  "port": 8517,
-  "beacons": ["localhost:8527"]
-}
-EOF
-./app/pp-beacon -d beacon1
-```
-
-**Beacon 2:**
-```bash
-mkdir -p beacon2
-cat > beacon2/config.json << EOF
-{
-  "host": "localhost",
-  "port": 8527,
-  "beacons": ["localhost:8517"]
-}
-EOF
-./app/pp-beacon -d beacon2
-```
-
-**Miner 1:**
-```bash
-mkdir -p miner1
-cat > miner1/config.json << EOF
-{
-  "minerId": "miner1",
-  "stake": 1000000,
-  "host": "localhost",
-  "port": 8518,
-  "beacons": ["localhost:8517"]
-}
-EOF
-./app/pp-miner -d miner1
-```
-
-**Miner 2:**
-```bash
-mkdir -p miner2
-cat > miner2/config.json << EOF
-{
-  "minerId": "miner2",
-  "stake": 500000,
-  "host": "localhost",
-  "port": 8528,
-  "beacons": ["localhost:8517"]
-}
-EOF
-./app/pp-miner -d miner2
-```
+Setting up a beacon, relay and miners (keys, genesis miners, multiaddrs):
+[SETUP.md § Multi-Node Setup](../ops/SETUP.md#multi-node-setup). Every config
+field: [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 ### Testing the Setup
 

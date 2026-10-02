@@ -31,8 +31,8 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   crowding out the node's own work; the server thread still takes one Low item
   after every four Normal ones, so reads never starve. A request that waited longer than half the RPC timeout gets an
   "expired" reply without running the handler (its client is about to give up).
-  Capacity and timeout come from config.json `network`
-  ([SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)). On stop, pending requests get
+  Capacity and timeouts are fixed
+  ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)). On stop, pending requests get
   a "stopping" reply.
 - **Outbound (server-initiated):** the caller posts the call to the io lane. It
   either waits for the result (`AmpLedgerTransport::roundTrip`, an ordinary

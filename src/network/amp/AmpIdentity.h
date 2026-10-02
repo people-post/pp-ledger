@@ -18,7 +18,6 @@ pp::amp::PeerLinkConfig DefaultLedgerLinkConfig();
 pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& private_key_raw, uint16_t udp_port);
 
 /** Parse beacon entry: ADP multiaddr string or legacy {host, port, peerId}. */
-pp::Roe<std::string> ParseBeaconMultiaddr(const pp::common::Object& entry);
 pp::Roe<std::string> ParseBeaconMultiaddrString(const std::string& value);
 
 } // namespace network

@@ -60,6 +60,7 @@ Agent entry: [`AGENTS.md`](../AGENTS.md). Deploy howto: [`deploy/README.md`](../
 | Doc | Topic |
 |-----|--------|
 | [ops/SETUP.md](ops/SETUP.md) | Local beacon / relay / miner / client setup |
+| [ops/CONFIGURATION.md](ops/CONFIGURATION.md) | Every config field: `init-config.json`, each role's `config.json`, fixed network timing |
 | [ops/TEST_STRATEGY.md](ops/TEST_STRATEGY.md) | Purpose IDs (`L-*`), smoke driver, CI ladder |
 | [ops/GITHUB_ACTIONS.md](ops/GITHUB_ACTIONS.md) | CI / Actions setup |
 | [ops/DEVELOPMENT_BUDGET.md](ops/DEVELOPMENT_BUDGET.md) | Roadmap / budget planning |

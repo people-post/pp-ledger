@@ -25,11 +25,12 @@ MINER_BASE_PORT="${PP_LEDGER_SMOKE_MINER_BASE_PORT:-8618}"
 HTTP_PORT="${PP_LEDGER_SMOKE_HTTP_PORT:-8680}"
 
 SLOT_DURATION="${PP_LEDGER_SMOKE_SLOT_DURATION:-2}"
+# Genesis network id; offline-signed transactions (sign-tx) must name it.
+SMOKE_NETWORK_ID="${PP_LEDGER_SMOKE_NETWORK_ID:-pp-smoke}"
 SLOTS_PER_EPOCH="${PP_LEDGER_SMOKE_SLOTS_PER_EPOCH:-10}"
 CHECKPOINT_MIN_BLOCKS="${PP_LEDGER_SMOKE_CHECKPOINT_MIN_BLOCKS:-2}"
 CHECKPOINT_MIN_AGE_SECONDS="${PP_LEDGER_SMOKE_CHECKPOINT_MIN_AGE_SECONDS:-0}"
 
-LISTEN_HOST="${PP_LEDGER_SMOKE_LISTEN_HOST:-127.0.0.1}"
 : "${PP_LEDGER_SMOKE_DEBUG:=--debug}"
 DEBUG_FLAG="${PP_LEDGER_SMOKE_DEBUG}"
 
@@ -301,6 +302,7 @@ initialize_beacon_with_test_config() {
   done
   render_fixture "init-config.json.tmpl" "$beacon_dir/init-config.json" \
     "GENESIS_MINERS=[${genesis_miners}]" \
+    "NETWORK_ID=${SMOKE_NETWORK_ID}" \
     "SLOT_DURATION=${SLOT_DURATION}" \
     "SLOTS_PER_EPOCH=${SLOTS_PER_EPOCH}" \
     "CHECKPOINT_MIN_BLOCKS=${CHECKPOINT_MIN_BLOCKS}" \
@@ -352,7 +354,6 @@ PYEOF
 create_beacon_config() {
   local beacon_dir="${TEST_DIR}/beacon"
   render_fixture "beacon-config.json.tmpl" "$beacon_dir/config.json" \
-    "LISTEN_HOST=${LISTEN_HOST}" \
     "BEACON_PORT=${BEACON_PORT}"
 }
 
@@ -426,7 +427,6 @@ create_miner_config() {
   render_fixture "miner-config.json.tmpl" "$miner_dir/config.json" \
     "MINER_ID=$(miner_account_id "$miner_id")" \
     "KEYS_JSON=${keys_json}" \
-    "LISTEN_HOST=${LISTEN_HOST}" \
     "MINER_PORT=${miner_port}" \
     "RELAY_MULTIADDR=${relay_ma}"
 }
@@ -881,7 +881,7 @@ try_add_account() {
   "${mk_cmd[@]}" >/dev/null 2>&1 || return 1
   local k
   for k in "$key1" "$key2" "$key3"; do
-    run_pp_client ${DEBUG_FLAG} sign-tx "$tx_file" -k "$k" >/dev/null 2>&1 || {
+    run_pp_client ${DEBUG_FLAG} sign-tx "$tx_file" -k "$k" --network-id "$SMOKE_NETWORK_ID" >/dev/null 2>&1 || {
       rm -f "$tx_file"
       return 1
     }

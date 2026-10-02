@@ -342,6 +342,29 @@ pp::amp::PeerLinkManager* Server::peerLinks() {
   return ampSupport_ ? &ampSupport_->links() : nullptr;
 }
 
+Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
+  const std::filesystem::path keysDir = std::filesystem::path(workDir_) / "keys";
+  const std::filesystem::path keyPath = keysDir / "amp-identity.txt";
+  if (!std::filesystem::exists(keyPath)) {
+    std::error_code ec;
+    std::filesystem::create_directories(keysDir, ec);
+    auto generated = utl::mlDsaGenerate();
+    if (!generated) {
+      return Service::Error(-1, "Failed to generate identity key: " + generated.error().message);
+    }
+    auto written = utl::writeToNewFile(keyPath.string(), utl::hexEncode(generated->privateKey) + "\n");
+    if (!written) {
+      return Service::Error(-1, "Failed to write identity key: " + written.error().message);
+    }
+    log().info << "Created network identity key: " << keyPath.string();
+  }
+  auto key = utl::readPrivateKey(keyPath.string(), workDir_);
+  if (!key) {
+    return Service::Error(-1, "Failed to load identity key: " + key.error().message);
+  }
+  return key.value();
+}
+
 Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");

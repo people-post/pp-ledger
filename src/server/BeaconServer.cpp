@@ -36,6 +36,7 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 
 Object BeaconServer::InitFileConfig::ltsToJson() {
   Object j;
+  j.set("networkId", networkId);
   j.setJsonUInt("slotDuration", slotDuration);
   j.setJsonUInt("slotsPerEpoch", slotsPerEpoch);
   j.setJsonUInt("maxCustomMetaSize", maxCustomMetaSize);
@@ -77,6 +78,12 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     out = *v;
     return {};
   };
+
+  auto id = jd.getString("networkId");
+  if (!id || id->empty()) {
+    return Error(E_CONFIG, "Field 'networkId' (this chain's name, part of genesis) is required");
+  }
+  networkId = *id;
 
   if (jd.contains("slotDuration")) {
     if (auto r = readU64("slotDuration", slotDuration, true, false); !r) return r;
@@ -123,35 +130,6 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     if (minFeeCoefficients.empty()) {
       return Error(E_CONFIG, "Field 'minFeeCoefficients' must not be empty");
     }
-  } else {
-    uint64_t minFeePerTransaction = DEFAULT_MIN_FEE_COEFF_A;
-    uint64_t minFeePerCustomMetaMiB =
-        static_cast<uint64_t>(DEFAULT_MIN_FEE_COEFF_B) * 1024ULL;
-    if (jd.contains("minFeePerTransaction")) {
-      auto v = jd.getNonNegInt("minFeePerTransaction");
-      if (!v) {
-        return Error(E_CONFIG, "Field 'minFeePerTransaction' must be a non-negative integer");
-      }
-      minFeePerTransaction = *v;
-    }
-    if (jd.contains("minFeePerCustomMetaMiB")) {
-      auto v = jd.getNonNegInt("minFeePerCustomMetaMiB");
-      if (!v) {
-        return Error(E_CONFIG, "Field 'minFeePerCustomMetaMiB' must be a non-negative integer");
-      }
-      minFeePerCustomMetaMiB = *v;
-    }
-    const uint64_t minFeePerCustomMetaKiB = minFeePerCustomMetaMiB / 1024ULL;
-    if (minFeePerTransaction > std::numeric_limits<uint16_t>::max() ||
-        minFeePerCustomMetaKiB > std::numeric_limits<uint16_t>::max()) {
-      return Error(E_CONFIG,
-                   "Legacy fee fields must be <= 65535 to map to minFeeCoefficients");
-    }
-    minFeeCoefficients = {
-        static_cast<uint16_t>(minFeePerTransaction),
-        static_cast<uint16_t>(minFeePerCustomMetaKiB),
-        DEFAULT_MIN_FEE_COEFF_C,
-    };
   }
 
   if (jd.contains("freeCustomMetaSize")) {
@@ -271,57 +249,18 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
 
 Object BeaconServer::RunFileConfig::ltsToJson() {
   Object j;
-  j.set("host", host);
   j.setJsonUInt("port", port);
-  j.set("ampKey", ampKey);
-  if (!networkId.empty()) {
-    j.set("networkId", networkId);
-  }
-  std::vector<Value> wl;
-  for (const auto &w : whitelist) {
-    wl.push_back(w);
-  }
-  j.set("whitelist", Object::array(std::move(wl)));
   return j;
 }
 
 BeaconServer::Roe<void>
 BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
-  auto hostOpt = jd.getString("host");
-  if (!hostOpt) {
-    return Error(E_CONFIG, jd.contains("host") ? "Field 'host' must be a string"
-                                               : "Field 'host' is required");
-  }
-  host = *hostOpt;
-  if (host.empty()) {
-    return Error(E_CONFIG, "Field 'host' cannot be empty");
-  }
-
-  auto portValue = jd.getNonNegInt("port");
-  if (!portValue) {
-    return Error(E_CONFIG, jd.contains("port")
-                               ? "Field 'port' must be a non-negative integer"
-                               : "Field 'port' is required");
-  }
-  if (*portValue == 0 || *portValue > 65535) {
-    return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-  }
-  port = static_cast<uint16_t>(*portValue);
-
-  if (jd.contains("ampKey")) {
-    auto keyOpt = jd.getString("ampKey");
-    if (!keyOpt || keyOpt->empty()) {
-      return Error(E_CONFIG, "Field 'ampKey' must be a non-empty string");
+  if (jd.contains("port")) {
+    auto portValue = jd.getNonNegInt("port");
+    if (!portValue || *portValue == 0 || *portValue > 65535) {
+      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
     }
-    ampKey = *keyOpt;
-  }
-
-  if (jd.contains("networkId")) {
-    auto idOpt = jd.getString("networkId");
-    if (!idOpt || idOpt->empty()) {
-      return Error(E_CONFIG, "Field 'networkId' must be a non-empty string when set");
-    }
-    networkId = *idOpt;
+    port = static_cast<uint16_t>(*portValue);
   }
 
   if (jd.contains("whitelist")) {
@@ -338,12 +277,6 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
       whitelist.push_back(*s);
     }
   }
-
-  auto tuningResult = network::NetworkTuning::fromConfig(jd);
-  if (!tuningResult) {
-    return Error(E_CONFIG, tuningResult.error().message);
-  }
-  tuning = std::move(*tuningResult);
   return {};
 }
 
@@ -441,7 +374,7 @@ BeaconServer::init(const std::string &workDir) {
   initConfig.chain.maxValidationTimespanSeconds =
       initFileConfig.maxValidationTimespanSeconds;
   initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
-  initConfig.chain.networkId = config_.network_id;
+  initConfig.chain.networkId = initFileConfig.networkId;
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
 
@@ -486,20 +419,6 @@ BeaconServer::init(const std::string &workDir) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
 
-  std::filesystem::create_directories(workDirPath / "keys");
-  const std::filesystem::path ampKeyPath = workDirPath / FILE_AMP_IDENTITY;
-  if (!std::filesystem::exists(ampKeyPath)) {
-    auto ampKeys = utl::mlDsaGenerate();
-    if (!ampKeys) {
-      return Error("Failed to generate AMP identity key: " + ampKeys.error().message);
-    }
-    const std::string hexKey = utl::hexEncode(ampKeys->privateKey);
-    auto writeResult = utl::writeToNewFile(ampKeyPath.string(), hexKey + "\n");
-    if (!writeResult) {
-      return Error("Failed to write AMP identity key: " + writeResult.error().message);
-    }
-    log().info << "Created AMP identity key: " << ampKeyPath.string();
-  }
 
   log().info << "Beacon initialized successfully";
   return initConfig.key;
@@ -598,13 +517,10 @@ Service::Roe<void> BeaconServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.network.udp_port = runFileConfig.port;
-  config_.network.amp_key_path = runFileConfig.ampKey;
   config_.network.whitelist = runFileConfig.whitelist;
-  config_.network_id = runFileConfig.networkId;
 
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
-  log().info << "  AMP key: " << config_.network.amp_key_path;
   log().info << "  Whitelisted beacons: "
              << utl::join(config_.network.whitelist, ", ");
 
@@ -620,12 +536,10 @@ Service::Roe<void> BeaconServer::onStart() {
 
   log().info << "Beacon core initialized";
 
-  auto keyResult = utl::readPrivateKey(config_.network.amp_key_path, getWorkDir());
+  auto keyResult = loadOrCreateIdentityKey();
   if (!keyResult) {
-    return Service::Error(E_CONFIG, "Failed to load AMP identity key: " + keyResult.error().message);
+    return Service::Error(E_CONFIG, keyResult.error().message);
   }
-  setNetworkTuning(runFileConfig.tuning);
-  client_.setRequestTimeout(networkTuning().rpcTimeout);
 
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(*keyResult, config_.network.udp_port);
   if (!ampCfg) {
@@ -714,10 +628,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.currentSlot = beacon_.getCurrentSlot();
   state.currentEpoch = beacon_.getCurrentEpoch();
   state.nStakeholders = beacon_.getStakeholders().size();
-  state.networkId = beacon_.getNetworkId();
-  if (state.networkId.empty()) {
-    state.networkId = config_.network_id;
-  }
+  state.networkId = beacon_.getNetworkId(); // from genesis
   state.registryVersion = miners_.version();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
