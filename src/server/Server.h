@@ -4,12 +4,14 @@
 #include "../client/Client.h"
 #include "lib/common/Service.h"
 #include "../network/ServerAmpSupport.h"
+#include "BlockSync.h"
 #include "RequestQueue.h"
 #include "../network/LedgerRpcProtocol.h"
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace pp {
@@ -86,6 +88,15 @@ protected:
    * Ignores the stop flag (still set during onStart). Returns done().
    */
   bool serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout);
+
+  /**
+   * onStart: run `sync` to completion, retrying failed attempts (BlockSync's
+   * backoff) until one succeeds or `timeout` passes. `lastResult` is set by
+   * the role's onFinished hook; `extraDone` lets the role also wait for
+   * follow-up work. Returns the last result's error, or "" on success.
+   */
+  std::string runStartupSync(BlockSync& sync, const std::optional<BlockSync::Result>& lastResult,
+                             std::chrono::milliseconds timeout, const std::function<bool()>& extraDone = {});
 
   /** Io lane: queue for the server thread, or reply busy when full / stopped. */
   void enqueueRequest(std::string body, RequestQueue::Reply reply);

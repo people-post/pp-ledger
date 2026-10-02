@@ -236,13 +236,15 @@ Service::Roe<void> RelayServer::onStart() {
                                        relayInit.error().message);
   }
 
-  auto syncResult = syncBlocksFromBeacon();
-  if (!syncResult) {
-    return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " +
-                                         syncResult.error().message);
+  // Initial catch-up through the same BlockSync as at run time; completions
+  // are served here because the run loop has not started yet.
+  initBlockSync();
+  lastSyncResult_.reset();
+  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, STARTUP_SYNC_TIMEOUT,
+                                  [this]() { return !beaconStateRefreshInFlight_; });
+      !error.empty()) {
+    return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " + error);
   }
-  lastBlockSyncTime_ = std::chrono::steady_clock::now();
-  lastSyncedEpoch_ = relay_.getCurrentEpoch();
 
   log().info << "Relay core initialized";
   log().info << "  Next block ID: " << relay_.getNextBlockId();
@@ -252,64 +254,55 @@ Service::Roe<void> RelayServer::onStart() {
   return {};
 }
 
-RelayServer::Roe<void> RelayServer::syncBlocksFromBeacon() {
-  if (config_.network.beacon_multiaddr.empty()) {
-    return Error(E_CONFIG, "No beacon server configured");
-  }
-
-  log().info << "Syncing blocks from beacon: " << config_.network.beacon_multiaddr;
-
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Error(E_NETWORK, dial.error().message);
-  }
-
-  auto calibrationResult = client_.fetchCalibration();
-  if (!calibrationResult) {
-    return Error(E_NETWORK,
-                 "Failed to get beacon calibration: " + calibrationResult.error().message);
-  }
-
-  uint64_t latestBlockId = calibrationResult.value().nextBlockId;
-  uint64_t nextBlockId = relay_.getNextBlockId();
-
-  if (nextBlockId >= latestBlockId) {
-    log().info << "Already in sync: next block " << nextBlockId
-               << ", beacon latest " << latestBlockId;
-  } else {
-    log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
-
-    for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
-      auto blockResult = client_.fetchBlock(blockId);
-      if (!blockResult) {
-        return Error(E_NETWORK,
-                     "Failed to fetch block " + std::to_string(blockId) +
-                         " from beacon: " + blockResult.error().message);
-      }
-
-      Ledger::ChainNode block = blockResult.value();
-      block.hash = relay_.calculateHash(block.block);
-
-      auto addResult = relay_.addBlock(block);
-      if (!addResult) {
-        return Error(E_RELAY, "Failed to add block " + std::to_string(blockId) +
-                                  ": " + addResult.error().message);
-      }
-
-      log().debug << "Synced block " << blockId;
+void RelayServer::initBlockSync() {
+  BlockSync::Hooks hooks;
+  hooks.dialUpstream = [this]() -> pp::Roe<void> {
+    if (config_.network.beacon_multiaddr.empty()) {
+      return pp::Error("No beacon server configured");
     }
+    auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon");
+    return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
+  };
+  hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
+  hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
+    Ledger::ChainNode block = fetched;
+    block.hash = relay_.calculateHash(block.block);
+    auto added = relay_.addBlock(block);
+    return added ? pp::Roe<void>() : pp::Roe<void>(pp::Error(added.error().message));
+  };
+  hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
+  hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
+  blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
+  blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
+}
 
-    log().info << "Sync complete: " << (latestBlockId - nextBlockId)
-               << " blocks added";
+void RelayServer::onBlockSyncFinished(const BlockSync::Result &result) {
+  lastSyncResult_ = result;
+  if (result.ok) {
+    lastBlockSyncTime_ = std::chrono::steady_clock::now();
+    lastSyncedEpoch_ = relay_.getCurrentEpoch();
+    startBeaconStateRefresh();
   }
+  resolvePendingBlockGets();
+}
 
-  if (auto status = client_.fetchBeaconState()) {
-    registryVersion_ = status.value().registryVersion;
-    if (!status.value().networkId.empty()) {
-      networkId_ = status.value().networkId;
-    }
+void RelayServer::startBeaconStateRefresh() {
+  if (beaconStateRefreshInFlight_) {
+    return;
   }
-
-  return {};
+  beaconStateRefreshInFlight_ = true;
+  client_.fetchBeaconStateAsync(completeOnServerThread<Client::BeaconState>(
+      [this](Client::Roe<Client::BeaconState> status) {
+        beaconStateRefreshInFlight_ = false;
+        if (!status) {
+          log().warning << "Failed to refresh beacon state: " << status.error().message;
+          return;
+        }
+        registryVersion_ = status.value().registryVersion;
+        if (!status.value().networkId.empty()) {
+          networkId_ = status.value().networkId;
+        }
+      }));
 }
 
 void RelayServer::initHandlers() {
@@ -408,7 +401,6 @@ void RelayServer::runLoop() {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
       }
-      resolvePendingBlockGets();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
       log().error << "Exception in request handler loop: " << e.what();
@@ -429,12 +421,9 @@ void RelayServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
       return; // Rate limit: at most one sync per slot time
     }
   }
-  auto syncResult = syncBlocksFromBeacon();
-  if (syncResult) {
-    lastBlockSyncTime_ = std::chrono::steady_clock::now();
-    lastSyncedEpoch_ = relay_.getCurrentEpoch();
-  } else {
-    log().warning << "Block sync failed: " << syncResult.error().message;
+  if (blockSync_->start() == BlockSync::Start::BackingOff) {
+    // No sync coming soon: answer waiting block gets with what we have.
+    resolvePendingBlockGets();
   }
 }
 

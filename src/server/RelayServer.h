@@ -6,6 +6,7 @@
 #include "../network/Types.hpp"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
+#include "BlockSync.h"
 #include "Relay.h"
 #include "Server.h"
 #include <atomic>
@@ -14,6 +15,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -91,7 +93,11 @@ private:
   };
 
   void initHandlers();
-  Roe<void> syncBlocksFromBeacon();
+  /** BlockSync wiring and completion (server thread). */
+  void initBlockSync();
+  void onBlockSyncFinished(const BlockSync::Result &result);
+  /** Refresh registry version / network id from the beacon, without blocking. */
+  void startBeaconStateRefresh();
   /** Smart sync: when needed (epoch start, on-demand) and rate-limited. No block production. */
   void syncBlocksPeriodically();
   /** Perform sync from beacon (updates lastBlockSyncTime_ and lastSyncedEpoch_ on success). */
@@ -152,6 +158,10 @@ private:
   /** Block gets beyond our tip, answered after the next sync. */
   std::vector<PendingBlockGet> pendingBlockGets_;
   bool blockSyncRequested_{false};
+  std::unique_ptr<BlockSync> blockSync_;
+  std::optional<BlockSync::Result> lastSyncResult_;
+  bool beaconStateRefreshInFlight_{false};
+  static constexpr std::chrono::minutes STARTUP_SYNC_TIMEOUT{5};
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
   uint64_t registryVersion_{0};

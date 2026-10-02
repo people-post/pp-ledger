@@ -166,6 +166,31 @@ bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::mil
   return done();
 }
 
+std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSync::Result>& lastResult,
+                                   std::chrono::milliseconds timeout, const std::function<bool()>& extraDone) {
+  const auto deadline = RequestQueue::Clock::now() + timeout;
+  auto remaining = [&]() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(deadline - RequestQueue::Clock::now());
+  };
+  while (remaining().count() > 0) {
+    if (sync.start() == BlockSync::Start::BackingOff) {
+      serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(100)));
+      continue;
+    }
+    serveTasksUntil([&]() { return !sync.inFlight(); }, remaining());
+    if (lastResult && lastResult->ok) {
+      if (extraDone) {
+        serveTasksUntil(extraDone, remaining());
+      }
+      return {};
+    }
+    if (lastResult) {
+      log().warning << "Startup sync attempt failed, retrying: " << lastResult->error;
+    }
+  }
+  return lastResult ? lastResult->error : std::string("timed out");
+}
+
 void Server::serveRequest(const RequestQueue::Item& item) {
   log().debug << "Received request (" << item.body.size() << " bytes)";
   auto request = utl::binaryUnpack<Client::Request>(item.body);

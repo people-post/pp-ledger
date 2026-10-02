@@ -347,11 +347,8 @@ Service::Roe<void> MinerServer::onStart() {
   // served here because the run loop has not started yet.
   initBlockSync();
   lastSyncResult_.reset();
-  blockSync_->start();
-  serveTasksUntil([this]() { return lastSyncResult_.has_value(); }, STARTUP_SYNC_TIMEOUT);
-  if (!lastSyncResult_ || !lastSyncResult_->ok) {
-    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " +
-                                       (lastSyncResult_ ? lastSyncResult_->error : std::string("timed out")));
+  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, STARTUP_SYNC_TIMEOUT); !error.empty()) {
+    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + error);
   }
 
   refreshMinerListFromBeacon();

@@ -271,3 +271,95 @@ TEST(BroadcastTallyTest, SingleUpstream) {
 }
 
 } // namespace
+
+#include "Server.h"
+
+namespace {
+
+/** Answers at once; fails the first `failures` requests. */
+class FlakyUpstream : public ILedgerTransport {
+public:
+  std::vector<Ledger::ChainNode> chain;
+  int failures = 0;
+
+  Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
+    return LedgerTransportError(-1, "async only");
+  }
+  void roundTripAsync(const std::string &body, std::chrono::milliseconds, Done done) override {
+    if (failures > 0) {
+      --failures;
+      done(LedgerTransportError(-1, "upstream unavailable"));
+      return;
+    }
+    auto request = utl::binaryUnpack<Client::Request>(body).value();
+    Client::Response response;
+    if (request.type == Client::T_REQ_CALIBRATION) {
+      Client::CalibrationResponse cal;
+      cal.nextBlockId = chain.size();
+      response.payload = utl::binaryPack(cal);
+    } else {
+      response.payload = chain.at(utl::binaryUnpack<uint64_t>(request.payload).value()).ltsToString();
+    }
+    done(utl::binaryPack(response));
+  }
+};
+
+class StartupServer : public Server {
+public:
+  using Server::postToServerThread;
+  using Server::runStartupSync;
+
+protected:
+  std::string getSignatureFileName() const override { return ".test"; }
+  std::string getLogFileName() const override { return "test.log"; }
+  std::string getServerName() const override { return "StartupServer"; }
+  void runLoop() override {}
+  std::string handleParsedRequest(const Client::Request &) override { return {}; }
+};
+
+class StartupSyncTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    for (uint64_t i = 0; i < 6; ++i) {
+      upstream_->chain.push_back(makeBlock(i));
+    }
+    client_.setTransport(std::unique_ptr<ILedgerTransport>(upstream_));
+    BlockSync::Hooks h;
+    h.dialUpstream = []() { return pp::Roe<void>(); };
+    h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
+    h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
+      local_.push_back(block);
+      return {};
+    };
+    h.postToServerThread = [this](std::function<void()> task) { server_.postToServerThread(std::move(task)); };
+    h.onFinished = [this](const BlockSync::Result &r) { last_ = r; };
+    BlockSync::Options options;
+    options.initialBackoff = std::chrono::milliseconds(20);
+    options.maxBackoff = std::chrono::milliseconds(40);
+    sync_ = std::make_unique<BlockSync>(client_, std::move(h), options);
+  }
+
+  FlakyUpstream *upstream_ = new FlakyUpstream();  // owned by client_
+  Client client_;
+  StartupServer server_;
+  std::vector<Ledger::ChainNode> local_;
+  std::optional<BlockSync::Result> last_;
+  std::unique_ptr<BlockSync> sync_;
+};
+
+// One transient failure must not kill a node at startup.
+TEST_F(StartupSyncTest, RetriesUntilSuccess) {
+  upstream_->failures = 3;
+  server_.setStop(true);  // as during onStart
+  EXPECT_EQ(server_.runStartupSync(*sync_, last_, std::chrono::seconds(5)), "");
+  EXPECT_EQ(local_.size(), 6u);
+}
+
+TEST_F(StartupSyncTest, GivesUpWithTheLastErrorAtTimeout) {
+  upstream_->failures = 1000000;
+  const std::string error = server_.runStartupSync(*sync_, last_, std::chrono::milliseconds(200));
+  EXPECT_NE(error.find("upstream unavailable"), std::string::npos) << error;
+  EXPECT_TRUE(local_.empty());
+}
+
+} // namespace
