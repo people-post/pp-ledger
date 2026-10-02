@@ -166,7 +166,7 @@ TEST_F(AmpLedgerRpcTest, ServerDropsChannelThatNeverSends) {
   std::optional<uint32_t> channel;
   h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
                                     pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
-                                    [&](pp::amp::PeerLinkManager::ChannelRoe ch) {
+                                    [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
                                       if (ch) {
                                         channel = ch.value();
                                       }
