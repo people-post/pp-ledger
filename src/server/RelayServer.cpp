@@ -746,7 +746,7 @@ void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQ
     return;
   }
   client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(
-      [this, reply](Client::Roe<std::vector<Client::MinerInfo>> miners) {
+      [reply](Client::Roe<std::vector<Client::MinerInfo>> miners) {
         if (!miners) {
           replyWith(reply, Roe<std::string>(Error(
                                E_NETWORK, "Failed to fetch miner list from upstream: " + miners.error().message)));
