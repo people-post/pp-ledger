@@ -235,16 +235,19 @@ Chain::createRenewalTx(uint64_t accountId) const {
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
-  const uint64_t minimumFee = minimumFeeResult.value();
+  // System accounts other than genesis renew fee-free (validators require fee
+  // 0) and are never terminated: e.g. the recycle account usually holds
+  // nothing, and ending it would break every later write-off.
+  const bool feeFree = AccountIds::isSystemAccount(accountId) && accountId != AccountBuffer::ID_GENESIS;
+  const uint64_t minimumFee = feeFree ? 0 : minimumFeeResult.value();
 
-  if (accountId != AccountBuffer::ID_GENESIS &&
-      accountId != AccountBuffer::ID_FEE) {
+  if (!AccountIds::isSystemAccount(accountId)) {
     auto balance =
         txContext_.bank.getBalance(accountId, AccountBuffer::ID_GENESIS);
     if (balance < static_cast<int64_t>(minimumFee)) {
       // Insufficient balance for renewal, terminate account with whatever
       // balance remains. Fee is 0 here; all remaining balances are transferred
-      // to recycle account. Never terminate fee account (it pays fee to self).
+      // to recycle account.
       type = Ledger::T_END_USER;
       tx.fee = 0;
     }
@@ -304,8 +307,16 @@ Chain::collectRenewals(uint64_t /*slot*/) const {
     return renewals;
   }
 
-  for (uint64_t accountId :
-       txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal)) {
+  // A renewal records the account's committed balance; validators check it
+  // against the in-block balance when it applies. Fee-free system accounts
+  // (fee, reserve, recycle) are credited by other records in the block (fees,
+  // write-offs), so they renew first, before anything can credit them; then
+  // genesis, then everyone else.
+  std::vector<uint64_t> due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
+  std::stable_partition(due.begin(), due.end(), [](uint64_t id) {
+    return AccountIds::isSystemAccount(id) && id != AccountBuffer::ID_GENESIS;
+  });
+  for (uint64_t accountId : due) {
     auto renewalResult = createRenewalTx(accountId);
     if (!renewalResult) {
       return renewalResult.error();

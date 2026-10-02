@@ -117,6 +117,14 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     const Ledger::TxNewUser &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     chain_block::BlockAdmissionMode admissionMode) const {
+  // Id range first: structural, before fee and balance checks.
+  if (AccountIds::isSystemAccount(tx.toWalletId) && blockId != 0) {
+    return chain_tx::TxError(
+        chain_err::E_TX_VALIDATION,
+        "System account ids (< " + std::to_string(AccountBuffer::ID_FIRST_ISSUED) +
+            ") are created only in the genesis block");
+  }
+
   if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,

@@ -95,6 +95,11 @@ chain_tx::Roe<void> EndUserTxHandler::applyEndUser(
         "User account not found: " + std::to_string(tx.walletId));
   }
 
+  if (AccountIds::isSystemAccount(tx.walletId)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "System account " + std::to_string(tx.walletId) + " cannot be terminated");
+  }
+
   if (!ctx.fnAccountMetaForRecord.has_value()) {
     return chain_tx::TxError(
         chain_err::E_INTERNAL,

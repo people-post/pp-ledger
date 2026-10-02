@@ -13,7 +13,7 @@ namespace pp {
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BlockApplyContext &c, bool requireNonZeroId) const {
+    const BlockApplyContext &c, bool requireNonZeroId, bool systemRenewal) const {
   // User-signed updates must carry a non-zero id (0 would skip replay
   // protection). Chain-generated renewals pass false: their id is always 0
   // and validateAccountRenewals bounds them per block instead.
@@ -24,13 +24,13 @@ UserAccountUpsertBase::applyUserUpdateBlockCommon(
     return idem;
   }
   return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, false,
-                                c.admissionMode);
+                                c.admissionMode, systemRenewal);
 }
 
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BufferApplyContext &c, bool requireNonZeroId) const {
+    const BufferApplyContext &c, bool requireNonZeroId, bool systemRenewal) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
           tx.validationTsMax, c.effectiveSlot, c.admissionMode,
@@ -54,14 +54,19 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
 
   // Preserve existing semantics: buffer-path user-update applies in Full mode.
   return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true,
-                                chain_block::BlockAdmissionMode::Full);
+                                chain_block::BlockAdmissionMode::Full, systemRenewal);
 }
 
 chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     const Ledger::TxUserUpdate &tx, const TxContext &ctx, AccountBuffer &bank,
     uint64_t blockId, bool isBufferMode,
-    chain_block::BlockAdmissionMode admissionMode) const {
-  if (chain_block::admissionTxStrict(admissionMode)) {
+    chain_block::BlockAdmissionMode admissionMode, bool systemRenewal) const {
+  if (systemRenewal) {
+    if (tx.fee != 0) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "System account renewal must be fee-free: " + std::to_string(tx.walletId));
+    }
+  } else if (chain_block::admissionTxStrict(admissionMode)) {
     if (auto feeGate = chain_tx::requireMinimumFee(
             ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
             Ledger::TypedTx(tx), tx.fee,
