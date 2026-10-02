@@ -234,3 +234,40 @@ TEST_F(BlockSyncTest, DestroyedSyncDropsLateResults) {
 }
 
 } // namespace
+
+#include "BroadcastTally.h"
+
+namespace {
+
+TEST(BroadcastTallyTest, CommitsOnFirstSuccessOnly) {
+  BroadcastTally tally(3);
+  EXPECT_EQ(tally.onResult(false), BroadcastTally::Event::None);
+  EXPECT_EQ(tally.onResult(true), BroadcastTally::Event::Commit);
+  EXPECT_EQ(tally.onResult(true), BroadcastTally::Event::None);
+  EXPECT_TRUE(tally.done());
+  EXPECT_TRUE(tally.committed());
+}
+
+TEST(BroadcastTallyTest, AllFailedOnlyAfterTheLastResult) {
+  BroadcastTally tally(2);
+  EXPECT_EQ(tally.onResult(false), BroadcastTally::Event::None);
+  EXPECT_FALSE(tally.done());
+  EXPECT_EQ(tally.onResult(false), BroadcastTally::Event::AllFailed);
+  EXPECT_TRUE(tally.done());
+  EXPECT_FALSE(tally.committed());
+}
+
+TEST(BroadcastTallyTest, FailureAfterCommitIsNotAllFailed) {
+  BroadcastTally tally(2);
+  EXPECT_EQ(tally.onResult(true), BroadcastTally::Event::Commit);
+  EXPECT_EQ(tally.onResult(false), BroadcastTally::Event::None);
+}
+
+TEST(BroadcastTallyTest, SingleUpstream) {
+  BroadcastTally ok(1);
+  EXPECT_EQ(ok.onResult(true), BroadcastTally::Event::Commit);
+  BroadcastTally failed(1);
+  EXPECT_EQ(failed.onResult(false), BroadcastTally::Event::AllFailed);
+}
+
+} // namespace

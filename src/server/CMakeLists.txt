@@ -7,6 +7,7 @@ add_library(pp_server STATIC
     TxForwardPolicy.h
     BlockSync.cpp
     BlockSync.h
+    BroadcastTally.h
     BeaconServer.cpp
     BeaconServer.h
     Beacon.cpp
