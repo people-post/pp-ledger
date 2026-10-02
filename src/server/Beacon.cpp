@@ -2,6 +2,8 @@
 #include "../chain/TxFees.h"
 #include "../client/AccountAttachment.h"
 #include "../client/Client.h"
+#include "../network/amp/LedgerPeerId.h"
+#include "amp/link/AdpMultiaddr.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "common/Logger.h"
@@ -87,6 +89,31 @@ std::string Beacon::calculateHash(const Ledger::Block &block) const {
 
 std::string Beacon::getNetworkId() const {
   return chain_.getNetworkId();
+}
+
+Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
+                                                 const std::string &networkId) const {
+  auto signed_ = chain_.verifyAccountSignatures(miner.id, miner.signingMessage(networkId),
+                                                miner.signatures);
+  if (!signed_) {
+    return Error(signed_.error().code, "Registration not signed by miner " + std::to_string(miner.id) + ": " +
+                                           signed_.error().message);
+  }
+  auto endpoint = pp::amp::ParseAdpMultiaddr(miner.endpoint);
+  if (!endpoint) {
+    return Error(-1, "Invalid miner endpoint: " + endpoint.error().message);
+  }
+  auto account = chain_.getAccount(miner.id);
+  if (!account) {
+    return Error(account.error().code, account.error().message);
+  }
+  for (const auto &key : account.value().wallet.publicKeys) {
+    auto peerId = network::PeerIdFromMlDsaPublicKey(std::vector<uint8_t>(key.begin(), key.end()));
+    if (peerId && peerId.value() == endpoint.value().peer_id) {
+      return {};
+    }
+  }
+  return Error(-1, "Miner endpoint peer id is not one of miner " + std::to_string(miner.id) + "'s keys");
 }
 
 Beacon::Roe<std::vector<Ledger::Record>>

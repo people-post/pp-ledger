@@ -1178,6 +1178,15 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
       message, signatures, account, txContext_.crypto, log()));
 }
 
+Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::string &message,
+                                                const std::vector<std::string> &signatures) const {
+  auto account = txContext_.bank.getAccount(accountId);
+  if (!account) {
+    return Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(accountId));
+  }
+  return verifySignaturesAgainstAccount(message, signatures, account.value());
+}
+
 Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
     uint64_t slotLeaderId,

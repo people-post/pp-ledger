@@ -114,6 +114,9 @@ public:
   }
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+  /** `signatures` over `message` satisfy account `accountId`'s keys and minSignatures. */
+  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string &message,
+                                    const std::vector<std::string> &signatures) const;
   int64_t getConsensusTimestamp() const;
   /** Start time of the given slot (consensus timestamp). */
   int64_t getSlotStartTime(uint64_t slot) const;
@@ -245,6 +248,7 @@ private:
   verifySignaturesAgainstAccount(const std::string &message,
                                  const std::vector<std::string> &signatures,
                                  const AccountBuffer::Account &account) const;
+
 
   /** Calculate the maximum blockId for account renewals at a given block. */
   Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;

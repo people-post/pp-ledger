@@ -105,6 +105,8 @@ private:
   void startMinerListRefresh();
   /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
   void renewRegistrationPeriodically();
+  /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
+  Roe<Client::MinerInfo> signedRegistration(const std::string &networkId) const;
   Roe<Client::BeaconState> connectToBeacon();
   Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
@@ -163,6 +165,8 @@ private:
   static constexpr std::chrono::seconds REGISTER_RENEW_INTERVAL{60};
   std::chrono::steady_clock::time_point lastRegistration_{};
   bool registrationInFlight_{false};
+  /** Network id the upstream advertised at connect; registrations are signed for it. */
+  std::string registrationNetworkId_;
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   static constexpr int CALIBRATION_SAMPLES = 5;

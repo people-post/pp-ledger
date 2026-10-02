@@ -158,8 +158,16 @@ public:
   // Response data structures
   struct MinerInfo {
     uint64_t id{ 0 };
+    /** Set by the beacon when it records the registration (its clock). */
     int64_t tLastMessage{ 0 };
     std::string endpoint;
+    /** Signer's clock (Unix seconds) when signed; the beacon refuses stale or replayed records. */
+    int64_t issuedAt{ 0 };
+    /** Miner account's signatures over signingMessage() (as for its transactions). */
+    std::vector<std::string> signatures;
+
+    /** Domain-separated bytes the miner signs: network, id, endpoint, issuedAt. */
+    std::string signingMessage(const std::string &networkId) const;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);

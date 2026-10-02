@@ -182,6 +182,8 @@ private:
   MinerRegistry miners_;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
   static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
+  /** A registration's issuedAt may differ from the beacon's clock by at most this much. */
+  static constexpr std::chrono::minutes REGISTER_MAX_SKEW{5};
   std::string initKeysPath_;
 
   /** Write keys to the first free init-keys[-N].json in workDir (0600). */

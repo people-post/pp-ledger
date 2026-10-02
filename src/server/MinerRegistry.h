@@ -36,6 +36,12 @@ public:
     return removed;
   }
 
+  /** False when `miner` is not newer than the stored record: a replay of an old registration. */
+  bool isNewer(const Client::MinerInfo &miner) const {
+    auto it = miners_.find(miner.id);
+    return it == miners_.end() || miner.issuedAt > it->second.issuedAt;
+  }
+
   const std::map<uint64_t, Client::MinerInfo> &miners() const { return miners_; }
   uint64_t version() const { return version_; }
 

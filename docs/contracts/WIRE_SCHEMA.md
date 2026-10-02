@@ -213,6 +213,24 @@ time window, and header commitments still apply. Policy helper:
 [BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md)
 (Empty heartbeat settled note + Late join Full gate).
 
+## Miner registration (`REGISTER`)
+
+`MinerInfo` (Meta, binary-packed in the request): `id`, `endpoint` (ADP
+multiaddr ending in `/p2p/<PeerId>`), `issuedAt` (signer's Unix seconds),
+`signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the
+beacon when recorded).
+
+Each signature is the miner account key's ML-DSA signature over:
+
+```
+"pp-ledger/miner-register/v1" || pack(networkId) || pack(id) || pack(endpoint) || pack(issuedAt)
+```
+
+`networkId` is the one the upstream advertises in `STATUS`. Accepted only if the
+signatures satisfy the account's `publicKeys` / `minSignatures`, the endpoint's
+peer id derives from one of those keys, `|now − issuedAt| ≤ 5 min`, and
+`issuedAt` is newer than the recorded registration.
+
 ## ChainNode / storage envelope
 
 ```text

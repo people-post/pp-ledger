@@ -1075,6 +1075,24 @@ void MinerServer::handleValidatorRole() {
   // The actual block reception would happen via network requests
 }
 
+MinerServer::Roe<Client::MinerInfo> MinerServer::signedRegistration(const std::string &networkId) const {
+  Client::MinerInfo minerInfo;
+  minerInfo.id = config_.minerId;
+  minerInfo.endpoint = listenMultiaddr();
+  minerInfo.issuedAt = std::chrono::duration_cast<std::chrono::seconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+  const std::string message = minerInfo.signingMessage(networkId);
+  for (const auto &privateKey : config_.privateKeys) {
+    auto signature = utl::mlDsaSign(privateKey, message);
+    if (!signature) {
+      return Error(E_CONFIG, "Failed to sign registration: " + signature.error().message);
+    }
+    minerInfo.signatures.push_back(signature.value());
+  }
+  return minerInfo;
+}
+
 void MinerServer::renewRegistrationPeriodically() {
   const auto now = std::chrono::steady_clock::now();
   if (registrationInFlight_ || now - lastRegistration_ < REGISTER_RENEW_INTERVAL) {
@@ -1085,12 +1103,14 @@ void MinerServer::renewRegistrationPeriodically() {
     log().warning << "Registration renewal: " << dial.error().message;
     return;
   }
-  Client::MinerInfo minerInfo;
-  minerInfo.id = config_.minerId;
-  minerInfo.endpoint = listenMultiaddr();
+  auto minerInfo = signedRegistration(registrationNetworkId_);
+  if (!minerInfo) {
+    log().warning << "Registration renewal: " << minerInfo.error().message;
+    return;
+  }
   registrationInFlight_ = true;
   client_.registerMinerServerAsync(
-      minerInfo, completeOnServerThread<Client::BeaconState>([this](Client::Roe<Client::BeaconState> state) {
+      minerInfo.value(), completeOnServerThread<Client::BeaconState>([this](Client::Roe<Client::BeaconState> state) {
         registrationInFlight_ = false;
         if (!state) {
           log().warning << "Registration renewal failed: " << state.error().message;
@@ -1116,10 +1136,17 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_NETWORK, dial.error().message);
   }
 
-  Client::MinerInfo minerInfo;
-  minerInfo.id = config_.minerId;
-  minerInfo.endpoint = listenMultiaddr();
-  auto stateResult = client_.registerMinerServer(minerInfo);
+  // Registrations are signed for the upstream's network id, so learn it first.
+  auto status = client_.fetchBeaconState();
+  if (!status) {
+    return Error(E_NETWORK, "Failed to get upstream status: " + status.error().message);
+  }
+  registrationNetworkId_ = status.value().networkId;
+  auto minerInfo = signedRegistration(registrationNetworkId_);
+  if (!minerInfo) {
+    return Error(E_CONFIG, minerInfo.error().message);
+  }
+  auto stateResult = client_.registerMinerServer(minerInfo.value());
   if (!stateResult) {
     return Error(E_NETWORK,
                  "Failed to register with upstream: " + stateResult.error().message);
