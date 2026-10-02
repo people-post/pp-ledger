@@ -4,7 +4,7 @@
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
 # Suites: unit | l0 | l1 | latejoin | smoke | image
-#   smoke == l0 only until Amp OsUdp dial is green (l1/latejoin stay explicit).
+#   smoke == l0 → l1 → latejoin on one network (brought up once).
 # See docs/ops/TEST_STRATEGY.md
 set -euo pipefail
 
@@ -36,7 +36,7 @@ Options (run):
 Examples:
   $(basename "$0") run --suite unit
   $(basename "$0") run --suite l0
-  $(basename "$0") run --suite smoke --down
+  $(basename "$0") run --suite smoke --down   # l0 + l1 + latejoin, one network
   $(basename "$0") run --suite image
 EOF
 }
@@ -87,10 +87,12 @@ run_latejoin() {
 }
 
 run_smoke() {
-  # Until Amp OsUdp localhost dial is green, default smoke is L0 only.
-  # Run --suite l1 / latejoin explicitly for deeper checks.
-  echo -e "${CYAN}suite smoke → l0 (l1/latejoin are separate until Amp dial is green)${NC}"
+  # Every suite on one network: bring-up is most of the cost, the suites
+  # themselves take seconds (latejoin restarts miner3 within the network).
+  echo -e "${CYAN}suite smoke → l0, l1, latejoin on one network${NC}"
   run_l0
+  run_l1
+  run_latejoin
 }
 
 run_image() {
