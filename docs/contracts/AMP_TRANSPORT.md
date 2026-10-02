@@ -43,7 +43,7 @@ Full design guidance: [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md).
 
 ## Dependency
 
-pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v2.13.0**
+pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v2.13.1**
 (inbound protocol handlers receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`). Align with pp-browser’s Amp pin when sharing a sibling checkout.
 
 **Ownership:** Amp supplies L1–L3 transport only (`LedgerRpcChannelPolicy` lives in this repo). Chain tip/range sync, checkpoints, and RPC codecs stay in pp-ledger — do not push ledger sync or BitTorrent-style piece swarm into Amp. See [pp-cpp-amp OWNERSHIP](https://github.com/people-post/pp-cpp-amp/blob/develop/docs/OWNERSHIP.md).
