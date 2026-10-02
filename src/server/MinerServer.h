@@ -103,6 +103,8 @@ private:
   void onBlockSyncFinished(const BlockSync::Result &result);
   /** Run-time miner list refresh without blocking (startup uses the blocking one). */
   void startMinerListRefresh();
+  /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
+  void renewRegistrationPeriodically();
   Roe<Client::BeaconState> connectToBeacon();
   Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
@@ -157,6 +159,10 @@ private:
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
+  /** Well inside the beacon's record TTL (BeaconServer::MINER_RECORD_TTL, 5 min). */
+  static constexpr std::chrono::seconds REGISTER_RENEW_INTERVAL{60};
+  std::chrono::steady_clock::time_point lastRegistration_{};
+  bool registrationInFlight_{false};
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   static constexpr int CALIBRATION_SAMPLES = 5;

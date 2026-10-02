@@ -439,6 +439,17 @@ static void handleBeaconCalibration(const httplib::Request&, httplib::Response& 
                   "application/json");
 }
 
+/**
+ * Public view of a registered miner: id and last renewal only. Network
+ * addresses are never published (relay-only access; LEDGER_TOPOLOGY.md §12).
+ */
+static std::shared_ptr<Object> publicMinerJson(const pp::Client::MinerInfo& miner) {
+  auto obj = std::make_shared<Object>();
+  obj->setUIntForJson("id", miner.id);
+  obj->set("lastSeen", miner.tLastMessage);
+  return obj;
+}
+
 static void handleBeaconMiners(const httplib::Request&, httplib::Response& res,
                                pp::Client& beaconClient) {
   auto r = beaconClient.fetchMinerList();
@@ -448,7 +459,7 @@ static void handleBeaconMiners(const httplib::Request&, httplib::Response& res,
   }
   std::vector<Value> elems;
   for (const auto &m : r.value()) {
-    elems.push_back(std::make_shared<Object>(m.ltsToMeta()));
+    elems.push_back(publicMinerJson(m));
   }
   res.set_content(dumpJson(Object::array(std::move(elems))), "application/json");
 }
@@ -1138,14 +1149,14 @@ int main(int argc, char** argv) {
   });
   registerMcpTool({
     "list_miners",
-    "List all miners currently registered with the beacon node.",
+    "List the ids of miners currently registered with the beacon node (no network addresses).",
     emptySchema(),
     [](const Object&, pp::Client& beacon, pp::Client&) {
       auto r = beacon.fetchMinerList();
       if (!r) return mcpErr(r.error().message);
       std::vector<Value> elems;
       for (const auto& m : r.value()) {
-        elems.push_back(std::make_shared<Object>(m.ltsToMeta()));
+        elems.push_back(publicMinerJson(m));
       }
       return mcpOk(dumpJson(Object::array(std::move(elems)), 2));
     }

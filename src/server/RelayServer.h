@@ -104,7 +104,6 @@ private:
   /** Perform sync from beacon (updates lastBlockSyncTime_ and lastSyncedEpoch_ on success). */
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
 
-  void registerServer(const Client::MinerInfo &minerInfo);
   Client::BeaconState buildStateResponse() const;
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
 
@@ -167,7 +166,6 @@ private:
   std::optional<BlockSync::Result> lastSyncResult_;
   bool beaconStateRefreshInFlight_{false};
 
-  std::map<uint64_t, Client::MinerInfo> mMiners_;
   uint64_t registryVersion_{0};
   std::string networkId_;
 };

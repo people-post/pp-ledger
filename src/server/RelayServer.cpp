@@ -382,12 +382,6 @@ void RelayServer::onStop() {
   log().info << "RelayServer resources cleaned up";
 }
 
-void RelayServer::registerServer(const Client::MinerInfo &minerInfo) {
-  mMiners_[minerInfo.id] = minerInfo;
-  log().debug << "Updated miner record: " << minerInfo.id << " "
-              << minerInfo.endpoint;
-}
-
 Client::BeaconState RelayServer::buildStateResponse() const {
   int64_t currentTimestamp =
       std::chrono::duration_cast<std::chrono::seconds>(
@@ -615,13 +609,12 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
   }
   client_.registerMinerServerAsync(
       minerInfo, completeOnServerThread<Client::BeaconState>(
-                     [this, minerInfo, reply](Client::Roe<Client::BeaconState> state) {
+                     [this, reply](Client::Roe<Client::BeaconState> state) {
                        if (!state) {
                          replyWith(reply, Roe<std::string>(Error(
                                               E_NETWORK, "Upstream register failed: " + state.error().message)));
                          return;
                        }
-                       registerServer(minerInfo);
                        registryVersion_ = state.value().registryVersion;
                        if (!state.value().networkId.empty()) {
                          networkId_ = state.value().networkId;
@@ -708,11 +701,9 @@ void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQ
                                E_NETWORK, "Failed to fetch miner list from upstream: " + miners.error().message)));
           return;
         }
-        mMiners_.clear();
         std::vector<pp::common::Meta> list;
         list.reserve(miners.value().size());
         for (const auto &miner : miners.value()) {
-          mMiners_[miner.id] = miner;
           list.push_back(miner.ltsToMeta());
         }
         reply(packResponse(utl::binaryPack(list)));
