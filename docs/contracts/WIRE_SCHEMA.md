@@ -65,10 +65,11 @@ Validation of received blocks still applies on `addBlock` and checks `stateRoot`
 against the live tree root (O(1)).
 
 Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
-`epochSeed`, then records: `T_GENESIS`, fee / reserve / recycle `T_NEW_USER`, and
-any **genesis miners** — `T_NEW_USER` from genesis into the issued range with a
-positive stake and the exact fee. Reserve amount + all stakes + all fees equal the
-initial supply. Genesis miners are the stake at start: system accounts never count.
+`epochSeed`, then records: `T_GENESIS`, then `T_NEW_USER` for fee, reserve,
+registrar and recycle (in that order: fee first, since the others pay their fees
+into it; only reserve is funded), and any **genesis miners** — `T_NEW_USER` from
+genesis into the issued range with a positive stake and the exact fee. Reserve
+amount + all stakes + all fees equal the initial supply. Genesis miners are the stake at start: system accounts never count.
 
 ## Transaction record
 
@@ -112,12 +113,17 @@ not installed in `RecordHandler`.
 
   | Range | Kind | Created by | Rules |
   |-------|------|------------|-------|
-  | `[0, 1<<20)` | **System** — Genesis `0`, Fee `1`, Reserve `2`, Recycle `3`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
-  | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Genesis wallet | Normal renewal / termination |
-  | `[1<<30, …)` | **Users** | Anyone | Normal renewal / termination |
+  | `[0, 1<<20)` | **System** — Genesis `0`, Reserve `1`, Registrar `2`, Fee `3`, Recycle `4`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
+  | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Registrar | Normal renewal / termination |
+  | `[1<<30, …)` | **Users** | Any funded account except genesis | Normal renewal / termination |
 
-  System ids 4 … 2²⁰−1 are reserved and **no rule creates them**: the genesis
-  block can hold only fee, reserve and recycle (records 1–3) and genesis miners
+  System ids follow a token's life: minted (genesis), held (reserve), spent on
+  new issued accounts (registrar), collected (fee, recycle). After genesis the
+  genesis account creates no accounts and transfers only to reserve: every
+  transfer out of genesis mints, so new supply has one path (genesis → reserve).
+
+  System ids 5 … 2²⁰−1 are reserved and **no rule creates them**: the genesis
+  block can hold only the four system accounts above (records 1–4) and genesis miners
   (issued range), and `NEW_USER` into the system range is refused after
   genesis. Adding a system account is a protocol change — a constant in
   `AccountIds.h` plus code for its role and an explicit creation rule (e.g. a
@@ -165,7 +171,7 @@ Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
 classic Ouroboros / stake-weighted VRF on blocks):
 
 1. Stakeholders = non-system accounts (`!isSystemAccount`, id ≥ `1<<20`) with
-   positive native balance. Reserve, fee and recycle hold protocol funds and never
+   positive native balance. Reserve, registrar, fee and recycle hold protocol funds and never
    lead; a new chain's committee is its genesis miners.
 2. Eligible **committee** = all if ≤`kMaxLeaderPoolSize` (**100**), else top
    **100** by stake (id tie-break). Constant:

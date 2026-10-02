@@ -265,7 +265,8 @@ Beacon::signWithGenesisKeys(Ledger::Record &record,
 
 Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
   const std::pair<const char *, const AccountKeys *> accounts[] = {
-      {"genesis", &key.genesis}, {"fee", &key.fee}, {"reserve", &key.reserve}, {"recycle", &key.recycle}};
+      {"genesis", &key.genesis},     {"reserve", &key.reserve}, {"registrar", &key.registrar},
+      {"fee", &key.fee},             {"recycle", &key.recycle}};
   for (const auto &[name, keys] : accounts) {
     if (keys->publicKeys.empty()) {
       return Error(2, std::string("System account '") + name + "' needs public keys");
@@ -318,6 +319,54 @@ Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
                         std::to_string(matched.size()));
   }
   return {};
+}
+
+Beacon::Roe<Ledger::Record>
+Beacon::createSystemAccountRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key, uint64_t toId,
+                                  const Client::UserAccount &account, uint64_t &fee, const std::string &label) {
+  Ledger::TxNewUser tx;
+  tx.fromWalletId = AccountBuffer::ID_GENESIS;
+  tx.toWalletId = toId;
+  auto it = account.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
+  tx.amount = it == account.wallet.mBalances.end() ? 0 : static_cast<uint64_t>(it->second);
+  tx.meta = account.ltsToString();
+  if (fee == 0) {
+    auto minFee = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx));
+    if (!minFee) {
+      return Error(2, "Failed to calculate " + label + " fee: " + minFee.error().message);
+    }
+    fee = minFee.value();
+  }
+  tx.fee = fee;
+
+  Ledger::Record rec;
+  rec.type = Ledger::T_NEW_USER;
+  rec.data = utl::binaryPack(tx);
+  if (auto signedRec = signWithGenesisKeys(rec, key.genesisSigners, config.networkId, label); !signedRec) {
+    return signedRec.error();
+  }
+  return rec;
+}
+
+Beacon::Roe<Ledger::Record> Beacon::createReserveRecord(const Chain::BlockChainConfig &config,
+                                                        const InitKeyConfig &key, int64_t otherCosts) {
+  // The fee bills the account's custom meta only, not its balance.
+  Ledger::TxNewUser probe;
+  probe.meta = makeUserAccountFromKeys(key.reserve, 0, AccountAttachment::emptySerialized()).ltsToString();
+  auto feeRoe = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(probe));
+  if (!feeRoe) {
+    return Error(2, "Failed to calculate reserve fee: " + feeRoe.error().message);
+  }
+  uint64_t reserveFee = feeRoe.value();
+  const int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) - otherCosts -
+                                static_cast<int64_t>(reserveFee);
+  if (reserveAmount < 0) {
+    return Error(2, "Initial token supply is insufficient for genesis fees and stakes");
+  }
+  return createSystemAccountRecord(
+      config, key, AccountBuffer::ID_RESERVE,
+      makeUserAccountFromKeys(key.reserve, reserveAmount, AccountAttachment::emptySerialized()), reserveFee,
+      "reserve transaction");
 }
 
 Beacon::Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
@@ -385,7 +434,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
                            const std::vector<GenesisMiner> &miners) {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
-  // 2. Create fee, reserve, and recycle accounts
+  // 2. Create the system accounts (fee, reserve, registrar, recycle)
   // 3. Create genesis miner accounts (their stake comes out of reserve)
   log().info << "Creating genesis block";
   if (auto keysOk = checkInitKeys(key); !keysOk) {
@@ -422,56 +471,30 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   }
   genesisBlock.block.records.push_back(rec);
 
-  // Second transaction: Create fee wallet
-  auto feeAccount =
-      makeUserAccountFromKeys(key.fee, 0, AccountAttachment::emptySerialized());
-
-  Ledger::TxNewUser txFee;
-  txFee.fromWalletId = AccountBuffer::ID_GENESIS;
-  txFee.toWalletId = AccountBuffer::ID_FEE;
-  txFee.amount = 0;
-  txFee.meta = feeAccount.ltsToString();
-  const Ledger::TypedTx feeTypedTx(txFee);
-  auto feeWalletFeeResult = chain_.calculateMinimumFeeForTransaction(config, feeTypedTx);
-  if (!feeWalletFeeResult) {
-    return Error(2, "Failed to calculate fee-wallet transaction fee: " +
-                        feeWalletFeeResult.error().message);
-  }
-  const int64_t feeWalletFee =
-      static_cast<int64_t>(feeWalletFeeResult.value());
-  txFee.fee = feeWalletFee;
-
-  rec = {};
-  rec.type = Ledger::T_NEW_USER;
-  rec.data = utl::binaryPack(txFee);
-  rec.signatures = {};
-  auto roeFee = signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
-                                    "fee transaction");
-  if (!roeFee) {
-    return roeFee.error();
-  }
-  genesisBlock.block.records.push_back(rec);
-
-  // Third transaction: Create reserve wallet with initial stake
-  auto reserveAccount =
-      makeUserAccountFromKeys(key.reserve, 0, AccountAttachment::emptySerialized());
-  auto recycleAccount = makeUserAccountFromKeys(
-      key.recycle, 0, AccountAttachment::emptySerialized());
-
-  auto getNonFreeMetaSize = [&](size_t customMetaSize) -> uint64_t {
-    return customMetaSize > config.freeCustomMetaSize
-               ? static_cast<uint64_t>(customMetaSize) -
-                     config.freeCustomMetaSize
-               : 0ULL;
+  // System accounts. Fee comes first: the other records pay their fees into
+  // it. Fee, registrar and recycle start empty; reserve takes the rest of the
+  // supply (reserve funds the registrar later).
+  struct ZeroAccount {
+    uint64_t id;
+    const AccountKeys *keys;
+    const char *label;
+    uint64_t fee{0};
+    Ledger::Record rec;
   };
-
-  auto recycleFeeResult = chain_tx::calculateMinimumFeeFromNonFreeMetaSize(
-      config, getNonFreeMetaSize(recycleAccount.meta.size()));
-  if (!recycleFeeResult) {
-    return Error(2, "Failed to calculate recycle fee: " +
-                      recycleFeeResult.error().message);
+  ZeroAccount zeroAccounts[] = {{AccountBuffer::ID_FEE, &key.fee, "fee transaction", 0, {}},
+                                {AccountBuffer::ID_REGISTRAR, &key.registrar, "registrar transaction", 0, {}},
+                                {AccountBuffer::ID_RECYCLE, &key.recycle, "recycle transaction", 0, {}}};
+  int64_t zeroAccountFees = 0;
+  for (auto &zero : zeroAccounts) {
+    auto recRoe = createSystemAccountRecord(
+        config, key, zero.id, makeUserAccountFromKeys(*zero.keys, 0, AccountAttachment::emptySerialized()),
+        zero.fee, zero.label);
+    if (!recRoe) {
+      return recRoe.error();
+    }
+    zero.rec = std::move(recRoe.value());
+    zeroAccountFees += static_cast<int64_t>(zero.fee);
   }
-  const int64_t recycleFee = static_cast<int64_t>(recycleFeeResult.value());
 
   auto minerRecords = createGenesisMinerRecords(config, key, miners);
   if (!minerRecords) {
@@ -479,71 +502,15 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   }
   const int64_t minerTotal = minerRecords.value().second;
 
-  int64_t reserveAmount =
-      static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
-  int64_t reserveFee = 0;
-  for (int i = 0; i < 2; ++i) {
-    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
-    auto reserveFeeResult = chain_tx::calculateMinimumFeeFromNonFreeMetaSize(
-        config, getNonFreeMetaSize(reserveAccount.meta.size()));
-    if (!reserveFeeResult) {
-      return Error(2, "Failed to calculate reserve fee: " +
-                          reserveFeeResult.error().message);
-    }
-    reserveFee = static_cast<int64_t>(reserveFeeResult.value());
-
-    const int64_t updatedReserveAmount =
-        static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-        feeWalletFee - reserveFee - recycleFee - minerTotal;
-    if (updatedReserveAmount < 0) {
-      return Error(2, "Initial token supply is insufficient for genesis fees");
-    }
-    if (updatedReserveAmount == reserveAmount) {
-      break;
-    }
-    reserveAmount = updatedReserveAmount;
+  auto reserveRec = createReserveRecord(config, key, zeroAccountFees + minerTotal);
+  if (!reserveRec) {
+    return reserveRec.error();
   }
-  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
 
-  Ledger::TxNewUser txReserve;
-  txReserve.fromWalletId = AccountBuffer::ID_GENESIS;
-  txReserve.toWalletId = AccountBuffer::ID_RESERVE;
-  txReserve.amount = static_cast<uint64_t>(reserveAmount);
-  txReserve.fee = static_cast<uint64_t>(reserveFee);
-  txReserve.meta = reserveAccount.ltsToString();
-
-  rec = {};
-  rec.type = Ledger::T_NEW_USER;
-  rec.data = utl::binaryPack(txReserve);
-  rec.signatures = {};
-  auto roeReserve =
-      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
-                          "reserve transaction");
-  if (!roeReserve) {
-    return roeReserve.error();
-  }
-  genesisBlock.block.records.push_back(rec);
-
-  // Fourth transaction: Create recycle account (sink for write-off balances)
-  Ledger::TxNewUser txRecycle;
-  txRecycle.fromWalletId = AccountBuffer::ID_GENESIS;
-  txRecycle.toWalletId = AccountBuffer::ID_RECYCLE;
-  txRecycle.amount = 0;
-  txRecycle.fee = static_cast<uint64_t>(recycleFee);
-  txRecycle.meta = recycleAccount.ltsToString();
-
-  rec = {};
-  rec.type = Ledger::T_NEW_USER;
-  rec.data = utl::binaryPack(txRecycle);
-  rec.signatures = {};
-  auto roeRecycle =
-      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
-                          "recycle transaction");
-  if (!roeRecycle) {
-    return roeRecycle.error();
-  }
-  genesisBlock.block.records.push_back(rec);
-
+  genesisBlock.block.records.push_back(std::move(zeroAccounts[0].rec)); // fee
+  genesisBlock.block.records.push_back(std::move(reserveRec.value()));
+  genesisBlock.block.records.push_back(std::move(zeroAccounts[1].rec)); // registrar
+  genesisBlock.block.records.push_back(std::move(zeroAccounts[2].rec)); // recycle
   for (auto &minerRec : minerRecords.value().first) {
     genesisBlock.block.records.push_back(std::move(minerRec));
   }

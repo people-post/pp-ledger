@@ -13,7 +13,7 @@ Every account holder makes its own keys; the beacon only receives public keys.
 ```bash
 cd build
 # Each holder, on their own machine (genesis: 3 holders, any 2 sign):
-./app/pp-client keygen -o genesis1     # genesis2, genesis3, fee, reserve, recycle likewise
+./app/pp-client keygen -o genesis1     # genesis2, genesis3, reserve, registrar, fee, recycle likewise
 mkdir -p beacon
 ./app/pp-beacon -d beacon --init       # writes a beacon/init-config.json template and stops
 # fill in networkId and the public keys (*.pub), then:
@@ -218,8 +218,8 @@ cat > beacon/init-config.json << 'JSON'
 {
   "networkId": "my-network",
   "systemAccounts": {"genesis": {"publicKeys": ["<g1>", "<g2>", "<g3>"], "minSignatures": 2},
-                     "fee": {"publicKeys": ["<fee>"]}, "reserve": {"publicKeys": ["<reserve>"]},
-                     "recycle": {"publicKeys": ["<recycle>"]}},
+                     "reserve": {"publicKeys": ["<reserve>"]}, "registrar": {"publicKeys": ["<registrar>"]},
+                     "fee": {"publicKeys": ["<fee>"]}, "recycle": {"publicKeys": ["<recycle>"]}},
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<miner 1 public key hex>"]},
     {"id": 1048577, "publicKeys": ["<miner 2 public key hex>"]}

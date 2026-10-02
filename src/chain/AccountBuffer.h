@@ -29,6 +29,7 @@ public:
   constexpr static uint64_t ID_GENESIS = AccountIds::ID_GENESIS;
   constexpr static uint64_t ID_FEE = AccountIds::ID_FEE;
   constexpr static uint64_t ID_RESERVE = AccountIds::ID_RESERVE;
+  constexpr static uint64_t ID_REGISTRAR = AccountIds::ID_REGISTRAR;
   constexpr static uint64_t ID_RECYCLE = AccountIds::ID_RECYCLE;
   constexpr static uint64_t ID_FIRST_ISSUED = AccountIds::ID_FIRST_ISSUED;
   constexpr static uint64_t ID_FIRST_USER = AccountIds::ID_FIRST_USER;

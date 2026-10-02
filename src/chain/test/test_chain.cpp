@@ -106,10 +106,13 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
                                    const utl::MlDsaKeyPair &feeKey,
                                    const utl::MlDsaKeyPair &reserveKey,
                                    const utl::MlDsaKeyPair &recycleKey,
-                                   const utl::MlDsaKeyPair *minerKey = nullptr) {
+                                   const utl::MlDsaKeyPair *minerKey = nullptr,
+                                   const utl::MlDsaKeyPair *registrarKey = nullptr) {
   // Genesis miner kTestMinerId signs with `minerKey` (default: the reserve key
-  // pair, so tests signing as the slot leader keep using one key).
+  // pair, so tests signing as the slot leader keep using one key). The
+  // registrar defaults to the recycle key pair.
   const utl::MlDsaKeyPair &minerSigner = minerKey ? *minerKey : reserveKey;
+  const utl::MlDsaKeyPair &registrarSigner = registrarKey ? *registrarKey : recycleKey;
   Chain::GenesisAccountMeta gm;
   gm.config = chainConfig;
   gm.genesis.wallet.mBalances[AccountBuffer::ID_GENESIS] = 0;
@@ -133,85 +136,43 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       makeRecord(Ledger::T_GENESIS, checkpointTx, genesisKey,
                  chainConfig.networkId));
 
-  Client::UserAccount feeAccount = makeUserAccount(feeKey.publicKey, 0);
-  Ledger::TxNewUser feeTx;
-  feeTx.fromWalletId = AccountBuffer::ID_GENESIS;
-  feeTx.toWalletId = AccountBuffer::ID_FEE;
-  feeTx.amount = 0;
-  const uint64_t feeNonFreeBytes =
-      feeAccount.meta.size() > chainConfig.freeCustomMetaSize
-          ? static_cast<uint64_t>(feeAccount.meta.size()) -
-                chainConfig.freeCustomMetaSize
-          : 0ULL;
-  const int64_t feeWalletFee = static_cast<int64_t>(
-      calculateMinimumFeeFromNonFreeMetaSize(chainConfig, feeNonFreeBytes));
-  feeTx.fee = static_cast<uint64_t>(feeWalletFee);
-  feeTx.meta = feeAccount.ltsToString();
-  genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, feeTx, genesisKey, chainConfig.networkId));
+  auto minFee = [&](const Client::UserAccount &account) {
+    const uint64_t nonFree = account.meta.size() > chainConfig.freeCustomMetaSize
+                                 ? static_cast<uint64_t>(account.meta.size()) - chainConfig.freeCustomMetaSize
+                                 : 0ULL;
+    return calculateMinimumFeeFromNonFreeMetaSize(chainConfig, nonFree);
+  };
+  auto newAccountTx = [&](uint64_t toId, const Client::UserAccount &account) {
+    Ledger::TxNewUser tx;
+    tx.fromWalletId = AccountBuffer::ID_GENESIS;
+    tx.toWalletId = toId;
+    tx.amount = static_cast<uint64_t>(account.wallet.mBalances.at(AccountBuffer::ID_GENESIS));
+    tx.fee = minFee(account);
+    tx.meta = account.ltsToString();
+    return tx;
+  };
 
-  Client::UserAccount reserveAccount = makeUserAccount(reserveKey.publicKey, 0);
-  Client::UserAccount recycleAccount = makeUserAccount(recycleKey.publicKey, 0);
+  // Same layout as Beacon::createGenesisBlock: fee, reserve, registrar,
+  // recycle, then the genesis miner.
+  const Ledger::TxNewUser feeTx = newAccountTx(AccountBuffer::ID_FEE, makeUserAccount(feeKey.publicKey, 0));
+  const Ledger::TxNewUser registrarTx =
+      newAccountTx(AccountBuffer::ID_REGISTRAR, makeUserAccount(registrarSigner.publicKey, 0));
+  const Ledger::TxNewUser recycleTx =
+      newAccountTx(AccountBuffer::ID_RECYCLE, makeUserAccount(recycleKey.publicKey, 0));
+  const Ledger::TxNewUser minerTx =
+      newAccountTx(kTestMinerId, makeUserAccount(minerSigner.publicKey, kTestMinerStake));
 
-  const uint64_t recycleNonFreeBytes =
-      recycleAccount.meta.size() > chainConfig.freeCustomMetaSize
-          ? static_cast<uint64_t>(recycleAccount.meta.size()) -
-                chainConfig.freeCustomMetaSize
-          : 0ULL;
-  const int64_t recycleFee = static_cast<int64_t>(
-      calculateMinimumFeeFromNonFreeMetaSize(chainConfig, recycleNonFreeBytes));
+  const uint64_t reserveFee = minFee(makeUserAccount(reserveKey.publicKey, 0));
+  const int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
+                                static_cast<int64_t>(feeTx.fee + registrarTx.fee + recycleTx.fee + minerTx.fee +
+                                                     reserveFee) -
+                                kTestMinerStake;
+  const Ledger::TxNewUser reserveTx =
+      newAccountTx(AccountBuffer::ID_RESERVE, makeUserAccount(reserveKey.publicKey, reserveAmount));
 
-  Client::UserAccount minerAccount = makeUserAccount(minerSigner.publicKey, kTestMinerStake);
-  Ledger::TxNewUser minerTx;
-  minerTx.fromWalletId = AccountBuffer::ID_GENESIS;
-  minerTx.toWalletId = kTestMinerId;
-  minerTx.amount = static_cast<uint64_t>(kTestMinerStake);
-  minerTx.meta = minerAccount.ltsToString();
-  const uint64_t minerNonFreeBytes =
-      minerAccount.meta.size() > chainConfig.freeCustomMetaSize
-          ? static_cast<uint64_t>(minerAccount.meta.size()) - chainConfig.freeCustomMetaSize
-          : 0ULL;
-  minerTx.fee = calculateMinimumFeeFromNonFreeMetaSize(chainConfig, minerNonFreeBytes);
-
-  int64_t reserveAmount =
-      static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY);
-  int64_t reserveFee = 0;
-  for (int i = 0; i < 2; ++i) {
-    reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
-    const uint64_t reserveNonFreeBytes =
-        reserveAccount.meta.size() > chainConfig.freeCustomMetaSize
-            ? static_cast<uint64_t>(reserveAccount.meta.size()) -
-                  chainConfig.freeCustomMetaSize
-            : 0ULL;
-    reserveFee = static_cast<int64_t>(calculateMinimumFeeFromNonFreeMetaSize(
-        chainConfig, reserveNonFreeBytes));
-    reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
-                    feeWalletFee - reserveFee - recycleFee - kTestMinerStake -
-                    static_cast<int64_t>(minerTx.fee);
+  for (const auto *tx : {&feeTx, &reserveTx, &registrarTx, &recycleTx, &minerTx}) {
+    genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, *tx, genesisKey, chainConfig.networkId));
   }
-  reserveAccount.wallet.mBalances[AccountBuffer::ID_GENESIS] = reserveAmount;
-
-  Ledger::TxNewUser reserveTx;
-  reserveTx.fromWalletId = AccountBuffer::ID_GENESIS;
-  reserveTx.toWalletId = AccountBuffer::ID_RESERVE;
-  reserveTx.amount = static_cast<uint64_t>(reserveAmount);
-  reserveTx.fee = static_cast<uint64_t>(reserveFee);
-  reserveTx.meta = reserveAccount.ltsToString();
-  genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, reserveTx, genesisKey,
-                 chainConfig.networkId));
-
-  Ledger::TxNewUser recycleTx;
-  recycleTx.fromWalletId = AccountBuffer::ID_GENESIS;
-  recycleTx.toWalletId = AccountBuffer::ID_RECYCLE;
-  recycleTx.amount = 0;
-  recycleTx.fee = static_cast<uint64_t>(recycleFee);
-  recycleTx.meta = recycleAccount.ltsToString();
-  genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, recycleTx, genesisKey,
-                 chainConfig.networkId));
-  genesis.block.records.push_back(
-      makeRecord(Ledger::T_NEW_USER, minerTx, genesisKey, chainConfig.networkId));
 
   auto sealResult = validator.sealBlock(genesis);
   EXPECT_TRUE(sealResult.isOk());
@@ -2292,3 +2253,75 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
   EXPECT_EQ(peer.getNextBlockId(), harness_.genesis.block.index + 1);
 }
 
+
+// After genesis: genesis creates no accounts and transfers only to reserve
+// (every genesis transfer mints); issued ids come only from the registrar;
+// user ids from any funded account.
+TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsReserve) {
+  auto &producer = harness_.producer;
+  const auto &registrarKey = harness_.recycleKey; // fixture default
+  const int64_t now = static_cast<int64_t>(std::time(nullptr)); // buffer admission checks wall time
+  uint64_t idem = 100;
+
+  Ledger::TxDefault fund;
+  fund.tokenId = AccountBuffer::ID_GENESIS;
+  fund.fromWalletId = AccountBuffer::ID_RESERVE;
+  fund.toWalletId = AccountBuffer::ID_REGISTRAR;
+  fund.amount = 1000;
+  fund.fee = 1;
+  fund.idempotentId = idem++;
+  fund.validationTsMin = harness_.chainConfig.genesisTime;
+  fund.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  Ledger::ChainNode block1 = makeNextBlock(producer, harness_.genesis,
+                                           {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  auto leader = producer.getSlotLeader(block1.block.slot + 1);
+  ASSERT_TRUE(leader.isOk());
+
+  auto newAccount = [&](uint64_t from, uint64_t to, const utl::MlDsaKeyPair &signer) {
+    Ledger::TxNewUser nu;
+    nu.fromWalletId = from;
+    nu.toWalletId = to;
+    nu.amount = 10;
+    nu.fee = 1;
+    nu.meta = makeUserAccount(makeKeyPair().publicKey, 10).ltsToString();
+    nu.idempotentId = idem++;
+    nu.validationTsMin = now - 60;
+    nu.validationTsMax = now + 60;
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_NEW_USER, nu, signer, producer.getNetworkId()), leader.value());
+  };
+  auto expectRefused = [](const auto &added, const std::string &why) {
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  };
+
+  const uint64_t issuedId = AccountBuffer::ID_FIRST_ISSUED + 1;
+  const uint64_t userId = AccountBuffer::ID_FIRST_USER + 1;
+  auto byRegistrar = newAccount(AccountBuffer::ID_REGISTRAR, issuedId, registrarKey);
+  EXPECT_TRUE(byRegistrar.isOk()) << byRegistrar.error().message;
+  auto byReserve = newAccount(AccountBuffer::ID_RESERVE, userId, harness_.reserveKey);
+  EXPECT_TRUE(byReserve.isOk()) << byReserve.error().message;
+  expectRefused(newAccount(AccountBuffer::ID_RESERVE, issuedId, harness_.reserveKey), "only by the registrar");
+  expectRefused(newAccount(AccountBuffer::ID_GENESIS, userId, harness_.genesisKey), "Genesis creates no accounts");
+
+  auto genesisTransfer = [&](uint64_t to) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = AccountBuffer::ID_GENESIS;
+    tx.toWalletId = to;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = idem++;
+    tx.validationTsMin = now - 60;
+    tx.validationTsMax = now + 60;
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_DEFAULT, tx, harness_.genesisKey, producer.getNetworkId()), leader.value());
+  };
+  auto toReserve = genesisTransfer(AccountBuffer::ID_RESERVE);
+  EXPECT_TRUE(toReserve.isOk()) << toReserve.error().message;
+  expectRefused(genesisTransfer(AccountBuffer::ID_FEE), "only to reserve");
+  expectRefused(genesisTransfer(kTestMinerId), "only to reserve");
+}
