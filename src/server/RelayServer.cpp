@@ -288,8 +288,15 @@ void RelayServer::initBlockSync() {
   };
   hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
   hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
+  UpstreamTipWatch::Hooks watchHooks;
+  watchHooks.dialUpstream = hooks.dialUpstream;
+  watchHooks.nextBlockId = hooks.nextBlockId;
+  watchHooks.onUpstreamAhead = [this]() { blockSyncRequested_ = true; };
+  watchHooks.postToServerThread = hooks.postToServerThread;
   blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
   blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
+  tipWatch_ = std::make_unique<UpstreamTipWatch>(client_, std::move(watchHooks));
+  tipWatch_->redirectLogger(log().getFullName() + ".TipWatch");
 }
 
 void RelayServer::onBlockSyncFinished(const BlockSync::Result &result) {
@@ -413,6 +420,7 @@ void RelayServer::runLoop() {
     try {
       relay_.refresh();
       syncBlocksPeriodically();
+      tipWatch_->maintain();
       if (blockSyncRequested_) {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);

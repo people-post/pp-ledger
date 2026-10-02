@@ -5,6 +5,7 @@
 #include "lib/common/Service.h"
 #include "../network/ServerAmpSupport.h"
 #include "BlockSync.h"
+#include "BlockWaitList.h"
 #include "RequestQueue.h"
 #include "../network/NetworkTuning.h"
 
@@ -146,9 +147,20 @@ protected:
 
   void onStop() override;
 
+  /**
+   * Nodes that serve downstream sync (beacon, relay) return their next block
+   * id so the base can answer BLOCK_WAIT; nullopt (default) = not served.
+   */
+  virtual std::optional<uint64_t> blockWaitTip() const { return std::nullopt; }
+
 private:
   /** Server thread: one queued request — deferred, or handled now and replied. */
   void serveRequest(const RequestQueue::Item& item);
+  /** BLOCK_WAIT: answer now if the tip is past the caller's, else park it. */
+  void serveBlockWait(const Client::Request& request, const RequestQueue::Item& item);
+  /** Answer parked waits the tip has passed or whose hold ended (cheap when nothing changed). */
+  void pollBlockWaits();
+  void answerBlockWaits(std::vector<RequestQueue::Reply> replies, uint64_t tip);
   /** Refuse new requests and reply to pending ones; runs before AMP stops. */
   void closeRequestQueue();
 
@@ -160,6 +172,9 @@ private:
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
   std::unique_ptr<RequestQueue> requests_;
+  BlockWaitList blockWaits_{requestCapacity_};
+  uint64_t lastPolledTip_{0};
+  RequestQueue::Clock::time_point nextBlockWaitSweep_{};
 };
 
 } // namespace pp

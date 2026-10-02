@@ -161,6 +161,7 @@ For each RPC class, define **who may answer** and **what success means**:
 | `MINER_LIST` | Terminal registry | Matches terminal at `registry_version` | Forward or replica; must not serve stale registry for leader routing |
 | `BLOCK_GET` | Gateway or terminal | Block verifies under pinned network + parent link | Serve locally if present; else fetch upstream |
 | `BLOCK_ADD` | Terminal | Block committed to canonical chain | **Write-through**; propagate terminal response |
+| `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` | Serve from own tip; a gateway's tip follows its own `BLOCK_WAIT` upstream (§10.2) |
 | `TX_ADD` | Current slot leader (miner) | Tx accepted to leader mempool | Gateway **routes** to leader endpoint from registry; terminal not involved until block inclusion |
 | `TX_FORWARD` | Leader of `targetSlot` (miner→miner only) | Pooled, held for its slot, or cached | Never forwarded on at once; see §10.3 |
 | `ACCOUNT_GET`, `TX_*` | Gateway OK | State at height ≤ terminal head − read_lag | Cache allowed |
@@ -182,13 +183,14 @@ one table for all roles before any handler runs:
 | Request | From downstream | From own upstream |
 |---------|-----------------|-------------------|
 | `BLOCK_ADD`, `REGISTER` (writes travelling up to the terminal) | Accepted | **Refused** |
+| `BLOCK_WAIT` (blocks travel down) | Accepted | **Refused** |
 | Everything else | Accepted | Accepted |
 
 Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
 their upstream, never by having blocks pushed into them.
 
 The same place sets each request's priority (`Server::laneFor`): reads such as
-`BLOCK_GET` (downstream sync) and account / history queries go to a low-priority
+`BLOCK_GET` and `BLOCK_WAIT` (downstream sync) and account / history queries go to a low-priority
 lane with its own capacity and a per-peer cap, so serving downstream sync never
 blocks the node's own work (docs/architecture/THREADING.md).
 
@@ -289,13 +291,13 @@ boundaries as first-class (fast join, pruning compatibility).
 
 SlotCommittee slot leadership requires more than “leader posts `BLOCK_ADD` upstream.”
 
-### 10.1 Block propagation — dual path
+### 10.1 Block propagation — up to commit, down by waiting
 
 | Path | Purpose | Required |
 |------|---------|----------|
-| **A. Leader → terminal** | Canonical commit | **Yes** — only realization path |
-| **B. Leader → peer gossip** | Fast propagation to other miners | **Strongly recommended** for multi-miner liveness |
-| **C. Participant → upstream sync** | Safety net | **Yes** — catches missed gossip |
+| **A. Leader → terminal** (`BLOCK_ADD`, upward only) | Canonical commit | **Yes** — only realization path |
+| **B. Upstream → downstream** (`BLOCK_WAIT`, downward only) | Fast propagation to gateways and miners | Yes (falls back to C) |
+| **C. Participant → upstream sync** (periodic) | Safety net | **Yes** — catches anything B missed |
 
 ```mermaid
 sequenceDiagram
@@ -304,25 +306,33 @@ sequenceDiagram
   participant T as Terminal
   participant V as Other miners
 
+  V->>G: BLOCK_WAIT {knownNext}
+  G->>T: BLOCK_WAIT {knownNext}
   L->>G: BLOCK_ADD
   G->>T: forward (write-through)
   T-->>G: committed
   G-->>L: success
-  L->>V: block announcement (gossip)
-  V->>V: validate; BLOCK_GET if needed
+  G-->>V: BLOCK_WAIT reply {nextBlockId}
+  V->>G: BLOCK_GET (BlockSync)
 ```
 
-Without path B, non-leaders depend only on periodic upstream sync and fall behind silently
-when the leader→gateway→terminal path is slow or lossy.
+### 10.2 BLOCK_WAIT (downward propagation)
 
-### 10.2 Gossip (minimal design)
-
-- Leader emits `BlockAnnouncement { height, block_hash }` to peers (from `MINER_LIST`).
-- Peers fetch full block via `BLOCK_GET` (from upstream or leader listen multiaddr) if unknown.
-- Apply only after full validation (I3).
-
-Mempool gossip is optional for v1; txs can flow via block inclusion, with `TX_ADD` to the
-current slot leader for low latency.
+- Each relay and miner keeps one `BLOCK_WAIT {knownNextBlockId}` open to its
+  upstream (`UpstreamTipWatch`). The upstream (beacon or relay) replies with its
+  `nextBlockId` as soon as that passes `knownNextBlockId`, or unchanged after a
+  hold of T/2 (`NetworkTuning::blockWaitHold`); the downstream then re-arms.
+- When the reply shows the upstream ahead, the downstream syncs (`BlockSync`,
+  `BLOCK_GET` from that upstream) and applies blocks only after full validation (I3).
+- **Downward only, once per block:** only an upstream answers a wait (a wait
+  from one's own upstream is refused, §7.1), and the next wait starts from the
+  `nextBlockId` already reported, so a block is announced to each downstream
+  once, with no list of downstreams and no dialing toward them (NAT-friendly).
+- Cheap to misuse: one wait per peer is held (a newer one answers the older);
+  waits sit in the low-priority lane; a reply only triggers a sync from the
+  node's own upstream, which BlockSync rate-limits.
+- Miners do not serve `BLOCK_WAIT`. An upstream that does not serve it makes the
+  watch back off (1 s → 30 s); path C keeps the node in sync.
 
 ### 10.3 Transactions
 
@@ -396,9 +406,9 @@ explicitly synchronized to the terminal within ε.
 |--------|------------|
 | Wrong network / eclipse | Network anchor (§8); multi-upstream hash comparison |
 | Stale reads | Watermarks; `max_read_lag`; cross-check `STATUS` |
-| Withheld writes | Multi-upstream `BLOCK_ADD`; gossip + sync detects missing blocks |
+| Withheld writes | Multi-upstream `BLOCK_ADD`; `BLOCK_WAIT` + sync detects missing blocks |
 | Fake registration | Signed `REGISTER`; terminal verification |
-| Gateway censorship | Multiple upstreams; miner gossip; monitoring head lag |
+| Gateway censorship | Multiple upstreams; monitoring head lag |
 | Flooding / abuse | Per-PeerId rate limits on gateways (ops layer) |
 
 Participants do **not** authenticate “this peer is the real beacon.” They authenticate **chain
@@ -473,7 +483,6 @@ Small, role-neutral extensions that support the model:
 | `STATUS` v2 fields | `network_id`, `head_hash`, `registry_version`, `replica_lag` |
 | `BLOCK_GET_RANGE` | Efficient catch-up |
 | Signed `REGISTER` | Registry authentication |
-| `BlockAnnouncement` | Miner gossip (new message type or RPC) |
 | Stable error codes | `WRONG_NETWORK`, `FORK_DETECTED`, `STALE_REGISTRY`, `UPSTREAM_LAG` |
 
 None of these expose peer role to participants.
@@ -486,7 +495,7 @@ None of these expose peer role to participants.
 |-------|-------|---------|
 | **P0** | I2 write-through for all mutations; network anchor; multi-upstream `STATUS` compare | Correctness |
 | **P1** | Batch sync, watermarks, reorg handling | Reliable catch-up |
-| **P2** | Block gossip among miners; signed `REGISTER` | Multi-miner liveness |
+| **P2** | Downward block propagation (`BLOCK_WAIT`, done); signed `REGISTER` | Multi-miner liveness |
 | **P3** | Gateway cache policy, persistent upstream, range reads | Efficiency |
 | **P4** | Gateway mesh, ops ACL on transport | Production hardening |
 
@@ -509,6 +518,7 @@ Order matters: P0 before optimizing read paths.
 **Terminal beacon** is the sole commit point for chain and registry. **Gateways** are
 verify-and-cache forwarders over a **uniform RPC**. **Participants** stay safe by pinning
 network identity, requiring write-through mutations, validating all data locally, using
-multiple opaque upstreams for consistency, and gossiping blocks among miners for liveness.
+multiple opaque upstreams for consistency, and waiting on their upstream (`BLOCK_WAIT`) so
+new blocks reach them at once.
 
 Ops owns topology; the protocol owns correctness.

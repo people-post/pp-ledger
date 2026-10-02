@@ -40,6 +40,7 @@ void Server::setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait
   requestCapacity_ = capacity;
   maxRequestWait_ = maxWait;
   requests_ = std::make_unique<RequestQueue>(requestCapacity_);
+  blockWaits_ = BlockWaitList(requestCapacity_);
 }
 
 Service::Roe<void> Server::ensureWorkDirectory(const std::string& workDir,
@@ -129,6 +130,8 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
   // upstream never sends them down, so one from there is misuse.
   case Client::T_REQ_BLOCK_ADD:
   case Client::T_REQ_REGISTER:
+  // Blocks flow down: our upstream never waits on us for them.
+  case Client::T_REQ_BLOCK_WAIT:
     return origin == Origin::Downstream;
   default:
     return true;
@@ -138,6 +141,7 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
 RequestQueue::Lane Server::laneFor(const uint32_t type) {
   switch (type) {
   case Client::T_REQ_BLOCK_GET:
+  case Client::T_REQ_BLOCK_WAIT:
   case Client::T_REQ_ACCOUNT_GET:
   case Client::T_REQ_TX_GET_BY_WALLET:
   case Client::T_REQ_TX_GET_BY_INDEX:
@@ -179,8 +183,10 @@ bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQue
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
   const auto deadline = RequestQueue::Clock::now() + budget;
   while (!isStopSet()) {
+    pollBlockWaits(); // the last item may have moved the tip
     auto item = requests_->popUntil(deadline);
     if (!item) {
+      pollBlockWaits(); // holds that ended while idle
       return;
     }
     if (item->task) {
@@ -255,6 +261,10 @@ void Server::serveRequest(const RequestQueue::Item& item) {
                                    " is not accepted from this node's upstream"));
     return;
   }
+  if (request.value().type == Client::T_REQ_BLOCK_WAIT) {
+    serveBlockWait(request.value(), item);
+    return;
+  }
   try {
     if (!handleDeferred(request.value(), item.reply)) {
       item.reply(handleParsedRequest(request.value()));
@@ -265,7 +275,49 @@ void Server::serveRequest(const RequestQueue::Item& item) {
   }
 }
 
+void Server::serveBlockWait(const Client::Request& request, const RequestQueue::Item& item) {
+  const auto tip = blockWaitTip();
+  if (!tip) {
+    item.reply(packResponse(1, "BLOCK_WAIT is not served by this node"));
+    return;
+  }
+  auto known = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!known) {
+    item.reply(packResponse(1, "Invalid block wait payload"));
+    return;
+  }
+  const auto deadline = RequestQueue::Clock::now() + tuning_.blockWaitHold();
+  answerBlockWaits(blockWaits_.park(item.peerId, known.value(), deadline, item.reply, *tip), *tip);
+}
+
+void Server::pollBlockWaits() {
+  if (blockWaits_.size() == 0) {
+    return;
+  }
+  const auto tip = blockWaitTip();
+  if (!tip) {
+    return;
+  }
+  const auto now = RequestQueue::Clock::now();
+  if (*tip == lastPolledTip_ && now < nextBlockWaitSweep_) {
+    return;
+  }
+  lastPolledTip_ = *tip;
+  nextBlockWaitSweep_ = now + std::chrono::milliseconds(100);
+  answerBlockWaits(blockWaits_.poll(*tip, now), *tip);
+}
+
+void Server::answerBlockWaits(std::vector<RequestQueue::Reply> replies, uint64_t tip) {
+  const std::string response = packResponse(utl::binaryPack(tip));
+  for (auto& reply : replies) {
+    reply(response);
+  }
+}
+
 void Server::closeRequestQueue() {
+  for (auto& reply : blockWaits_.takeAll()) {
+    reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+  }
   for (auto& item : requests_->close()) {
     if (item.reply) {
       item.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));

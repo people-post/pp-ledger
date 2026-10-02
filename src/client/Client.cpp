@@ -301,6 +301,19 @@ void Client::fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done) {
                    });
 }
 
+void Client::waitForBlockAsync(uint64_t knownNextBlockId, Done<uint64_t> done) {
+  sendRequestAsync(T_REQ_BLOCK_WAIT, utl::binaryPack(knownNextBlockId), fastTimeout(),
+                   [done = std::move(done)](Roe<std::string> result) {
+                     if (!result) {
+                       done(Roe<uint64_t>(Error(result.error().code, result.error().message)));
+                       return;
+                     }
+                     auto next = utl::binaryUnpack<uint64_t>(result.value());
+                     done(next ? Roe<uint64_t>(next.value())
+                               : Roe<uint64_t>(Error(E_INVALID_RESPONSE, "Invalid block wait reply")));
+                   });
+}
+
 Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t accountId) {
   log().debug << "Requesting user account: " << accountId;
 

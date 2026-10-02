@@ -6,6 +6,7 @@
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include "BlockSync.h"
+#include "UpstreamTipWatch.h"
 #include "Relay.h"
 #include "Server.h"
 #include <atomic>
@@ -108,6 +109,8 @@ private:
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
 
   std::string handleParsedRequest(const Client::Request &request) override;
+  /** Serves BLOCK_WAIT: downstreams learn of each block once this relay has synced it. */
+  std::optional<uint64_t> blockWaitTip() const override { return relay_.getNextBlockId(); }
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). */
@@ -159,6 +162,8 @@ private:
   std::vector<PendingBlockGet> pendingBlockGets_;
   bool blockSyncRequested_{false};
   std::unique_ptr<BlockSync> blockSync_;
+  /** BLOCK_WAIT on the upstream: requests a sync as soon as it has a new block. */
+  std::unique_ptr<UpstreamTipWatch> tipWatch_;
   std::optional<BlockSync::Result> lastSyncResult_;
   bool beaconStateRefreshInFlight_{false};
 

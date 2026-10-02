@@ -1,4 +1,5 @@
 #include "BlockSync.h"
+#include "UpstreamTipWatch.h"
 #include "lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>
@@ -40,7 +41,9 @@ public:
       return;
     }
     Client::Response response;
-    if (request.type == Client::T_REQ_CALIBRATION) {
+    if (request.type == Client::T_REQ_BLOCK_WAIT) {
+      response.payload = utl::binaryPack(static_cast<uint64_t>(chain.size()));
+    } else if (request.type == Client::T_REQ_CALIBRATION) {
       Client::CalibrationResponse cal;
       cal.nextBlockId = chain.size();
       response.payload = utl::binaryPack(cal);
@@ -360,6 +363,69 @@ TEST_F(StartupSyncTest, GivesUpWithTheLastErrorAtTimeout) {
   const std::string error = server_.runStartupSync(*sync_, last_, std::chrono::milliseconds(200));
   EXPECT_NE(error.find("upstream unavailable"), std::string::npos) << error;
   EXPECT_TRUE(local_.empty());
+}
+
+} // namespace
+
+// --- UpstreamTipWatch: BLOCK_WAIT keeps a downstream close behind its upstream ---
+
+namespace {
+
+class TipWatchTest : public BlockSyncTest {
+protected:
+  UpstreamTipWatch::Hooks watchHooks() {
+    UpstreamTipWatch::Hooks h;
+    h.dialUpstream = []() { return pp::Roe<void>(); };
+    h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
+    h.onUpstreamAhead = [this]() { ++syncRequests_; };
+    h.postToServerThread = [this](std::function<void()> task) { tasks_.push_back(std::move(task)); };
+    return h;
+  }
+  uint64_t knownOf(size_t index) {
+    return utl::binaryUnpack<uint64_t>(upstream_->pending.at(index).first.payload).value();
+  }
+  int syncRequests_ = 0;
+};
+
+TEST_F(TipWatchTest, KeepsOneWaitOutAndRequestsSyncWhenUpstreamIsAhead) {
+  UpstreamTipWatch watch(client_, watchHooks());
+  watch.maintain();
+  watch.maintain();
+  ASSERT_EQ(upstream_->pending.size(), 1u); // one wait at a time
+  EXPECT_EQ(upstream_->pending[0].first.type, Client::T_REQ_BLOCK_WAIT);
+  EXPECT_EQ(knownOf(0), 3u);
+
+  upstream_->complete(0); // upstream has 10 blocks
+  drain();
+  EXPECT_EQ(syncRequests_, 1);
+
+  // While that sync runs the local tip is still 3: wait for blocks beyond the
+  // upstream's 10, not 3 (which would be answered at once, i.e. polling).
+  watch.maintain();
+  ASSERT_EQ(upstream_->pending.size(), 1u);
+  EXPECT_EQ(knownOf(0), 10u);
+}
+
+TEST_F(TipWatchTest, NoSyncWhenUpstreamIsNotAhead) {
+  upstream_->chain.resize(3);
+  UpstreamTipWatch watch(client_, watchHooks());
+  watch.maintain();
+  upstream_->complete(0); // hold ended, tip unchanged
+  drain();
+  EXPECT_EQ(syncRequests_, 0);
+  watch.maintain();
+  EXPECT_EQ(upstream_->pending.size(), 1u); // re-armed
+}
+
+TEST_F(TipWatchTest, FailureBacksOffInsteadOfRetryingAtOnce) {
+  UpstreamTipWatch watch(client_, watchHooks());
+  watch.maintain();
+  upstream_->complete(0, /*fail=*/true); // e.g. an upstream that does not serve BLOCK_WAIT
+  drain();
+  watch.maintain();
+  EXPECT_TRUE(upstream_->pending.empty());
+  EXPECT_FALSE(watch.inFlight());
+  EXPECT_EQ(syncRequests_, 0);
 }
 
 } // namespace

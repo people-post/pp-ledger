@@ -3,6 +3,8 @@ add_library(pp_server STATIC
     Server.cpp
     Server.h
     RequestQueue.cpp
+    BlockWaitList.cpp
+    UpstreamTipWatch.cpp
     RequestQueue.h
     TxForwardPolicy.h
     BlockSync.cpp

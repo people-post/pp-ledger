@@ -25,7 +25,7 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   requests in `Server::serveRequestsFor()`, which role run loops call in place of
   sleeping between duties. The reply is posted back to the pump thread.
 - **Back-pressure:** the queue is bounded; when full, a request gets an immediate
-  "busy" reply. It has two lanes (`Server::laneFor`): reads (`BLOCK_GET`,
+  "busy" reply. It has two lanes (`Server::laneFor`): reads (`BLOCK_GET`, `BLOCK_WAIT`,
   account and history queries) wait in a Low lane with a quarter of the capacity
   and at most 16 queued per peer, so a sync or query flood gets "busy" without
   crowding out the node's own work; the server thread still takes one Low item
