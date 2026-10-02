@@ -116,7 +116,9 @@ void Server::onStop() {
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
-  if (!requests_->push(std::move(peerId), std::move(body), reply)) {
+  const auto type = Client::peekRequestType(body);
+  const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
+  if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
   }
 }
@@ -130,6 +132,21 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
     return origin == Origin::Downstream;
   default:
     return true;
+  }
+}
+
+RequestQueue::Lane Server::laneFor(const uint32_t type) {
+  switch (type) {
+  case Client::T_REQ_BLOCK_GET:
+  case Client::T_REQ_ACCOUNT_GET:
+  case Client::T_REQ_TX_GET_BY_WALLET:
+  case Client::T_REQ_TX_GET_BY_INDEX:
+  case Client::T_REQ_DOMAIN_GET:
+  case Client::T_REQ_NAME_GET:
+  case Client::T_REQ_NAME_GET_BY_WALLET:
+    return RequestQueue::Lane::Low;
+  default:
+    return RequestQueue::Lane::Normal;
   }
 }
 

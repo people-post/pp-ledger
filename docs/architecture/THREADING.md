@@ -25,7 +25,11 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   requests in `Server::serveRequestsFor()`, which role run loops call in place of
   sleeping between duties. The reply is posted back to the pump thread.
 - **Back-pressure:** the queue is bounded; when full, a request gets an immediate
-  "busy" reply. A request that waited longer than half the RPC timeout gets an
+  "busy" reply. It has two lanes (`Server::laneFor`): reads (`BLOCK_GET`,
+  account and history queries) wait in a Low lane with a quarter of the capacity
+  and at most 16 queued per peer, so a sync or query flood gets "busy" without
+  crowding out the node's own work; the server thread still takes one Low item
+  after every four Normal ones, so reads never starve. A request that waited longer than half the RPC timeout gets an
   "expired" reply without running the handler (its client is about to give up).
   Capacity and timeout come from config.json `network`
   ([SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)). On stop, pending requests get

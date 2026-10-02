@@ -44,6 +44,56 @@ TEST(RequestQueueTest, RefusesWhenFullOrClosed) {
   EXPECT_FALSE(queue.popUntil(RequestQueue::Clock::now() + 10ms));
 }
 
+constexpr auto kLow = RequestQueue::Lane::Low;
+
+std::string popBodies(RequestQueue& queue, size_t n) {
+  std::string out;
+  for (size_t i = 0; i < n; ++i) {
+    auto item = queue.popUntil(RequestQueue::Clock::now() + 10ms);
+    out += item ? item->body : "-";
+  }
+  return out;
+}
+
+TEST(RequestQueueTest, LowLaneIsServedAfterAStreakOfNormalWork) {
+  RequestQueue queue(64);
+  for (char c : std::string("ABCDEFGHIJ")) {
+    ASSERT_TRUE(queue.push("", std::string(1, c), [](std::string) {}));
+  }
+  ASSERT_TRUE(queue.push("p", "x", [](std::string) {}, kLow));
+  ASSERT_TRUE(queue.push("p", "y", [](std::string) {}, kLow));
+  EXPECT_EQ(popBodies(queue, 12), "ABCDxEFGHyIJ");
+}
+
+TEST(RequestQueueTest, LowLaneAloneIsServedRightAway) {
+  RequestQueue queue(64);
+  ASSERT_TRUE(queue.push("p", "x", [](std::string) {}, kLow));
+  EXPECT_EQ(popBodies(queue, 1), "x");
+}
+
+TEST(RequestQueueTest, ReadFloodGetsBusyWithoutCrowdingOutNormalWork) {
+  RequestQueue queue(8); // Low lane holds 2
+  ASSERT_TRUE(queue.push("p1", "r1", [](std::string) {}, kLow));
+  ASSERT_TRUE(queue.push("p2", "r2", [](std::string) {}, kLow));
+  EXPECT_FALSE(queue.push("p3", "r3", [](std::string) {}, kLow));
+  for (int i = 0; i < 8; ++i) {
+    EXPECT_TRUE(queue.push("", "n", [](std::string) {})) << i;
+  }
+  EXPECT_FALSE(queue.push("", "n", [](std::string) {}));
+  EXPECT_EQ(queue.close().size(), 10u); // both lanes are handed back on close
+}
+
+TEST(RequestQueueTest, OnePeerCannotTakeTheWholeLowLane) {
+  RequestQueue queue(1024); // Low lane holds 256
+  for (size_t i = 0; i < RequestQueue::kLowPerPeer; ++i) {
+    ASSERT_TRUE(queue.push("greedy", "r", [](std::string) {}, kLow));
+  }
+  EXPECT_FALSE(queue.push("greedy", "r", [](std::string) {}, kLow));
+  EXPECT_TRUE(queue.push("other", "r", [](std::string) {}, kLow));
+  ASSERT_TRUE(queue.popUntil(RequestQueue::Clock::now() + 10ms)); // one of greedy's
+  EXPECT_TRUE(queue.push("greedy", "r", [](std::string) {}, kLow));
+}
+
 // --- Server: requests handled one at a time on the serving thread ---
 
 /** Echo server; records which thread handled each request and the max overlap. */
@@ -56,6 +106,7 @@ public:
   using Server::serveRequestsFor;
   using Server::setNetworkTuning;
   using Server::setUpstreams;
+  using Server::laneFor;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
 
@@ -218,6 +269,20 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
 TEST(ServerThreadTest, SetUpstreamsRejectsMultiaddrWithoutPeerId) {
   EchoServer server;
   EXPECT_FALSE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517"}));
+}
+
+TEST(ServerThreadTest, ReadsGoToTheLowLane) {
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_BLOCK_GET), kLow);
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_TX_GET_BY_WALLET), kLow);
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_BLOCK_ADD), RequestQueue::Lane::Normal);
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_TX_FORWARD), RequestQueue::Lane::Normal);
+  EXPECT_EQ(EchoServer::laneFor(Client::T_REQ_CALIBRATION), RequestQueue::Lane::Normal);
+}
+
+TEST(ServerThreadTest, PeekRequestTypeMatchesThePackedRequest) {
+  EXPECT_EQ(Client::peekRequestType(packRequest("payload", Client::T_REQ_BLOCK_GET)), Client::T_REQ_BLOCK_GET);
+  EXPECT_EQ(Client::peekRequestType(packRequest("", 70000)), 70000u);
+  EXPECT_FALSE(Client::peekRequestType("short"));
 }
 
 TEST(ServerThreadTest, ExpiredRequestIsRefusedWithoutRunningHandler) {

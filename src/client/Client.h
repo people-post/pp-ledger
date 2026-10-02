@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <memory>
+#include <optional>
 
 #include <cstdint>
 #include <string>
@@ -118,6 +119,21 @@ public:
       ar & version & type & payload;
     }
   };
+
+  /**
+   * The `type` of a packed Request without unpacking its payload (it follows
+   * `version`, both big-endian u32). nullopt when the body is too short.
+   */
+  static std::optional<uint32_t> peekRequestType(const std::string &body) {
+    if (body.size() < 8) {
+      return std::nullopt;
+    }
+    uint32_t type = 0;
+    for (size_t i = 4; i < 8; ++i) {
+      type = (type << 8) | static_cast<uint8_t>(body[i]);
+    }
+    return type;
+  }
 
   struct Response {
     static constexpr const uint32_t VERSION = 1;
