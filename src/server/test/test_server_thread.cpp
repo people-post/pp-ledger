@@ -329,6 +329,29 @@ TEST(MinerRegistryTest, RecordsNotRenewedWithinTheTtlAreDropped) {
   EXPECT_GT(registry.version(), v);
 }
 
+TEST(MinerRegistryTest, OnlyANewerRegistrationIsAccepted) {
+  MinerRegistry registry;
+  auto first = minerInfo(1, "/a");
+  first.issuedAt = 500;
+  EXPECT_TRUE(registry.isNewer(first));
+  registry.upsert(first, 1000);
+  EXPECT_FALSE(registry.isNewer(first)); // replay
+  auto later = first;
+  later.issuedAt = 560;
+  EXPECT_TRUE(registry.isNewer(later));
+}
+
+TEST(MinerRegistryTest, SignedRecordSurvivesTheWire) {
+  auto miner = minerInfo(7, "/ip4/127.0.0.1/udp/9000/adp/1.0.0/p2p/x");
+  miner.issuedAt = 1234;
+  miner.signatures = {"sig-a", std::string("sig\0b", 5)};
+  Client::MinerInfo back;
+  ASSERT_TRUE(back.ltsFromMeta(miner.ltsToMeta()).isOk()); // as a relay re-sends it
+  EXPECT_EQ(back.signatures, miner.signatures);
+  EXPECT_EQ(back.signingMessage("net"), miner.signingMessage("net"));
+  EXPECT_NE(back.signingMessage("net"), miner.signingMessage("other-net"));
+}
+
 // --- BLOCK_WAIT ---
 
 TEST(BlockWaitListTest, ParksUntilTheTipPassesOrTheHoldEnds) {

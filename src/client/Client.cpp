@@ -90,11 +90,18 @@ pp::common::Meta Client::UserAccount::ltsToMeta() const {
   return j;
 }
 
+std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
+  return std::string("pp-ledger/miner-register/v1") + utl::binaryPack(networkId) + utl::binaryPack(id) +
+         utl::binaryPack(endpoint) + utl::binaryPack(issuedAt);
+}
+
 pp::common::Meta Client::MinerInfo::ltsToMeta() const {
   pp::common::Meta m;
   m.setUIntForJson("id", id);
   m.set("tLastMessage", tLastMessage);
   m.set("endpoint", endpoint);
+  m.set("issuedAt", issuedAt);
+  m.set("signatures", utl::binaryPack(signatures));
   return m;
 }
 
@@ -102,6 +109,15 @@ Client::Roe<bool> Client::MinerInfo::ltsFromMeta(const pp::common::Meta &meta) {
   id = meta.getNonNegInt("id").value_or(0);
   tLastMessage = meta.getOrDefault("tLastMessage", int64_t{0});
   endpoint = meta.getOrDefault("endpoint", std::string{});
+  issuedAt = meta.getOrDefault("issuedAt", int64_t{0});
+  signatures.clear();
+  if (auto packed = meta.getOrDefault("signatures", std::string{}); !packed.empty()) {
+    auto unpacked = utl::binaryUnpack<std::vector<std::string>>(packed);
+    if (!unpacked) {
+      return Error(E_PARSE_ERROR, "Invalid miner signatures: " + unpacked.error().message);
+    }
+    signatures = std::move(unpacked.value());
+  }
   return true;
 }
 

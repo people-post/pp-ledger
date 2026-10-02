@@ -852,6 +852,18 @@ BeaconServer::hRegister(const Client::Request &request) {
     // System accounts hold protocol funds and never lead slots.
     return Error(E_REQUEST, "System account " + std::to_string(minerInfo.id) + " cannot register as a miner");
   }
+  // Cheap checks first; signature verification (ML-DSA) last.
+  const int64_t skew = std::chrono::duration_cast<std::chrono::seconds>(REGISTER_MAX_SKEW).count();
+  if (std::llabs(nowSeconds() - minerInfo.issuedAt) > skew) {
+    return Error(E_REQUEST, "Registration timestamp is too far from the beacon's clock");
+  }
+  if (!miners_.isNewer(minerInfo)) {
+    return Error(E_REQUEST, "Registration is not newer than the recorded one");
+  }
+  if (auto verified = beacon_.verifyMinerRegistration(minerInfo, buildStateResponse().networkId);
+      !verified) {
+    return Error(E_REQUEST, verified.error().message);
+  }
   registerServer(minerInfo);
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }

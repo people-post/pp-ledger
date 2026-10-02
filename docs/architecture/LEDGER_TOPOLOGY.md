@@ -374,7 +374,12 @@ rejection; out-of-order dependent transactions must be resubmitted.
 
 `REGISTER` must be **write-through** and **authenticated**:
 
-- Registrant proves control of mining keys (signed payload or challenge/response).
+- Registrant proves control of mining keys: the record is signed by the miner
+  account's keys (same rule as its transactions: on-chain `publicKeys` /
+  `minSignatures`) and its endpoint's `/p2p/` peer id must derive from one of
+  those keys. The terminal also refuses an `issuedAt` more than 5 min from its
+  clock or not newer than the recorded one (replay). Gateways pass records on
+  unchanged and cannot forge them. Signing format: WIRE_SCHEMA.md.
 - Terminal records `{ miner_id, stake, listen_multiaddr, registry_version }`.
 - `MINER_LIST` includes `registry_version` so participants detect stale gateway cache.
 - **Renewal:** miners re-register every 60 s; the terminal stamps each record
