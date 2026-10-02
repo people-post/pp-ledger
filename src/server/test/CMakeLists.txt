@@ -11,3 +11,7 @@ gtest_discover_tests(test_server_thread)
 add_executable(test_miner_pool test_miner_pool.cpp)
 target_link_libraries(test_miner_pool PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_miner_pool)
+
+add_executable(test_block_sync test_block_sync.cpp)
+target_link_libraries(test_block_sync PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_block_sync)
