@@ -51,6 +51,7 @@ public:
   using Server::enqueueRequest;
   using Server::postToServerThread;
   using Server::packResponse;
+  using Server::serveTasksUntil;
   using Server::serveRequestsFor;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
@@ -292,6 +293,41 @@ TEST(TxForwardPolicyTest, ReceiverBehindSenderEpochCachesEvenIfItThinksItLeads) 
   EXPECT_EQ(decideTxForward(2, 3, 40, 40, false), TxForwardAction::CacheBehind);
   // Ahead of the sender is fine.
   EXPECT_EQ(decideTxForward(4, 3, 40, 40, true), TxForwardAction::AddToPool);
+}
+
+} // namespace
+
+namespace {
+
+TEST(ServerThreadTest, ServeTasksUntilRunsCompletionsAndLeavesRequestsQueued) {
+  EchoServer server;
+  Replies replies;
+  server.enqueueRequest(packRequest("queued-request"), replies.sink());
+  bool done = false;
+  std::thread io([&]() { server.postToServerThread([&]() { done = true; }); });
+  io.join();
+  EXPECT_TRUE(server.serveTasksUntil([&]() { return done; }, std::chrono::seconds(2)));
+  EXPECT_EQ(replies.size(), 0u);  // the request was not served
+  server.serveRequestsFor(std::chrono::milliseconds(20));
+  EXPECT_EQ(replies.size(), 1u);
+}
+
+// onStart runs while Service's stop flag is still set (it is cleared after).
+TEST(ServerThreadTest, ServeTasksUntilWorksWhileStopFlagIsSet) {
+  EchoServer server;
+  server.setStop(true);
+  bool done = false;
+  std::thread io([&]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    server.postToServerThread([&]() { done = true; });
+  });
+  EXPECT_TRUE(server.serveTasksUntil([&]() { return done; }, std::chrono::seconds(2)));
+  io.join();
+}
+
+TEST(ServerThreadTest, ServeTasksUntilTimesOut) {
+  EchoServer server;
+  EXPECT_FALSE(server.serveTasksUntil([]() { return false; }, std::chrono::milliseconds(30)));
 }
 
 } // namespace

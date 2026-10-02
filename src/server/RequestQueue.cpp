@@ -1,5 +1,7 @@
 #include "RequestQueue.h"
 
+#include <algorithm>
+
 namespace pp {
 
 RequestQueue::RequestQueue(size_t capacity) : capacity_(capacity) {}
@@ -36,6 +38,23 @@ std::optional<RequestQueue::Item> RequestQueue::popUntil(Clock::time_point deadl
   }
   Item item = std::move(items_.front());
   items_.pop_front();
+  return item;
+}
+
+std::optional<RequestQueue::Item> RequestQueue::popTaskUntil(Clock::time_point deadline) {
+  std::unique_lock<std::mutex> lock(mu_);
+  auto firstTask = [this]() {
+    return std::find_if(items_.begin(), items_.end(), [](const Item &item) { return bool(item.task); });
+  };
+  if (!cv_.wait_until(lock, deadline, [&]() { return firstTask() != items_.end() || closed_; })) {
+    return std::nullopt;
+  }
+  auto it = firstTask();
+  if (it == items_.end()) {
+    return std::nullopt;
+  }
+  Item item = std::move(*it);
+  items_.erase(it);
   return item;
 }
 

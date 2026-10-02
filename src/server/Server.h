@@ -80,6 +80,13 @@ protected:
    */
   void serveRequestsFor(std::chrono::milliseconds budget);
 
+  /**
+   * Server thread, before the run loop serves requests (e.g. onStart): run
+   * completion tasks until `done()` or `timeout`; requests stay queued.
+   * Ignores the stop flag (still set during onStart). Returns done().
+   */
+  bool serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout);
+
   /** Io lane: queue for the server thread, or reply busy when full / stopped. */
   void enqueueRequest(std::string body, RequestQueue::Reply reply);
 

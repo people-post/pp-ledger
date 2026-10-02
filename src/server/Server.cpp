@@ -148,6 +148,24 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
   }
 }
 
+bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout) {
+  // No isStopSet() check: Service::run() clears the stop flag only after
+  // onStart(), which is where this runs. The timeout bounds the wait.
+  const auto deadline = RequestQueue::Clock::now() + timeout;
+  while (!done()) {
+    auto item = requests_->popTaskUntil(deadline);
+    if (!item) {
+      break;
+    }
+    try {
+      item->task();
+    } catch (const std::exception& e) {
+      log().error << "Completion task threw: " << e.what();
+    }
+  }
+  return done();
+}
+
 void Server::serveRequest(const RequestQueue::Item& item) {
   log().debug << "Received request (" << item.body.size() << " bytes)";
   auto request = utl::binaryUnpack<Client::Request>(item.body);
