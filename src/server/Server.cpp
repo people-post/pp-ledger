@@ -117,11 +117,38 @@ void Server::onStop() {
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
+  if (!isAllowedPeer(peerId)) {
+    reply(packResponse(1, "Peer not allowed by this node"));
+    return;
+  }
   const auto type = Client::peekRequestType(body);
   const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
   }
+}
+
+bool Server::isAllowedPeer(const std::string& peerId) const {
+  return !allowedPeers_ || allowedPeers_->contains(peerId) || (!peerId.empty() && upstreamPeerIds_.contains(peerId));
+}
+
+Service::Roe<std::optional<std::set<std::string>>> Server::parseAllowedPeers(const pp::common::Object& config) {
+  if (!config.contains("allowedPeers")) {
+    return std::optional<std::set<std::string>>{};
+  }
+  const pp::common::Array* list = config.getArray("allowedPeers");
+  if (!list) {
+    return Service::Error(-1, "Field 'allowedPeers' must be an array of peer ids");
+  }
+  std::set<std::string> peers;
+  for (const auto& value : list->elements) {
+    auto id = pp::common::asString(value);
+    if (!id || id->empty()) {
+      return Service::Error(-1, "Field 'allowedPeers' entries must be peer id strings");
+    }
+    peers.insert(*id);
+  }
+  return std::optional<std::set<std::string>>(std::move(peers));
 }
 
 bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
@@ -358,7 +385,9 @@ Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
     }
     log().info << "Created network identity key: " << keyPath.string();
   }
-  auto key = utl::readPrivateKey(keyPath.string(), workDir_);
+  // Relative to the work dir (readPrivateKey resolves it there): keyPath
+  // already includes workDir_, which a relative work dir would double.
+  auto key = utl::readPrivateKey("keys/amp-identity.txt", workDir_);
   if (!key) {
     return Service::Error(-1, "Failed to load identity key: " + key.error().message);
   }

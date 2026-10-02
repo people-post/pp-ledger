@@ -4,11 +4,14 @@
 #include "RequestQueue.h"
 #include "Server.h"
 #include "lib/common/BinaryPack.hpp"
+#include "common/io/Json.h"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <filesystem>
 #include <mutex>
+#include <set>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -109,6 +112,9 @@ public:
   using Server::serveRequestsFor;
   using Server::setNetworkTuning;
   using Server::setUpstreams;
+  using Server::setAllowedPeers;
+  using Server::parseAllowedPeers;
+  using Server::loadOrCreateIdentityKey;
   using Server::laneFor;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
@@ -280,6 +286,66 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   EXPECT_EQ(replies.items[2].errorCode, 0); // a downstream may submit blocks
   EXPECT_EQ(replies.items[3].errorCode, 0); // reads are fine either way
   EXPECT_EQ(server.handled.load(), 2);     // refused ones never reached a handler
+}
+
+TEST(ServerThreadTest, AllowedPeersAreServedOthersRefusedBeforeQueueing) {
+  EchoServer server;
+  ASSERT_TRUE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/upstream-peer"}));
+  server.setAllowedPeers(std::set<std::string>{"relay-a"});
+  Replies replies;
+  server.enqueueRequest(packRequest("stranger"), replies.sink(), "stranger");
+  server.enqueueRequest(packRequest("anonymous"), replies.sink(), "");
+  ASSERT_EQ(replies.size(), 2u); // refused at once, never queued
+  EXPECT_NE(replies.items[0].payload.find("not allowed"), std::string::npos);
+  EXPECT_NE(replies.items[1].errorCode, 0);
+
+  server.enqueueRequest(packRequest("listed"), replies.sink(), "relay-a");
+  server.enqueueRequest(packRequest("up"), replies.sink(), "upstream-peer"); // upstreams always
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 4u);
+  EXPECT_EQ(replies.items[2].errorCode, 0);
+  EXPECT_EQ(replies.items[3].errorCode, 0);
+  EXPECT_EQ(server.handled.load(), 2);
+}
+
+TEST(ServerThreadTest, WithoutAllowedPeersAnyoneIsServed) {
+  EchoServer server;
+  Replies replies;
+  server.enqueueRequest(packRequest("x"), replies.sink(), "anyone");
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_EQ(replies.items[0].errorCode, 0);
+}
+
+TEST(ServerThreadTest, ParseAllowedPeers) {
+  auto parse = [](const std::string& json) {
+    auto value = pp::common::io::valueFromJsonString(json);
+    return EchoServer::parseAllowedPeers(*pp::common::asObject(value.value()));
+  };
+  EXPECT_FALSE(parse(R"({"port": 1})").value().has_value()); // absent: anyone
+  EXPECT_EQ(parse(R"({"allowedPeers": ["a", "b"]})").value()->size(), 2u);
+  EXPECT_TRUE(parse(R"({"allowedPeers": []})").value()->empty()); // only upstreams
+  EXPECT_FALSE(parse(R"({"allowedPeers": "a"})").isOk());
+  EXPECT_FALSE(parse(R"({"allowedPeers": [""]})").isOk());
+}
+
+// The identity key is created on first start and reloaded after; with a
+// relative work dir (pp-beacon -d beacon) the path must not double up.
+TEST(ServerThreadTest, IdentityKeyWithRelativeWorkDirIsCreatedThenReloaded) {
+  const std::string dir = "pp-ledger-relative-identity-test";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  {
+    EchoServer server;
+    ASSERT_TRUE(server.run(dir).isOk());
+    auto first = server.loadOrCreateIdentityKey();
+    ASSERT_TRUE(first.isOk()) << first.error().message;
+    auto again = server.loadOrCreateIdentityKey();
+    ASSERT_TRUE(again.isOk()) << again.error().message;
+    EXPECT_EQ(first.value(), again.value());
+    EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(dir) / "keys" / "amp-identity.txt"));
+  }
+  std::filesystem::remove_all(dir, ec);
 }
 
 TEST(ServerThreadTest, SetUpstreamsRejectsMultiaddrWithoutPeerId) {

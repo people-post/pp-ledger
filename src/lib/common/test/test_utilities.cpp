@@ -315,3 +315,11 @@ TEST(WriteToNewFileTest, NeverOverwritesExistingFile) {
 
 }  // namespace utl
 }  // namespace pp
+
+// A path that does not exist is reported as a missing file, not as a
+// malformed inline key.
+TEST(ReadPrivateKeyTest, MissingKeyFileIsReportedAsNotFound) {
+  auto key = pp::utl::readPrivateKey("keys/missing.key", "/nonexistent-dir");
+  ASSERT_FALSE(key.isOk());
+  EXPECT_NE(key.error().message.find("Key file not found"), std::string::npos) << key.error().message;
+}

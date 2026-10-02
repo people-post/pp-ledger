@@ -127,6 +127,9 @@ private:
   struct RunFileConfig {
     uint16_t port{ Client::DEFAULT_BEACON_PORT };
 
+    /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
+    std::optional<std::set<std::string>> allowedPeers;
+
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);
   };

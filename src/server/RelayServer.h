@@ -76,6 +76,9 @@ private:
     uint16_t port{DEFAULT_RELAY_PORT};
     std::string beacon;
 
+    /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
+    std::optional<std::set<std::string>> allowedPeers;
+
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object &jd);
   };

@@ -409,6 +409,10 @@ pp::Roe<std::string> readPrivateKey(const std::string &keyOrPath,
     if (content.size() == kMlDsaPrivateKeyBytes) {
       return content;
     }
+  } else if (keyOrPath.find_first_of("/\\.") != std::string::npos) {
+    // Looks like a path (an inline hex key has no '/', '\\' or '.'): say so
+    // instead of failing as a malformed inline key.
+    return Error(2, "Key file not found: " + resolvedPath);
   } else {
     content = keyOrPath;
   }

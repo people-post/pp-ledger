@@ -61,6 +61,9 @@ private:
     std::vector<std::string> beacons;
     NetworkAnchor network_anchor;
 
+    /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
+    std::optional<std::set<std::string>> allowedPeers;
+
     pp::common::Object ltsToJson() const;
     Roe<void> ltsFromJson(const pp::common::Object& jd);
   };

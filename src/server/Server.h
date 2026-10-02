@@ -129,6 +129,16 @@ protected:
    * /p2p/<PeerId>). Requests from those peers have Origin::Upstream.
    */
   Service::Roe<void> setUpstreams(const std::vector<std::string>& multiaddrs);
+
+  /**
+   * Before start: serve only these peers (and this node's upstreams). Unset =
+   * anyone. Refused before queueing, so a peer outside the list never takes
+   * queue space. Config: `allowedPeers` (parseAllowedPeers).
+   */
+  void setAllowedPeers(std::optional<std::set<std::string>> peerIds) { allowedPeers_ = std::move(peerIds); }
+  bool isAllowedPeer(const std::string& peerId) const;
+  /** Optional `allowedPeers` array of peer ids in a role's config.json; absent = nullopt. */
+  static Service::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& config);
   Origin originOf(const std::string& peerId) const;
 
   /**
@@ -176,6 +186,8 @@ private:
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   network::NetworkTuning tuning_;
   std::set<std::string> upstreamPeerIds_;
+  /** Fixed before start; read on the io lane without locking. */
+  std::optional<std::set<std::string>> allowedPeers_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};

@@ -126,6 +126,11 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (const Object* anchorObj = jd.getObject("networkAnchor")) {
     network_anchor = NetworkAnchor::fromJson(*anchorObj);
   }
+  auto allowed = parseAllowedPeers(jd);
+  if (!allowed) {
+    return Error(E_CONFIG, allowed.error().message);
+  }
+  allowedPeers = std::move(allowed.value());
   return {};
 }
 
@@ -294,6 +299,7 @@ Service::Roe<void> MinerServer::onStart() {
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
+  setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_MINER, "Failed to start AMP server: " + serverStarted.error().message);

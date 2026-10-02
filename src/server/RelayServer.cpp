@@ -64,6 +64,11 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, "Field 'beacon': " + ma.error().message);
   }
   beacon = std::move(*ma);
+  auto allowed = parseAllowedPeers(jd);
+  if (!allowed) {
+    return Error(E_CONFIG, allowed.error().message);
+  }
+  allowedPeers = std::move(allowed.value());
   return {};
 }
 
@@ -146,6 +151,7 @@ Service::Roe<void> RelayServer::onStart() {
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
+  setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_NETWORK, "Failed to start AMP server: " +
