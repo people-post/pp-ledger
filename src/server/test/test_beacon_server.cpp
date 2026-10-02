@@ -195,3 +195,43 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
   replayedLater.issuedAt += 60; // altered after signing (to dodge the replay check)
   EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
 }
+
+// --- Relay / miner without config: a template to fill in, never a guess ---
+
+#include "MinerServer.h"
+#include "RelayServer.h"
+
+namespace {
+
+std::string readAll(const std::filesystem::path &path) {
+  std::ifstream in(path);
+  return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+template <typename ServerT> std::string runOnce(const std::filesystem::path &dir) {
+  ServerT server;
+  auto run = server.run(dir.string());
+  return run ? std::string{} : run.error().message;
+}
+
+} // namespace
+
+TEST(RunConfigTest, RelayWithoutConfigWritesATemplateAndStops) {
+  GenesisSetup scratch("pp-ledger-relay-template-test");
+  const std::string first = runOnce<RelayServer>(scratch.dir);
+  EXPECT_NE(first.find("beacon"), std::string::npos) << first;
+  const std::string tmpl = readAll(scratch.dir / "config.json");
+  EXPECT_NE(tmpl.find("<upstream multiaddr"), std::string::npos) << tmpl; // a placeholder, not an address
+  EXPECT_EQ(tmpl.find("127.0.0.1"), std::string::npos) << tmpl;
+
+  const std::string again = runOnce<RelayServer>(scratch.dir); // template left unedited
+  EXPECT_NE(again.find("beacon"), std::string::npos) << again;
+}
+
+TEST(RunConfigTest, MinerWithoutConfigWritesATemplateAndStops) {
+  GenesisSetup scratch("pp-ledger-miner-template-test");
+  const std::string first = runOnce<MinerServer>(scratch.dir);
+  EXPECT_NE(first.find("minerId"), std::string::npos) << first;
+  const std::string again = runOnce<MinerServer>(scratch.dir); // minerId 0 left as is
+  EXPECT_NE(again.find("system accounts"), std::string::npos) << again;
+}

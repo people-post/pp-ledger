@@ -7,7 +7,7 @@ anything not listed here is fixed in code.
 | File | Role | Read when |
 |------|------|-----------|
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
-| `config.json` | beacon, relay, miner | every start (created with defaults if missing) |
+| `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 
 ## `init-config.json` (beacon, genesis)
