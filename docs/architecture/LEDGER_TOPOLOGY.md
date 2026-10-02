@@ -172,6 +172,21 @@ leader (`TX_ADD`) or are reads.
 Gateways must **forward terminal errors verbatim** (e.g. `FORK_DETECTED`, `WRONG_NETWORK`,
 `STALE_REGISTRY`) so participants can react without knowing hop count.
 
+### 7.1 Request direction (normative)
+
+Each node knows its upstreams by peer id (the `/p2p/<PeerId>` of its configured
+multiaddrs) and AMP authenticates every request's sender, so a node can tell
+whether a request came from its own upstream. `Server::isAllowedFrom` applies
+one table for all roles before any handler runs:
+
+| Request | From downstream | From own upstream |
+|---------|-----------------|-------------------|
+| `BLOCK_ADD`, `REGISTER` (writes travelling up to the terminal) | Accepted | **Refused** |
+| Everything else | Accepted | Accepted |
+
+Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
+their upstream, never by having blocks pushed into them.
+
 ---
 
 ## 8. Network anchor (participant config)
@@ -405,7 +420,7 @@ source selection, calibration, and ordered write retry.
 
 | Operation | Idempotent? | Note |
 |-----------|-------------|------|
-| `BLOCK_ADD` (same hash) | Yes | Terminal dedupes |
+| `BLOCK_ADD` (same hash) | Yes | Terminal and gateways answer a block they already hold (same id and hash) with success, without validating it again; a gateway does not forward it again. A different block at that id is refused (`BlockAddPolicy.h`) |
 | `REGISTER` (same miner_id) | Yes | Upsert semantics |
 | `TX_ADD` | No | Leader dedupes by tx identity |
 

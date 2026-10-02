@@ -299,6 +299,9 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  Beacons: " << config_.network.beacon_multiaddrs.size();
 
   setNetworkTuning(runFileConfig.tuning);
+  if (auto upstreams = setUpstreams(config_.network.beacon_multiaddrs); !upstreams) {
+    return Service::Error(E_CONFIG, upstreams.error().message);
+  }
   for (Client *client : {&client_, &forwardClient_, &broadcastClient_}) {
     client->setRequestTimeout(networkTuning().rpcTimeout);
   }
@@ -471,9 +474,6 @@ void MinerServer::initHandlers() {
 
   auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
   htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
-
-  auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
-  hab = [this](const Client::Request &request) { return hBlockAdd(request); };
 
 
   auto &htf = requestHandlers_[Client::T_REQ_TX_FORWARD];
@@ -715,23 +715,6 @@ void MinerServer::resolvePendingBlockGets() {
     }
   }
   pendingBlockGets_.clear();
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hBlockAdd(const Client::Request &request) {
-  if (broadcast_) {
-    return Error(E_REQUEST, "Block broadcast in progress, please retry");
-  }
-  Ledger::ChainNode block;
-  if (!block.ltsFromString(request.payload)) {
-    return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
-  }
-  block.hash = miner_.calculateHash(block.block);
-  auto result = miner_.addBlock(block);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to add block: " + result.error().message);
-  }
-  return {"Block added"};
 }
 
 MinerServer::Roe<std::string>

@@ -1,4 +1,5 @@
 #include "RelayServer.h"
+#include "BlockAddPolicy.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "../network/amp/AmpIdentity.h"
@@ -195,6 +196,13 @@ Service::Roe<void> RelayServer::onStart() {
   log().info << "  Beacon: " << config_.network.beacon_multiaddr;
 
   setNetworkTuning(runFileConfig.tuning);
+  std::vector<std::string> upstreamAddrs;
+  if (!config_.network.beacon_multiaddr.empty()) {
+    upstreamAddrs.push_back(config_.network.beacon_multiaddr);
+  }
+  if (auto upstreams = setUpstreams(upstreamAddrs); !upstreams) {
+    return Service::Error(E_CONFIG, upstreams.error().message);
+  }
   client_.setRequestTimeout(networkTuning().rpcTimeout);
 
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.network.privateKeys.front(),
@@ -504,6 +512,17 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
   if (!block.ltsFromString(request.payload)) {
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize block: " + request.payload)));
     return;
+  }
+  switch (checkBlockAdd(relay_, block)) {
+  case BlockAddCheck::AlreadyHave:
+    reply(packResponse("Block already added")); // we synced it from upstream: it is there already
+    return;
+  case BlockAddCheck::Conflicts:
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Block " + std::to_string(block.block.index) +
+                                                           " conflicts with the stored block")));
+    return;
+  case BlockAddCheck::New:
+    break;
   }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message)));

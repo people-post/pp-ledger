@@ -3,6 +3,7 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
+#include "amp/link/AdpMultiaddr.h"
 
 #include <filesystem>
 #include <thread>
@@ -114,10 +115,38 @@ void Server::onStop() {
   stopAmpServer();
 }
 
-void Server::enqueueRequest(std::string body, RequestQueue::Reply reply) {
-  if (!requests_->push(std::move(body), reply)) {
+void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
+  if (!requests_->push(std::move(peerId), std::move(body), reply)) {
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
   }
+}
+
+bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
+  switch (type) {
+  // Writes that only travel up the tree toward the beacon: this node's
+  // upstream never sends them down, so one from there is misuse.
+  case Client::T_REQ_BLOCK_ADD:
+  case Client::T_REQ_REGISTER:
+    return origin == Origin::Downstream;
+  default:
+    return true;
+  }
+}
+
+Service::Roe<void> Server::setUpstreams(const std::vector<std::string>& multiaddrs) {
+  upstreamPeerIds_.clear();
+  for (const auto& multiaddr : multiaddrs) {
+    auto parsed = pp::amp::ParseAdpMultiaddr(multiaddr);
+    if (!parsed) {
+      return Service::Error(-1, "Invalid upstream multiaddr '" + multiaddr + "': " + parsed.error().message);
+    }
+    upstreamPeerIds_.insert(parsed->peer_id);
+  }
+  return {};
+}
+
+Server::Origin Server::originOf(const std::string& peerId) const {
+  return !peerId.empty() && upstreamPeerIds_.contains(peerId) ? Origin::Upstream : Origin::Downstream;
 }
 
 void Server::postToServerThread(std::function<void()> task) {
@@ -203,6 +232,12 @@ void Server::serveRequest(const RequestQueue::Item& item) {
     item.reply(packResponse(1, request.error().message));
     return;
   }
+  if (!isAllowedFrom(request.value().type, originOf(item.peerId))) {
+    log().warning << "Refused request type " << request.value().type << " from upstream " << item.peerId;
+    item.reply(packResponse(1, "Request type " + std::to_string(request.value().type) +
+                                   " is not accepted from this node's upstream"));
+    return;
+  }
   try {
     if (!handleDeferred(request.value(), item.reply)) {
       item.reply(handleParsedRequest(request.value()));
@@ -244,8 +279,8 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   tuning_.applyTo(tuned.link_config);
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  auto started = ampSupport_->Start(tuned, [this](std::string body, RequestQueue::Reply reply) {
-    enqueueRequest(std::move(body), std::move(reply));
+  auto started = ampSupport_->Start(tuned, [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
+    enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
   });
   if (!started) {
     ampSupport_.reset();

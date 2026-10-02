@@ -6,13 +6,13 @@ namespace pp {
 
 RequestQueue::RequestQueue(size_t capacity) : capacity_(capacity) {}
 
-bool RequestQueue::push(std::string body, Reply reply) {
+bool RequestQueue::push(std::string peerId, std::string body, Reply reply) {
   {
     std::lock_guard<std::mutex> lock(mu_);
     if (closed_ || items_.size() >= capacity_) {
       return false;
     }
-    items_.push_back(Item{std::move(body), std::move(reply), Clock::now(), {}});
+    items_.push_back(Item{std::move(peerId), std::move(body), std::move(reply), Clock::now(), {}});
   }
   cv_.notify_one();
   return true;
@@ -25,7 +25,7 @@ bool RequestQueue::pushTask(std::function<void()> task) {
       return false;
     }
     // Not capacity-limited: a completion carries a reply some client waits on.
-    items_.push_back(Item{{}, {}, Clock::now(), std::move(task)});
+    items_.push_back(Item{{}, {}, {}, Clock::now(), std::move(task)});
   }
   cv_.notify_one();
   return true;

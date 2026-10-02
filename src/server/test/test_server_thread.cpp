@@ -1,3 +1,4 @@
+#include "BlockAddPolicy.h"
 #include "RequestQueue.h"
 #include "Server.h"
 #include "lib/common/BinaryPack.hpp"
@@ -21,8 +22,8 @@ using namespace std::chrono_literals;
 
 TEST(RequestQueueTest, PopsInOrderAndTimesOutWhenEmpty) {
   RequestQueue queue(4);
-  ASSERT_TRUE(queue.push("a", [](std::string) {}));
-  ASSERT_TRUE(queue.push("b", [](std::string) {}));
+  ASSERT_TRUE(queue.push("", "a", [](std::string) {}));
+  ASSERT_TRUE(queue.push("", "b", [](std::string) {}));
   auto first = queue.popUntil(RequestQueue::Clock::now() + 10ms);
   auto second = queue.popUntil(RequestQueue::Clock::now() + 10ms);
   ASSERT_TRUE(first && second);
@@ -33,13 +34,13 @@ TEST(RequestQueueTest, PopsInOrderAndTimesOutWhenEmpty) {
 
 TEST(RequestQueueTest, RefusesWhenFullOrClosed) {
   RequestQueue queue(1);
-  ASSERT_TRUE(queue.push("a", [](std::string) {}));
-  EXPECT_FALSE(queue.push("b", [](std::string) {}));
+  ASSERT_TRUE(queue.push("", "a", [](std::string) {}));
+  EXPECT_FALSE(queue.push("", "b", [](std::string) {}));
   auto pending = queue.close();
   ASSERT_EQ(pending.size(), 1u);
   EXPECT_EQ(pending.front().body, "a");
   EXPECT_TRUE(queue.isClosed());
-  EXPECT_FALSE(queue.push("c", [](std::string) {}));
+  EXPECT_FALSE(queue.push("", "c", [](std::string) {}));
   EXPECT_FALSE(queue.popUntil(RequestQueue::Clock::now() + 10ms));
 }
 
@@ -54,6 +55,7 @@ public:
   using Server::serveTasksUntil;
   using Server::serveRequestsFor;
   using Server::setNetworkTuning;
+  using Server::setUpstreams;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
 
@@ -104,9 +106,9 @@ protected:
   }
 };
 
-std::string packRequest(const std::string& payload) {
+std::string packRequest(const std::string& payload, uint32_t type = 1) {
   Client::Request request;
-  request.type = 1;
+  request.type = type;
   request.payload = payload;
   return utl::binaryPack(request);
 }
@@ -192,6 +194,30 @@ TEST(ServerThreadTest, NetworkTuningSizesTheRequestQueue) {
   EXPECT_NE(replies.items[0].payload.find("busy"), std::string::npos);
   server.serveRequestsFor(50ms);
   EXPECT_EQ(server.handled.load(), 1);
+}
+
+TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
+  EchoServer server;
+  ASSERT_TRUE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/upstream-peer"}));
+  Replies replies;
+  server.enqueueRequest(packRequest("from-up", Client::T_REQ_BLOCK_ADD), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("reg-up", Client::T_REQ_REGISTER), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("from-down", Client::T_REQ_BLOCK_ADD), replies.sink(), "miner-peer");
+  server.enqueueRequest(packRequest("status-up", Client::T_REQ_STATUS), replies.sink(), "upstream-peer");
+  server.serveRequestsFor(50ms);
+
+  ASSERT_EQ(replies.size(), 4u);
+  EXPECT_NE(replies.items[0].errorCode, 0);
+  EXPECT_NE(replies.items[0].payload.find("upstream"), std::string::npos);
+  EXPECT_NE(replies.items[1].errorCode, 0);
+  EXPECT_EQ(replies.items[2].errorCode, 0); // a downstream may submit blocks
+  EXPECT_EQ(replies.items[3].errorCode, 0); // reads are fine either way
+  EXPECT_EQ(server.handled.load(), 2);     // refused ones never reached a handler
+}
+
+TEST(ServerThreadTest, SetUpstreamsRejectsMultiaddrWithoutPeerId) {
+  EchoServer server;
+  EXPECT_FALSE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517"}));
 }
 
 TEST(ServerThreadTest, ExpiredRequestIsRefusedWithoutRunningHandler) {
@@ -283,6 +309,36 @@ TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
 #include "TxForwardPolicy.h"
 
 namespace {
+
+/** Holds blocks 0..n-1; a block's hash is its slot number as text. */
+struct FakeChain {
+  std::vector<Ledger::ChainNode> blocks;
+  uint64_t getNextBlockId() const { return blocks.size(); }
+  Roe<Ledger::ChainNode> readBlock(uint64_t id) const {
+    if (id >= blocks.size()) {
+      return Error(1, "no block");
+    }
+    return blocks[id];
+  }
+  std::string calculateHash(const Ledger::Block& block) const { return std::to_string(block.slot); }
+};
+
+Ledger::ChainNode makeBlock(uint64_t index, uint64_t slot) {
+  Ledger::ChainNode node;
+  node.block.index = index;
+  node.block.slot = slot;
+  node.hash = std::to_string(slot);
+  return node;
+}
+
+TEST(BlockAddPolicyTest, RepeatSucceedsConflictIsRefusedTipIsNew) {
+  FakeChain chain;
+  chain.blocks = {makeBlock(0, 0), makeBlock(1, 5)};
+  EXPECT_EQ(checkBlockAdd(chain, makeBlock(1, 5)), BlockAddCheck::AlreadyHave);
+  EXPECT_EQ(checkBlockAdd(chain, makeBlock(1, 6)), BlockAddCheck::Conflicts);
+  EXPECT_EQ(checkBlockAdd(chain, makeBlock(2, 7)), BlockAddCheck::New);
+  EXPECT_EQ(checkBlockAdd(chain, makeBlock(9, 9)), BlockAddCheck::New); // addBlock reports the gap
+}
 
 TEST(TxForwardPolicyTest, LeaderOfCurrentSlotPoolsAndOfUpcomingSlotHolds) {
   EXPECT_EQ(decideTxForward(3, 3, 40, 40, true), TxForwardAction::AddToPool);

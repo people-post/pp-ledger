@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace pp {
@@ -98,8 +99,29 @@ protected:
   std::string runStartupSync(BlockSync& sync, const std::optional<BlockSync::Result>& lastResult,
                              std::chrono::milliseconds timeout, const std::function<bool()>& extraDone = {});
 
-  /** Io lane: queue for the server thread, or reply busy when full / stopped. */
-  void enqueueRequest(std::string body, RequestQueue::Reply reply);
+  /**
+   * Io lane: queue for the server thread, or reply busy when full / stopped.
+   * `peerId` is the sender's authenticated AMP peer id ("" = unknown).
+   */
+  void enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId = {});
+
+  /** Where a request came from, relative to this node in the ledger tree. */
+  enum class Origin { Downstream, Upstream };
+
+  /**
+   * Central access rule, checked on the server thread before any handler:
+   * may a request of `type` arrive from `origin`? Writes that travel up the
+   * tree (BLOCK_ADD, REGISTER) are refused from this node's own upstream.
+   * See docs/architecture/LEDGER_TOPOLOGY.md (request direction).
+   */
+  static bool isAllowedFrom(uint32_t type, Origin origin);
+
+  /**
+   * Before start: this role's upstream endpoints (ADP multiaddrs ending in
+   * /p2p/<PeerId>). Requests from those peers have Origin::Upstream.
+   */
+  Service::Roe<void> setUpstreams(const std::vector<std::string>& multiaddrs);
+  Origin originOf(const std::string& peerId) const;
 
   /**
    * Before start: operator network policy (config.json `network`). Sizes the
@@ -127,6 +149,7 @@ private:
   std::string workDir_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   network::NetworkTuning tuning_;
+  std::set<std::string> upstreamPeerIds_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
