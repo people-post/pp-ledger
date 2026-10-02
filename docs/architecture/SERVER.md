@@ -26,13 +26,13 @@ The pp-ledger server architecture consists of four main components:
 3. **Relay** - Trusted intermediary between beacons and miners (extends Chain)
 4. **Miner** - Block producer (extends Chain)
 
-Each component has a corresponding server wrapper (*Server classes) that handles network communication via TCP.
+Each component has a corresponding server wrapper (*Server classes) that handles network communication over AMP.
 
 ### Architecture Pattern
 
 ```
 ┌──────────────────┐
-│   *Server        │  - Network communication (FetchServer)
+│   *Server        │  - Network communication (AMP)     
 │                  │  - Request routing and JSON handling
 │                  │  - Configuration loading
 └────────┬─────────┘
@@ -94,7 +94,7 @@ Beacons implement an intelligent checkpoint system to manage data growth:
 - **New Node Sync**: Allows nodes to sync from checkpoint instead of genesis
 
 **BeaconServer (Communication Layer) Responsibilities:**
-- Handle network requests via FetchServer (TCP)
+- Handle network requests via AMP (`Server` request queue)
 - Route requests to Beacon core logic
 - Manage connections from miners and clients
 - Return chain state and stakeholder information
@@ -117,7 +117,7 @@ Beacons implement an intelligent checkpoint system to manage data growth:
 - Transactions removed when included in blocks
 
 **MinerServer (Communication Layer) Responsibilities:**
-- Handle network requests via FetchServer (TCP)
+- Handle network requests via AMP (`Server` request queue)
 - Automatic block production loop in background thread
 - Accept transactions into pending pool
 - Route requests to Miner core logic
@@ -137,7 +137,7 @@ Beacons implement an intelligent checkpoint system to manage data growth:
 
 **RelayServer (Communication Layer) Responsibilities:**
 - Expose the same request handlers as `BeaconServer` to miners: block get/add, account queries, transaction queries, status, calibration, miner registration
-- Handle network requests via FetchServer (TCP)
+- Handle network requests via AMP (`Server` request queue)
 - Route requests to Relay core logic
 
 See [Relay Architecture](#relay-architecture) below for configuration details.
@@ -553,17 +553,13 @@ See [THREADING.md](THREADING.md) for the model and its rollout.
 - **All servers**: the role `runLoop` thread is the server thread. RPC requests
   are queued (`RequestQueue`, bounded) and handled one at a time on it between
   duties, so role, chain and ledger state are single-threaded
-- **FetchServer**: I/O thread accepts connections and reads frames; completed requests
-  are queued for handler workers; responses are written via fast path or `BulkWriter`
 
-### Public TCP abuse controls
+### Request limits
 
-Relay and miner servers configure `FetchServer` with `SecurityConfig::publicDefaults()`
-(per-IP caps, connection/RPC rate limits, read timeouts, 512 KiB payload cap). Beacon
-servers use `trustedDefaults()` and may restrict peers via IP whitelist.
-
-When the bounded request queue is full, new connections are rejected and the client fd
-is closed immediately.
+Requests wait in a bounded queue for the server thread; when it is full a request gets
+an immediate "busy" reply, and one that waited past half the RPC timeout gets "expired".
+Payloads are capped at 512 KiB. Limits come from config.json `network`
+([SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)).
 
 ## Usage Examples
 

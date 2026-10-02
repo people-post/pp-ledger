@@ -11,15 +11,15 @@ Cross-repo context: [platform-integration.md](../architecture/PLATFORM_INTEGRATI
 | **AMP (UDP)** | Sole fleet transport for `/pp-ledger/rpc/1.0.0` |
 | **HTTP** | Degraded client path via org relay (pp-browser; not in this module) |
 
-TCP fetch (`FetchServer` / `TcpLedgerTransport`) and BitTorrent DHT (`DhtRunner`) are **retired**.
+The former TCP fetch transport and BitTorrent DHT are retired and removed from the tree.
 
 ## Protocol
 
 | Field | Value |
 |-------|-------|
 | `protocol_id` | `/pp-ledger/rpc/1.0.0` |
-| L3 policy | Control, `read_once=true`, 8 s read timeout |
-| Payload | Unframed `binaryPack(Client::Request/Response)` — **no** u32 `LedgerFrameCodec` |
+| L3 policy | Control, `read_once=true`; `read_timeout` = the call's deadline on the client, 2T on the server (`network.rpcTimeoutMs`, [SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)) |
+| Payload | Unframed `binaryPack(Client::Request/Response)` — no length prefix |
 | Max size | 512 KiB (`ledger::rpc::kMaxPayloadBytes`) |
 
 ## Topology (uniform upstream)

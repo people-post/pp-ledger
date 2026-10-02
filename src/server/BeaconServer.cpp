@@ -273,6 +273,11 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
     }
   }
 
+  auto tuningResult = network::NetworkTuning::fromConfig(jd);
+  if (!tuningResult) {
+    return Error(E_CONFIG, tuningResult.error().message);
+  }
+  tuning = std::move(*tuningResult);
   return {};
 }
 
@@ -551,6 +556,9 @@ Service::Roe<void> BeaconServer::onStart() {
   if (!keyResult) {
     return Service::Error(E_CONFIG, "Failed to load AMP identity key: " + keyResult.error().message);
   }
+  setNetworkTuning(runFileConfig.tuning);
+  client_.setRequestTimeout(networkTuning().rpcTimeout);
+
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(*keyResult, config_.network.udp_port);
   if (!ampCfg) {
     return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);

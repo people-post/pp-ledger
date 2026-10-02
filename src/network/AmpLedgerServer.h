@@ -1,7 +1,9 @@
 #pragma once
 
+#include "NetworkTuning.h"
 #include "amp/link/PeerLinkManager.h"
 
+#include <chrono>
 #include <functional>
 #include <string>
 
@@ -24,11 +26,16 @@ public:
   /** Queue work onto the Amp IO / pump thread (MeshRuntime::PostToIo). */
   using IoPost = std::function<void(std::function<void()>)>;
 
-  static void BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, IoPost post_io = {});
+  /** Default inbound channel read timeout (NetworkTuning::channelReadTimeout at default settings). */
+  static constexpr std::chrono::milliseconds kDefaultReadTimeout =
+      NetworkTuning::dataTimeoutFor(NetworkTuning::kDefaultRpcTimeout);
+
+  static void BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, IoPost post_io = {},
+                        std::chrono::milliseconds read_timeout = kDefaultReadTimeout);
 
   /** Synchronous handler, run inline on the io lane or via `post_worker`. */
   static void Bind(pp::amp::PeerLinkManager& links, Handler handler, WorkerPost post_worker = {},
-                   IoPost post_io = {});
+                   IoPost post_io = {}, std::chrono::milliseconds read_timeout = kDefaultReadTimeout);
 
   static void Unbind(pp::amp::PeerLinkManager& links);
 };

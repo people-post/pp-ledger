@@ -25,8 +25,10 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   requests in `Server::serveRequestsFor()`, which role run loops call in place of
   sleeping between duties. The reply is posted back to the pump thread.
 - **Back-pressure:** the queue is bounded; when full, a request gets an immediate
-  "busy" reply. A request that waited longer than the client's read timeout gets
-  an "expired" reply without running the handler. On stop, pending requests get
+  "busy" reply. A request that waited longer than half the RPC timeout gets an
+  "expired" reply without running the handler (its client is about to give up).
+  Capacity and timeout come from config.json `network`
+  ([SETUP.md](../ops/SETUP.md#network-tuning-network-any-role)). On stop, pending requests get
   a "stopping" reply.
 - **Outbound (server-initiated):** the caller posts the call to the io lane. It
   either waits for the result (`AmpLedgerTransport::roundTrip`, an ordinary

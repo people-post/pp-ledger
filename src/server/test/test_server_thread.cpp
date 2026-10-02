@@ -53,6 +53,7 @@ public:
   using Server::packResponse;
   using Server::serveTasksUntil;
   using Server::serveRequestsFor;
+  using Server::setNetworkTuning;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
 
@@ -176,6 +177,21 @@ TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   server.serveRequestsFor(50ms);
   EXPECT_EQ(replies.size(), 3u);
   EXPECT_EQ(server.handled.load(), 2);
+}
+
+TEST(ServerThreadTest, NetworkTuningSizesTheRequestQueue) {
+  EchoServer server;
+  pp::network::NetworkTuning tuning;
+  tuning.requestQueueCapacity = 1;
+  server.setNetworkTuning(tuning);
+  Replies replies;
+  server.enqueueRequest(packRequest("a"), replies.sink());
+  server.enqueueRequest(packRequest("b"), replies.sink());
+
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_NE(replies.items[0].payload.find("busy"), std::string::npos);
+  server.serveRequestsFor(50ms);
+  EXPECT_EQ(server.handled.load(), 1);
 }
 
 TEST(ServerThreadTest, ExpiredRequestIsRefusedWithoutRunningHandler) {

@@ -5,7 +5,6 @@
 #include "Server.h"
 #include "../client/Client.h"
 #include "../network/amp/AmpIdentity.h"
-#include "../network/Types.hpp"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include <map>
@@ -117,6 +116,7 @@ private:
     std::string ampKey{ "keys/amp-identity.txt" };
     std::string networkId;
     std::vector<std::string> whitelist;
+    network::NetworkTuning tuning;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);

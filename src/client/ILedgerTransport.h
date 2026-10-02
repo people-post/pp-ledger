@@ -16,8 +16,8 @@ struct LedgerTransportError : RoeErrorBase {
  * Pluggable transport for ledger RPC envelope bytes.
  *
  * roundTrip() carries unframed binaryPack(Client::Request) bytes in and returns
- * unframed binaryPack(Client::Response) bytes out. Stream transports (TCP,
- * libp2p) apply LedgerFrameCodec internally; in-process omits framing.
+ * unframed binaryPack(Client::Response) bytes out (AMP channels and
+ * in-process carry them as-is, without framing).
  */
 class ILedgerTransport {
 public:

@@ -111,6 +111,11 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     beacon = std::move(*ma);
   }
 
+  auto tuningResult = network::NetworkTuning::fromConfig(jd);
+  if (!tuningResult) {
+    return Error(E_CONFIG, tuningResult.error().message);
+  }
+  tuning = std::move(*tuningResult);
   return {};
 }
 
@@ -189,6 +194,9 @@ Service::Roe<void> RelayServer::onStart() {
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacon: " << config_.network.beacon_multiaddr;
 
+  setNetworkTuning(runFileConfig.tuning);
+  client_.setRequestTimeout(networkTuning().rpcTimeout);
+
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.network.privateKeys.front(),
                                                        config_.network.udp_port);
   if (!ampCfg) {
@@ -240,7 +248,7 @@ Service::Roe<void> RelayServer::onStart() {
   // are served here because the run loop has not started yet.
   initBlockSync();
   lastSyncResult_.reset();
-  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, STARTUP_SYNC_TIMEOUT,
+  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, networkTuning().startupSyncTimeout,
                                   [this]() { return !beaconStateRefreshInFlight_; });
       !error.empty()) {
     return Service::Error(E_NETWORK, "Failed to sync blocks from beacon: " + error);

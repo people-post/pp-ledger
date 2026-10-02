@@ -5,7 +5,6 @@
 #include "../ledger/Ledger.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
-#include "../network/Types.hpp"
 #include "Chain.h"
 
 #include <cstdint>

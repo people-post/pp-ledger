@@ -149,8 +149,8 @@ pp-ledger/
 │   ├── ledger/       # Blockchain storage and management
 │   ├── chain/        # Chain, AccountBuffer, and transaction helper modules
 │   ├── server/       # Beacon, Relay, and Miner server implementations
-│   ├── client/       # TCP client library
-│   ├── network/      # Low-level TCP networking
+│   ├── client/       # Ledger RPC client library
+│   ├── network/      # AMP ledger RPC transport
 │   └── app/          # Executables: pp-beacon, pp-relay, pp-miner, pp-client, pp-http
 ├── third_party/      # Vendored third-party deps (e.g. googletest)
 ├── deploy/           # Docker Compose sample configs for deployment
@@ -168,7 +168,7 @@ pp-ledger/
 | **chain** | Chain orchestration, AccountBuffer, tx validation helpers | ✅ Working |
 | **server** | Beacon, Relay, and Miner server implementations | ✅ Working |
 | **client** | Client library for server communication | ✅ Working |
-| **network** | TCP networking (FetchClient/Server, TcpClient/Server) | ✅ Working |
+| **network** | AMP ledger RPC (runtime, server binding, network tuning) | ✅ Working |
 | **app** | Command-line applications (beacon, relay, miner, client, http API server) | ✅ Working |
 
 ## Documentation

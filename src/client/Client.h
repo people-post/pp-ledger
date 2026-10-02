@@ -4,12 +4,12 @@
 #include "ILedgerTransport.h"
 #include "InProcessLedgerTransport.h"
 #include "../network/LedgerAmpRuntime.h"
+#include "../network/NetworkTuning.h"
 #include "amp/link/PeerLinkManager.h"
 #include "lib/common/Meta.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 #include "../ledger/Ledger.h"
-#include "../network/Types.hpp"
 #include "../consensus/Types.hpp"
 
 #include <chrono>
@@ -72,13 +72,7 @@ public:
   static constexpr const char *DEFAULT_HOST = "localhost";
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
-  static constexpr const uint16_t DEFAULT_DHT_PORT = 18517;
 
-  // Request timeouts (generous enough for beacon under load, e.g. test-checkpoint-cycles)
-  /** Timeout for fast, lightweight requests (status, timestamp, registration). */
-  static constexpr std::chrono::milliseconds TIMEOUT_FAST{15000};
-  /** Timeout for data-retrieval or data-submission requests (blocks, transactions, accounts). */
-  static constexpr std::chrono::milliseconds TIMEOUT_DATA{30000};
 
   // Request types
   static constexpr const uint32_t T_REQ_STATUS = 1;
@@ -248,8 +242,15 @@ public:
   /** Attach AMP transport driven by `runtime`'s pump thread (servers / CLI / pp-http). */
   void attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key = "remote");
 
-  /** Replace default TCP transport (e.g. in-process for embedded UI). */
+  /** Replace the transport (e.g. in-process for embedded UI). */
   void setTransport(std::unique_ptr<ILedgerTransport> transport);
+
+  /**
+   * Wait for a light reply (status, calibration, registration); requests that
+   * carry blocks, transactions or accounts wait twice this. Servers set it from
+   * NetworkTuning::rpcTimeout.
+   */
+  void setRequestTimeout(std::chrono::milliseconds timeout) { requestTimeout_ = timeout; }
 
   ILedgerTransport *transport() { return transport_.get(); }
   const ILedgerTransport *transport() const { return transport_.get(); }
@@ -298,11 +299,13 @@ private:
   static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);
   void sendRequestAsync(uint32_t type, const std::string &payload,
                         std::chrono::milliseconds timeout, Done<std::string> done);
-  Roe<std::string> sendRequest(uint32_t type, const std::string &payload,
-                               std::chrono::milliseconds timeout = TIMEOUT_FAST);
+  Roe<std::string> sendRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
+  std::chrono::milliseconds fastTimeout() const { return requestTimeout_; }
+  std::chrono::milliseconds dataTimeout() const { return network::NetworkTuning::dataTimeoutFor(requestTimeout_); }
 
   std::string amp_default_peer_key_{"remote"};
   std::unique_ptr<ILedgerTransport> transport_;
+  std::chrono::milliseconds requestTimeout_{network::NetworkTuning::kDefaultRpcTimeout};
 };
 
 std::ostream& operator<<(std::ostream& os, const Client::Request& req);

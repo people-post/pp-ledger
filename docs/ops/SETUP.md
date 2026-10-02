@@ -320,6 +320,39 @@ EOF
 }
 ```
 
+### Network tuning (`network`, any role)
+
+Optional in every role's `config.json` (beacon, relay, miner). Omit it, or any
+field, to keep the default. Unknown fields and values that cannot work are
+refused at start, so a typo fails loudly instead of being ignored.
+
+```json
+"network": {
+  "rpcTimeoutMs": 15000,          // T: client wait for a light reply (default 15000, min 1000)
+  "requestQueueCapacity": 1024,   // requests queued for the server thread; more get "busy"
+  "startupSyncTimeoutMs": 300000, // relay / miner catch-up at start (>= rpcTimeoutMs)
+  "amp": {                        // transport policy, see pp-cpp-amp docs/TUNING.md
+    "reliableWindow": 128, "replayWindow": 128, "rtxIntervalMs": 50, "maxRtx": 20,
+    "skewMs": 60000, "aliveTimeoutMs": 5000,
+    "maxConcurrentChannels": 256, "maxQueuedBytes": 33554432, "fragAssemblyTimeoutMs": 30000
+  }
+}
+```
+
+One knob, `rpcTimeoutMs` (T), sets every request deadline so they cannot drift
+apart:
+
+| Deadline | Value |
+|----------|-------|
+| Light requests (status, calibration, register, miner list) | T |
+| Data requests (blocks, transactions, accounts) | 2T |
+| Server drops a request still queued after | T/2 (its client is about to give up; reply "expired" without doing the work) |
+| Server resets an RPC channel with nothing inbound for | 2T (the longest any client waits; also drops peers that open and never send) |
+
+Raise T for slow or distant links. A large chain may need a longer
+`startupSyncTimeoutMs`. Leave `amp` alone unless you are measuring the link;
+its rules (e.g. `replayWindow >= reliableWindow`) are checked at start.
+
 ---
 
 ## Troubleshooting

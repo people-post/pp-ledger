@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <future>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -150,6 +151,47 @@ TEST_F(AmpLedgerRpcTest, RoundTripEcho) {
   auto response = transport.roundTrip(payload, std::chrono::seconds(5));
   ASSERT_TRUE(response.isOk()) << response.error().message;
   EXPECT_EQ(response.value(), payload);
+}
+
+// A peer that opens an RPC channel and never sends must not hold it: the
+// server's channel read timeout resets it (the opener sees the channel close).
+TEST_F(AmpLedgerRpcTest, ServerDropsChannelThatNeverSends) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
+                                     std::chrono::milliseconds(2000));
+
+  std::optional<uint32_t> channel;
+  h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
+                                    pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
+                                    [&](pp::amp::PeerLinkManager::ChannelRoe ch) {
+                                      if (ch) {
+                                        channel = ch.value();
+                                      }
+                                    });
+  auto state = [&]() {
+    auto* link = h->runtime_a->Links().FindLink("b");
+    return link && link->Mux() ? link->Mux()->State(*channel) : pp::amp::ChannelState::Closed;
+  };
+  for (size_t i = 0; i < 200 && (!channel || state() != pp::amp::ChannelState::Open); ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_TRUE(channel.has_value());
+  ASSERT_EQ(state(), pp::amp::ChannelState::Open);
+
+  h->clock->Advance(1000);
+  for (size_t i = 0; i < 20; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(state(), pp::amp::ChannelState::Open);  // within the read timeout
+
+  h->clock->Advance(1500);
+  for (size_t i = 0; i < 20 && state() == pp::amp::ChannelState::Open; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(state(), pp::amp::ChannelState::Closed);
 }
 
 TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
