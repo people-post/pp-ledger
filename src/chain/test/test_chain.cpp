@@ -1706,6 +1706,7 @@ struct ComposeHarness {
     chainConfig.checkpoint.minBlocks = 100;
     chainConfig.checkpoint.minAgeSeconds = 0;
     chainConfig.maxIssuancePerEpoch = 100;
+    chainConfig.newAccountFee = 5;
 
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
@@ -2279,12 +2280,12 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
   auto leader = producer.getSlotLeader(block1.block.slot + 1);
   ASSERT_TRUE(leader.isOk());
 
-  auto newAccount = [&](uint64_t from, uint64_t to, const utl::MlDsaKeyPair &signer) {
+  auto newAccount = [&](uint64_t from, uint64_t to, const utl::MlDsaKeyPair &signer, uint64_t fee = 6) {
     Ledger::TxNewUser nu;
     nu.fromWalletId = from;
     nu.toWalletId = to;
     nu.amount = 10;
-    nu.fee = 1;
+    nu.fee = fee; // meta fee 1 + newAccountFee 5
     nu.meta = makeUserAccount(makeKeyPair().publicKey, 10).ltsToString();
     nu.idempotentId = idem++;
     nu.validationTsMin = now - 60;
@@ -2306,6 +2307,8 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
   EXPECT_TRUE(byReserve.isOk()) << byReserve.error().message;
   expectRefused(newAccount(AccountBuffer::ID_RESERVE, issuedId, harness_.reserveKey), "only by the registrar");
   expectRefused(newAccount(AccountBuffer::ID_GENESIS, userId, harness_.genesisKey), "Genesis creates no accounts");
+  // Every creation pays the flat newAccountFee on top of the meta fee.
+  expectRefused(newAccount(AccountBuffer::ID_RESERVE, userId + 1, harness_.reserveKey, 5), "newAccountFee 5");
 
   auto genesisTransfer = [&](uint64_t to) {
     Ledger::TxDefault tx;

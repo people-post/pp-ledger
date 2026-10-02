@@ -7,9 +7,42 @@
 #include "../client/Client.h"
 
 #include <string>
+#include <limits>
 #include <variant>
 
 namespace pp {
+
+namespace {
+
+/**
+ * Minimum fee: the meta-size fee, plus the flat newAccountFee for accounts
+ * created after genesis (genesis records pay the exact meta-size fee).
+ */
+chain_tx::Roe<void> requireNewAccountFee(const Ledger::TxNewUser &tx, const TxContext &ctx, uint64_t blockId) {
+  if (!ctx.optChainConfig.has_value() || !ctx.fnBillableCustomMetaSizeForFee.has_value()) {
+    return chain_tx::TxError(chain_err::E_INTERNAL, "Chain config required for Full-mode new-user fee validation");
+  }
+  const BlockChainConfig &config = ctx.optChainConfig.value();
+  auto metaFee = chain_tx::calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx),
+                                                             *ctx.fnBillableCustomMetaSizeForFee);
+  if (!metaFee) {
+    return metaFee.error();
+  }
+  const uint64_t flat = blockId != 0 ? config.newAccountFee : 0;
+  if (flat > std::numeric_limits<uint64_t>::max() - metaFee.value()) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "New account fee overflows");
+  }
+  const uint64_t minimum = metaFee.value() + flat;
+  if (tx.fee < minimum) {
+    return chain_tx::TxError(chain_err::E_TX_FEE, "New user transaction fee below minimum " + std::to_string(minimum) +
+                                                      " (meta fee " + std::to_string(metaFee.value()) +
+                                                      " + newAccountFee " + std::to_string(flat) +
+                                                      "): " + std::to_string(tx.fee));
+  }
+  return {};
+}
+
+} // namespace
 
 chain_tx::Roe<size_t>
 NewUserTxHandler::getBillableCustomMetaSizeForFee(
@@ -126,12 +159,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   }
 
   if (chain_block::admissionTxStrict(admissionMode)) {
-    if (auto feeGate = chain_tx::requireMinimumFee(
-            ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
-            Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for Full-mode new-user fee validation",
-            "New user transaction fee below minimum: ");
-        !feeGate) {
+    if (auto feeGate = requireNewAccountFee(tx, ctx, blockId); !feeGate) {
       return feeGate;
     }
   }

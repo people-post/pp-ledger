@@ -25,7 +25,8 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << ", "
      << "networkId: " << config.networkId << ", "
      << "heartbeatSlots: " << config.heartbeatSlots << ", "
-     << "maxIssuancePerEpoch: " << config.maxIssuancePerEpoch << "}";
+     << "maxIssuancePerEpoch: " << config.maxIssuancePerEpoch << ", "
+     << "newAccountFee: " << config.newAccountFee << "}";
   return os;
 }
 

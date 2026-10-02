@@ -52,12 +52,19 @@ struct BlockChainConfig {
    * epoch, net of anything sent back to it. `0` = no issuance.
    */
   uint64_t maxIssuancePerEpoch{0};
+  /**
+   * One-time fee every account creation (`T_NEW_USER` after genesis) pays on
+   * top of the meta-size fee, to the fee account. The meta-size fee (the same
+   * formula renewal charges) pays for the account's first period; each
+   * renewal pays for the next. `0` = none.
+   */
+  uint64_t newAccountFee{0};
 
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
             &checkpoint &maxValidationTimespanSeconds &networkId
-                &heartbeatSlots &maxIssuancePerEpoch;
+                &heartbeatSlots &maxIssuancePerEpoch &newAccountFee;
   }
 };
 
@@ -94,7 +101,7 @@ struct IssuanceBaseline {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 4;
+  constexpr static const uint32_t VERSION = 5;
 
   BlockChainConfig config;
   Client::UserAccount genesis;
