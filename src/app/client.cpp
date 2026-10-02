@@ -493,14 +493,14 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     if (!keygenOut.empty()) {
-      auto key = pp::utl::writeToNewFile(keygenOut + ".key", pp::utl::hexEncode(pair->privateKey) + "\n");
-      if (!key) {
-        std::cerr << "Error: " << keygenOut << ".key: " << key.error().message << "\n";
+      auto keyWritten = pp::utl::writeToNewFile(keygenOut + ".key", pp::utl::hexEncode(pair->privateKey) + "\n");
+      if (!keyWritten) {
+        std::cerr << "Error: " << keygenOut << ".key: " << keyWritten.error().message << "\n";
         return 1;
       }
-      auto pub = pp::utl::writeToNewFile(keygenOut + ".pub", pp::utl::hexEncode(pair->publicKey) + "\n");
-      if (!pub) {
-        std::cerr << "Error: " << keygenOut << ".pub: " << pub.error().message << "\n";
+      auto pubWritten = pp::utl::writeToNewFile(keygenOut + ".pub", pp::utl::hexEncode(pair->publicKey) + "\n");
+      if (!pubWritten) {
+        std::cerr << "Error: " << keygenOut << ".pub: " << pubWritten.error().message << "\n";
         return 1;
       }
       std::cout << "Wrote " << keygenOut << ".key (keep secret) and " << keygenOut << ".pub\n";

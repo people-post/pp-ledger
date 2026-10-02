@@ -38,7 +38,8 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 Object RelayServer::RunFileConfig::ltsToJson() {
   Object j;
   j.setJsonUInt("port", port);
-  j.set("beacon", beacon.empty() ? std::string("/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id>") : beacon);
+  j.set("beacon", beacon.empty() ? std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>")
+                                 : beacon);
   return j;
 }
 
@@ -63,6 +64,11 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, "Field 'beacon': " + ma.error().message);
   }
   beacon = std::move(*ma);
+  auto allowed = parseAllowedPeers(jd);
+  if (!allowed) {
+    return Error(E_CONFIG, allowed.error().message);
+  }
+  allowedPeers = std::move(allowed.value());
   return {};
 }
 
@@ -105,9 +111,10 @@ Service::Roe<void> RelayServer::onStart() {
     configFile << encoded.value() << std::endl;
     configFile.close();
 
-    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
-    log().info << "Please edit " << FILE_CONFIG
-               << " to configure your relay settings";
+    // A relay without an upstream cannot do anything: stop until it is set.
+    return Service::Error(E_CONFIG, "Created " + configPathStr +
+                                        ": set `beacon` to the upstream's multiaddr (printed by the beacon at "
+                                        "start) and start again");
   } else {
     // Load existing configuration
     auto jsonResult = utl::loadJsonFile(configPathStr);
@@ -135,11 +142,7 @@ Service::Roe<void> RelayServer::onStart() {
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacon: " << config_.network.beacon_multiaddr;
 
-  std::vector<std::string> upstreamAddrs;
-  if (!config_.network.beacon_multiaddr.empty()) {
-    upstreamAddrs.push_back(config_.network.beacon_multiaddr);
-  }
-  if (auto upstreams = setUpstreams(upstreamAddrs); !upstreams) {
+  if (auto upstreams = setUpstreams({config_.network.beacon_multiaddr}); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
   }
 
@@ -148,6 +151,7 @@ Service::Roe<void> RelayServer::onStart() {
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
+  setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_NETWORK, "Failed to start AMP server: " +
@@ -159,10 +163,8 @@ Service::Roe<void> RelayServer::onStart() {
   }
   client_.attachAmpTransport(*ampRuntime(), "beacon");
 
-  if (!config_.network.beacon_multiaddr.empty()) {
-    if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-      return Service::Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
-    }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    return Service::Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
   }
 
   // Initialize Relay with starting block id 0 (no beacon sync, no block
@@ -211,9 +213,6 @@ Service::Roe<void> RelayServer::onStart() {
 void RelayServer::initBlockSync() {
   BlockSync::Hooks hooks;
   hooks.dialUpstream = [this]() -> pp::Roe<void> {
-    if (config_.network.beacon_multiaddr.empty()) {
-      return pp::Error("No beacon server configured");
-    }
     auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon");
     return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
   };
@@ -543,12 +542,7 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, parsed.error().message)));
     return;
   }
-  if (config_.network.beacon_multiaddr.empty()) {
-    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
-    return;
-  }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
+  if (!dialUpstreamFor(reply)) {
     return;
   }
   client_.registerMinerServerAsync(
@@ -584,9 +578,6 @@ RelayServer::hCalibration(const Client::Request & /*request*/) {
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
-  if (config_.network.beacon_multiaddr.empty()) {
-    return Error(E_CONFIG, "No beacon server configured");
-  }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
@@ -630,10 +621,6 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 }
 
 bool RelayServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
-  if (config_.network.beacon_multiaddr.empty()) {
-    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
-    return false;
-  }
   if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
     return false;
@@ -675,12 +662,7 @@ void RelayServer::dTxPull(const Client::Request &request, const RequestQueue::Re
 }
 
 void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQueue::Reply &reply) {
-  if (config_.network.beacon_multiaddr.empty()) {
-    replyWith(reply, Roe<std::string>(Error(E_CONFIG, "No upstream configured")));
-    return;
-  }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
+  if (!dialUpstreamFor(reply)) {
     return;
   }
   client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(

@@ -7,7 +7,7 @@ anything not listed here is fixed in code.
 | File | Role | Read when |
 |------|------|-----------|
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
-| `config.json` | beacon, relay, miner | every start (created with defaults if missing) |
+| `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 
 ## `init-config.json` (beacon, genesis)
@@ -76,6 +76,7 @@ lead slots, so a new chain needs miners from block 0. Each entry creates one:
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `port` | 8517 | UDP listen port |
+| `allowedPeers` | anyone | Peer ids served (see below); typically the beacon's relays |
 
 ## Relay `config.json`
 
@@ -87,6 +88,7 @@ lead slots, so a new chain needs miners from block 0. Each entry creates one:
 |-------|---------|---------|
 | `beacon` | **required** | Upstream multiaddr (the beacon or another relay), ending in `/p2p/<peer id>` |
 | `port` | 8519 | UDP listen port |
+| `allowedPeers` | anyone | Peer ids served; typically the relay's miners and clients |
 
 ## Miner `config.json`
 
@@ -105,6 +107,15 @@ lead slots, so a new chain needs miners from block 0. Each entry creates one:
 | `beacons` | **required** | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>` |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
 | `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId"}` |
+| `allowedPeers` | anyone | Peer ids served (a miner serves reads to local clients) |
+
+## `allowedPeers` (any role)
+
+An array of peer ids (the `/p2p/` part of a node's multiaddr). When present,
+the node serves only those peers and its own upstreams; any other sender gets
+"Peer not allowed" before its request is queued. Absent = anyone; `[]` = only
+upstreams. Typical: the beacon lists its relays, so only relays reach the
+terminal; a relay lists its miners and trusted clients.
 
 ## Identity keys
 

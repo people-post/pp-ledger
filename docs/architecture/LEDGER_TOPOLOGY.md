@@ -190,6 +190,10 @@ one table for all roles before any handler runs:
 Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
 their upstream, never by having blocks pushed into them.
 
+Before any of this, `allowedPeers` (optional, any role) admits only listed peer
+ids and the node's upstreams (`Server::isAllowedPeer`, checked before queueing):
+e.g. a beacon reachable only by its relays.
+
 The same place sets each request's priority (`Server::laneFor`): reads such as
 `BLOCK_GET` and `BLOCK_WAIT` (downstream sync) and account / history queries go to a low-priority
 lane with its own capacity and a per-peer cap, so serving downstream sync never

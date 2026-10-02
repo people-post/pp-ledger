@@ -42,11 +42,17 @@ Object MinerServer::RunFileConfig::ltsToJson() const {
   for (const auto &k : keys) {
     keyVals.push_back(k);
   }
+  if (keyVals.empty()) {
+    keyVals.push_back(std::string("<private key file: pp-client keygen -o key>"));
+  }
   j.set("keys", Object::array(std::move(keyVals)));
   j.setJsonUInt("port", port);
   std::vector<Value> beaconVals;
   for (const auto &b : beacons) {
     beaconVals.push_back(b);
+  }
+  if (beaconVals.empty()) {
+    beaconVals.push_back(std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8519/adp/1.0.0/p2p/PEER_ID>"));
   }
   j.set("beacons", Object::array(std::move(beaconVals)));
   return j;
@@ -61,6 +67,10 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
                                : "Field 'minerId' is required");
   }
   minerId = *minerIdOpt;
+  if (AccountIds::isSystemAccount(minerId)) {
+    return Error(E_CONFIG, "Field 'minerId' must be this miner's account id (system accounts, ids below " +
+                               std::to_string(AccountIds::ID_FIRST_ISSUED) + ", never mine)");
+  }
 
   const Array *keysArr = jd.getArray("keys");
   if (!keysArr) {
@@ -116,6 +126,11 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (const Object* anchorObj = jd.getObject("networkAnchor")) {
     network_anchor = NetworkAnchor::fromJson(*anchorObj);
   }
+  auto allowed = parseAllowedPeers(jd);
+  if (!allowed) {
+    return Error(E_CONFIG, allowed.error().message);
+  }
+  allowedPeers = std::move(allowed.value());
   return {};
 }
 
@@ -235,9 +250,9 @@ Service::Roe<void> MinerServer::onStart() {
     configFile << encoded.value() << std::endl;
     configFile.close();
 
-    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
-    log().info << "Please edit " << FILE_CONFIG
-               << " to configure your miner settings";
+    // Nothing here can be guessed (account id, keys, upstream): stop until set.
+    return Service::Error(E_CONFIG, "Created " + configPathStr +
+                                        ": set minerId, keys and beacons (upstream multiaddrs), then start again");
   } else {
     // Load existing configuration
     auto jsonResult = utl::loadJsonFile(configPathStr);
@@ -284,6 +299,7 @@ Service::Roe<void> MinerServer::onStart() {
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
+  setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_MINER, "Failed to start AMP server: " + serverStarted.error().message);

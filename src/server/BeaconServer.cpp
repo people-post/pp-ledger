@@ -318,6 +318,11 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
     port = static_cast<uint16_t>(*portValue);
   }
 
+  auto allowed = parseAllowedPeers(jd);
+  if (!allowed) {
+    return Error(E_CONFIG, allowed.error().message);
+  }
+  allowedPeers = std::move(allowed.value());
   return {};
 }
 
@@ -535,6 +540,7 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);
   }
 
+  setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
