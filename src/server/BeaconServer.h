@@ -105,6 +105,8 @@ private:
     uint64_t maxValidationTimespanSeconds{ DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS };
     /** Empty-seal lag; default at parse time = slotsPerEpoch when omitted. */
     uint64_t heartbeatSlots{0};
+    /** Genesis issuance cap per epoch (0 = none until a config update allows it). */
+    uint64_t maxIssuancePerEpoch{0};
     /**
      * Miner accounts created in the genesis block (`genesisMiners`): the only
      * stake at start, since system accounts never lead. Stake defaults to an

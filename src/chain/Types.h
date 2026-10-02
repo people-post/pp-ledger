@@ -47,12 +47,17 @@ struct BlockChainConfig {
    * `checkBlockBodyPolicy` (seal + Full admission); see BLOCK_PIPELINE.md.
    */
   uint64_t heartbeatSlots{0};
+  /**
+   * Most native tokens genesis may issue (to reserve, fees included) per
+   * epoch, net of anything sent back to it. `0` = no issuance.
+   */
+  uint64_t maxIssuancePerEpoch{0};
 
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
             &checkpoint &maxValidationTimespanSeconds &networkId
-                &heartbeatSlots;
+                &heartbeatSlots &maxIssuancePerEpoch;
   }
 };
 
@@ -78,8 +83,18 @@ struct PendingChainConfig {
   BlockChainConfig config;
 };
 
+/**
+ * Genesis's native balance when an epoch's first block applied: issuance in
+ * the epoch so far is this minus the current balance (genesis mints by going
+ * negative).
+ */
+struct IssuanceBaseline {
+  uint64_t epoch{0};
+  int64_t genesisBalance{0};
+};
+
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 3;
+  constexpr static const uint32_t VERSION = 4;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

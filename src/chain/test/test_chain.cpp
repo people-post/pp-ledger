@@ -1705,6 +1705,7 @@ struct ComposeHarness {
     chainConfig.slotsPerEpoch = 10;
     chainConfig.checkpoint.minBlocks = 100;
     chainConfig.checkpoint.minAgeSeconds = 0;
+    chainConfig.maxIssuancePerEpoch = 100;
 
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
@@ -2320,7 +2321,7 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
     return producer.addBufferTransaction(
         scratch, makeRecord(Ledger::T_DEFAULT, tx, harness_.genesisKey, producer.getNetworkId()), leader.value());
   };
-  auto toReserve = genesisTransfer(AccountBuffer::ID_RESERVE);
+  auto toReserve = genesisTransfer(AccountBuffer::ID_RESERVE); // within maxIssuancePerEpoch
   EXPECT_TRUE(toReserve.isOk()) << toReserve.error().message;
   expectRefused(genesisTransfer(AccountBuffer::ID_FEE), "only to reserve");
   expectRefused(genesisTransfer(kTestMinerId), "only to reserve");
@@ -2390,4 +2391,43 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
                                                  {makeRecord(Ledger::T_DEFAULT, transfer, harness_.reserveKey)});
   ASSERT_TRUE(producer.addBlock(block2).isOk());
   EXPECT_EQ(producer.getMaxTransactionsPerBlock(), before + 1);
+}
+
+// Genesis issuance (to reserve, fee included) is capped per epoch by
+// maxIssuancePerEpoch (100 in the harness); a new epoch starts afresh.
+TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
+  auto &producer = harness_.producer;
+  auto issue = [&](uint64_t amount, uint64_t idem) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = AccountBuffer::ID_GENESIS;
+    tx.toWalletId = AccountBuffer::ID_RESERVE;
+    tx.amount = amount;
+    tx.fee = 1;
+    tx.idempotentId = idem;
+    tx.validationTsMin = harness_.chainConfig.genesisTime;
+    tx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+    return makeRecord(Ledger::T_DEFAULT, tx, harness_.genesisKey);
+  };
+  const int64_t reserveBefore = producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+
+  // Epoch 0: 60 + 1 fee issued; another 50 + 1 would pass 100.
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {issue(60, 1)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  {
+    auto leader = producer.getSlotLeader(2);
+    ASSERT_TRUE(leader.isOk());
+    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotStartTime(2), {issue(50, 2)});
+    auto sealed = producer.sealBlock(block);
+    ASSERT_FALSE(sealed.isOk());
+    EXPECT_NE(sealed.error().message.find("maxIssuancePerEpoch"), std::string::npos) << sealed.error().message;
+    producer.abandonSeal();
+  }
+
+  // Epoch 1: a fresh allowance.
+  Ledger::ChainNode block2 =
+      makeNextBlockAtSlot(producer, block1, harness_.chainConfig.slotsPerEpoch, {issue(90, 3)});
+  ASSERT_TRUE(producer.addBlock(block2).isOk());
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
+            reserveBefore + 150);
 }

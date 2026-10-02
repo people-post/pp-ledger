@@ -79,6 +79,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `minFeeCoefficients` | `[1, 1, 1]` | Fee = a + b·x + c·x², x = non-free meta KiB (rounded up) |
 | `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) |
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
+| `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
 | `genesisMiners` | none | Miner accounts created at genesis (below) |
 
 **Genesis miners.** System accounts (genesis, reserve, registrar, fee, recycle) never

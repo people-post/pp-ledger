@@ -39,6 +39,8 @@ struct TxContext {
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};
   /** Accepted `T_CONFIG` not yet in force; Chain activates it at its epoch. */
   std::optional<PendingChainConfig> pendingChainConfig{std::nullopt};
+  /** Set by Chain at each epoch's first block; bounds issuance per epoch. */
+  std::optional<IssuanceBaseline> issuanceBaseline{std::nullopt};
   Checkpoint checkpoint{};
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
   std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{

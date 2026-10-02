@@ -97,6 +97,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   j.setJsonUInt("checkpointMinAgeSeconds", checkpointMinAgeSeconds);
   j.setJsonUInt("maxValidationTimespanSeconds", maxValidationTimespanSeconds);
   j.setJsonUInt("heartbeatSlots", heartbeatSlots);
+  j.setJsonUInt("maxIssuancePerEpoch", maxIssuancePerEpoch);
   return j;
 }
 
@@ -219,6 +220,10 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   } else {
     // Default: at most ~one empty seal per idle epoch.
     heartbeatSlots = slotsPerEpoch;
+  }
+
+  if (auto r = readU64("maxIssuancePerEpoch", maxIssuancePerEpoch, false, true); !r) {
+    return r;
   }
 
   if (auto accounts = parseSystemAccounts(jd); !accounts) {
@@ -401,6 +406,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   log().info << "  Max transactions per block: "
              << initFileConfig.maxTransactionsPerBlock;
   log().info << "  Heartbeat slots: " << initFileConfig.heartbeatSlots;
+  log().info << "  Max issuance per epoch: " << initFileConfig.maxIssuancePerEpoch;
 
   // Prepare init configuration
   Beacon::InitConfig initConfig;
@@ -423,6 +429,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.maxValidationTimespanSeconds =
       initFileConfig.maxValidationTimespanSeconds;
   initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
+  initConfig.chain.maxIssuancePerEpoch = initFileConfig.maxIssuancePerEpoch;
   initConfig.chain.networkId = initFileConfig.networkId;
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();

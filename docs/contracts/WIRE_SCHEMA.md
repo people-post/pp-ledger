@@ -138,6 +138,8 @@ not installed in `RecordHandler`.
   new issued accounts (registrar), collected (fee, recycle). After genesis the
   genesis account creates no accounts and transfers only to reserve: every
   transfer out of genesis mints, so new supply has one path (genesis → reserve).
+  Net issuance per epoch (amount + fee) is capped by `maxIssuancePerEpoch`,
+  measured against genesis's balance at the epoch's first block.
 
   System ids 5 … 2²⁰−1 are reserved and **no rule creates them**: the genesis
   block can hold only the four system accounts above (records 1–4) and genesis miners

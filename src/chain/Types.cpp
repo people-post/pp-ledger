@@ -24,7 +24,8 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << "maxValidationTimespanSeconds: " << config.maxValidationTimespanSeconds
      << ", "
      << "networkId: " << config.networkId << ", "
-     << "heartbeatSlots: " << config.heartbeatSlots << "}";
+     << "heartbeatSlots: " << config.heartbeatSlots << ", "
+     << "maxIssuancePerEpoch: " << config.maxIssuancePerEpoch << "}";
   return os;
 }
 
