@@ -135,8 +135,10 @@ not installed in `RecordHandler`.
   | `[1<<30, …)` | **Users** | Any funded account except genesis | Normal renewal / termination |
 
   Every `T_NEW_USER` after genesis pays at least the meta-size fee plus the
-  flat `newAccountFee` (chain config, may be `0`); genesis-block records pay
-  exactly the meta-size fee.
+  one-time `newAccountFee` (chain config, may be `0`); genesis-block records pay
+  exactly the meta-size fee. Fees are paid in advance: the meta-size fee at
+  creation (the same formula as renewal) covers the first period, until the
+  account's renewal falls due; each renewal pays for the period after it.
 
   System ids follow a token's life: minted (genesis), held (reserve), spent on
   new issued accounts (registrar), collected (fee, recycle). After genesis the

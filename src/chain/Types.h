@@ -53,9 +53,10 @@ struct BlockChainConfig {
    */
   uint64_t maxIssuancePerEpoch{0};
   /**
-   * Flat fee every account creation (`T_NEW_USER` after genesis) pays on top
-   * of the meta-size fee, to the fee account: a prepaid first renewal for an
-   * account every node stores. `0` = none.
+   * One-time fee every account creation (`T_NEW_USER` after genesis) pays on
+   * top of the meta-size fee, to the fee account. The meta-size fee (the same
+   * formula renewal charges) pays for the account's first period; each
+   * renewal pays for the next. `0` = none.
    */
   uint64_t newAccountFee{0};
 
