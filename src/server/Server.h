@@ -6,7 +6,7 @@
 #include "../network/ServerAmpSupport.h"
 #include "BlockSync.h"
 #include "RequestQueue.h"
-#include "../network/LedgerRpcProtocol.h"
+#include "../network/NetworkTuning.h"
 
 #include <chrono>
 #include <cstdint>
@@ -101,6 +101,14 @@ protected:
   /** Io lane: queue for the server thread, or reply busy when full / stopped. */
   void enqueueRequest(std::string body, RequestQueue::Reply reply);
 
+  /**
+   * Before start: operator network policy (config.json `network`). Sizes the
+   * request queue, sets its expiry, and is applied to AMP and the role's
+   * clients. Roles read it back via networkTuning().
+   */
+  void setNetworkTuning(const network::NetworkTuning& tuning);
+  const network::NetworkTuning& networkTuning() const { return tuning_; }
+
   /** Before start only (tests): queue capacity and max time a request may wait. */
   void setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait);
 
@@ -111,9 +119,6 @@ protected:
   void onStop() override;
 
 private:
-  /** Queued requests beyond this are refused with a busy reply. */
-  static constexpr size_t kRequestQueueCapacity = 1024;
-
   /** Server thread: one queued request — deferred, or handled now and replied. */
   void serveRequest(const RequestQueue::Item& item);
   /** Refuse new requests and reply to pending ones; runs before AMP stops. */
@@ -121,9 +126,10 @@ private:
 
   std::string workDir_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
-  size_t requestCapacity_{kRequestQueueCapacity};
-  /** A request older than a client's read timeout was given up on: reply without doing the work. */
-  std::chrono::milliseconds maxRequestWait_{ledger::rpc::kDefaultReadTimeout};
+  network::NetworkTuning tuning_;
+  size_t requestCapacity_{tuning_.requestQueueCapacity};
+  /** A request older than this was given up on by its client: reply without doing the work. */
+  std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
   std::unique_ptr<RequestQueue> requests_;
 };
 

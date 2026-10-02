@@ -278,7 +278,7 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   log().debug << "Requesting block " << blockId;
 
   std::string payload = utl::binaryPack(blockId);
-  auto result = sendRequest(T_REQ_BLOCK_GET, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_BLOCK_GET, payload, dataTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -294,7 +294,7 @@ Client::Roe<Ledger::ChainNode> Client::parseBlock(const std::string &payload) {
 }
 
 void Client::fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done) {
-  sendRequestAsync(T_REQ_BLOCK_GET, utl::binaryPack(blockId), TIMEOUT_DATA,
+  sendRequestAsync(T_REQ_BLOCK_GET, utl::binaryPack(blockId), dataTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? parseBlock(result.value())
                                  : Roe<Ledger::ChainNode>(Error(result.error().code, result.error().message)));
@@ -305,7 +305,7 @@ Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t account
   log().debug << "Requesting user account: " << accountId;
 
   std::string payload = utl::binaryPack(accountId);
-  auto result = sendRequest(T_REQ_ACCOUNT_GET, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_ACCOUNT_GET, payload, dataTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -335,7 +335,7 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
   log().debug << "Registering miner server: " << minerInfo.id << " " << minerInfo.endpoint;
 
   std::string payload = utl::binaryPack(minerInfo.ltsToMeta());
-  auto result = sendRequest(T_REQ_REGISTER, payload, TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_REGISTER, payload, fastTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -343,7 +343,7 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
 }
 
 void Client::registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done) {
-  sendRequestAsync(T_REQ_REGISTER, utl::binaryPack(minerInfo.ltsToMeta()), TIMEOUT_FAST,
+  sendRequestAsync(T_REQ_REGISTER, utl::binaryPack(minerInfo.ltsToMeta()), fastTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? parseBeaconState(result.value())
                                  : Roe<BeaconState>(Error(result.error().code, result.error().message)));
@@ -353,7 +353,7 @@ void Client::registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconSta
 Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   log().debug << "Requesting beacon state (checkpoint, block)";
 
-  auto result = sendRequest(T_REQ_STATUS, "", TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_STATUS, "", fastTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -361,7 +361,7 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
 }
 
 void Client::fetchBeaconStateAsync(Done<BeaconState> done) {
-  sendRequestAsync(T_REQ_STATUS, "", TIMEOUT_FAST, [done = std::move(done)](Roe<std::string> result) {
+  sendRequestAsync(T_REQ_STATUS, "", fastTimeout(), [done = std::move(done)](Roe<std::string> result) {
     done(result ? parseBeaconState(result.value())
                 : Roe<BeaconState>(Error(result.error().code, result.error().message)));
   });
@@ -370,7 +370,7 @@ void Client::fetchBeaconStateAsync(Done<BeaconState> done) {
 Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {
   log().debug << "Requesting precise timestamp for calibration";
 
-  auto result = sendRequest(T_REQ_CALIBRATION, "", TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_CALIBRATION, "", fastTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -386,7 +386,7 @@ Client::Roe<Client::CalibrationResponse> Client::parseCalibration(const std::str
 }
 
 void Client::fetchCalibrationAsync(Done<CalibrationResponse> done) {
-  sendRequestAsync(T_REQ_CALIBRATION, "", TIMEOUT_FAST, [done = std::move(done)](Roe<std::string> result) {
+  sendRequestAsync(T_REQ_CALIBRATION, "", fastTimeout(), [done = std::move(done)](Roe<std::string> result) {
     done(result ? parseCalibration(result.value())
                 : Roe<CalibrationResponse>(Error(result.error().code, result.error().message)));
   });
@@ -414,7 +414,7 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::parseMinerList(const std::st
 Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
   log().debug << "Requesting miner list";
 
-  auto result = sendRequest(T_REQ_MINER_LIST, "", TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_MINER_LIST, "", fastTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
@@ -422,7 +422,7 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
 }
 
 void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done) {
-  sendRequestAsync(T_REQ_MINER_LIST, "", TIMEOUT_FAST, [done = std::move(done)](Roe<std::string> result) {
+  sendRequestAsync(T_REQ_MINER_LIST, "", fastTimeout(), [done = std::move(done)](Roe<std::string> result) {
     done(result ? parseMinerList(result.value())
                 : Roe<std::vector<MinerInfo>>(Error(result.error().code, result.error().message)));
   });
@@ -432,7 +432,7 @@ Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(con
   log().debug << "Requesting transactions by wallet: " << request.walletId << " " << request.beforeBlockId;
 
   std::string payload = utl::binaryPack(request);
-  auto result = sendRequest(T_REQ_TX_GET_BY_WALLET, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_TX_GET_BY_WALLET, payload, dataTimeout());
 
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -450,7 +450,7 @@ Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
   log().debug << "Requesting transaction by index: " << request.txIndex;
 
   std::string payload = utl::binaryPack(request);
-  auto result = sendRequest(T_REQ_TX_GET_BY_INDEX, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_TX_GET_BY_INDEX, payload, dataTimeout());
 
   if (!result) {
     return Error(result.error().code, result.error().message);
@@ -467,7 +467,7 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
   std::string payload = block.ltsToString();
-  auto result = sendRequest(T_REQ_BLOCK_ADD, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_BLOCK_ADD, payload, dataTimeout());
   if (!result) {
     return result.error();
   }
@@ -476,7 +476,7 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
 
 void Client::addBlockAsync(const Ledger::ChainNode &block, Done<bool> done) {
   log().debug << "Adding block " << block.block.index;
-  sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), TIMEOUT_DATA,
+  sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), dataTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? Roe<bool>(true) : Roe<bool>(result.error()));
                    });
@@ -488,7 +488,7 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   log().debug << "Adding transaction";
 
   std::string payload = utl::binaryPack(record);
-  auto result = sendRequest(T_REQ_TX_ADD, payload, TIMEOUT_DATA);
+  auto result = sendRequest(T_REQ_TX_ADD, payload, dataTimeout());
   if (!result) {
     return result.error();
   }
@@ -497,11 +497,11 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
 }
 
 void Client::forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done) {
-  sendRequestAsync(T_REQ_TX_FORWARD, utl::binaryPack(request), TIMEOUT_DATA, std::move(done));
+  sendRequestAsync(T_REQ_TX_FORWARD, utl::binaryPack(request), dataTimeout(), std::move(done));
 }
 
 void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) {
-  sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), TIMEOUT_DATA,
+  sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), dataTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? Roe<void>() : Roe<void>(result.error()));
                    });
@@ -512,7 +512,7 @@ void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) 
 Client::Roe<Client::MinerStatus> Client::fetchMinerStatus() {
   log().debug << "Requesting miner status";
 
-  auto result = sendRequest(T_REQ_STATUS, "", TIMEOUT_FAST);
+  auto result = sendRequest(T_REQ_STATUS, "", fastTimeout());
   if (!result) {
     return Error(result.error().code, result.error().message);
   }

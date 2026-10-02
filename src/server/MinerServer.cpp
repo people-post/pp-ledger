@@ -132,6 +132,11 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (const Object* anchorObj = jd.getObject("networkAnchor")) {
     network_anchor = NetworkAnchor::fromJson(*anchorObj);
   }
+  auto tuningResult = network::NetworkTuning::fromConfig(jd);
+  if (!tuningResult) {
+    return Error(E_CONFIG, tuningResult.error().message);
+  }
+  tuning = std::move(*tuningResult);
   return {};
 }
 
@@ -293,6 +298,11 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacons: " << config_.network.beacon_multiaddrs.size();
 
+  setNetworkTuning(runFileConfig.tuning);
+  for (Client *client : {&client_, &forwardClient_, &broadcastClient_}) {
+    client->setRequestTimeout(networkTuning().rpcTimeout);
+  }
+
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.privateKeys.front(), config_.network.udp_port);
   if (!ampCfg) {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
@@ -347,7 +357,7 @@ Service::Roe<void> MinerServer::onStart() {
   // served here because the run loop has not started yet.
   initBlockSync();
   lastSyncResult_.reset();
-  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, STARTUP_SYNC_TIMEOUT); !error.empty()) {
+  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, networkTuning().startupSyncTimeout); !error.empty()) {
     return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + error);
   }
 

@@ -9,7 +9,6 @@
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
-#include "../network/Types.hpp"
 
 #include <cstdint>
 #include <list>

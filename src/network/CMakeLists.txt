@@ -21,6 +21,7 @@ add_library(pp_ledger_amp STATIC
     ServerAmpSupport.cpp
     amp/LedgerPeerId.cpp
     amp/AmpIdentity.cpp
+    NetworkTuning.cpp
 )
 
 target_include_directories(pp_ledger_amp PUBLIC
@@ -41,5 +42,6 @@ target_sources(pp_ledger_amp PRIVATE
 )
 
 if(PP_LEDGER_BUILD_TESTS)
+    add_subdirectory(test)
     add_subdirectory(amp/test)
 endif()

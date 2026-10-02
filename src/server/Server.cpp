@@ -30,6 +30,11 @@ Server::Server() : requests_(std::make_unique<RequestQueue>(requestCapacity_)) {
 
 Server::~Server() { stopAmpServer(); }
 
+void Server::setNetworkTuning(const network::NetworkTuning& tuning) {
+  tuning_ = tuning;
+  setRequestLimits(tuning.requestQueueCapacity, tuning.serverQueueExpiry());
+}
+
 void Server::setRequestLimits(size_t capacity, std::chrono::milliseconds maxWait) {
   requestCapacity_ = capacity;
   maxRequestWait_ = maxWait;
@@ -235,8 +240,10 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   if (requests_->isClosed()) {
     requests_ = std::make_unique<RequestQueue>(requestCapacity_);  // restart after a stop
   }
+  network::LedgerAmpConfig tuned = config;
+  tuning_.applyTo(tuned.link_config);
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  auto started = ampSupport_->Start(config, [this](std::string body, RequestQueue::Reply reply) {
+  auto started = ampSupport_->Start(tuned, [this](std::string body, RequestQueue::Reply reply) {
     enqueueRequest(std::move(body), std::move(reply));
   });
   if (!started) {

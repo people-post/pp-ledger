@@ -3,7 +3,6 @@
 
 #include "../client/Client.h"
 #include "../network/amp/AmpIdentity.h"
-#include "../network/Types.hpp"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include "BlockSync.h"
@@ -77,6 +76,7 @@ private:
     uint16_t port{DEFAULT_RELAY_PORT};
     std::vector<std::string> keys{FILE_AMP_IDENTITY};
     std::string beacon;
+    network::NetworkTuning tuning;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object &jd);
@@ -161,7 +161,6 @@ private:
   std::unique_ptr<BlockSync> blockSync_;
   std::optional<BlockSync::Result> lastSyncResult_;
   bool beaconStateRefreshInFlight_{false};
-  static constexpr std::chrono::minutes STARTUP_SYNC_TIMEOUT{5};
 
   std::map<uint64_t, Client::MinerInfo> mMiners_;
   uint64_t registryVersion_{0};

@@ -7,7 +7,6 @@
 #include "BroadcastTally.h"
 #include "Server.h"
 #include "../client/Client.h"
-#include "../network/Types.hpp"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include <chrono>
@@ -61,6 +60,7 @@ private:
     uint16_t port{ Client::DEFAULT_MINER_PORT };
     std::vector<std::string> beacons;
     NetworkAnchor network_anchor;
+    network::NetworkTuning tuning;
 
     pp::common::Object ltsToJson() const;
     Roe<void> ltsFromJson(const pp::common::Object& jd);
@@ -157,7 +157,6 @@ private:
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
-  static constexpr std::chrono::minutes STARTUP_SYNC_TIMEOUT{5};
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   static constexpr int CALIBRATION_SAMPLES = 5;
