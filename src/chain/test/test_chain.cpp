@@ -1974,6 +1974,63 @@ TEST_F(ChainComposeTest, StakeSnapshot_IndependentOfWallClockRefreshTiming) {
   EXPECT_EQ(tipP->hash, tipQ->hash);
 }
 
+// A lagging node's wall-clock refresh must not derive its tip epoch's seed
+// from the clock epoch's provisional stakes. Seen in L-SMOKE-LATEJOIN: the
+// wrong tip-epoch seed stuck (the clock epoch's seed could not be derived
+// while the previous epoch had no local blocks) and every later block of the
+// tip epoch was rejected with "Block epochSeed mismatch" until a restart.
+TEST_F(ChainComposeTest, EpochSeed_LaggingRefreshDoesNotPoisonTipEpochSeed) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t leaderId = producer.getStakeholders().front().id;
+  // Epoch T >= 1: epoch 0's seed comes from the genesis config, not stakes.
+  uint64_t slotA = harness_.genesis.block.slot + 1;
+  while (producer.getEpochFromSlot(slotA) == producer.getEpochFromSlot(harness_.genesis.block.slot)) {
+    ++slotA;
+  }
+  const uint64_t slotA2 = slotA + 1;
+  const uint64_t epochT = producer.getEpochFromSlot(slotA);
+  ASSERT_GE(epochT, 1u);
+  ASSERT_EQ(epochT, producer.getEpochFromSlot(slotA2));
+  uint64_t slotT1 = slotA2 + 1;
+  while (producer.getEpochFromSlot(slotT1) == epochT) {
+    ++slotT1;
+  }
+  uint64_t slotT2 = slotT1 + 1;
+  while (producer.getEpochFromSlot(slotT2) == epochT + 1) {
+    ++slotT2;
+  }
+  for (uint64_t slot : {slotA, slotA2}) {
+    producer.forceSlotLeader(slot, leaderId);
+    peer.forceSlotLeader(slot, leaderId);
+  }
+
+  // Two stake-changing blocks in epoch T.
+  producer.setClockOverride(producer.getSlotStartTime(slotA));
+  Ledger::ChainNode a = makeNextBlockAtSlot(producer, harness_.genesis, slotA,
+                                            {makeReserveTransfer(harness_, 100, 1)});
+  ASSERT_TRUE(producer.addBlock(a).isOk());
+  producer.setClockOverride(producer.getSlotStartTime(slotA2));
+  Ledger::ChainNode a2 = makeNextBlockAtSlot(producer, a, slotA2, {makeReserveTransfer(harness_, 50, 2)});
+  ASSERT_TRUE(producer.addBlock(a2).isOk());
+
+  // Peer has `a`, then its run loop refreshes while it lags: once in epoch
+  // T+1 (derives T+1's provisional seed), once in T+2 (T+1 has no local blocks).
+  peer.setClockOverride(peer.getSlotStartTime(slotA));
+  ASSERT_TRUE(peer.addBlock(a).isOk());
+  peer.setClockOverride(peer.getSlotStartTime(slotT1));
+  peer.refreshStakeholders();
+  peer.setClockOverride(peer.getSlotStartTime(slotT2));
+  peer.refreshStakeholders();
+
+  auto lateA2 = peer.addBlock(a2);
+  ASSERT_TRUE(lateA2.isOk()) << lateA2.error().message;
+  auto tipP = producer.readLastBlock();
+  auto tipQ = peer.readLastBlock();
+  ASSERT_TRUE(tipP.isOk() && tipQ.isOk());
+  EXPECT_EQ(tipP->hash, tipQ->hash);
+}
+
 TEST(ChainPolicyTest, ShouldSealEmptyHeartbeat) {
   EXPECT_FALSE(shouldSealEmptyHeartbeat(/*slot=*/10, /*tip=*/0, /*hb=*/0));
   EXPECT_FALSE(shouldSealEmptyHeartbeat(5, 0, 10));
