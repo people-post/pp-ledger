@@ -106,6 +106,23 @@ Changing `type` or replaying onto another network invalidates signatures.
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
 
+### Config updates
+
+`T_CONFIG` (signed by the genesis quorum, fee `0`) carries a full
+`GenesisAccountMeta`: the next `BlockChainConfig` and the genesis account.
+
+- **The config applies at the next epoch boundary.** A `T_CONFIG` in a block of
+  epoch *e* is pending until the first block of epoch *e + 1*, which is checked
+  and applied under the new config. Everyone sees a change for the rest of its
+  epoch before it binds.
+- **One pending update at a time.** A `T_CONFIG` is refused while another is
+  pending, so at most one config takes effect per epoch. Limits held in the
+  config follow the same rule, so a raised limit cannot be used in the epoch
+  that raised it.
+- **The genesis account (keys, rotation) is replaced at once.**
+- Fields that may not move: `genesisTime`; `slotDuration` may only shrink,
+  `slotsPerEpoch` only grow.
+
 ## Account / ledger model
 
 - **Account-based**, multi-token `map<tokenId, int64>` balances (not UTXO).

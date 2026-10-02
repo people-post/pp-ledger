@@ -72,6 +72,12 @@ inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot,
   return (currentSlot - tipSlot) >= heartbeatSlots;
 }
 
+/** A config update waiting for its epoch (`T_CONFIG` applies at the next epoch boundary). */
+struct PendingChainConfig {
+  uint64_t activationEpoch{0};
+  BlockChainConfig config;
+};
+
 struct GenesisAccountMeta {
   constexpr static const uint32_t VERSION = 3;
 

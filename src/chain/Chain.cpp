@@ -552,8 +552,8 @@ void Chain::abandonSeal() {
 
 Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
-  return TipSnapshot{txContext_.consensus.saveTipState(),
-                     txContext_.optChainConfig, txContext_.checkpoint};
+  return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
+                     txContext_.pendingChainConfig, txContext_.checkpoint};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -562,6 +562,7 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.bank.rollbackOverlay();
   txContext_.consensus.restoreTipState(std::move(snapshot.consensus));
   txContext_.optChainConfig = std::move(snapshot.optChainConfig);
+  txContext_.pendingChainConfig = std::move(snapshot.pendingChainConfig);
   txContext_.checkpoint = snapshot.checkpoint;
 }
 
@@ -575,6 +576,7 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   }
 
   if (block.block.index > 0) {
+    activatePendingConfig(block.block.epoch);
     if (admissionModeFor(block.block.index) !=
         chain_block::BlockAdmissionMode::Full) {
       return Error(E_BLOCK_VALIDATION,
@@ -1077,8 +1079,21 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
+void Chain::activatePendingConfig(uint64_t epoch) {
+  auto &pending = txContext_.pendingChainConfig;
+  if (!pending.has_value() || epoch < pending->activationEpoch) {
+    return;
+  }
+  txContext_.optChainConfig = std::move(pending->config);
+  log().info << "Config update in force from epoch " << pending->activationEpoch << ": "
+             << txContext_.optChainConfig.value();
+  pending.reset();
+}
+
 Chain::Roe<void> Chain::processNormalBlock(
     const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+  // A block of a new epoch is checked and applied under that epoch's config.
+  activatePendingConfig(block.block.epoch);
   auto roe = mapTxVoid(chain_block::checkBlock(
       block, mode, txContext_.ledger, txContext_.consensus, txContext_.bank,
       txContext_.optChainConfig, txContext_.checkpoint, recordHandler_));

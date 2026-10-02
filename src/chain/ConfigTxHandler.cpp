@@ -51,89 +51,24 @@ ConfigTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
 
 namespace {
 
-chain_tx::Roe<void> applyConfigUpdateCore(
-    const Ledger::TxConfig &tx, logging::Logger &logger,
-    const std::optional<BlockChainConfig> &chainConfigBaseline,
-    AccountBuffer &bank, uint64_t blockId,
-    chain_block::BlockAdmissionMode admissionMode, bool commitOptChainConfig,
-    std::optional<BlockChainConfig> *commitTarget) {
-  if (commitOptChainConfig && commitTarget == nullptr) {
-    return chain_tx::TxError(chain_err::E_INTERNAL,
-                             "commitTarget required when committing chain config");
+/** What a config update may change, relative to the active config. */
+chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
+                                         const std::optional<BlockChainConfig> &current) {
+  if (!current.has_value()) {
+    return chain_tx::TxError(chain_err::E_STATE_INIT,
+                             "Chain config not initialized for Full-mode update");
   }
-
-  if (commitOptChainConfig) {
-    logger.info << "Processing system update transaction";
+  if (next.genesisTime != current->genesisTime) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis time mismatch");
   }
-
-  if (tx.fee != 0) {
+  if (next.slotDuration > current->slotDuration) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "System update transaction must have fee 0");
+                             "Slot duration cannot be increased");
   }
-
-  GenesisAccountMeta gm;
-  if (!gm.ltsFromString(tx.meta)) {
-    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
-                             "Failed to deserialize checkpoint config: " +
-                                 tx.meta);
-  }
-
-  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
-      !shape) {
-    return shape;
-  }
-
-  if (chain_block::admissionTxStrict(admissionMode)) {
-    if (!chainConfigBaseline.has_value()) {
-      return chain_tx::TxError(chain_err::E_STATE_INIT,
-                               "Chain config not initialized for Full-mode update");
-    }
-    if (gm.config.genesisTime != chainConfigBaseline.value().genesisTime) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Genesis time mismatch");
-    }
-
-    if (gm.config.slotDuration > chainConfigBaseline.value().slotDuration) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Slot duration cannot be increased");
-    }
-
-    if (gm.config.slotsPerEpoch < chainConfigBaseline.value().slotsPerEpoch) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Slots per epoch cannot be decreased");
-    }
-  }
-
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
-                          gm.genesis.wallet.mBalances)) {
+  if (next.slotsPerEpoch < current->slotsPerEpoch) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Genesis account balance mismatch");
+                             "Slots per epoch cannot be decreased");
   }
-
-  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
-      gm.genesis.meta,
-      [&](uint64_t id) {
-        return id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
-      },
-      "Genesis account attachment: ");
-  if (!attachmentRoe) {
-    return attachmentRoe.error();
-  }
-  gm.genesis.meta = attachmentRoe.value();
-
-  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
-                                                      gm.genesis.wallet);
-      !replaced) {
-    return replaced;
-  }
-
-  if (commitOptChainConfig) {
-    *commitTarget = gm.config;
-    logger.info << "System updated";
-    logger.info << "  Version: " << GenesisAccountMeta::VERSION;
-    logger.info << "  Config: " << commitTarget->value();
-  }
-
   return {};
 }
 
@@ -159,8 +94,13 @@ chain_tx::Roe<void> ConfigTxHandler::applyBuffer(const Ledger::TypedTx &tx,
       !seeded) {
     return seeded;
   }
-  return applyConfigUpdate(*p, c.ctx, bank, c.blockId,
-                           chain_block::BlockAdmissionMode::Full);
+  auto config = applyConfigUpdate(*p, c.ctx, bank, c.blockId,
+                                  c.ctx.consensus.getEpochFromSlot(c.effectiveSlot),
+                                  chain_block::BlockAdmissionMode::Full);
+  if (!config) {
+    return config.error();
+  }
+  return {};
 }
 
 chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
@@ -178,26 +118,77 @@ chain_tx::Roe<void> ConfigTxHandler::applyBlock(const Ledger::TypedTx &tx,
       !idem) {
     return idem;
   }
-  return applyConfigUpdate(*p, c.ctx, bank, c.blockId, c.admissionMode,
-                           true);
+  const uint64_t epoch = c.ctx.consensus.getEpochFromSlot(c.blockSlot);
+  auto config = applyConfigUpdate(*p, c.ctx, bank, c.blockId, epoch, c.admissionMode);
+  if (!config) {
+    return config.error();
+  }
+  // Config changes apply at the next epoch boundary: everyone sees a change
+  // for the rest of its epoch before it binds. Chain activates it.
+  const uint64_t activationEpoch = epoch + 1;
+  c.ctx.pendingChainConfig = PendingChainConfig{activationEpoch, std::move(config.value())};
+  log().info << "Config update accepted; applies from epoch " << activationEpoch;
+  return {};
 }
 
-chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
+chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
     const Ledger::TxConfig &tx, const TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, chain_block::BlockAdmissionMode admissionMode) const {
-  return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
-                               admissionMode, false, nullptr);
-}
+    uint64_t blockId, uint64_t epoch, chain_block::BlockAdmissionMode admissionMode) const {
+  if (tx.fee != 0) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "System update transaction must have fee 0");
+  }
+  // One pending update at a time, so at most one takes effect per epoch. (A
+  // pending update whose epoch has come is in force once that epoch's first
+  // block applies.)
+  if (ctx.pendingChainConfig.has_value() && epoch < ctx.pendingChainConfig->activationEpoch) {
+    return chain_tx::TxError(
+        chain_err::E_TX_VALIDATION,
+        "A config update is already pending (applies from epoch " +
+            std::to_string(ctx.pendingChainConfig->activationEpoch) + ")");
+  }
 
-chain_tx::Roe<void> ConfigTxHandler::applyConfigUpdate(
-    const Ledger::TxConfig &tx, TxContext &ctx, AccountBuffer &bank,
-    uint64_t blockId, chain_block::BlockAdmissionMode admissionMode,
-    bool commitOptChainConfig) const {
-  std::optional<BlockChainConfig> *commitTarget =
-      commitOptChainConfig ? &ctx.optChainConfig : nullptr;
-  return applyConfigUpdateCore(tx, log(), ctx.optChainConfig, bank, blockId,
-                               admissionMode, commitOptChainConfig,
-                               commitTarget);
+  GenesisAccountMeta gm;
+  if (!gm.ltsFromString(tx.meta)) {
+    return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE,
+                             "Failed to deserialize checkpoint config: " +
+                                 tx.meta);
+  }
+
+  if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
+      !shape) {
+    return shape.error();
+  }
+
+  if (chain_block::admissionTxStrict(admissionMode)) {
+    if (auto change = validateConfigChange(gm.config, ctx.optChainConfig); !change) {
+      return change.error();
+    }
+  }
+
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
+                          gm.genesis.wallet.mBalances)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis account balance mismatch");
+  }
+
+  auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
+      gm.genesis.meta,
+      [&](uint64_t id) {
+        return id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
+      },
+      "Genesis account attachment: ");
+  if (!attachmentRoe) {
+    return attachmentRoe.error();
+  }
+  gm.genesis.meta = attachmentRoe.value();
+
+  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
+                                                      gm.genesis.wallet);
+      !replaced) {
+    return replaced.error();
+  }
+  return gm.config;
 }
 
 std::optional<std::string>

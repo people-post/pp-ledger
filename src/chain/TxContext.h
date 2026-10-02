@@ -37,6 +37,8 @@ struct TxContext {
   Ledger ledger;
   AccountBuffer bank;
   std::optional<BlockChainConfig> optChainConfig{std::nullopt};
+  /** Accepted `T_CONFIG` not yet in force; Chain activates it at its epoch. */
+  std::optional<PendingChainConfig> pendingChainConfig{std::nullopt};
   Checkpoint checkpoint{};
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
   std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{
