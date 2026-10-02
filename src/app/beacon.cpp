@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 pp::BeaconServer* g_beaconServer = nullptr;
@@ -21,22 +22,19 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int initBeacon(const std::string& workDir) {
+int initBeacon(const std::string& workDir, const std::vector<std::string>& genesisKeys) {
   pp::BeaconServer beaconServer;
   beaconServer.redirectLogger("pp.BeaconServer");
-  
-  auto result = beaconServer.init(workDir);
+
+  auto result = beaconServer.init(workDir, genesisKeys);
   if (!result) {
     std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
     return 1;
   }
-  
-  std::cout << "Beacon initialized successfully (to reinitialize, edit the init config file and run the same command)\n";
 
-  // Keys are written by init() (0600, never overwriting an older key file).
-  std::cout << "Please save and then delete the private keys written to: "
-            << beaconServer.initKeysPath() << " (not recoverable if lost)\n";
-  std::cout << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
+  std::cout << "Beacon initialized (genesis signed with " << genesisKeys.size() << " genesis key(s)).\n"
+            << "Keep the genesis keys offline: they are the chain's admin keys.\n"
+            << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
   return 0;
 }
 
@@ -74,28 +72,25 @@ int main(int argc, char *argv[]) {
       ->required();
 
   bool initMode = false;
-  app.add_flag("--init", initMode, "Initialize a new beacon");
+  app.add_flag("--init", initMode, "Initialize a new beacon (genesis) from init-config.json");
+
+  std::vector<std::string> genesisKeys;
+  app.add_option("--genesis-key", genesisKeys,
+                 "Genesis private key file to sign the genesis block (repeat for M-of-N); --init only");
 
   bool debugMode = false;
   app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
   app.footer(
-    "Mode 1: Mount existing beacon:\n"
-    "  pp-beacon -d /path/to/work-dir [--debug]\n"
-    "  The work directory must contain config.json\n"
+    "Initialize (once):\n"
+    "  pp-beacon -d <dir> --init --genesis-key genesis.key [--genesis-key ...]\n"
+    "  init-config.json sets networkId and the system accounts' public keys\n"
+    "  (pp-client keygen -o <name>); a missing file is created as a template.\n"
     "\n"
-    "Mode 2: Initialize new beacon:\n"
-    "  pp-beacon -d /path/to/work-dir --init [--debug]\n"
-    "  Creates init-config.json if it doesn't exist, then initializes the beacon\n"
+    "Run:\n"
+    "  pp-beacon -d <dir> [--debug]\n"
     "\n"
-    "Config file format (config.json):\n"
-    "  {\n"
-    "    \"host\": \"localhost\",           // Optional, default: localhost\n"
-    "    \"port\": 8517,                    // Optional, default: 8517\n"
-    "    \"whitelist\": [\"host:port\"],    // Optional, whitelisted beacons\n"
-    "    \"checkpointSize\": 1073741824,    // Optional, default: 1GB\n"
-    "    \"checkpointAge\": 31536000        // Optional, default: 1 year\n"
-    "  }"
+    "Every field: docs/ops/CONFIGURATION.md"
   );
 
   CLI11_PARSE(app, argc, argv);
@@ -109,7 +104,7 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
 
   if (initMode) {
-    return initBeacon(workDir);
+    return initBeacon(workDir, genesisKeys);
   } else {
     return runBeacon(workDir);
   }

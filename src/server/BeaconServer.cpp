@@ -32,11 +32,55 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 }
 } // namespace
 
+namespace {
+
+/** `entry.publicKeys` (hex ML-DSA-65) and optional `minSignatures` (1..count; default all). */
+BeaconServer::Roe<Beacon::AccountKeys> parseAccountKeys(const Object &entry, const std::string &where) {
+  const Array *keys = entry.getArray("publicKeys");
+  if (!keys || keys->elements.empty()) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, where + ".publicKeys must be a non-empty array of hex keys");
+  }
+  Beacon::AccountKeys out;
+  for (const auto &keyValue : keys->elements) {
+    auto hex = pp::common::asString(keyValue);
+    std::string text = hex ? *hex : std::string{};
+    if (text.rfind("0x", 0) == 0) {
+      text = text.substr(2);
+    }
+    std::string key = utl::hexDecode(text);
+    if (key.size() != utl::kMlDsaPublicKeyBytes) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG,
+                                 where + ".publicKeys entries must be hex ML-DSA-65 public keys");
+    }
+    out.publicKeys.push_back(std::move(key));
+  }
+  const uint64_t minSignatures = entry.getNonNegInt("minSignatures").value_or(out.publicKeys.size());
+  if (minSignatures == 0 || minSignatures > out.publicKeys.size()) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, where + ".minSignatures must be 1..number of keys");
+  }
+  out.minSignatures = static_cast<uint8_t>(minSignatures);
+  return out;
+}
+
+} // namespace
+
 // ============ InitFileConfig methods ============
 
 Object BeaconServer::InitFileConfig::ltsToJson() {
   Object j;
   j.set("networkId", networkId);
+  {
+    // Placeholders: each holder creates its key pair (pp-client keygen -o <name>)
+    // and fills in the public key; the beacon never sees their private keys.
+    Object accounts;
+    for (const char *name : {"genesis", "fee", "reserve", "recycle"}) {
+      Object entry;
+      std::vector<Value> keys{Value(std::string("<hex public key from ") + name + ".pub>")};
+      entry.set("publicKeys", Object::array(std::move(keys)));
+      accounts.set(name, entry);
+    }
+    j.set("systemAccounts", accounts);
+  }
   j.setJsonUInt("slotDuration", slotDuration);
   j.setJsonUInt("slotsPerEpoch", slotsPerEpoch);
   j.setJsonUInt("maxCustomMetaSize", maxCustomMetaSize);
@@ -177,7 +221,33 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
     heartbeatSlots = slotsPerEpoch;
   }
 
+  if (auto accounts = parseSystemAccounts(jd); !accounts) {
+    return accounts;
+  }
   return parseGenesisMiners(jd);
+}
+
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const Object &jd) {
+  const Object *accounts = jd.getObject("systemAccounts");
+  if (!accounts) {
+    return Error(E_CONFIG, "Field 'systemAccounts' {genesis, fee, reserve, recycle} with public keys is required");
+  }
+  const std::pair<const char *, Beacon::AccountKeys *> slots[] = {{"genesis", &systemAccounts.genesis},
+                                                                  {"fee", &systemAccounts.fee},
+                                                                  {"reserve", &systemAccounts.reserve},
+                                                                  {"recycle", &systemAccounts.recycle}};
+  for (const auto &[name, slot] : slots) {
+    const Object *entry = accounts->getObject(name);
+    if (!entry) {
+      return Error(E_CONFIG, std::string("systemAccounts.") + name + " is required");
+    }
+    auto keys = parseAccountKeys(*entry, std::string("systemAccounts.") + name);
+    if (!keys) {
+      return keys.error();
+    }
+    *slot = std::move(keys.value());
+  }
+  return {};
 }
 
 BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const Object &jd) {
@@ -202,27 +272,12 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
       return Error(E_CONFIG, where + ".id is required");
     }
     miner.id = *id;
-    const Array *keys = entry->getArray("publicKeys");
-    if (!keys || keys->elements.empty()) {
-      return Error(E_CONFIG, where + ".publicKeys must be a non-empty array of hex keys");
+    auto keys = parseAccountKeys(*entry, where);
+    if (!keys) {
+      return keys.error();
     }
-    for (const auto &keyValue : keys->elements) {
-      auto hex = asString(keyValue);
-      std::string text = hex ? *hex : std::string{};
-      if (text.rfind("0x", 0) == 0) {
-        text = text.substr(2);
-      }
-      std::string key = utl::hexDecode(text);
-      if (key.size() != utl::kMlDsaPublicKeyBytes) {
-        return Error(E_CONFIG, where + ".publicKeys entries must be hex ML-DSA-65 public keys");
-      }
-      miner.publicKeys.push_back(std::move(key));
-    }
-    const uint64_t minSignatures = entry->getNonNegInt("minSignatures").value_or(miner.publicKeys.size());
-    if (minSignatures == 0 || minSignatures > miner.publicKeys.size()) {
-      return Error(E_CONFIG, where + ".minSignatures must be 1..number of keys");
-    }
-    miner.minSignatures = static_cast<uint8_t>(minSignatures);
+    miner.publicKeys = std::move(keys.value().publicKeys);
+    miner.minSignatures = keys.value().minSignatures;
     if (entry->contains("stake")) {
       auto stake = entry->getNonNegInt("stake");
       if (!stake || *stake == 0) {
@@ -263,20 +318,6 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
     port = static_cast<uint16_t>(*portValue);
   }
 
-  if (jd.contains("whitelist")) {
-    const Array *arr = jd.getArray("whitelist");
-    if (!arr) {
-      return Error(E_CONFIG, "Field 'whitelist' must be an array");
-    }
-    whitelist.clear();
-    for (const auto &el : arr->elements) {
-      auto s = asString(el);
-      if (!s) {
-        return Error(E_CONFIG, "Field 'whitelist' elements must be strings");
-      }
-      whitelist.push_back(*s);
-    }
-  }
   return {};
 }
 
@@ -288,8 +329,8 @@ BeaconServer::BeaconServer() {
   client_.redirectLogger(log().getFullName() + ".Client");
 }
 
-BeaconServer::Roe<Beacon::InitKeyConfig>
-BeaconServer::init(const std::string &workDir) {
+BeaconServer::Roe<void>
+BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -323,7 +364,9 @@ BeaconServer::init(const std::string &workDir) {
                    result.error().message);
     }
 
-    log().info << "Created: " << initConfigPath.string();
+    return Error("Created " + initConfigPath.string() +
+                 ": set networkId and the system accounts' public keys (pp-client keygen -o <name>), then run "
+                 "--init again with --genesis-key");
   } else {
     log().info << "Found existing " << FILE_INIT_CONFIG;
   }
@@ -378,41 +421,14 @@ BeaconServer::init(const std::string &workDir) {
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
 
-  // Generate keypairs; pass KeyPairs to beacon for genesis signing and
-  // checkpoint public keys
-  for (int i = 0; i < 3; i++) {
-    auto result = utl::mlDsaGenerate();
-    if (!result) {
-      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
+  initConfig.key = initFileConfig.systemAccounts;
+  for (const auto &keyFile : genesisKeyFiles) {
+    auto privateKey = utl::readPrivateKey(keyFile, ".");
+    if (!privateKey) {
+      return Error("Failed to read genesis key '" + keyFile + "': " + privateKey.error().message);
     }
-    initConfig.key.genesis.push_back(result.value());
-
-    result = utl::mlDsaGenerate();
-    if (!result) {
-      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
-    }
-    initConfig.key.fee.push_back(result.value());
-
-    result = utl::mlDsaGenerate();
-    if (!result) {
-      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
-    }
-    initConfig.key.reserve.push_back(result.value());
-
-    result = utl::mlDsaGenerate();
-    if (!result) {
-      return Error("Failed to generate ML-DSA-65 key: " + result.error().message);
-    }
-    initConfig.key.recycle.push_back(result.value());
+    initConfig.key.genesisSigners.push_back(privateKey.value());
   }
-
-  // Persist the new keys before (re)creating the chain that depends on them.
-  auto keysPath = writeInitKeysFile(workDir, initConfig.key);
-  if (!keysPath) {
-    return Error("Failed to write private keys: " + keysPath.error().message);
-  }
-  initKeysPath_ = keysPath.value();
-  log().info << "Wrote private keys: " << initKeysPath_;
 
   auto result = initFromWorkDir(initConfig);
   if (!result) {
@@ -421,31 +437,7 @@ BeaconServer::init(const std::string &workDir) {
 
 
   log().info << "Beacon initialized successfully";
-  return initConfig.key;
-}
-
-BeaconServer::Roe<std::string>
-BeaconServer::writeInitKeysFile(const std::string &workDir,
-                                const Beacon::InitKeyConfig &keys) {
-  const std::string json =
-      pp::common::io::metaToJsonString(keys.ltsToMeta(), 2) + "\n";
-  constexpr int kMaxAttempts = 1000;
-  for (int n = 1; n <= kMaxAttempts; ++n) {
-    const std::string name = std::string(FILE_INIT_KEYS_STEM) +
-                             (n == 1 ? "" : "-" + std::to_string(n)) + ".json";
-    const std::string path = (std::filesystem::path(workDir) / name).string();
-    if (std::filesystem::exists(path)) {
-      continue;
-    }
-    auto written = utl::writeToNewFile(path, json);
-    if (written) {
-      return path;
-    }
-    if (!std::filesystem::exists(path)) {
-      return Error(written.error().message);
-    }
-  }
-  return Error("No free init-keys file name in " + workDir);
+  return {};
 }
 
 BeaconServer::Roe<void>
@@ -517,12 +509,9 @@ Service::Roe<void> BeaconServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.network.udp_port = runFileConfig.port;
-  config_.network.whitelist = runFileConfig.whitelist;
 
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
-  log().info << "  Whitelisted beacons: "
-             << utl::join(config_.network.whitelist, ", ");
 
   // Initialize beacon core with mount config
   Beacon::MountConfig mountConfig;

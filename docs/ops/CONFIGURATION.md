@@ -6,7 +6,7 @@ anything not listed here is fixed in code.
 
 | File | Role | Read when |
 |------|------|-----------|
-| `init-config.json` | beacon | `pp-beacon --init` only (genesis) |
+| `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
 | `config.json` | beacon, relay, miner | every start (created with defaults if missing) |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 
@@ -15,17 +15,38 @@ anything not listed here is fixed in code.
 ```json
 {
   "networkId": "my-network",
-  "slotDuration": 5,
-  "slotsPerEpoch": 432,
+  "systemAccounts": {
+    "genesis": {"publicKeys": ["<hex>", "<hex>", "<hex>"], "minSignatures": 2},
+    "fee":     {"publicKeys": ["<hex>"]},
+    "reserve": {"publicKeys": ["<hex>"]},
+    "recycle": {"publicKeys": ["<hex>"]}
+  },
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<hex ML-DSA-65 public key>"]}
   ]
 }
 ```
 
+```bash
+pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
+```
+
+**Keys: each holder makes its own** (`pp-client keygen -o <name>` writes
+`<name>.key` and `<name>.pub`). The config holds public keys only; the beacon
+never generates or stores an account's private key. `--genesis-key` (repeat
+for M-of-N) signs the genesis block; the keys must be distinct genesis keys and
+at least its `minSignatures`.
+
+**The genesis account is the admin key.** It signs config updates (`T_CONFIG`)
+and issues to reserve after genesis, so it must be M-of-N from the start: at
+least 3 keys and 2 signatures (the shape its renewals and updates are held to).
+Keep its keys offline with different people; the beacon needs them only for
+`--init`. A config update can replace the genesis keys (rotation).
+
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `networkId` | **required** | This chain's name. Part of genesis: every signature and the epoch seed bind to it; offline signing (`pp-client sign-tx --network-id`) must name it |
+| `systemAccounts` | **required** | `genesis`, `fee`, `reserve`, `recycle`: each `{publicKeys, minSignatures?}` (default: all keys must sign). Genesis: ≥ 3 keys, ≥ 2 signatures |
 | `slotDuration` | 7 | Seconds per slot |
 | `slotsPerEpoch` | 86400 | Slots per epoch |
 | `heartbeatSlots` | `slotsPerEpoch` | Empty block when the tip lags this many slots (0 = off) |

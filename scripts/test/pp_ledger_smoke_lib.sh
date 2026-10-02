@@ -292,15 +292,38 @@ initialize_beacon_with_test_config() {
   if restore_lab_key "beacon-amp-identity.txt" "$beacon_dir/keys/amp-identity.txt"; then
     echo -e "${CYAN}Restored lab beacon Amp identity${NC}"
   fi
+  # Every account holder makes its own keys: 3 per system account (all must
+  # sign), one per miner. The beacon only ever sees public keys; the genesis
+  # keys sign genesis (--genesis-key). Reserve keys later fund test accounts.
+  local key_dir="${TEST_DIR}/keys" name i sep="" system_accounts="" genesis_args=()
+  mkdir -p "$key_dir"
+  for name in genesis fee reserve recycle; do
+    local pubs="" psep=""
+    for i in 1 2 3; do
+      if [[ ! -f "$key_dir/${name}${i}.key" ]]; then
+        "$BUILD_DIR/app/pp-client" keygen -o "$key_dir/${name}${i}" >/dev/null || die "pp-client keygen failed"
+      fi
+      pubs+="${psep}\"$(tr -d ' \n' <"$key_dir/${name}${i}.pub")\""
+      psep=", "
+    done
+    system_accounts+="${sep}\"${name}\": {\"publicKeys\": [${pubs}]}"
+    sep=", "
+  done
+  for i in 1 2 3; do
+    genesis_args+=(--genesis-key "$key_dir/genesis${i}.key")
+  done
+
   # Miners are genesis miner accounts (issued range) with their own keys;
   # system accounts never lead slots.
-  local i genesis_miners="" sep=""
+  local genesis_miners=""
+  sep=""
   for i in $(seq 1 "$NUM_MINERS"); do
     generate_miner_key "$i" >/dev/null
     genesis_miners+="${sep}{\"id\": $(miner_account_id "$i"), \"publicKeys\": [\"$(cat "${TEST_DIR}/keys/miner${i}.pub")\"]}"
     sep=", "
   done
   render_fixture "init-config.json.tmpl" "$beacon_dir/init-config.json" \
+    "SYSTEM_ACCOUNTS={${system_accounts}}" \
     "GENESIS_MINERS=[${genesis_miners}]" \
     "NETWORK_ID=${SMOKE_NETWORK_ID}" \
     "SLOT_DURATION=${SLOT_DURATION}" \
@@ -311,44 +334,13 @@ initialize_beacon_with_test_config() {
   echo -e "${CYAN}Created init-config.json (slot=${SLOT_DURATION}s, epoch=${SLOTS_PER_EPOCH})${NC}"
 
   local init_output
-  init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init 2>&1) || {
+  init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init "${genesis_args[@]}" 2>&1) || {
     echo "$init_output" >&2
     die "beacon --init failed"
   }
   # Avoid SIGPIPE under pipefail: print a short prefix without head closing early.
   printf '%s\n' "${init_output}" | awk 'NR<=3 {print}' || true
-  persist_lab_key "$beacon_dir/keys/amp-identity.txt" "beacon-amp-identity.txt"
   echo -e "${GREEN}✓ Beacon initialized${NC}"
-
-  # pp-beacon --init writes the private keys to a 0600 file and prints only its
-  # path ("...written to: <path> ..."); it may be init-keys-N.json on re-init.
-  local keys_file
-  keys_file=$(printf '%s\n' "$init_output" | sed -n 's/.*written to: \([^ ]*\).*/\1/p' | tail -n 1)
-  [[ -n "$keys_file" ]] || keys_file="$beacon_dir/init-keys.json"
-  [[ -f "$keys_file" ]] || die "beacon init keys file not found: $keys_file"
-
-  local key_dir="${TEST_DIR}/keys"
-  mkdir -p "$key_dir"
-  # The reserve keys fund test accounts (inject_transactions_for_block_production).
-  python3 - "$key_dir" "$keys_file" <<'PYEOF' || die "could not extract reserve/fee/recycle keys from $keys_file"
-import json, os, sys
-key_dir, keys_path = sys.argv[1], sys.argv[2]
-with open(keys_path) as f:
-    j = json.load(f)
-for name in ("reserve", "fee", "recycle"):
-    arr = j.get(name, [])
-    if len(arr) != 3:
-        sys.exit(1)
-    for i, kp in enumerate(arr, 1):
-        pk = kp.get("privateKey", "")
-        if not pk:
-            sys.exit(1)
-        path = os.path.join(key_dir, f"{name}{i}.key")
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as out:
-            out.write(pk)
-PYEOF
-  echo -e "${CYAN}Saved reserve/fee/recycle keys from ${keys_file}${NC}"
 }
 
 create_beacon_config() {
@@ -478,6 +470,7 @@ start_beacon() {
     stop_network
     die "beacon process died"
   }
+  persist_lab_key "$beacon_dir/keys/amp-identity.txt" "beacon-amp-identity.txt"
   echo -e "${GREEN}✓ Beacon started on UDP ${BEACON_PORT}${NC}"
 }
 

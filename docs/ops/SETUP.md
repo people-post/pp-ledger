@@ -8,22 +8,21 @@ The beacon server is the network validator and authoritative data source.
 
 ### Mode 1: Initialize a new beacon (first-time setup)
 
+Every account holder makes its own keys; the beacon only receives public keys.
+
 ```bash
 cd build
+# Each holder, on their own machine (genesis: 3 holders, any 2 sign):
+./app/pp-client keygen -o genesis1     # genesis2, genesis3, fee, reserve, recycle likewise
 mkdir -p beacon
-./app/pp-beacon -d beacon --init
+./app/pp-beacon -d beacon --init       # writes a beacon/init-config.json template and stops
+# fill in networkId and the public keys (*.pub), then:
+./app/pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
 ```
 
-This will:
-- Create `beacon/init-config.json` with default consensus parameters if it doesn't exist
-- Initialize the beacon with genesis block (block 0)
-- Write the new genesis/fee/reserve/recycle private keys to `beacon/init-keys.json`
-  (mode 0600; `init-keys-2.json`, … on re-init — existing files are never
-  overwritten). Only the path is printed. Save the keys, then delete the file
-- Create `beacon/config.json` for runtime configuration (`{"port": 8517}`)
-
-Edit `beacon/init-config.json` before initialization; it must set `networkId`.
-Fields, defaults and genesis miners: [CONFIGURATION.md](CONFIGURATION.md).
+This creates the genesis block (block 0) declaring the system accounts and any
+genesis miners by public key. The genesis keys are the chain's admin keys:
+keep them offline. Fields and rules: [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Mode 2: Mount an existing beacon
 
@@ -211,19 +210,23 @@ does all of this locally (`run --suite smoke`).
 ./app/pp-client keygen        # keep the private key; send the public key to the beacon operator
 ```
 
-**2. Beacon** — list the miners in `init-config.json`, then init and start:
+**2. Beacon** — system accounts (Mode 1 above) and the miners in
+`init-config.json`, then init and start:
 ```bash
 mkdir -p beacon
 cat > beacon/init-config.json << 'JSON'
 {
   "networkId": "my-network",
+  "systemAccounts": {"genesis": {"publicKeys": ["<g1>", "<g2>", "<g3>"], "minSignatures": 2},
+                     "fee": {"publicKeys": ["<fee>"]}, "reserve": {"publicKeys": ["<reserve>"]},
+                     "recycle": {"publicKeys": ["<recycle>"]}},
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<miner 1 public key hex>"]},
     {"id": 1048577, "publicKeys": ["<miner 2 public key hex>"]}
   ]
 }
 JSON
-./app/pp-beacon -d beacon --init
+./app/pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
 ./app/pp-beacon -d beacon     # prints "AMP ledger listener: /ip4/.../p2p/<beacon peer id>"
 ```
 

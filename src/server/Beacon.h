@@ -43,13 +43,24 @@ public:
 
   template <typename T> using Roe = ResultOrError<T, Error>;
 
-  struct InitKeyConfig {
-    std::vector<utl::MlDsaKeyPair> genesis;
-    std::vector<utl::MlDsaKeyPair> fee;
-    std::vector<utl::MlDsaKeyPair> reserve;
-    std::vector<utl::MlDsaKeyPair> recycle;
+  /** An account's public keys and how many must sign (0 = all of them). */
+  struct AccountKeys {
+    std::vector<std::string> publicKeys; ///< raw ML-DSA-65 public keys
+    uint8_t minSignatures{0};
+  };
 
-    pp::common::Meta ltsToMeta() const;
+  /**
+   * Genesis accounts by public key (init-config.json `systemAccounts`), plus
+   * the genesis private keys that sign the genesis block (`--genesis-key`).
+   * The beacon generates and keeps no account keys: each holder creates its
+   * own; the genesis key is the long-term admin key, kept offline.
+   */
+  struct InitKeyConfig {
+    AccountKeys genesis;
+    AccountKeys fee;
+    AccountKeys reserve;
+    AccountKeys recycle;
+    std::vector<std::string> genesisSigners; ///< raw ML-DSA-65 private keys
   };
 
   /**
@@ -126,11 +137,17 @@ private:
   createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
                             const std::vector<GenesisMiner> &miners);
 
+  /**
+   * The signers must be distinct genesis keys and at least the genesis
+   * account's minSignatures; every account needs keys (minSignatures <= count).
+   */
+  Roe<void> checkInitKeys(const InitKeyConfig &key) const;
+
   /** Signs transaction with genesis keys and adds signatures. Returns error on
    * sign failure. */
   Roe<void>
   signWithGenesisKeys(Ledger::Record &record,
-                      const std::vector<utl::MlDsaKeyPair> &genesisKeys,
+                      const std::vector<std::string> &genesisSigners,
                       const std::string &networkId,
                       const std::string &errorContext) const;
 

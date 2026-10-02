@@ -359,6 +359,9 @@ int main(int argc, char *argv[]) {
 
   // Local command: keygen
   auto* keygen = app.add_subcommand("keygen", "Generate a new ML-DSA-65 key pair");
+  std::string keygenOut;
+  keygen->add_option("-o,--out", keygenOut,
+                     "Write <name>.key (private, hex, 0600) and <name>.pub (public, hex); never overwrites");
 
   // Beacon commands
   auto* beacon_status = app.add_subcommand("status", "Get beacon/miner status");
@@ -489,10 +492,24 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: " << pair.error().message << "\n";
       return 1;
     }
+    if (!keygenOut.empty()) {
+      auto key = pp::utl::writeToNewFile(keygenOut + ".key", pp::utl::hexEncode(pair->privateKey) + "\n");
+      if (!key) {
+        std::cerr << "Error: " << keygenOut << ".key: " << key.error().message << "\n";
+        return 1;
+      }
+      auto pub = pp::utl::writeToNewFile(keygenOut + ".pub", pp::utl::hexEncode(pair->publicKey) + "\n");
+      if (!pub) {
+        std::cerr << "Error: " << keygenOut << ".pub: " << pub.error().message << "\n";
+        return 1;
+      }
+      std::cout << "Wrote " << keygenOut << ".key (keep secret) and " << keygenOut << ".pub\n";
+      return 0;
+    }
     std::cout << "ML-DSA-65 key pair generated.\n";
     std::cout << "Public key (hex):   " << pp::utl::hexEncode(pair->publicKey) << "\n";
     std::cout << "Private key (hex):  " << pp::utl::hexEncode(pair->privateKey) << "\n";
-    std::cout << "\nKeep the private key secret. Use the public key in config (e.g. beacon keys).\n";
+    std::cout << "\nKeep the private key secret. Use the public key in init-config.json (or -o <name> to write files).\n";
     return 0;
   }
 
