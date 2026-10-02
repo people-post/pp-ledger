@@ -142,6 +142,7 @@ MinerServer::MinerServer() {
   miner_.redirectLogger(log().getFullName() + ".Miner");
   client_.redirectLogger(log().getFullName() + ".Client");
   forwardClient_.redirectLogger(log().getFullName() + ".ForwardClient");
+  broadcastClient_.redirectLogger(log().getFullName() + ".BroadcastClient");
 }
 
 MinerServer::~MinerServer() {}
@@ -306,6 +307,7 @@ Service::Roe<void> MinerServer::onStart() {
   }
   client_.attachAmpTransport(*ampRuntime(), "beacon");
   forwardClient_.attachAmpTransport(*ampRuntime(), "leader");
+  broadcastClient_.attachAmpTransport(*ampRuntime(), "upstream:0");
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();
@@ -341,14 +343,13 @@ Service::Roe<void> MinerServer::onStart() {
                                        minerInit.error().message);
   }
 
-  auto syncResult = syncBlocksFromBeacon();
-  if (!syncResult) {
-    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " +
-                                       syncResult.error().message);
+  // Initial catch-up: the same BlockSync as at run time; completions are
+  // served here because the run loop has not started yet.
+  initBlockSync();
+  lastSyncResult_.reset();
+  if (auto error = runStartupSync(*blockSync_, lastSyncResult_, STARTUP_SYNC_TIMEOUT); !error.empty()) {
+    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + error);
   }
-
-  lastBlockSyncTime_ = std::chrono::steady_clock::now();
-  lastSyncedEpoch_ = miner_.getCurrentEpoch();
 
   refreshMinerListFromBeacon();
 
@@ -410,66 +411,37 @@ MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
   return offsetMs;
 }
 
-MinerServer::Roe<void> MinerServer::syncBlocksFromBeacon() {
-  if (config_.network.beacon_multiaddrs.empty()) {
-    return Error(E_CONFIG, "No beacon servers configured");
-  }
-
-  if (auto dial = dialActiveUpstream(); !dial) {
-    auto best = selectBestUpstreamIndex();
-    if (!best) {
-      return Error(E_NETWORK, best.error().message);
-    }
-    active_upstream_index_ = best.value();
-    if (auto redial = dialActiveUpstream(); !redial) {
-      return Error(E_NETWORK, redial.error().message);
-    }
-  }
-
-  const auto& upstream_ma = config_.network.beacon_multiaddrs[active_upstream_index_];
-  log().info << "Syncing blocks from upstream: " << upstream_ma;
-
-  auto calibrationResult = client_.fetchCalibration();
-  if (!calibrationResult) {
-    return Error(E_NETWORK,
-                 "Failed to get beacon calibration: " + calibrationResult.error().message);
-  }
-
-  uint64_t latestBlockId = calibrationResult.value().nextBlockId;
-  uint64_t nextBlockId = miner_.getNextBlockId();
-
-  if (nextBlockId >= latestBlockId) {
-    log().info << "Already in sync: next block " << nextBlockId
-               << ", beacon latest " << latestBlockId;
-    return {};
-  }
-
-  log().info << "Syncing blocks " << nextBlockId << " to " << latestBlockId;
-
-  for (uint64_t blockId = nextBlockId; blockId < latestBlockId; ++blockId) {
-    auto blockResult = client_.fetchBlock(blockId);
-    if (!blockResult) {
-      return Error(E_NETWORK,
-                   "Failed to fetch block " + std::to_string(blockId) +
-                       " from beacon: " + blockResult.error().message);
-    }
-
-    Ledger::ChainNode block = blockResult.value();
+void MinerServer::initBlockSync() {
+  BlockSync::Hooks hooks;
+  hooks.dialUpstream = [this]() -> pp::Roe<void> {
+    auto dial = dialActiveUpstream();
+    return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
+  };
+  hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
+  hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
+    Ledger::ChainNode block = fetched;
     block.hash = miner_.calculateHash(block.block);
+    auto added = miner_.addBlock(block);
+    return added ? pp::Roe<void>() : pp::Roe<void>(pp::Error(added.error().message));
+  };
+  hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
+  hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
+  blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
+  blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
+}
 
-    auto addResult = miner_.addBlock(block);
-    if (!addResult) {
-      return Error(E_MINER, "Failed to add block " + std::to_string(blockId) +
-                                ": " + addResult.error().message);
-    }
-
-    log().debug << "Synced block " << blockId;
+void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
+  lastSyncResult_ = result;
+  if (result.ok) {
+    lastBlockSyncTime_ = std::chrono::steady_clock::now();
+    lastSyncedEpoch_ = miner_.getCurrentEpoch();
+  } else if (config_.network.beacon_multiaddrs.size() > 1) {
+    // Fail over: the next attempt (after backoff) uses the next upstream.
+    active_upstream_index_ = (active_upstream_index_ + 1) % config_.network.beacon_multiaddrs.size();
+    log().info << "Switching upstream to [" << active_upstream_index_ << "] "
+               << config_.network.beacon_multiaddrs[active_upstream_index_];
   }
-
-  log().info << "Sync complete: " << (latestBlockId - nextBlockId)
-             << " blocks added";
-
-  return {};
+  resolvePendingBlockGets();
 }
 
 void MinerServer::initHandlers() {
@@ -539,10 +511,9 @@ void MinerServer::runLoop() {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
       }
-      resolvePendingBlockGets();
       if (minerListRefreshRequested_) {
         minerListRefreshRequested_ = false;
-        refreshMinerListFromBeacon();
+        startMinerListRefresh();
       }
 
       if (!miner_.isConfigReady()) {
@@ -576,12 +547,14 @@ void MinerServer::trySyncBlocksFromBeacon(bool bypassRateLimit) {
       return; // Rate limit: at most one sync per slot time
     }
   }
-  auto syncResult = syncBlocksFromBeacon();
-  if (syncResult) {
-    lastBlockSyncTime_ = std::chrono::steady_clock::now();
-    lastSyncedEpoch_ = miner_.getCurrentEpoch();
-  } else {
-    log().warning << "Block sync failed: " << syncResult.error().message;
+  if (broadcast_) {
+    // Our seal is pending: applying a synced block now would be refused.
+    blockSyncRequested_ = true;
+    return;
+  }
+  if (blockSync_->start() == BlockSync::Start::BackingOff) {
+    // No sync coming soon: answer waiting block gets with what we have.
+    resolvePendingBlockGets();
   }
 }
 
@@ -643,6 +616,30 @@ void MinerServer::refreshMinerListFromBeacon() {
     log().warning << "Failed to fetch miner list: "
                   << minerListResult.error().message;
   }
+}
+
+void MinerServer::startMinerListRefresh() {
+  if (minerListRefreshInFlight_ || config_.network.beacon_multiaddrs.empty()) {
+    return;
+  }
+  if (auto dial = dialActiveUpstream(); !dial) {
+    log().warning << "Failed to dial upstream for miner list: " << dial.error().message;
+    return;
+  }
+  minerListRefreshInFlight_ = true;
+  client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(
+      [this](Client::Roe<std::vector<Client::MinerInfo>> miners) {
+        minerListRefreshInFlight_ = false;
+        lastMinerListFetchTime_ = std::chrono::steady_clock::now();
+        if (!miners) {
+          log().warning << "Failed to fetch miner list: " << miners.error().message;
+          return;
+        }
+        for (const auto &miner : miners.value()) {
+          config_.mMiners[miner.id] = miner;
+        }
+        log().info << "Fetched miner list: " << config_.mMiners.size() << " registered miners";
+      }));
 }
 
 std::string MinerServer::lookupTxSubmitAddress(uint64_t slotLeaderId) const {
@@ -712,6 +709,9 @@ void MinerServer::resolvePendingBlockGets() {
 
 MinerServer::Roe<std::string>
 MinerServer::hBlockAdd(const Client::Request &request) {
+  if (broadcast_) {
+    return Error(E_REQUEST, "Block broadcast in progress, please retry");
+  }
   Ledger::ChainNode block;
   if (!block.ltsFromString(request.payload)) {
     return Error(E_REQUEST, "Failed to deserialize block: " + request.payload);
@@ -922,6 +922,9 @@ MinerServer::hUnsupported(const Client::Request &request) {
 }
 
 void MinerServer::handleSlotLeaderRole() {
+  if (blockSync_->inFlight() || broadcast_) {
+    return; // seal only on a settled tip; try again next loop
+  }
   // Add cached transactions to our own pool (we are slot leader, no need to
   // forward). addTransaction checks against this slot's fresh state, so a
   // rejection is final — re-caching would retry an invalid transaction forever.
@@ -940,7 +943,7 @@ void MinerServer::handleSlotLeaderRole() {
     log().info << "Added " << added << " cached transactions to slot leader pool";
   }
 
-  static Ledger::ChainNode block;
+  Ledger::ChainNode block;
   auto produceResult = miner_.produceBlock(block);
   if (!produceResult) {
     log().warning << "Failed to produce block: " +
@@ -955,12 +958,46 @@ void MinerServer::handleSlotLeaderRole() {
 
   log().info << "Successfully produced block " << block.block.index
              << " with hash " << block.hash;
+  startBroadcast(block);
+}
 
-  // Broadcast for verification
-  auto broadcastResult = broadcastBlock(block);
-  if (!broadcastResult) {
-    log().warning << "Failed to broadcast block: " +
-                         broadcastResult.error().message;
+void MinerServer::startBroadcast(const Ledger::ChainNode &block) {
+  const auto &upstreams = config_.network.beacon_multiaddrs;
+  broadcast_ = PendingBroadcast{nextBroadcastId_++, block, BroadcastTally(upstreams.size())};
+  const uint64_t id = broadcast_->id;
+  for (size_t i = 0; i < upstreams.size(); ++i) {
+    // Each call captures the dial key set just before it, so the sends run in parallel.
+    if (auto dial = broadcastClient_.setAmpPeer("upstream:" + std::to_string(i), upstreams[i]); !dial) {
+      onBroadcastResult(id, i, Client::Roe<bool>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
+      continue;
+    }
+    broadcastClient_.addBlockAsync(block, completeOnServerThread<bool>([this, id, i](Client::Roe<bool> result) {
+      onBroadcastResult(id, i, std::move(result));
+    }));
+  }
+  if (upstreams.empty()) {
+    onBroadcastResult(id, 0, Client::Roe<bool>(Client::Error(Client::E_NOT_CONNECTED, "No upstream configured")));
+  }
+}
+
+void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<bool> result) {
+  if (!broadcast_ || broadcast_->id != broadcastId) {
+    return; // a later result for a broadcast that already finished
+  }
+  if (!result) {
+    const auto &upstreams = config_.network.beacon_multiaddrs;
+    log().warning << "Failed to add block to upstream "
+                  << (upstream < upstreams.size() ? upstreams[upstream] : std::string("?")) << ": "
+                  << result.error().message;
+  }
+  switch (broadcast_->tally.onResult(bool(result))) {
+  case BroadcastTally::Event::Commit:
+    commitProducedBlock(broadcast_->block);
+    break;
+  case BroadcastTally::Event::AllFailed: {
+    log().warning << "Failed to broadcast block " << broadcast_->block.block.index << " to any upstream";
+    Ledger::ChainNode block = std::move(broadcast_->block);
+    broadcast_.reset();
     // Release the uncommitted seal, or every later seal/addBlock is refused.
     miner_.abandonBlock(block);
     // Most often another leader's block won this height: take it now rather
@@ -968,16 +1005,26 @@ void MinerServer::handleSlotLeaderRole() {
     trySyncBlocksFromBeacon(true);
     return;
   }
+  case BroadcastTally::Event::None:
+    break;
+  }
+  if (broadcast_->tally.done()) {
+    broadcast_.reset();
+    if (blockSyncRequested_) {
+      blockSyncRequested_ = false;
+      trySyncBlocksFromBeacon(true);
+    }
+  }
+}
 
+void MinerServer::commitProducedBlock(const Ledger::ChainNode &block) {
   log().info << "Block " << block.block.index << " broadcasted";
   miner_.markBlockProduction(block);
-
   auto addResult = miner_.addBlock(block);
   if (!addResult) {
     log().warning << "Failed to add block: " + addResult.error().message;
     return;
   }
-
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block.block.index;
   log().info << "  Slot: " << block.block.slot;
@@ -1068,28 +1115,6 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   }
 
   return state;
-}
-
-MinerServer::Roe<void>
-MinerServer::broadcastBlock(const Ledger::ChainNode &block) {
-  bool anySuccess = false;
-  for (const auto &beacon_ma : config_.network.beacon_multiaddrs) {
-    if (auto dial = dialPeerMultiaddr(beacon_ma, "beacon"); !dial) {
-      log().warning << "Failed to dial beacon " << beacon_ma << ": " << dial.error().message;
-      continue;
-    }
-    auto clientResult = client_.addBlock(block);
-    if (!clientResult) {
-      log().warning << "Failed to add block to beacon " << beacon_ma << ": "
-                    << clientResult.error().message;
-      continue;
-    }
-    anySuccess = true;
-  }
-  if (!anySuccess) {
-    return Error(E_NETWORK, "Failed to broadcast block to any beacon");
-  }
-  return {};
 }
 
 } // namespace pp

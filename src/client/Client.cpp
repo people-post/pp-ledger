@@ -282,12 +282,23 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
+  return parseBlock(result.value());
+}
 
+Client::Roe<Ledger::ChainNode> Client::parseBlock(const std::string &payload) {
   Ledger::ChainNode node;
-  if (!node.ltsFromString(result.value())) {
+  if (!node.ltsFromString(payload)) {
     return Error(E_INVALID_RESPONSE, "Failed to deserialize block");
   }
   return node;
+}
+
+void Client::fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done) {
+  sendRequestAsync(T_REQ_BLOCK_GET, utl::binaryPack(blockId), TIMEOUT_DATA,
+                   [done = std::move(done)](Roe<std::string> result) {
+                     done(result ? parseBlock(result.value())
+                                 : Roe<Ledger::ChainNode>(Error(result.error().code, result.error().message)));
+                   });
 }
 
 Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t accountId) {
@@ -346,18 +357,14 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
+  return parseBeaconState(result.value());
+}
 
-  auto metaResult = utl::binaryUnpack<pp::common::Meta>(result.value());
-  if (!metaResult) {
-    return Error(E_INVALID_RESPONSE,
-                 "Failed to unpack beacon state Meta: " + metaResult.error().message);
-  }
-  BeaconState state;
-  auto parseResult = state.ltsFromMeta(metaResult.value());
-  if (!parseResult) {
-    return Error(parseResult.error().code, parseResult.error().message);
-  }
-  return state;
+void Client::fetchBeaconStateAsync(Done<BeaconState> done) {
+  sendRequestAsync(T_REQ_STATUS, "", TIMEOUT_FAST, [done = std::move(done)](Roe<std::string> result) {
+    done(result ? parseBeaconState(result.value())
+                : Roe<BeaconState>(Error(result.error().code, result.error().message)));
+  });
 }
 
 Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {
@@ -367,12 +374,22 @@ Client::Roe<Client::CalibrationResponse> Client::fetchCalibration() {
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
+  return parseCalibration(result.value());
+}
 
-  auto roe = utl::binaryUnpack<CalibrationResponse>(result.value());
+Client::Roe<Client::CalibrationResponse> Client::parseCalibration(const std::string &payload) {
+  auto roe = utl::binaryUnpack<CalibrationResponse>(payload);
   if (!roe) {
     return Error(E_INVALID_RESPONSE, "Failed to unpack calibration response: " + roe.error().message);
   }
   return roe.value();
+}
+
+void Client::fetchCalibrationAsync(Done<CalibrationResponse> done) {
+  sendRequestAsync(T_REQ_CALIBRATION, "", TIMEOUT_FAST, [done = std::move(done)](Roe<std::string> result) {
+    done(result ? parseCalibration(result.value())
+                : Roe<CalibrationResponse>(Error(result.error().code, result.error().message)));
+  });
 }
 
 Client::Roe<std::vector<Client::MinerInfo>> Client::parseMinerList(const std::string &payload) {

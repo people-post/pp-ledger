@@ -46,6 +46,9 @@ public:
   /** Server thread. Next request, or nullopt at `deadline` / when closed and empty. */
   std::optional<Item> popUntil(Clock::time_point deadline);
 
+  /** Server thread. Next completion task (requests stay queued), or nullopt at `deadline`. */
+  std::optional<Item> popTaskUntil(Clock::time_point deadline);
+
   /** Stop accepting requests; returns those still pending (caller replies). */
   std::deque<Item> close();
 

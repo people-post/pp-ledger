@@ -280,6 +280,9 @@ public:
   void addBlockAsync(const Ledger::ChainNode &block, Done<bool> done);
   /** Done gets the receiver's reply text (pooled / held / cached). */
   void forwardTransactionAsync(const TxForwardRequest &request, Done<std::string> done);
+  void fetchCalibrationAsync(Done<CalibrationResponse> done);
+  void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
+  void fetchBeaconStateAsync(Done<BeaconState> done);
 
   /** True when the call failed before a server answered (worth retrying later). */
   static bool isTransportError(int32_t code) {
@@ -288,6 +291,8 @@ public:
 
 private:
   static Roe<BeaconState> parseBeaconState(const std::string &payload);
+  static Roe<CalibrationResponse> parseCalibration(const std::string &payload);
+  static Roe<Ledger::ChainNode> parseBlock(const std::string &payload);
   static Roe<std::vector<MinerInfo>> parseMinerList(const std::string &payload);
   std::string packRequest(uint32_t type, const std::string &payload);
   static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);

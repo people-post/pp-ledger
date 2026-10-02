@@ -73,11 +73,27 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 | 1 | Pump thread owns the AMP stack; outbound calls post and wait | Done |
 | 2 | Single server thread per role; inbound requests queued to it | Done |
 | 3 | Handlers that call out reply later instead of blocking the server thread: relay forwards (block add, register, miner list) and miner tx forwarding go async; block gets beyond the tip wait for the run loop's next sync | Done |
-| 4 | Background sync as completions too, so the server thread never blocks | Planned |
+| 4 | Role duties as completions too: block sync, block broadcast, miner-list refresh | Done |
 
-Role duties still make blocking calls (sync from the beacon, calibration, block
-broadcast, miner-list refresh); queued requests wait while they run. Phase 4
-turns those into completions too.
+After phase 4 a role's run loop makes no blocking network calls:
+
+- **Block sync** (`BlockSync`, Miner and Relay): calibrate, then fetch the gap
+  with up to 4 requests in flight, applying blocks in order as they arrive. One
+  sync at a time; failures back off (0.5 s → 8 s) and a Miner fails over to the
+  next upstream. Block gets waiting past the tip are answered when a sync
+  finishes (or at once while a failure backs off). A leader does not produce
+  while a sync runs.
+- **Block broadcast** (Miner): sent to every upstream in parallel; the block
+  commits on the first acceptance, and all failing releases the seal and syncs.
+  While it is pending the leader does not produce, syncs wait, and an inbound
+  `BLOCK_ADD` is told to retry.
+- **Startup** (`onStart`) still blocks — connect, register, calibrate, verify
+  the genesis anchor — before anything is served. Its initial sync uses
+  `BlockSync` driven by `Server::serveTasksUntil` (completions only; requests
+  stay queued) and retries with backoff until `STARTUP_SYNC_TIMEOUT`.
+
+Parallel block fetches need pp-cpp-amp ≥ v2.13.1: earlier versions dropped
+reliable messages that did not fit the transport window (~115 KB in flight).
 
 Still open: role timers (`refresh`, slot ticks) as queue events rather than the
 fixed serve budget between duties.

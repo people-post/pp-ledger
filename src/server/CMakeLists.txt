@@ -5,6 +5,9 @@ add_library(pp_server STATIC
     RequestQueue.cpp
     RequestQueue.h
     TxForwardPolicy.h
+    BlockSync.cpp
+    BlockSync.h
+    BroadcastTally.h
     BeaconServer.cpp
     BeaconServer.h
     Beacon.cpp

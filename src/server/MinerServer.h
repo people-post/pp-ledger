@@ -3,6 +3,8 @@
 
 #include "Miner.h"
 #include "NetworkAnchor.h"
+#include "BlockSync.h"
+#include "BroadcastTally.h"
 #include "Server.h"
 #include "../client/Client.h"
 #include "../network/Types.hpp"
@@ -93,15 +95,24 @@ private:
   void forwardToSlotLeader(const Ledger::Record& record, uint64_t slot,
                            std::function<void(Roe<std::string>)> done);
   void syncBlocksPeriodically();
+  /** Start a background sync (rate-limited to one per slot unless bypassed). */
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
+  /** BlockSync wiring and completion (server thread). */
+  void initBlockSync();
+  void onBlockSyncFinished(const BlockSync::Result &result);
+  /** Run-time miner list refresh without blocking (startup uses the blocking one). */
+  void startMinerListRefresh();
   Roe<Client::BeaconState> connectToBeacon();
-  Roe<void> syncBlocksFromBeacon();
   Roe<int64_t> calibrateTimeToBeacon();
   void initHandlers();
   void handleSlotLeaderRole();
   void handleValidatorRole();
   void retryCachedTransactionForwards();
-  Roe<void> broadcastBlock(const Ledger::ChainNode& block);
+  /** Send a produced (sealed) block to every upstream in parallel. */
+  void startBroadcast(const Ledger::ChainNode& block);
+  void onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<bool> result);
+  /** First upstream accepted it: commit our seal. */
+  void commitProducedBlock(const Ledger::ChainNode& block);
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
   Roe<void> dialUpstreamIndex(size_t index);
   Roe<void> dialActiveUpstream();
@@ -132,9 +143,21 @@ private:
   Client client_;
   /** Transaction forwarding to slot leaders; never retargets client_. */
   Client forwardClient_;
+  /** Block broadcast to upstreams (one dial key per upstream). */
+  Client broadcastClient_;
+
+  /** A produced block awaiting its broadcast results (at most one). */
+  struct PendingBroadcast {
+    uint64_t id{0};
+    Ledger::ChainNode block;
+    BroadcastTally tally{0};
+  };
+  std::optional<PendingBroadcast> broadcast_;
+  uint64_t nextBroadcastId_{1};
   Config config_;
 
   static constexpr std::chrono::seconds MINER_LIST_REFETCH_INTERVAL{10};
+  static constexpr std::chrono::minutes STARTUP_SYNC_TIMEOUT{5};
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
   static constexpr int64_t RTT_THRESHOLD_MS = 200;
   static constexpr int CALIBRATION_SAMPLES = 5;
@@ -159,6 +182,9 @@ private:
   /** Block gets beyond our tip, answered after the next sync. */
   std::vector<PendingBlockGet> pendingBlockGets_;
   bool blockSyncRequested_{false};
+  std::unique_ptr<BlockSync> blockSync_;
+  std::optional<BlockSync::Result> lastSyncResult_;
+  bool minerListRefreshInFlight_{false};
   bool minerListRefreshRequested_{false};
 };
 
