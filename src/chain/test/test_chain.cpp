@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <ctime>
 #include <filesystem>
 #include <map>
 
@@ -1342,6 +1343,149 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
     ++userRenewals;
   }
   EXPECT_GT(userRenewals, 0u);
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
+// Regression: the recycle account (balance 0) used to get T_END_USER at its
+// first renewal and be deleted, after which every write-off failed. System
+// accounts (AccountIds::isSystemAccount) are never terminated and renew
+// fee-free; validators enforce both.
+TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
+  Chain producer;
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(0);
+  chainConfig.checkpoint.minBlocks = 2;
+  chainConfig.checkpoint.minAgeSeconds = 0;
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.genesisTime = 0;
+  consensusConfig.timeOffset = 0;
+  consensusConfig.slotDuration = 5;
+  consensusConfig.slotsPerEpoch = 10;
+  producer.initConsensus(consensusConfig);
+
+  const auto tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-system-accounts";
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.startingBlockId = 0;
+  ledgerConfig.workDir = tempDir.string();
+  ASSERT_TRUE(producer.initLedger(ledgerConfig).isOk());
+
+  Ledger::ChainNode genesis =
+      makeGenesisBlock(producer, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  ASSERT_TRUE(producer.addBlock(genesis).isOk());
+  ASSERT_EQ(producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.count(AccountBuffer::ID_GENESIS) == 0 ||
+                producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS) == 0,
+            true); // recycle starts empty: it cannot pay a renewal fee
+
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_FEE;
+  tx.amount = 10;
+  tx.fee = 1;
+  tx.idempotentId = 1;
+  tx.validationTsMin = chainConfig.genesisTime;
+  tx.validationTsMax = chainConfig.genesisTime + 3600;
+  producer.refreshStakeholders();
+  Ledger::ChainNode block1 = makeNextBlock(producer, genesis, {makeRecord(Ledger::T_DEFAULT, tx, reserveKey)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+
+  const uint64_t slot2 = block1.block.slot + 1;
+  auto renewals = producer.collectRenewals(slot2);
+  ASSERT_TRUE(renewals.isOk()) << renewals.error().message;
+  ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot2)).isOk());
+  auto leader = producer.getSlotLeader(slot2);
+  ASSERT_TRUE(leader.isOk());
+  const std::map<uint64_t, const utl::MlDsaKeyPair *> keys = {{AccountBuffer::ID_GENESIS, &genesisKey},
+                                                             {AccountBuffer::ID_FEE, &feeKey},
+                                                             {AccountBuffer::ID_RESERVE, &reserveKey},
+                                                             {AccountBuffer::ID_RECYCLE, &recycleKey}};
+  const auto &leaderKey = *keys.at(leader.value());
+  auto signByLeader = [&](Ledger::Record r) {
+    r.signatures = {utl::mlDsaSign(leaderKey.privateKey, r.signingMessage(producer.getNetworkId())).value()};
+    return r;
+  };
+
+  std::optional<Ledger::Record> recycleRenewal;
+  for (const auto &r : renewals.value()) {
+    ASSERT_NE(r.type, Ledger::T_END_USER) << "a system account must never be terminated";
+    auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data);
+    ASSERT_TRUE(renewal.isOk());
+    if (renewal.value().walletId == AccountBuffer::ID_RECYCLE) {
+      EXPECT_EQ(renewal.value().fee, 0u);
+      recycleRenewal = signByLeader(r);
+    }
+  }
+  ASSERT_TRUE(recycleRenewal.has_value());
+  {
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(scratch, *recycleRenewal, leader.value());
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+  }
+
+  // Validators refuse: a fee on a system renewal, terminating a system
+  // account, and creating a system-range id after genesis.
+  {
+    auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(recycleRenewal->data).value();
+    renewal.fee = 1;
+    Ledger::Record charged = *recycleRenewal;
+    charged.data = utl::binaryPack(renewal);
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(scratch, signByLeader(charged), leader.value());
+    EXPECT_FALSE(added.isOk());
+  }
+  {
+    Ledger::TxEndUser end;
+    end.walletId = AccountBuffer::ID_RECYCLE;
+    Ledger::Record r;
+    r.type = Ledger::T_END_USER;
+    r.data = utl::binaryPack(end);
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(scratch, signByLeader(r), leader.value());
+    ASSERT_FALSE(added.isOk());
+    EXPECT_NE(added.error().message.find("cannot be terminated"), std::string::npos) << added.error().message;
+  }
+  {
+    Ledger::TxNewUser nu;
+    nu.fromWalletId = AccountBuffer::ID_GENESIS;
+    nu.toWalletId = 10; // system range
+    nu.idempotentId = 7;
+    const int64_t now = static_cast<int64_t>(std::time(nullptr)); // buffer admission checks wall time
+    nu.validationTsMin = now - 60;
+    nu.validationTsMax = now + 60;
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_NEW_USER, nu, genesisKey, producer.getNetworkId()), leader.value());
+    ASSERT_FALSE(added.isOk());
+    EXPECT_NE(added.error().message.find("genesis block"), std::string::npos) << added.error().message;
+  }
+
+  // Fee-free system accounts renew before anything else in the block: other
+  // records credit them (genesis renewal fee, write-offs), and each renewal
+  // carries the committed balance the validator checks when it applies.
+  {
+    bool seenOther = false;
+    for (const auto &r : renewals.value()) {
+      const uint64_t id = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId;
+      const bool feeFreeSystem = AccountIds::isSystemAccount(id) && id != AccountBuffer::ID_GENESIS;
+      EXPECT_FALSE(feeFreeSystem && seenOther) << "system account " << id << " renews after a crediting record";
+      seenOther = seenOther || !feeFreeSystem;
+    }
+  }
+
+  // Every system-account renewal in the set is fee-free (the full renewal
+  // block needs a 3-key genesis account; smoke covers that path).
+  for (const auto &r : renewals.value()) {
+    auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value();
+    if (AccountIds::isSystemAccount(renewal.walletId) && renewal.walletId != AccountBuffer::ID_GENESIS) {
+      EXPECT_EQ(renewal.fee, 0u) << renewal.walletId;
+    }
+  }
 
   std::filesystem::remove_all(tempDir, ec);
 }

@@ -105,7 +105,8 @@ chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
   const auto userUpsert = renewalToUserUpsert(*p);
   // Renewals are chain-generated with idempotentId == 0.
   return applyUserUpdateBufferCommon(userUpsert, bank, c,
-                                     /*requireNonZeroId=*/false);
+                                     /*requireNonZeroId=*/false,
+                                     /*systemRenewal=*/AccountIds::isSystemAccount(p->walletId));
 }
 
 chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
@@ -122,7 +123,8 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
   }
   const auto userUpsert = renewalToUserUpsert(*p);
   return applyUserUpdateBlockCommon(userUpsert, bank, c,
-                                    /*requireNonZeroId=*/false);
+                                    /*requireNonZeroId=*/false,
+                                    /*systemRenewal=*/AccountIds::isSystemAccount(p->walletId));
 }
 
 chain_tx::Roe<void> RenewalTxHandler::applyRenewal(

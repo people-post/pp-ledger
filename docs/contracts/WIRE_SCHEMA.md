@@ -105,7 +105,17 @@ not installed in `RecordHandler`.
 ## Account / ledger model
 
 - **Account-based**, multi-token `map<tokenId, int64>` balances (not UTXO).
-- Reserved accounts: Genesis `0`, Fee `1`, Reserve `2`, Recycle `3`; users `>= 1<<30`.
+- Account id ranges (`AccountIds.h`):
+
+  | Range | Kind | Created by | Rules |
+  |-------|------|------------|-------|
+  | `[0, 1<<20)` | **System** — Genesis `0`, Fee `1`, Reserve `2`, Recycle `3`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis keeps its own renewal) |
+  | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Genesis wallet | Normal renewal / termination |
+  | `[1<<30, …)` | **Users** | Anyone | Normal renewal / termination |
+
+- Renewal re-records an account's state in a recent block so old blocks can be
+  dropped after a checkpoint; every account, system ones included, must renew
+  when due.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
 - Checkpoints mark chain ranges from which account state can be reconstructed.
 

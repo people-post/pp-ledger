@@ -18,19 +18,24 @@ protected:
   applyUserUpdateBufferCommon(const Ledger::TxUserUpdate &tx,
                               AccountBuffer &bank,
                               const BufferApplyContext &c,
-                              bool requireNonZeroId = true) const;
+                              bool requireNonZeroId = true,
+                              bool systemRenewal = false) const;
 
   chain_tx::Roe<void>
   applyUserUpdateBlockCommon(const Ledger::TxUserUpdate &tx,
                              AccountBuffer &bank,
                              const BlockApplyContext &c,
-                             bool requireNonZeroId = true) const;
+                             bool requireNonZeroId = true,
+                             bool systemRenewal = false) const;
 
   chain_tx::Roe<void>
   applyUserAccountUpsert(const Ledger::TxUserUpdate &tx,
                          const TxContext &ctx, AccountBuffer &bank,
                          uint64_t blockId, bool isBufferMode,
-                         chain_block::BlockAdmissionMode admissionMode) const;
+                         chain_block::BlockAdmissionMode admissionMode,
+                         bool systemRenewal = false) const;
+  // systemRenewal: chain-generated renewal of a system account (AccountIds::
+  // isSystemAccount, not genesis): its fee must be exactly 0.
 };
 } // namespace pp
 
