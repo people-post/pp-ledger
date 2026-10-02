@@ -37,6 +37,9 @@ struct NetworkTuning {
    */
   std::chrono::milliseconds serverQueueExpiry() const { return rpcTimeout / 2; }
 
+  /** How long an upstream holds a BLOCK_WAIT with no new block before answering (the client waits T). */
+  std::chrono::milliseconds blockWaitHold() const { return rpcTimeout / 2; }
+
   /** Data requests (blocks, transactions, accounts) wait twice the RPC timeout. */
   static constexpr std::chrono::milliseconds dataTimeoutFor(std::chrono::milliseconds rpc) { return rpc * 2; }
 

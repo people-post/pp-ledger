@@ -4,6 +4,7 @@
 #include "Miner.h"
 #include "NetworkAnchor.h"
 #include "BlockSync.h"
+#include "UpstreamTipWatch.h"
 #include "BroadcastTally.h"
 #include "Server.h"
 #include "../client/Client.h"
@@ -181,6 +182,8 @@ private:
   std::vector<PendingBlockGet> pendingBlockGets_;
   bool blockSyncRequested_{false};
   std::unique_ptr<BlockSync> blockSync_;
+  /** BLOCK_WAIT on the upstream: requests a sync as soon as it has a new block. */
+  std::unique_ptr<UpstreamTipWatch> tipWatch_;
   std::optional<BlockSync::Result> lastSyncResult_;
   bool minerListRefreshInFlight_{false};
   bool minerListRefreshRequested_{false};

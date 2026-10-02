@@ -1,4 +1,5 @@
 #include "BlockAddPolicy.h"
+#include "BlockWaitList.h"
 #include "RequestQueue.h"
 #include "Server.h"
 #include "lib/common/BinaryPack.hpp"
@@ -7,6 +8,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -135,6 +137,13 @@ protected:
 public:
   RequestQueue::Reply deferredReply;
   std::thread::id deferredThread;
+  /** Set to serve BLOCK_WAIT (like a beacon / relay). */
+  std::optional<uint64_t> tip;
+
+protected:
+  std::optional<uint64_t> blockWaitTip() const override { return tip; }
+
+public:
 
 protected:
   std::string handleParsedRequest(const Client::Request& request) override {
@@ -283,6 +292,88 @@ TEST(ServerThreadTest, PeekRequestTypeMatchesThePackedRequest) {
   EXPECT_EQ(Client::peekRequestType(packRequest("payload", Client::T_REQ_BLOCK_GET)), Client::T_REQ_BLOCK_GET);
   EXPECT_EQ(Client::peekRequestType(packRequest("", 70000)), 70000u);
   EXPECT_FALSE(Client::peekRequestType("short"));
+}
+
+// --- BLOCK_WAIT ---
+
+TEST(BlockWaitListTest, ParksUntilTheTipPassesOrTheHoldEnds) {
+  BlockWaitList waits(8);
+  const auto now = BlockWaitList::Clock::now();
+  int answered = 0;
+  auto reply = [&](std::string) { ++answered; };
+  EXPECT_EQ(waits.park("a", 5, now + 1s, reply, /*tip=*/6).size(), 1u); // already behind: answer now
+  EXPECT_TRUE(waits.park("b", 6, now + 1s, reply, 6).empty());
+  EXPECT_TRUE(waits.park("c", 6, now + 10ms, reply, 6).empty());
+  EXPECT_TRUE(waits.poll(6, now).empty());
+  EXPECT_EQ(waits.poll(6, now + 20ms).size(), 1u); // c's hold ended
+  EXPECT_EQ(waits.poll(7, now + 20ms).size(), 1u); // the tip passed b
+  EXPECT_EQ(waits.size(), 0u);
+}
+
+TEST(BlockWaitListTest, OneWaitPerPeerAndBounded) {
+  BlockWaitList waits(1);
+  const auto deadline = BlockWaitList::Clock::now() + 1s;
+  auto reply = [](std::string) {};
+  EXPECT_TRUE(waits.park("a", 6, deadline, reply, 6).empty());
+  EXPECT_EQ(waits.park("a", 6, deadline, reply, 6).size(), 1u); // the older wait is answered
+  EXPECT_EQ(waits.park("b", 6, deadline, reply, 6).size(), 1u); // full: answered at once
+  EXPECT_EQ(waits.takeAll().size(), 1u);
+}
+
+uint64_t replyTip(const Client::Response& response) {
+  return utl::binaryUnpack<uint64_t>(response.payload).value();
+}
+
+TEST(ServerThreadTest, BlockWaitIsAnsweredWhenTheTipMoves) {
+  EchoServer server;
+  server.tip = 6;
+  Replies replies;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{4}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{6}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m2");
+  server.serveRequestsFor(20ms);
+  ASSERT_EQ(replies.size(), 1u); // m1 was behind; m2 waits
+  EXPECT_EQ(replyTip(replies.items[0]), 6u);
+
+  server.tip = 7; // a block arrived
+  server.serveRequestsFor(20ms);
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_EQ(replies.items[1].errorCode, 0);
+  EXPECT_EQ(replyTip(replies.items[1]), 7u);
+}
+
+TEST(ServerThreadTest, BlockWaitHoldEndsWithTheTipUnchanged) {
+  EchoServer server;
+  network::NetworkTuning tuning;
+  tuning.rpcTimeout = 1000ms; // hold = 500 ms
+  server.setNetworkTuning(tuning);
+  server.tip = 6;
+  Replies replies;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{6}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.serveRequestsFor(300ms);
+  EXPECT_EQ(replies.size(), 0u);
+  server.serveRequestsFor(400ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_EQ(replyTip(replies.items[0]), 6u);
+}
+
+TEST(ServerThreadTest, BlockWaitIsRefusedByNodesThatDoNotServeIt) {
+  EchoServer server; // a miner: no tip
+  Replies replies;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{0}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.serveRequestsFor(20ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_NE(replies.items[0].errorCode, 0);
+}
+
+TEST(ServerThreadTest, StopAnswersParkedBlockWaits) {
+  EchoServer server;
+  server.tip = 6;
+  Replies replies;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{6}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.serveRequestsFor(20ms);
+  server.stopAmpServer();
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_NE(replies.items[0].errorCode, 0);
 }
 
 TEST(ServerThreadTest, ExpiredRequestIsRefusedWithoutRunningHandler) {

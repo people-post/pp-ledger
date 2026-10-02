@@ -84,6 +84,12 @@ public:
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
+  /**
+   * Downstream → upstream: payload binaryPack(uint64 knownNextBlockId). The
+   * upstream replies binaryPack(uint64 its nextBlockId) once that passes the
+   * known one, or after a hold (NetworkTuning::blockWaitHold) with it unchanged.
+   */
+  static constexpr const uint32_t T_REQ_BLOCK_WAIT = 1003;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
@@ -300,6 +306,8 @@ public:
   void fetchCalibrationAsync(Done<CalibrationResponse> done);
   void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
   void fetchBeaconStateAsync(Done<BeaconState> done);
+  /** BLOCK_WAIT: `done` gets the upstream's next block id once it passes `knownNextBlockId` (or unchanged after a hold). */
+  void waitForBlockAsync(uint64_t knownNextBlockId, Done<uint64_t> done);
 
   /** True when the call failed before a server answered (worth retrying later). */
   static bool isTransportError(int32_t code) {
