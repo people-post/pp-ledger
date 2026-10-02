@@ -209,7 +209,16 @@ stop_network() {
       kill "$pid" 2>/dev/null || true
     fi
   done <"$PID_FILE"
-  sleep 2
+  # Give them up to 2 s to exit cleanly, then force.
+  local i alive
+  for i in $(seq 1 20); do
+    alive=0
+    while IFS=: read -r name pid; do
+      kill -0 "$pid" 2>/dev/null && alive=1
+    done <"$PID_FILE"
+    ((alive == 0)) && break
+    sleep 0.1
+  done
   while IFS=: read -r name pid; do
     if kill -0 "$pid" 2>/dev/null; then
       kill -9 "$pid" 2>/dev/null || true
@@ -237,9 +246,9 @@ wait_for_listen_multiaddr() {
   local log_file=$1
   local out_file=$2
   local max_wait=${3:-30}
-  local elapsed=0
+  local deadline=$((SECONDS + max_wait))
   local line=""
-  while [[ $elapsed -lt $max_wait ]]; do
+  while ((SECONDS < deadline)); do
     if [[ -f "$log_file" ]]; then
       # || true: grep miss must not abort under set -e / pipefail
       line=$(grep -aoE 'AMP ledger listener: /[^[:space:]]+' "$log_file" 2>/dev/null | tail -1 | sed 's/^AMP ledger listener: //' || true)
@@ -252,8 +261,7 @@ wait_for_listen_multiaddr() {
         return 0
       fi
     fi
-    sleep 1
-    elapsed=$((elapsed + 1))
+    sleep 0.2
   done
   echo -e "${RED}Timed out waiting for AMP ledger listener in $log_file${NC}" >&2
   [[ -f "$log_file" ]] && tail -40 "$log_file" >&2 || true
@@ -428,22 +436,34 @@ pid_for_name() {
   grep "^${name}:" "$PID_FILE" 2>/dev/null | cut -d: -f2 | tail -1
 }
 
-# Listen multiaddr is logged before onStart finishes (relay sync / miner dial).
-# Wait briefly and require the process to still be alive.
-require_process_alive() {
+# A node logs this once onStart is done (relay sync, miner dial/register) and
+# its run loop is serving: BeaconServer "Request handler thread started",
+# RelayServer / MinerServer "... handler loop started".
+READY_MARKER='handler (loop|thread) started'
+
+# Poll until the node is ready instead of sleeping a fixed grace; fail fast
+# if it exits during startup.
+wait_until_ready() {
   local name=$1
   local log_file=$2
-  local grace_sec=${3:-3}
-  local pid
+  local max_wait=${3:-60}
+  local pid deadline=$((SECONDS + max_wait))
   pid=$(pid_for_name "$name")
   [[ -n "$pid" ]] || die "$name: missing PID"
-  sleep "$grace_sec"
-  if ! kill -0 "$pid" 2>/dev/null; then
-    echo -e "${RED}$name exited after start (PID $pid)${NC}" >&2
-    [[ -f "$log_file" ]] && tail -c 4000 "$log_file" | tr -cd '\11\12\15\40-\176\n' | tail -40 >&2 || true
-    return 1
-  fi
-  return 0
+  while ((SECONDS < deadline)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo -e "${RED}$name exited during startup (PID $pid)${NC}" >&2
+      [[ -f "$log_file" ]] && tail -c 4000 "$log_file" | tr -cd '\11\12\15\40-\176\n' | tail -40 >&2 || true
+      return 1
+    fi
+    if grep -aqE "$READY_MARKER" "$log_file" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo -e "${RED}$name not ready within ${max_wait}s${NC}" >&2
+  [[ -f "$log_file" ]] && tail -c 4000 "$log_file" | tr -cd '\11\12\15\40-\176\n' | tail -40 >&2 || true
+  return 1
 }
 
 start_beacon() {
@@ -454,7 +474,7 @@ start_beacon() {
     stop_network
     die "beacon failed to publish listen multiaddr"
   }
-  require_process_alive "beacon" "$beacon_dir/console.log" 1 || {
+  wait_until_ready "beacon" "$beacon_dir/console.log" 30 || {
     stop_network
     die "beacon process died"
   }
@@ -471,14 +491,14 @@ start_relay() {
     die "relay failed to publish listen multiaddr"
   }
   # Relay logs listen multiaddr before beacon sync; sync failure exits the process.
-  require_process_alive "relay" "$relay_dir/console.log" 12 || {
+  wait_until_ready "relay" "$relay_dir/console.log" 60 || {
     stop_network
     die "relay exited (often Amp dial/sync to beacon — see console.log)"
   }
   echo -e "${GREEN}✓ Relay started on UDP ${RELAY_PORT}${NC}"
 }
 
-start_miner() {
+launch_miner() {
   local miner_id=$1
   local miner_dir="${TEST_DIR}/miner${miner_id}"
   local miner_port=$((MINER_BASE_PORT + miner_id - 1))
@@ -487,23 +507,38 @@ start_miner() {
   create_miner_config "$miner_id" "$miner_dir" "$miner_port"
   run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" ${DEBUG_FLAG}
   save_pid "miner${miner_id}" $!
+}
+
+await_miner() {
+  local miner_id=$1
+  local miner_dir="${TEST_DIR}/miner${miner_id}"
+  local miner_port=$((MINER_BASE_PORT + miner_id - 1))
   wait_for_listen_multiaddr "${miner_dir}/console.log" "${MULTIADDR_DIR}/miner${miner_id}" 60 || {
     echo -e "${RED}Miner${miner_id} failed to publish listen multiaddr${NC}" >&2
     cat "${miner_dir}/console.log" >&2 || true
     return 1
   }
-  # Miner logs listen before upstream connect; dial failure exits.
-  require_process_alive "miner${miner_id}" "${miner_dir}/console.log" 12 || {
-    echo -e "${RED}Miner${miner_id} exited after start (often Amp dial to relay)${NC}" >&2
+  # Miner logs listen before upstream connect / register / startup sync.
+  wait_until_ready "miner${miner_id}" "${miner_dir}/console.log" 60 || {
+    echo -e "${RED}Miner${miner_id} exited or stalled during startup (often Amp dial to relay)${NC}" >&2
     return 1
   }
   echo -e "${GREEN}✓ Miner${miner_id} started on UDP ${miner_port}${NC}"
 }
 
+start_miner() {
+  launch_miner "$1"
+  await_miner "$1"
+}
+
+# Launch every miner, then wait for each: they start in parallel.
 start_all_miners() {
   local i
   for i in $(seq 1 "$NUM_MINERS"); do
-    start_miner "$i" || {
+    launch_miner "$i"
+  done
+  for i in $(seq 1 "$NUM_MINERS"); do
+    await_miner "$i" || {
       stop_network
       die "failed to start miner${i}"
     }
@@ -683,15 +718,14 @@ get_miner_next_block_id() {
 
 wait_for_beacon_rpc() {
   local max_wait=${1:-45}
-  local elapsed=0
+  local deadline=$((SECONDS + max_wait))
   echo -e "${CYAN}Waiting for beacon RPC via relay (max ${max_wait}s)...${NC}"
-  while [[ $elapsed -lt $max_wait ]]; do
+  while ((SECONDS < deadline)); do
     if fetch_beacon_state &>/dev/null; then
       echo -e "${GREEN}✓ Beacon RPC ready${NC}"
       return 0
     fi
-    sleep 2
-    elapsed=$((elapsed + 2))
+    sleep 0.5
   done
   dump_smoke_artifacts || true
   die "beacon RPC not ready within ${max_wait}s"
@@ -699,9 +733,9 @@ wait_for_beacon_rpc() {
 
 wait_for_miner_ready() {
   local max_wait=${1:-45}
-  local elapsed=0
+  local deadline=$((SECONDS + max_wait))
   echo -e "${CYAN}Waiting for a miner RPC (max ${max_wait}s)...${NC}" >&2
-  while [[ $elapsed -lt $max_wait ]]; do
+  while ((SECONDS < deadline)); do
     local i
     for i in $(seq 1 "$NUM_MINERS"); do
       if fetch_miner_status "$i" &>/dev/null; then
@@ -710,8 +744,7 @@ wait_for_miner_ready() {
         return 0
       fi
     done
-    sleep 2
-    elapsed=$((elapsed + 2))
+    sleep 0.5
   done
   dump_smoke_artifacts || true
   die "no miner RPC ready within ${max_wait}s"
@@ -773,17 +806,16 @@ network_ready() {
 wait_for_blocks() {
   local target=$1
   local max_wait=${2:-90}
-  local elapsed=0
+  local deadline=$((SECONDS + max_wait))
   echo -e "${CYAN}Waiting for nextBlockId >= $target (max ${max_wait}s)...${NC}"
-  while [[ $elapsed -lt $max_wait ]]; do
+  while ((SECONDS < deadline)); do
     local next
     next=$(get_next_block_id) || true
     if [[ -n "$next" && "$next" -ge "$target" ]] 2>/dev/null; then
       echo -e "${GREEN}✓ Reached nextBlockId=$next${NC}"
       return 0
     fi
-    sleep 2
-    elapsed=$((elapsed + 2))
+    sleep 0.5
   done
   echo -e "${RED}Timeout: nextBlockId=$(get_next_block_id 2>/dev/null || echo '?') (target $target)${NC}" >&2
   return 1
@@ -800,17 +832,16 @@ wait_for_miner_tip() {
   local miner_id=$1
   local target=$2
   local max_wait=${3:-90}
-  local elapsed=0
+  local deadline=$((SECONDS + max_wait))
   echo -e "${CYAN}Waiting for miner${miner_id} nextBlockId >= $target (max ${max_wait}s)...${NC}"
-  while [[ $elapsed -lt $max_wait ]]; do
+  while ((SECONDS < deadline)); do
     local got
     got=$(get_miner_next_block_id "$miner_id" 2>/dev/null) || got=""
     if [[ -n "$got" && "$got" -ge "$target" ]] 2>/dev/null; then
       echo -e "${GREEN}✓ Miner${miner_id} tip=$got (target >= $target)${NC}"
       return 0
     fi
-    sleep 2
-    elapsed=$((elapsed + 2))
+    sleep 0.5
   done
   echo -e "${RED}✗ Miner${miner_id} tip timeout (got=$(get_miner_next_block_id "$miner_id" 2>/dev/null || echo '?'), target=$target)${NC}" >&2
   return 1
@@ -932,7 +963,11 @@ stop_miner_by_id() {
   if kill -0 "$pid" 2>/dev/null; then
     echo -e "${CYAN}Stopping miner${miner_id}...${NC}"
     kill "$pid" 2>/dev/null || true
-    sleep 2
+    local i
+    for i in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
   fi
   remove_pid_name "miner${miner_id}"
 }
@@ -946,13 +981,11 @@ run_latejoin_scenario() {
 
   stop_miner_by_id 3
   echo -e "${CYAN}Letting chain progress without miner3...${NC}"
-  sleep $((SLOT_DURATION * 3))
   inject_transactions_for_block_production || true
   wait_for_blocks $((next_before + 1)) 90 || true
 
   echo -e "${CYAN}Restarting miner3...${NC}"
   start_miner 3 || die "failed to restart miner3"
-  sleep 4
 
   local beacon_tip miner_tip
   beacon_tip=$(get_next_block_id)

@@ -31,7 +31,7 @@ Preferred entry point (mirrors pp-browser `pp_local_test.sh`):
 ./scripts/test/pp_ledger_local_test.sh run --suite l0
 ./scripts/test/pp_ledger_local_test.sh run --suite l1
 ./scripts/test/pp_ledger_local_test.sh run --suite latejoin
-./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # == l0 until Amp dial is green
+./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # l0 + l1 + latejoin, one network
 ./scripts/test/pp_ledger_local_test.sh run --suite image          # compose.smoke scaffold
 ./scripts/test/pp_ledger_local_test.sh stop   # or clear | status
 ```
@@ -53,8 +53,15 @@ Listen multiaddrs are scraped from `AMP ledger listener:` lines (`0.0.0.0` rewri
 `$TEST_DIR/artifacts/<timestamp>/`. `ensure_network` reuses only a healthy PID tree
 (never a dead one).
 
-**`--suite smoke`:** runs **l0** (process + RPC readiness). Use `--suite l1` /
-`latejoin` explicitly for tip / late-join checks (slot-lottery flaky).
+**`--suite smoke`:** runs **l0 → l1 → latejoin** on one network, brought up once
+(about 40–50 s in total). Run a single suite with `--suite l0|l1|latejoin`; without
+`--down` the network stays up and the next run reuses it.
+
+**Startup waits:** nodes are started without fixed grace sleeps. The driver
+polls each node's console log until its run loop is up (`READY_MARKER`:
+"…handler loop/thread started", logged after `onStart` — relay sync, miner
+dial / register / startup sync) and fails at once if the process exits. The
+three miners start in parallel. RPC / tip waits poll every 0.5 s.
 
 Multi-process OsUdp dial requires `LedgerAmpRuntime` to call `SetAcceptEnabled(true)`
 (same as pp-browser `MeshHost`). In-process Amp memory fabric gtests still own RPC
