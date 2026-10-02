@@ -625,3 +625,46 @@ TEST_F(AmpLedgerRpcTest, ThreadedPostFromPumpAndCallerConcurrently) {
   }
   EXPECT_EQ(ran.load(), 2 * kPosts);
 }
+
+// Regressions for pp-cpp-amp < v2.13.1: reliable messages that did not fit
+// the ADP window (128 frames ≈ 115 KB) were refused and the channel closed,
+// so the reply never arrived (BlockSync's parallel block fetches timed out).
+namespace {
+
+void ExpectEchoes(pp::AmpLedgerTransport &transport, const std::vector<size_t> &sizes) {
+  std::vector<std::promise<std::string>> results(sizes.size());
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    const std::string payload(sizes[i], static_cast<char>('a' + i));
+    transport.roundTripAsync(payload, std::chrono::seconds(10),
+                             [&results, i, size = payload.size()](pp::ILedgerTransport::Roe<std::string> r) {
+                               results[i].set_value(r ? (r.value().size() == size ? "" : "size mismatch")
+                                                      : r.error().message);
+                             });
+  }
+  for (size_t i = 0; i < results.size(); ++i) {
+    auto f = results[i].get_future();
+    ASSERT_EQ(f.wait_for(std::chrono::seconds(20)), std::future_status::ready);
+    EXPECT_EQ(f.get(), "") << "message " << i << " (" << sizes[i] << " bytes)";
+  }
+}
+
+} // namespace
+
+TEST_F(AmpLedgerRpcTest, ThreadedConcurrentLargeRoundTrips) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+  for (int round = 0; round < 3; ++round) {
+    ExpectEchoes(transport, {48 * 1024, 48 * 1024 + 1, 48 * 1024 + 2, 48 * 1024 + 3});
+  }
+}
+
+TEST_F(AmpLedgerRpcTest, ThreadedMessageLargerThanTransportWindow) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+  ExpectEchoes(transport, {200 * 1024});
+  ExpectEchoes(transport, {pp::ledger::rpc::kMaxPayloadBytes - 64});
+}
