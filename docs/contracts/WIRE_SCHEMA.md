@@ -116,6 +116,14 @@ not installed in `RecordHandler`.
   | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Genesis wallet | Normal renewal / termination |
   | `[1<<30, …)` | **Users** | Anyone | Normal renewal / termination |
 
+  System ids 4 … 2²⁰−1 are reserved and **no rule creates them**: the genesis
+  block can hold only fee, reserve and recycle (records 1–3) and genesis miners
+  (issued range), and `NEW_USER` into the system range is refused after
+  genesis. Adding a system account is a protocol change — a constant in
+  `AccountIds.h` plus code for its role and an explicit creation rule (e.g. a
+  `T_CONFIG` from the genesis quorum at an activation epoch) — not a config
+  setting.
+
 - Renewal re-records an account's state in a recent block so old blocks can be
   dropped after a checkpoint; every account, system ones included, must renew
   when due.
