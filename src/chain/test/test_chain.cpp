@@ -1497,7 +1497,7 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
     bool seenOther = false;
     for (const auto &r : renewals.value()) {
       const uint64_t id = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId;
-      const bool feeFreeSystem = AccountIds::isSystemAccount(id) && id != AccountBuffer::ID_GENESIS;
+      const bool feeFreeSystem = AccountIds::isSystemAccount(id);
       EXPECT_FALSE(feeFreeSystem && seenOther) << "system account " << id << " renews after a crediting record";
       seenOther = seenOther || !feeFreeSystem;
     }
@@ -1507,7 +1507,8 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   // block needs a 3-key genesis account; smoke covers that path).
   for (const auto &r : renewals.value()) {
     auto renewal = utl::binaryUnpack<Ledger::TxRenewal>(r.data).value();
-    if (AccountIds::isSystemAccount(renewal.walletId) && renewal.walletId != AccountBuffer::ID_GENESIS) {
+    // Genesis included: it issues the native token, so a fee would be minted.
+    if (AccountIds::isSystemAccount(renewal.walletId)) {
       EXPECT_EQ(renewal.fee, 0u) << renewal.walletId;
     }
   }

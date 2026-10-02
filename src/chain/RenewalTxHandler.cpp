@@ -128,7 +128,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
 }
 
 chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
-    const Ledger::TxRenewal &tx, const TxContext &ctx,
+    const Ledger::TxRenewal &tx, [[maybe_unused]] const TxContext &ctx,
     AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
     chain_block::BlockAdmissionMode admissionMode) const {
   if (tx.walletId != AccountBuffer::ID_GENESIS) {
@@ -150,15 +150,10 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     return shape;
   }
 
-  if (chain_block::admissionTxStrict(admissionMode)) {
-    if (auto feeGate = chain_tx::requireMinimumFee(
-            ctx.optChainConfig, ctx.fnBillableCustomMetaSizeForFee,
-            Ledger::TypedTx(tx), tx.fee,
-            "Chain config required for Full-mode genesis renewal fee validation",
-            "Genesis renewal fee below minimum: ");
-        !feeGate) {
-      return feeGate;
-    }
+  // Fee-free like every system account: genesis issues the native token (its
+  // balance may go negative), so a fee would mint supply into the fee account.
+  if (tx.fee != 0) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal must be fee-free");
   }
 
   auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
@@ -177,14 +172,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
         "Genesis account balance mismatch in renewal");
   }
 
-  if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
-                                                      gm.genesis.wallet);
-      !replaced) {
-    return replaced;
-  }
-
-  return chain_tx::creditFeeToFeeAccount(
-      bank, tx.fee, "Failed to credit fee to fee account: ");
+  return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet);
 }
 
 std::optional<std::string>

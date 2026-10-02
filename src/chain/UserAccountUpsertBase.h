@@ -35,7 +35,8 @@ protected:
                          chain_block::BlockAdmissionMode admissionMode,
                          bool systemRenewal = false) const;
   // systemRenewal: chain-generated renewal of a system account (AccountIds::
-  // isSystemAccount, not genesis): its fee must be exactly 0.
+  // isSystemAccount; genesis renews through its own handler path): its fee
+  // must be exactly 0.
 };
 } // namespace pp
 

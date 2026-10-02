@@ -235,10 +235,11 @@ Chain::createRenewalTx(uint64_t accountId) const {
   if (!minimumFeeResult) {
     return minimumFeeResult.error();
   }
-  // System accounts other than genesis renew fee-free (validators require fee
-  // 0) and are never terminated: e.g. the recycle account usually holds
-  // nothing, and ending it would break every later write-off.
-  const bool feeFree = AccountIds::isSystemAccount(accountId) && accountId != AccountBuffer::ID_GENESIS;
+  // System accounts renew fee-free (validators require fee 0) and are never
+  // terminated: the recycle account usually holds nothing (ending it would
+  // break every later write-off), and genesis is the native token's issuer,
+  // whose "fee" would be minted from its negative balance.
+  const bool feeFree = AccountIds::isSystemAccount(accountId);
   const uint64_t minimumFee = feeFree ? 0 : minimumFeeResult.value();
 
   if (!AccountIds::isSystemAccount(accountId)) {
@@ -308,14 +309,11 @@ Chain::collectRenewals(uint64_t /*slot*/) const {
   }
 
   // A renewal records the account's committed balance; validators check it
-  // against the in-block balance when it applies. Fee-free system accounts
-  // (fee, reserve, recycle) are credited by other records in the block (fees,
-  // write-offs), so they renew first, before anything can credit them; then
-  // genesis, then everyone else.
+  // against the in-block balance when it applies. System accounts are
+  // credited by other records in the block (fees, write-offs), so they renew
+  // first, before anything can credit them; then everyone else.
   std::vector<uint64_t> due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
-  std::stable_partition(due.begin(), due.end(), [](uint64_t id) {
-    return AccountIds::isSystemAccount(id) && id != AccountBuffer::ID_GENESIS;
-  });
+  std::stable_partition(due.begin(), due.end(), [](uint64_t id) { return AccountIds::isSystemAccount(id); });
   for (uint64_t accountId : due) {
     auto renewalResult = createRenewalTx(accountId);
     if (!renewalResult) {
