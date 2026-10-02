@@ -29,16 +29,15 @@ public:
                              const Ledger::Block &block) const override;
 
 private:
-  chain_tx::Roe<void>
+  /**
+   * Validate the update and replace the genesis account (keys apply at once);
+   * returns the new chain config, which the caller schedules for the next
+   * epoch boundary. `epoch` is the epoch the update is applied in.
+   */
+  chain_tx::Roe<BlockChainConfig>
   applyConfigUpdate(const Ledger::TxConfig &tx, const TxContext &ctx,
-                    AccountBuffer &bank, uint64_t blockId,
+                    AccountBuffer &bank, uint64_t blockId, uint64_t epoch,
                     chain_block::BlockAdmissionMode admissionMode) const;
-
-  chain_tx::Roe<void>
-  applyConfigUpdate(const Ledger::TxConfig &tx, TxContext &ctx,
-                    AccountBuffer &bank, uint64_t blockId,
-                    chain_block::BlockAdmissionMode admissionMode,
-                    bool commitOptChainConfig) const;
 };
 } // namespace pp
 

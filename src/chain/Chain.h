@@ -264,6 +264,7 @@ private:
   struct TipSnapshot {
     consensus::SlotCommittee::TipState consensus;
     std::optional<BlockChainConfig> optChainConfig;
+    std::optional<PendingChainConfig> pendingChainConfig;
     Checkpoint checkpoint;
   };
   /** Open a bank overlay and snapshot the rest of the tip state. */
@@ -272,6 +273,8 @@ private:
   void rollbackTipUpdate(TipSnapshot snapshot);
 
   Roe<void> applyNextBlock(const Ledger::ChainNode &block);
+  /** Put a pending config update in force once `epoch` reaches its activation epoch. */
+  void activatePendingConfig(uint64_t epoch);
   Roe<void> sealOnTip(Ledger::ChainNode &block);
 
   Roe<void> processBlock(const Ledger::ChainNode &block,

@@ -43,7 +43,9 @@ updates (`T_CONFIG`) and issues new supply to reserve (it may transfer to no
 other account and creates no accounts), so it must be M-of-N from the start: at
 least 3 keys and 2 signatures (the shape its renewals and updates are held to).
 Keep its keys offline with different people; the beacon needs them only for
-`--init`. A config update can replace the genesis keys (rotation).
+`--init`. A config update can replace the genesis keys (rotation, immediate);
+its config applies at the next epoch boundary, one update at a time
+([WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#config-updates)).
 
 **The registrar creates issued accounts** (2²⁰ ≤ id < 2³⁰: token issuers,
 operator accounts); no other account can. It starts empty and spends real

@@ -2325,3 +2325,69 @@ TEST_F(ChainComposeTest, Registrar_AloneCreatesIssuedAccounts_GenesisOnlyFundsRe
   expectRefused(genesisTransfer(AccountBuffer::ID_FEE), "only to reserve");
   expectRefused(genesisTransfer(kTestMinerId), "only to reserve");
 }
+
+// A config update applies at the next epoch boundary, and only one can be
+// pending: at most one takes effect per epoch. (Key rotation applies at once.)
+TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
+  auto &producer = harness_.producer;
+  const uint64_t before = producer.getMaxTransactionsPerBlock();
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+
+  auto configTx = [&](uint64_t maxTransactions, uint64_t idem, int64_t tsMin, int64_t tsMax) {
+    Chain::GenesisAccountMeta gm;
+    gm.config = harness_.chainConfig;
+    gm.config.maxTransactionsPerBlock = maxTransactions;
+    gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+    gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+    gm.genesis.wallet.minSignatures = 2;
+    gm.genesis.meta = AccountAttachment::emptySerialized();
+    Ledger::TxConfig tx;
+    tx.meta = gm.ltsToString();
+    tx.idempotentId = idem;
+    tx.validationTsMin = tsMin;
+    tx.validationTsMax = tsMax;
+    return tx;
+  };
+
+  // Epoch 0 (slots 0..9): accepted, not yet in force.
+  const auto first = configTx(before + 1, 1, harness_.chainConfig.genesisTime, harness_.chainConfig.genesisTime + 3600);
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1, {makeRecord(Ledger::T_CONFIG, first, harness_.genesisKey, producer.getNetworkId())});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  EXPECT_EQ(producer.getMaxTransactionsPerBlock(), before);
+
+  // A second update in the same epoch is refused while the first is pending
+  // (signed by the rotated keys, which are in force already).
+  {
+    Ledger::Record second;
+    second.type = Ledger::T_CONFIG;
+    second.data = utl::binaryPack(
+        configTx(before + 2, 2, harness_.chainConfig.genesisTime, harness_.chainConfig.genesisTime + 3600));
+    for (size_t i = 0; i < 2; ++i) {
+      second.signatures.push_back(signMessage(rotated[i], second.signingMessage(producer.getNetworkId())));
+    }
+    ASSERT_TRUE(producer.ensureEpochSeed(0).isOk());
+    auto leader = producer.getSlotLeader(2);
+    ASSERT_TRUE(leader.isOk());
+    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotStartTime(2), {second});
+    auto sealed = producer.sealBlock(block);
+    ASSERT_FALSE(sealed.isOk());
+    EXPECT_NE(sealed.error().message.find("already pending"), std::string::npos) << sealed.error().message;
+    producer.abandonSeal();
+  }
+
+  // First block of epoch 1: in force.
+  Ledger::TxDefault transfer;
+  transfer.tokenId = AccountBuffer::ID_GENESIS;
+  transfer.fromWalletId = AccountBuffer::ID_RESERVE;
+  transfer.toWalletId = AccountBuffer::ID_REGISTRAR;
+  transfer.amount = 10;
+  transfer.fee = 1;
+  transfer.idempotentId = 1;
+  transfer.validationTsMin = harness_.chainConfig.genesisTime;
+  transfer.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  Ledger::ChainNode block2 = makeNextBlockAtSlot(producer, block1, harness_.chainConfig.slotsPerEpoch,
+                                                 {makeRecord(Ledger::T_DEFAULT, transfer, harness_.reserveKey)});
+  ASSERT_TRUE(producer.addBlock(block2).isOk());
+  EXPECT_EQ(producer.getMaxTransactionsPerBlock(), before + 1);
+}

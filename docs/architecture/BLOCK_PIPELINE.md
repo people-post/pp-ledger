@@ -136,10 +136,11 @@ or a distinct `TrustedReplay` mode with explicit source binding.
 
 ### B. `T_CONFIG` mutation policy for `heartbeatSlots` (and kin)
 
-`T_CONFIG` can replace `heartbeatSlots` (including `0` / `1`) with no
-monotonicity or delay. Decide whether liveness knobs are free governance
-updates, need floors/ceilings, or epoch-delayed activation — same class of
-question as other mutable `BlockChainConfig` fields.
+Every `T_CONFIG` now takes effect at the next epoch boundary (see
+[WIRE_SCHEMA.md — Config updates](../contracts/WIRE_SCHEMA.md#config-updates)),
+but `heartbeatSlots` (including `0` / `1`) has no monotonicity rule. Decide
+whether liveness knobs need floors/ceilings — same class of question as other
+mutable `BlockChainConfig` fields.
 
 ### C. Slot production window
 
