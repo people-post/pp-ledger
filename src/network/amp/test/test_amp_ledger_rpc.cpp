@@ -5,6 +5,7 @@
 #include "amp/L1/Clock.h"
 #include "amp/L1/Endpoint.h"
 #include "amp/L1/MemoryDatagramIo.h"
+#include "amp/L1/OsUdpDatagramIo.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/Types.h"
@@ -668,3 +669,33 @@ TEST_F(AmpLedgerRpcTest, ThreadedMessageLargerThanTransportWindow) {
   ExpectEchoes(transport, {200 * 1024});
   ExpectEchoes(transport, {pp::ledger::rpc::kMaxPayloadBytes - 64});
 }
+
+// Regression for pp-cpp-amp < v2.13.2: over real UDP a burst loses a packet;
+// the receiver ACKed packets it then dropped (beyond its 64-entry replay
+// window), so they were never resent and the link's reliable stream stalled.
+TEST_F(AmpLedgerRpcTest, OsUdpConcurrentLargeRoundTrips) {
+  auto bind = []() { return pp::adp::OsUdpDatagramIo::Bind(pp::adp::IpEndpoint::V4(127, 0, 0, 1, 0)); };
+  auto io_a = bind();
+  auto io_b = bind();
+  ASSERT_TRUE(io_a.isOk() && io_b.isOk());
+  auto cfg_a = TestAmpConfig();
+  auto cfg_b = TestAmpConfig();
+  ASSERT_TRUE(cfg_a.isOk() && cfg_b.isOk());
+  pp::network::LedgerAmpRuntime a;
+  pp::network::LedgerAmpRuntime b;
+  ASSERT_TRUE(b.StartForTest(std::shared_ptr<pp::adp::DatagramIo>(std::move(*io_b)),
+                             std::make_shared<pp::adp::WallClock>(), std::move(cfg_b.value()))
+                  .isOk());
+  pp::network::AmpLedgerServer::Bind(
+      b.links(), [](const std::string& body) { return body; }, {},
+      [&b](std::function<void()> task) { b.post(std::move(task)); });
+  ASSERT_TRUE(a.StartForTest(std::shared_ptr<pp::adp::DatagramIo>(std::move(*io_a)),
+                             std::make_shared<pp::adp::WallClock>(), std::move(cfg_a.value()))
+                  .isOk());
+  pp::AmpLedgerTransport transport(a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", b.listenMultiaddr()));
+  for (int round = 0; round < 10; ++round) {
+    ExpectEchoes(transport, {90 * 1024, 90 * 1024 + 1, 90 * 1024 + 2, 90 * 1024 + 3});
+  }
+}
+
