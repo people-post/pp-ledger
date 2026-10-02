@@ -149,6 +149,29 @@ product choice: widen for ops/smoke, keep local-only, or (only if mandated
 network-wide) put a window parameter in chain config. See also
 [SLOT_COMMITTEE_OPEN_ITEMS.md](SLOT_COMMITTEE_OPEN_ITEMS.md) item B.
 
+### D. `T_CONFIG` timing fields do not reach `SlotCommittee`
+
+A config update replaces `BlockChainConfig` (at the next epoch boundary), but
+the slot schedule runs on `SlotCommittee::Config` (`slotDuration`,
+`slotsPerEpoch`), set once at init and never updated. A `T_CONFIG` that shrinks
+`slotDuration` or grows `slotsPerEpoch` (the only directions allowed) changes
+the stored config, not slot timing, epoch numbering or leader election — the
+two disagree from then on. Decide: apply timing changes to `SlotCommittee` at
+the activation epoch (slot/epoch math must stay continuous across the change,
+for every node, including replay and late join), or make timing fields
+immutable after genesis and refuse them in `T_CONFIG`.
+
+### E. Genesis renewal re-records config unchecked
+
+A genesis `T_RENEWAL` carries a full `GenesisAccountMeta`, copied from the
+latest genesis-meta record (`T_GENESIS` / `T_CONFIG` / earlier renewal). The
+handler checks the genesis wallet's shape and balance, but not that
+`meta.config` equals the config in force (or pending). Nothing applies that
+config today, but it is what a node starting from that checkpoint would read,
+so a mismatched renewal could plant a different config. Decide: require
+`meta.config` to equal the active config (and carry any pending update), or
+drop config from the renewal meta and recover it another way.
+
 ## Related
 
 - Wire / heartbeat: [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md)
