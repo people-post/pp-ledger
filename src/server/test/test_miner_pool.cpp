@@ -117,7 +117,7 @@ protected:
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     while (std::chrono::steady_clock::now() < until) {
       miner_->refresh();
-      const uint64_t slot = miner_->getCurrentSlot();
+      const uint64_t slot = miner_->getProductionSlot();  // the slot it collects for / seals
       if (static_cast<int64_t>(slot) > after && miner_->isSlotLeader()) {
         return slot;
       }

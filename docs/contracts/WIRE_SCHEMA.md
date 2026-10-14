@@ -32,7 +32,7 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 |-------|------|-------|
 | `version` | `uint16` | `CURRENT_VERSION` |
 | `index` | `uint64` | Height |
-| `timestamp` | `int64` | Unix seconds; must fall in slot window |
+| `timestamp` | `int64` | Unix seconds; the seal time, in `[slotEnd, slotEnd + window)` ([Slot timing](#slot-timing)) |
 | `previousHash` | 32 bytes | Parent digest |
 | `slot` | `uint64` | Consensus slot |
 | `slotLeader` | `uint64` | Account id elected for the slot |
@@ -225,7 +225,30 @@ a late block from an earlier epoch drops anything recorded for later epochs. Dem
 `slot-committee/v1` string form and legacy `ouroboros/v1`; election outputs
 differ. Block `CURRENT_VERSION` is **5** (adds `epochSeed`).
 
-Open follow-ups (registration, production window, beacon failover, …):
+## Slot timing
+
+A slot's leader **collects for the whole slot and seals once it has ended**; the block must reach
+the beacon within the **delivery window** after the slot's end.
+
+- **Window** `D = min(slotDuration / 3, 2 s)` (`SlotCommittee::deliveryWindowMs`), fixed in code.
+  Always shorter than a slot, so the next leader — who seals at the end of its own slot, after
+  this slot's deadline — always seals on a settled tip: block *s*, or nothing for *s*. A leader
+  never builds past a block still in flight.
+- **Timestamp** (structural, every node, replay included): a block for slot *s* carries its seal
+  time, `slotEnd(s) ≤ timestamp` and `timestamp·1000 < slotEnd(s)·1000 + D` (whole seconds,
+  rounded down). A timestamp inside the slot is refused.
+- **Delivery deadline** (beacon only, live admission): `BLOCK_ADD` for slot *s* is refused once the
+  beacon's clock passes `slotEnd(s) + D` ("arrived after its delivery deadline"); the slot is then
+  empty. Never checked on replay, late join or by relays: every node follows the beacon's chain.
+  An already-held block is still answered as such (idempotent resend).
+- **Leader** (`MinerServer::handleSlotLeaderRole`): pulls the beacon's pool one pull wait
+  (`min(1 s, slot / 3)`) before its slot ends, then seals in `[slotEnd, slotEnd + D)`. Its pending
+  transactions are validated against the slot the block will carry
+  (`SlotCommittee::getProductionSlot`: the previous slot while inside its window).
+- **Clocks:** miners take the beacon's clock offset (`CALIBRATION`); one skewed by more than `D`
+  misses its slots rather than splitting the chain.
+
+Open follow-ups (registration, beacon failover, …):
 [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
 
 ## Empty heartbeat blocks

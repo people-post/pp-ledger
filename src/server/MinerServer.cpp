@@ -788,8 +788,13 @@ void MinerServer::handleSlotLeaderRole() {
   if (blockSync_->inFlight() || broadcast_) {
     return; // seal only on a settled tip; try again next loop
   }
-  // Pending transactions live upstream (the beacon's pool): pull them first.
-  if (!pullTransactionsForSlot(miner_.getCurrentSlot())) {
+  // The leader collects for its whole slot and seals once it ends: pull the beacon's pool just
+  // before the end (one pull wait), so what was submitted during the slot is in the block.
+  const uint64_t slot = miner_.getProductionSlot();
+  if (miner_.msUntilSlotEnd(slot) > txPullWait().count()) {
+    return;
+  }
+  if (!pullTransactionsForSlot(slot)) {
     return;
   }
 

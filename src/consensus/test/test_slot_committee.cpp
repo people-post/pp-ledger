@@ -273,3 +273,47 @@ TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
     consensus->forceSlotLeader(3, 1);
     EXPECT_EQ(consensus->getSlotLeader(3).value(), 1u);
 }
+
+// --- Slot timing: seal after the slot ends, deliver within the window (WIRE_SCHEMA § Slot timing)
+
+// Window = min(slot / 3, 2 s), always shorter than a slot: the next leader seals at the end of its
+// own slot, after this slot's deadline, so its tip is settled.
+TEST(SlotTimingTest, DeliveryWindowIsAThirdOfTheSlotCappedAtTwoSeconds) {
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(1), 333);
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(2), 666);
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(5), 1666);
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(6), 2000);
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(7), 2000);
+    EXPECT_EQ(SlotCommittee::deliveryWindowMs(60), 2000);
+    for (uint64_t seconds = 1; seconds <= 120; ++seconds) {
+        EXPECT_LT(SlotCommittee::deliveryWindowMs(seconds), static_cast<int64_t>(seconds) * 1000) << seconds;
+    }
+}
+
+// Slot 2 runs [10, 15) with 5 s slots; its window is 1666 ms, so it can be sealed and delivered
+// during [15 s, 16.666 s).
+TEST_F(SlotCommitteeTest, LeaderSealsOnlyAfterItsSlotWithinTheWindow) {
+    consensus->setClockOverride(14);  // inside slot 2
+    EXPECT_FALSE(consensus->isSlotSealTime(2));
+    EXPECT_EQ(consensus->getProductionSlot(), 2u) << "collecting for slot 2";
+    consensus->setClockOverride(15);  // slot 2 just ended
+    EXPECT_TRUE(consensus->isSlotSealTime(2));
+    EXPECT_EQ(consensus->getProductionSlot(), 2u) << "sealing slot 2 while slot 3 has begun";
+    consensus->setClockOverride(16);
+    EXPECT_TRUE(consensus->isSlotSealTime(2));
+    EXPECT_TRUE(consensus->isBeforeDeliveryDeadline(2));
+    consensus->setClockOverride(17);  // past 16.666 s
+    EXPECT_FALSE(consensus->isSlotSealTime(2));
+    EXPECT_FALSE(consensus->isBeforeDeliveryDeadline(2)) << "the beacon refuses it now";
+    EXPECT_EQ(consensus->getProductionSlot(), 3u);
+}
+
+// A block carries its seal time: in [slot end, slot end + window). A timestamp inside the slot
+// (the old rule) is refused.
+TEST_F(SlotCommitteeTest, BlockTimestampIsTheSealTimeAfterTheSlot) {
+    EXPECT_FALSE(consensus->validateBlockTiming(10, 2)) << "slot start";
+    EXPECT_FALSE(consensus->validateBlockTiming(14, 2)) << "inside the slot";
+    EXPECT_TRUE(consensus->validateBlockTiming(15, 2));
+    EXPECT_TRUE(consensus->validateBlockTiming(16, 2));
+    EXPECT_FALSE(consensus->validateBlockTiming(17, 2)) << "after the window";
+}

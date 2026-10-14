@@ -99,7 +99,10 @@ public:
 
   // ----------------- accessors -------------------------------------
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
-  bool isSlotBlockProductionTime(uint64_t slot) const;
+  /** See SlotCommittee::isSlotSealTime / isBeforeDeliveryDeadline / getProductionSlot. */
+  bool isSlotSealTime(uint64_t slot) const;
+  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
   bool isChainConfigReady() const;
 
@@ -118,6 +121,9 @@ public:
   Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string &message,
                                     const std::vector<std::string> &signatures) const;
   int64_t getConsensusTimestamp() const;
+  int64_t getConsensusTimestampMs() const;
+  /** End of `slot` (seconds) — the earliest timestamp a block for it may carry. */
+  int64_t getSlotEndTime(uint64_t slot) const;
   /** Start time of the given slot (consensus timestamp). */
   int64_t getSlotStartTime(uint64_t slot) const;
   /** Slot duration in seconds. */

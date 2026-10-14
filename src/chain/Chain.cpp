@@ -63,8 +63,16 @@ bool Chain::isStakeholderSlotLeader(uint64_t stakeholderId,
   return txContext_.consensus.isSlotLeader(slot, stakeholderId);
 }
 
-bool Chain::isSlotBlockProductionTime(uint64_t slot) const {
-  return txContext_.consensus.isSlotBlockProductionTime(slot);
+bool Chain::isSlotSealTime(uint64_t slot) const {
+  return txContext_.consensus.isSlotSealTime(slot);
+}
+
+bool Chain::isBeforeDeliveryDeadline(uint64_t slot) const {
+  return txContext_.consensus.isBeforeDeliveryDeadline(slot);
+}
+
+uint64_t Chain::getProductionSlot() const {
+  return txContext_.consensus.getProductionSlot();
 }
 
 bool Chain::isChainConfigReady() const {
@@ -105,6 +113,14 @@ uint64_t Chain::getNextBlockId() const {
 
 int64_t Chain::getConsensusTimestamp() const {
   return txContext_.consensus.getTimestamp();
+}
+
+int64_t Chain::getConsensusTimestampMs() const {
+  return txContext_.consensus.getTimestampMs();
+}
+
+int64_t Chain::getSlotEndTime(uint64_t slot) const {
+  return txContext_.consensus.getSlotEndTime(slot);
 }
 
 int64_t Chain::getSlotStartTime(uint64_t slot) const {
@@ -1138,10 +1154,11 @@ Chain::Roe<void> Chain::addBufferTransaction(
   }
 
   auto blockId = getNextBlockId();
-  const uint64_t currentSlot = getCurrentSlot();
+  // The slot the block would carry: a leader seals the slot that just ended (delivery window).
+  const uint64_t productionSlot = getProductionSlot();
   BufferApplyContext ctx{ txContext_,
                           blockId,
-                          currentSlot,
+                          productionSlot,
                           chain_block::BlockAdmissionMode::Full };
   // A rejected tx must not leave partial effects in the scratch bank.
   bank.beginOverlay();

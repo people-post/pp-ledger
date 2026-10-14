@@ -117,8 +117,9 @@ structural Check.
 
 ## Intentionally not duplicated
 
-- `Miner::shouldAttemptProduction` (empty heartbeat + production window) is UX only;
-  admission still enforces heartbeat via `checkBlockBodyPolicy`.
+- `Miner::shouldAttemptProduction` (empty heartbeat + seal window) is the leader's own gate;
+  admission enforces heartbeat via `checkBlockBodyPolicy`, the timestamp via
+  `validateBlockTiming`, and the beacon the delivery deadline.
 - Tx fee / signature / idempotency windows stay in handlers, keyed by
   `admissionTxStrict(admissionMode)` on the apply context.
 
@@ -142,12 +143,10 @@ but `heartbeatSlots` (including `0` / `1`) has no monotonicity rule. Decide
 whether liveness knobs need floors/ceilings — same class of question as other
 mutable `BlockChainConfig` fields.
 
-### C. Slot production window
+### C. Slot production window — **settled**
 
-`isSlotBlockProductionTime` is still ~last 1s of the slot (local UX). Open
-product choice: widen for ops/smoke, keep local-only, or (only if mandated
-network-wide) put a window parameter in chain config. See also
-[SLOT_COMMITTEE_OPEN_ITEMS.md](SLOT_COMMITTEE_OPEN_ITEMS.md) item B.
+Leaders seal after their slot ends and deliver within `min(slot / 3, 2 s)`; the beacon refuses
+late blocks. Normative: [WIRE_SCHEMA.md — Slot timing](../contracts/WIRE_SCHEMA.md#slot-timing).
 
 ### D. `T_CONFIG` timing fields do not reach `SlotCommittee`
 

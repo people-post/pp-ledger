@@ -59,6 +59,8 @@ uint64_t Beacon::getNextBlockId() const { return chain_.getNextBlockId(); }
 
 uint64_t Beacon::getCurrentSlot() const { return chain_.getCurrentSlot(); }
 
+bool Beacon::isBeforeDeliveryDeadline(uint64_t slot) const { return chain_.isBeforeDeliveryDeadline(slot); }
+
 uint64_t Beacon::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
 
 std::vector<consensus::Stakeholder> Beacon::getStakeholders() const {

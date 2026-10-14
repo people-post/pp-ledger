@@ -67,6 +67,10 @@ public:
   size_t getPendingTransactionCount() const;
   uint64_t getNextBlockId() const;
   uint64_t getCurrentSlot() const;
+  /** Slot this miner collects for / seals now (the previous slot inside its delivery window). */
+  uint64_t getProductionSlot() const;
+  /** Milliseconds until `slot` ends (negative once it has ended). */
+  int64_t msUntilSlotEnd(uint64_t slot) const;
   uint64_t getCurrentEpoch() const;
   /** Consensus (beacon) time in seconds. */
   int64_t getConsensusTimestamp() const;

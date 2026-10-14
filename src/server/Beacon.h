@@ -95,6 +95,8 @@ public:
   Chain::Checkpoint getCheckpoint() const;
   uint64_t getNextBlockId() const;
   uint64_t getCurrentSlot() const;
+  /** Live admission only: a block for `slot` arrives before slotEnd + delivery window. */
+  bool isBeforeDeliveryDeadline(uint64_t slot) const;
   uint64_t getCurrentEpoch() const;
   std::vector<consensus::Stakeholder> getStakeholders() const;
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;

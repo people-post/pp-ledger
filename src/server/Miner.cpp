@@ -14,7 +14,15 @@ Miner::Miner() {
 }
 
 bool Miner::isSlotLeader() const {
-  return chain_.isStakeholderSlotLeader(config_.minerId, getCurrentSlot());
+  return chain_.isStakeholderSlotLeader(config_.minerId, getProductionSlot());
+}
+
+uint64_t Miner::getProductionSlot() const { return chain_.getProductionSlot(); }
+
+int64_t Miner::msUntilSlotEnd(uint64_t slot) const {
+  const int64_t slotEndMs =
+      (chain_.getSlotStartTime(slot) + static_cast<int64_t>(chain_.getSlotDuration())) * 1000;
+  return slotEndMs - chain_.getConsensusTimestampMs();
 }
 
 bool Miner::isSlotLeaderForSlot(uint64_t slot) const {
@@ -249,14 +257,16 @@ Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
       return false;
     }
   }
-  if (!chain_.isSlotBlockProductionTime(slot)) {
+  // Seal once the slot has ended, within its delivery window (the leader collects for the whole
+  // slot; see SlotCommittee::isSlotSealTime).
+  if (!chain_.isSlotSealTime(slot)) {
     return false;
   }
   return true;
 }
 
 Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
-  const uint64_t slot = getCurrentSlot();
+  const uint64_t slot = getProductionSlot();
   if (lastProducedSlot_ == slot) {
     return false;
   }
@@ -326,7 +336,7 @@ Miner::Roe<void>
 Miner::addTransaction(const Ledger::Record &record) {
   // Validate against this slot's buffer rebuilt from the current tip, never a
   // buffer left over from an earlier slot.
-  const uint64_t slot = getCurrentSlot();
+  const uint64_t slot = getProductionSlot();
   if (!slotCache_.ready || slotCache_.slot != slot) {
     auto initResult = initSlotCache(slot);
     if (!initResult) {
