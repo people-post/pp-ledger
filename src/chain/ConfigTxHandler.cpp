@@ -61,13 +61,13 @@ chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
   if (next.genesisTime != current->genesisTime) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis time mismatch");
   }
-  if (next.slotDuration > current->slotDuration) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Slot duration cannot be increased");
+  // Slot timing is fixed at genesis: the slot schedule (SlotCommittee) is set once from it, and
+  // slot / epoch numbering must stay continuous for every node, replay and late join included.
+  if (next.slotDuration != current->slotDuration) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Slot duration is fixed at genesis");
   }
-  if (next.slotsPerEpoch < current->slotsPerEpoch) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                             "Slots per epoch cannot be decreased");
+  if (next.slotsPerEpoch != current->slotsPerEpoch) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Slots per epoch is fixed at genesis");
   }
   return {};
 }
