@@ -756,35 +756,35 @@ Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch) const {
   return newestFirst;
 }
 
-Chain::Roe<std::string> Chain::readPrevEpochSeed(uint64_t prevEpoch) const {
+Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch) const {
   const uint64_t nextId = txContext_.ledger.getNextBlockId();
   for (uint64_t id = nextId; id > 0; --id) {
     auto blockRoe = txContext_.ledger.readBlock(id - 1);
     if (!blockRoe) {
       break;
     }
-    if (blockRoe->block.epoch == prevEpoch &&
+    if (blockRoe->block.epoch <= maxEpoch &&
         blockRoe->block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
-      return blockRoe->block.epochSeed;
-    }
-    if (blockRoe->block.epoch < prevEpoch) {
-      break;
+      return std::make_pair(blockRoe->block.epoch, blockRoe->block.epochSeed);
     }
   }
-  return Error(E_STATE_INIT,
-               "No epochSeed found for previous epoch " +
-                   std::to_string(prevEpoch));
+  return Error(E_STATE_INIT, "No stored epochSeed at or before epoch " + std::to_string(maxEpoch));
+}
+
+std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed,
+                                       const std::string &stakeHash) const {
+  const std::string networkId =
+      txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->networkId : std::string{};
+  // No blocks in epoch - 1 → no lookback hashes → empty-prev tip material.
+  auto lookback = collectPrevEpochLookbackHashes(epoch - 1);
+  const std::string tipMaterial = consensus::lookbackTipMaterial(epoch - 1, prevSeed, lookback);
+  return consensus::deriveEpochSeed(epoch, networkId, prevSeed, tipMaterial, stakeHash);
 }
 
 Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
   if (txContext_.consensus.hasEpochSeedFor(epoch)) {
     return {};
   }
-
-  const std::string networkId =
-      txContext_.optChainConfig.has_value()
-          ? txContext_.optChainConfig->networkId
-          : std::string{};
 
   if (epoch == 0) {
     if (!txContext_.optChainConfig.has_value()) {
@@ -794,36 +794,42 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
     const std::string cfgDigest =
         chain_block::calculateGenesisConfigDigest(*txContext_.optChainConfig);
     const std::string seed =
-        consensus::deriveGenesisEpochSeed(networkId, cfgDigest);
+        consensus::deriveGenesisEpochSeed(txContext_.optChainConfig->networkId, cfgDigest);
     txContext_.consensus.setEpochSeed(0, seed);
     return {};
   }
 
-  auto prevSeedRoe = readPrevEpochSeed(epoch - 1);
-  if (!prevSeedRoe) {
-    return Error(prevSeedRoe.error().code, prevSeedRoe.error().message);
+  // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
+  // seed follows from the one before (empty-prev tip material), so a chain survives idle epochs.
+  auto base = readLatestEpochSeed(epoch - 1);
+  if (!base) {
+    return Error(base.error().code, base.error().message);
   }
-  const std::string &prevSeed = prevSeedRoe.value();
-  auto lookback = collectPrevEpochLookbackHashes(epoch - 1);
-  const std::string tipMaterial = consensus::lookbackTipMaterial(
-      epoch - 1, prevSeed, lookback);
-  // The epoch's own snapshot, not whatever is installed: the wall-clock refresh
-  // installs the clock epoch's (provisional) stakes before deriving the tip
-  // epoch's seed.
-  const std::string stakeHash =
-      chain_block::calculateStakeSnapshotHash(stakeSnapshotForEpoch(epoch));
-  const std::string seed = consensus::deriveEpochSeed(
-      epoch, networkId, prevSeed, tipMaterial, stakeHash);
+  if (epoch - base.value().first > consensus::kMaxEmptyEpochs + 1) {
+    return Error(E_STATE_INIT, "Epoch " + std::to_string(epoch) + " is more than " +
+                                   std::to_string(consensus::kMaxEmptyEpochs) +
+                                   " empty epochs past the last block's epoch " +
+                                   std::to_string(base.value().first));
+  }
+  // Each epoch's own snapshot, not whatever is installed: the wall-clock refresh installs the
+  // clock epoch's (provisional) stakes before deriving the tip epoch's seed. Epochs with no
+  // recorded snapshot share the provisional one (the bank does not change without blocks).
+  std::optional<std::string> provisionalStakeHash;
+  std::string seed = base.value().second;
+  for (uint64_t next = base.value().first + 1; next <= epoch; ++next) {
+    std::string stakeHash;
+    if (auto recorded = epochStakeSnapshots_.find(next); recorded != epochStakeSnapshots_.end()) {
+      stakeHash = chain_block::calculateStakeSnapshotHash(recorded->second);
+    } else {
+      if (!provisionalStakeHash) {
+        provisionalStakeHash = chain_block::calculateStakeSnapshotHash(electionCandidates());
+      }
+      stakeHash = *provisionalStakeHash;
+    }
+    seed = deriveNextEpochSeed(next, seed, stakeHash);
+  }
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};
-}
-
-std::vector<consensus::Stakeholder> Chain::stakeSnapshotForEpoch(uint64_t epoch) const {
-  auto recorded = epochStakeSnapshots_.find(epoch);
-  if (recorded != epochStakeSnapshots_.end()) {
-    return recorded->second;
-  }
-  return electionCandidates(); // provisional (no block of this epoch yet)
 }
 
 Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {

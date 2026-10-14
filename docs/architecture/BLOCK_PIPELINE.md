@@ -98,6 +98,7 @@ Live code keeps these as **compile-time** constants (not `BlockChainConfig`):
 |----------|-------|----------|
 | Committee max pool size | `100` | `SlotCommittee::kMaxLeaderPoolSize` |
 | Epoch-seed tip lookback | `8` | `consensus::kEpochSeedLookback` |
+| Most empty epochs a seed chains through | `1024` | `consensus::kMaxEmptyEpochs` |
 
 If either is ever exposed as a network knob, it **must** move into genesis
 `BlockChainConfig` (and bump `GenesisAccountMeta` / wire docs): diverging values
