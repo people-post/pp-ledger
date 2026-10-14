@@ -11,6 +11,7 @@
 
 #include <ctime>
 #include <filesystem>
+#include <functional>
 #include <map>
 
 using namespace pp;
@@ -1702,7 +1703,7 @@ struct ComposeHarness {
   std::filesystem::path peerDir;
   Ledger::ChainNode genesis;
 
-  void SetUp() {
+  void SetUp(const std::function<void(Chain::BlockChainConfig &)> &tweakConfig = {}) {
     chainConfig = makeChainConfig(/*genesisTime=*/0);
     chainConfig.slotDuration = 5;
     chainConfig.slotsPerEpoch = 10;
@@ -1712,6 +1713,9 @@ struct ComposeHarness {
     chainConfig.newAccountFee = 5;
     chainConfig.minerMinStake = 50;
     chainConfig.minerRegistrationFee = 7;
+    if (tweakConfig) {
+      tweakConfig(chainConfig);
+    }
 
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
@@ -2615,4 +2619,112 @@ TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
   Ledger::ChainNode epoch2 = makeNextBlockAtSlot(producer, revoked, 20, {makeReserveTransfer(harness_, 5, 33)});
   ASSERT_TRUE(producer.addBlock(epoch2).isOk());
   EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId});
+}
+
+// Miner liveness (WIRE_SCHEMA § Miner registration and liveness): due after 3 slots, 2 misses in
+// a row deregister, 2 epochs of cool-down.
+class MinerLivenessTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    harness_.SetUp([](Chain::BlockChainConfig &c) {
+      c.minerDueAfterSlots = 3;
+      c.minerMaxMissedSlots = 2;
+      c.minerReregisterCooldownEpochs = 2;
+    });
+  }
+  void TearDown() override { harness_.TearDown(); }
+
+  void lead(uint64_t slot, uint64_t id) {
+    harness_.producer.forceSlotLeader(slot, id);
+    harness_.peer.forceSlotLeader(slot, id);
+  }
+  /** Seal on the producer, then admit on the peer (the full apply path) — both banks must agree. */
+  Ledger::ChainNode commit(const Ledger::ChainNode &previous, uint64_t slot,
+                           const std::vector<Ledger::Record> &records) {
+    harness_.producer.setClockOverride(harness_.producer.getSlotStartTime(slot));
+    harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(slot));
+    Ledger::ChainNode block = makeNextBlockAtSlot(harness_.producer, previous, slot, records);
+    EXPECT_TRUE(harness_.producer.addBlock(block).isOk()) << "producer commit at slot " << slot;
+    auto peerAdd = harness_.peer.addBlock(block);
+    EXPECT_TRUE(peerAdd.isOk()) << "peer admit at slot " << slot << ": "
+                                << (peerAdd.isOk() ? "" : peerAdd.error().message);
+    return block;
+  }
+  Client::MinerState minerOf(uint64_t id) { return harness_.peer.getAccount(id).value().wallet.miner; }
+
+  ComposeHarness harness_;
+};
+
+// A due miner's empty block is admitted however short the tip lag; a miner that is not due still
+// needs the heartbeat lag.
+TEST_F(MinerLivenessTest, DueMinerEmptyBlockAccepted) {
+  auto &producer = harness_.producer;
+  ASSERT_EQ(producer.getHeartbeatSlots(), 10u);
+  ASSERT_EQ(minerOf(kTestMinerId).lastProducedSlot, 0u);
+
+  // Slot 2: lag 2, last block 2 slots old — neither rule admits an empty block.
+  lead(2, kTestMinerId);
+  producer.setClockOverride(producer.getSlotStartTime(2));
+  Ledger::ChainNode early = producer.linkNextBlock(harness_.genesis, 2, kTestMinerId, producer.getSlotEndTime(2), {});
+  auto seal = producer.sealBlock(early);
+  ASSERT_FALSE(seal.isOk()) << "not due yet";
+  EXPECT_NE(seal.error().message.find("Empty heartbeat premature"), std::string::npos) << seal.error().message;
+  EXPECT_FALSE(producer.isMinerDue(kTestMinerId, 2));
+
+  // Slot 3: due (3 slots since slot 0): the empty block is accepted and resets the clock.
+  lead(3, kTestMinerId);
+  EXPECT_TRUE(producer.isMinerDue(kTestMinerId, 3));
+  Ledger::ChainNode heartbeat = commit(harness_.genesis, 3, {});
+  ASSERT_TRUE(heartbeat.block.records.empty());
+  EXPECT_EQ(minerOf(kTestMinerId).lastProducedSlot, 3u);
+  EXPECT_FALSE(producer.isMinerDue(kTestMinerId, 4));
+}
+
+// A skipped slot counts a miss only for a due elected leader; producing resets the count; the
+// limit deregisters and the cool-down then refuses re-registration until it has passed.
+TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
+  auto &producer = harness_.producer;
+  for (uint64_t slot = 1; slot < 40; ++slot) {
+    lead(slot, kTestMinerId);
+  }
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(1));
+  ASSERT_TRUE(harness_.peer.addBlock(user.block).isOk());
+  Ledger::ChainNode block = commit(user.block, 2, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 40)});
+  ASSERT_EQ(minerOf(user.id).lastProducedSlot, 2u);
+
+  // Slots 3..5 skipped: the user leads 4 (not due: 2 slots) and 5 (due: 3 slots) → one miss.
+  lead(4, user.id);
+  lead(5, user.id);
+  block = commit(block, 6, {makeReserveTransfer(harness_, 5, 41)});
+  EXPECT_EQ(minerOf(user.id).missedDue, 1u);
+  EXPECT_EQ(minerOf(kTestMinerId).missedDue, 0u) << "the producer led slot 3 but was not due";
+
+  // The user shows up: the count resets and its clock restarts.
+  lead(7, user.id);
+  block = commit(block, 7, {makeReserveTransfer(harness_, 5, 42)});
+  EXPECT_EQ(minerOf(user.id).missedDue, 0u);
+  EXPECT_EQ(minerOf(user.id).lastProducedSlot, 7u);
+
+  // Epoch 1: two due misses in a row (slots 13, 14) deregister it, recording the epoch.
+  block = commit(block, 10, {makeReserveTransfer(harness_, 5, 43)});
+  lead(13, user.id);
+  lead(14, user.id);
+  block = commit(block, 15, {makeReserveTransfer(harness_, 5, 44)});
+  const Client::MinerState dropped = minerOf(user.id);
+  EXPECT_FALSE(dropped.registered);
+  EXPECT_EQ(dropped.missedDue, 0u);
+  EXPECT_EQ(dropped.autoDeregisteredEpoch, 1u);
+
+  // Cool-down: 2 epochs from epoch 1 — refused in epoch 2, allowed from epoch 3.
+  producer.setClockOverride(producer.getSlotStartTime(21));
+  AccountBuffer scratch;
+  auto refused = producer.addBufferTransaction(scratch, minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 45),
+                                               kTestMinerId);
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("cool-down until epoch 3"), std::string::npos) << refused.error().message;
+  block = commit(block, 20, {makeReserveTransfer(harness_, 5, 47)});
+  block = commit(block, 30, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 46)});
+  EXPECT_TRUE(minerOf(user.id).registered);
+  EXPECT_EQ(minerOf(user.id).autoDeregisteredEpoch, Client::MinerState::kNever);
 }

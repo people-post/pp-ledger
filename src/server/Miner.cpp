@@ -252,8 +252,10 @@ Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
                            tipRoe.error().message);
     }
     tipSlotOut = tipRoe->block.slot;
+    // A due miner must show up in a slot it leads, with an empty block if need be.
     if (!shouldSealEmptyHeartbeat(slot, tipSlotOut,
-                                  chain_.getHeartbeatSlots())) {
+                                  chain_.getHeartbeatSlots()) &&
+        !chain_.isMinerDue(config_.minerId, slot)) {
       return false;
     }
   }

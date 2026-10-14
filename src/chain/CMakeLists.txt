@@ -40,6 +40,8 @@ add_library(pp_chain STATIC
     EndUserTxHandler.h
     MinerTxHandler.cpp
     MinerTxHandler.h
+    MinerLiveness.cpp
+    MinerLiveness.h
     RenewalTxHandler.cpp
     RenewalTxHandler.h
     NewUserTxHandler.cpp

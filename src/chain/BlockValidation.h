@@ -59,13 +59,14 @@ chain_tx::Roe<void> validateAccountRenewals(
     const Checkpoint &checkpoint, const RecordHandler &recordHandler);
 
 /**
- * Empty-body policy from genesis `heartbeatSlots`.
- * Non-empty blocks always pass. Empty blocks require tip lag ≥ threshold;
- * `heartbeatSlots == 0` rejects all empty bodies.
+ * Empty-body policy. Non-empty blocks always pass. An empty block passes when
+ * its producer is a due miner (`producerDue`, see chain_tx::isMinerDue) or the
+ * tip lag is at least `heartbeatSlots` (0 disables the lag rule).
  */
 chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
                                                  uint64_t tipSlot,
-                                                 const BlockChainConfig &config);
+                                                 const BlockChainConfig &config,
+                                                 bool producerDue);
 
 /** Layer: txRoot, header hash, sequence / previousHash / txIndex. */
 chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,

@@ -101,6 +101,8 @@ public:
   bool isStakeholderSlotLeader(uint64_t stakeholderId, uint64_t slot) const;
   /** See SlotCommittee::isSlotSealTime / isBeforeDeliveryDeadline / getProductionSlot. */
   bool isSlotSealTime(uint64_t slot) const;
+  /** True when `accountId` is a registered miner due at `slot` (must produce, empty if need be). */
+  bool isMinerDue(uint64_t accountId, uint64_t slot) const;
   bool isBeforeDeliveryDeadline(uint64_t slot) const;
   uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
@@ -289,6 +291,8 @@ private:
   /** Stake set for leader election from the tip bank: registered miners with at least
    *  minerMinStake (WIRE_SCHEMA § Miner registration). */
   std::vector<consensus::Stakeholder> electionCandidates() const;
+  /** Block-level miner liveness after the records (chain_tx::applyMinerLiveness). */
+  Roe<void> applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
   Roe<void> sealOnTip(Ledger::ChainNode &block);
 
   Roe<void> processBlock(const Ledger::ChainNode &block,

@@ -1,4 +1,5 @@
 #include "BlockValidation.h"
+#include "MinerLiveness.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
 #include "common/Serialize.hpp"
@@ -562,17 +563,19 @@ chain_tx::Roe<void> validateAccountRenewals(
 
 chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
                                                  uint64_t tipSlot,
-                                                 const BlockChainConfig &config) {
+                                                 const BlockChainConfig &config,
+                                                 bool producerDue) {
   if (!block.block.records.empty()) {
     return {};
   }
-  if (shouldSealEmptyHeartbeat(block.block.slot, tipSlot,
+  if (producerDue ||
+      shouldSealEmptyHeartbeat(block.block.slot, tipSlot,
                                config.heartbeatSlots)) {
     return {};
   }
   if (config.heartbeatSlots == 0) {
     return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
-                             "Empty blocks disabled (heartbeatSlots=0)");
+                             "Empty block refused: producer not due and heartbeatSlots=0");
   }
   return chain_tx::TxError(
       chain_err::E_BLOCK_VALIDATION,
@@ -718,8 +721,15 @@ chain_tx::Roe<void> checkBlockBodyPolicy(
           chain_err::E_BLOCK_NOT_FOUND,
           "Previous block not found for empty heartbeat check");
     }
+    // An empty body leaves the bank at its pre-block state: the producer's miner clock is the
+    // one this block would answer.
+    auto producer = bank.getAccount(block.block.slotLeader);
+    const bool producerDue =
+        producer && chain_tx::isMinerDue(producer.value().wallet.miner,
+                                         block.block.slot,
+                                         optChainConfig.value());
     auto heartbeat = validateEmptyHeartbeatPolicy(
-        block, prevRoe->block.slot, optChainConfig.value());
+        block, prevRoe->block.slot, optChainConfig.value(), producerDue);
     if (!heartbeat) {
       return heartbeat;
     }

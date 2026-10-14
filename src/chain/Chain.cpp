@@ -1,5 +1,6 @@
 #include "Chain.h"
 #include "BlockValidation.h"
+#include "MinerLiveness.h"
 #include "RecordHandler.h"
 #include "TxFees.h"
 #include "TxLedgerMeta.h"
@@ -631,6 +632,11 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
                    "Failed to apply block for seal: " + applied.error().message);
     }
   }
+  if (block.block.index > 0) {
+    if (auto liveness = applyMinerLiveness(block, chain_block::BlockAdmissionMode::Full); !liveness) {
+      return liveness;
+    }
+  }
 
   if (block.block.index == 0) {
     // Install after genesis apply (init clears any earlier seed).
@@ -640,6 +646,36 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   block.block.stateRoot = txContext_.bank.calculateStateRoot();
   block.hash = calculateHash(block.block);
   return {};
+}
+
+Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+  if (!txContext_.optChainConfig.has_value() || block.block.index == 0) {
+    return {};
+  }
+  auto prev = txContext_.ledger.readBlock(block.block.index - 1);
+  if (!prev) {
+    // Late-join replay starts at a checkpoint: the block before it is not held. Full admission
+    // always has it.
+    if (chain_block::admissionTxStrict(mode)) {
+      return Error(E_BLOCK_NOT_FOUND, "Previous block not found for miner liveness: " + prev.error().message);
+    }
+    return {};
+  }
+  auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
+                                                        txContext_.optChainConfig.value(), prev.value().block.slot,
+                                                        block.block, chain_block::admissionTxStrict(mode)));
+  if (!applied) {
+    return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
+  }
+  return {};
+}
+
+bool Chain::isMinerDue(uint64_t accountId, uint64_t slot) const {
+  if (!txContext_.optChainConfig.has_value()) {
+    return false;
+  }
+  auto account = txContext_.bank.getAccount(accountId);
+  return account && chain_tx::isMinerDue(account.value().wallet.miner, slot, txContext_.optChainConfig.value());
 }
 
 std::vector<consensus::Stakeholder> Chain::electionCandidates() const {
@@ -1136,6 +1172,9 @@ Chain::Roe<void> Chain::processNormalBlock(
       return Error(E_TX_VALIDATION,
                    "Failed to process transaction: " + result.error().message);
     }
+  }
+  if (auto liveness = applyMinerLiveness(block, mode); !liveness) {
+    return liveness;
   }
 
   const std::string expectedStateRoot = txContext_.bank.calculateStateRoot();
