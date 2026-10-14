@@ -286,6 +286,9 @@ private:
    * balance as the issuance baseline.
    */
   void enterBlockEpoch(uint64_t epoch);
+  /** Stake set for leader election from the tip bank: registered miners with at least
+   *  minerMinStake (WIRE_SCHEMA § Miner registration). */
+  std::vector<consensus::Stakeholder> electionCandidates() const;
   Roe<void> sealOnTip(Ledger::ChainNode &block);
 
   Roe<void> processBlock(const Ledger::ChainNode &block,

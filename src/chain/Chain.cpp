@@ -642,6 +642,12 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   return {};
 }
 
+std::vector<consensus::Stakeholder> Chain::electionCandidates() const {
+  const uint64_t minStake =
+      txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->minerMinStake : 0;
+  return txContext_.bank.getStakeholders(minStake);
+}
+
 void Chain::refreshStakeholders() {
   const uint64_t clockEpoch = txContext_.consensus.getCurrentEpoch();
   if (auto recorded = epochStakeSnapshots_.find(clockEpoch); recorded != epochStakeSnapshots_.end()) {
@@ -649,7 +655,7 @@ void Chain::refreshStakeholders() {
   } else if (txContext_.consensus.isStakeUpdateNeeded()) {
     // Provisional (leader election before this epoch's first block). Not
     // recorded: blocks of earlier epochs may still arrive and change it.
-    txContext_.consensus.setStakeholders(txContext_.bank.getStakeholders(), clockEpoch);
+    txContext_.consensus.setStakeholders(electionCandidates(), clockEpoch);
   }
   // Prefer tip epoch (chain progress) over wall-clock epoch so tests and
   // late-start nodes with mismatched genesisTime still keep a usable seed.
@@ -678,7 +684,7 @@ void Chain::refreshStakeholders(uint64_t blockSlot) {
   if (recorded == epochStakeSnapshots_.end()) {
     // First block of this epoch on this tip: the bank holds the state after
     // the last block of earlier epochs — the same on every node.
-    recorded = epochStakeSnapshots_.emplace(epoch, txContext_.bank.getStakeholders()).first;
+    recorded = epochStakeSnapshots_.emplace(epoch, electionCandidates()).first;
     if (epoch > kStakeSnapshotsKept) {
       epochStakeSnapshots_.erase(epochStakeSnapshots_.begin(),
                                  epochStakeSnapshots_.lower_bound(epoch - kStakeSnapshotsKept));
@@ -781,7 +787,7 @@ std::vector<consensus::Stakeholder> Chain::stakeSnapshotForEpoch(uint64_t epoch)
   if (recorded != epochStakeSnapshots_.end()) {
     return recorded->second;
   }
-  return txContext_.bank.getStakeholders(); // provisional (no block of this epoch yet)
+  return electionCandidates(); // provisional (no block of this epoch yet)
 }
 
 Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {

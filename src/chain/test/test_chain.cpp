@@ -184,6 +184,8 @@ Ledger::ChainNode makeNextBlockAtSlot(
     Chain &validator, const Ledger::ChainNode &previous, uint64_t slot,
     const std::vector<Ledger::Record> &records) {
   const uint64_t epoch = validator.getEpochFromSlot(slot);
+  // The block's epoch committee, as admission derives it (a new epoch snapshots the tip bank).
+  validator.refreshStakeholders(slot);
   auto seedRoe = validator.ensureEpochSeed(epoch);
   EXPECT_TRUE(seedRoe.isOk()) << (seedRoe.isOk() ? "" : seedRoe.error().message);
   auto leaderResult = validator.getSlotLeader(slot);
@@ -2578,4 +2580,39 @@ TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
                                                   {minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 22)});
   ASSERT_TRUE(producer.addBlock(revoked).isOk());
   EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
+}
+
+// Only registered miners are elected; a registration joins the committee at the next epoch's
+// snapshot (its first block), a revoke leaves it the same way. Funded accounts that never
+// registered are never candidates (before: every funded account was, miner or not).
+TEST_F(ChainComposeTest, OnlyRegisteredMinersAreElectedFromTheNextEpoch) {
+  auto &producer = harness_.producer;
+  auto committee = [&]() {
+    std::set<uint64_t> ids;
+    for (const auto &s : producer.getStakeholders()) {
+      ids.insert(s.id);
+    }
+    return ids;
+  };
+  FundedUser miner = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  FundedUser idle = addFundedUser(harness_, miner.block, 2, AccountBuffer::ID_FIRST_USER + 2, 5000);
+  Ledger::ChainNode registered = makeNextBlockAtSlot(producer, idle.block, 3,
+                                                     {minerTx(harness_, miner, Ledger::T_MINER_REGISTER, 8, 30)});
+  ASSERT_TRUE(producer.addBlock(registered).isOk());
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId}) << "epoch 0 snapshot predates the registration";
+
+  // Epoch 1 (slots 10..19): its first block takes the snapshot with the new miner.
+  Ledger::ChainNode epoch1 =
+      makeNextBlockAtSlot(producer, registered, 10, {makeReserveTransfer(harness_, 5, 31)});
+  ASSERT_TRUE(producer.addBlock(epoch1).isOk());
+  EXPECT_EQ(committee(), (std::set<uint64_t>{kTestMinerId, miner.id}));
+  EXPECT_FALSE(committee().contains(idle.id)) << "funded but never registered";
+
+  Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, epoch1, 11,
+                                                  {minerTx(harness_, miner, Ledger::T_MINER_REVOKE, 1, 32)});
+  ASSERT_TRUE(producer.addBlock(revoked).isOk());
+  EXPECT_TRUE(committee().contains(miner.id)) << "still in epoch 1's committee";
+  Ledger::ChainNode epoch2 = makeNextBlockAtSlot(producer, revoked, 20, {makeReserveTransfer(harness_, 5, 33)});
+  ASSERT_TRUE(producer.addBlock(epoch2).isOk());
+  EXPECT_EQ(committee(), std::set<uint64_t>{kTestMinerId});
 }
