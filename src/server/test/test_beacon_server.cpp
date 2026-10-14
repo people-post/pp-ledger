@@ -170,6 +170,25 @@ TEST(BeaconServerInitTest, GenesisMinersOutsideTheIssuedRangeAreRefused) {
   }
 }
 
+// Genesis miners are the committee of a new chain: registered as miners from block 0.
+TEST(BeaconServerInitTest, GenesisMinersAreRegistered) {
+  GenesisSetup setup("pp-ledger-beacon-genesis-miner-registered-test");
+  auto key = utl::mlDsaGenerate().value();
+  const uint64_t minerId = AccountBuffer::ID_FIRST_ISSUED;
+  setup.writeInitConfig(R"(, "genesisMiners": [{"id": )" + std::to_string(minerId) + R"(, "publicKeys": [")" +
+                        utl::hexEncode(key.publicKey) + R"("]}])");
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  auto miner = beacon.getAccount(minerId);
+  ASSERT_TRUE(miner.isOk());
+  EXPECT_TRUE(miner.value().wallet.miner.registered);
+  EXPECT_FALSE(beacon.getAccount(AccountBuffer::ID_RESERVE).value().wallet.miner.registered);
+}
+
 // networkId is part of genesis: init refuses to make a chain without one.
 TEST(BeaconServerInitTest, InitRequiresNetworkId) {
   GenesisSetup setup("pp-ledger-beacon-network-id-test");

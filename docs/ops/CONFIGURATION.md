@@ -81,10 +81,17 @@ budgets rather than signing onboarding with reserve or genesis.
 | `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) |
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
 | `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
-| `genesisMiners` | none | Miner accounts created at genesis (below) |
+| `minerMinStake` | 0 | Native balance a miner needs to register (after its fee) and to be elected |
+| `minerRegistrationFee` | 0 | Flat fee for `T_MINER_REGISTER` on top of the meta-size fee, to the fee account |
+| `minerDueAfterSlots` | 12000 | A miner whose last block (or registration) is this many slots old is due: it must produce, an empty block if need be, in a slot it leads. `0` = never due |
+| `minerMaxMissedSlots` | 3 | Slots a due miner may miss in a row before it is deregistered. `0` = never |
+| `minerReregisterCooldownEpochs` | 0 | Epochs an automatically deregistered miner waits before registering again |
+| `genesisMiners` | none | Miner accounts created at genesis (below), registered at block 0 |
 
 **Genesis miners.** System accounts (genesis, reserve, registrar, fee, recycle) never
-lead slots, so a new chain needs miners from block 0. Each entry creates one:
+lead slots, and only registered miners are elected, so a new chain needs miners from block 0.
+Later miners register on chain with `pp-client -b --host <relay> miner-register <account> -f <fee>
+-k <key>` (rules: [WIRE_SCHEMA.md § Miner registration and liveness](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness)). Each entry creates one:
 
 - `id` — in the issued range `[1048576, 1073741824)` (2²⁰ ≤ id < 2³⁰)
 - `publicKeys` — hex ML-DSA-65 public keys; the miner keeps the private keys

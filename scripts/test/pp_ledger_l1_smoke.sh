@@ -35,4 +35,8 @@ if [[ "$end_tip" -le "$start_tip" ]]; then
   die "L-SMOKE-L1: tip did not increase (start=$start_tip end=$end_tip)"
 fi
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip)${NC}"
+# Miner registration: a funded user account (alice, from the inject) opts in.
+register_miner_account $((1 << 30)) "${TEST_DIR}/keys/alice.key" 120 ||
+  die "L-SMOKE-L1: miner registration did not land"
+
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered)${NC}"

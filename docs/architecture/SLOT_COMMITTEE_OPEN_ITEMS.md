@@ -18,34 +18,21 @@ Ouroboros remains a **literature reference** only (not a product goal).
 | Authority model (intent) | **One active beacon at a time**; relays may be promoted if beacon is lost — *mechanism still TBD* (see E) |
 | Epoch seed (D) | Header `epochSeed` (Block v5); derivation in `EpochSeed.*`; election mixes seed — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#epoch-seed) |
 | Production window (B) | Seal after the slot, deliver within `min(slot/3, 2 s)`; beacon refuses late blocks — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#slot-timing) |
+| Miner registration (A1) | Registered miners only; due miners produce; missed due slots deregister — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness) |
 | Empty heartbeats (C) | Genesis `heartbeatSlots`; idle leaders seal empty blocks when tip lag ≥ threshold — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks) |
 
 ---
 
 ## Open items
 
-### A. Miner-registered committee
+### A. Miner-registered committee — **done**
 
-**Lean:** Prefer committee = top‑N **among miner-registered accounts**, not every rich account.
-
-**Why:** Open top‑N elects accounts with no running miner → quiet slots / flaky L1–LATEJOIN even when Amp dial works.
-
-**Options (complexity ↑):**
-
-| ID | Approach | Complexity | Notes |
-|----|----------|------------|-------|
-| A0 | Ops-only: only fund registered miner ids in genesis/smoke | Low | Lab help only; no open-network guarantee |
-| A1 | Account flag / register-miner tx; filter in `getEligibleLeaderPool()` | Medium | **Recommended first cut** |
-| A2 | Bonded / slashable miner set | High | Economics + failure modes; later |
-
-**A1 sketch (when picked up):**
-
-1. Persist “may mine” on account or small registry included in epoch stake snapshot  
-2. Filter: positive stake **and** registered  
-3. Validate `slotLeader` ∈ registered set for that epoch  
-4. Register / revoke rules + epoch boundary semantics  
-
-**Recommendation:** Prototype **A1** before bonds (A2). Soft A0 can stay for smoke fixtures in parallel.
+**Shipped (A1):** only registered miners are elected. Accounts register with `T_MINER_REGISTER`
+(fee + `minerMinStake`) and revoke with `T_MINER_REVOKE`; either applies at the next epoch's
+snapshot. Liveness: a miner is due after `minerDueAfterSlots` without a block and must produce
+(empty if need be) in a slot it leads; `minerMaxMissedSlots` due misses in a row deregister it,
+with a re-registration cool-down. No bonds or slashing (A2 stays future work). Normative:
+[WIRE_SCHEMA.md — Miner registration and liveness](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness).
 
 ---
 
@@ -115,9 +102,8 @@ Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded comm
 
 ## Suggested pickup order
 
-1. **A1** miner registration filter (highest ops/smoke leverage)  
-2. **E** beacon failover mechanism doc → then code (the promoted node also takes over the delivery deadline)  
-3. **F** as needed (B/C/D shipped)  
+1. **E** beacon failover mechanism doc → then code (the promoted node also takes over the delivery deadline)  
+2. **F** as needed (A1/B/C/D shipped)  
 
 ---
 

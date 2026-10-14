@@ -71,23 +71,16 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << pp::common::io::metaToJsonString(status.ltsToMeta(), 2) << "\n";
 }
 
-static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    uint64_t amount, uint64_t fee, const std::string& key) {
+/** Sign `payload` as a record of `type` with `key` (hex or file) and submit it. */
+static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload, const std::string& key) {
   auto keyResult = pp::utl::readPrivateKey(key, "");
   if (!keyResult) {
     std::cerr << "Error: --key: " << keyResult.error().message << "\n";
     return 1;
   }
   const std::string privateKey = keyResult.value();
-  pp::Ledger::TxDefault tx;
-  tx.fromWalletId = fromWalletId;
-  tx.toWalletId = toWalletId;
-  tx.amount = amount;
-  tx.fee = fee;
-  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
-  std::string payload = pp::utl::binaryPack(tx);
   pp::Ledger::Record rec;
-  rec.type = pp::Ledger::T_DEFAULT;
+  rec.type = type;
   rec.data = std::move(payload);
   std::string networkId;
   if (auto st = client.fetchBeaconState()) {
@@ -107,6 +100,27 @@ static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWallet
   }
   std::cout << "Transaction submitted successfully\n";
   return 0;
+}
+
+static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
+                    uint64_t amount, uint64_t fee, const std::string& key) {
+  pp::Ledger::TxDefault tx;
+  tx.fromWalletId = fromWalletId;
+  tx.toWalletId = toWalletId;
+  tx.amount = amount;
+  tx.fee = fee;
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  return signAndSubmit(client, pp::Ledger::T_DEFAULT, pp::utl::binaryPack(tx), key);
+}
+
+/** T_MINER_REGISTER / T_MINER_REVOKE, signed by the account itself. */
+static int runMinerTx(pp::Client& client, uint16_t type, uint64_t walletId, uint64_t fee,
+                      const std::string& key) {
+  pp::Ledger::TxMiner tx;
+  tx.walletId = walletId;
+  tx.fee = fee;
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  return signAndSubmit(client, type, pp::utl::binaryPack(tx), key);
 }
 
 using TxRecord = pp::Ledger::Record;
@@ -402,6 +416,21 @@ int main(int argc, char *argv[]) {
   add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
       ->required();
 
+  // miner-register / miner-revoke: the account opts in or out of mining (from the next epoch)
+  auto* miner_register_cmd = app.add_subcommand(
+      "miner-register",
+      "Register an account as a miner (fee: meta fee + minerRegistrationFee; relay or beacon, -b)");
+  auto* miner_revoke_cmd =
+      app.add_subcommand("miner-revoke", "Revoke an account's miner registration (relay or beacon, -b)");
+  uint64_t minerWalletId = 0;
+  uint64_t minerFee = 0;
+  std::string minerKey;
+  for (auto* cmd : {miner_register_cmd, miner_revoke_cmd}) {
+    cmd->add_option("account", minerWalletId, "Miner account ID")->required();
+    cmd->add_option("-f,--fee", minerFee, "Transaction fee")->required();
+    cmd->add_option("-k,--key", minerKey, "The account's private key (hex or file)")->required();
+  }
+
   // mk-tx: create unsigned SignedData and save to file
   auto* mk_tx_cmd = app.add_subcommand("mk-tx", "Create unsigned transaction file");
   uint64_t mk_from = 0, mk_to = 0;
@@ -669,6 +698,18 @@ int main(int argc, char *argv[]) {
       exitCode = 1;
     } else {
       exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key);
+    }
+  }
+  // Handle miner-register / miner-revoke (relay / beacon)
+  else if (miner_register_cmd->parsed() || miner_revoke_cmd->parsed()) {
+    if (!connectToBeacon) {
+      std::cerr << "Error: miner-register / miner-revoke submit to a relay or the beacon: use -b/--beacon.\n";
+      exitCode = 1;
+    } else {
+      exitCode = runMinerTx(client,
+                            miner_register_cmd->parsed() ? pp::Ledger::T_MINER_REGISTER
+                                                         : pp::Ledger::T_MINER_REVOKE,
+                            minerWalletId, minerFee, minerKey);
     }
   }
   // Handle add-account command (relay / beacon)

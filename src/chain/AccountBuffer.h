@@ -67,7 +67,9 @@ public:
   std::vector<uint64_t> getAccountIdsBeforeBlockId(uint64_t blockId) const;
   Roe<const Account &> getAccount(uint64_t id) const;
   int64_t getBalance(uint64_t accountId, uint64_t tokenId) const;
-  std::vector<consensus::Stakeholder> getStakeholders() const;
+  /** Election candidates: registered miners (not system accounts) with a native balance of at
+   *  least `minMinerStake` (and positive). */
+  std::vector<consensus::Stakeholder> getStakeholders(uint64_t minMinerStake) const;
 
   /** Verify if an account has sufficient spending power for a transaction.
    *  Checks both the transfer amount and fee balance requirements.
@@ -98,6 +100,12 @@ public:
 
   // Token-specific balance operations (tokenId: ID_GENESIS = native token,
   // custom tokens use their genesis wallet IDs)
+  /**
+   * Replace an account's miner state in place (registration, liveness). Does not move the
+   * account's blockId: renewal reads the account's meta from that block.
+   */
+  Roe<void> setMinerState(uint64_t accountId, const Client::MinerState &miner);
+
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId,
                            int64_t amount);
   Roe<void> transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,

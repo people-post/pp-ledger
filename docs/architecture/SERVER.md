@@ -401,6 +401,10 @@ After starting a beacon and miner, you can test the system:
 # Add a transaction
 ./app/pp-client -b -p 8622 add-tx wallet1 wallet2 1000   # relay
 
+# Register an account as a miner (signed with its key); elected from the next epoch
+./app/pp-client -b -p 8622 miner-register <account> -f <fee> -k <key>
+./app/pp-client -b -p 8622 miner-revoke <account> -f <fee> -k <key>
+
 # Wait for block production...
 # Check if block was created
 ./app/pp-client -b -p 8517 current-block

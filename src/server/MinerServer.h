@@ -88,6 +88,8 @@ private:
   bool pullTransactionsForSlot(uint64_t slot);
   std::chrono::milliseconds txPullWait() const;
   void syncBlocksPeriodically();
+  /** Warn (once per epoch) when this miner's account is not a registered miner. */
+  void warnIfNotRegisteredMiner();
   /** Start a background sync (rate-limited to one per slot unless bypassed). */
   void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
   /** BlockSync wiring and completion (server thread). */
@@ -163,6 +165,7 @@ private:
 
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};
+  uint64_t registrationCheckedEpoch_{UINT64_MAX};
   size_t active_upstream_index_{0};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;

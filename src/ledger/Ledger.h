@@ -36,6 +36,9 @@ public:
   constexpr static uint16_t T_ATTACH_UPSERT_SLOT = 13;
   constexpr static uint16_t T_ATTACH_DELETE_SLOT = 14;
   constexpr static uint16_t T_ATTACH_REPLACE_ALL = 15;
+  // Miner registration (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
+  constexpr static uint16_t T_MINER_REGISTER = 16; // Account opts in as a miner (fee, min stake)
+  constexpr static uint16_t T_MINER_REVOKE = 17;   // Account opts out
 
   struct TxCommon {
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
@@ -129,9 +132,29 @@ public:
     pp::common::Meta ltsToMeta() const;
   };
 
-  /** In-memory typed transaction payload for centralized dispatch. */
+  /** T_MINER_REGISTER / T_MINER_REVOKE: signed by the account itself; no account meta. */
+  struct TxMiner : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 }; // Account registering / revoking
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxMinerRegister : TxMiner {};
+  struct TxMinerRevoke : TxMiner {};
+
+  /**
+   * In-memory typed transaction payload for centralized dispatch. Variant order is not the
+   * record type id (16 / 17 follow 0..6; 7..15 are reserved): use typeOf().
+   */
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
-                               TxUserUpdate, TxRenewal, TxEndUser>;
+                               TxUserUpdate, TxRenewal, TxEndUser,
+                               TxMinerRegister, TxMinerRevoke>;
+  /** Record type id (T_*) of a typed transaction. */
+  static uint16_t typeOf(const TypedTx &tx);
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;

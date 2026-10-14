@@ -81,7 +81,8 @@ the chain is **active**, not that idle leaders must emit empties on a duty cycle
 - Any non-empty body (mempool txs **or renewals**) bypasses the empty-lag rule —
   tip advance already shows liveness.
 - Empty bodies still need `currentSlot - tip.slot >= heartbeatSlots`
-  (`0` disables empties entirely).
+  (`0` disables the lag rule) — unless the producer is a **due miner**, whose
+  empty block is always admitted ([Miner registration and liveness](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness)).
 - Anti-spam stays in Full admission (fees, size, signatures), not in heartbeat.
 - Ops / STATUS liveness should prefer **last tip advance**, not “last empty
   heartbeat,” because renewals-only or mempool blocks can move the tip without

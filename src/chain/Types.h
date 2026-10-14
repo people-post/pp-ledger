@@ -60,11 +60,26 @@ struct BlockChainConfig {
    */
   uint64_t newAccountFee{0};
 
+  // --- Miner registration and liveness (WIRE_SCHEMA.md) ---
+  /** Native balance needed to register, and to be in an epoch's committee. */
+  uint64_t minerMinStake{0};
+  /** Flat fee each T_MINER_REGISTER pays on top of the meta-size fee, to the fee account. */
+  uint64_t minerRegistrationFee{0};
+  /** A miner whose last block is this many slots old is due: it must produce (empty if need be)
+   *  in a slot it leads. 0 = never due (no liveness deregistration). */
+  uint64_t minerDueAfterSlots{0};
+  /** Consecutive slots led while due without a block before the miner is deregistered. */
+  uint64_t minerMaxMissedSlots{0};
+  /** Epochs after a liveness deregistration before the account may register again. */
+  uint64_t minerReregisterCooldownEpochs{0};
+
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
             &checkpoint &maxValidationTimespanSeconds &networkId
-                &heartbeatSlots &maxIssuancePerEpoch &newAccountFee;
+                &heartbeatSlots &maxIssuancePerEpoch &newAccountFee &minerMinStake
+                    &minerRegistrationFee &minerDueAfterSlots &minerMaxMissedSlots
+                        &minerReregisterCooldownEpochs;
   }
 };
 
@@ -101,7 +116,7 @@ struct IssuanceBaseline {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 5;
+  constexpr static const uint32_t VERSION = 6;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

@@ -397,6 +397,7 @@ Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const I
     account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(miner.stake);
     account.wallet.publicKeys = miner.publicKeys;
     account.wallet.minSignatures = miner.minSignatures;
+    account.wallet.miner.registered = true;  // a new chain's committee: registered from block 0
     account.wallet.keyType = Crypto::TK_ML_DSA_65;
     account.meta = AccountAttachment::emptySerialized();
 

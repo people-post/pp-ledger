@@ -437,11 +437,37 @@ void MinerServer::initBlockSync() {
   tipWatch_->redirectLogger(log().getFullName() + ".TipWatch");
 }
 
+void MinerServer::warnIfNotRegisteredMiner() {
+  // Once per epoch, after a successful sync (the committee is snapshotted per epoch).
+  const uint64_t epoch = miner_.getCurrentEpoch();
+  if (registrationCheckedEpoch_ == epoch) {
+    return;
+  }
+  registrationCheckedEpoch_ = epoch;
+  auto account = miner_.getAccount(config_.minerId);
+  if (!account) {
+    log().warning << "Miner account " << config_.minerId << " is not on the chain: it is never elected";
+    return;
+  }
+  const Client::MinerState &state = account.value().wallet.miner;
+  if (state.registered) {
+    return;
+  }
+  log().warning << "Miner account " << config_.minerId << " is not a registered miner"
+                << (state.autoDeregisteredEpoch != Client::MinerState::kNever
+                        ? " (deregistered for missed slots in epoch " +
+                              std::to_string(state.autoDeregisteredEpoch) + ")"
+                        : std::string{})
+                << ": it is never elected. Register with: pp-client --host <relay> -b miner-register "
+                << config_.minerId << " -f <fee> -k <key>";
+}
+
 void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
   lastSyncResult_ = result;
   if (result.ok) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = miner_.getCurrentEpoch();
+    warnIfNotRegisteredMiner();
   } else if (config_.network.beacon_multiaddrs.size() > 1) {
     // Fail over: the next attempt (after backoff) uses the next upstream.
     active_upstream_index_ = (active_upstream_index_ + 1) % config_.network.beacon_multiaddrs.size();

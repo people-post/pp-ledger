@@ -26,7 +26,12 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << "networkId: " << config.networkId << ", "
      << "heartbeatSlots: " << config.heartbeatSlots << ", "
      << "maxIssuancePerEpoch: " << config.maxIssuancePerEpoch << ", "
-     << "newAccountFee: " << config.newAccountFee << "}";
+     << "newAccountFee: " << config.newAccountFee << ", "
+     << "minerMinStake: " << config.minerMinStake << ", "
+     << "minerRegistrationFee: " << config.minerRegistrationFee << ", "
+     << "minerDueAfterSlots: " << config.minerDueAfterSlots << ", "
+     << "minerMaxMissedSlots: " << config.minerMaxMissedSlots << ", "
+     << "minerReregisterCooldownEpochs: " << config.minerReregisterCooldownEpochs << "}";
   return os;
 }
 

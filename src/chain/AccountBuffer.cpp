@@ -48,6 +48,17 @@ AccountBuffer::mutableAccount(uint64_t id) {
   return &it->second;
 }
 
+AccountBuffer::Roe<void> AccountBuffer::setMinerState(uint64_t accountId, const Client::MinerState &miner) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account &account = *accountRoe.value();
+  account.wallet.miner = miner;
+  touchTree(account);
+  return {};
+}
+
 void AccountBuffer::recordUndo(uint64_t id) {
   if (journals_.empty()) {
     return;
@@ -144,19 +155,20 @@ int64_t AccountBuffer::getBalance(uint64_t accountId, uint64_t tokenId) const {
   return balanceIt->second;
 }
 
-std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders() const {
+std::vector<consensus::Stakeholder> AccountBuffer::getStakeholders(uint64_t minMinerStake) const {
   std::vector<consensus::Stakeholder> stakeholders;
   for (const auto &[id, account] : mAccounts_) {
     // System accounts hold protocol funds (reserve supply, fees, write-offs),
-    // not stake anyone put at risk: they never lead slots.
-    if (AccountIds::isSystemAccount(id)) {
+    // not stake anyone put at risk: they never lead slots. Only accounts that
+    // opted in as miners (T_MINER_REGISTER, genesis miners) are elected.
+    if (AccountIds::isSystemAccount(id) || !account.wallet.miner.registered) {
       continue;
     }
     auto balanceIt = account.wallet.mBalances.find(ID_GENESIS);
     if (balanceIt == account.wallet.mBalances.end()) {
       continue;
     }
-    if (balanceIt->second > 0) {
+    if (balanceIt->second > 0 && static_cast<uint64_t>(balanceIt->second) >= minMinerStake) {
       stakeholders.push_back({id, uint64_t(balanceIt->second)});
     }
   }

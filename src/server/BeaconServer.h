@@ -88,6 +88,8 @@ private:
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = static_cast<uint64_t>(365) * 24 * 3600; // 1 year (365 days)
   constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = 86400; // 24 hours
+  constexpr static const uint64_t DEFAULT_MINER_DUE_AFTER_SLOTS = 12000; // ~23 h at 7 s slots
+  constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = 3;
 
   struct InitFileConfig {
     /** This chain's name; part of genesis (signatures and the epoch seed bind to it). */
@@ -109,6 +111,12 @@ private:
     uint64_t maxIssuancePerEpoch{0};
     /** Flat fee per account created after genesis (0 = none). */
     uint64_t newAccountFee{0};
+    /** Miner registration and liveness (CONFIGURATION.md § Miners). */
+    uint64_t minerMinStake{0};
+    uint64_t minerRegistrationFee{0};
+    uint64_t minerDueAfterSlots{ DEFAULT_MINER_DUE_AFTER_SLOTS };
+    uint64_t minerMaxMissedSlots{ DEFAULT_MINER_MAX_MISSED_SLOTS };
+    uint64_t minerReregisterCooldownEpochs{0};
     /**
      * Miner accounts created in the genesis block (`genesisMiners`): the only
      * stake at start, since system accounts never lead. Stake defaults to an

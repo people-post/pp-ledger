@@ -4,6 +4,7 @@
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
 #include "EndUserTxHandler.h"
+#include "MinerTxHandler.h"
 #include "GenesisTxHandler.h"
 #include "NewUserTxHandler.h"
 #include "RenewalTxHandler.h"
@@ -23,6 +24,8 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_DEFAULT, std::make_unique<DefaultTxHandler>());
   install(Ledger::T_RENEWAL, std::make_unique<RenewalTxHandler>());
   install(Ledger::T_END_USER, std::make_unique<EndUserTxHandler>());
+  install(Ledger::T_MINER_REGISTER, std::make_unique<MinerTxHandler>(/*registering=*/true));
+  install(Ledger::T_MINER_REVOKE, std::make_unique<MinerTxHandler>(/*registering=*/false));
 }
 
 ITxHandler *RecordHandler::get(std::size_t type) {
@@ -159,8 +162,7 @@ RecordHandler::getGenesisAccountMeta(const Ledger::Record &rec,
 chain_tx::Roe<size_t>
 RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
                                                const Ledger::TypedTx &tx) const {
-  // TypedTx variant order matches Ledger::T_* constants.
-  const auto type = static_cast<std::size_t>(tx.index());
+  const auto type = static_cast<std::size_t>(Ledger::typeOf(tx));
   const ITxHandler *handler = get(type);
   if (!handler) {
     return chain_tx::TxError(chain_err::E_INTERNAL,

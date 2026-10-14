@@ -99,6 +99,11 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   j.setJsonUInt("heartbeatSlots", heartbeatSlots);
   j.setJsonUInt("maxIssuancePerEpoch", maxIssuancePerEpoch);
   j.setJsonUInt("newAccountFee", newAccountFee);
+  j.setJsonUInt("minerMinStake", minerMinStake);
+  j.setJsonUInt("minerRegistrationFee", minerRegistrationFee);
+  j.setJsonUInt("minerDueAfterSlots", minerDueAfterSlots);
+  j.setJsonUInt("minerMaxMissedSlots", minerMaxMissedSlots);
+  j.setJsonUInt("minerReregisterCooldownEpochs", minerReregisterCooldownEpochs);
   return j;
 }
 
@@ -228,6 +233,15 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   }
   if (auto r = readU64("newAccountFee", newAccountFee, false, true); !r) {
     return r;
+  }
+  for (const auto &[name, field] : {std::pair<const char *, uint64_t *>{"minerMinStake", &minerMinStake},
+                                    {"minerRegistrationFee", &minerRegistrationFee},
+                                    {"minerDueAfterSlots", &minerDueAfterSlots},
+                                    {"minerMaxMissedSlots", &minerMaxMissedSlots},
+                                    {"minerReregisterCooldownEpochs", &minerReregisterCooldownEpochs}}) {
+    if (auto r = readU64(name, *field, false, true); !r) {
+      return r;
+    }
   }
 
   if (auto accounts = parseSystemAccounts(jd); !accounts) {
@@ -436,6 +450,11 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.heartbeatSlots = initFileConfig.heartbeatSlots;
   initConfig.chain.maxIssuancePerEpoch = initFileConfig.maxIssuancePerEpoch;
   initConfig.chain.newAccountFee = initFileConfig.newAccountFee;
+  initConfig.chain.minerMinStake = initFileConfig.minerMinStake;
+  initConfig.chain.minerRegistrationFee = initFileConfig.minerRegistrationFee;
+  initConfig.chain.minerDueAfterSlots = initFileConfig.minerDueAfterSlots;
+  initConfig.chain.minerMaxMissedSlots = initFileConfig.minerMaxMissedSlots;
+  initConfig.chain.minerReregisterCooldownEpochs = initFileConfig.minerReregisterCooldownEpochs;
   initConfig.chain.networkId = initFileConfig.networkId;
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();

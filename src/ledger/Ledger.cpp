@@ -3,6 +3,8 @@
 #include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
 #include <filesystem>
+#include <iterator>
+#include <variant>
 #include <fstream>
 #include <algorithm>
 #include <chrono>
@@ -22,6 +24,8 @@ std::string transactionTypeToHumanString(uint16_t type) {
     case Ledger::T_USER_UPDATE:     return "user_update";
     case Ledger::T_RENEWAL:  return "renewal";
     case Ledger::T_END_USER: return "end_user";
+    case Ledger::T_MINER_REGISTER: return "miner_register";
+    case Ledger::T_MINER_REVOKE: return "miner_revoke";
     default: return "unknown_" + std::to_string(type);
   }
 }
@@ -147,6 +151,21 @@ pp::common::Meta Ledger::TxEndUser::ltsToMeta() const {
   return m;
 }
 
+pp::common::Meta Ledger::TxMiner::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  m.setUIntForJson("walletId", walletId);
+  return m;
+}
+
+uint16_t Ledger::typeOf(const TypedTx &tx) {
+  static constexpr uint16_t kTypeByIndex[] = {T_DEFAULT,     T_GENESIS, T_NEW_USER,       T_CONFIG,
+                                              T_USER_UPDATE, T_RENEWAL, T_END_USER,       T_MINER_REGISTER,
+                                              T_MINER_REVOKE};
+  static_assert(std::size(kTypeByIndex) == std::variant_size_v<TypedTx>);
+  return kTypeByIndex[tx.index()];
+}
+
 pp::common::Meta Ledger::Record::ltsToMeta() const {
   pp::common::Meta j;
   j.set("type", std::string(transactionTypeToHumanString(type)));
@@ -244,6 +263,20 @@ Ledger::Record::decode() const {
     if (!txRoe) {
       return Ledger::Error(1, "Invalid packed TxEndUser payload: " +
                                   txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_MINER_REGISTER: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxMinerRegister>(data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxMinerRegister payload: " + txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_MINER_REVOKE: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxMinerRevoke>(data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxMinerRevoke payload: " + txRoe.error().message);
     }
     return Ledger::TypedTx(txRoe.value());
   }
