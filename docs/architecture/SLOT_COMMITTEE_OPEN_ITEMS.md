@@ -17,6 +17,7 @@ Ouroboros remains a **literature reference** only (not a product goal).
 | Equal-weight top‑N | **Designed behavior** — stake gates committee *entry*, not weight inside the pool |
 | Authority model (intent) | **One active beacon at a time**; relays may be promoted if beacon is lost — *mechanism still TBD* (see E) |
 | Epoch seed (D) | Header `epochSeed` (Block v5); derivation in `EpochSeed.*`; election mixes seed — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#epoch-seed) |
+| Production window (B) | Seal after the slot, deliver within `min(slot/3, 2 s)`; beacon refuses late blocks — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#slot-timing) |
 | Empty heartbeats (C) | Genesis `heartbeatSlots`; idle leaders seal empty blocks when tip lag ≥ threshold — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks) |
 
 ---
@@ -48,19 +49,12 @@ Ouroboros remains a **literature reference** only (not a product goal).
 
 ---
 
-### B. Slot production window
+### B. Slot production window — **done**
 
-**Today:** `isSlotBlockProductionTime` ≈ last **1 second** of the slot.
-
-**Lean (discussion):** Not load-bearing history; revisit for ops/smoke ergonomics.
-
-| | Keep last ~1s | Widen (e.g. 2nd half or most of slot) |
-|--|---------------|----------------------------------------|
-| Pros | Less early duplicate work; simple “seal near end” | Fewer missed slots under load/skew; better with short smoke slots |
-| Cons | Easy to miss; harsh when `slotDuration` is small | Earlier produce; need strict beacon reject of bad leaders/tips |
-| Safety | Not cryptographic by itself | Still = validate leader + timestamp ∈ `[start, end)` |
-
-**Recommendation:** Prefer **widen** (produce after a small post-start grace through slot end). With a single beacon, “first valid wins” + leader checks are enough; last-1s is optional caution, not consensus math.
+**Shipped:** the leader collects for its whole slot, seals once it has ended, and must deliver
+within `min(slot / 3, 2 s)`; the beacon refuses a block past that deadline (the slot is empty).
+The window is shorter than a slot, so the next leader always seals on a settled tip. Normative:
+[WIRE_SCHEMA.md — Slot timing](../contracts/WIRE_SCHEMA.md#slot-timing).
 
 ---
 
@@ -80,7 +74,6 @@ Normative: [WIRE_SCHEMA.md — Empty heartbeat blocks](../contracts/WIRE_SCHEMA.
 Miner gate: `Miner::produceBlock`; validation: `checkBlockBodyPolicy` /
 `validateEmptyHeartbeatPolicy`. Pipeline: [BLOCK_PIPELINE.md](BLOCK_PIPELINE.md).
 
-Still separate: widen production window (**B**).
 
 ---
 
@@ -104,7 +97,7 @@ Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epo
 2. **Choice** — which relay is promoted (pre-designated backup, manual, highest checkpoint, …)  
 3. **Cutover** — freeze writes, role flip, republish Amp listen multiaddr / peer id, update miner `beacons[]` / relay upstream  
 4. **Fencing** — old beacon must not return as a second tip (generation id / epoch fence / …)  
-5. **Schedule** — promotion does **not** change `SlotCommittee` math; it changes **who realizes** blocks  
+5. **Schedule** — promotion does **not** change `SlotCommittee` math; it changes **who realizes** blocks — including who enforces the delivery deadline ([Slot timing](../contracts/WIRE_SCHEMA.md#slot-timing))  
 
 **Recommendation:** Spec **1–5** as an ops/topology ADR before implementation. Complexity is mostly role flip + fencing + config propagation, not election.
 
@@ -114,7 +107,7 @@ Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epo
 
 In-process: `SlotCommittee::forceSlotLeader` / `setClockOverride` (tests only).
 
-Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded committee), **B** (window), heartbeats (**C** shipped), or a **test-only RPC/flag** to force leaders on running binaries.
+Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded committee), the window (**B** shipped), heartbeats (**C** shipped), or a **test-only RPC/flag** to force leaders on running binaries.
 
 **Recommendation:** Prefer product fixes (A1 + B and/or C) for real liveness; add out-of-process force-leader only if smoke must be deterministic before those land.
 
@@ -123,9 +116,8 @@ Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded comm
 ## Suggested pickup order
 
 1. **A1** miner registration filter (highest ops/smoke leverage)  
-2. **B** widen production window (cheap, local change)  
-3. **E** beacon failover mechanism doc → then code  
-4. **F** as needed (C/D shipped)  
+2. **E** beacon failover mechanism doc → then code (the promoted node also takes over the delivery deadline)  
+3. **F** as needed (B/C/D shipped)  
 
 ---
 

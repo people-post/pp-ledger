@@ -36,8 +36,7 @@ Slot duration and slots per epoch come from genesis `BlockChainConfig`.
 
 ## Open decisions
 
-Deferred product/protocol choices (miner-registered committee, production window,
-beacon failover, …):
+Deferred product/protocol choices (miner-registered committee, beacon failover, …):
 [docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
 
 Doc map: [docs/README.md](../../docs/README.md).

@@ -31,11 +31,29 @@ bool SlotCommittee::isStakeUpdateNeeded(uint64_t forEpoch) const {
   return forEpoch != cache_.lastStakeUpdateEpoch;
 }
 
-bool SlotCommittee::isSlotBlockProductionTime(uint64_t slot) const {
-  int64_t currentTime = getTimestamp();
-  int64_t slotEndTime = getSlotEndTime(slot);
-  // Block production time is within the last second of the slot
-  return currentTime >= slotEndTime - 1;
+int64_t SlotCommittee::deliveryWindowMs(const uint64_t slotDurationSeconds) {
+  constexpr int64_t kMaxWindowMs = 2000;
+  return std::min<int64_t>(static_cast<int64_t>(slotDurationSeconds) * 1000 / 3, kMaxWindowMs);
+}
+
+int64_t SlotCommittee::deliveryWindowMs() const { return deliveryWindowMs(config_.slotDuration); }
+
+bool SlotCommittee::isSlotSealTime(uint64_t slot) const {
+  const int64_t now = getTimestampMs();
+  const int64_t slotEnd = getSlotEndTime(slot) * 1000;
+  return now >= slotEnd && now < slotEnd + deliveryWindowMs();
+}
+
+bool SlotCommittee::isBeforeDeliveryDeadline(uint64_t slot) const {
+  return getTimestampMs() < getSlotEndTime(slot) * 1000 + deliveryWindowMs();
+}
+
+uint64_t SlotCommittee::getProductionSlot() const {
+  const uint64_t current = getCurrentSlot();
+  if (current > 0 && getTimestampMs() < getSlotEndTime(current - 1) * 1000 + deliveryWindowMs()) {
+    return current - 1;
+  }
+  return current;
 }
 
 int64_t SlotCommittee::getTimestamp() const {
@@ -47,6 +65,16 @@ int64_t SlotCommittee::getTimestamp() const {
       std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
           .count();
   return localTime + config_.timeOffset;
+}
+
+int64_t SlotCommittee::getTimestampMs() const {
+  if (clockOverride_.has_value()) {
+    return *clockOverride_ * 1000;
+  }
+  const auto now = std::chrono::system_clock::now();
+  const int64_t localMs =
+      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  return localMs + config_.timeOffset * 1000;
 }
 
 uint64_t SlotCommittee::getCurrentSlot() const {
@@ -283,10 +311,9 @@ bool SlotCommittee::validateSlotLeader(uint64_t slotLeader,
 }
 
 bool SlotCommittee::validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const {
-  int64_t slotStart = getSlotStartTime(slot);
-  int64_t slotEnd = slotStart + static_cast<int64_t>(config_.slotDuration);
-
-  return blockTimestamp >= slotStart && blockTimestamp < slotEnd;
+  // Timestamps are whole seconds (the seal time, rounded down); slot ends are whole seconds.
+  const int64_t slotEnd = getSlotEndTime(slot);
+  return blockTimestamp >= slotEnd && blockTimestamp * 1000 < slotEnd * 1000 + deliveryWindowMs();
 }
 
 } // namespace consensus

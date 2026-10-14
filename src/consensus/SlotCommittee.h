@@ -52,7 +52,21 @@ public:
   bool isStakeUpdateNeeded() const;
   /** True when given epoch differs from last update (for load-from-ledger). */
   bool isStakeUpdateNeeded(uint64_t forEpoch) const;
-  bool isSlotBlockProductionTime(uint64_t slot) const;
+  /**
+   * Slot timing (docs/contracts/WIRE_SCHEMA.md § Slot timing): the leader of `slot` collects for the whole
+   * slot and seals once it has ended; the block must reach the beacon within the delivery window
+   * after the slot's end. True from the slot's end until end + deliveryWindowMs().
+   */
+  bool isSlotSealTime(uint64_t slot) const;
+  /** The beacon admits a block for `slot` only until slotEnd + deliveryWindowMs() (its clock). */
+  bool isBeforeDeliveryDeadline(uint64_t slot) const;
+  /** Delivery window after a slot ends: min(slotDuration / 3, 2 s). Shorter than a slot, so the
+   *  next leader (who seals at the end of its own slot) always seals on a settled tip. */
+  int64_t deliveryWindowMs() const;
+  static int64_t deliveryWindowMs(uint64_t slotDurationSeconds);
+  /** The slot this node would collect for or seal now: the previous slot while still inside its
+   *  delivery window, otherwise the current slot. */
+  uint64_t getProductionSlot() const;
 
   const Config& getConfig() const { return config_; }
   uint64_t getCurrentSlot() const;
@@ -70,6 +84,8 @@ public:
   std::vector<Stakeholder> getStakeholders() const;
   Roe<uint64_t> getSlotLeader(uint64_t slot) const;
   int64_t getTimestamp() const;
+  /** getTimestamp() in milliseconds (same offset / override). */
+  int64_t getTimestampMs() const;
 
   /** Active epoch seed (32 raw bytes) for leader election; empty if unset. */
   const std::string &getEpochSeed() const { return epochSeed_; }
@@ -97,6 +113,7 @@ public:
   // ----- methods -----
   void init(const Config& config);
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
+  /** A block for `slot` is sealed after the slot ends: timestamp in [slotEnd, slotEnd + window). */
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;
 
   /**

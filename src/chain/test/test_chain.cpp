@@ -190,7 +190,7 @@ Ledger::ChainNode makeNextBlockAtSlot(
       << (leaderResult.isOk() ? "" : leaderResult.error().message);
   auto block = validator.linkNextBlock(
       previous, slot, leaderResult.isOk() ? leaderResult.value() : 0,
-      validator.getSlotStartTime(slot), records);
+      validator.getSlotEndTime(slot), records);
   auto sealResult = validator.sealBlock(block);
   EXPECT_TRUE(sealResult.isOk())
       << (sealResult.isOk() ? "" : sealResult.error().message);
@@ -953,7 +953,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   auto leaderResult = validator.getSlotLeader(slot);
   ASSERT_TRUE(leaderResult.isOk());
   auto block1 = validator.linkNextBlock(
-      genesis, slot, leaderResult.value(), validator.getSlotStartTime(slot),
+      genesis, slot, leaderResult.value(), validator.getSlotEndTime(slot),
       {rec});
   auto sealResult = validator.sealBlock(block1);
   ASSERT_FALSE(sealResult.isOk());
@@ -1037,7 +1037,7 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
   ASSERT_TRUE(leaderResult.isOk());
   auto badBlock = validator.linkNextBlock(
       block1, badSlot, leaderResult.value(),
-      validator.getSlotStartTime(badSlot), {rec2});
+      validator.getSlotEndTime(badSlot), {rec2});
   auto reserveBefore = validator.getAccount(AccountBuffer::ID_RESERVE);
   ASSERT_TRUE(reserveBefore.isOk());
   auto sealResult = validator.sealBlock(badBlock);
@@ -1106,7 +1106,7 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   ASSERT_TRUE(leaderResult.isOk());
   auto badBlock = validator.linkNextBlock(
       genesis, farFutureSlot, leaderResult.value(),
-      validator.getSlotStartTime(farFutureSlot), {});
+      validator.getSlotEndTime(farFutureSlot), {});
   auto sealResult = validator.sealBlock(badBlock);
   ASSERT_FALSE(sealResult.isOk());
   EXPECT_NE(sealResult.error().message.find("too far in the future"),
@@ -1836,7 +1836,7 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   bad.block.index = harness_.genesis.block.index + 1;
   bad.block.previousHash = harness_.genesis.hash;
   bad.block.slot = slot;
-  bad.block.timestamp = producer.getSlotStartTime(slot);
+  bad.block.timestamp = producer.getSlotEndTime(slot);
   bad.block.slotLeader = wrong;
   bad.block.epoch = slot / 10; // slotsPerEpoch from harness config
   bad.block.txIndex =
@@ -1940,7 +1940,7 @@ TEST_F(ChainComposeTest, RejectedSeal_RollsBackAndProducerRecovers) {
   producer.forceSlotLeader(tipSlot, leaderId);
   producer.setClockOverride(producer.getSlotStartTime(tipSlot));
   auto bad = producer.linkNextBlock(harness_.genesis, tipSlot, leaderId,
-                                    producer.getSlotStartTime(tipSlot),
+                                    producer.getSlotEndTime(tipSlot),
                                     {makeReserveTransfer(harness_, 50, 1)});
   auto seal = producer.sealBlock(bad);
   if (seal.isOk()) {
@@ -1981,7 +1981,7 @@ TEST_F(ChainComposeTest, UnsealedAddBlock_RejectsSlotRegressionAndFarFuture) {
     forged.block.index = block1.block.index + 1;
     forged.block.previousHash = block1.hash;
     forged.block.slot = slot;
-    forged.block.timestamp = peer.getSlotStartTime(slot);
+    forged.block.timestamp = peer.getSlotEndTime(slot);
     forged.hash = peer.calculateHash(forged.block);
     return forged;
   };
@@ -2224,7 +2224,7 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
   early.block.index = harness_.genesis.block.index + 1;
   early.block.previousHash = harness_.genesis.hash;
   early.block.slot = earlySlot;
-  early.block.timestamp = producer.getSlotStartTime(earlySlot);
+  early.block.timestamp = producer.getSlotEndTime(earlySlot);
   early.block.slotLeader = leaderId;
   early.block.txIndex =
       harness_.genesis.block.txIndex + harness_.genesis.block.records.size();
@@ -2373,7 +2373,7 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
     ASSERT_TRUE(producer.ensureEpochSeed(0).isOk());
     auto leader = producer.getSlotLeader(2);
     ASSERT_TRUE(leader.isOk());
-    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotStartTime(2), {second});
+    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotEndTime(2), {second});
     auto sealed = producer.sealBlock(block);
     ASSERT_FALSE(sealed.isOk());
     EXPECT_NE(sealed.error().message.find("already pending"), std::string::npos) << sealed.error().message;
@@ -2420,7 +2420,7 @@ TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
   {
     auto leader = producer.getSlotLeader(2);
     ASSERT_TRUE(leader.isOk());
-    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotStartTime(2), {issue(50, 2)});
+    auto block = producer.linkNextBlock(block1, 2, leader.value(), producer.getSlotEndTime(2), {issue(50, 2)});
     auto sealed = producer.sealBlock(block);
     ASSERT_FALSE(sealed.isOk());
     EXPECT_NE(sealed.error().message.find("maxIssuancePerEpoch"), std::string::npos) << sealed.error().message;
