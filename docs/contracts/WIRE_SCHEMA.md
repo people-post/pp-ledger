@@ -124,6 +124,12 @@ not installed in `RecordHandler`.
 - **The genesis account (keys, rotation) is replaced at once.**
 - Fields that may not move: `genesisTime`; `slotDuration` may only shrink,
   `slotsPerEpoch` only grow.
+- **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`) is
+  `config`, `genesis`, and a pending section (`hasPending`, `pending` = activation epoch +
+  config). `T_GENESIS` and `T_CONFIG` carry no pending section (a `T_CONFIG`'s `config` is
+  the update). A genesis `T_RENEWAL` — what a node starting from its checkpoint reads — must
+  carry the config in force for its block and, if an update is still pending (its epoch has
+  not come), that update in the pending section; validators refuse anything else.
 
 ## Account / ledger model
 
@@ -163,7 +169,7 @@ not installed in `RecordHandler`.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
 - Checkpoints mark chain ranges from which account state can be reconstructed.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **6**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **7**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, and the miner settings
 ([Miner registration and liveness](#miner-registration-and-liveness)).

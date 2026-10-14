@@ -99,7 +99,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBuffer(const Ledger::TypedTx &tx,
         !seeded) {
       return seeded;
     }
-    return applyRenewal(*p, c.ctx, bank, c.blockId, true,
+    return applyRenewal(*p, c.ctx, bank, c.blockId, c.effectiveSlot, true,
                         chain_block::BlockAdmissionMode::Full);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
@@ -119,7 +119,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
   }
   const auto *p = pRoe.value();
   if (p->walletId == AccountBuffer::ID_GENESIS) {
-    return applyRenewal(*p, c.ctx, bank, c.blockId, false, c.admissionMode);
+    return applyRenewal(*p, c.ctx, bank, c.blockId, c.blockSlot, false, c.admissionMode);
   }
   const auto userUpsert = renewalToUserUpsert(*p);
   return applyUserUpdateBlockCommon(userUpsert, bank, c,
@@ -129,7 +129,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyBlock(const Ledger::TypedTx &tx,
 
 chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     const Ledger::TxRenewal &tx, [[maybe_unused]] const TxContext &ctx,
-    AccountBuffer &bank, uint64_t blockId, [[maybe_unused]] bool isBufferMode,
+    AccountBuffer &bank, uint64_t blockId, uint64_t slot, [[maybe_unused]] bool isBufferMode,
     chain_block::BlockAdmissionMode admissionMode) const {
   if (tx.walletId != AccountBuffer::ID_GENESIS) {
     return chain_tx::TxError(
@@ -148,6 +148,18 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
   if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
       !shape) {
     return shape;
+  }
+
+  // What a node starting from this checkpoint reads: it must be the config in force for this
+  // block, with the update still pending (if any).
+  if (chain_block::admissionTxStrict(admissionMode) && ctx.optChainConfig.has_value()) {
+    GenesisAccountMeta expected = gm;
+    expected.setConfigStateAt(ctx.optChainConfig.value(), ctx.pendingChainConfig,
+                              ctx.consensus.getEpochFromSlot(slot));
+    if (!gm.sameConfigState(expected)) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Genesis renewal must carry the config in force and any pending update");
+    }
   }
 
   // Fee-free like every system account: genesis issues the native token (its

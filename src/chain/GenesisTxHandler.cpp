@@ -76,6 +76,9 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
                                  tx.meta);
   }
 
+  if (gm.hasPending) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis config cannot carry a pending update");
+  }
   ctx.optChainConfig = gm.config;
 
   auto config = ctx.consensus.getConfig();

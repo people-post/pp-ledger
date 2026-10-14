@@ -266,7 +266,7 @@ private:
 
   /** Create a renewal or end-user transaction for a given account. */
   Roe<Ledger::Record>
-  createRenewalTx(uint64_t accountId) const;
+  createRenewalTx(uint64_t accountId, uint64_t slot) const;
 
   /** Tip state outside the bank that block admission may change. */
   struct TipSnapshot {

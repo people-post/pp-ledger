@@ -161,16 +161,11 @@ the activation epoch (slot/epoch math must stay continuous across the change,
 for every node, including replay and late join), or make timing fields
 immutable after genesis and refuse them in `T_CONFIG`.
 
-### E. Genesis renewal re-records config unchecked
+### E. Genesis renewal re-records config — **settled**
 
-A genesis `T_RENEWAL` carries a full `GenesisAccountMeta`, copied from the
-latest genesis-meta record (`T_GENESIS` / `T_CONFIG` / earlier renewal). The
-handler checks the genesis wallet's shape and balance, but not that
-`meta.config` equals the config in force (or pending). Nothing applies that
-config today, but it is what a node starting from that checkpoint would read,
-so a mismatched renewal could plant a different config. Decide: require
-`meta.config` to equal the active config (and carry any pending update), or
-drop config from the renewal meta and recover it another way.
+A genesis `T_RENEWAL` must carry the config in force for its block plus any pending update
+(separately); validators refuse a mismatch. Normative:
+[WIRE_SCHEMA.md — Config updates](../contracts/WIRE_SCHEMA.md#config-updates).
 
 ## Related
 
