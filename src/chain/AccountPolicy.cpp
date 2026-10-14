@@ -75,6 +75,9 @@ Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
 }
 
 Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
+  if (wallet.miner != Client::MinerState{}) {
+    return TxError(chain_err::E_TX_VALIDATION, "The genesis account cannot be a miner");
+  }
   if (wallet.publicKeys.size() < 3) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Genesis account must have at least 3 public keys");

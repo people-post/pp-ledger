@@ -159,8 +159,9 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
       newAccountTx(AccountBuffer::ID_REGISTRAR, makeUserAccount(registrarSigner.publicKey, 0));
   const Ledger::TxNewUser recycleTx =
       newAccountTx(AccountBuffer::ID_RECYCLE, makeUserAccount(recycleKey.publicKey, 0));
-  const Ledger::TxNewUser minerTx =
-      newAccountTx(kTestMinerId, makeUserAccount(minerSigner.publicKey, kTestMinerStake));
+  Client::UserAccount minerAccount = makeUserAccount(minerSigner.publicKey, kTestMinerStake);
+  minerAccount.wallet.miner.registered = true;  // genesis miners are registered from block 0
+  const Ledger::TxNewUser minerTx = newAccountTx(kTestMinerId, minerAccount);
 
   const uint64_t reserveFee = minFee(makeUserAccount(reserveKey.publicKey, 0));
   const int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) -
@@ -2433,4 +2434,57 @@ TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
   ASSERT_TRUE(producer.addBlock(block2).isOk());
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
             reserveBefore + 150);
+}
+
+// Miner state is chain-owned: an account cannot be created already registered (only genesis
+// miners are, in the genesis block), and an update cannot change it — otherwise anyone could
+// register without the fee and minimum stake, or reset its own missed-slot count.
+TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
+  auto &producer = harness_.producer;
+  EXPECT_TRUE(producer.getAccount(kTestMinerId).value().wallet.miner.registered) << "genesis miner";
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));  // buffer admission checks wall time
+  auto leader = producer.getSlotLeader(1);
+  ASSERT_TRUE(leader.isOk());
+
+  auto userKey = makeKeyPair();
+  Client::UserAccount selfRegistered = makeUserAccount(userKey.publicKey, 10);
+  selfRegistered.wallet.miner.registered = true;
+  Ledger::TxNewUser nu;
+  nu.fromWalletId = AccountBuffer::ID_RESERVE;
+  nu.toWalletId = AccountBuffer::ID_FIRST_USER + 7;
+  nu.amount = 10;
+  nu.fee = 100;
+  nu.meta = selfRegistered.ltsToString();
+  nu.idempotentId = 1;
+  nu.validationTsMin = now - 60;
+  nu.validationTsMax = now + 60;
+  {
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_NEW_USER, nu, harness_.reserveKey, producer.getNetworkId()), leader.value());
+    ASSERT_FALSE(added.isOk());
+    EXPECT_NE(added.error().message.find("miner state"), std::string::npos) << added.error().message;
+  }
+
+  // The genesis miner tries to reset its own state through a self-update.
+  Client::UserAccount update;
+  update.wallet = producer.getAccount(kTestMinerId).value().wallet;
+  update.wallet.miner.missedDue = 0;
+  update.wallet.miner.lastProducedSlot = 999;
+  update.wallet.mBalances[AccountBuffer::ID_GENESIS] -= 100;  // pays its fee
+  update.meta = AccountAttachment::emptySerialized();
+  Ledger::TxUserUpdate uu;
+  uu.walletId = kTestMinerId;
+  uu.fee = 100;
+  uu.meta = update.ltsToString();
+  uu.idempotentId = 2;
+  uu.validationTsMin = now - 60;
+  uu.validationTsMax = now + 60;
+  {
+    AccountBuffer scratch;
+    auto added = producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey, producer.getNetworkId()), leader.value());
+    ASSERT_FALSE(added.isOk());
+    EXPECT_NE(added.error().message.find("miner state"), std::string::npos) << added.error().message;
+  }
 }

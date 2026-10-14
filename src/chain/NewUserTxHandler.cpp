@@ -207,6 +207,17 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   }
   Client::UserAccount userAccount = std::move(userAccountRoe.value());
 
+  // Miner state is chain-owned: a new account starts unregistered, except a genesis miner
+  // (issued range) registered in the genesis block.
+  const bool genesisMiner = blockId == 0 && tx.toWalletId >= AccountBuffer::ID_FIRST_ISSUED &&
+                            tx.toWalletId < AccountBuffer::ID_FIRST_USER;
+  Client::MinerState expectedMiner;
+  expectedMiner.registered = genesisMiner && userAccount.wallet.miner.registered;
+  if (userAccount.wallet.miner != expectedMiner) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "A new account cannot carry miner state (register with T_MINER_REGISTER)");
+  }
+
   if (userAccount.wallet.mBalances.size() != 1) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User account must have exactly one balance");

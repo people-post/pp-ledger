@@ -103,6 +103,12 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                balanceVerifyResult.error().message);
     }
+    // Miner state is chain-owned: an update or renewal carries it unchanged (only
+    // T_MINER_REGISTER / T_MINER_REVOKE and block apply change it).
+    if (userAccount.wallet.miner != bufferAccountResult.value().wallet.miner) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Account update cannot change miner state: " + std::to_string(tx.walletId));
+    }
   }
 
   if (auto replaced = chain_tx::replaceAccount(

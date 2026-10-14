@@ -58,6 +58,16 @@ pp::common::Meta Client::Wallet::ltsToMeta() const {
   j.set("publicKeys", pp::common::Meta::array(std::move(keys)));
   j.setJsonUInt("minSignatures", minSignatures);
   j.setJsonUInt("keyType", keyType);
+  if (miner != MinerState{}) {
+    pp::common::Meta m;
+    m.set("registered", miner.registered);
+    m.setJsonUInt("lastProducedSlot", miner.lastProducedSlot);
+    m.setJsonUInt("missedDue", miner.missedDue);
+    if (miner.autoDeregisteredEpoch != MinerState::kNever) {
+      m.setJsonUInt("autoDeregisteredEpoch", miner.autoDeregisteredEpoch);
+    }
+    j.set("miner", m);
+  }
   return j;
 }
 
