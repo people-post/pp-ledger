@@ -48,6 +48,17 @@ AccountBuffer::mutableAccount(uint64_t id) {
   return &it->second;
 }
 
+AccountBuffer::Roe<void> AccountBuffer::setMinerState(uint64_t accountId, const Client::MinerState &miner) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account &account = *accountRoe.value();
+  account.wallet.miner = miner;
+  touchTree(account);
+  return {};
+}
+
 void AccountBuffer::recordUndo(uint64_t id) {
   if (journals_.empty()) {
     return;

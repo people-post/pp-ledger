@@ -1708,6 +1708,8 @@ struct ComposeHarness {
     chainConfig.checkpoint.minAgeSeconds = 0;
     chainConfig.maxIssuancePerEpoch = 100;
     chainConfig.newAccountFee = 5;
+    chainConfig.minerMinStake = 50;
+    chainConfig.minerRegistrationFee = 7;
 
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
@@ -2487,4 +2489,93 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
     ASSERT_FALSE(added.isOk());
     EXPECT_NE(added.error().message.find("miner state"), std::string::npos) << added.error().message;
   }
+}
+
+namespace {
+
+/** A funded user account (block at `slot`), for miner-registration tests. */
+struct FundedUser {
+  uint64_t id = 0;
+  utl::MlDsaKeyPair key;
+  Ledger::ChainNode block;
+};
+
+FundedUser addFundedUser(ComposeHarness &h, const Ledger::ChainNode &previous, uint64_t slot, uint64_t id,
+                         int64_t balance) {
+  FundedUser user;
+  user.id = id;
+  user.key = makeKeyPair();
+  Ledger::TxNewUser nu;
+  nu.fromWalletId = AccountBuffer::ID_RESERVE;
+  nu.toWalletId = id;
+  nu.amount = static_cast<uint64_t>(balance);
+  nu.fee = 6;  // meta fee 1 + newAccountFee 5
+  nu.meta = makeUserAccount(user.key.publicKey, balance).ltsToString();
+  nu.idempotentId = id;
+  nu.validationTsMin = h.chainConfig.genesisTime;
+  nu.validationTsMax = h.chainConfig.genesisTime + 3600;
+  user.block = makeNextBlockAtSlot(h.producer, previous, slot,
+                                   {makeRecord(Ledger::T_NEW_USER, nu, h.reserveKey, h.producer.getNetworkId())});
+  EXPECT_TRUE(h.producer.addBlock(user.block).isOk());
+  return user;
+}
+
+Ledger::Record minerTx(ComposeHarness &h, const FundedUser &user, uint16_t type, uint64_t fee, uint64_t idem) {
+  Ledger::TxMinerRegister tx;
+  tx.walletId = user.id;
+  tx.fee = fee;
+  tx.idempotentId = idem;
+  tx.validationTsMin = h.chainConfig.genesisTime;
+  tx.validationTsMax = h.chainConfig.genesisTime + 3600;
+  Ledger::Record rec;
+  rec.type = type;
+  rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+  rec.signatures = {signMessage(user.key, rec.signingMessage(h.producer.getNetworkId()))};
+  return rec;
+}
+
+} // namespace
+
+// Registration: the account opts in itself, pays the meta fee + minerRegistrationFee (7), keeps
+// at least minerMinStake (50) after the fee; revoke opts out. System accounts never mine.
+TEST_F(ChainComposeTest, MinerRegisterAndRevoke) {
+  auto &producer = harness_.producer;
+  FundedUser rich = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  FundedUser poor = addFundedUser(harness_, rich.block, 2, AccountBuffer::ID_FIRST_USER + 2, 55);
+  producer.setClockOverride(producer.getSlotStartTime(3));  // the buffer path checks validity windows
+  auto tryAdd = [&](const Ledger::Record &rec) {
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(scratch, rec, producer.getSlotLeader(3).value());
+  };
+  auto refusedWith = [&](const Ledger::Record &rec, const std::string &why) {
+    auto added = tryAdd(rec);
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  };
+
+  refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 7, 10), "fee below minimum 8");
+  refusedWith(minerTx(harness_, poor, Ledger::T_MINER_REGISTER, 8, 10), "minerMinStake");  // 55 - 8 < 50
+  refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 11), "not a registered miner");
+  FundedUser reserve{AccountBuffer::ID_RESERVE, harness_.reserveKey, {}};
+  refusedWith(minerTx(harness_, reserve, Ledger::T_MINER_REGISTER, 8, 12), "System accounts");
+
+  // Registered in a block: fee paid to the fee account, due clock starts at this slot.
+  const int64_t feeBefore =
+      producer.getAccount(AccountBuffer::ID_FEE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS);
+  Ledger::ChainNode registered = makeNextBlockAtSlot(producer, poor.block, 3,
+                                                     {minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 8, 20)});
+  ASSERT_TRUE(producer.addBlock(registered).isOk());
+  auto account = producer.getAccount(rich.id).value();
+  EXPECT_TRUE(account.wallet.miner.registered);
+  EXPECT_EQ(account.wallet.miner.lastProducedSlot, 3u);
+  EXPECT_EQ(account.wallet.mBalances.at(AccountBuffer::ID_GENESIS), 1000 - 8);
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_FEE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
+            feeBefore + 8);
+  refusedWith(minerTx(harness_, rich, Ledger::T_MINER_REGISTER, 8, 21), "already a registered miner");
+
+  // Revoke: meta fee only.
+  Ledger::ChainNode revoked = makeNextBlockAtSlot(producer, registered, 4,
+                                                  {minerTx(harness_, rich, Ledger::T_MINER_REVOKE, 1, 22)});
+  ASSERT_TRUE(producer.addBlock(revoked).isOk());
+  EXPECT_FALSE(producer.getAccount(rich.id).value().wallet.miner.registered);
 }

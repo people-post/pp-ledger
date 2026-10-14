@@ -38,6 +38,8 @@ add_library(pp_chain STATIC
     DefaultTxHandler.h
     EndUserTxHandler.cpp
     EndUserTxHandler.h
+    MinerTxHandler.cpp
+    MinerTxHandler.h
     RenewalTxHandler.cpp
     RenewalTxHandler.h
     NewUserTxHandler.cpp

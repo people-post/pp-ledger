@@ -113,8 +113,7 @@ public:
   getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
                                   const Ledger::TypedTx &tx) const {
     (void)config;
-    // TypedTx variant order matches Ledger::T_* constants.
-    switch (tx.index()) {
+    switch (Ledger::typeOf(tx)) {
     case Ledger::T_DEFAULT:
       return std::get<Ledger::TxDefault>(tx).meta.size();
     case Ledger::T_GENESIS:
@@ -129,6 +128,10 @@ public:
       return std::get<Ledger::TxRenewal>(tx).meta.size();
     case Ledger::T_END_USER:
       return std::get<Ledger::TxEndUser>(tx).meta.size();
+    case Ledger::T_MINER_REGISTER:
+      return std::get<Ledger::TxMinerRegister>(tx).meta.size();
+    case Ledger::T_MINER_REVOKE:
+      return std::get<Ledger::TxMinerRevoke>(tx).meta.size();
     default:
       return chain_tx::TxError(chain_err::E_INTERNAL,
                                "Unknown typed transaction variant");
