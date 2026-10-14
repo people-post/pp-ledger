@@ -938,6 +938,33 @@ inject_transactions_for_block_production() {
   echo -e "${GREEN}✓ Transaction inject attempted${NC}"
 }
 
+# Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
+# chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
+register_miner_account() {
+  local account=$1
+  local key_file=$2
+  local max_wait=${3:-90}
+  local fee=20
+  echo -e "${CYAN}Registering account $account as a miner...${NC}"
+  local deadline=$((SECONDS + max_wait))
+  local submitted=0
+  while ((SECONDS < deadline)); do
+    if ((submitted == 0)) &&
+      run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" miner-register "$account" -f "$fee" -k "$key_file" >/dev/null 2>&1; then
+      submitted=1
+    fi
+    local meta
+    meta=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" account "$account" 2>/dev/null || true)
+    if printf '%s' "$meta" | tr -d ' \n' | grep -q '"miner":{[^}]*"registered":true'; then
+      echo -e "${GREEN}✓ Account $account is a registered miner${NC}"
+      return 0
+    fi
+    sleep 1
+  done
+  echo -e "${RED}✗ Account $account not registered as a miner within ${max_wait}s (submitted=$submitted)${NC}" >&2
+  return 1
+}
+
 stop_miner_by_id() {
   local miner_id=$1
   local line pid
