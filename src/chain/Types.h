@@ -60,7 +60,7 @@ struct BlockChainConfig {
    */
   uint64_t newAccountFee{0};
 
-  // --- Miner registration and liveness (WIRE_SCHEMA § Miner registration) ---
+  // --- Miner registration and liveness (WIRE_SCHEMA.md) ---
   /** Native balance needed to register, and to be in an epoch's committee. */
   uint64_t minerMinStake{0};
   /** Flat fee each T_MINER_REGISTER pays on top of the meta-size fee, to the fee account. */

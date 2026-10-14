@@ -289,7 +289,7 @@ private:
    */
   void enterBlockEpoch(uint64_t epoch);
   /** Stake set for leader election from the tip bank: registered miners with at least
-   *  minerMinStake (WIRE_SCHEMA § Miner registration). */
+   *  minerMinStake (WIRE_SCHEMA § Miner registration and liveness). */
   std::vector<consensus::Stakeholder> electionCandidates() const;
   /** Block-level miner liveness after the records (chain_tx::applyMinerLiveness). */
   Roe<void> applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);

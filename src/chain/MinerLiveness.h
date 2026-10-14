@@ -13,7 +13,7 @@
 namespace pp::chain_tx {
 
 /**
- * Miner liveness (docs/contracts/WIRE_SCHEMA.md § Miner registration). A registered miner whose
+ * Miner liveness (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness). A registered miner whose
  * last block (or registration) is `minerDueAfterSlots` slots old is due: in a slot it leads it
  * must produce, an empty block if need be. Never due when the setting is 0.
  */

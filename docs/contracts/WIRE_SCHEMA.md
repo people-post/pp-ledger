@@ -102,6 +102,8 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 4 | `T_USER_UPDATE` | Account self-update |
 | 5 | `T_RENEWAL` | Miner renew |
 | 6 | `T_END_USER` | Miner close |
+| 16 | `T_MINER_REGISTER` | Account registers as a miner ([Miner registration and liveness](#miner-registration-and-liveness)) |
+| 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
 
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
@@ -161,9 +163,10 @@ not installed in `RecordHandler`.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
 - Checkpoints mark chain ranges from which account state can be reconstructed.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **3**)
-includes slot timing, fees, checkpoint policy, `networkId`, and
-`heartbeatSlots` (empty-seal lag; `0` disables).
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **6**)
+includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
+(empty-seal lag; `0` disables), issuance and account fees, and the miner settings
+([Miner registration and liveness](#miner-registration-and-liveness)).
 
 ## Epoch seed
 
@@ -195,9 +198,10 @@ for that epoch.
 Implemented in `consensus::SlotCommittee` (beacon-centered schedule; **not**
 classic Ouroboros / stake-weighted VRF on blocks):
 
-1. Stakeholders = non-system accounts (`!isSystemAccount`, id ≥ `1<<20`) with
-   positive native balance. Reserve, registrar, fee and recycle hold protocol funds and never
-   lead; a new chain's committee is its genesis miners.
+1. Stakeholders = **registered miners** ([Miner registration and liveness](#miner-registration-and-liveness)):
+   non-system accounts (`!isSystemAccount`, id ≥ `1<<20`) with a positive native balance of at
+   least `minerMinStake`. Reserve, registrar, fee and recycle hold protocol funds and never
+   lead; a new chain's committee is its genesis miners (registered at block 0).
 2. Eligible **committee** = all if ≤`kMaxLeaderPoolSize` (**100**), else top
    **100** by stake (id tie-break). Constant:
    `SlotCommittee::kMaxLeaderPoolSize` — not chain config; parameterizing later
@@ -264,8 +268,9 @@ seal a normal block with empty `records` if:
 (`heartbeatSlots == 0` disables). Default at beacon `--init` when the field is
 omitted: `heartbeatSlots = slotsPerEpoch` (about one empty seal per idle epoch).
 
-No special record type; fees are zero for the empty body. **Validators enforce**
-the lag threshold on empty bodies via `checkBlockBodyPolicy` (seal pre-apply +
+No special record type; fees are zero for the empty body. A **due miner**'s empty
+block is admitted whatever the lag ([Miner registration and liveness](#miner-registration-and-liveness)).
+**Validators enforce** the lag threshold on other empty bodies via `checkBlockBodyPolicy` (seal pre-apply +
 `Full` `checkBlock`); premature empties and all empties when
 `heartbeatSlots == 0` are rejected. Non-empty bodies (including renewals) are
 **not** subject to the lag rule — they already demonstrate liveness. Leader,
@@ -275,7 +280,61 @@ time window, and header commitments still apply. Policy helper:
 [BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md)
 (Empty heartbeat settled note + Late join Full gate).
 
-## Miner registration (`REGISTER`)
+## Miner registration and liveness
+
+Only **registered miners** are elected ([Leader election](#leader-election-live)). Registration is
+on-chain account state (`Wallet.miner`, `UserAccount` version **2**): `registered`,
+`lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`. Account creation and update cannot
+set it (a new account carries the default state; an update or renewal keeps it); only the rules
+below change it, in place — the account's `blockId` (where renewal reads its meta) does not move.
+
+| Chain config | Beacon `--init` default | Meaning |
+|--------------|-------------------------|---------|
+| `minerMinStake` | 0 | Native balance a miner needs to register (after the fee) and to be elected |
+| `minerRegistrationFee` | 0 | Flat fee `T_MINER_REGISTER` pays on top of the meta-size fee |
+| `minerDueAfterSlots` | 12000 | Slots after its last block (or registration) a miner is **due**; `0` = never |
+| `minerMaxMissedSlots` | 3 | Due misses in a row that deregister a miner; `0` = never |
+| `minerReregisterCooldownEpochs` | 0 | Epochs after an automatic deregistration before it may register again |
+
+All five are chain config: a `T_CONFIG` changes them at the next epoch boundary.
+
+**Transactions** (`TxMiner`: `walletId`, `fee`, `meta`, `idempotentId` (non-zero),
+`validationTsMin`, `validationTsMax`), signed by the account's own keys:
+
+- `T_MINER_REGISTER` — refused for a system account, an account already registered, one in its
+  cool-down (`epoch − autoDeregisteredEpoch < minerReregisterCooldownEpochs`), or one whose
+  native balance after the fee is below `minerMinStake`. Fee ≥ meta-size fee +
+  `minerRegistrationFee`, to the fee account. Sets `registered`, `lastProducedSlot` = the
+  block's slot (a new miner is not due at once), `missedDue = 0`, and clears
+  `autoDeregisteredEpoch`.
+- `T_MINER_REVOKE` — the account must be registered; meta-size fee. Clears `registered`.
+
+Either takes effect in the committee at the next epoch's stake snapshot (its first block).
+Genesis miners are registered at block 0. There is no slashing: the cool-down is the penalty.
+
+**Liveness.** A registered miner is **due** at slot `s` when `minerDueAfterSlots > 0` and
+`s − lastProducedSlot ≥ minerDueAfterSlots`. On an idle chain a missing block proves nothing,
+so the obligation is explicit: a due miner must produce in a slot it leads — an empty block if
+it has no work — and that empty block is admitted whatever the tip lag (the producer's
+on-chain state before the block decides). The leader schedule is unchanged.
+
+After a block's records apply (fork-critical order, before `stateRoot`), every node:
+
+1. for each slot the block skipped **in its own epoch** (after the previous block's slot), takes
+   the slot's elected leader; if it was due at that slot, `missedDue += 1`; at
+   `minerMaxMissedSlots` the miner is deregistered (`registered = false`, `missedDue = 0`,
+   `autoDeregisteredEpoch` = the block's epoch) and leaves the committee at the next snapshot;
+2. if the producer is registered, sets its `lastProducedSlot` to the block's slot and
+   `missedDue = 0`.
+
+Skipped slots of an earlier epoch are not charged. Code: `MinerTxHandler`, `MinerLiveness`
+(`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
+warns when its account is not a registered miner.
+
+## Miner sign-in (`REGISTER` request)
+
+Network-level: a miner announces itself to its upstream. It does not make the account a miner
+on chain ([Miner registration and liveness](#miner-registration-and-liveness)).
 
 `MinerInfo` (Meta, binary-packed in the request): `id`, `issuedAt` (signer's Unix seconds),
 `signatures` (`binaryPack(vector<string>)`), and `tLastMessage` (set by the

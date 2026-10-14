@@ -6,7 +6,7 @@
 namespace pp {
 
 /**
- * T_MINER_REGISTER / T_MINER_REVOKE (docs/contracts/WIRE_SCHEMA.md § Miner registration).
+ * T_MINER_REGISTER / T_MINER_REVOKE (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
  * Signed by the account itself. They change only the account's miner state, in place: the
  * account's blockId (where renewal reads its meta) does not move.
  *

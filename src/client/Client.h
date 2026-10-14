@@ -25,7 +25,7 @@ namespace pp {
 class Client : public Module {
 public:
   /**
-   * Miner registration and liveness (docs/contracts/WIRE_SCHEMA.md § Miner registration).
+   * Miner registration and liveness (docs/contracts/WIRE_SCHEMA.md).
    * Chain-owned: only T_MINER_REGISTER / T_MINER_REVOKE and block apply change it; account
    * creation starts it empty (genesis miners registered) and user updates / renewals must
    * carry it unchanged.

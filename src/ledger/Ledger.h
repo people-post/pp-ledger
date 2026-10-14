@@ -36,7 +36,7 @@ public:
   constexpr static uint16_t T_ATTACH_UPSERT_SLOT = 13;
   constexpr static uint16_t T_ATTACH_DELETE_SLOT = 14;
   constexpr static uint16_t T_ATTACH_REPLACE_ALL = 15;
-  // Miner registration (docs/contracts/WIRE_SCHEMA.md § Miner registration).
+  // Miner registration (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
   constexpr static uint16_t T_MINER_REGISTER = 16; // Account opts in as a miner (fee, min stake)
   constexpr static uint16_t T_MINER_REVOKE = 17;   // Account opts out
 
