@@ -262,3 +262,41 @@ TEST(RunConfigTest, MinerWithoutConfigWritesATemplateAndStops) {
   const std::string again = runOnce<MinerServer>(scratch.dir); // minerId 0 left as is
   EXPECT_NE(again.find("system accounts"), std::string::npos) << again;
 }
+
+// Liveness settings (WIRE_SCHEMA § Config updates): the miner due period defaults to one day
+// of slots, and init refuses heartbeats rarer than an epoch or a due period under 12 hours.
+TEST(BeaconServerInitTest, LivenessSettingsDefaultAndLimits) {
+  {
+    GenesisSetup setup("pp-ledger-beacon-liveness-default-test");
+    setup.writeInitConfig(R"(, "slotDuration": 5, "slotsPerEpoch": 100)");
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_TRUE(init.isOk()) << init.error().message;
+    Beacon beacon;
+    Beacon::MountConfig mount;
+    mount.workDir = (setup.dir / "data").string();
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    auto genesis = beacon.readBlock(0);
+    ASSERT_TRUE(genesis.isOk());
+    auto tx = utl::binaryUnpack<Ledger::TxGenesis>(genesis.value().block.records.at(0).data);
+    ASSERT_TRUE(tx.isOk());
+    Chain::GenesisAccountMeta gm;
+    ASSERT_TRUE(gm.ltsFromString(tx.value().meta));
+    EXPECT_EQ(gm.config.minerDueAfterSlots, 86400u / 5) << "one day of slots";
+    EXPECT_EQ(gm.config.heartbeatSlots, 100u);
+  }
+  const std::pair<std::string, std::string> refused[] = {
+      {R"(, "slotsPerEpoch": 100, "heartbeatSlots": 101)", "heartbeatSlots"},
+      {R"(, "slotDuration": 5, "minerDueAfterSlots": 8639)", "minerDueAfterSlots must be 0 or at least 8640"},
+  };
+  for (const auto &[extra, why] : refused) {
+    GenesisSetup setup("pp-ledger-beacon-liveness-limit-test");
+    setup.writeInitConfig(extra);
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_FALSE(init.isOk()) << extra;
+    EXPECT_NE(init.error().message.find(why), std::string::npos) << init.error().message;
+  }
+  GenesisSetup setup("pp-ledger-beacon-liveness-off-test");
+  setup.writeInitConfig(R"(, "slotDuration": 5, "minerDueAfterSlots": 0, "heartbeatSlots": 0)");
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  EXPECT_TRUE(init.isOk()) << init.error().message;
+}

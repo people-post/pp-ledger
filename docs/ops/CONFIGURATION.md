@@ -73,7 +73,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `systemAccounts` | **required** | `genesis`, `reserve`, `registrar`, `fee`, `recycle`: each `{publicKeys, minSignatures?}` (default: all keys must sign). Genesis: ≥ 3 keys, ≥ 2 signatures |
 | `slotDuration` | 7 | Seconds per slot |
 | `slotsPerEpoch` | 86400 | Slots per epoch |
-| `heartbeatSlots` | `slotsPerEpoch` | Empty block when the tip lags this many slots (0 = off) |
+| `heartbeatSlots` | `slotsPerEpoch` | Empty block when the tip lags this many slots (0 = off; at most `slotsPerEpoch`) |
 | `maxTransactionsPerBlock` | 10240 | |
 | `maxCustomMetaSize` / `freeCustomMetaSize` | 1 MiB / 1024 | Account meta bytes allowed / free of fee |
 | `minFeeCoefficients` | `[1, 1, 1]` | Fee = a + b·x + c·x², x = non-free meta KiB (rounded up) |
@@ -83,7 +83,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
 | `minerMinStake` | 0 | Native balance a miner needs to register (after its fee) and to be elected |
 | `minerRegistrationFee` | 0 | Flat fee for `T_MINER_REGISTER` on top of the meta-size fee, to the fee account |
-| `minerDueAfterSlots` | 12000 | A miner whose last block (or registration) is this many slots old is due: it must produce, an empty block if need be, in a slot it leads. `0` = never due |
+| `minerDueAfterSlots` | one day of slots (`⌈86400 / slotDuration⌉`) | A miner whose last block (or registration) is this many slots old is due: it must produce, an empty block if need be, in a slot it leads. `0` = never due; otherwise at least 12 hours of slots (`⌈43200 / slotDuration⌉`) |
 | `minerMaxMissedSlots` | 3 | Slots a due miner may miss in a row before it is deregistered. `0` = never |
 | `minerReregisterCooldownEpochs` | 0 | Epochs an automatically deregistered miner waits before registering again |
 | `genesisMiners` | none | Miner accounts created at genesis (below), registered at block 0 |

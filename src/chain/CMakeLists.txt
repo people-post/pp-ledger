@@ -32,6 +32,8 @@ add_library(pp_chain STATIC
     UserAccountUpsertBase.h
     GenesisTxHandler.cpp
     GenesisTxHandler.h
+    ConfigPolicy.cpp
+    ConfigPolicy.h
     ConfigTxHandler.cpp
     ConfigTxHandler.h
     DefaultTxHandler.cpp

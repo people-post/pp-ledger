@@ -88,7 +88,8 @@ private:
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
   constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = static_cast<uint64_t>(365) * 24 * 3600; // 1 year (365 days)
   constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = 86400; // 24 hours
-  constexpr static const uint64_t DEFAULT_MINER_DUE_AFTER_SLOTS = 12000; // ~23 h at 7 s slots
+  /** Default miner due period when omitted: one day of slots. */
+  constexpr static const uint64_t DEFAULT_MINER_DUE_SECONDS = 86400;
   constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = 3;
 
   struct InitFileConfig {
@@ -105,8 +106,8 @@ private:
     uint64_t checkpointMinBlocks{ DEFAULT_CHECKPOINT_MIN_BLOCKS };
     uint64_t checkpointMinAgeSeconds{ DEFAULT_CHECKPOINT_MIN_AGE_SECONDS };
     uint64_t maxValidationTimespanSeconds{ DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS };
-    /** Empty-seal lag; default at parse time = slotsPerEpoch when omitted. */
-    uint64_t heartbeatSlots{0};
+    /** Empty-seal lag; default (here and at parse time when omitted) = slotsPerEpoch. */
+    uint64_t heartbeatSlots{ DEFAULT_SLOTS_PER_EPOCH };
     /** Genesis issuance cap per epoch (0 = none until a config update allows it). */
     uint64_t maxIssuancePerEpoch{0};
     /** Flat fee per account created after genesis (0 = none). */
@@ -114,7 +115,8 @@ private:
     /** Miner registration and liveness (CONFIGURATION.md § Miners). */
     uint64_t minerMinStake{0};
     uint64_t minerRegistrationFee{0};
-    uint64_t minerDueAfterSlots{ DEFAULT_MINER_DUE_AFTER_SLOTS };
+    /** Default (here and at parse time when omitted): one day of slots. */
+    uint64_t minerDueAfterSlots{ (DEFAULT_MINER_DUE_SECONDS + DEFAULT_SLOT_DURATION - 1) / DEFAULT_SLOT_DURATION };
     uint64_t minerMaxMissedSlots{ DEFAULT_MINER_MAX_MISSED_SLOTS };
     uint64_t minerReregisterCooldownEpochs{0};
     /**

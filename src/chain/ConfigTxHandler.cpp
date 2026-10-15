@@ -1,4 +1,5 @@
 #include "ConfigTxHandler.h"
+#include "ConfigPolicy.h"
 #include "AccountBuffer.h"
 #include "AccountPolicy.h"
 #include "ErrorCodes.h"
@@ -69,7 +70,7 @@ chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
   if (next.slotsPerEpoch != current->slotsPerEpoch) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Slots per epoch is fixed at genesis");
   }
-  return {};
+  return chain_tx::validateLivenessSettings(next);
 }
 
 } // namespace
