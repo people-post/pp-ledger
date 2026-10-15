@@ -202,8 +202,6 @@ public:
    * derived early by the wall-clock refresh) is re-derived.
    */
   Roe<void> ensureBlockEpochSeed(const Ledger::ChainNode &block);
-  /** Recorded stake snapshot for `epoch`, else the current bank (provisional). */
-  std::vector<consensus::Stakeholder> stakeSnapshotForEpoch(uint64_t epoch) const;
   const std::string &getEpochSeed() const {
     return txContext_.consensus.getEpochSeed();
   }
@@ -230,8 +228,12 @@ public:
    */
   std::vector<std::string> collectPrevEpochLookbackHashes(uint64_t prevEpoch) const;
 
-  /** Previous epoch's seed from the latest block in that epoch (or empty). */
-  Roe<std::string> readPrevEpochSeed(uint64_t prevEpoch) const;
+  /** The newest stored block seed of an epoch ≤ `maxEpoch`: {epoch, seed}. */
+  Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch) const;
+
+  /** Seed of `epoch` from the seed of `epoch - 1` (WIRE_SCHEMA § Epoch seed). */
+  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed,
+                                  const std::string &stakeHash) const;
 
 protected:
   bool needsCheckpoint(const BlockChainConfig &config) const;

@@ -11,6 +11,8 @@ namespace consensus {
 /** Lookback window for prior-epoch tip material (anti-grind). Protocol constant;
  * see docs/architecture/BLOCK_PIPELINE.md — not BlockChainConfig. */
 inline constexpr size_t kEpochSeedLookback = 8;
+/** Most consecutive epochs without a block a seed derives through; a chain idle longer stops. */
+inline constexpr uint64_t kMaxEmptyEpochs = 1024;
 
 /**
  * Epoch lottery seed helpers for SlotCommittee v2.

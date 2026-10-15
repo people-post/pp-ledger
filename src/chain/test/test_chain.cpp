@@ -4,6 +4,7 @@
 #include "AccountBuffer.h"
 #include "Chain.h"
 #include "BlockValidation.h"
+#include "../consensus/EpochSeed.h"
 #include "client/AccountAttachment.h"
 #include "client/Client.h"
 
@@ -2265,6 +2266,48 @@ TEST_F(ChainComposeTest, EmptyHeartbeat_EarlyEmptyRejected) {
 }
 
 
+// An epoch without blocks does not stop the chain (WIRE_SCHEMA § Epoch seed): the next block's
+// seed chains through the empty epoch with the empty-prev tip material, on the producer and on a
+// peer admitting the block.
+TEST_F(ChainComposeTest, EpochSeed_ChainsThroughEmptyEpochs) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t slot1 = 1;
+  producer.setClockOverride(producer.getSlotStartTime(slot1));
+  peer.setClockOverride(peer.getSlotStartTime(slot1));
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, slot1, {makeReserveTransfer(harness_, 5, 50)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  ASSERT_TRUE(peer.addBlock(block1).isOk());
+
+  // Epochs 1 and 2 (slots 10..29) pass without a block; the next one lands in epoch 3.
+  const uint64_t slot3 = 3 * harness_.chainConfig.slotsPerEpoch + 2;
+  producer.setClockOverride(producer.getSlotStartTime(slot3));
+  peer.setClockOverride(peer.getSlotStartTime(slot3));
+  Ledger::ChainNode block3 = makeNextBlockAtSlot(producer, block1, slot3, {makeReserveTransfer(harness_, 5, 51)});
+  ASSERT_EQ(block3.block.epoch, 3u);
+  ASSERT_TRUE(producer.addBlock(block3).isOk());
+  auto peerAdd = peer.addBlock(block3);
+  ASSERT_TRUE(peerAdd.isOk()) << peerAdd.error().message;
+
+  // Spec oracle: epoch 1 from epoch 0's lookback; epochs 2 and 3 from an empty previous epoch.
+  const std::string &networkId = harness_.chainConfig.networkId;
+  const std::string stakeHash = chain_block::calculateStakeSnapshotHash(peer.getStakeholders());
+  const std::string seed0 = harness_.genesis.block.epochSeed;
+  const std::string seed1 = consensus::deriveEpochSeed(
+      1, networkId, seed0, consensus::lookbackTipMaterial(0, seed0, {harness_.genesis.hash, block1.hash}), stakeHash);
+  const std::string seed2 =
+      consensus::deriveEpochSeed(2, networkId, seed1, consensus::emptyPrevEpochTipMaterial(1, seed1), stakeHash);
+  const std::string seed3 =
+      consensus::deriveEpochSeed(3, networkId, seed2, consensus::emptyPrevEpochTipMaterial(2, seed2), stakeHash);
+  EXPECT_EQ(block3.block.epochSeed, seed3);
+
+  // Bounded: at most kMaxEmptyEpochs empty epochs after the last block's epoch (3).
+  EXPECT_TRUE(peer.ensureEpochSeed(3 + consensus::kMaxEmptyEpochs + 1).isOk());
+  auto tooFar = peer.ensureEpochSeed(3 + consensus::kMaxEmptyEpochs + 2);
+  ASSERT_FALSE(tooFar.isOk());
+  EXPECT_NE(tooFar.error().message.find("empty epochs past"), std::string::npos) << tooFar.error().message;
+}
+
 // After genesis: genesis creates no accounts and transfers only to reserve
 // (every genesis transfer mints); issued ids come only from the registrar;
 // user ids from any funded account.
@@ -2723,7 +2766,6 @@ TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
                                                kTestMinerId);
   ASSERT_FALSE(refused.isOk());
   EXPECT_NE(refused.error().message.find("cool-down until epoch 3"), std::string::npos) << refused.error().message;
-  block = commit(block, 20, {makeReserveTransfer(harness_, 5, 47)});
   block = commit(block, 30, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 46)});
   EXPECT_TRUE(minerOf(user.id).registered);
   EXPECT_EQ(minerOf(user.id).autoDeregisteredEpoch, Client::MinerState::kNever);

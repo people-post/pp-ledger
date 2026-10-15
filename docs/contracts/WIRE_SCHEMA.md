@@ -189,6 +189,10 @@ Constant lives in `consensus::kEpochSeedLookback` (not chain config; see
 [BLOCK_PIPELINE.md — Protocol constants](../architecture/BLOCK_PIPELINE.md#protocol-constants-fork-critical-if-changed)).
 If epoch `E-1` produced no blocks:
 `SHA-256("pp-ledger/epoch-seed/empty-prev/v1" \|\| (E-1) \|\| prevEpochSeed)`.
+Seeds chain through any run of empty epochs this way, each from the one before (an empty
+epoch's stake snapshot is the bank after the last block), so a chain survives idle epochs — up
+to **`kMaxEmptyEpochs` (1024)** in a row after the last block's epoch; past that no seed is
+derived and the chain stops.
 
 Validators reject blocks whose `epochSeed` ≠ the locally derived/installed seed
 for that epoch.
