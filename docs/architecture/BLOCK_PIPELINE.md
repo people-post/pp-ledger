@@ -137,13 +137,11 @@ assumes a **trusted beacon** (or equivalent) feed. Alternatives if peers can
 supply catch-up blocks: require Full after N blocks, attested checkpoint blobs,
 or a distinct `TrustedReplay` mode with explicit source binding.
 
-### B. `T_CONFIG` mutation policy for `heartbeatSlots` (and kin)
+### B. `T_CONFIG` limits for liveness settings — **settled**
 
-Every `T_CONFIG` now takes effect at the next epoch boundary (see
-[WIRE_SCHEMA.md — Config updates](../contracts/WIRE_SCHEMA.md#config-updates)),
-but `heartbeatSlots` (including `0` / `1`) has no monotonicity rule. Decide
-whether liveness knobs need floors/ceilings — same class of question as other
-mutable `BlockChainConfig` fields.
+`heartbeatSlots ≤ slotsPerEpoch`; `minerDueAfterSlots` is `0` or at least 12 hours of slots —
+at beacon `--init` and in every `T_CONFIG`. Normative:
+[WIRE_SCHEMA.md — Config updates](../contracts/WIRE_SCHEMA.md#config-updates).
 
 ### C. Slot production window — **settled**
 

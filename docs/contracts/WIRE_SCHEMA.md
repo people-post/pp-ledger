@@ -125,6 +125,10 @@ not installed in `RecordHandler`.
 - Fields that may not move: `genesisTime`, `slotDuration` and `slotsPerEpoch` — slot timing
   is fixed at genesis (the slot schedule is set once from it; slot and epoch numbering stay
   continuous for every node).
+- **Liveness limits** (beacon `--init` and every `T_CONFIG`): `heartbeatSlots ≤ slotsPerEpoch`
+  (`0` = no heartbeats), so an idle chain still gets a block every epoch; `minerDueAfterSlots`
+  is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
+  owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`) is
   `config`, `genesis`, and a pending section (`hasPending`, `pending` = activation epoch +
   config). `T_GENESIS` and `T_CONFIG` carry no pending section (a `T_CONFIG`'s `config` is
@@ -303,7 +307,7 @@ below change it, in place — the account's `blockId` (where renewal reads its m
 |--------------|-------------------------|---------|
 | `minerMinStake` | 0 | Native balance a miner needs to register (after the fee) and to be elected |
 | `minerRegistrationFee` | 0 | Flat fee `T_MINER_REGISTER` pays on top of the meta-size fee |
-| `minerDueAfterSlots` | 12000 | Slots after its last block (or registration) a miner is **due**; `0` = never |
+| `minerDueAfterSlots` | one day of slots | Slots after its last block (or registration) a miner is **due**; `0` = never, else ≥ 12 h of slots |
 | `minerMaxMissedSlots` | 3 | Due misses in a row that deregister a miner; `0` = never |
 | `minerReregisterCooldownEpochs` | 0 | Epochs after an automatic deregistration before it may register again |
 

@@ -2450,30 +2450,49 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
 
 // Genesis issuance (to reserve, fee included) is capped per epoch by
 // maxIssuancePerEpoch (100 in the harness); a new epoch starts afresh.
-// Slot timing is fixed at genesis (BLOCK_PIPELINE open item D): the slot schedule is set once
-// from it, so a config update may not change slotDuration or slotsPerEpoch either way.
-TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
-  auto &producer = harness_.producer;
-  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
-  producer.setClockOverride(producer.getSlotStartTime(1));
+namespace {
+
+/** Offers T_CONFIG updates (harness config + `change`, genesis rotated to 3 keys) to the
+ *  producer's buffer, each with a fresh idempotency id. */
+struct ConfigUpdateProbe {
+  ComposeHarness &h;
+  std::vector<utl::MlDsaKeyPair> rotated{makeKeyPair(), makeKeyPair(), makeKeyPair()};
   uint64_t idem = 1;
-  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) {
+
+  explicit ConfigUpdateProbe(ComposeHarness &harness) : h(harness) {}
+
+  Chain::Roe<void> add(const std::function<void(Chain::BlockChainConfig &)> &change) {
     Chain::GenesisAccountMeta gm;
-    gm.config = harness_.chainConfig;
+    gm.config = h.chainConfig;
     change(gm.config);
-    gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+    gm.genesis.wallet = h.producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
     gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
     gm.genesis.wallet.minSignatures = 2;
     gm.genesis.meta = AccountAttachment::emptySerialized();
     Ledger::TxConfig tx;
     tx.meta = gm.ltsToString();
     tx.idempotentId = idem++;
-    tx.validationTsMin = harness_.chainConfig.genesisTime;
-    tx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+    tx.validationTsMin = h.chainConfig.genesisTime;
+    tx.validationTsMax = h.chainConfig.genesisTime + 3600;
     AccountBuffer scratch;
-    return producer.addBufferTransaction(
-        scratch, makeRecord(Ledger::T_CONFIG, tx, harness_.genesisKey, producer.getNetworkId()), kTestMinerId);
-  };
+    auto added = h.producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_CONFIG, tx, h.genesisKey, h.producer.getNetworkId()), kTestMinerId);
+    if (!added) {
+      return added.error();
+    }
+    return {};
+  }
+};
+
+} // namespace
+
+// Slot timing is fixed at genesis (BLOCK_PIPELINE open item D): the slot schedule is set once
+// from it, so a config update may not change slotDuration or slotsPerEpoch either way.
+TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  ConfigUpdateProbe probe(harness_);
+  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) { return probe.add(change); };
   auto refused = [&](const std::function<void(Chain::BlockChainConfig &)> &change, const std::string &why) {
     auto added = tryConfig(change);
     ASSERT_FALSE(added.isOk()) << why;
@@ -2485,6 +2504,30 @@ TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
   refused([](auto &c) { c.slotsPerEpoch -= 1; }, "Slots per epoch is fixed at genesis");
   auto other = tryConfig([](auto &c) { c.maxTransactionsPerBlock += 1; });
   EXPECT_TRUE(other.isOk()) << other.error().message;
+}
+
+// Liveness settings in a config update (WIRE_SCHEMA § Config updates): heartbeats at least once an
+// epoch; a miner due period of 0 or at least 12 hours of slots (5 s slots: 8640).
+TEST_F(ChainComposeTest, ConfigUpdate_RefusesLivenessSettingsOutOfRange) {
+  auto &producer = harness_.producer;
+  ASSERT_EQ(harness_.chainConfig.slotDuration, 5u);
+  ASSERT_EQ(harness_.chainConfig.slotsPerEpoch, 10u);
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  ConfigUpdateProbe probe(harness_);
+  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) { return probe.add(change); };
+  auto refused = tryConfig([](auto &c) { c.heartbeatSlots = 11; });
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("heartbeatSlots (11) cannot exceed slotsPerEpoch (10)"), std::string::npos)
+      << refused.error().message;
+  refused = tryConfig([](auto &c) { c.minerDueAfterSlots = 8639; });
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("at least 8640"), std::string::npos) << refused.error().message;
+  for (const auto &ok : std::vector<std::function<void(Chain::BlockChainConfig &)>>{
+           [](auto &c) { c.minerDueAfterSlots = 8640; }, [](auto &c) { c.minerDueAfterSlots = 0; },
+           [](auto &c) { c.heartbeatSlots = 0; }, [](auto &c) { c.heartbeatSlots = 10; }}) {
+    auto added = tryConfig(ok);
+    EXPECT_TRUE(added.isOk()) << added.error().message;
+  }
 }
 
 TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {

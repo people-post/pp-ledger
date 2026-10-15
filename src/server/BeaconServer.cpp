@@ -1,4 +1,5 @@
 #include "BeaconServer.h"
+#include "../chain/ConfigPolicy.h"
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -234,9 +235,15 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   if (auto r = readU64("newAccountFee", newAccountFee, false, true); !r) {
     return r;
   }
+  if (jd.contains("minerDueAfterSlots")) {
+    // Zero allowed: miners are never due.
+    if (auto r = readU64("minerDueAfterSlots", minerDueAfterSlots, true, true); !r)
+      return r;
+  } else {
+    minerDueAfterSlots = (DEFAULT_MINER_DUE_SECONDS + slotDuration - 1) / slotDuration;
+  }
   for (const auto &[name, field] : {std::pair<const char *, uint64_t *>{"minerMinStake", &minerMinStake},
                                     {"minerRegistrationFee", &minerRegistrationFee},
-                                    {"minerDueAfterSlots", &minerDueAfterSlots},
                                     {"minerMaxMissedSlots", &minerMaxMissedSlots},
                                     {"minerReregisterCooldownEpochs", &minerReregisterCooldownEpochs}}) {
     if (auto r = readU64(name, *field, false, true); !r) {
@@ -456,6 +463,9 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.minerMaxMissedSlots = initFileConfig.minerMaxMissedSlots;
   initConfig.chain.minerReregisterCooldownEpochs = initFileConfig.minerReregisterCooldownEpochs;
   initConfig.chain.networkId = initFileConfig.networkId;
+  if (auto liveness = chain_tx::validateLivenessSettings(initConfig.chain); !liveness) {
+    return Error("Invalid init config: " + liveness.error().message);
+  }
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
 
