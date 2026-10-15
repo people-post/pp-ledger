@@ -32,7 +32,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         Full nodes check it; warm-up uses it, so leaders and liveness charges are exact
   - [x] **ba5b.4** Warm-up is exact. Oracle with skipped slots and a miner registering mid-window:
         the joiner validates Full blocks from the current checkpoint, live and after a restart
-  - [ ] **ba5b.5** Fresh-node sync commits nothing before the tip verifies: the whole range is
+  - [x] **ba5b.5** Fresh-node sync commits nothing before the tip verifies: the whole range is
         authenticated; the authority comes from the starting block's genesis record or renewal
   - [ ] **ba5b.6** Anchors: a miner pinning genesis checks the starting block's authority and admin
         set against the replayed proof; relays can pin `networkAnchor.genesisHash` too

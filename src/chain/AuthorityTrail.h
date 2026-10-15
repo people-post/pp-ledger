@@ -21,7 +21,7 @@ namespace pp {
  *
  * observe() follows each block's authority changes — a config update replacing the admin set, a
  * beacon certificate raising the generation — and takes one only if the admin set in force at
- * that point signed it. The chain of signatures starts at the node's own state, so blocks from an
+ * that point signed it; a genesis renewal must agree with what it followed. The chain of signatures starts at the node's own state, so blocks from an
  * untrusted upstream cannot move the trail to a key the admin set did not certify. verifyTip()
  * then checks a signed tip against the generation in force at the trail's end: the tip's own
  * generation, its key; an older generation is superseded.
@@ -32,6 +32,12 @@ public:
 
   /** The authority genesis sets: its certificate and recovery set, its admin set. */
   static chain_tx::Roe<AuthorityTrail> fromGenesis(const Ledger::Block &genesis);
+  /**
+   * The authority a node with no blocks learns from its first one (beacon-authority ba5b):
+   * genesis (its T_GENESIS) or a checkpoint (its opening genesis renewal). Call observe() on the
+   * same block next, for the rest of its records.
+   */
+  static chain_tx::Roe<AuthorityTrail> fromStartingBlock(const Ledger::Block &block);
 
   /** Follow `block` (the next one after the last observed). */
   chain_tx::Roe<void> observe(const Ledger::Block &block);
@@ -53,6 +59,7 @@ public:
 
   const BeaconCertificate &beacon() const { return authority_.beacon; }
   const ChainAuthority &authority() const { return authority_; }
+  const Client::Wallet &admin() const { return admin_; }
 
   /**
    * The authority a starting block carries: genesis (its T_GENESIS) or a checkpoint block (its
@@ -63,6 +70,7 @@ public:
 private:
   chain_tx::Roe<void> verifyAdminSigned(const Ledger::Record &record) const;
   chain_tx::Roe<void> observeConfig(const Ledger::Record &record);
+  chain_tx::Roe<void> observeGenesisRenewal(const Ledger::Record &record);
   chain_tx::Roe<void> observeCertificate(const Ledger::Record &record, uint64_t blockId);
 
   std::string networkId_;

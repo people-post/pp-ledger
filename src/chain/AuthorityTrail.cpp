@@ -1,5 +1,6 @@
 #include "AuthorityTrail.h"
 #include "AccountPolicy.h"
+#include "BlockValidation.h"
 #include "BeaconCertTxHandler.h"
 #include "ErrorCodes.h"
 #include "TxSignatures.h"
@@ -23,6 +24,23 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block &g
   return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
 }
 
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Block &block) {
+  if (block.index == 0) {
+    return fromGenesis(block);
+  }
+  if (block.records.empty() || !chain_block::isGenesisRenewal(block.records.front())) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Block " + std::to_string(block.index) +
+                                 " is not a checkpoint: it does not open with the genesis renewal");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(block.records.front().data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable genesis renewal");
+  }
+  return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
+}
+
 bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
   return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT;
 }
@@ -42,6 +60,8 @@ chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, 
     observed = observeConfig(record);
   } else if (record.type == Ledger::T_BEACON_CERT) {
     observed = observeCertificate(record, blockId);
+  } else if (chain_block::isGenesisRenewal(record)) {
+    observed = observeGenesisRenewal(record);
   }
   if (!observed) {
     return chain_tx::TxError(observed.error().code, "Block " + std::to_string(blockId) + ": " +
@@ -95,6 +115,22 @@ chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record) 
                              "Config update not signed by the admin set: " + signed_.error().message);
   }
   admin_ = gm.genesis.wallet;
+  return {};
+}
+
+chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record &record) {
+  // A renewal re-records the genesis meta in force: it changes nothing, so it must agree.
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable genesis renewal");
+  }
+  const auto &wallet = gm.genesis.wallet;
+  if (gm.authority != authority_ || wallet.publicKeys != admin_.publicKeys ||
+      wallet.minSignatures != admin_.minSignatures || wallet.keyType != admin_.keyType) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis renewal disagrees with the authority and admin set followed");
+  }
   return {};
 }
 
