@@ -77,6 +77,11 @@ Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epo
 
 ### E. Beacon loss → relay promotion
 
+**In design:** [projects/beacon-authority](../../projects/beacon-authority/DESIGN.md) — part 1 makes
+the beacon verifiable (admin-signed certificate, signed tips, generations, equivocation halt);
+part 2 covers promotion (beacon stolen, server move, everything lost). The questions below are
+answered there.
+
 **Confirmed intent:** One beacon at a time; a relay that holds the chain **may** become beacon if the active beacon is lost.
 
 **Still undefined (write a short design note before coding):**
