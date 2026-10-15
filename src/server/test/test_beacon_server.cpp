@@ -79,9 +79,9 @@ struct GenesisSetup {
     Beacon::MountConfig mount;
     mount.workDir = (dir / "data").string();
     EXPECT_TRUE(beacon.mount(mount).isOk());
-    auto genesis = beacon.readBlock(0);
-    EXPECT_TRUE(genesis.isOk());
-    auto tx = utl::binaryUnpack<Ledger::TxGenesis>(genesis.value().block.records.at(0).data);
+    auto block0 = beacon.readBlock(0);
+    EXPECT_TRUE(block0.isOk());
+    auto tx = utl::binaryUnpack<Ledger::TxGenesis>(block0.value().block.records.at(0).data);
     Chain::GenesisAccountMeta gm;
     EXPECT_TRUE(tx.isOk() && gm.ltsFromString(tx.value().meta));
     return gm;
