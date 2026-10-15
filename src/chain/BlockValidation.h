@@ -40,6 +40,22 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
 chain_tx::Roe<void> validateIntraBlockIdempotency(
     const Ledger::ChainNode &block, const RecordHandler &recordHandler);
 
+/** Committee members sorted by id, as stakeSnapshotHash commits to them. */
+std::vector<Ledger::CommitteeMember> toCommittee(const std::vector<consensus::Stakeholder> &stakeholders);
+std::vector<consensus::Stakeholder> fromCommittee(const std::vector<Ledger::CommitteeMember> &committee);
+
+/**
+ * True when `block` is the first block of its epoch on this ledger — or the first block it holds
+ * (a node starting at a checkpoint, which opens its epoch). It then carries its committee.
+ */
+bool opensEpoch(const Ledger &ledger, const Ledger::Block &block);
+
+/**
+ * The committee field (beacon-authority ba5b): an epoch's first block carries the members its
+ * stakeSnapshotHash commits to; every other block carries none.
+ */
+chain_tx::Roe<void> validateBlockCommittee(const Ledger &ledger, const Ledger::Block &block);
+
 /** A T_RENEWAL of the genesis account (it carries GenesisAccountMeta). */
 bool isGenesisRenewal(const Ledger::Record &record);
 

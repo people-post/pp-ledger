@@ -1871,6 +1871,7 @@ TEST_F(ChainComposeTest, WrongLeader_UnsealedAddBlockRejected) {
   bad.block.txRoot = chain_block::calculateTxRoot(bad.block.records);
   bad.block.stakeSnapshotHash =
       chain_block::calculateStakeSnapshotHash(producer.getStakeholders());
+  bad.block.committee = chain_block::toCommittee(producer.getStakeholders()); // it opens epoch 1
   ASSERT_TRUE(producer.ensureEpochSeed(bad.block.epoch).isOk());
   bad.block.epochSeed = producer.getEpochSeed();
   // Empty body: state unchanged; peer/producer tip root after genesis.
@@ -3496,6 +3497,49 @@ TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeT
   EXPECT_TRUE(joiner_->isChainConfigReady());
   tip = next(tip);
   feed(*joiner_, tip.block.index, tip.block.index + 1);
+}
+
+// beacon-authority ba5b.3: the first block of each epoch carries the committee its
+// stakeSnapshotHash commits to (a warming node takes the epoch's leaders from it); no other block
+// carries one. A tampered committee is refused, by a node in warm-up too.
+TEST_F(CheckpointJoinTest, EpochOpeningBlocksCarryTheirCommittee) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u);
+  }
+  for (uint64_t id = 1; id < producer.getNextBlockId(); ++id) {
+    const auto block = producer.readBlock(id).value().block;
+    const auto previous = producer.readBlock(id - 1).value().block;
+    if (previous.epoch < block.epoch) {
+      ASSERT_FALSE(block.committee.empty()) << "block " << id << " opens epoch " << block.epoch;
+      EXPECT_EQ(chain_block::calculateStakeSnapshotHash(chain_block::fromCommittee(block.committee)),
+                block.stakeSnapshotHash);
+    } else {
+      EXPECT_TRUE(block.committee.empty()) << "block " << id;
+    }
+  }
+
+  const uint64_t start = producer.getCheckpoint().lastId;
+  auto opening = producer.readBlock(start).value();
+  ASSERT_FALSE(opening.block.committee.empty());
+  auto tampered = opening;
+  tampered.block.committee.front().stake += 1; // not in the block hash: only stakeSnapshotHash guards it
+  joiner_ = openJoiner(start, /*fresh=*/true);
+  auto refused = joiner_->addBlock(tampered);
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("committee does not match"), std::string::npos) << refused.error().message;
+
+  ASSERT_TRUE(joiner_->addBlock(opening).isOk());
+  auto inner = producer.readBlock(start + 1).value();
+  ASSERT_TRUE(inner.block.committee.empty());
+  inner.block.committee = opening.block.committee;
+  auto stray = joiner_->addBlock(inner);
+  ASSERT_FALSE(stray.isOk());
+  EXPECT_NE(stray.error().message.find("does not open its epoch"), std::string::npos) << stray.error().message;
 }
 
 // Renewal due-sets and checkpoint rotation read block slot times, never a node's clock: a node

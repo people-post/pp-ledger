@@ -547,6 +547,10 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
     refreshStakeholders(block.block.slot);
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
+    block.block.committee.clear();
+    if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
+      block.block.committee = chain_block::toCommittee(txContext_.consensus.getStakeholders());
+    }
     auto seedRoe = ensureBlockEpochSeed(block);
     if (!seedRoe) {
       return seedRoe;
@@ -736,6 +740,11 @@ void Chain::refreshStakeholders() {
       !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
     (void)ensureEpochSeed(clockEpoch);
   }
+}
+
+void Chain::recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders) {
+  epochStakeSnapshots_.erase(epochStakeSnapshots_.lower_bound(epoch), epochStakeSnapshots_.end());
+  epochStakeSnapshots_.emplace(epoch, std::move(stakeholders));
 }
 
 void Chain::refreshStakeholders(uint64_t blockSlot) {
@@ -1122,14 +1131,24 @@ Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_
       return installed;
     }
   }
-  refreshStakeholders(block.block.slot);
   if (!chain_block::admissionRunsConsensusAndBody(mode)) {
-    // Trusted catch-up: the block's own seed (the epochs before it may not be held).
+    // Trusted catch-up: the node may hold only some accounts, so it takes each epoch's committee
+    // from the block opening it (checked against stakeSnapshotHash) and the block's own seed (the
+    // epochs before it may not be held). Leaders, and the liveness charges they drive, are exact.
+    if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
+      if (auto committee = mapTxVoid(chain_block::validateBlockCommittee(txContext_.ledger, block.block));
+          !committee) {
+        return committee;
+      }
+      recordEpochStakeSnapshot(block.block.epoch, chain_block::fromCommittee(block.block.committee));
+    }
+    refreshStakeholders(block.block.slot);
     if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
       txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
     }
     return {};
   }
+  refreshStakeholders(block.block.slot);
   if (auto seeded = ensureBlockEpochSeed(block); !seeded) {
     return Error(E_BLOCK_VALIDATION, "Failed to ensure epoch seed: " + seeded.error().message);
   }

@@ -262,6 +262,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
                              "Genesis block txRoot mismatch");
   }
+  if (!block.block.committee.empty()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis block elects no committee");
+  }
 
   const auto &checkpointRec = block.block.records[0];
   if (checkpointRec.type != Ledger::T_GENESIS) {
@@ -406,6 +409,52 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block,
               std::to_string(key.second) +
               " for wallet: " + std::to_string(key.first));
     }
+  }
+  return {};
+}
+
+std::vector<Ledger::CommitteeMember> toCommittee(const std::vector<consensus::Stakeholder> &stakeholders) {
+  std::vector<Ledger::CommitteeMember> committee;
+  committee.reserve(stakeholders.size());
+  for (const auto &s : stakeholders) {
+    committee.push_back(Ledger::CommitteeMember{s.id, s.stake});
+  }
+  std::sort(committee.begin(), committee.end(), [](const auto &a, const auto &b) { return a.id < b.id; });
+  return committee;
+}
+
+std::vector<consensus::Stakeholder> fromCommittee(const std::vector<Ledger::CommitteeMember> &committee) {
+  std::vector<consensus::Stakeholder> stakeholders;
+  stakeholders.reserve(committee.size());
+  for (const auto &m : committee) {
+    stakeholders.push_back(consensus::Stakeholder{m.id, m.stake});
+  }
+  return stakeholders;
+}
+
+bool opensEpoch(const Ledger &ledger, const Ledger::Block &block) {
+  if (block.index == 0) {
+    return true;
+  }
+  auto previous = ledger.readBlock(block.index - 1);
+  return !previous || previous.value().block.epoch < block.epoch;
+}
+
+chain_tx::Roe<void> validateBlockCommittee(const Ledger &ledger, const Ledger::Block &block) {
+  if (!opensEpoch(ledger, block)) {
+    if (!block.committee.empty()) {
+      return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                               "Block " + std::to_string(block.index) + " does not open its epoch: no committee");
+    }
+    return {};
+  }
+  if (!std::is_sorted(block.committee.begin(), block.committee.end(),
+                      [](const auto &a, const auto &b) { return a.id < b.id; }) ||
+      calculateStakeSnapshotHash(fromCommittee(block.committee)) != block.stakeSnapshotHash) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Block " + std::to_string(block.index) +
+                                 " opens epoch " + std::to_string(block.epoch) +
+                                 ": its committee does not match stakeSnapshotHash");
   }
   return {};
 }
@@ -605,6 +654,9 @@ chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
   if (calculatedHash != block.hash) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
                              "Block hash validation failed");
+  }
+  if (auto committee = validateBlockCommittee(ledger, block.block); !committee) {
+    return committee;
   }
 
   return validateBlockSequence(ledger, block);

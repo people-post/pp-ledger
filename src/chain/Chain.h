@@ -322,6 +322,8 @@ private:
    * seed is the block's own (trusted catch-up); under Full it is derived.
    */
   Roe<void> prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
+  /** Record `epoch`'s committee (dropping later epochs' snapshots, which predate it). */
+  void recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders);
   /** A node starting at checkpoint `block`: install what its genesis renewal carries. */
   Roe<void> installCheckpointState(const Ledger::ChainNode &block);
   /**

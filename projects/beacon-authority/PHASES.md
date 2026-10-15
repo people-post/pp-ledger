@@ -28,7 +28,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
   - [x] **ba5b.2** Checkpoints at epoch starts, opening with the genesis renewal; a node starting
         there installs config, consensus, authority and the genesis account from it. Renewal
         due-sets and rotation read slot times, not the node's clock (they were nondeterministic)
-  - [ ] **ba5b.3** Each epoch's first block carries its committee (preimage of `stakeSnapshotHash`):
+  - [x] **ba5b.3** Each epoch's first block carries its committee (preimage of `stakeSnapshotHash`):
         Full nodes check it; warm-up uses it, so leaders and liveness charges are exact
   - [ ] **ba5b.4** Warm-up is exact. Oracle with skipped slots and a miner registering mid-window:
         the joiner validates Full blocks from the current checkpoint, live and after a restart
