@@ -35,6 +35,33 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
   return os;
 }
 
+void GenesisAccountMeta::setConfigStateAt(const BlockChainConfig &active,
+                                          const std::optional<PendingChainConfig> &pendingUpdate,
+                                          uint64_t epoch) {
+  if (pendingUpdate.has_value() && epoch >= pendingUpdate->activationEpoch) {
+    config = pendingUpdate->config;
+    hasPending = false;
+    pending = {};
+    return;
+  }
+  config = active;
+  hasPending = pendingUpdate.has_value();
+  pending = pendingUpdate.value_or(PendingChainConfig{});
+}
+
+bool GenesisAccountMeta::sameConfigState(const GenesisAccountMeta &other) const {
+  auto pack = [](const GenesisAccountMeta &gm) {
+    std::ostringstream oss(std::ios::binary);
+    OutputArchive ar(oss);
+    BlockChainConfig config = gm.config;
+    bool hasPending = gm.hasPending;
+    PendingChainConfig pending = gm.pending;
+    ar &config &hasPending &pending;
+    return oss.str();
+  };
+  return pack(*this) == pack(other);
+}
+
 std::string GenesisAccountMeta::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);

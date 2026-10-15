@@ -2770,3 +2770,100 @@ TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
   EXPECT_TRUE(minerOf(user.id).registered);
   EXPECT_EQ(minerOf(user.id).autoDeregisteredEpoch, Client::MinerState::kNever);
 }
+
+// A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item
+// E): it carries the config in force for its block and, separately, a config update still
+// pending — never the pending update as if it were in force.
+class GenesisRenewalConfigTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    harness_.SetUp([](Chain::BlockChainConfig &c) {
+      c.checkpoint.minBlocks = 2;
+      c.checkpoint.minAgeSeconds = 0;
+    });
+  }
+  void TearDown() override { harness_.TearDown(); }
+
+  Ledger::Record signedByLeader(Ledger::Record r) {
+    r.signatures = {signMessage(harness_.reserveKey, r.signingMessage(harness_.producer.getNetworkId()))};
+    return r;
+  }
+  static Chain::GenesisAccountMeta genesisMetaOf(const Ledger::Record &r) {
+    Chain::GenesisAccountMeta gm;
+    EXPECT_TRUE(gm.ltsFromString(utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().meta));
+    return gm;
+  }
+  static bool isGenesisRenewal(const Ledger::Record &r) {
+    return r.type == Ledger::T_RENEWAL &&
+           utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == AccountBuffer::ID_GENESIS;
+  }
+
+  ComposeHarness harness_;
+};
+
+TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
+  auto &producer = harness_.producer;
+  const uint64_t before = producer.getMaxTransactionsPerBlock();
+  // The update rotates genesis to 3 keys (a genesis renewal needs a valid genesis wallet).
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  Chain::GenesisAccountMeta update;
+  update.config = harness_.chainConfig;
+  update.config.maxTransactionsPerBlock = before + 1;
+  update.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  update.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+  update.genesis.wallet.minSignatures = 2;
+  update.genesis.meta = AccountAttachment::emptySerialized();
+  Ledger::TxConfig configTx;
+  configTx.meta = update.ltsToString();
+  configTx.idempotentId = 1;
+  configTx.validationTsMin = harness_.chainConfig.genesisTime;
+  configTx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeRecord(Ledger::T_CONFIG, configTx, harness_.genesisKey, producer.getNetworkId())});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+
+  // Renew whatever falls due, slot by slot, until genesis does (still epoch 0: update pending).
+  std::optional<Ledger::Record> genesisRenewal;
+  for (uint64_t slot = 2; slot < 10 && !genesisRenewal; ++slot) {
+    auto due = producer.collectRenewals(slot);
+    ASSERT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> records;
+    for (const auto &r : due.value()) {
+      records.push_back(signedByLeader(r));
+      if (isGenesisRenewal(r)) {
+        genesisRenewal = records.back();
+      }
+    }
+    if (genesisRenewal) {
+      // A renewal claiming the pending update is in force (the T_CONFIG's meta, as copied from
+      // the latest genesis record) is refused.
+      auto tampered = utl::binaryUnpack<Ledger::TxRenewal>(genesisRenewal->data).value();
+      Chain::GenesisAccountMeta claimed = genesisMetaOf(*genesisRenewal);
+      claimed.config = update.config;
+      claimed.hasPending = false;
+      claimed.pending = {};
+      tampered.meta = claimed.ltsToString();
+      Ledger::Record bad = *genesisRenewal;
+      bad.data = utl::binaryPack(tampered);
+      std::vector<Ledger::Record> badRecords;
+      for (const auto &r : records) {
+        badRecords.push_back(isGenesisRenewal(r) ? signedByLeader(bad) : r);
+      }
+      Ledger::ChainNode badBlock =
+          producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), badRecords);
+      auto seal = producer.sealBlock(badBlock);
+      ASSERT_FALSE(seal.isOk());
+      EXPECT_NE(seal.error().message.find("config in force"), std::string::npos) << seal.error().message;
+    }
+    block = makeNextBlockAtSlot(producer, block, slot, records);
+    ASSERT_TRUE(producer.addBlock(block).isOk()) << "slot " << slot;
+  }
+  ASSERT_TRUE(genesisRenewal.has_value()) << "genesis never fell due";
+
+  const Chain::GenesisAccountMeta carried = genesisMetaOf(*genesisRenewal);
+  EXPECT_EQ(carried.config.maxTransactionsPerBlock, before) << "the config in force";
+  ASSERT_TRUE(carried.hasPending);
+  EXPECT_EQ(carried.pending.activationEpoch, 1u);
+  EXPECT_EQ(carried.pending.config.maxTransactionsPerBlock, before + 1);
+}

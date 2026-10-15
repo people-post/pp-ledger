@@ -4,6 +4,7 @@
 #include "../client/Client.h"
 
 #include <cstdint>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -103,6 +104,8 @@ inline bool shouldSealEmptyHeartbeat(uint64_t currentSlot, uint64_t tipSlot,
 struct PendingChainConfig {
   uint64_t activationEpoch{0};
   BlockChainConfig config;
+
+  template <typename Archive> void serialize(Archive &ar) { ar &activationEpoch &config; }
 };
 
 /**
@@ -116,14 +119,25 @@ struct IssuanceBaseline {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 6;
+  constexpr static const uint32_t VERSION = 7;
 
   BlockChainConfig config;
   Client::UserAccount genesis;
+  /** Genesis renewals only: a config update not yet in force (T_GENESIS / T_CONFIG carry none;
+   *  a T_CONFIG's `config` is itself the update). */
+  bool hasPending{false};
+  PendingChainConfig pending;
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar &config &genesis;
+    ar &config &genesis &hasPending &pending;
   }
+
+  /** Set config + pending to the state in force for a block of `epoch` (a pending update whose
+   *  epoch has come is in force). What a genesis renewal must carry. */
+  void setConfigStateAt(const BlockChainConfig &active, const std::optional<PendingChainConfig> &pendingUpdate,
+                        uint64_t epoch);
+  /** True when config + pending equal those of `other` (byte-wise). */
+  bool sameConfigState(const GenesisAccountMeta &other) const;
 
   std::string ltsToString() const;
   bool ltsFromString(const std::string &str);

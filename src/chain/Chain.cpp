@@ -234,7 +234,7 @@ Chain::Roe<std::string> Chain::getUpdatedAccountMetadataForRenewal(
 }
 
 Chain::Roe<Ledger::Record>
-Chain::createRenewalTx(uint64_t accountId) const {
+Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
   auto accountResult = txContext_.bank.getAccount(accountId);
   if (!accountResult) {
     return Error(E_ACCOUNT_NOT_FOUND,
@@ -286,6 +286,17 @@ Chain::createRenewalTx(uint64_t accountId) const {
       return metaResult.error();
     }
     tx.meta = metaResult.value();
+    if (accountId == AccountBuffer::ID_GENESIS && txContext_.optChainConfig.has_value()) {
+      // The latest genesis meta may be a pending T_CONFIG: carry the config in force for this
+      // slot's block and the update separately.
+      GenesisAccountMeta gm;
+      if (!gm.ltsFromString(tx.meta)) {
+        return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize genesis renewal meta");
+      }
+      gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig,
+                          txContext_.consensus.getEpochFromSlot(slot));
+      tx.meta = gm.ltsToString();
+    }
   }
   // T_END_USER does not need metadata update
 
@@ -312,7 +323,7 @@ Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
 }
 
 Chain::Roe<std::vector<Ledger::Record>>
-Chain::collectRenewals(uint64_t /*slot*/) const {
+Chain::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::Record> renewals;
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 
@@ -332,7 +343,7 @@ Chain::collectRenewals(uint64_t /*slot*/) const {
   std::vector<uint64_t> due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
   std::stable_partition(due.begin(), due.end(), [](uint64_t id) { return AccountIds::isSystemAccount(id); });
   for (uint64_t accountId : due) {
-    auto renewalResult = createRenewalTx(accountId);
+    auto renewalResult = createRenewalTx(accountId, slot);
     if (!renewalResult) {
       return renewalResult.error();
     }

@@ -43,7 +43,7 @@ public:
 private:
   chain_tx::Roe<void>
   applyRenewal(const Ledger::TxRenewal &tx, const TxContext &ctx,
-               AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
+               AccountBuffer &bank, uint64_t blockId, uint64_t slot, bool isBufferMode,
                chain_block::BlockAdmissionMode admissionMode) const;
 };
 } // namespace pp
