@@ -110,3 +110,21 @@ the hash chain already ties all history to the latest tip.
 tip that includes it.
 **Alternatives:** Sign every N blocks (fewer signatures, longer unauthenticated window); keep every
 signature (offline per-block audit at the storage cost above).
+
+## B010 — The authority rides the genesis account meta
+
+**Date:** 2026-10-15
+**Decision:** The recovery set and the current beacon certificate (`ChainAuthority`) live in
+`GenesisAccountMeta` (version 8) beside the config. `T_GENESIS` sets them — so the admin keys that
+sign genesis sign the generation-1 certificate; `T_CONFIG` and genesis renewals must carry them
+unchanged. The certificate has no `issuedAt` (the committing block dates it). The beacon signing key
+is a file pair, `keys/beacon-signing.key` / `.pub` (the format `pp-client keygen -o` writes):
+`--init` creates it when absent, reuses it when both exist and match. `recovery.delayEpochs`
+defaults to ~30 days of epochs.
+**Rationale:** Genesis renewals are what a node joining from a checkpoint reads, so the authority
+reaches it the same way the config does, with no new record or sync path. A file pair lets an
+operator generate the key off the beacon first; ML-DSA private keys here cannot yield their public
+key.
+**Alternatives:** Fields in `BlockChainConfig` (would make the authority look like config that
+`T_CONFIG` may change); a separate genesis record for the certificate (deferred to ba2's
+`T_BEACON_CERT` for later generations).

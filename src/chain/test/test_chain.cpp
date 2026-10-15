@@ -4,6 +4,7 @@
 #include "AccountBuffer.h"
 #include "Chain.h"
 #include "BlockValidation.h"
+#include "AccountPolicy.h"
 #include "../consensus/EpochSeed.h"
 #include "client/AccountAttachment.h"
 #include "client/Client.h"
@@ -98,18 +99,32 @@ Ledger::Record makeRecord(uint16_t type, const TxT &tx,
   return rec;
 }
 
+/** A valid genesis authority for `networkId`: a fresh 1-of-1 recovery set and beacon key. */
+Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
+  Chain::ChainAuthority authority;
+  authority.recovery.publicKeys = {makeKeyPair().publicKey};
+  authority.recovery.minSignatures = 1;
+  authority.recovery.delayEpochs = 3;
+  authority.beacon.networkId = networkId;
+  authority.beacon.generation = 1;
+  authority.beacon.publicKey = makeKeyPair().publicKey;
+  authority.beacon.cutoverHeight = 0;
+  return authority;
+}
+
 /** The fixture's genesis miner: the only stakeholder (system accounts never are). */
 constexpr uint64_t kTestMinerId = AccountBuffer::ID_FIRST_ISSUED;
 constexpr int64_t kTestMinerStake = 1000000;
 
-Ledger::ChainNode makeGenesisBlock(Chain &validator,
-                                   const Chain::BlockChainConfig &chainConfig,
-                                   const utl::MlDsaKeyPair &genesisKey,
-                                   const utl::MlDsaKeyPair &feeKey,
-                                   const utl::MlDsaKeyPair &reserveKey,
-                                   const utl::MlDsaKeyPair &recycleKey,
-                                   const utl::MlDsaKeyPair *minerKey = nullptr,
-                                   const utl::MlDsaKeyPair *registrarKey = nullptr) {
+/** The genesis block before sealing; `tweakMeta` edits the genesis meta (e.g. a bad authority). */
+Ledger::ChainNode buildUnsealedGenesis(const Chain::BlockChainConfig &chainConfig,
+                                       const utl::MlDsaKeyPair &genesisKey,
+                                       const utl::MlDsaKeyPair &feeKey,
+                                       const utl::MlDsaKeyPair &reserveKey,
+                                       const utl::MlDsaKeyPair &recycleKey,
+                                       const utl::MlDsaKeyPair *minerKey,
+                                       const utl::MlDsaKeyPair *registrarKey,
+                                       const std::function<void(Chain::GenesisAccountMeta &)> &tweakMeta) {
   // Genesis miner kTestMinerId signs with `minerKey` (default: the reserve key
   // pair, so tests signing as the slot leader keep using one key). The
   // registrar defaults to the recycle key pair.
@@ -122,6 +137,10 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   gm.genesis.wallet.minSignatures = 1;
   gm.genesis.wallet.keyType = Crypto::TK_ML_DSA_65;
   gm.genesis.meta = AccountAttachment::emptySerialized();
+  gm.authority = makeTestAuthority(chainConfig.networkId);
+  if (tweakMeta) {
+    tweakMeta(gm);
+  }
 
   Ledger::ChainNode genesis;
   genesis.block.index = 0;
@@ -176,7 +195,19 @@ Ledger::ChainNode makeGenesisBlock(Chain &validator,
   for (const auto *tx : {&feeTx, &reserveTx, &registrarTx, &recycleTx, &minerTx}) {
     genesis.block.records.push_back(makeRecord(Ledger::T_NEW_USER, *tx, genesisKey, chainConfig.networkId));
   }
+  return genesis;
+}
 
+Ledger::ChainNode makeGenesisBlock(Chain &validator,
+                                   const Chain::BlockChainConfig &chainConfig,
+                                   const utl::MlDsaKeyPair &genesisKey,
+                                   const utl::MlDsaKeyPair &feeKey,
+                                   const utl::MlDsaKeyPair &reserveKey,
+                                   const utl::MlDsaKeyPair &recycleKey,
+                                   const utl::MlDsaKeyPair *minerKey = nullptr,
+                                   const utl::MlDsaKeyPair *registrarKey = nullptr) {
+  Ledger::ChainNode genesis =
+      buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey, minerKey, registrarKey, {});
   auto sealResult = validator.sealBlock(genesis);
   EXPECT_TRUE(sealResult.isOk());
   return genesis;
@@ -265,6 +296,66 @@ TEST(ChainTest, CalculateHash_DeterministicAndSensitive) {
 
   block.txRoot = utl::sha256Raw("txroot-changed");
   EXPECT_NE(validator.calculateHash(block), hash1);
+}
+
+// beacon-authority ba1: one rule per refusal (B004 / B006).
+TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
+  const auto admin = makeKeyPair();
+  Client::Wallet adminWallet;
+  adminWallet.publicKeys = {admin.publicKey};
+  const Chain::ChainAuthority valid = makeTestAuthority("test-net");
+  ASSERT_TRUE(chain_tx::validateGenesisAuthority(valid, adminWallet, "test-net").isOk());
+
+  const std::vector<std::pair<std::string, std::function<void(Chain::ChainAuthority &)>>> refused = {
+      {"at least one public key", [](auto &a) { a.recovery.publicKeys.clear(); }},
+      {"malformed public key", [](auto &a) { a.recovery.publicKeys = {"short"}; }},
+      {"same key twice", [](auto &a) { a.recovery.publicKeys.push_back(a.recovery.publicKeys[0]); }},
+      {"must not be an admin", [&](auto &a) { a.recovery.publicKeys = {admin.publicKey}; }},
+      {"between 1 and its key count", [](auto &a) { a.recovery.minSignatures = 0; }},
+      {"between 1 and its key count", [](auto &a) { a.recovery.minSignatures = 2; }},
+      {"delayEpochs must be at least 1", [](auto &a) { a.recovery.delayEpochs = 0; }},
+      {"must be generation 1", [](auto &a) { a.beacon.generation = 2; }},
+      {"cutoverHeight 0", [](auto &a) { a.beacon.cutoverHeight = 5; }},
+      {"networkId does not match", [](auto &a) { a.beacon.networkId = "other-net"; }},
+      {"Beacon certificate has a malformed", [](auto &a) { a.beacon.publicKey = "short"; }},
+      {"not be an admin or recovery key", [&](auto &a) { a.beacon.publicKey = admin.publicKey; }},
+      {"not be an admin or recovery key", [](auto &a) { a.beacon.publicKey = a.recovery.publicKeys[0]; }},
+  };
+  for (const auto &[why, change] : refused) {
+    Chain::ChainAuthority authority = valid;
+    change(authority);
+    auto result = chain_tx::validateGenesisAuthority(authority, adminWallet, "test-net");
+    ASSERT_FALSE(result.isOk()) << why;
+    EXPECT_NE(result.error().message.find(why), std::string::npos) << result.error().message;
+  }
+}
+
+// The genesis record must carry a valid authority; a valid one is in force afterwards.
+TEST(ChainTest, Genesis_SetsTheAuthorityAndRefusesAnInvalidOne) {
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+
+  for (const auto &tweak : std::vector<std::function<void(Chain::GenesisAccountMeta &)>>{
+           [](auto &gm) { gm.authority = {}; },
+           [&](auto &gm) { gm.authority.recovery.publicKeys = {genesisKey.publicKey}; },
+       }) {
+    Chain refuser;
+    Ledger::ChainNode bad = buildUnsealedGenesis(chainConfig, genesisKey, feeKey, reserveKey, recycleKey,
+                                                 nullptr, nullptr, tweak);
+    EXPECT_FALSE(refuser.sealBlock(bad).isOk());
+    EXPECT_FALSE(refuser.getAuthority().has_value());
+  }
+
+  Chain validator;
+  makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
+  auto authority = validator.getAuthority();
+  ASSERT_TRUE(authority.has_value());
+  EXPECT_EQ(authority->beacon.generation, 1u);
+  EXPECT_EQ(authority->beacon.networkId, chainConfig.networkId);
+  EXPECT_EQ(authority->recovery.publicKeys.size(), 1u);
 }
 
 TEST(ChainTest, AddBlock_FailsOnGenesisHashMismatch) {
@@ -2397,6 +2488,7 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
     gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
     gm.genesis.wallet.minSignatures = 2;
     gm.genesis.meta = AccountAttachment::emptySerialized();
+    gm.authority = producer.getAuthority().value();
     Ledger::TxConfig tx;
     tx.meta = gm.ltsToString();
     tx.idempotentId = idem;
@@ -2462,13 +2554,19 @@ struct ConfigUpdateProbe {
   explicit ConfigUpdateProbe(ComposeHarness &harness) : h(harness) {}
 
   Chain::Roe<void> add(const std::function<void(Chain::BlockChainConfig &)> &change) {
+    return addMeta([&](Chain::GenesisAccountMeta &gm) { change(gm.config); });
+  }
+
+  /** A T_CONFIG whose meta (config, rotated genesis keys, authority in force) `tweak` edits. */
+  Chain::Roe<void> addMeta(const std::function<void(Chain::GenesisAccountMeta &)> &tweak) {
     Chain::GenesisAccountMeta gm;
     gm.config = h.chainConfig;
-    change(gm.config);
     gm.genesis.wallet = h.producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
     gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
     gm.genesis.wallet.minSignatures = 2;
     gm.genesis.meta = AccountAttachment::emptySerialized();
+    gm.authority = h.producer.getAuthority().value();
+    tweak(gm);
     Ledger::TxConfig tx;
     tx.meta = gm.ltsToString();
     tx.idempotentId = idem++;
@@ -2504,6 +2602,29 @@ TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
   refused([](auto &c) { c.slotsPerEpoch -= 1; }, "Slots per epoch is fixed at genesis");
   auto other = tryConfig([](auto &c) { c.maxTransactionsPerBlock += 1; });
   EXPECT_TRUE(other.isOk()) << other.error().message;
+}
+
+// beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
+// must carry them unchanged (only their own records will change them).
+TEST_F(ChainComposeTest, ConfigUpdate_CannotChangeTheAuthority) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  ConfigUpdateProbe probe(harness_);
+  const std::string why = "cannot change the recovery set or beacon certificate";
+  const std::vector<std::function<void(Chain::GenesisAccountMeta &)>> changes = {
+      [](auto &gm) { gm.authority.recovery.delayEpochs += 1; },
+      [](auto &gm) { gm.authority.recovery.publicKeys.push_back(makeKeyPair().publicKey); },
+      [](auto &gm) { gm.authority.beacon.generation = 2; },
+      [](auto &gm) { gm.authority.beacon.publicKey = makeKeyPair().publicKey; },
+      [](auto &gm) { gm.authority = {}; },
+  };
+  for (size_t i = 0; i < changes.size(); ++i) {
+    auto added = probe.addMeta(changes[i]);
+    ASSERT_FALSE(added.isOk()) << "change " << i;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  }
+  auto unchanged = probe.addMeta([](auto &gm) { gm.config.maxTransactionsPerBlock += 1; });
+  EXPECT_TRUE(unchanged.isOk()) << unchanged.error().message;
 }
 
 // Liveness settings in a config update (WIRE_SCHEMA § Config updates): heartbeats at least once an
@@ -2893,6 +3014,7 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
   update.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
   update.genesis.wallet.minSignatures = 2;
   update.genesis.meta = AccountAttachment::emptySerialized();
+  update.authority = producer.getAuthority().value();
   Ledger::TxConfig configTx;
   configTx.meta = update.ltsToString();
   configTx.idempotentId = 1;
@@ -2935,6 +3057,25 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
       auto seal = producer.sealBlock(badBlock);
       ASSERT_FALSE(seal.isOk());
       EXPECT_NE(seal.error().message.find("config in force"), std::string::npos) << seal.error().message;
+
+      // It carries the recovery set and beacon certificate in force; one that alters them is refused.
+      EXPECT_TRUE(genesisMetaOf(*genesisRenewal).authority == producer.getAuthority().value());
+      auto altered = utl::binaryUnpack<Ledger::TxRenewal>(genesisRenewal->data).value();
+      Chain::GenesisAccountMeta alteredMeta = genesisMetaOf(*genesisRenewal);
+      alteredMeta.authority.recovery.delayEpochs += 1;
+      altered.meta = alteredMeta.ltsToString();
+      Ledger::Record badAuthority = *genesisRenewal;
+      badAuthority.data = utl::binaryPack(altered);
+      std::vector<Ledger::Record> badAuthorityRecords;
+      for (const auto &r : records) {
+        badAuthorityRecords.push_back(isGenesisRenewal(r) ? signedByLeader(badAuthority) : r);
+      }
+      Ledger::ChainNode badAuthorityBlock =
+          producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), badAuthorityRecords);
+      auto authoritySeal = producer.sealBlock(badAuthorityBlock);
+      ASSERT_FALSE(authoritySeal.isOk());
+      EXPECT_NE(authoritySeal.error().message.find("recovery set and beacon certificate in force"), std::string::npos)
+          << authoritySeal.error().message;
     }
     block = makeNextBlockAtSlot(producer, block, slot, records);
     ASSERT_TRUE(producer.addBlock(block).isOk()) << "slot " << slot;

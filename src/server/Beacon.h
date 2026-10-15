@@ -82,6 +82,8 @@ public:
     Chain::BlockChainConfig chain;
     InitKeyConfig key;
     std::vector<GenesisMiner> miners;
+    /** Recovery set + generation-1 beacon certificate (its networkId is set from `chain`). */
+    Chain::ChainAuthority authority;
   };
 
   struct MountConfig {
@@ -134,7 +136,8 @@ private:
   Roe<Ledger::ChainNode>
   createGenesisBlock(const Chain::BlockChainConfig &config,
                      const InitKeyConfig &key,
-                     const std::vector<GenesisMiner> &miners);
+                     const std::vector<GenesisMiner> &miners,
+                     const Chain::ChainAuthority &authority);
   /**
    * A genesis-signed NEW_USER record creating `account` at `toId`. `fee` 0
    * means "the minimum fee for this record"; the fee used is written back.

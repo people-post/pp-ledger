@@ -169,6 +169,11 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
     if (auto change = validateConfigChange(gm.config, ctx.optChainConfig); !change) {
       return change.error();
     }
+    // The recovery set and beacon certificate are not config: only their own records change them.
+    if (ctx.optAuthority.has_value() && gm.authority != ctx.optAuthority.value()) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "A config update cannot change the recovery set or beacon certificate");
+    }
   }
 
   if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,

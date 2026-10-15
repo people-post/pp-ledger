@@ -321,6 +321,14 @@ initialize_beacon_with_test_config() {
     genesis_args+=(--genesis-key "$key_dir/genesis${i}.key")
   done
 
+  # Recovery set (beacon-authority): its own holder's key, never an admin key. A short delay keeps
+  # it testable with smoke epochs.
+  if [[ ! -f "$key_dir/recovery1.key" || ! -f "$key_dir/recovery1.pub" ]]; then
+    rm -f "$key_dir/recovery1.key"
+    "$BUILD_DIR/app/pp-client" keygen -o "$key_dir/recovery1" >/dev/null || die "pp-client keygen failed"
+  fi
+  local recovery="{\"publicKeys\": [\"$(tr -d ' \n' <"$key_dir/recovery1.pub")\"], \"delayEpochs\": 2}"
+
   # Miners are genesis miner accounts (issued range) with their own keys;
   # system accounts never lead slots.
   local genesis_miners=""
@@ -332,6 +340,7 @@ initialize_beacon_with_test_config() {
   done
   render_fixture "init-config.json.tmpl" "$beacon_dir/init-config.json" \
     "SYSTEM_ACCOUNTS={${system_accounts}}" \
+    "RECOVERY=${recovery}" \
     "GENESIS_MINERS=[${genesis_miners}]" \
     "NETWORK_ID=${SMOKE_NETWORK_ID}" \
     "SLOT_DURATION=${SLOT_DURATION}" \

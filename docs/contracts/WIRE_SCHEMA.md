@@ -129,12 +129,32 @@ not installed in `RecordHandler`.
   (`0` = no heartbeats), so an idle chain still gets a block every epoch; `minerDueAfterSlots`
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
-- **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`) is
-  `config`, `genesis`, and a pending section (`hasPending`, `pending` = activation epoch +
-  config). `T_GENESIS` and `T_CONFIG` carry no pending section (a `T_CONFIG`'s `config` is
-  the update). A genesis `T_RENEWAL` — what a node starting from its checkpoint reads — must
-  carry the config in force for its block and, if an update is still pending (its epoch has
-  not come), that update in the pending section; validators refuse anything else.
+- **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
+  8) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  config), and `authority` (below). `T_GENESIS` and `T_CONFIG` carry no pending section (a
+  `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
+  checkpoint reads — must carry the config in force for its block, if an update is still pending
+  (its epoch has not come) that update in the pending section, and the authority in force;
+  validators refuse anything else.
+- **A config update cannot change the authority:** a `T_CONFIG`'s `authority` must equal the one
+  in force.
+
+### Chain authority
+
+Set by `T_GENESIS` (so signed by the genesis quorum) and carried unchanged by every later genesis
+meta. Design: [projects/beacon-authority](../../projects/beacon-authority/DESIGN.md).
+
+| Field | Meaning |
+|-------|---------|
+| `recovery.publicKeys` | Raw ML-DSA-65 keys of the recovery set: distinct, none an admin (genesis account) key |
+| `recovery.minSignatures` | 1 ≤ m ≤ key count |
+| `recovery.delayEpochs` | ≥ 1; epochs between announcing and applying a recovery |
+| `beacon.networkId` | The chain's `networkId` |
+| `beacon.generation` | 1 at genesis |
+| `beacon.publicKey` | Raw ML-DSA-65 beacon signing key: neither an admin nor a recovery key |
+| `beacon.cutoverHeight` | 0 at genesis |
+
+Code: `ChainAuthority` (`src/chain/Types.h`), checks in `chain_tx::validateGenesisAuthority`.
 
 ## Account / ledger model
 

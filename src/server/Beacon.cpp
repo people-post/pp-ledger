@@ -158,7 +158,9 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   chainConfig.genesisTime = consensusConfig.genesisTime;
 
   // Create and add genesis block
-  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key, config.miners);
+  auto authority = config.authority;
+  authority.beacon.networkId = chainConfig.networkId;
+  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key, config.miners, authority);
   if (!genesisBlockResult) {
     return Error(2, "Failed to create genesis block: " +
                         genesisBlockResult.error().message);
@@ -434,7 +436,8 @@ Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const I
 Beacon::Roe<Ledger::ChainNode>
 Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
                            const InitKeyConfig &key,
-                           const std::vector<GenesisMiner> &miners) {
+                           const std::vector<GenesisMiner> &miners,
+                           const Chain::ChainAuthority &authority) {
   // Roles of genesis block:
   // 1. Mark initial checkpoint with blockchain parameters
   // 2. Create the system accounts (fee, reserve, registrar, recycle)
@@ -456,6 +459,13 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   gm.config = config;
   gm.genesis =
       makeUserAccountFromKeys(key.genesis, 0, AccountAttachment::emptySerialized());
+  gm.authority = authority;
+  // The genesis record carries the authority, so the admin keys that sign it sign the
+  // generation-1 beacon certificate too.
+  if (auto valid = chain_tx::validateGenesisAuthority(gm.authority, gm.genesis.wallet, config.networkId);
+      !valid) {
+    return Error(2, valid.error().message);
+  }
 
   // First transaction: GenesisAccountMeta
   Ledger::TxGenesis txGenesis;

@@ -42,6 +42,7 @@ public:
   using CheckpointConfig = ::pp::CheckpointConfig;
   using BlockChainConfig = ::pp::BlockChainConfig;
   using GenesisAccountMeta = ::pp::GenesisAccountMeta;
+  using ChainAuthority = ::pp::ChainAuthority;
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -140,6 +141,8 @@ public:
   uint64_t getHeartbeatSlots() const;
   /** networkId from loaded chain config (empty if config not ready). */
   std::string getNetworkId() const;
+  /** Recovery set + beacon certificate in force; nullopt before genesis is applied. */
+  std::optional<ChainAuthority> getAuthority() const { return txContext_.optAuthority; }
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
@@ -277,6 +280,7 @@ private:
     std::optional<PendingChainConfig> pendingChainConfig;
     std::optional<IssuanceBaseline> issuanceBaseline;
     Checkpoint checkpoint;
+    std::optional<ChainAuthority> optAuthority;
   };
   /** Open a bank overlay and snapshot the rest of the tip state. */
   TipSnapshot beginTipUpdate();

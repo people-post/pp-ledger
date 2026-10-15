@@ -79,7 +79,12 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   if (gm.hasPending) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis config cannot carry a pending update");
   }
+  if (auto authority = chain_tx::validateGenesisAuthority(gm.authority, gm.genesis.wallet, gm.config.networkId);
+      !authority) {
+    return authority.error();
+  }
   ctx.optChainConfig = gm.config;
+  ctx.optAuthority = gm.authority;
 
   auto config = ctx.consensus.getConfig();
 
@@ -119,6 +124,7 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   log().info << "System initialized";
   log().info << "  Version: " << gm.VERSION;
   log().info << "  Config: " << ctx.optChainConfig.value();
+  log().info << "  Authority: " << gm.authority;
   log().info << "  Genesis: " << gm.genesis;
 
   return {};

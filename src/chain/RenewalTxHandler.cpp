@@ -160,6 +160,10 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the config in force and any pending update");
     }
+    if (ctx.optAuthority.has_value() && gm.authority != ctx.optAuthority.value()) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Genesis renewal must carry the recovery set and beacon certificate in force");
+    }
   }
 
   // Fee-free like every system account: genesis issues the native token (its
