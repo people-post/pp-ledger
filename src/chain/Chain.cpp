@@ -1215,6 +1215,18 @@ Chain::Roe<void> Chain::addBufferTransaction(
                                      roe.error().message);
   }
 
+  // One key per block (BlockValidation): the cross-block scan below only sees the ledger, so a
+  // draft that already holds this key must refuse it here — or the leader could never seal.
+  auto keyRoe = recordHandler_.getIdempotencyKey(record);
+  if (!keyRoe) {
+    return Error(E_TX_IDEMPOTENCY, keyRoe.error().message);
+  }
+  const auto &key = keyRoe.value();
+  if (key && bank.hasIdempotencyKey(*key)) {
+    return Error(E_TX_IDEMPOTENCY, "Duplicate idempotent id in block draft: " + std::to_string(key->second) +
+                                       " for wallet: " + std::to_string(key->first));
+  }
+
   auto blockId = getNextBlockId();
   // The slot the block would carry: a leader seals the slot that just ended (delivery window).
   const uint64_t productionSlot = getProductionSlot();
@@ -1226,6 +1238,9 @@ Chain::Roe<void> Chain::addBufferTransaction(
   bank.beginOverlay();
   auto applied = mapTxVoid(recordHandler_.applyBuffer(record, bank, ctx));
   if (applied) {
+    if (key) {
+      bank.addIdempotencyKey(*key);
+    }
     bank.commitOverlay();
   } else {
     bank.rollbackOverlay();

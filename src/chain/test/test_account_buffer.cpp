@@ -936,6 +936,28 @@ TEST_F(AccountBufferTest, Overlay_NestedCommitThenOuterRollback) {
     EXPECT_EQ(buf.calculateStateRoot(), rootBefore);
 }
 
+TEST_F(AccountBufferTest, IdempotencyKeys_FollowOverlaysAndClear) {
+    const AccountBuffer::IdempotencyKey kept{1, 10};
+    const AccountBuffer::IdempotencyKey dropped{1, 11};
+    buf.addIdempotencyKey(kept);
+    EXPECT_TRUE(buf.hasIdempotencyKey(kept));
+
+    buf.beginOverlay();
+    buf.addIdempotencyKey(dropped);
+    EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
+    buf.rollbackOverlay();
+    EXPECT_FALSE(buf.hasIdempotencyKey(dropped)) << "a rolled-back tx leaves no key";
+    EXPECT_TRUE(buf.hasIdempotencyKey(kept));
+
+    buf.beginOverlay();
+    buf.addIdempotencyKey(dropped);
+    buf.commitOverlay();
+    EXPECT_TRUE(buf.hasIdempotencyKey(dropped));
+
+    buf.clear();
+    EXPECT_FALSE(buf.hasIdempotencyKey(kept)) << "a new draft starts empty";
+}
+
 TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
     ASSERT_TRUE(buf.add(makeAccount(1, 100)).isOk());
     buf.beginOverlay();

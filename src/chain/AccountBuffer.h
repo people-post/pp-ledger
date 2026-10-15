@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -128,6 +129,16 @@ public:
   void clear();
   void reset();
 
+  /** (walletId, idempotentId) — the key BlockValidation allows once per block. */
+  using IdempotencyKey = std::pair<uint64_t, uint64_t>;
+  /**
+   * Keys of the transactions applied to this buffer as a block draft. A block may carry each key
+   * once; the draft enforces the same rule so a leader never assembles a block it cannot seal.
+   * Journaled with the account state (an overlay rollback drops keys added inside it).
+   */
+  bool hasIdempotencyKey(const IdempotencyKey &key) const;
+  void addIdempotencyKey(const IdempotencyKey &key);
+
   /**
    * O(1) root of the account sparse Merkle tree (incremental updates only).
    */
@@ -152,11 +163,14 @@ private:
     AccountStateTree tree;
     /** Account value before first mutation; nullopt = did not exist. */
     std::map<uint64_t, std::optional<Account>> saved;
+    /** Draft idempotency keys at beginOverlay() (a draft holds at most one block's worth). */
+    std::set<IdempotencyKey> idempotencyKeys;
   };
 
   std::map<uint64_t, Account> mAccounts_;
   AccountStateTree stateTree_;
   std::vector<Journal> journals_;
+  std::set<IdempotencyKey> idempotencyKeys_;
 };
 
 } // namespace pp
