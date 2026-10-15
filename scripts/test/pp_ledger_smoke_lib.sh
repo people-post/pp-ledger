@@ -287,6 +287,12 @@ miner_multiaddr() {
 initialize_beacon_with_test_config() {
   local beacon_dir="${TEST_DIR}/beacon"
   rm -rf "$beacon_dir"
+  # A new genesis is a new chain: every node's ledger from an earlier run belongs to another
+  # chain (relay errors on every request; miners' blocks are refused). Keys and Amp identities stay.
+  local node_dir
+  for node_dir in "${TEST_DIR}/relay" "${TEST_DIR}"/miner*; do
+    [[ -d "$node_dir/data" ]] && rm -rf "$node_dir/data"
+  done
   mkdir -p "$beacon_dir/keys"
   touch "$beacon_dir/.signature"
   if restore_lab_key "beacon-amp-identity.txt" "$beacon_dir/keys/amp-identity.txt"; then
@@ -300,7 +306,9 @@ initialize_beacon_with_test_config() {
   for name in genesis reserve registrar fee recycle; do
     local pubs="" psep=""
     for i in 1 2 3; do
-      if [[ ! -f "$key_dir/${name}${i}.key" ]]; then
+      # A key without its .pub (older layout) cannot be listed in genesis: make a fresh pair.
+      if [[ ! -f "$key_dir/${name}${i}.key" || ! -f "$key_dir/${name}${i}.pub" ]]; then
+        rm -f "$key_dir/${name}${i}.key"  # keygen will not overwrite
         "$BUILD_DIR/app/pp-client" keygen -o "$key_dir/${name}${i}" >/dev/null || die "pp-client keygen failed"
       fi
       pubs+="${psep}\"$(tr -d ' \n' <"$key_dir/${name}${i}.pub")\""
