@@ -15,6 +15,7 @@ pp-browser’s `docs/` tiers.
 `src/server/SERVER.md` stub) point here for the canonical copy.
 
 Agent entry: [`AGENTS.md`](../AGENTS.md). Deploy howto: [`deploy/README.md`](../deploy/README.md).
+Work in progress (design, decisions, phases): [`projects/`](../projects/README.md).
 
 ---
 
