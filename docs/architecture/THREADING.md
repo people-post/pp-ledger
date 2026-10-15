@@ -72,16 +72,9 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   on a virtual clock. `roundTrip` posts, then runs `drive` on the calling thread
   until done, bounded by wall time.
 
-## Status and plan
+## Run loops
 
-| Phase | Scope | State |
-|-------|-------|-------|
-| 1 | Pump thread owns the AMP stack; outbound calls post and wait | Done |
-| 2 | Single server thread per role; inbound requests queued to it | Done |
-| 3 | Handlers that call out reply later instead of blocking the server thread: relay forwards (block add, register, miner list) and miner tx forwarding go async; block gets beyond the tip wait for the run loop's next sync | Done |
-| 4 | Role duties as completions too: block sync, block broadcast, miner-list refresh | Done |
-
-After phase 4 a role's run loop makes no blocking network calls:
+A role's run loop makes no blocking network calls:
 
 - **Block sync** (`BlockSync`, Miner and Relay): calibrate, then fetch the gap
   with up to 4 requests in flight, applying blocks in order as they arrive. One

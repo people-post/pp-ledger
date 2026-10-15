@@ -66,8 +66,8 @@ three miners start in parallel. RPC / tip waits poll every 0.5 s.
 Multi-process OsUdp dial requires `LedgerAmpRuntime` to call `SetAcceptEnabled(true)`
 (same as pp-browser `MeshHost`). In-process Amp memory fabric gtests still own RPC
 correctness under loss/reorder (`L-NET-*`). L1/LATEJOIN are deterministic without forced
-leaders: registered miners (A1), the delivery window (B) and heartbeats (C) keep the tip moving
-([SLOT_COMMITTEE_OPEN_ITEMS.md § F](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)).
+leaders: registered miners, the delivery window and heartbeats keep the tip moving
+([WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md)).
 
 ---
 

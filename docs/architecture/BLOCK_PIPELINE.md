@@ -40,7 +40,8 @@ handlers call `admissionTxStrict(mode)` instead of a parallel bool.
 
 ## Late join (mode matrix)
 
-1. Miner/relay mounts with `startingBlockId = checkpointId` from beacon STATUS.
+1. A miner mounts with `startingBlockId = checkpointId` from its upstream's STATUS (a relay
+   always mounts from block 0 and validates the whole chain in Full mode).
 2. `loadFromLedger(startingBlockId)` sets `lastId == currentId == startingBlockId`
    and replays with **CheckpointReplay** (structural + soft txs).
 3. While `currentId == lastId`, live `addBlock` also uses **CheckpointReplay**

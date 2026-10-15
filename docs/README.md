@@ -25,10 +25,10 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 |-----|--------|
 | [architecture/LEDGER_TOPOLOGY.md](architecture/LEDGER_TOPOLOGY.md) | Beacon / relay / miner topology, RPC, sync, STATUS |
 | [architecture/PLATFORM_INTEGRATION.md](architecture/PLATFORM_INTEGRATION.md) | Cross-repo (pp-browser, pp-node, Amp, role matrix) |
-| [architecture/SERVER.md](architecture/SERVER.md) | Server components, APIs, usage (canonical; formerly `src/server/SERVER.md`) |
+| [architecture/SERVER.md](architecture/SERVER.md) | Server components, APIs, usage |
 | [architecture/FOLDER_DEPENDENCY.md](architecture/FOLDER_DEPENDENCY.md) | Source folder dependency graph |
 | [architecture/TESTING.md](architecture/TESTING.md) | Testing doctrine (tiers, push-down, skip taxonomy) |
-| [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](architecture/SLOT_COMMITTEE_OPEN_ITEMS.md) | Deferred SlotCommittee product decisions |
+| [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](architecture/SLOT_COMMITTEE_OPEN_ITEMS.md) | Unsettled SlotCommittee / beacon decisions |
 | [architecture/BLOCK_PIPELINE.md](architecture/BLOCK_PIPELINE.md) | Seal / ingest / replay admission modes and check layers |
 | [architecture/THREADING.md](architecture/THREADING.md) | Pump thread owns AMP; server thread owns state; queues between them |
 

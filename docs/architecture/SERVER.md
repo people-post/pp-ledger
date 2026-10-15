@@ -1,6 +1,5 @@
 # Server Architecture
 
-> Canonical location: `docs/architecture/SERVER.md` (formerly `src/server/SERVER.md`).
 > Doc map: [../README.md](../README.md).
 
 This document describes the server architecture for the pp-ledger blockchain system.
@@ -130,9 +129,10 @@ Beacons implement an intelligent checkpoint system to manage data growth:
 **Relay (Core Logic) Responsibilities:**
 - Sync blocks from a single upstream beacon (`syncBlocksFromBeacon`)
 - Calibrate time to the upstream beacon
-- Register miners just as a beacon would
+- Forward writes to the beacon (write-through): block add, transactions, miner registration;
+  store a block only after the beacon accepts it
+- Validate the whole chain from genesis with the same `Chain` code as the beacon
 - Serve chain data (blocks, accounts, transactions, status) to miners
-- Participate in DHT, bootstrapped from the beacon's DHT endpoint
 - Do NOT produce blocks
 
 **RelayServer (Communication Layer) Responsibilities:**
@@ -297,8 +297,8 @@ Miner is considered out of date if:
 - **Relays** sync blocks from upstream and expose the same ledger RPC to miners (opaque upstream; may chain)
 - **Miners** connect to relays (using the same API as they would use for a beacon directly)
 - **Miners** produce blocks based on stake and submit them via the relay
-- **Beacons** form a network and sync with each other
-- **Beacons** create checkpoints when criteria are met (1GB + 1 year)
+- **Every node** rotates checkpoints deterministically once `checkpointMinBlocks` /
+  `checkpointMinAgeSeconds` are met
 - **Miners** sync from checkpoints when falling behind
 
 ### Consensus Flow
@@ -467,33 +467,6 @@ workDir/
 5. **Stake Validation**: Verify miner has claimed stake before producing
 6. **Timestamp Manipulation**: Prevent miners from manipulating block times
 7. **Transaction Validation**: Verify transactions before including in blocks
-
-## Future Enhancements
-
-### BeaconServer
-- Block broadcast to other beacons
-- Chain synchronization between beacons
-- Checkpoint distribution
-- Miner authorization and authentication
-- Distributed checkpointing coordination
-- Byzantine Fault Tolerance mechanisms
-
-### MinerServer
-- Block broadcast to beacons after production
-- Automatic checkpoint synchronization
-- Transaction fee management
-- Mining pool support
-- Fee-based transaction prioritization
-- Anti-spam measures for transaction pool
-
-### Both
-- TLS/SSL encryption
-- Authentication and authorization
-- Request logging and metrics
-- WebSocket support for real-time updates
-- Peer discovery mechanisms
-- Advanced routing algorithms
-- Network partition handling
 
 ## References
 

@@ -240,9 +240,8 @@ snapshot/seed ahead of that block, but re-derives both at the first block, and
 a late block from an earlier epoch drops anything recorded for later epochs. Demo VRF / `EpochNonce` under `SlotLeaderSelection` are
 **not** on the live `Chain` path. Ouroboros is a literature reference only.
 
-**Domain string note:** `slot-committee/v2` (binary domain + seed) replaces
-`slot-committee/v1` string form and legacy `ouroboros/v1`; election outputs
-differ. Block `CURRENT_VERSION` is **5** (adds `epochSeed`).
+**Domain:** `slot-committee/v2` (binary domain + seed). Block `CURRENT_VERSION` is **5**
+(carries `epochSeed`).
 
 ## Slot timing
 
@@ -267,7 +266,7 @@ the beacon within the **delivery window** after the slot's end.
 - **Clocks:** miners take the beacon's clock offset (`CALIBRATION`); one skewed by more than `D`
   misses its slots rather than splitting the chain.
 
-Open follow-ups (registration, beacon failover, …):
+Open follow-ups (beacon failover, miner bonds, private leader selection):
 [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md).
 
 ## Empty heartbeat blocks

@@ -1,6 +1,6 @@
 # AMP ledger transport (pp-ledger)
 
-**Status:** v2 (2026-09-01) — AMP-only fleet transport.
+AMP is the only fleet transport.
 
 Cross-repo context: [platform-integration.md](../architecture/PLATFORM_INTEGRATION.md).
 
@@ -90,7 +90,7 @@ pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned t
 }
 ```
 
-`beacons[]` lists one or more upstream ledger endpoints (relay or terminal beacon). Legacy beacon objects are accepted: `{ "host", "port", "peerId" }`.
+`beacons[]` lists one or more upstream ledger endpoints (relay or terminal beacon), each an ADP multiaddr string.
 
 Optional network anchor (see [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md#8-network-anchor-participant-config)):
 

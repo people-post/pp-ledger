@@ -97,7 +97,7 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 | **ledger** | lib | Ledger, DirStore, FileStore, FileDirStore, VolumeStore |
 | **client** | lib, ledger, network | Client; also includes `consensus/Types.hpp` (no `pp_consensus` link in CMake) |
 | **chain** | lib, ledger, client, consensus, network | `pp_chain`: Chain, AccountBuffer, `Tx*`, Types, handler interface |
-| **server** | lib, ledger, client, consensus, network, **chain** | Beacon, Miner, Relay, `Server*` facades; no longer builds Chain sources here |
+| **server** | lib, ledger, client, consensus, network, **chain** | Beacon, Miner, Relay, `Server*` facades (Chain comes from `pp_chain`) |
 | **app** | lib, server | `pp-beacon`, `pp-relay`, `pp-miner` link `pp_server`; `pp-client` links `pp_client`, `pp_ledger` |
 
 ## Root CMake order
