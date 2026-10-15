@@ -1,4 +1,5 @@
 #include "RelayServer.h"
+#include "NetworkAnchor.h"
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -69,6 +70,16 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, allowed.error().message);
   }
   allowedPeers = std::move(allowed.value());
+  genesisHash.reset();
+  if (const Object *anchorObj = jd.getObject("networkAnchor")) {
+    auto anchor = NetworkAnchor::fromJson(*anchorObj);
+    if (!anchor) {
+      return Error(E_CONFIG, anchor.error().message);
+    }
+    if (!anchor.value().genesis_hash.empty()) {
+      genesisHash = anchor.value().genesis_hash;
+    }
+  }
   return {};
 }
 
@@ -133,6 +144,7 @@ Service::Roe<void> RelayServer::onStart() {
   // Apply configuration from RunFileConfig
   config_.network.udp_port = runFileConfig.port;
   config_.network.beacon_multiaddr = runFileConfig.beacon;
+  config_.network.genesisHash = runFileConfig.genesisHash;
   auto identityKey = loadOrCreateIdentityKey();
   if (!identityKey) {
     return Service::Error(E_CONFIG, identityKey.error().message);
@@ -141,6 +153,9 @@ Service::Roe<void> RelayServer::onStart() {
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
   log().info << "  Beacon: " << config_.network.beacon_multiaddr;
+  if (config_.network.genesisHash) {
+    log().info << "  Genesis pinned (networkAnchor.genesisHash)";
+  }
 
   if (auto upstreams = setUpstreams({config_.network.beacon_multiaddr}); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
@@ -218,6 +233,7 @@ void RelayServer::initBlockSync() {
   };
   hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
   hooks.tipHash = [this]() { return relay_.getTipHash(); };
+  hooks.firstBlockHash = [this]() { return config_.network.genesisHash; }; // a relay starts at genesis
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
     auto trail = relay_.authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));

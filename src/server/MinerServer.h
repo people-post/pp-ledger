@@ -117,10 +117,16 @@ private:
   Roe<void> verifyUpstreamState(const Client::BeaconState& state);
   Roe<void> verifyGenesisAnchor();
   /**
-   * First block of a fresh miner, pinning its hash when the genesis is anchored: the upstream's
-   * checkpoint if it carries the anchored genesis authority, else genesis (beacon-authority ba5).
+   * First block of a fresh miner: the upstream's checkpoint. With an anchored genesis, the
+   * checkpoint's authority and admin set must be the ones the upstream's authority proof reaches
+   * from it, else the miner starts at genesis, pinned by hash (beacon-authority ba5b).
    */
   Roe<uint64_t> chooseStartingBlock(const Client::BeaconState &state);
+  /** Replay the upstream's authority proof from the anchored genesis to `checkpointId` and check the checkpoint agrees. */
+  Roe<AuthorityTrail> replayAuthorityTo(uint64_t checkpointId);
+  /** BlockSync::Hooks::checkStartingAuthority: the synced starting block agrees with the replayed proof. */
+  pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
+                                       const Client::Wallet &admin) const;
 
   std::string handleParsedRequest(const Client::Request &request) override;
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
@@ -178,6 +184,12 @@ private:
   std::optional<Ledger::ChainNode> anchoredGenesis_;
   /** Hash the first block must have (BlockSync::Hooks::firstBlockHash). */
   std::optional<std::string> pinnedFirstBlockHash_;
+  /** An anchored start at a checkpoint: the trail the proof reached there. */
+  struct AnchoredStart {
+    uint64_t blockId{0};
+    AuthorityTrail trail;
+  };
+  std::optional<AnchoredStart> anchoredStart_;
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;

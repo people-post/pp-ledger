@@ -48,11 +48,14 @@ public:
 
   /**
    * Replay `proof` from `genesis` up to block `upToBlockId` (beacon-authority ba5b): steps in chain
-   * order, each signed by the admin set in force at its point. Returns the authority in force at
-   * that block — which a checkpoint there must carry.
+   * order, each signed by the admin set in force at its point. Returns the trail there: the
+   * authority and admin set a checkpoint at that block must carry.
    */
-  static chain_tx::Roe<ChainAuthority> replayProof(const Ledger::Block &genesis, const Client::AuthorityProof &proof,
+  static chain_tx::Roe<AuthorityTrail> replayProof(const Ledger::Block &genesis, const Client::AuthorityProof &proof,
                                                    uint64_t upToBlockId);
+
+  /** Whether a starting block's authority and admin set are the ones this trail reached. */
+  chain_tx::Roe<void> agrees(const ChainAuthority &authority, const Client::Wallet &admin) const;
 
   /** A tip signed by the generation in force at the trail's end, for this network. */
   chain_tx::Roe<void> verifyTip(const Client::SignedTip &tip) const;
@@ -61,11 +64,6 @@ public:
   const ChainAuthority &authority() const { return authority_; }
   const Client::Wallet &admin() const { return admin_; }
 
-  /**
-   * The authority a starting block carries: genesis (its T_GENESIS) or a checkpoint block (its
-   * genesis renewal). None for other blocks.
-   */
-  static std::optional<ChainAuthority> carriedBy(const Ledger::Block &block);
 
 private:
   chain_tx::Roe<void> verifyAdminSigned(const Ledger::Record &record) const;

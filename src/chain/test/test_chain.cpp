@@ -2707,7 +2707,7 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
   EXPECT_TRUE(none.value().steps.empty());
   auto atGenesis = AuthorityTrail::replayProof(harness_.genesis.block, none.value(), 0);
   ASSERT_TRUE(atGenesis.isOk()) << atGenesis.error().message;
-  EXPECT_TRUE(atGenesis.value() == producer.getAuthority().value());
+  EXPECT_TRUE(atGenesis.value().authority() == producer.getAuthority().value());
 
   producer.setClockOverride(producer.getSlotStartTime(1));
   BeaconCertificate next = producer.getAuthority()->beacon;
@@ -2724,14 +2724,19 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
   EXPECT_EQ(proof.value().steps[0].blockId, 1u);
   auto replayed = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 1);
   ASSERT_TRUE(replayed.isOk()) << replayed.error().message;
-  EXPECT_TRUE(replayed.value() == producer.getAuthority().value()) << "generation 2, as in force";
+  EXPECT_TRUE(replayed.value().authority() == producer.getAuthority().value()) << "generation 2, as in force";
+  EXPECT_TRUE(replayed.value().agrees(producer.getAuthority().value(),
+                                      producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet));
 
   EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 0).isOk())
       << "a step beyond the block";
   EXPECT_FALSE(producer.authorityProof(producer.getNextBlockId()).isOk()) << "beyond the tip";
   auto withheld = AuthorityTrail::replayProof(harness_.genesis.block, Client::AuthorityProof{}, 1);
   ASSERT_TRUE(withheld.isOk());
-  EXPECT_FALSE(withheld.value() == producer.getAuthority().value()) << "a withheld step reaches another authority";
+  EXPECT_FALSE(withheld.value().authority() == producer.getAuthority().value()) << "a withheld step reaches another authority";
+  EXPECT_FALSE(withheld.value()
+                   .agrees(producer.getAuthority().value(), producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet)
+                   .isOk());
 }
 
 // The proof follows admin rotations: a certificate signed by the admins a config update installed
@@ -2766,8 +2771,9 @@ TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
   };
   auto rotated = replay(certBy({admins[0], admins[2]}));
   ASSERT_TRUE(rotated.isOk()) << rotated.error().message;
-  EXPECT_EQ(rotated.value().beacon.generation, 2u);
-  EXPECT_EQ(rotated.value().beacon.publicKey, next.publicKey);
+  EXPECT_EQ(rotated.value().beacon().generation, 2u);
+  EXPECT_EQ(rotated.value().beacon().publicKey, next.publicKey);
+  EXPECT_EQ(rotated.value().admin().publicKeys, gm.genesis.wallet.publicKeys) << "the admins the config installed";
   EXPECT_FALSE(replay(certBy({harness_.genesisKey})).isOk()) << "the replaced admin set";
   EXPECT_FALSE(replay(certBy({makeKeyPair(), makeKeyPair()})).isOk()) << "not an admin set";
 

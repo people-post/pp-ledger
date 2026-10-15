@@ -34,7 +34,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         the joiner validates Full blocks from the current checkpoint, live and after a restart
   - [x] **ba5b.5** Fresh-node sync commits nothing before the tip verifies: the whole range is
         authenticated; the authority comes from the starting block's genesis record or renewal
-  - [ ] **ba5b.6** Anchors: a miner pinning genesis checks the starting block's authority and admin
+  - [x] **ba5b.6** Anchors: a miner pinning genesis checks the starting block's authority and admin
         set against the replayed proof; relays can pin `networkAnchor.genesisHash` too
   - [ ] **ba5b.7** Smoke: miners join at a checkpoint above 0, pinned and unpinned; docs (late
         join, checkpoint rules), with the known limits

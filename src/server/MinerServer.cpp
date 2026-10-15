@@ -200,6 +200,7 @@ MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
 
 MinerServer::Roe<uint64_t> MinerServer::chooseStartingBlock(const Client::BeaconState &state) {
   pinnedFirstBlockHash_.reset();
+  anchoredStart_.reset();
   if (!anchoredGenesis_) {
     return state.checkpointId; // no anchor: the first block is taken on trust
   }
@@ -207,24 +208,55 @@ MinerServer::Roe<uint64_t> MinerServer::chooseStartingBlock(const Client::Beacon
     pinnedFirstBlockHash_ = anchoredGenesis_->hash;
     return 0;
   }
-  // A checkpoint is tied to the anchored genesis only through the beacon key: if it carries the
-  // genesis authority, a tip signed by that key vouches for the chain back to it. Otherwise (the
-  // generation changed since genesis) start from genesis and follow the authority forward.
-  auto checkpoint = client_.fetchBlock(state.checkpointId);
-  if (!checkpoint) {
-    return Error(E_NETWORK, "Failed to fetch checkpoint block " + std::to_string(state.checkpointId) + ": " +
-                                checkpoint.error().message);
-  }
-  const auto genesisAuthority = AuthorityTrail::carriedBy(anchoredGenesis_->block);
-  const auto checkpointAuthority = AuthorityTrail::carriedBy(checkpoint.value().block);
-  if (genesisAuthority && checkpointAuthority && *genesisAuthority == *checkpointAuthority) {
-    pinnedFirstBlockHash_ = chain_block::calculateBlockHash(checkpoint.value().block);
+  // The checkpoint carries the authority and admin set a node starting there learns; replaying the
+  // admin-signed authority changes from the anchored genesis must reach the same (beacon-authority
+  // ba5b). The sync checks the block it actually starts from again (checkStartingAuthority).
+  auto replayed = replayAuthorityTo(state.checkpointId);
+  if (replayed) {
+    log().info << "Starting at checkpoint " << state.checkpointId
+               << ": its authority proof ties it to the anchored genesis";
+    anchoredStart_ = AnchoredStart{state.checkpointId, std::move(replayed.value())};
     return state.checkpointId;
   }
-  log().info << "Checkpoint " << state.checkpointId
-             << " carries another beacon authority than the anchored genesis: syncing from genesis";
+  log().warning << "Cannot tie checkpoint " << state.checkpointId << " to the anchored genesis ("
+                << replayed.error().message << "): syncing from genesis";
   pinnedFirstBlockHash_ = anchoredGenesis_->hash;
   return 0;
+}
+
+MinerServer::Roe<AuthorityTrail> MinerServer::replayAuthorityTo(uint64_t checkpointId) {
+  auto proof = client_.fetchAuthorityProof(checkpointId);
+  if (!proof) {
+    return Error(E_NETWORK, "Failed to fetch the authority proof: " + proof.error().message);
+  }
+  auto replayed = AuthorityTrail::replayProof(anchoredGenesis_->block, proof.value(), checkpointId);
+  if (!replayed) {
+    return Error(E_NETWORK, "The authority proof does not replay: " + replayed.error().message);
+  }
+  auto checkpoint = client_.fetchBlock(checkpointId);
+  if (!checkpoint) {
+    return Error(E_NETWORK, "Failed to fetch the checkpoint block: " + checkpoint.error().message);
+  }
+  auto carried = AuthorityTrail::fromStartingBlock(checkpoint.value().block);
+  if (!carried) {
+    return Error(E_NETWORK, carried.error().message);
+  }
+  if (auto same = replayed.value().agrees(carried.value().authority(), carried.value().admin()); !same) {
+    return Error(E_NETWORK, same.error().message);
+  }
+  return replayed.value();
+}
+
+pp::Roe<void> MinerServer::checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
+                                                  const Client::Wallet &admin) const {
+  if (!anchoredStart_) {
+    return {}; // no anchor (taken on trust), or genesis (pinned by hash)
+  }
+  if (blockId != anchoredStart_->blockId) {
+    return pp::Error("starts at block " + std::to_string(blockId) + ", not the checkpoint the proof covers");
+  }
+  auto same = anchoredStart_->trail.agrees(authority, admin);
+  return same ? pp::Roe<void>() : pp::Roe<void>(pp::Error(same.error().message));
 }
 
 MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
@@ -467,6 +499,10 @@ void MinerServer::initBlockSync() {
   hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
   hooks.tipHash = [this]() { return miner_.getTipHash(); };
   hooks.firstBlockHash = [this]() { return pinnedFirstBlockHash_; };
+  hooks.checkStartingAuthority = [this](uint64_t blockId, const ChainAuthority &authority,
+                                        const Client::Wallet &admin) {
+    return checkStartingAuthority(blockId, authority, admin);
+  };
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
     auto trail = miner_.authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
