@@ -112,6 +112,40 @@ protected:
     return rec;
   }
 
+  /** Reserve → fee transfer valid from `slot` for `seconds`. */
+  Ledger::Record transferValidFrom(uint64_t slot, int64_t seconds, uint64_t idempotentId) {
+    Ledger::Record rec = transferValidOnlyIn(slot, idempotentId);
+    auto tx = utl::binaryUnpack<Ledger::TxDefault>(rec.data);
+    EXPECT_TRUE(tx.isOk());
+    tx.value().validationTsMax = tx.value().validationTsMin + seconds;
+    rec.data = utl::binaryPack(tx.value());
+    rec.signatures.clear();
+    for (const auto &k : reserveKeys_) {
+      auto sig = utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net"));
+      EXPECT_TRUE(sig.isOk());
+      rec.signatures.push_back(sig.value());
+    }
+    return rec;
+  }
+
+  /** Poll produceBlock as the run loop does until it seals (its slot ended); false on timeout. */
+  bool produceWhenSealTime(Ledger::ChainNode &block) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (std::chrono::steady_clock::now() < until) {
+      miner_->refresh();
+      auto produced = miner_->produceBlock(block);
+      EXPECT_TRUE(produced.isOk()) << produced.error().message;
+      if (!produced.isOk()) {
+        return false;
+      }
+      if (produced.value()) {
+        return true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return false;
+  }
+
   /** Wait for a slot after `after` that this miner leads; that slot, or nullopt on timeout. */
   std::optional<uint64_t> waitForLeaderSlotAfter(int64_t after) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -154,6 +188,33 @@ TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {
   ASSERT_TRUE(again.has_value());
   auto fresh = miner_->addTransaction(transferValidOnlyIn(*again, 2));
   EXPECT_TRUE(fresh.isOk()) << fresh.error().message;
+}
+
+// A block that fails to broadcast is abandoned: its transactions go back to pending, while the
+// beacon still holds them in its pool for the next pull. Pulling one again must be refused — two
+// copies of one idempotency key can never be sealed, and the leader stalled for every later slot.
+TEST_F(MinerPoolTest, AbandonedBlockThenRepulledTransactionStillSeals) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  const Ledger::Record tx = transferValidFrom(*slot, 60, 7);
+  auto added = miner_->addTransaction(tx);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.records.size(), 1u);
+  miner_->abandonBlock(block);  // broadcast failed
+  ASSERT_EQ(miner_->getPendingTransactionCount(), 1u);
+
+  auto again = waitForLeaderSlotAfter(static_cast<int64_t>(*slot) - 1);
+  ASSERT_TRUE(again.has_value());
+  auto repulled = miner_->addTransaction(tx);
+  EXPECT_FALSE(repulled.isOk()) << "the same idempotency key is already in the draft";
+  EXPECT_EQ(miner_->getPendingTransactionCount(), 1u);
+
+  Ledger::ChainNode next;
+  EXPECT_TRUE(produceWhenSealTime(next)) << "the leader must still seal";
+  EXPECT_EQ(next.block.records.size(), 1u);
 }
 
 } // namespace
