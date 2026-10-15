@@ -11,7 +11,7 @@ Cross-repo context: [platform-integration.md](../architecture/PLATFORM_INTEGRATI
 | **AMP (UDP)** | Sole fleet transport for `/pp-ledger/rpc/1.0.0` |
 | **HTTP** | Degraded client path via org relay (pp-browser; not in this module) |
 
-The former TCP fetch transport and BitTorrent DHT are retired and removed from the tree.
+There is no other transport (no TCP, no DHT).
 
 ## Protocol
 
@@ -42,8 +42,9 @@ Topology: [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md).
 
 ## Dependency
 
-pp-cpp-amp is required via CMake FetchContent (`cmake/PpCppAmp.cmake`), pinned to tag **v2.13.3**
-(inbound protocol handlers receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`). Align with pp-browser’s Amp pin when sharing a sibling checkout.
+pp-cpp-amp comes in via CMake (`cmake/PpCppAmp.cmake`), pinned to a release tag there; a sibling
+`../pp-cpp-amp` checkout or `PP_CPP_AMP_SOURCE_DIR` overrides the pin. Inbound protocol handlers
+receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`.
 
 **Ownership:** Amp supplies L1–L3 transport only (`LedgerRpcChannelPolicy` lives in this repo). Chain tip/range sync, checkpoints, and RPC codecs stay in pp-ledger — do not push ledger sync or BitTorrent-style piece swarm into Amp. See [pp-cpp-amp OWNERSHIP](https://github.com/people-post/pp-cpp-amp/blob/develop/docs/OWNERSHIP.md).
 

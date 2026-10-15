@@ -13,7 +13,7 @@ Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfil
 [`docs/README.md`](docs/README.md). Work in progress lives in [`projects/`](projects/README.md)
 (design, decisions, phases; status only in each project's `CURRENT_STATE.md`).
 
-**Cross-repo work** (pp-cpp-common, pp-browser, pp-node integration, libp2p transport, role matrix): see [`docs/architecture/PLATFORM_INTEGRATION.md`](docs/architecture/PLATFORM_INTEGRATION.md).
+**Cross-repo work** (pp-cpp-* dependencies, pp-browser / pp-node relation, role matrix): see [`docs/architecture/PLATFORM_INTEGRATION.md`](docs/architecture/PLATFORM_INTEGRATION.md).
 
 **Name directory / domains** (memorable `local@domain`, reserved-account domain ownership — design only): see [`docs/product/NAME_DIRECTORY.md`](docs/product/NAME_DIRECTORY.md).
 

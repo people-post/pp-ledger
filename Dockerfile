@@ -1,5 +1,5 @@
 # Match GitHub Actions CI (ubuntu-latest → Ubuntu 24.04 / noble).
-# JSON vendored under src/lib/json; crypto from pp-cpp-crypto (FetchContent/sibling).
+# Dependencies (pp-cpp-common / -crypto / -amp) come via FetchContent pins in cmake/.
 FROM ubuntu:24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive

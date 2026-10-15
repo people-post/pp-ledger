@@ -24,7 +24,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | Doc | Topic |
 |-----|--------|
 | [architecture/LEDGER_TOPOLOGY.md](architecture/LEDGER_TOPOLOGY.md) | Beacon / relay / miner topology, RPC, sync, STATUS |
-| [architecture/PLATFORM_INTEGRATION.md](architecture/PLATFORM_INTEGRATION.md) | Cross-repo (pp-browser, pp-node, Amp, role matrix) |
+| [architecture/PLATFORM_INTEGRATION.md](architecture/PLATFORM_INTEGRATION.md) | Cross-repo dependencies, library shape, relation to pp-browser / pp-node |
 | [architecture/SERVER.md](architecture/SERVER.md) | Server components, APIs, usage |
 | [architecture/FOLDER_DEPENDENCY.md](architecture/FOLDER_DEPENDENCY.md) | Source folder dependency graph |
 | [architecture/TESTING.md](architecture/TESTING.md) | Testing doctrine (tiers, push-down, skip taxonomy) |
