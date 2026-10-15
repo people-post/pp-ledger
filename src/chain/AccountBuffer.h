@@ -138,6 +138,12 @@ public:
    */
   bool hasIdempotencyKey(const IdempotencyKey &key) const;
   void addIdempotencyKey(const IdempotencyKey &key);
+  /**
+   * Once-per-block markers for a draft (e.g. "one beacon certificate per block"): what block apply
+   * would refuse a second time, the draft refuses too. Journaled and cleared like the keys above.
+   */
+  bool hasDraftTag(const std::string &tag) const;
+  void addDraftTag(const std::string &tag);
 
   /**
    * O(1) root of the account sparse Merkle tree (incremental updates only).
@@ -165,12 +171,14 @@ private:
     std::map<uint64_t, std::optional<Account>> saved;
     /** Draft idempotency keys at beginOverlay() (a draft holds at most one block's worth). */
     std::set<IdempotencyKey> idempotencyKeys;
+    std::set<std::string> draftTags;
   };
 
   std::map<uint64_t, Account> mAccounts_;
   AccountStateTree stateTree_;
   std::vector<Journal> journals_;
   std::set<IdempotencyKey> idempotencyKeys_;
+  std::set<std::string> draftTags_;
 };
 
 } // namespace pp

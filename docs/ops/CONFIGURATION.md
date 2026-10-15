@@ -159,6 +159,16 @@ The beacon signs with its own key, `keys/beacon-signing.key` (`.pub` beside it),
 network identity. `--init` creates the pair when neither file exists, else reuses it when both exist
 and match; the genesis record certifies its public key as beacon generation 1.
 
+To certify a new beacon key (the next generation), the admins write, sign and submit a
+`T_BEACON_CERT` ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
+
+```bash
+pp-client mk-beacon-cert --network-id <id> --generation <current + 1> \
+  --pubkey keys/beacon-signing.pub --cutover <height> -o cert.tx
+pp-client sign-tx -k admin1.key --network-id <id> cert.tx   # each admin, offline, until the quorum
+pp-client submit-tx -b <relay or beacon> cert.tx
+```
+
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as
 `AMP ledger listener: ...`. A miner's identity is its first account key.

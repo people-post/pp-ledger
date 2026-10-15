@@ -128,3 +128,28 @@ key.
 **Alternatives:** Fields in `BlockChainConfig` (would make the authority look like config that
 `T_CONFIG` may change); a separate genesis record for the certificate (deferred to ba2's
 `T_BEACON_CERT` for later generations).
+
+## B011 — `T_BEACON_CERT`: a record of its own, one per block, in force at once
+
+**Date:** 2026-10-15
+**Decision:** Later generations ride a new record type, `T_BEACON_CERT` (18), signed by the admin
+set (genesis account), fee `0`, whose `meta` is the `BeaconCertificate` (versioned). On chain it
+must be exactly the next generation, with a fresh key (not the current beacon, admin or recovery
+key) and a `cutoverHeight` that does not go back and lies below the committing block. It is in
+force as soon as its block applies (not at an epoch boundary), and a block holds at most one: the
+draft refuses a second (`AccountBuffer` draft tags), since drafts check against the committed
+authority and two would both pass there yet seal a block the chain refuses. Out of band,
+`Chain::verifyBeaconCertificateRecord` accepts any higher generation the admin set signed. The
+tooling is the existing offline flow: `pp-client mk-beacon-cert` writes the unsigned record,
+admins `sign-tx --network-id`, anyone `submit-tx`.
+**Rationale:** A takeover (case 2) wants the new beacon recognised in the next block, not an epoch
+later; the cutover height, not the record's block, bounds what the old generation may sign. A
+dedicated record keeps the authority off the config path (`T_CONFIG` still cannot touch it, B010)
+and gives the admin set a narrow, auditable action. Skipping generations out of band lets a node
+that missed a block still follow the newest beacon (ba5); on chain, exact succession keeps the
+history gap-free.
+**Cons:** A leaked admin quorum can certify a beacon at once — the same trust as `T_CONFIG`
+replacing the admin keys at once; the recovery set (ba7) is the remedy.
+**Alternatives:** Carry the certificate in `T_CONFIG` (would apply at the epoch boundary and blur
+config with authority); several certificates per block applied in order (needs per-draft authority
+state for one rare record).

@@ -8,7 +8,8 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 - [x] **ba1** Genesis trust roots (breaking): recovery set (keys, threshold, delay in epochs) in
       genesis; `T_CONFIG` cannot change it; `--init` generates `keys/beacon-signing.key` and the
       generation-1 certificate
-- [ ] **ba2** Beacon certificate record and verification (genesis → admin set → certificate)
+- [x] **ba2** Beacon certificate record and verification (genesis → admin set → certificate):
+      `T_BEACON_CERT`, `Chain::verifyBeaconCertificateRecord`, `pp-client mk-beacon-cert`
 - [ ] **ba3** Signed tip: beacon signs after durable commit, persists last signed height; carried
       on `STATUS` / `BLOCK_WAIT` / `BLOCK_ADD`; relays pass it through
 - [ ] **ba4** Adoption rule: relays and miners commit only up to a verified signed tip; a miner

@@ -44,6 +44,27 @@ std::ostream &operator<<(std::ostream &os, const ChainAuthority &authority) {
   return os;
 }
 
+std::string BeaconCertificate::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  uint32_t version = VERSION;
+  BeaconCertificate copy = *this;
+  ar &version &copy;
+  return oss.str();
+}
+
+bool BeaconCertificate::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar &version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar &*this;
+  return !ar.failed();
+}
+
 bool ChainAuthority::operator==(const ChainAuthority &other) const {
   auto pack = [](const ChainAuthority &a) {
     std::ostringstream oss(std::ios::binary);

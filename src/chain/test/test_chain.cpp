@@ -2604,6 +2604,141 @@ TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
   EXPECT_TRUE(other.isOk()) << other.error().message;
 }
 
+namespace {
+
+/** A T_BEACON_CERT for `cert`, signed by `signer` (the harness's admin key unless a test says otherwise). */
+Ledger::Record makeBeaconCertRecord(const BeaconCertificate &cert, const utl::MlDsaKeyPair &signer,
+                                    const std::string &networkId, uint64_t idem, int64_t genesisTime,
+                                    uint64_t fee = 0) {
+  Ledger::TxBeaconCert tx;
+  tx.fee = fee;
+  tx.meta = cert.ltsToString();
+  tx.idempotentId = idem;
+  tx.validationTsMin = genesisTime;
+  tx.validationTsMax = genesisTime + 3600;
+  return makeRecord(Ledger::T_BEACON_CERT, tx, signer, networkId);
+}
+
+/** The next certificate after `current`: a fresh key, cutover 0. */
+BeaconCertificate nextCertificate(const Chain::ChainAuthority &current) {
+  BeaconCertificate next = current.beacon;
+  next.generation = current.beacon.generation + 1;
+  next.publicKey = makeKeyPair().publicKey;
+  next.cutoverHeight = 0;
+  return next;
+}
+
+} // namespace
+
+// beacon-authority ba2: the admin set certifies the next generation; it is in force once its
+// block applies, and genesis renewals then carry it.
+TEST_F(ChainComposeTest, BeaconCert_NextGenerationTakesEffect) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  const auto before = producer.getAuthority().value();
+  const BeaconCertificate next = nextCertificate(before);
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeBeaconCertRecord(next, harness_.genesisKey, producer.getNetworkId(), 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  const auto after = producer.getAuthority().value();
+  EXPECT_EQ(after.beacon.generation, 2u);
+  EXPECT_EQ(after.beacon.publicKey, next.publicKey);
+  EXPECT_TRUE(after.recovery.publicKeys == before.recovery.publicKeys) << "the recovery set is untouched";
+
+  // A config update now carries generation 2 (and is refused with generation 1).
+  ConfigUpdateProbe probe(harness_);
+  EXPECT_TRUE(probe.addMeta([](auto &) {}).isOk());
+  auto stale = probe.addMeta([&](auto &gm) { gm.authority = before; });
+  ASSERT_FALSE(stale.isOk());
+}
+
+TEST_F(ChainComposeTest, BeaconCert_RefusesEveryBadCertificate) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  const auto current = producer.getAuthority().value();
+  const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  uint64_t idem = 1;
+  auto tryCert = [&](const BeaconCertificate &cert, const utl::MlDsaKeyPair &signer, uint64_t fee = 0) {
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(
+        scratch,
+        makeBeaconCertRecord(cert, signer, producer.getNetworkId(), idem++, harness_.chainConfig.genesisTime, fee),
+        kTestMinerId);
+  };
+  const std::vector<std::pair<std::string, std::function<void(BeaconCertificate &)>>> refused = {
+      {"must be generation 2", [](auto &c) { c.generation = 1; }},
+      {"must be generation 2", [](auto &c) { c.generation = 3; }},
+      {"networkId does not match", [](auto &c) { c.networkId = "other-net"; }},
+      {"must not be the current beacon key", [&](auto &c) { c.publicKey = current.beacon.publicKey; }},
+      {"must not be the current beacon key", [&](auto &c) { c.publicKey = admin.publicKeys[0]; }},
+      {"must not be the current beacon key", [&](auto &c) { c.publicKey = current.recovery.publicKeys[0]; }},
+      {"malformed public key", [](auto &c) { c.publicKey = "short"; }},
+      {"below the block that commits it", [&](auto &c) { c.cutoverHeight = producer.getNextBlockId(); }},
+  };
+  for (const auto &[why, change] : refused) {
+    BeaconCertificate cert = nextCertificate(current);
+    change(cert);
+    auto added = tryCert(cert, harness_.genesisKey);
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  }
+  auto paid = tryCert(nextCertificate(current), harness_.genesisKey, 1);
+  ASSERT_FALSE(paid.isOk());
+  EXPECT_NE(paid.error().message.find("fee 0"), std::string::npos) << paid.error().message;
+  auto unsignedByAdmin = tryCert(nextCertificate(current), harness_.reserveKey);
+  EXPECT_FALSE(unsignedByAdmin.isOk()) << "only the admin set certifies a beacon";
+  auto good = tryCert(nextCertificate(current), harness_.genesisKey);
+  EXPECT_TRUE(good.isOk()) << good.error().message;
+}
+
+// A draft validates against the chain's authority, which moves only when a block applies: a second
+// certificate in the same draft would seal a block the chain refuses, so the draft refuses it.
+TEST_F(ChainComposeTest, BeaconCert_OnePerBlock) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  const auto current = producer.getAuthority().value();
+  AccountBuffer draft;
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  ASSERT_TRUE(producer
+                  .addBufferTransaction(draft,
+                                        makeBeaconCertRecord(nextCertificate(current), harness_.genesisKey,
+                                                             producer.getNetworkId(), 1, genesisTime),
+                                        kTestMinerId)
+                  .isOk());
+  auto second = producer.addBufferTransaction(
+      draft, makeBeaconCertRecord(nextCertificate(current), harness_.genesisKey, producer.getNetworkId(), 2, genesisTime),
+      kTestMinerId);
+  ASSERT_FALSE(second.isOk());
+  EXPECT_NE(second.error().message.find("at most one beacon certificate"), std::string::npos)
+      << second.error().message;
+}
+
+// Out of band (a peer, a file): any higher generation the admin set signed, for this chain.
+TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {
+  auto &producer = harness_.producer;
+  const auto current = producer.getAuthority().value();
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  BeaconCertificate skip = nextCertificate(current);
+  skip.generation = 3;
+  auto verified = producer.verifyBeaconCertificateRecord(
+      makeBeaconCertRecord(skip, harness_.genesisKey, producer.getNetworkId(), 1, genesisTime));
+  ASSERT_TRUE(verified.isOk()) << verified.error().message;
+  EXPECT_EQ(verified.value().generation, 3u);
+
+  BeaconCertificate stale = nextCertificate(current);
+  stale.generation = 1;
+  EXPECT_FALSE(producer
+                   .verifyBeaconCertificateRecord(
+                       makeBeaconCertRecord(stale, harness_.genesisKey, producer.getNetworkId(), 2, genesisTime))
+                   .isOk());
+  EXPECT_FALSE(producer
+                   .verifyBeaconCertificateRecord(makeBeaconCertRecord(nextCertificate(current), harness_.reserveKey,
+                                                                       producer.getNetworkId(), 3, genesisTime))
+                   .isOk())
+      << "not signed by the admin set";
+}
+
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
 // must carry them unchanged (only their own records will change them).
 TEST_F(ChainComposeTest, ConfigUpdate_CannotChangeTheAuthority) {

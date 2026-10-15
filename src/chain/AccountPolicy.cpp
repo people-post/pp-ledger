@@ -141,6 +141,38 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   return {};
 }
 
+Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const ChainAuthority &current,
+                                        const Client::Wallet &adminWallet, const std::string &networkId,
+                                        std::optional<uint64_t> commitBlockId) {
+  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+  if (next.networkId != networkId) {
+    return invalid("Beacon certificate networkId does not match the chain");
+  }
+  if (commitBlockId.has_value() ? next.generation != current.beacon.generation + 1
+                                : next.generation <= current.beacon.generation) {
+    return invalid("Beacon certificate must be generation " +
+                   std::string(commitBlockId.has_value() ? "" : "above ") +
+                   std::to_string(current.beacon.generation + (commitBlockId.has_value() ? 1 : 0)));
+  }
+  if (next.publicKey.size() != utl::kMlDsaPublicKeyBytes) {
+    return invalid("Beacon certificate has a malformed public key");
+  }
+  const auto &recoveryKeys = current.recovery.publicKeys;
+  if (next.publicKey == current.beacon.publicKey ||
+      std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), next.publicKey) !=
+          adminWallet.publicKeys.end() ||
+      std::find(recoveryKeys.begin(), recoveryKeys.end(), next.publicKey) != recoveryKeys.end()) {
+    return invalid("The new beacon key must not be the current beacon key, an admin key or a recovery key");
+  }
+  if (next.cutoverHeight < current.beacon.cutoverHeight) {
+    return invalid("Beacon certificate cutoverHeight must not go back");
+  }
+  if (commitBlockId.has_value() && next.cutoverHeight >= *commitBlockId) {
+    return invalid("Beacon certificate cutoverHeight must be below the block that commits it");
+  }
+  return {};
+}
+
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,
                          std::string_view addFailurePrefix) {

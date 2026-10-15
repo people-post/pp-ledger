@@ -1,4 +1,6 @@
 #include "Chain.h"
+#include "AccountPolicy.h"
+#include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
 #include "MinerLiveness.h"
 #include "RecordHandler.h"
@@ -1292,6 +1294,39 @@ Chain::Roe<void> Chain::verifySignaturesAgainstAccount(
     const AccountBuffer::Account &account) const {
   return mapTxVoid(chain_tx::verifySignaturesAgainstAccount(
       message, signatures, account, txContext_.crypto, log()));
+}
+
+Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const Ledger::Record &record) const {
+  if (record.type != Ledger::T_BEACON_CERT) {
+    return Error(E_TX_VALIDATION, "Not a beacon certificate record");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
+  if (!tx) {
+    return Error(E_TX_VALIDATION, "Invalid beacon certificate record: " + tx.error().message);
+  }
+  auto cert = BeaconCertTxHandler::decodeCertificate(tx.value());
+  if (!cert) {
+    return Error(E_TX_VALIDATION, cert.error().message);
+  }
+  if (!txContext_.optAuthority.has_value()) {
+    return Error(E_TX_VALIDATION, "Chain authority not initialized");
+  }
+  const std::string networkId = getNetworkId();
+  if (auto signed_ = verifyAccountSignatures(AccountBuffer::ID_GENESIS, record.signingMessage(networkId),
+                                             record.signatures);
+      !signed_) {
+    return Error(E_TX_SIGNATURE, "Beacon certificate not signed by the admin set: " + signed_.error().message);
+  }
+  auto admin = txContext_.bank.getAccount(AccountBuffer::ID_GENESIS);
+  if (!admin) {
+    return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
+  }
+  if (auto valid = chain_tx::validateNextBeaconCertificate(cert.value(), txContext_.optAuthority.value(),
+                                                          admin.value().wallet, networkId, std::nullopt);
+      !valid) {
+    return Error(E_TX_VALIDATION, valid.error().message);
+  }
+  return cert.value();
 }
 
 Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::string &message,

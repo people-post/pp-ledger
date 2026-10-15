@@ -104,6 +104,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 6 | `T_END_USER` | Miner close |
 | 16 | `T_MINER_REGISTER` | Account registers as a miner ([Miner registration and liveness](#miner-registration-and-liveness)) |
 | 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
+| 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([Chain authority](#chain-authority)) |
 
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
@@ -155,6 +156,25 @@ meta. Design: [projects/beacon-authority](../../projects/beacon-authority/DESIGN
 | `beacon.cutoverHeight` | 0 at genesis |
 
 Code: `ChainAuthority` (`src/chain/Types.h`), checks in `chain_tx::validateGenesisAuthority`.
+
+**Later generations — `T_BEACON_CERT`.** The admin set (genesis account, its `minSignatures`)
+certifies the next beacon. The record's `meta` is a `BeaconCertificate` (version `1`, then
+`networkId`, `generation`, `publicKey`, `cutoverHeight`); fee `0`; idempotency key
+(genesis account, `idempotentId`) with the usual validation window. Rules
+(`chain_tx::validateNextBeaconCertificate`):
+
+- `networkId` is the chain's; `generation` is exactly the one in force + 1;
+- `publicKey` is a well-formed ML-DSA-65 key that is not the current beacon key, an admin key or a
+  recovery key;
+- `cutoverHeight` (the last height the previous generation may sign) does not go back and is below
+  the block that commits the record;
+- not in the genesis block (that block certifies generation 1);
+- **at most one per block.** The certificate is in force as soon as its block applies; a genesis
+  meta (renewal, `T_CONFIG`) from then on carries it.
+
+Out of band (a certificate a node receives outside a block), `Chain::verifyBeaconCertificateRecord`
+checks the same record against the authority the node has: any generation above the one in force
+passes, so a node that is behind can still recognise a newer beacon.
 
 ## Account / ledger model
 

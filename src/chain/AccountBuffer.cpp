@@ -76,7 +76,7 @@ void AccountBuffer::recordUndo(uint64_t id) {
 }
 
 void AccountBuffer::beginOverlay() {
-  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_});
+  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_, draftTags_});
 }
 
 void AccountBuffer::commitOverlay() {
@@ -110,6 +110,7 @@ void AccountBuffer::rollbackOverlay() {
   }
   stateTree_ = std::move(journal.tree);
   idempotencyKeys_ = std::move(journal.idempotencyKeys);
+  draftTags_ = std::move(journal.draftTags);
 }
 
 bool AccountBuffer::hasAccount(uint64_t id) const {
@@ -551,7 +552,12 @@ void AccountBuffer::clear() {
   mAccounts_.clear();
   stateTree_ = AccountStateTree{};
   idempotencyKeys_.clear();
+  draftTags_.clear();
 }
+
+bool AccountBuffer::hasDraftTag(const std::string &tag) const { return draftTags_.count(tag) != 0; }
+
+void AccountBuffer::addDraftTag(const std::string &tag) { draftTags_.insert(tag); }
 
 bool AccountBuffer::hasIdempotencyKey(const IdempotencyKey &key) const {
   return idempotencyKeys_.count(key) != 0;
