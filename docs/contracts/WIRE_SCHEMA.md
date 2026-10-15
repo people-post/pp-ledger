@@ -176,6 +176,34 @@ Out of band (a certificate a node receives outside a block), `Chain::verifyBeaco
 checks the same record against the authority the node has: any generation above the one in force
 passes, so a node that is behind can still recognise a newer beacon.
 
+### Signed tip
+
+The beacon signs **every block it commits** with its signing key, after the block is durably
+stored, and keeps only the latest signature (`Client::SignedTip`):
+
+| Field | Meaning |
+|-------|---------|
+| `networkId` | The chain's |
+| `generation` | The beacon certificate in force for that block |
+| `height` | Block index |
+| `blockHash` | Raw block hash |
+| `signature` | ML-DSA-65 by the certificate's key over `"pp-ledger/signed-tip/v1"` ‖ pack(`networkId`) ‖ pack(`generation`) ‖ pack(`height`) ‖ pack(`blockHash`) |
+
+One signature authenticates the hash chain below it, so the block format does not change.
+
+- **Never two tips at one height.** The beacon writes the tip to `data/signed-tip.dat` (version
+  `1`) before serving it, and never signs a different block at or below the height stored there.
+  At start it refuses a ledger that ends below that tip or holds another block at its height
+  (restore the ledger it signed), and signs the committed tip if it is not signed yet (genesis
+  after `--init`, or a crash between commit and signing).
+- **Only the certified key signs.** If the certificate in force names another key, the beacon
+  keeps running and signs nothing (it warns once per generation).
+- **Where it travels:** `STATUS` (`signedTip`, the packed versioned tip; absent before the first),
+  and the `BLOCK_WAIT` and `BLOCK_ADD` replies, which are `TipReply {nextBlockId, hasSignedTip,
+  signedTip}`. A `BLOCK_ADD` reply carries the tip that covers the block just added. Relays keep
+  the newest tip they hear from upstream (higher height, or higher generation at one height) and
+  pass it on unchanged; nodes do not yet act on it.
+
 ## Account / ledger model
 
 - **Account-based**, multi-token `map<tokenId, int64>` balances (not UTXO).

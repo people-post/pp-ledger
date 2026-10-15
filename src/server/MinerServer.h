@@ -105,7 +105,7 @@ private:
   void handleSlotLeaderRole();
   /** Send a produced (sealed) block to every upstream in parallel. */
   void startBroadcast(const Ledger::ChainNode& block);
-  void onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<bool> result);
+  void onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<Client::TipReply> result);
   /** First upstream accepted it: commit our seal. */
   void commitProducedBlock(const Ledger::ChainNode& block);
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);

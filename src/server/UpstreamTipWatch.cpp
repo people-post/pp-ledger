@@ -15,13 +15,13 @@ void UpstreamTipWatch::maintain() {
     return;
   }
   if (auto dial = hooks_.dialUpstream(); !dial) {
-    onReply(Client::Roe<uint64_t>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
+    onReply(Client::Roe<Client::TipReply>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
     return;
   }
   inFlight_ = true;
   std::weak_ptr<int> alive = alive_;
   const uint64_t known = std::max(hooks_.nextBlockId(), upstreamNext_);
-  client_.waitForBlockAsync(known, [this, alive](Client::Roe<uint64_t> result) {
+  client_.waitForBlockAsync(known, [this, alive](Client::Roe<Client::TipReply> result) {
     if (alive.expired()) {
       return;
     }
@@ -33,7 +33,7 @@ void UpstreamTipWatch::maintain() {
   });
 }
 
-void UpstreamTipWatch::onReply(Client::Roe<uint64_t> result) {
+void UpstreamTipWatch::onReply(Client::Roe<Client::TipReply> result) {
   inFlight_ = false;
   if (!result) {
     backoff_ = backoff_.count() == 0 ? options_.initialBackoff : std::min(backoff_ * 2, options_.maxBackoff);
@@ -43,7 +43,10 @@ void UpstreamTipWatch::onReply(Client::Roe<uint64_t> result) {
   }
   backoff_ = std::chrono::milliseconds(0);
   notBefore_ = {};
-  upstreamNext_ = result.value(); // may drop after a failover to a shorter upstream
+  upstreamNext_ = result.value().nextBlockId; // may drop after a failover to a shorter upstream
+  if (result.value().hasSignedTip && hooks_.onSignedTip) {
+    hooks_.onSignedTip(result.value().signedTip);
+  }
   if (upstreamNext_ > hooks_.nextBlockId()) {
     hooks_.onUpstreamAhead();
   }

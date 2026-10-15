@@ -182,6 +182,9 @@ private:
   std::string handleParsedRequest(const Client::Request &request) override;
   /** Serves BLOCK_WAIT: downstreams learn of each committed block at once. */
   std::optional<uint64_t> blockWaitTip() const override { return beacon_.getNextBlockId(); }
+  std::optional<Client::SignedTip> latestSignedTip() const override { return beacon_.getSignedTip(); }
+  /** BLOCK_ADD reply: next block id and the signed tip (which covers the block just added). */
+  std::string tipReply() const;
 
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);

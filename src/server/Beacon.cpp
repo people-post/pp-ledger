@@ -245,7 +245,76 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
   if (!result) {
     return Error(4, result.error().message);
   }
+  if (tipSigner_) {
+    if (auto signed_ = signCommittedTip(); !signed_ && signed_.error().code != TipSigner::E_NOT_CERTIFIED) {
+      log().error << "Block " << block.block.index << " committed but not signed: " << signed_.error().message;
+    }
+  }
   return {};
+}
+
+Beacon::Roe<void> Beacon::openTipSigning(const utl::MlDsaKeyPair &key) {
+  auto signer = std::make_unique<TipSigner>(config_.workDir + "/" + FILE_SIGNED_TIP, key);
+  signer->redirectLogger(log().getFullName() + ".TipSigner");
+  if (auto loaded = signer->load(); !loaded) {
+    return Error(5, loaded.error().message);
+  }
+  if (const auto &tip = signer->latest()) {
+    if (auto held = checkLedgerHoldsSignedTip(*tip); !held) {
+      return held;
+    }
+  }
+  tipSigner_ = std::move(signer);
+  if (auto signed_ = signCommittedTip(); !signed_ && signed_.error().code != TipSigner::E_NOT_CERTIFIED) {
+    tipSigner_.reset();
+    return Error(5, signed_.error().message);
+  }
+  if (const auto &tip = tipSigner_->latest()) {
+    log().info << "Signed tip: block " << tip->height << ", generation " << tip->generation;
+  }
+  return {};
+}
+
+std::optional<Client::SignedTip> Beacon::getSignedTip() const {
+  return tipSigner_ ? tipSigner_->latest() : std::nullopt;
+}
+
+Beacon::Roe<void> Beacon::checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const {
+  if (tip.networkId != getNetworkId()) {
+    return Error(5, std::string(FILE_SIGNED_TIP) + " is for network '" + tip.networkId + "', not '" +
+                        getNetworkId() + "'");
+  }
+  if (tip.height >= getNextBlockId()) {
+    return Error(5, "The ledger ends at block " + std::to_string(getNextBlockId() - 1) +
+                        ", below the last signed tip (block " + std::to_string(tip.height) +
+                        "): restore the ledger; the beacon must not sign those heights again");
+  }
+  auto block = readBlock(tip.height);
+  if (!block || block.value().hash != tip.blockHash) {
+    return Error(5, "The ledger's block " + std::to_string(tip.height) +
+                        " is not the one the beacon signed: restore the ledger it signed");
+  }
+  return {};
+}
+
+TipSigner::Roe<void> Beacon::signCommittedTip() {
+  const auto authority = chain_.getAuthority();
+  if (!authority) {
+    return TipSigner::Error(TipSigner::E_IO, "Chain authority not loaded");
+  }
+  const uint64_t height = getNextBlockId() - 1;
+  auto block = readBlock(height);
+  if (!block) {
+    return TipSigner::Error(TipSigner::E_IO, "Failed to read block " + std::to_string(height) + ": " +
+                                                 block.error().message);
+  }
+  auto signed_ = tipSigner_->sign(authority->beacon, height, block.value().hash);
+  if (!signed_ && signed_.error().code == TipSigner::E_NOT_CERTIFIED &&
+      uncertifiedWarnedGeneration_ != authority->beacon.generation) {
+    uncertifiedWarnedGeneration_ = authority->beacon.generation;
+    log().warning << "Not signing tips: " << signed_.error().message;
+  }
+  return signed_;
 }
 
 // Private helper methods

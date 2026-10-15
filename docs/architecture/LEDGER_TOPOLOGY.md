@@ -66,11 +66,11 @@ End-to-end beacon authentication is in design:
 |-----|-------------|---------------|--------------|
 | `REGISTER` | Terminal | Miner is in the registry | Write-through |
 | `CALIBRATION` | Terminal; a gateway answers with its own clock + offset to its upstream | Terminal time | Mirror the calibrated clock |
-| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion` | Serve local state |
+| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip` | Serve local state; the signed tip as heard from upstream |
 | `MINER_LIST` | Terminal registry | Ids at `registryVersion` | Forward |
 | `BLOCK_GET` | Any node | Block from local storage | Serve locally |
-| `BLOCK_ADD` | Terminal | Block committed | Write-through; store locally only after the terminal accepts |
-| `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` | Serve from own tip |
+| `BLOCK_ADD` | Terminal | Block committed; the reply carries the beacon's signed tip covering it | Write-through; store locally only after the terminal accepts; pass the reply on unchanged |
+| `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` and the latest signed tip it holds | Serve from own tip |
 | `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through |
 | `TX_PULL` | Terminal pool | Pending txs for the leader | Pass through |
 | `ACCOUNT_GET`, `TX_*` | Any node | State at its own tip | Serve locally |
@@ -161,15 +161,17 @@ sequenceDiagram
   G->>T: forward (write-through)
   T-->>G: committed
   G-->>L: success
-  G-->>V: BLOCK_WAIT reply {nextBlockId}
+  G-->>V: BLOCK_WAIT reply {nextBlockId, signedTip}
   V->>G: BLOCK_GET (BlockSync)
 ```
 
 ### BLOCK_WAIT
 
 - Each relay and miner keeps one `BLOCK_WAIT {knownNextBlockId}` open to its upstream
-  (`UpstreamTipWatch`). The upstream replies with its `nextBlockId` as soon as that passes
-  `knownNextBlockId`, or unchanged after a hold of T/2; the downstream then re-arms.
+  (`UpstreamTipWatch`). The upstream replies with its `nextBlockId` (and the beacon's latest
+  signed tip it holds — [WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) as
+  soon as that passes `knownNextBlockId`, or unchanged after a hold of T/2; the downstream then
+  re-arms.
 - When the reply shows the upstream ahead, the downstream syncs and applies blocks only after full
   validation (I3).
 - **Downward only, once per block:** only an upstream answers a wait, and the next wait starts from

@@ -28,6 +28,8 @@ public:
     std::function<uint64_t()> nextBlockId;
     /** The upstream has blocks we lack: request a sync. */
     std::function<void()> onUpstreamAhead;
+    /** Optional: the signed tip the upstream sent with its reply. */
+    std::function<void(const Client::SignedTip &)> onSignedTip;
     /** Run a task on the server thread (Server::postToServerThread). */
     std::function<void(std::function<void()>)> postToServerThread;
   };
@@ -45,7 +47,7 @@ public:
   bool inFlight() const { return inFlight_; }
 
 private:
-  void onReply(Client::Roe<uint64_t> result);
+  void onReply(Client::Roe<Client::TipReply> result);
 
   Client &client_;
   Hooks hooks_;
