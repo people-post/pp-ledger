@@ -3,6 +3,7 @@
 #include "../client/Client.h"
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
+#include "lib/common/Utilities.h"
 
 #include <cstdint>
 #include <string>
@@ -20,13 +21,21 @@ struct NetworkAnchor {
     return !network_id.empty() || !genesis_hash.empty() || trusted_checkpoint_set;
   }
 
-  static NetworkAnchor fromJson(const pp::common::Object& jd) {
+  /** `genesisHash` is hex (optional `0x`) of the 32-byte block hash; kept raw, as hashes compare. */
+  static pp::Roe<NetworkAnchor> fromJson(const pp::common::Object& jd) {
     NetworkAnchor anchor;
     if (auto id = jd.getString("networkId")) {
       anchor.network_id = *id;
     }
     if (auto hash = jd.getString("genesisHash")) {
-      anchor.genesis_hash = *hash;
+      std::string hex = *hash;
+      if (hex.rfind("0x", 0) == 0 || hex.rfind("0X", 0) == 0) {
+        hex = hex.substr(2);
+      }
+      anchor.genesis_hash = utl::hexDecode(hex);
+      if (anchor.genesis_hash.size() != 32) {
+        return pp::Error("networkAnchor.genesisHash must be the hex of a 32-byte block hash");
+      }
     }
     if (auto cp = jd.getNonNegInt("trustedCheckpointId")) {
       anchor.trusted_checkpoint_id = *cp;

@@ -11,6 +11,7 @@
 #include "TxContext.h"
 #include "TxError.h"
 #include "Types.h"
+#include "AuthorityTrail.h"
 #include "lib/common/Crypto.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
@@ -152,11 +153,16 @@ public:
   Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record &record) const;
 
   /**
-   * A beacon signed tip (beacon-authority ba4): for this chain, signed by the key of the beacon
-   * generation in force here. A tip of another generation is refused (following generations is
-   * ba5).
+   * The beacon authority from the committed tip on (beacon-authority ba5): observe blocks not
+   * committed yet to follow generation and admin changes, then verify a tip against them.
    */
-  Roe<void> verifySignedTip(const Client::SignedTip &tip) const;
+  Roe<AuthorityTrail> authorityTrail() const;
+
+  /**
+   * A beacon signed tip of this chain, signed by the generation in force here — or, given the
+   * blocks after the committed tip that it covers (`pending`), the generation in force after them.
+   */
+  Roe<void> verifySignedTip(const Client::SignedTip &tip, const std::vector<const Ledger::Block *> &pending = {}) const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;

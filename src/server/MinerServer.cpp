@@ -124,7 +124,11 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
     beacons.push_back(std::move(*ma));
   }
   if (const Object* anchorObj = jd.getObject("networkAnchor")) {
-    network_anchor = NetworkAnchor::fromJson(*anchorObj);
+    auto anchor = NetworkAnchor::fromJson(*anchorObj);
+    if (!anchor) {
+      return Error(E_CONFIG, anchor.error().message);
+    }
+    network_anchor = anchor.value();
   }
   auto allowed = parseAllowedPeers(jd);
   if (!allowed) {
@@ -185,12 +189,49 @@ MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
   // genesis body.
   const std::string calculatedHash =
       chain_block::calculateBlockHash(block.value().block);
-  return NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor,
-                                                 calculatedHash);
+  if (auto pinned = NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor, calculatedHash);
+      !pinned) {
+    return pinned;
+  }
+  anchoredGenesis_ = block.value();
+  anchoredGenesis_->hash = calculatedHash;
+  return {};
+}
+
+MinerServer::Roe<uint64_t> MinerServer::chooseStartingBlock(const Client::BeaconState &state) {
+  pinnedFirstBlockHash_.reset();
+  if (!anchoredGenesis_) {
+    return state.checkpointId; // no anchor: the first block is taken on trust
+  }
+  if (state.checkpointId == 0) {
+    pinnedFirstBlockHash_ = anchoredGenesis_->hash;
+    return 0;
+  }
+  // A checkpoint is tied to the anchored genesis only through the beacon key: if it carries the
+  // genesis authority, a tip signed by that key vouches for the chain back to it. Otherwise (the
+  // generation changed since genesis) start from genesis and follow the authority forward.
+  auto checkpoint = client_.fetchBlock(state.checkpointId);
+  if (!checkpoint) {
+    return Error(E_NETWORK, "Failed to fetch checkpoint block " + std::to_string(state.checkpointId) + ": " +
+                                checkpoint.error().message);
+  }
+  const auto genesisAuthority = AuthorityTrail::carriedBy(anchoredGenesis_->block);
+  const auto checkpointAuthority = AuthorityTrail::carriedBy(checkpoint.value().block);
+  if (genesisAuthority && checkpointAuthority && *genesisAuthority == *checkpointAuthority) {
+    pinnedFirstBlockHash_ = chain_block::calculateBlockHash(checkpoint.value().block);
+    return state.checkpointId;
+  }
+  log().info << "Checkpoint " << state.checkpointId
+             << " carries another beacon authority than the anchored genesis: syncing from genesis";
+  pinnedFirstBlockHash_ = anchoredGenesis_->hash;
+  return 0;
 }
 
 MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
+  // Follow the highest beacon generation, then the longest chain (beacon-authority ba5). Claims are
+  // checked when syncing: an upstream whose tip does not verify fails the sync and is rotated out.
   size_t best = config_.network.beacon_multiaddrs.size();
+  uint64_t best_generation = 0;
   uint64_t best_height = 0;
   for (size_t i = 0; i < config_.network.beacon_multiaddrs.size(); ++i) {
     if (auto dial = dialUpstreamIndex(i); !dial) {
@@ -209,7 +250,9 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
       log().warning << "Skipping upstream [" << i << "]: " << verified.error().message;
       continue;
     }
-    if (status.value().nextBlockId >= best_height) {
+    const uint64_t generation = status.value().signedTip ? status.value().signedTip->generation : 0;
+    if (generation > best_generation || (generation == best_generation && status.value().nextBlockId >= best_height)) {
+      best_generation = generation;
       best_height = status.value().nextBlockId;
       best = i;
     }
@@ -218,8 +261,8 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
     return Error(E_NETWORK, "No healthy upstream available");
   }
   log().info << "Selected upstream [" << best << "] "
-             << config_.network.beacon_multiaddrs[best] << " (nextBlockId="
-             << best_height << ")";
+             << config_.network.beacon_multiaddrs[best] << " (beacon generation " << best_generation
+             << ", nextBlockId=" << best_height << ")";
   return best;
 }
 
@@ -337,7 +380,11 @@ Service::Roe<void> MinerServer::onStart() {
   minerConfig.privateKeys = config_.privateKeys;
   minerConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
   minerConfig.workDir = minerDataDir.string();
-  minerConfig.startingBlockId = state.checkpointId;
+  auto startingBlock = chooseStartingBlock(state);
+  if (!startingBlock) {
+    return Service::Error(E_NETWORK, startingBlock.error().message);
+  }
+  minerConfig.startingBlockId = startingBlock.value();
 
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {
@@ -419,9 +466,10 @@ void MinerServer::initBlockSync() {
   };
   hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
   hooks.tipHash = [this]() { return miner_.getTipHash(); };
-  hooks.verifyTip = [this](const Client::SignedTip &tip) -> pp::Roe<void> {
-    auto verified = miner_.verifySignedTip(tip);
-    return verified ? pp::Roe<void>() : pp::Roe<void>(pp::Error(verified.error().message));
+  hooks.firstBlockHash = [this]() { return pinnedFirstBlockHash_; };
+  hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
+    auto trail = miner_.authorityTrail();
+    return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
@@ -913,6 +961,7 @@ bool MinerServer::signedTipCovers(const Client::TipReply &reply, const Ledger::C
   if (!tip || tip->height != block.block.index || tip->blockHash != block.hash) {
     return false;
   }
+  // Sealing applied the block, so a certificate it carries is already in force here.
   auto verified = miner_.verifySignedTip(*tip);
   if (!verified) {
     log().warning << "Signed tip for block " << tip->height << " does not verify: " << verified.error().message;

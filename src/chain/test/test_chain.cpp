@@ -2758,9 +2758,24 @@ TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
   Ledger::ChainNode block1 = makeNextBlockAtSlot(
       producer, harness_.genesis, 1,
       {makeBeaconCertRecord(next, harness_.genesisKey, producer.getNetworkId(), 1, harness_.chainConfig.genesisTime)});
+
+  // beacon-authority ba5: a node that has not applied block 1 verifies a tip over it given the
+  // block itself (the producer applied it when sealing).
+  auto &peer = harness_.peer;
+  Client::SignedTip pendingTip;
+  pendingTip.networkId = producer.getNetworkId();
+  pendingTip.generation = 2;
+  pendingTip.height = 1;
+  pendingTip.blockHash = block1.hash;
+  pendingTip.signature = utl::mlDsaSign(newKey.privateKey, pendingTip.signingMessage()).value();
+  EXPECT_FALSE(peer.verifySignedTip(pendingTip).isOk()) << "generation 2 is not in force yet";
+  EXPECT_TRUE(peer.verifySignedTip(pendingTip, {&block1.block}).isOk());
+
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_TRUE(producer.verifySignedTip(signTip(producer, 1, 2, newKey)).isOk());
-  EXPECT_FALSE(producer.verifySignedTip(signTip(producer, 1, 1, testBeaconKey())).isOk());
+  auto superseded = producer.verifySignedTip(signTip(producer, 1, 1, testBeaconKey()));
+  ASSERT_FALSE(superseded.isOk());
+  EXPECT_NE(superseded.error().message.find("superseded"), std::string::npos) << superseded.error().message;
 }
 
 TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {

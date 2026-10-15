@@ -116,6 +116,11 @@ private:
   Roe<size_t> selectBestUpstreamIndex();
   Roe<void> verifyUpstreamState(const Client::BeaconState& state);
   Roe<void> verifyGenesisAnchor();
+  /**
+   * First block of a fresh miner, pinning its hash when the genesis is anchored: the upstream's
+   * checkpoint if it carries the anchored genesis authority, else genesis (beacon-authority ba5).
+   */
+  Roe<uint64_t> chooseStartingBlock(const Client::BeaconState &state);
 
   std::string handleParsedRequest(const Client::Request &request) override;
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
@@ -169,6 +174,10 @@ private:
   uint64_t lastSyncedEpoch_{0};
   uint64_t registrationCheckedEpoch_{UINT64_MAX};
   size_t active_upstream_index_{0};
+  /** Genesis fetched and matched against networkAnchor.genesisHash (none without an anchor). */
+  std::optional<Ledger::ChainNode> anchoredGenesis_;
+  /** Hash the first block must have (BlockSync::Hooks::firstBlockHash). */
+  std::optional<std::string> pinnedFirstBlockHash_;
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;

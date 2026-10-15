@@ -3,8 +3,9 @@
 #
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
-# Suites: unit | l0 | l1 | latejoin | smoke | image
+# Suites: unit | l0 | l1 | latejoin | smoke | rotation | image
 #   smoke == l0 → l1 → latejoin on one network (brought up once).
+#   rotation brings up its own network (the next beacon key is staged before the beacon starts).
 # See docs/ops/TEST_STRATEGY.md
 set -euo pipefail
 
@@ -30,7 +31,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|image
   --down                       stop network after run
 
 Examples:
@@ -95,6 +96,11 @@ run_smoke() {
   run_latejoin
 }
 
+run_rotation() {
+  # Its own network: the beacon loads its next signing key at start.
+  bash "${ROOT}/scripts/test/pp_ledger_rotation_smoke.sh"
+}
+
 run_image() {
   echo -e "${BLUE}═══ suite image (compose smoke scaffold) ═══${NC}"
   local compose="${ROOT}/deploy/compose.smoke.yml"
@@ -151,6 +157,7 @@ case "$CMD" in
       l1) run_l1 ;;
       latejoin) run_latejoin ;;
       smoke) run_smoke ;;
+      rotation) run_rotation ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
     esac

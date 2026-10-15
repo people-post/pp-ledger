@@ -206,3 +206,38 @@ from genesis.
 **Alternatives:** Apply as blocks arrive and roll back on a bad tip (needs rewind, part 2);
 fetch backwards from the tip (same memory problem, more complex); verify a checkpoint start from
 the pinned genesis now (needs the generation rules of ba5 when the key changed since genesis).
+
+## B014 — Generations follow the admin-signed trail; rotation by a staged key
+
+**Date:** 2026-10-15
+**Decision:** A node checks a signed tip against the generation in force *at the tip's height*,
+found by following the blocks from its own state (`AuthorityTrail`): a `T_CONFIG` replaces the
+admin set and a `T_BEACON_CERT` raises the generation, each only if the admin set in force there
+signed it. `BlockSync` checks a tip of the current generation at once and one of a later
+generation after following the range; a covering `BLOCK_ADD` tip at a relay is checked over the
+block it covers (a miner already applied its sealed block). A tip of an older generation is
+superseded. The beacon holds `keys/beacon-signing.key` and an optional staged
+`keys/beacon-signing.next.key`, and signs with whichever the certificate in force names: that is
+a same-server rotation. If it holds neither, it stands down: it refuses `BLOCK_ADD`, `TX_ADD`,
+`TX_PULL` and `REGISTER` and serves reads. Miners choose the upstream with the highest tip
+generation, then height. A miner that pins genesis also pins its first block: the checkpoint when
+it carries the genesis authority, else genesis (and syncs from it). Certificates that are not on
+chain yet (STATUS, any peer, a file; the highest seen persisted; `cutoverHeight` against them) are
+split into ba5b.
+**Rationale:** On chain, every certificate arrives inside the blocks being synced, so following
+them needs no new wire field or stored state, and admin signatures root the trail in what the
+node already trusts — an upstream cannot move it. Following `T_CONFIG` too keeps a node that slept
+through an admin rotation able to verify a later certificate. A staged key gives a rotation with
+no gap in signing and no restart at the switch, and makes generations testable end to end
+(`--suite rotation`). "Runs as a relay" needs the new beacon's address, which is part 2
+(candidate lists), so for now standing down means read-only. Out-of-band certificates matter only
+when the old beacon will not commit the new one (stolen, case 2), which part 2 handles with
+rewind; ba5b prepares the channel.
+**Cons:** Until ba5b a stolen beacon key keeps signing for nodes the admins cannot reach on chain.
+`cutoverHeight` is enforced only implicitly (generation N signs nothing at or above the block
+that certifies N+1). Relays and unanchored miners still take their first block on trust. A
+certificate for a key no running beacon holds halts the chain until that beacon runs (part 2).
+**Alternatives:** The current certificate on `STATUS`, checked against the node's admin set
+(fails after an admin rotation the node has not applied; kept for ba5b's out-of-band channel);
+rename the next key over the current one at the switch (file moves in the commit path; left to
+the operator at a restart).

@@ -57,12 +57,21 @@ std::string Relay::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
-Relay::Roe<void> Relay::verifySignedTip(const Client::SignedTip &tip) const {
-  auto verified = chain_.verifySignedTip(tip);
+Relay::Roe<void> Relay::verifySignedTip(const Client::SignedTip &tip,
+                                    const std::vector<const Ledger::Block *> &pending) const {
+  auto verified = chain_.verifySignedTip(tip, pending);
   if (!verified) {
     return Error(verified.error().code, verified.error().message);
   }
   return {};
+}
+
+Relay::Roe<AuthorityTrail> Relay::authorityTrail() const {
+  auto trail = chain_.authorityTrail();
+  if (!trail) {
+    return Error(trail.error().code, trail.error().message);
+  }
+  return trail.value();
 }
 
 std::optional<std::string> Relay::getTipHash() const {

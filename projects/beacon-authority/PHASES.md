@@ -14,9 +14,13 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
       on `STATUS` / `BLOCK_WAIT` / `BLOCK_ADD`; relays pass it through
 - [x] **ba4** Adoption rule: relays and miners commit only up to a verified signed tip; a miner
       commits its own block only on the beacon's signed tip
-- [ ] **ba5** Generations: follow the highest valid generation; `cutoverHeight`; a beacon that
-      sees a higher generation steps down to relay; the current certificate on `STATUS` (B012); a
-      fresh node's first block tied to a trust root (B013)
+- [x] **ba5** Generations on chain (B014): nodes follow the generation the admin set certifies
+      along the blocks (`AuthorityTrail`); older generations superseded; same-server rotation
+      (`keys/beacon-signing.next`); a beacon whose key is no longer certified stands down (reads
+      only); miners prefer the highest generation; an anchored miner pins its first block
+- [ ] **ba5b** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
+      any peer or a file, the highest one seen persisted; `cutoverHeight` against a generation not
+      yet on chain (needed by part 2's case 2)
 - [ ] **ba6** Equivocation halt: detection, evidence relay, halt and resume
 - [ ] **ba7** Recovery action: announce, delay, apply (replace the admin set); admin set frozen while
       pending; pending recovery on `STATUS` / logs / alert

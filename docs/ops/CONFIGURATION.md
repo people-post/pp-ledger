@@ -10,6 +10,7 @@ anything not listed here is fixed in code.
 | `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
+| `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
 
 ## `init-config.json` (beacon, genesis)
@@ -161,15 +162,22 @@ network identity. `--init` creates the pair when neither file exists, else reuse
 and match; the genesis record certifies its public key as beacon generation 1. Every start loads
 it and signs each committed block with it (`pp-client status` shows `Signed tip: block …`).
 
-To certify a new beacon key (the next generation), the admins write, sign and submit a
-`T_BEACON_CERT` ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
+**Rotating the key** (same server; the next generation). Stage the new pair beside the current
+one and restart the beacon so it holds both; then the admins write, sign and submit a
+`T_BEACON_CERT` for it ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
 
 ```bash
+pp-client keygen -o keys/beacon-signing.next                  # on the beacon host; restart pp-beacon
 pp-client mk-beacon-cert --network-id <id> --generation <current + 1> \
-  --pubkey keys/beacon-signing.pub --cutover <height> -o cert.tx
+  --pubkey keys/beacon-signing.next.pub --cutover <current tip height> -o cert.tx
 pp-client sign-tx -k admin1.key --network-id <id> cert.tx   # each admin, offline, until the quorum
 pp-client submit-tx -b <relay or beacon> cert.tx
 ```
+
+From the block that commits the certificate the beacon signs with the next key, and relays and
+miners follow (`pp-client status` shows the new generation). At a later restart the operator may
+move `beacon-signing.next.*` over `beacon-signing.*`. A certificate for a key the beacon does not
+hold makes it stand down (reads only): the network waits for the beacon that holds that key.
 
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as

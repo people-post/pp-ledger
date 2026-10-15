@@ -738,3 +738,29 @@ TEST(ServerThreadTest, ServeTasksUntilTimesOut) {
 }
 
 } // namespace
+
+#include "NetworkAnchor.h"
+
+namespace {
+
+// networkAnchor.genesisHash is configured as hex and pins the raw 32-byte block hash.
+TEST(NetworkAnchorTest, GenesisHashIsHexOfTheRawBlockHash) {
+  const std::string raw(32, '\x5a');
+  pp::common::Object config;
+  config.set("genesisHash", "0x" + utl::hexEncode(raw));
+  auto anchor = NetworkAnchor::fromJson(config);
+  ASSERT_TRUE(anchor.isOk()) << anchor.error().message;
+  EXPECT_EQ(anchor.value().genesis_hash, raw);
+  EXPECT_TRUE((NetworkAnchor::verifyGenesisHash<pp::Error>(anchor.value(), raw).isOk()));
+  EXPECT_FALSE((NetworkAnchor::verifyGenesisHash<pp::Error>(anchor.value(), std::string(32, '\x00')).isOk()));
+
+  config.set("genesisHash", utl::hexEncode(raw)); // without 0x
+  EXPECT_TRUE(NetworkAnchor::fromJson(config).isOk());
+  config.set("genesisHash", "not-hex");
+  EXPECT_FALSE(NetworkAnchor::fromJson(config).isOk());
+  config.set("genesisHash", "abcd"); // too short
+  EXPECT_FALSE(NetworkAnchor::fromJson(config).isOk());
+}
+
+} // namespace
+

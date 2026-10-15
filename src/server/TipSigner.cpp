@@ -1,12 +1,14 @@
 #include "TipSigner.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 
 namespace pp {
 
-TipSigner::TipSigner(std::string path, utl::MlDsaKeyPair key) : path_(std::move(path)), key_(std::move(key)) {
+TipSigner::TipSigner(std::string path, std::vector<utl::MlDsaKeyPair> keys)
+    : path_(std::move(path)), keys_(std::move(keys)) {
   redirectLogger("TipSigner");
 }
 
@@ -28,6 +30,10 @@ TipSigner::Roe<void> TipSigner::load() {
   return {};
 }
 
+bool TipSigner::holdsKey(const std::string &publicKey) const {
+  return std::any_of(keys_.begin(), keys_.end(), [&](const auto &key) { return key.publicKey == publicKey; });
+}
+
 TipSigner::Roe<void> TipSigner::sign(const BeaconCertificate &cert, uint64_t height, const std::string &blockHash) {
   if (latest_ && height <= latest_->height) {
     if (height == latest_->height && blockHash == latest_->blockHash) {
@@ -37,16 +43,18 @@ TipSigner::Roe<void> TipSigner::sign(const BeaconCertificate &cert, uint64_t hei
                                  ": the beacon already signed a different block at or above it (height " +
                                  std::to_string(latest_->height) + ")");
   }
-  if (cert.publicKey != key_.publicKey) {
-    return Error(E_NOT_CERTIFIED, "The beacon signing key is not the one generation " +
-                                      std::to_string(cert.generation) + " certifies");
+  const auto key = std::find_if(keys_.begin(), keys_.end(),
+                                [&](const auto &held) { return held.publicKey == cert.publicKey; });
+  if (key == keys_.end()) {
+    return Error(E_NOT_CERTIFIED, "Beacon generation " + std::to_string(cert.generation) +
+                                      " certifies a key this beacon does not hold");
   }
   Client::SignedTip tip;
   tip.networkId = cert.networkId;
   tip.generation = cert.generation;
   tip.height = height;
   tip.blockHash = blockHash;
-  auto signature = utl::mlDsaSign(key_.privateKey, tip.signingMessage());
+  auto signature = utl::mlDsaSign(key->privateKey, tip.signingMessage());
   if (!signature) {
     return Error(E_IO, "Failed to sign tip: " + signature.error().message);
   }

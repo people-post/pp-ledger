@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_BLOCK_SYNC_H
 #define PP_LEDGER_BLOCK_SYNC_H
 
+#include "../chain/AuthorityTrail.h"
 #include "../client/Client.h"
 #include "common/Module.h"
 
@@ -19,16 +20,19 @@ namespace pp {
  * Pulls missing blocks from an upstream without blocking the server thread, and commits only
  * blocks a beacon signed tip vouches for (beacon-authority ba4).
  *
- * 1. STATUS: the upstream's signed tip, checked with `verifyTip`.
+ * 1. STATUS: the upstream's signed tip.
  * 2. Authenticate: fetch the blocks from the local tip to the signed tip and check that each one
  *    hashes to what it claims and links to the one before, from the local tip up to the signed
- *    block hash. Nothing is committed yet. Up to `maxHeldBlocks` bodies are kept; beyond that
- *    only their hashes.
+ *    block hash; follow the beacon authority along them (AuthorityTrail: admin-signed generation
+ *    and admin-set changes) and check the tip against the generation in force at its height.
+ *    Nothing is committed yet. Up to `maxHeldBlocks` bodies are kept; beyond that only their
+ *    hashes.
  * 3. Apply: commit the blocks in order (fetching again those not kept), each matching the hash
  *    authenticated for its height.
  *
  * A node with no blocks yet takes its first block (genesis, or the checkpoint's genesis renewal)
- * on trust: that block is where it learns the beacon's key.
+ * as the root of trust: that block is where it learns the beacon's key. `firstBlockHash` pins it
+ * (a miner's anchored genesis, or a checkpoint tied to it); without a pin it is taken on trust.
  *
  * A few requests are in flight at a time; one sync at a time; failures back off exponentially.
  * Network results reach this object only through `postToServerThread`, so every member function
@@ -49,8 +53,12 @@ public:
     std::function<uint64_t()> nextBlockId;
     /** Hash of the local tip; none while the node holds no block. */
     std::function<std::optional<std::string>()> tipHash;
-    /** Check a signed tip against the beacon generation in force locally. */
-    std::function<pp::Roe<void>(const Client::SignedTip &)> verifyTip;
+    /** Optional: the hash the first block must have when the node holds none. */
+    std::function<std::optional<std::string>()> firstBlockHash;
+    /** The beacon authority at the local tip, to follow along the blocks being synced. */
+    std::function<pp::Roe<AuthorityTrail>()> authorityTrail;
+    /** Optional: a signed tip this sync verified (the node may serve it on). */
+    std::function<void(const Client::SignedTip &)> onTipVerified;
     /** Validate and append one block (its id is nextBlockId()). */
     std::function<pp::Roe<void>(const Ledger::ChainNode &)> applyBlock;
     /** Run a task on the server thread (Server::postToServerThread). */
@@ -98,6 +106,8 @@ private:
   bool apply(Ledger::ChainNode block);
   /** The current phase covered its range: start the next, or finish. */
   void endPhase();
+  /** Check tip_ against trail_; finish (failed) if it does not verify. */
+  bool verifyTip();
   void finish(bool ok, std::string error);
 
   /** Wrap a client callback: hop to the server thread, drop if we are gone or stale. */
@@ -115,6 +125,8 @@ private:
   Phase phase_{Phase::Status};
   Client::BeaconState status_;
   Client::SignedTip tip_;
+  /** Authority along the blocks authenticated so far (from the local tip). */
+  std::optional<AuthorityTrail> trail_;
   /** Current phase's range [base_, target_). */
   uint64_t base_{0};
   uint64_t target_{0};

@@ -127,7 +127,8 @@ that does not verify fails the sync, which backs off (0.5 s → 8 s); a miner th
 upstream. Nothing above the signed tip is committed.
 
 **Several upstreams (miners).** At startup a miner fetches `STATUS` from each `beacons[]` entry,
-drops any failing the anchor, and syncs from the one with the highest `nextBlockId`. It
+drops any failing the anchor, and syncs from the one whose signed tip has the highest beacon
+generation, then the highest `nextBlockId`. It
 broadcasts its own blocks (`BLOCK_ADD`) to every upstream at once and commits one only when a reply
 carries the beacon's verified signed tip for it. Sync, `TX_*`, registration and calibration use the
 active upstream only.
