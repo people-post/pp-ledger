@@ -117,6 +117,8 @@ private:
   std::optional<Client::SignedTip> latestSignedTip() const override { return upstreamTip_.latest(); }
   /** Keep a signed tip heard from upstream (STATUS, BLOCK_WAIT, BLOCK_ADD and REGISTER replies). */
   void noteSignedTip(const std::optional<Client::SignedTip> &tip);
+  /** True when `reply` carries a signed tip, valid here, for exactly `block`. */
+  bool coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). */

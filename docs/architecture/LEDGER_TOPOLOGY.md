@@ -119,16 +119,18 @@ or whose checkpoint is below `trustedCheckpointId`; when it connects it checks t
 | Mode | When | Behavior |
 |------|------|----------|
 | **Cold start** | New node | Anchor check → mount (miner: from the upstream's checkpoint; relay: from genesis) → sync to head |
-| **Catch-up** | Behind | `BlockSync` fetches the gap with up to 4 `BLOCK_GET`s in flight, applying in order |
+| **Catch-up** | Behind | `BlockSync` takes the upstream's beacon signed tip from `STATUS`, fetches the gap up to it with up to 4 `BLOCK_GET`s in flight, checks the hash chain up to the signed hash, then applies in order ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) |
 | **Tip follow** | Near head | One `BLOCK_WAIT` held open to the upstream; its reply triggers a sync |
 
-A block that does not extend the local tip fails the sync, which backs off (0.5 s → 8 s); a miner
-then rotates to its next upstream.
+A block that does not extend the local tip, a chain that does not lead to the signed hash, or a tip
+that does not verify fails the sync, which backs off (0.5 s → 8 s); a miner then rotates to its next
+upstream. Nothing above the signed tip is committed.
 
 **Several upstreams (miners).** At startup a miner fetches `STATUS` from each `beacons[]` entry,
 drops any failing the anchor, and syncs from the one with the highest `nextBlockId`. It
-broadcasts its own blocks (`BLOCK_ADD`) to every upstream at once. Sync, `TX_*`, registration and
-calibration use the active upstream only.
+broadcasts its own blocks (`BLOCK_ADD`) to every upstream at once and commits one only when a reply
+carries the beacon's verified signed tip for it. Sync, `TX_*`, registration and calibration use the
+active upstream only.
 
 **Gateways** sync from their single configured upstream (the relay's `beacon`), never from
 downstream miners.

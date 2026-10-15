@@ -76,14 +76,17 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 
 A role's run loop makes no blocking network calls:
 
-- **Block sync** (`BlockSync`, Miner and Relay): calibrate, then fetch the gap
-  with up to 4 requests in flight, applying blocks in order as they arrive. One
+- **Block sync** (`BlockSync`, Miner and Relay): `STATUS` for the upstream's
+  signed tip, then fetch the gap up to it with up to 4 requests in flight;
+  blocks are checked against the tip's hash chain first and applied in order
+  after (bodies beyond 1024 are fetched again for the apply pass). One
   sync at a time; failures back off (0.5 s → 8 s) and a Miner fails over to the
   next upstream. Block gets waiting past the tip are answered when a sync
   finishes (or at once while a failure backs off). A leader does not produce
   while a sync runs.
 - **Block broadcast** (Miner): sent to every upstream in parallel; the block
-  commits on the first acceptance, and all failing releases the seal and syncs.
+  commits on the first reply carrying the beacon's signed tip for it, and none
+  doing so releases the seal and syncs.
   While it is pending the leader does not produce, syncs wait, and an inbound
   `BLOCK_ADD` is told to retry.
 - **Startup** (`onStart`) still blocks — connect, register, calibrate, verify

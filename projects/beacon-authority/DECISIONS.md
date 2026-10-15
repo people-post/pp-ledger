@@ -179,3 +179,30 @@ sync to it. Until ba4 a relay passes on a forged tip as readily as a real one.
 **Alternatives:** Persist only the height and re-sign on start (a restart would produce a second,
 different signature for the same tip, which ba6 could mistake for equivocation unless signatures
 are deterministic); verify at the relay now (needs the generation rules of ba5 to be complete).
+
+## B013 — Adoption: authenticate the range, then apply; first block on trust
+
+**Date:** 2026-10-15
+**Decision:** `BlockSync` takes the upstream's signed tip from `STATUS` (replacing `CALIBRATION`),
+verifies it against the generation in force locally, then works in two passes. *Authenticate:*
+fetch the blocks from the local tip to the signed height and check that each one's computed hash
+is the next link, ending at the signed hash; nothing is committed. *Apply:* commit them in order,
+each matching its authenticated hash. Up to 1024 bodies are kept between the passes; beyond that
+only hashes (32 bytes a block) and the bodies are fetched again. Blocks above the signed tip wait
+for the next tip. A miner commits its own block only when a `BLOCK_ADD` reply carries a verified
+tip for exactly that block; a relay stores a forwarded block under the same rule; relays keep only
+tips that verify. A node with no blocks takes its first block (genesis, or a miner's checkpoint
+renewal) on trust, because that block is where it learns the beacon's key.
+**Rationale:** One signature authenticates a whole range only through the hash chain from its top,
+so a range can be trusted only once its last block is seen; committing as blocks arrive would let a
+fake upstream plant blocks below a tip it cannot forge. Two passes bound memory on a long
+catch-up without a header-only RPC. Committing only on a covering tip closes the old gap where a
+miner committed its block on any upstream success, even one that never reached the beacon.
+**Cons:** Near the head, a block commits a little later (after the whole range arrives, not as each
+does). A catch-up beyond 1024 blocks downloads most bodies twice. The first block is a trust root
+taken from the upstream: a miner can pin genesis (`networkAnchor.genesisHash`), but nothing ties a
+checkpoint start to it yet — to close with ba5, which already has to carry certificates forward
+from genesis.
+**Alternatives:** Apply as blocks arrive and roll back on a bad tip (needs rewind, part 2);
+fetch backwards from the tip (same memory problem, more complex); verify a checkpoint start from
+the pinned genesis now (needs the generation rules of ba5 when the key changed since genesis).

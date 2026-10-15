@@ -217,6 +217,11 @@ void RelayServer::initBlockSync() {
     return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
   };
   hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
+  hooks.tipHash = [this]() { return relay_.getTipHash(); };
+  hooks.verifyTip = [this](const Client::SignedTip &tip) -> pp::Roe<void> {
+    auto verified = relay_.verifySignedTip(tip);
+    return verified ? pp::Roe<void>() : pp::Roe<void>(pp::Error(verified.error().message));
+  };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = relay_.calculateHash(block.block);
@@ -267,8 +272,18 @@ void RelayServer::startBeaconStateRefresh() {
       }));
 }
 
+bool RelayServer::coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const {
+  const auto tip = reply.tip();
+  return tip && tip->height == block.block.index && tip->blockHash == relay_.calculateHash(block.block) &&
+         relay_.verifySignedTip(*tip);
+}
+
 void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
   if (!tip) {
+    return;
+  }
+  if (auto verified = relay_.verifySignedTip(*tip); !verified) {
+    log().debug << "Ignoring signed tip for block " << tip->height << ": " << verified.error().message;
     return;
   }
   if (upstreamTip_.offer(*tip) == UpstreamSignedTip::Offer::Conflict) {
@@ -496,8 +511,11 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
       replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
       return;
     }
-    relay_.addBlock(block); // Don't care about the result
     noteSignedTip(result.value().tip());
+    // Store it now only if the beacon's signed tip vouches for it; otherwise sync brings it.
+    if (coversBlock(result.value(), block)) {
+      relay_.addBlock(block); // Don't care about the result
+    }
     reply(packResponse(utl::binaryPack(result.value()))); // the beacon's reply, unchanged
   }));
 }

@@ -57,6 +57,23 @@ std::string Relay::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+Relay::Roe<void> Relay::verifySignedTip(const Client::SignedTip &tip) const {
+  auto verified = chain_.verifySignedTip(tip);
+  if (!verified) {
+    return Error(verified.error().code, verified.error().message);
+  }
+  return {};
+}
+
+std::optional<std::string> Relay::getTipHash() const {
+  const uint64_t next = getNextBlockId();
+  if (next == 0) {
+    return std::nullopt;
+  }
+  auto tip = readBlock(next - 1);
+  return tip ? std::optional<std::string>(tip.value().hash) : std::nullopt;
+}
+
 Relay::Roe<std::vector<Ledger::Record>>
 Relay::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
