@@ -303,6 +303,10 @@ void RelayServer::initHandlers() {
   auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
   hcs = [this](const Client::Request &request) { return hCalibration(request); };
 
+  requestHandlers_[Client::T_REQ_AUTHORITY_PROOF] = [this](const Client::Request &request) {
+    return hAuthorityProof(request);
+  };
+
   auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
@@ -725,6 +729,18 @@ RelayServer::Roe<std::string>
 RelayServer::hUnsupported(const Client::Request &request) {
   return Error(E_REQUEST,
                "Unsupported request type: " + std::to_string(request.type));
+}
+
+RelayServer::Roe<std::string> RelayServer::hAuthorityProof(const Client::Request &request) {
+  auto upTo = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!upTo) {
+    return Error(E_REQUEST, "Invalid authority proof payload");
+  }
+  auto proof = relay_.authorityProof(upTo.value());
+  if (!proof) {
+    return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
+  }
+  return utl::binaryPack(proof.value());
 }
 
 } // namespace pp

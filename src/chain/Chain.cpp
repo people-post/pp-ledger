@@ -886,6 +886,8 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
     return Error(E_STATE_INIT,
                  "Failed to initialize ledger: " + result.error().message);
   }
+  authoritySteps_.clear();
+  authorityStepsFrom_ = config.startingBlockId;
   return {};
 }
 
@@ -909,6 +911,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.bank.reset();
   epochStakeSnapshots_.clear();
   pendingSeal_.reset();
+  authoritySteps_.clear();
+  authorityStepsFrom_ = startingBlockId;
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
@@ -963,6 +967,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
       txContext_.consensus.setEpochSeed(block.block.epoch,
                                         block.block.epochSeed);
     }
+    noteAuthoritySteps(block);
 
     blockId++;
 
@@ -1024,6 +1029,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
     return applied;
   }
   commitTipUpdate();
+  noteAuthoritySteps(block);
 
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
@@ -1072,6 +1078,7 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
   if (!committed) {
     return committed;
   }
+  noteAuthoritySteps(block);
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
   return {};
@@ -1338,6 +1345,32 @@ Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
     return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
   }
   return AuthorityTrail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
+}
+
+void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
+  for (const auto &record : block.block.records) {
+    if (AuthorityTrail::changesAuthority(record)) {
+      authoritySteps_.push_back(Client::AuthorityStep{block.block.index, record});
+    }
+  }
+}
+
+Chain::Roe<Client::AuthorityProof> Chain::authorityProof(uint64_t upToBlockId) const {
+  if (authorityStepsFrom_ != 0) {
+    return Error(E_STATE_INIT, "This node holds the chain from block " + std::to_string(authorityStepsFrom_) +
+                                   ", not from genesis");
+  }
+  if (upToBlockId >= getNextBlockId()) {
+    return Error(E_BLOCK_INDEX, "Block " + std::to_string(upToBlockId) + " is beyond this node's tip");
+  }
+  Client::AuthorityProof proof;
+  for (const auto &step : authoritySteps_) {
+    if (step.blockId > upToBlockId) {
+      break;
+    }
+    proof.steps.push_back(step);
+  }
+  return proof;
 }
 
 Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip,

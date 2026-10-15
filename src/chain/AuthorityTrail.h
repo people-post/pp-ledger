@@ -30,13 +30,29 @@ class AuthorityTrail {
 public:
   AuthorityTrail(std::string networkId, ChainAuthority authority, Client::Wallet admin);
 
+  /** The authority genesis sets: its certificate and recovery set, its admin set. */
+  static chain_tx::Roe<AuthorityTrail> fromGenesis(const Ledger::Block &genesis);
+
   /** Follow `block` (the next one after the last observed). */
   chain_tx::Roe<void> observe(const Ledger::Block &block);
+  /** Follow one record of block `blockId`; records that do not change the authority are ignored. */
+  chain_tx::Roe<void> observeRecord(const Ledger::Record &record, uint64_t blockId);
+  /** True for the records that change the authority (what an AuthorityProof carries). */
+  static bool changesAuthority(const Ledger::Record &record);
+
+  /**
+   * Replay `proof` from `genesis` up to block `upToBlockId` (beacon-authority ba5b): steps in chain
+   * order, each signed by the admin set in force at its point. Returns the authority in force at
+   * that block — which a checkpoint there must carry.
+   */
+  static chain_tx::Roe<ChainAuthority> replayProof(const Ledger::Block &genesis, const Client::AuthorityProof &proof,
+                                                   uint64_t upToBlockId);
 
   /** A tip signed by the generation in force at the trail's end, for this network. */
   chain_tx::Roe<void> verifyTip(const Client::SignedTip &tip) const;
 
   const BeaconCertificate &beacon() const { return authority_.beacon; }
+  const ChainAuthority &authority() const { return authority_; }
 
   /**
    * The authority a starting block carries: genesis (its T_GENESIS) or a checkpoint block (its

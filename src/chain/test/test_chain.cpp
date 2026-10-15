@@ -99,13 +99,13 @@ Ledger::Record makeRecord(uint16_t type, const TxT &tx,
   return rec;
 }
 
-/** A valid genesis authority for `networkId`: a fresh 1-of-1 recovery set and beacon key. */
 /** The generation-1 beacon signing key of every test chain (tests sign tips with it). */
 const utl::MlDsaKeyPair &testBeaconKey() {
   static const utl::MlDsaKeyPair key = makeKeyPair();
   return key;
 }
 
+/** A valid genesis authority for `networkId`: a fresh 1-of-1 recovery set and testBeaconKey(). */
 Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   Chain::ChainAuthority authority;
   authority.recovery.publicKeys = {makeKeyPair().publicKey};
@@ -2776,6 +2776,84 @@ TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
   auto superseded = producer.verifySignedTip(signTip(producer, 1, 1, testBeaconKey()));
   ASSERT_FALSE(superseded.isOk());
   EXPECT_NE(superseded.error().message.find("superseded"), std::string::npos) << superseded.error().message;
+}
+
+// beacon-authority ba5b: a node holding the chain from genesis serves the authority-changing
+// records up to a block; replayed from genesis they reach the authority in force there.
+TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce) {
+  auto &producer = harness_.producer;
+  auto none = producer.authorityProof(0);
+  ASSERT_TRUE(none.isOk()) << none.error().message;
+  EXPECT_TRUE(none.value().steps.empty());
+  auto atGenesis = AuthorityTrail::replayProof(harness_.genesis.block, none.value(), 0);
+  ASSERT_TRUE(atGenesis.isOk()) << atGenesis.error().message;
+  EXPECT_TRUE(atGenesis.value() == producer.getAuthority().value());
+
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  BeaconCertificate next = producer.getAuthority()->beacon;
+  next.generation = 2;
+  next.publicKey = makeKeyPair().publicKey;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeBeaconCertRecord(next, harness_.genesisKey, producer.getNetworkId(), 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+
+  auto proof = producer.authorityProof(1);
+  ASSERT_TRUE(proof.isOk()) << proof.error().message;
+  ASSERT_EQ(proof.value().steps.size(), 1u);
+  EXPECT_EQ(proof.value().steps[0].blockId, 1u);
+  auto replayed = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 1);
+  ASSERT_TRUE(replayed.isOk()) << replayed.error().message;
+  EXPECT_TRUE(replayed.value() == producer.getAuthority().value()) << "generation 2, as in force";
+
+  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 0).isOk())
+      << "a step beyond the block";
+  EXPECT_FALSE(producer.authorityProof(producer.getNextBlockId()).isOk()) << "beyond the tip";
+  auto withheld = AuthorityTrail::replayProof(harness_.genesis.block, Client::AuthorityProof{}, 1);
+  ASSERT_TRUE(withheld.isOk());
+  EXPECT_FALSE(withheld.value() == producer.getAuthority().value()) << "a withheld step reaches another authority";
+}
+
+// The proof follows admin rotations: a certificate signed by the admins a config update installed
+// replays; one signed by the replaced admins, or by anyone else, does not.
+TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
+  const std::string net = harness_.producer.getNetworkId();
+  std::vector<utl::MlDsaKeyPair> admins{makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  Chain::GenesisAccountMeta gm;
+  gm.config = harness_.chainConfig;
+  gm.genesis.wallet = harness_.producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+  gm.genesis.wallet.publicKeys = {admins[0].publicKey, admins[1].publicKey, admins[2].publicKey};
+  gm.genesis.wallet.minSignatures = 2;
+  gm.authority = harness_.producer.getAuthority().value();
+  Ledger::TxConfig config;
+  config.meta = gm.ltsToString();
+  const auto rotateAdmins = makeRecord(Ledger::T_CONFIG, config, harness_.genesisKey, net);
+
+  BeaconCertificate next = gm.authority.beacon;
+  next.generation = 2;
+  next.publicKey = makeKeyPair().publicKey;
+  auto certBy = [&](const std::vector<utl::MlDsaKeyPair> &signers) {
+    auto record = makeBeaconCertRecord(next, signers[0], net, 0, harness_.chainConfig.genesisTime);
+    for (size_t i = 1; i < signers.size(); ++i) {
+      record.signatures.push_back(signMessage(signers[i], record.signingMessage(net)));
+    }
+    return record;
+  };
+  auto replay = [&](const Ledger::Record &cert) {
+    Client::AuthorityProof proof;
+    proof.steps = {{3, rotateAdmins}, {7, cert}};
+    return AuthorityTrail::replayProof(harness_.genesis.block, proof, 9);
+  };
+  auto rotated = replay(certBy({admins[0], admins[2]}));
+  ASSERT_TRUE(rotated.isOk()) << rotated.error().message;
+  EXPECT_EQ(rotated.value().beacon.generation, 2u);
+  EXPECT_EQ(rotated.value().beacon.publicKey, next.publicKey);
+  EXPECT_FALSE(replay(certBy({harness_.genesisKey})).isOk()) << "the replaced admin set";
+  EXPECT_FALSE(replay(certBy({makeKeyPair(), makeKeyPair()})).isOk()) << "not an admin set";
+
+  Client::AuthorityProof outOfOrder;
+  outOfOrder.steps = {{7, certBy({admins[0], admins[1]})}, {3, rotateAdmins}};
+  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, outOfOrder, 9).isOk());
 }
 
 TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {

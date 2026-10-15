@@ -159,6 +159,12 @@ public:
   Roe<AuthorityTrail> authorityTrail() const;
 
   /**
+   * The records that changed the authority from genesis up to `upToBlockId` (AUTHORITY_PROOF,
+   * beacon-authority ba5b). Only a chain loaded from genesis holds them all.
+   */
+  Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
+
+  /**
    * A beacon signed tip of this chain, signed by the generation in force here — or, given the
    * blocks after the committed tip that it covers (`pending`), the generation in force after them.
    */
@@ -360,6 +366,11 @@ private:
   std::optional<PendingSeal> pendingSeal_;
   /** Pre-seal tip state; the bank overlay stays open until commit/rollback. */
   std::optional<TipSnapshot> sealSnapshot_;
+  /** Authority-changing records of committed blocks, from `authorityStepsFrom_` (0 = genesis). */
+  std::vector<Client::AuthorityStep> authoritySteps_;
+  uint64_t authorityStepsFrom_{0};
+  /** Index a committed block's authority-changing records. */
+  void noteAuthoritySteps(const Ledger::ChainNode &block);
 
   /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;

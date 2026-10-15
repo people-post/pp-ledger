@@ -11,20 +11,68 @@ AuthorityTrail::AuthorityTrail(std::string networkId, ChainAuthority authority, 
     : networkId_(std::move(networkId)), authority_(std::move(authority)), admin_(std::move(admin)),
       logger_(logging::getLogger("AuthorityTrail")) {}
 
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block &genesis) {
+  if (genesis.index != 0 || genesis.records.empty() || genesis.records[0].type != Ledger::T_GENESIS) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Not a genesis block");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxGenesis>(genesis.records[0].data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Unreadable genesis meta");
+  }
+  return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
+}
+
+bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
+  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT;
+}
+
 chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
   for (const auto &record : block.records) {
-    chain_tx::Roe<void> observed;
-    if (record.type == Ledger::T_CONFIG) {
-      observed = observeConfig(record);
-    } else if (record.type == Ledger::T_BEACON_CERT) {
-      observed = observeCertificate(record, block.index);
-    }
-    if (!observed) {
-      return chain_tx::TxError(observed.error().code, "Block " + std::to_string(block.index) + ": " +
-                                                          observed.error().message);
+    if (auto observed = observeRecord(record, block.index); !observed) {
+      return observed;
     }
   }
   return {};
+}
+
+chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, uint64_t blockId) {
+  chain_tx::Roe<void> observed;
+  if (record.type == Ledger::T_CONFIG) {
+    observed = observeConfig(record);
+  } else if (record.type == Ledger::T_BEACON_CERT) {
+    observed = observeCertificate(record, blockId);
+  }
+  if (!observed) {
+    return chain_tx::TxError(observed.error().code, "Block " + std::to_string(blockId) + ": " +
+                                                        observed.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<ChainAuthority> AuthorityTrail::replayProof(const Ledger::Block &genesis,
+                                                          const Client::AuthorityProof &proof,
+                                                          uint64_t upToBlockId) {
+  auto trail = fromGenesis(genesis);
+  if (!trail) {
+    return trail.error();
+  }
+  uint64_t lastBlockId = 0;
+  for (const auto &step : proof.steps) {
+    if (step.blockId == 0 || step.blockId < lastBlockId || step.blockId > upToBlockId) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Authority proof step at block " + std::to_string(step.blockId) +
+                                   " is out of order or beyond block " + std::to_string(upToBlockId));
+    }
+    if (!changesAuthority(step.record)) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Authority proof carries an unrelated record");
+    }
+    if (auto observed = trail.value().observeRecord(step.record, step.blockId); !observed) {
+      return observed.error();
+    }
+    lastBlockId = step.blockId;
+  }
+  return trail.value().authority();
 }
 
 chain_tx::Roe<void> AuthorityTrail::verifyAdminSigned(const Ledger::Record &record) const {

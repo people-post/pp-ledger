@@ -116,6 +116,12 @@ public:
    * one, or after a hold (NetworkTuning::blockWaitHold) with it unchanged.
    */
   static constexpr const uint32_t T_REQ_BLOCK_WAIT = 1003;
+  /**
+   * Payload binaryPack(uint64 upToBlockId); reply binaryPack(AuthorityProof): the records that
+   * changed the beacon authority from genesis up to that block. Served by nodes holding the chain
+   * from genesis (beacon, relays).
+   */
+  static constexpr const uint32_t T_REQ_AUTHORITY_PROOF = 1004;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
@@ -274,6 +280,25 @@ public:
     }
   };
 
+  /** A record that changed the beacon authority (T_CONFIG, T_BEACON_CERT) and its block. */
+  struct AuthorityStep {
+    uint64_t blockId{0};
+    Ledger::Record record;
+
+    template <typename Archive> void serialize(Archive &ar) { ar & blockId & record; }
+  };
+
+  /**
+   * AUTHORITY_PROOF reply (beacon-authority ba5b): the authority steps from genesis up to a block,
+   * in chain order. Each step is admin-signed, so a fresh node replays them from a pinned genesis
+   * to check a checkpoint's authority without the blocks in between.
+   */
+  struct AuthorityProof {
+    std::vector<AuthorityStep> steps;
+
+    template <typename Archive> void serialize(Archive &ar) { ar & steps; }
+  };
+
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
@@ -364,6 +389,8 @@ public:
   Roe<std::vector<MinerInfo>> fetchMinerList();
   Roe<MinerStatus> fetchMinerStatus();
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
+  /** AUTHORITY_PROOF up to `upToBlockId`. */
+  Roe<AuthorityProof> fetchAuthorityProof(uint64_t upToBlockId);
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);
