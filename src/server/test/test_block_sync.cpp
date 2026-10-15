@@ -1,5 +1,6 @@
 #include "BlockSync.h"
 #include "UpstreamTipWatch.h"
+#include "../chain/BlockValidation.h"
 #include "lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>
@@ -15,14 +16,66 @@ using namespace pp;
 namespace {
 
 /**
+ * A block whose hash is real and whose previousHash links it to `previous` (empty for the first).
+ */
+Ledger::ChainNode makeBlock(uint64_t index, const std::string &previousHash = "") {
+  Ledger::ChainNode node;
+  node.block.index = index;
+  node.block.previousHash = previousHash;
+  node.hash = chain_block::calculateBlockHash(node.block);
+  return node;
+}
+
+std::vector<Ledger::ChainNode> makeChain(size_t length) {
+  std::vector<Ledger::ChainNode> chain;
+  for (uint64_t i = 0; i < length; ++i) {
+    chain.push_back(makeBlock(i, chain.empty() ? std::string() : chain.back().hash));
+  }
+  return chain;
+}
+
+/** A tip over `block`; the fake verifier accepts signature "good" of generation 1. */
+Client::SignedTip tipFor(const Ledger::ChainNode &block, const std::string &signature = "good") {
+  Client::SignedTip tip;
+  tip.networkId = "net";
+  tip.generation = 1;
+  tip.height = block.block.index;
+  tip.blockHash = block.hash;
+  tip.signature = signature;
+  return tip;
+}
+
+pp::Roe<void> fakeVerify(const Client::SignedTip &tip) {
+  return tip.signature == "good" ? pp::Roe<void>() : pp::Roe<void>(pp::Error("bad signature"));
+}
+
+/** STATUS as an upstream serves it: its next block id and signed tip. */
+std::string statusPayload(const std::vector<Ledger::ChainNode> &chain, const std::optional<Client::SignedTip> &tip) {
+  Client::BeaconState state;
+  state.nextBlockId = chain.size();
+  state.signedTip = tip;
+  return utl::binaryPack(state.ltsToMeta());
+}
+
+/**
  * Fake upstream: holds each request until the test completes it, so tests can
- * reorder or fail responses. Serves calibration and block gets from `chain`.
+ * reorder or fail responses. Serves STATUS and block gets from `chain`.
  */
 class FakeUpstream : public ILedgerTransport {
 public:
   std::vector<Ledger::ChainNode> chain;
-  /** Sent with BLOCK_WAIT replies, as a beacon (or relay) does. */
+  /** Sent with BLOCK_WAIT replies, as a beacon (or relay) does; STATUS too when set. */
   std::optional<Client::SignedTip> signedTip;
+  /** STATUS without `signedTip`: sign the last block of `chain` (false: no tip at all). */
+  bool autoTip = true;
+  size_t blockGets = 0;
+
+  std::optional<Client::SignedTip> statusTip() const {
+    if (signedTip) {
+      return signedTip;
+    }
+    return autoTip && !chain.empty() ? std::optional<Client::SignedTip>(tipFor(chain.back())) : std::nullopt;
+  }
   std::deque<std::pair<Client::Request, Done>> pending;
 
   Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
@@ -48,11 +101,10 @@ public:
       reply.nextBlockId = chain.size();
       reply.setTip(signedTip);
       response.payload = utl::binaryPack(reply);
-    } else if (request.type == Client::T_REQ_CALIBRATION) {
-      Client::CalibrationResponse cal;
-      cal.nextBlockId = chain.size();
-      response.payload = utl::binaryPack(cal);
+    } else if (request.type == Client::T_REQ_STATUS) {
+      response.payload = statusPayload(chain, statusTip());
     } else {
+      ++blockGets;
       const uint64_t id = utl::binaryUnpack<uint64_t>(request.payload).value();
       response.payload = chain.at(id).ltsToString();
     }
@@ -65,29 +117,29 @@ public:
   }
 };
 
-Ledger::ChainNode makeBlock(uint64_t index) {
-  Ledger::ChainNode node;
-  node.block.index = index;
-  node.hash = "h" + std::to_string(index);
-  return node;
-}
-
 class BlockSyncTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    for (uint64_t i = 0; i < 10; ++i) {
-      upstream_->chain.push_back(makeBlock(i));
-    }
-    for (uint64_t i = 0; i < 3; ++i) {
-      local_.push_back(makeBlock(i));
-    }
+    upstream_->chain = makeChain(10);
+    local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
     client_.setTransport(std::unique_ptr<ILedgerTransport>(upstream_));
+  }
+
+  void runToEnd() {
+    while (!upstream_->pending.empty() || !tasks_.empty()) {
+      upstream_->completeAll();
+      drain();
+    }
   }
 
   BlockSync::Hooks hooks() {
     BlockSync::Hooks h;
     h.dialUpstream = []() { return pp::Roe<void>(); };
     h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
+    h.tipHash = [this]() {
+      return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
+    };
+    h.verifyTip = fakeVerify;
     h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
       if (block.block.index != local_.size()) {
         return pp::Error("out of order: " + std::to_string(block.block.index));
@@ -124,7 +176,7 @@ TEST_F(BlockSyncTest, FetchesGapWithBoundedPipelineAndAppliesInOrder) {
   BlockSync sync(client_, hooks());
   ASSERT_EQ(sync.start(), BlockSync::Start::Started);
   EXPECT_EQ(sync.start(), BlockSync::Start::AlreadyRunning);
-  upstream_->complete(0);  // calibration
+  upstream_->complete(0);  // status
   drain();
   EXPECT_EQ(upstream_->pending.size(), 4u);  // window of 4 block gets
   while (!upstream_->pending.empty() || !tasks_.empty()) {
@@ -148,11 +200,8 @@ TEST_F(BlockSyncTest, OutOfOrderResponsesStillApplyInOrder) {
     upstream_->complete(i);
   }
   drain();
-  EXPECT_EQ(local_.size(), 7u);  // 3..6 applied in order
-  while (!upstream_->pending.empty() || !tasks_.empty()) {
-    upstream_->completeAll();
-    drain();
-  }
+  EXPECT_EQ(local_.size(), 3u);  // nothing commits before the signed tip is reached
+  runToEnd();
   ASSERT_EQ(results_.size(), 1u);
   EXPECT_TRUE(results_[0].ok);
   EXPECT_EQ(local_.size(), 10u);
@@ -219,8 +268,8 @@ TEST_F(BlockSyncTest, BlocksAlreadyAppliedElsewhereAreSkipped) {
   sync.start();
   upstream_->complete(0);
   drain();
-  local_.push_back(makeBlock(3));
-  local_.push_back(makeBlock(4));
+  local_.push_back(upstream_->chain[3]);
+  local_.push_back(upstream_->chain[4]);
   while (!upstream_->pending.empty() || !tasks_.empty()) {
     upstream_->completeAll();
     drain();
@@ -228,6 +277,102 @@ TEST_F(BlockSyncTest, BlocksAlreadyAppliedElsewhereAreSkipped) {
   ASSERT_EQ(results_.size(), 1u);
   EXPECT_TRUE(results_[0].ok) << results_[0].error;
   EXPECT_EQ(local_.size(), 10u);
+}
+
+// --- beacon-authority ba4: commit only what a verified signed tip vouches for ---
+
+TEST_F(BlockSyncTest, ATipThatDoesNotVerifyFetchesNothing) {
+  upstream_->signedTip = tipFor(upstream_->chain.back(), "forged");
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("does not verify"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(upstream_->blockGets, 0u);
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, AnUpstreamWithoutASignedTipIsNotFollowed) {
+  upstream_->autoTip = false;
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+// A genuine tip, but the blocks served under it are not the chain it signed: nothing commits.
+TEST_F(BlockSyncTest, BlocksThatDoNotLeadToTheSignedTipCommitNothing) {
+  auto other = upstream_->chain.back();
+  other.block.timestamp = 42; // a different block 9
+  upstream_->signedTip = tipFor(Ledger::ChainNode{other.block, chain_block::calculateBlockHash(other.block)});
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("do not lead to the signed tip"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, ABlockThatDoesNotLinkCommitsNothing) {
+  upstream_->chain[5] = makeBlock(5, "elsewhere");
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("does not extend"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, CommitsOnlyUpToTheSignedTip) {
+  upstream_->signedTip = tipFor(upstream_->chain[6]); // blocks 7..9 exist but are not signed yet
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 7u);
+}
+
+TEST_F(BlockSyncTest, ALocalTipTheBeaconDidNotSignIsReported) {
+  local_.back() = makeBlock(2, local_[1].hash);
+  local_.back().block.timestamp = 7;
+  local_.back().hash = chain_block::calculateBlockHash(local_.back().block);
+  upstream_->chain.resize(3); // signed tip = upstream's block 2
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("not the one the beacon signed"), std::string::npos) << results_[0].error;
+}
+
+// A long catch-up keeps at most maxHeldBlocks bodies; the rest are fetched again to apply.
+TEST_F(BlockSyncTest, BeyondTheHeldBlocksBodiesAreFetchedAgain) {
+  BlockSync::Options options;
+  options.maxHeldBlocks = 2;
+  BlockSync sync(client_, hooks(), options);
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 10u);
+  EXPECT_EQ(upstream_->blockGets, 7u + 5u);
+}
+
+TEST_F(BlockSyncTest, ANodeWithNoBlocksTakesTheFirstOnTrust) {
+  local_.clear();
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 10u);
+  EXPECT_EQ(results_[0].blocksAdded, 10u);
 }
 
 TEST_F(BlockSyncTest, DestroyedSyncDropsLateResults) {
@@ -301,10 +446,8 @@ public:
     }
     auto request = utl::binaryUnpack<Client::Request>(body).value();
     Client::Response response;
-    if (request.type == Client::T_REQ_CALIBRATION) {
-      Client::CalibrationResponse cal;
-      cal.nextBlockId = chain.size();
-      response.payload = utl::binaryPack(cal);
+    if (request.type == Client::T_REQ_STATUS) {
+      response.payload = statusPayload(chain, tipFor(chain.back()));
     } else {
       response.payload = chain.at(utl::binaryUnpack<uint64_t>(request.payload).value()).ltsToString();
     }
@@ -328,13 +471,15 @@ protected:
 class StartupSyncTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    for (uint64_t i = 0; i < 6; ++i) {
-      upstream_->chain.push_back(makeBlock(i));
-    }
+    upstream_->chain = makeChain(6);
     client_.setTransport(std::unique_ptr<ILedgerTransport>(upstream_));
     BlockSync::Hooks h;
     h.dialUpstream = []() { return pp::Roe<void>(); };
     h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
+    h.tipHash = [this]() {
+      return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
+    };
+    h.verifyTip = fakeVerify;
     h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
       local_.push_back(block);
       return {};

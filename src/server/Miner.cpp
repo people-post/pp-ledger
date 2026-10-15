@@ -98,6 +98,23 @@ std::string Miner::calculateHash(const Ledger::Block &block) const {
   return chain_.calculateHash(block);
 }
 
+Miner::Roe<void> Miner::verifySignedTip(const Client::SignedTip &tip) const {
+  auto verified = chain_.verifySignedTip(tip);
+  if (!verified) {
+    return Error(verified.error().code, verified.error().message);
+  }
+  return {};
+}
+
+std::optional<std::string> Miner::getTipHash() const {
+  const uint64_t next = getNextBlockId();
+  if (next == 0) {
+    return std::nullopt;
+  }
+  auto tip = readBlock(next - 1);
+  return tip ? std::optional<std::string>(tip.value().hash) : std::nullopt;
+}
+
 Miner::Roe<std::vector<Ledger::Record>>
 Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
   auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);

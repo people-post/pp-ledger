@@ -100,6 +100,12 @@ Ledger::Record makeRecord(uint16_t type, const TxT &tx,
 }
 
 /** A valid genesis authority for `networkId`: a fresh 1-of-1 recovery set and beacon key. */
+/** The generation-1 beacon signing key of every test chain (tests sign tips with it). */
+const utl::MlDsaKeyPair &testBeaconKey() {
+  static const utl::MlDsaKeyPair key = makeKeyPair();
+  return key;
+}
+
 Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   Chain::ChainAuthority authority;
   authority.recovery.publicKeys = {makeKeyPair().publicKey};
@@ -107,7 +113,7 @@ Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   authority.recovery.delayEpochs = 3;
   authority.beacon.networkId = networkId;
   authority.beacon.generation = 1;
-  authority.beacon.publicKey = makeKeyPair().publicKey;
+  authority.beacon.publicKey = testBeaconKey().publicKey;
   authority.beacon.cutoverHeight = 0;
   return authority;
 }
@@ -2715,6 +2721,48 @@ TEST_F(ChainComposeTest, BeaconCert_OnePerBlock) {
 }
 
 // Out of band (a peer, a file): any higher generation the admin set signed, for this chain.
+namespace {
+
+Client::SignedTip signTip(const Chain &chain, uint64_t height, uint64_t generation, const utl::MlDsaKeyPair &key) {
+  Client::SignedTip tip;
+  tip.networkId = chain.getNetworkId();
+  tip.generation = generation;
+  tip.height = height;
+  tip.blockHash = chain.readBlock(height).value().hash;
+  tip.signature = utl::mlDsaSign(key.privateKey, tip.signingMessage()).value();
+  return tip;
+}
+
+} // namespace
+
+// beacon-authority ba4: a node adopts a tip signed by the beacon generation in force for it.
+TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
+  auto &producer = harness_.producer;
+  const auto genesisTip = signTip(producer, 0, 1, testBeaconKey());
+  EXPECT_TRUE(producer.verifySignedTip(genesisTip).isOk());
+
+  auto otherNetwork = genesisTip;
+  otherNetwork.networkId = "other-net";
+  EXPECT_FALSE(producer.verifySignedTip(otherNetwork).isOk());
+  EXPECT_FALSE(producer.verifySignedTip(signTip(producer, 0, 1, makeKeyPair())).isOk()) << "not the beacon key";
+  auto altered = genesisTip;
+  altered.height = 1;
+  EXPECT_FALSE(producer.verifySignedTip(altered).isOk());
+
+  // Generation 2 certified: its key now signs, generation 1 no longer does.
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  const auto newKey = makeKeyPair();
+  BeaconCertificate next = producer.getAuthority()->beacon;
+  next.generation = 2;
+  next.publicKey = newKey.publicKey;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeBeaconCertRecord(next, harness_.genesisKey, producer.getNetworkId(), 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  EXPECT_TRUE(producer.verifySignedTip(signTip(producer, 1, 2, newKey)).isOk());
+  EXPECT_FALSE(producer.verifySignedTip(signTip(producer, 1, 1, testBeaconKey())).isOk());
+}
+
 TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {
   auto &producer = harness_.producer;
   const auto current = producer.getAuthority().value();

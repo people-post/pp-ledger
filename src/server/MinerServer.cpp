@@ -418,6 +418,11 @@ void MinerServer::initBlockSync() {
     return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
   };
   hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
+  hooks.tipHash = [this]() { return miner_.getTipHash(); };
+  hooks.verifyTip = [this](const Client::SignedTip &tip) -> pp::Roe<void> {
+    auto verified = miner_.verifySignedTip(tip);
+    return verified ? pp::Roe<void>() : pp::Roe<void>(pp::Error(verified.error().message));
+  };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = miner_.calculateHash(block.block);
@@ -865,13 +870,18 @@ void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Clien
   if (!broadcast_ || broadcast_->id != broadcastId) {
     return; // a later result for a broadcast that already finished
   }
+  const auto &upstreams = config_.network.beacon_multiaddrs;
+  const std::string upstreamName = upstream < upstreams.size() ? upstreams[upstream] : std::string("?");
   if (!result) {
-    const auto &upstreams = config_.network.beacon_multiaddrs;
-    log().warning << "Failed to add block to upstream "
-                  << (upstream < upstreams.size() ? upstreams[upstream] : std::string("?")) << ": "
-                  << result.error().message;
+    log().warning << "Failed to add block to upstream " << upstreamName << ": " << result.error().message;
   }
-  switch (broadcast_->tally.onResult(bool(result))) {
+  // Committed only on the beacon's word: a signed tip, valid here, for exactly this block.
+  const bool confirmed = result && signedTipCovers(result.value(), broadcast_->block);
+  if (result && !confirmed) {
+    log().warning << "Upstream " << upstreamName << " took block " << broadcast_->block.block.index
+                  << " but sent no beacon signed tip for it";
+  }
+  switch (broadcast_->tally.onResult(confirmed)) {
   case BroadcastTally::Event::Commit:
     commitProducedBlock(broadcast_->block);
     break;
@@ -896,6 +906,18 @@ void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Clien
       trySyncBlocksFromBeacon(true);
     }
   }
+}
+
+bool MinerServer::signedTipCovers(const Client::TipReply &reply, const Ledger::ChainNode &block) const {
+  const auto tip = reply.tip();
+  if (!tip || tip->height != block.block.index || tip->blockHash != block.hash) {
+    return false;
+  }
+  auto verified = miner_.verifySignedTip(*tip);
+  if (!verified) {
+    log().warning << "Signed tip for block " << tip->height << " does not verify: " << verified.error().message;
+  }
+  return bool(verified);
 }
 
 void MinerServer::commitProducedBlock(const Ledger::ChainNode &block) {

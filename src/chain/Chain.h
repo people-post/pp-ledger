@@ -151,6 +151,13 @@ public:
    */
   Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record &record) const;
 
+  /**
+   * A beacon signed tip (beacon-authority ba4): for this chain, signed by the key of the beacon
+   * generation in force here. A tip of another generation is refused (following generations is
+   * ba5).
+   */
+  Roe<void> verifySignedTip(const Client::SignedTip &tip) const;
+
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;
 

@@ -1329,6 +1329,25 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
   return cert.value();
 }
 
+Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip) const {
+  if (!txContext_.optAuthority.has_value()) {
+    return Error(E_STATE_INIT, "Chain authority not initialized");
+  }
+  const auto &beacon = txContext_.optAuthority->beacon;
+  if (tip.networkId != getNetworkId()) {
+    return Error(E_TX_VALIDATION, "Signed tip is for network '" + tip.networkId + "'");
+  }
+  if (tip.generation != beacon.generation) {
+    return Error(E_TX_VALIDATION, "Signed tip is from beacon generation " + std::to_string(tip.generation) +
+                                      "; generation " + std::to_string(beacon.generation) + " is in force here");
+  }
+  if (!tip.verify(beacon.publicKey)) {
+    return Error(E_TX_SIGNATURE, "Signed tip is not signed by the beacon of generation " +
+                                     std::to_string(beacon.generation));
+  }
+  return {};
+}
+
 Chain::Roe<void> Chain::verifyAccountSignatures(uint64_t accountId, const std::string &message,
                                                 const std::vector<std::string> &signatures) const {
   auto account = txContext_.bank.getAccount(accountId);
