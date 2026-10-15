@@ -3337,6 +3337,9 @@ protected:
     user_ = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER, 500);
     Chain::GenesisAccountMeta gm;
     gm.config = harness_.chainConfig;
+    if (configUpdate_) {
+      configUpdate_(gm.config); // in force from the next epoch
+    }
     gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
     gm.genesis.wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
     gm.genesis.wallet.minSignatures = 2;
@@ -3352,10 +3355,78 @@ protected:
                    {makeRecord(Ledger::T_CONFIG, config, harness_.genesisKey, producer.getNetworkId())});
   }
 
+  /** A record's validity window around `slot` (the helpers' windows end an hour after genesis). */
+  template <typename Tx> void windowAt(Tx &tx, uint64_t slot) {
+    const int64_t start = harness_.producer.getSlotStartTime(slot);
+    tx.validationTsMin = start - 60;
+    tx.validationTsMax = start + 3600;
+  }
+
+  /** Reserve → fee transfer valid at `slot`. */
+  Ledger::Record transferAt(uint64_t slot) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = AccountBuffer::ID_RESERVE;
+    tx.toWalletId = AccountBuffer::ID_FEE;
+    tx.amount = 10 + slot % 7;
+    tx.fee = 1;
+    tx.idempotentId = idem_++;
+    windowAt(tx, slot);
+    return makeRecord(Ledger::T_DEFAULT, tx, harness_.reserveKey, harness_.producer.getNetworkId());
+  }
+
+  /** The reserve funds a new user account `id` with `balance`, valid at `slot`. */
+  Ledger::Record newUserAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key, int64_t balance) {
+    Ledger::TxNewUser nu;
+    nu.fromWalletId = AccountBuffer::ID_RESERVE;
+    nu.toWalletId = id;
+    nu.amount = static_cast<uint64_t>(balance);
+    nu.fee = 6; // meta fee 1 + newAccountFee 5
+    nu.meta = makeUserAccount(key.publicKey, balance).ltsToString();
+    nu.idempotentId = idem_++;
+    windowAt(nu, slot);
+    return makeRecord(Ledger::T_NEW_USER, nu, harness_.reserveKey, harness_.producer.getNetworkId());
+  }
+
+  /** Account `id` registers itself as a miner, valid at `slot`. */
+  Ledger::Record registerMinerAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key) {
+    Ledger::TxMinerRegister tx;
+    tx.walletId = id;
+    tx.fee = 8; // meta fee 1 + minerRegistrationFee 7
+    tx.idempotentId = idem_++;
+    windowAt(tx, slot);
+    Ledger::Record rec;
+    rec.type = Ledger::T_MINER_REGISTER;
+    rec.data = utl::binaryPack(static_cast<const Ledger::TxMiner &>(tx));
+    rec.signatures = {signMessage(key, rec.signingMessage(harness_.producer.getNetworkId()))};
+    return rec;
+  }
+
   /** The next block, one slot on, with a reserve transfer (empty blocks wait for heartbeats). */
   Ledger::ChainNode next(const Ledger::ChainNode &tip) {
     ++slot_;
-    return produce(tip, slot_, {makeReserveTransfer(harness_, 10 + slot_, idem_++)});
+    return produce(tip, slot_, {transferAt(slot_)});
+  }
+
+  /** True when the genesis miner (the producer's key) leads `slot`. */
+  bool genesisMinerLeads(uint64_t slot) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    producer.refreshStakeholders(slot);
+    if (!producer.ensureEpochSeed(producer.getEpochFromSlot(slot)).isOk()) {
+      return false;
+    }
+    auto leader = producer.getSlotLeader(slot);
+    return leader && leader.value() == kTestMinerId;
+  }
+
+  /** The next block in a slot the genesis miner leads; slots other miners lead are skipped. */
+  Ledger::ChainNode nextLedByGenesisMiner(const Ledger::ChainNode &tip, std::vector<Ledger::Record> records = {}) {
+    do {
+      ++slot_;
+    } while (!genesisMinerLeads(slot_));
+    records.push_back(transferAt(slot_));
+    return produce(tip, slot_, records);
   }
 
   /** A joiner as Miner::init makes one: consensus without config (it comes from the chain). */
@@ -3395,6 +3466,8 @@ protected:
   uint64_t slot_ = 0;
   uint64_t idem_ = 1;
   uint64_t minAgeSeconds_ = 0;
+  /** Applied to the config the startChain T_CONFIG installs. */
+  std::function<void(Chain::BlockChainConfig &)> configUpdate_;
 };
 
 // A checkpoint is where a node can start (beacon-authority ba5b): the first block of an epoch, at
@@ -3582,3 +3655,94 @@ TEST_F(CheckpointClockTest, ReplayYearsLaterAgreesWithTheProducer) {
   EXPECT_EQ(replay.getCheckpoint().currentId, producer.getCheckpoint().currentId);
 }
 
+
+// beacon-authority ba5b.4: warm-up is exact although liveness charges depend on each epoch's
+// committee. Miner B (large stake, registered long before the joiner's checkpoint) never produces;
+// once due, every slot it leads is skipped and charged — in the joiner's first epoch too, when the
+// joiner holds only the genesis account and could not compute the committee itself. Miner C
+// registers during the warm-up. From the current checkpoint the joiner validates Full blocks.
+class CheckpointLivenessTest : public CheckpointJoinTest {
+protected:
+  void SetUp() override {
+    CheckpointJoinTest::SetUp();
+    configUpdate_ = [](Chain::BlockChainConfig &c) {
+      c.minerDueAfterSlots = 8640; // the least a config allows at 5 s slots (12 hours)
+      c.minerMaxMissedSlots = 0;   // keep counting misses (no auto-deregistration)
+    };
+  }
+
+  Client::MinerState minerOf(const Chain &chain, uint64_t id) {
+    auto account = chain.getAccount(id);
+    EXPECT_TRUE(account.isOk()) << "account " << id;
+    return account ? account.value().wallet.miner : Client::MinerState{};
+  }
+
+  static constexpr uint64_t kMinerB = AccountBuffer::ID_FIRST_USER + 1;
+  static constexpr uint64_t kMinerC = AccountBuffer::ID_FIRST_USER + 2;
+};
+
+TEST_F(CheckpointLivenessTest, WarmUpChargesSkippedSlotsExactly) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  const auto keyB = makeKeyPair();
+  tip = nextLedByGenesisMiner(tip, {newUserAt(slot_ + 1, kMinerB, keyB, 2000000)});
+  ASSERT_FALSE(HasFailure());
+  tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, kMinerB, keyB)});
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(minerOf(producer, kMinerB).registered);
+
+  // B becomes due 8640 slots after registering; jump past that and keep producing only in the
+  // genesis miner's slots. The joiner's window runs from one checkpoint to the next; leaders are
+  // random, so take the first window in which B was charged. A new miner registers in each window.
+  slot_ += 8650;
+  uint64_t lastRotation = producer.getCheckpoint().currentId;
+  uint64_t start = 0;
+  uint64_t missedAtStart = 0;
+  uint64_t minerC = 0;
+  uint64_t nextNewMiner = kMinerC;
+  bool windowNeedsMiner = false;
+  while (true) {
+    std::vector<Ledger::Record> records;
+    const auto key = makeKeyPair();
+    if (windowNeedsMiner) {
+      records.push_back(newUserAt(slot_ + 1, nextNewMiner, key, 900000));
+    }
+    tip = nextLedByGenesisMiner(tip, records);
+    ASSERT_FALSE(HasFailure()) << "slot " << slot_;
+    if (windowNeedsMiner) {
+      tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, nextNewMiner, key)});
+      ASSERT_FALSE(HasFailure()) << "slot " << slot_;
+      minerC = nextNewMiner++;
+      windowNeedsMiner = false;
+    }
+    const uint64_t rotation = producer.getCheckpoint().currentId;
+    if (rotation != lastRotation) {
+      lastRotation = rotation;
+      const uint64_t missed = minerOf(producer, kMinerB).missedDue;
+      if (start != 0 && missed > missedAtStart) {
+        break; // window [start, rotation) had charges; the joiner works from `rotation`
+      }
+      start = rotation;
+      missedAtStart = missed;
+      windowNeedsMiner = true;
+    }
+    ASSERT_LT(slot_, 8650u + 20000u) << "B never charged within a checkpoint window";
+  }
+  ASSERT_TRUE(minerOf(producer, minerC).registered) << "a miner registered during the warm-up";
+
+  joiner_ = openJoiner(start, /*fresh=*/true);
+  feed(*joiner_, start, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  for (int i = 0; i < 3; ++i) {
+    tip = nextLedByGenesisMiner(tip);
+    feed(*joiner_, tip.block.index, tip.block.index + 1);
+    ASSERT_FALSE(HasFailure());
+  }
+  for (uint64_t id : {kTestMinerId, kMinerB, minerC, AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE}) {
+    auto ours = joiner_->getAccount(id);
+    auto theirs = producer.getAccount(id);
+    ASSERT_TRUE(ours.isOk() && theirs.isOk()) << "account " << id;
+    EXPECT_TRUE(ours.value().wallet == theirs.value().wallet) << "account " << id;
+  }
+}

@@ -30,7 +30,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         due-sets and rotation read slot times, not the node's clock (they were nondeterministic)
   - [x] **ba5b.3** Each epoch's first block carries its committee (preimage of `stakeSnapshotHash`):
         Full nodes check it; warm-up uses it, so leaders and liveness charges are exact
-  - [ ] **ba5b.4** Warm-up is exact. Oracle with skipped slots and a miner registering mid-window:
+  - [x] **ba5b.4** Warm-up is exact. Oracle with skipped slots and a miner registering mid-window:
         the joiner validates Full blocks from the current checkpoint, live and after a restart
   - [ ] **ba5b.5** Fresh-node sync commits nothing before the tip verifies: the whole range is
         authenticated; the authority comes from the starting block's genesis record or renewal
