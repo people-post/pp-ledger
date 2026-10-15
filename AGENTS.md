@@ -69,12 +69,11 @@ Multi-process smoke (L0 / L1 / LATEJOIN):
 ```bash
 ./scripts/test/pp_ledger_local_test.sh run --suite unit
 ./scripts/test/pp_ledger_local_test.sh run --suite l0
-./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # == l0 until Amp dial green
+./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # l0 + l1 + latejoin, one network
 ```
 
 See [docs/ops/TEST_STRATEGY.md](docs/ops/TEST_STRATEGY.md) for purpose IDs and script map.
-L0 multi-process smoke is green on localhost OsUdp; L1/LATEJOIN remain slot-lottery flaky
-until out-of-process forced-leader exists. L0 fail-fast layers: PIDs → beacon RPC → miner RPC;
+Multi-process smoke (L0 / L1 / LATEJOIN) is green on localhost OsUdp. L0 fail-fast layers: PIDs → beacon RPC → miner RPC;
 artifacts under `build/test-smoke/artifacts/` on failure.
 
 ### Running the network
@@ -92,7 +91,7 @@ Manual bring-up gotchas (see also [docs/contracts/AMP_TRANSPORT.md](docs/contrac
 - **Beacon must be initialized first** with `--init`. After that, run without `--init` to start.
 - Peer dialing uses **ADP multiaddrs** (`/ip4/.../udp/.../adp/1.0.0/p2p/<peer-id>`), not host:port alone. Each server logs `AMP ledger listener: ...` on start — copy that into relay `beacon`, miner `beacons[]`, and `pp-client --host`.
 - **Miner config** requires `"keys"` (array of key-file paths) and `"beacons"` (array of multiaddr strings or `{host,port,peerId}` objects).
-- Slot leader election is probabilistic; empty slots are normal. Smoke L1 uses short slots + tx inject and may be flaky until forced-leader is available out-of-process.
+- Slot leader election is probabilistic; empty slots are normal. Smoke L1 uses short slots + tx inject; registered miners, the delivery window and heartbeats keep the tip moving, so no forced leader is needed.
 
 #### Relay server
 

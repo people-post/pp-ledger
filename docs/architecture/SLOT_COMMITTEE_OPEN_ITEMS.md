@@ -20,6 +20,7 @@ Ouroboros remains a **literature reference** only (not a product goal).
 | Production window (B) | Seal after the slot, deliver within `min(slot/3, 2 s)`; beacon refuses late blocks — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#slot-timing) |
 | Miner registration (A1) | Registered miners only; due miners produce; missed due slots deregister — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness) |
 | Empty heartbeats (C) | Genesis `heartbeatSlots`; idle leaders seal empty blocks when tip lag ≥ threshold — see [WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#empty-heartbeat-blocks) |
+| Out-of-process test injectors (F) | **Not needed** — multi-process L1 / LATEJOIN are deterministic without forcing leaders (see F) |
 
 ---
 
@@ -90,20 +91,30 @@ Normative rules: [WIRE_SCHEMA.md — Epoch seed](../contracts/WIRE_SCHEMA.md#epo
 
 ---
 
-### F. Out-of-process test injectors (smoke)
+### F. Out-of-process test injectors (smoke) — **closed, not needed**
 
-In-process: `SlotCommittee::forceSlotLeader` / `setClockOverride` (tests only).
+In-process: `SlotCommittee::forceSlotLeader` / `setClockOverride` (tests only) — unchanged.
 
-Multi-process L1 / LATEJOIN stay `cost/flake` until one of: **A1** (bounded committee), the window (**B** shipped), heartbeats (**C** shipped), or a **test-only RPC/flag** to force leaders on running binaries.
+**Outcome (2026-10-15):** with A1, B and C shipped, multi-process L1 / LATEJOIN no longer depend
+on the slot lottery: 10 of 10 clean `--suite smoke` runs passed every stage. The failures that
+had been read as lottery flakes were three other bugs, fixed instead of masked:
 
-**Recommendation:** Prefer product fixes (A1 + B and/or C) for real liveness; add out-of-process force-leader only if smoke must be deterministic before those land.
+- Stale smoke data — a fresh genesis kept the relay's / miners' old ledgers (nodes on different
+  chains); now wiped with the beacon.
+- Miner halt — a re-pulled transaction after an abandoned block put two copies of one idempotency
+  key in the draft and every later seal failed; the draft now refuses the duplicate.
+- Relay link exhaustion — each exiting `pp-client` left its Amp link on the relay until the alive
+  timeout, filling `max_links` (48) so new dials timed out; pp-cpp-amp v2.17.0 closes links on stop.
+
+Reopen only if a scenario needs a *specific* leader schedule (e.g. scripting a miner that misses
+its slots). Then prefer a deterministic rotation over the registered pool (keeps A1 liveness
+rules), set identically on every node behind a test-only build option — not a per-node RPC.
 
 ---
 
 ## Suggested pickup order
 
 1. **E** beacon failover mechanism doc → then code (the promoted node also takes over the delivery deadline)  
-2. **F** as needed (A1/B/C/D shipped)  
 
 ---
 
