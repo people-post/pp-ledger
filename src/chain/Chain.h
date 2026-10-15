@@ -265,7 +265,8 @@ public:
                                   const std::string &stakeHash) const;
 
 protected:
-  bool needsCheckpoint(const BlockChainConfig &config) const;
+  /** Block `index` of `epoch` becomes the next checkpoint (chain_block::rotatesCheckpoint). */
+  bool rotatesCheckpointAt(uint64_t index, uint64_t epoch) const;
 
 private:
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
@@ -289,8 +290,8 @@ private:
                                  const AccountBuffer::Account &account) const;
 
 
-  /** Calculate the maximum blockId for account renewals at a given block. */
-  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
+  /** Calculate the maximum blockId for account renewals at a given block and slot. */
+  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const;
 
   Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                                   uint64_t accountId) const;
@@ -314,6 +315,15 @@ private:
   void rollbackTipUpdate(TipSnapshot snapshot);
 
   Roe<void> applyNextBlock(const Ledger::ChainNode &block);
+  /**
+   * Before a block's records: stake snapshot and epoch seed for its epoch. A node that starts at a
+   * checkpoint first installs config, consensus, authority and the genesis account from the
+   * checkpoint block's genesis renewal (beacon-authority ba5b). Under CheckpointReplay the epoch
+   * seed is the block's own (trusted catch-up); under Full it is derived.
+   */
+  Roe<void> prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
+  /** A node starting at checkpoint `block`: install what its genesis renewal carries. */
+  Roe<void> installCheckpointState(const Ledger::ChainNode &block);
   /**
    * Before a block of `epoch` is checked: put a pending config update in force
    * once its epoch has come, and on an epoch's first block record genesis's

@@ -241,3 +241,31 @@ certificate for a key no running beacon holds halts the chain until that beacon 
 (fails after an admin rotation the node has not applied; kept for ba5b's out-of-band channel);
 rename the next key over the current one at the switch (file moves in the commit path; left to
 the operator at a restart).
+
+## B015 — A checkpoint is where a miner can start: an epoch start, self-describing
+
+**Date:** 2026-10-15
+**Decision:** A checkpoint is the first block of an epoch, at least `checkpoint.minBlocks` after the
+current checkpoint, whose previous block's slot starts more than `checkpoint.minAgeSeconds` after
+the current checkpoint's block (`chain_block::rotatesCheckpoint`). It opens with the genesis
+renewal (due or not), carrying config, pending update, admin set and authority. Every epoch's first
+block carries its committee, the preimage of `stakeSnapshotHash` (ba5b.3). A miner starts at the
+upstream's previous checkpoint (`lastId`): it installs what the genesis renewal carries, replays
+blindly while every account renews (all are due by the block before the current checkpoint), and
+from the current checkpoint checks every block and may seal. Renewal due-sets and rotation read
+the block's slot time and stored blocks, never a node's clock.
+**Rationale:** A checkpoint is defined as the point a miner can join and start working, so the
+checkpoint itself must hold what a joining node lacks: config and authority (the genesis renewal),
+and the committee each epoch elects leaders from (liveness charges for skipped slots depend on it,
+and a node that holds only some accounts cannot compute it). Patching joiners instead — warm-up
+without config, recording liveness charges in every block — would fix symptoms of a checkpoint that
+was not a starting point. The old rules also read the wall clock: with the 1-year default
+`checkpointMinAgeSeconds`, nodes disagreed on due renewals and a replay could refuse history.
+**Cons:** Breaking chain-format and rule changes (no release yet). Checkpoints rotate up to an epoch
+later than before; the genesis account renews up to twice as often. Warm-up state is still taken on
+trust (the beacon vouches through its signed tip), not re-validated.
+**Alternatives:** Start from older checkpoints (does not converge: an inexact committee keeps
+producing wrong charges); a self-checking Full gate on a matching `stateRoot` (may never come while
+slots are skipped); liveness charges listed in each block (works, but fixes a symptom and costs
+every block); the whole state in the checkpoint block (unbounded size).
+

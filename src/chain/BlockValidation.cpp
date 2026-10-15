@@ -410,40 +410,39 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block,
   return {};
 }
 
-uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
-                            const consensus::SlotCommittee &consensus) {
-  auto blockResult = ledger.readBlock(blockId);
-  if (!blockResult) {
-    return 0;
+bool isGenesisRenewal(const Ledger::Record &record) {
+  if (record.type != Ledger::T_RENEWAL) {
+    return false;
   }
-  auto block = blockResult.value();
-  auto currentTime = consensus.getTimestamp();
-  int64_t blockTime = block.block.timestamp;
-  if (currentTime > blockTime) {
-    return static_cast<uint64_t>(currentTime - blockTime);
-  }
-  return 0;
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+  return tx && tx.value().walletId == AccountBuffer::ID_GENESIS;
 }
 
-bool needsCheckpoint(const BlockChainConfig &config,
-                     const Checkpoint &checkpoint, uint64_t nextBlockId,
-                     uint64_t checkpointBlockAgeSeconds) {
-  uint64_t margin = config.slotsPerEpoch;
-  const uint64_t requiredBlocks =
-      checkpoint.currentId + config.checkpoint.minBlocks + margin;
-  if (nextBlockId < requiredBlocks) {
+bool rotatesCheckpoint(const Ledger &ledger, const consensus::SlotCommittee &consensus,
+                       const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
+                       uint64_t epoch) {
+  if (index == 0 || index <= checkpoint.currentId || index < checkpoint.currentId + config.checkpoint.minBlocks) {
     return false;
   }
-  if (checkpointBlockAgeSeconds < config.checkpoint.minAgeSeconds) {
+  auto previous = ledger.readBlock(index - 1);
+  if (!previous || previous.value().block.epoch >= epoch) {
+    return false; // not the first block of its epoch (or the block before is not held)
+  }
+  auto current = ledger.readBlock(checkpoint.currentId);
+  if (!current) {
     return false;
   }
-  return true;
+  // Strictly older than the renewal cut-off at the previous block: every account last written
+  // before the current checkpoint was due there (calculateMaxBlockIdForRenewal).
+  const int64_t previousSlotStart = consensus.getSlotStartTime(previous.value().block.slot);
+  return current.value().block.timestamp + static_cast<int64_t>(config.checkpoint.minAgeSeconds) <
+         previousSlotStart;
 }
 
 chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Checkpoint &checkpoint, uint64_t atBlockId) {
+    const Checkpoint &checkpoint, uint64_t atBlockId, uint64_t atSlot) {
   if (!optChainConfig.has_value()) {
     if (checkpoint.currentId > checkpoint.lastId) {
       return chain_tx::TxError(
@@ -464,8 +463,9 @@ chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
 
   uint64_t maxBlockIdFromTime = atBlockId;
   if (minAgeSeconds > 0 && atBlockId > 0) {
+    // The block's own slot, not this node's clock: every node, and a replay years later, agrees.
     const int64_t cutoffTimestamp =
-        consensus.getTimestamp() - static_cast<int64_t>(minAgeSeconds);
+        consensus.getSlotStartTime(atSlot) - static_cast<int64_t>(minAgeSeconds);
     auto roeBlock = ledger.findBlockByTimestamp(cutoffTimestamp);
     if (roeBlock) {
       maxBlockIdFromTime = roeBlock.value().block.index;
@@ -485,11 +485,22 @@ chain_tx::Roe<void> validateAccountRenewals(
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(
-      ledger, consensus, optChainConfig, checkpoint, block.block.index);
+      ledger, consensus, optChainConfig, checkpoint, block.block.index, block.block.slot);
   if (!maxBlockIdResult) {
     return chain_tx::Roe<void>(maxBlockIdResult.error());
   }
   const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
+
+  // A checkpoint block opens with the genesis renewal, due or not: a node starting there reads
+  // config and authority from it (beacon-authority ba5b).
+  const bool checkpointBlock =
+      optChainConfig.has_value() &&
+      rotatesCheckpoint(ledger, consensus, optChainConfig.value(), checkpoint, block.block.index, block.block.epoch);
+  if (checkpointBlock && (block.block.records.empty() || !isGenesisRenewal(block.block.records.front()))) {
+    return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                             "Checkpoint block " + std::to_string(block.block.index) +
+                                 " must open with the genesis renewal");
+  }
 
   std::set<uint64_t> accountsNeedingRenewal;
   if (maxBlockIdForRenewal > 0) {
@@ -535,7 +546,8 @@ chain_tx::Roe<void> validateAccountRenewals(
     }
     const auto &account = accountResult.value();
 
-    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal) {
+    const bool checkpointGenesisRenewal = checkpointBlock && accountId == AccountBuffer::ID_GENESIS;
+    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal && !checkpointGenesisRenewal) {
       return chain_tx::TxError(
           chain_err::E_ACCOUNT_RENEWAL,
           "Account renewal too early: account " + std::to_string(accountId) +

@@ -915,87 +915,6 @@ TEST(ChainTest,
   std::filesystem::remove_all(tempDir, ec);
 }
 
-TEST(ChainTest, Checkpoint_RotateAndKeepRecentTwo) {
-  Chain validator;
-
-  auto genesisKey = makeKeyPair();
-  auto feeKey = makeKeyPair();
-  auto reserveKey = makeKeyPair();
-  auto recycleKey = makeKeyPair();
-
-  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
-  chainConfig.checkpoint.minBlocks = 1;
-  chainConfig.checkpoint.minAgeSeconds = 0;
-  // Consecutive empty seals advance one slot each; allow lag of 1.
-  chainConfig.heartbeatSlots = 1;
-
-  consensus::SlotCommittee::Config consensusConfig;
-  consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
-  consensusConfig.slotDuration = 1;
-  consensusConfig.slotsPerEpoch = 10;
-  validator.initConsensus(consensusConfig);
-
-  std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() /
-      "pp-ledger-chain-test-checkpoints";
-  std::error_code ec;
-  std::filesystem::remove_all(tempDir, ec);
-  ASSERT_FALSE(ec);
-
-  Ledger::InitConfig ledgerConfig;
-  ledgerConfig.workDir = tempDir.string();
-  ledgerConfig.startingBlockId = 0;
-  auto initResult = validator.initLedger(ledgerConfig);
-  ASSERT_TRUE(initResult.isOk());
-
-  Ledger::ChainNode genesis = makeGenesisBlock(
-      validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
-  auto addGenesisResult = validator.addBlock(genesis);
-  ASSERT_TRUE(addGenesisResult.isOk());
-  auto checkpoint = validator.getCheckpoint();
-  EXPECT_EQ(checkpoint.lastId, 0u);
-  EXPECT_EQ(checkpoint.currentId, 0u);
-
-  validator.refreshStakeholders();
-  Ledger::ChainNode block1 = makeNextBlock(validator, genesis, {});
-  auto addBlock1Result = validator.addBlock(block1);
-  ASSERT_TRUE(addBlock1Result.isOk());
-  checkpoint = validator.getCheckpoint();
-  // With additional slotsPerEpoch spacing, checkpoint does not rotate yet.
-  EXPECT_EQ(checkpoint.lastId, 0u);
-  EXPECT_EQ(checkpoint.currentId, 0u);
-
-  validator.refreshStakeholders();
-  Ledger::ChainNode block2 = makeNextBlock(validator, block1, {});
-  auto addBlock2Result = validator.addBlock(block2);
-  ASSERT_TRUE(addBlock2Result.isOk());
-  checkpoint = validator.getCheckpoint();
-  // Still below requiredBlocks (minBlocks + slotsPerEpoch), no rotation yet.
-  EXPECT_EQ(checkpoint.lastId, 0u);
-  EXPECT_EQ(checkpoint.currentId, 0u);
-
-  // Now add enough blocks to satisfy the new spacing requirement
-  // requiredBlocks = checkpoint.currentId + minBlocks + slotsPerEpoch.
-  const uint64_t firstCheckpointIndex =
-      chainConfig.checkpoint.minBlocks + consensusConfig.slotsPerEpoch;
-
-  Ledger::ChainNode prev = block2;
-  for (uint64_t idx = 3; idx <= firstCheckpointIndex; ++idx) {
-    validator.refreshStakeholders();
-    Ledger::ChainNode next = makeNextBlock(validator, prev, {});
-    auto addResult = validator.addBlock(next);
-    ASSERT_TRUE(addResult.isOk());
-    prev = next;
-  }
-
-  checkpoint = validator.getCheckpoint();
-  EXPECT_EQ(checkpoint.lastId, 0u);
-  EXPECT_EQ(checkpoint.currentId, firstCheckpointIndex);
-
-  std::filesystem::remove_all(tempDir, ec);
-}
-
 // Regression: live tip admission must reject re-adding an already-committed
 // block index, even when the resubmitted block is byte-for-byte the original
 // (structurally valid) one. Without this, an old block could be replayed on
@@ -3364,3 +3283,258 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
   EXPECT_EQ(carried.pending.activationEpoch, 1u);
   EXPECT_EQ(carried.pending.config.maxTransactionsPerBlock, before + 1);
 }
+
+// beacon-authority ba5b.2 — late join (BLOCK_PIPELINE): a node mounts at the producer's previous
+// checkpoint and warms up on CheckpointReplay, trusting blocks blindly and without config until the
+// genesis renewal installs it. Every account renews before the current checkpoint, so from there it
+// validates Full blocks against the same state as a node from genesis — live and after a restart.
+class CheckpointJoinTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    harness_.SetUp([this](Chain::BlockChainConfig &c) {
+      c.checkpoint.minBlocks = 3;
+      c.checkpoint.minAgeSeconds = minAgeSeconds_;
+    });
+    joinerDir_ = std::filesystem::temp_directory_path() / "pp-ledger-checkpoint-joiner";
+    std::error_code ec;
+    std::filesystem::remove_all(joinerDir_, ec);
+  }
+  void TearDown() override {
+    joiner_.reset();
+    harness_.TearDown();
+    std::error_code ec;
+    std::filesystem::remove_all(joinerDir_, ec);
+  }
+
+  /** The producer commits a block at `slot`: the renewals due (signed by the leader) and `records`. */
+  Ledger::ChainNode produce(const Ledger::ChainNode &previous, uint64_t slot,
+                            std::vector<Ledger::Record> records = {}) {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(slot));
+    auto due = producer.collectRenewals(slot);
+    EXPECT_TRUE(due.isOk()) << due.error().message;
+    std::vector<Ledger::Record> all;
+    for (const auto &r : due.value()) {
+      Ledger::Record signed_ = r;
+      signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(producer.getNetworkId()))};
+      all.push_back(signed_);
+    }
+    all.insert(all.end(), records.begin(), records.end());
+    Ledger::ChainNode block = makeNextBlockAtSlot(producer, previous, slot, all);
+    auto added = producer.addBlock(block);
+    EXPECT_TRUE(added.isOk()) << "producer, slot " << slot << ": " << added.error().message;
+    return block;
+  }
+
+  /**
+   * A funded user (slot 1), then a T_CONFIG rotating to a 3-key admin set (slot 2): a genesis
+   * renewal needs one, as a real network's genesis has. Returns the tip.
+   */
+  Ledger::ChainNode startChain() {
+    auto &producer = harness_.producer;
+    producer.setClockOverride(producer.getSlotEndTime(1));
+    user_ = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER, 500);
+    Chain::GenesisAccountMeta gm;
+    gm.config = harness_.chainConfig;
+    gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+    gm.genesis.wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey, makeKeyPair().publicKey};
+    gm.genesis.wallet.minSignatures = 2;
+    gm.genesis.meta = AccountAttachment::emptySerialized();
+    gm.authority = producer.getAuthority().value();
+    Ledger::TxConfig config;
+    config.meta = gm.ltsToString();
+    config.idempotentId = 1;
+    config.validationTsMin = harness_.chainConfig.genesisTime;
+    config.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+    slot_ = 2;
+    return produce(user_.block, slot_,
+                   {makeRecord(Ledger::T_CONFIG, config, harness_.genesisKey, producer.getNetworkId())});
+  }
+
+  /** The next block, one slot on, with a reserve transfer (empty blocks wait for heartbeats). */
+  Ledger::ChainNode next(const Ledger::ChainNode &tip) {
+    ++slot_;
+    return produce(tip, slot_, {makeReserveTransfer(harness_, 10 + slot_, idem_++)});
+  }
+
+  /** A joiner as Miner::init makes one: consensus without config (it comes from the chain). */
+  std::unique_ptr<Chain> openJoiner(uint64_t startingBlockId, bool fresh) {
+    auto joiner = std::make_unique<Chain>();
+    consensus::SlotCommittee::Config consensusConfig;
+    consensusConfig.timeOffset = 0;
+    joiner->initConsensus(consensusConfig);
+    if (fresh) {
+      Ledger::InitConfig ledger;
+      ledger.workDir = joinerDir_.string();
+      ledger.startingBlockId = startingBlockId;
+      EXPECT_TRUE(joiner->initLedger(ledger).isOk());
+    } else {
+      EXPECT_TRUE(joiner->mountLedger(joinerDir_.string()).isOk());
+    }
+    auto loaded = joiner->loadFromLedger(startingBlockId);
+    EXPECT_TRUE(loaded.isOk()) << loaded.error().message;
+    return joiner;
+  }
+
+  /** The joiner takes the producer's blocks [from, to). */
+  void feed(Chain &joiner, uint64_t from, uint64_t to) {
+    for (uint64_t id = from; id < to; ++id) {
+      auto block = harness_.producer.readBlock(id);
+      ASSERT_TRUE(block.isOk());
+      joiner.setClockOverride(harness_.producer.getSlotEndTime(block.value().block.slot));
+      auto added = joiner.addBlock(block.value());
+      ASSERT_TRUE(added.isOk()) << "joiner, block " << id << ": " << added.error().message;
+    }
+  }
+
+  ComposeHarness harness_;
+  std::filesystem::path joinerDir_;
+  std::unique_ptr<Chain> joiner_;
+  FundedUser user_;
+  uint64_t slot_ = 0;
+  uint64_t idem_ = 1;
+  uint64_t minAgeSeconds_ = 0;
+};
+
+// A checkpoint is where a node can start (beacon-authority ba5b): the first block of an epoch, at
+// least checkpoint.minBlocks after the current one, opening with the genesis renewal. The newest
+// two are kept (a joiner starts at the older and works from the newer).
+TEST_F(CheckpointJoinTest, CheckpointsAreEpochStartsOpeningWithTheGenesisRenewal) {
+  auto &producer = harness_.producer;
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  std::vector<uint64_t> rotations;
+  while (rotations.size() < 2) {
+    const auto before = producer.getCheckpoint();
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure()) << "slot " << slot_;
+    ASSERT_LT(slot_, 200u);
+    const auto after = producer.getCheckpoint();
+    if (after.currentId == before.currentId) {
+      continue;
+    }
+    rotations.push_back(after.currentId);
+    EXPECT_EQ(after.currentId, tip.block.index);
+    EXPECT_EQ(after.lastId, before.currentId) << "the older of the two kept";
+    EXPECT_GE(tip.block.index, before.currentId + harness_.chainConfig.checkpoint.minBlocks);
+    EXPECT_EQ(tip.block.slot % slotsPerEpoch, 0u) << "one block per slot here: the epoch's first slot";
+    ASSERT_FALSE(tip.block.records.empty());
+    EXPECT_TRUE(chain_block::isGenesisRenewal(tip.block.records.front()));
+  }
+
+  // At the next rotation point, a block without the genesis renewal is refused.
+  while (true) {
+    const uint64_t candidateSlot = slot_ + 1;
+    if (candidateSlot % slotsPerEpoch == 0 &&
+        producer.getNextBlockId() >= producer.getCheckpoint().currentId + harness_.chainConfig.checkpoint.minBlocks) {
+      break;
+    }
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+  }
+  ++slot_;
+  producer.setClockOverride(producer.getSlotEndTime(slot_));
+  auto due = producer.collectRenewals(slot_);
+  ASSERT_TRUE(due.isOk());
+  std::vector<Ledger::Record> withoutGenesis;
+  for (const auto &r : due.value()) {
+    if (!chain_block::isGenesisRenewal(r)) {
+      Ledger::Record signed_ = r;
+      signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(producer.getNetworkId()))};
+      withoutGenesis.push_back(signed_);
+    }
+  }
+  withoutGenesis.push_back(makeReserveTransfer(harness_, 3, idem_++));
+  Ledger::ChainNode bad =
+      producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), withoutGenesis);
+  auto sealed = producer.sealBlock(bad);
+  ASSERT_FALSE(sealed.isOk());
+  EXPECT_NE(sealed.error().message.find("must open with the genesis renewal"), std::string::npos)
+      << sealed.error().message;
+}
+
+TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeTheProducer) {
+  auto &producer = harness_.producer;
+  // Grow past two checkpoint rotations.
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0 || producer.getNextBlockId() < producer.getCheckpoint().currentId + 2) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure()) << "producing slot " << slot_;
+    ASSERT_LT(slot_, 200u) << "no second checkpoint rotation";
+  }
+  const auto checkpoint = producer.getCheckpoint();
+  ASSERT_GT(checkpoint.lastId, 0u);
+  const uint64_t start = checkpoint.lastId; // what STATUS serves a joining miner
+
+  joiner_ = openJoiner(start, /*fresh=*/true);
+  EXPECT_FALSE(joiner_->isChainConfigReady()) << "config comes from the warm-up blocks";
+  feed(*joiner_, start, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  EXPECT_TRUE(joiner_->isChainConfigReady());
+  EXPECT_TRUE(joiner_->getAuthority() == producer.getAuthority()) << "authority from the genesis renewal";
+  EXPECT_EQ(joiner_->getCheckpoint().currentId, checkpoint.currentId);
+
+  // Past the current checkpoint the joiner checks everything, stateRoot included.
+  for (int i = 0; i < 3; ++i) {
+    tip = next(tip);
+    feed(*joiner_, tip.block.index, tip.block.index + 1);
+    ASSERT_FALSE(HasFailure());
+  }
+  for (uint64_t id : {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE, kTestMinerId,
+                      user_.id}) {
+    auto ours = joiner_->getAccount(id);
+    auto theirs = producer.getAccount(id);
+    ASSERT_TRUE(ours.isOk() && theirs.isOk()) << "account " << id;
+    EXPECT_TRUE(ours.value().wallet == theirs.value().wallet) << "account " << id;
+  }
+
+  // A restart replays the warm-up from disk the same way.
+  joiner_.reset();
+  joiner_ = openJoiner(start, /*fresh=*/false);
+  EXPECT_TRUE(joiner_->isChainConfigReady());
+  tip = next(tip);
+  feed(*joiner_, tip.block.index, tip.block.index + 1);
+}
+
+// Renewal due-sets and checkpoint rotation read block slot times, never a node's clock: a node
+// replaying the chain from genesis years later (Full, every renewal checked) agrees with the
+// producer. With checkpointMinAgeSeconds > 0 a clock-based cut-off would ask other accounts to
+// renew and refuse history.
+class CheckpointClockTest : public CheckpointJoinTest {
+protected:
+  void SetUp() override {
+    minAgeSeconds_ = 30; // six 5 s slots
+    CheckpointJoinTest::SetUp();
+  }
+};
+
+TEST_F(CheckpointClockTest, ReplayYearsLaterAgreesWithTheProducer) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  while (producer.getCheckpoint().lastId == 0) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure()) << "slot " << slot_;
+    ASSERT_LT(slot_, 300u) << "no second checkpoint rotation";
+  }
+
+  Chain replay;
+  consensus::SlotCommittee::Config consensusConfig;
+  replay.initConsensus(consensusConfig);
+  Ledger::InitConfig ledger;
+  ledger.workDir = joinerDir_.string();
+  ASSERT_TRUE(replay.initLedger(ledger).isOk());
+  const int64_t tenYears = 10LL * 365 * 24 * 3600;
+  for (uint64_t id = 0; id < producer.getNextBlockId(); ++id) {
+    auto block = producer.readBlock(id);
+    ASSERT_TRUE(block.isOk());
+    replay.setClockOverride(harness_.chainConfig.genesisTime + tenYears);
+    auto added = replay.addBlock(block.value());
+    ASSERT_TRUE(added.isOk()) << "block " << id << ": " << added.error().message;
+  }
+  EXPECT_EQ(replay.getCheckpoint().lastId, producer.getCheckpoint().lastId);
+  EXPECT_EQ(replay.getCheckpoint().currentId, producer.getCheckpoint().currentId);
+}
+

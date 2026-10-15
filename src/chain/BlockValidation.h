@@ -40,17 +40,28 @@ chain_tx::Roe<void> validateBlockSequence(const Ledger &ledger,
 chain_tx::Roe<void> validateIntraBlockIdempotency(
     const Ledger::ChainNode &block, const RecordHandler &recordHandler);
 
-uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
-                            const consensus::SlotCommittee &consensus);
+/** A T_RENEWAL of the genesis account (it carries GenesisAccountMeta). */
+bool isGenesisRenewal(const Ledger::Record &record);
 
-bool needsCheckpoint(const BlockChainConfig &config, const Checkpoint &checkpoint,
-                     uint64_t nextBlockId,
-                     uint64_t checkpointBlockAgeSeconds);
+/**
+ * True when block `index` (of `epoch`) becomes the next checkpoint (beacon-authority ba5b): the
+ * first block of an epoch, at least `checkpoint.minBlocks` after the current checkpoint, whose
+ * previous block's slot starts more than `checkpoint.minAgeSeconds` after the current checkpoint's
+ * block. Then every account last written before the current checkpoint renewed by the previous
+ * block. Depends only on stored blocks and slot times, so every node agrees.
+ */
+bool rotatesCheckpoint(const Ledger &ledger, const consensus::SlotCommittee &consensus,
+                       const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
+                       uint64_t epoch);
 
+/**
+ * The renewal cut-off for block `atBlockId` at `atSlot`: accounts last written before the returned
+ * block id must renew in it (0 = none). Uses the block's slot time, never this node's clock.
+ */
 chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Checkpoint &checkpoint, uint64_t atBlockId);
+    const Checkpoint &checkpoint, uint64_t atBlockId, uint64_t atSlot);
 
 chain_tx::Roe<void> validateAccountRenewals(
     const Ledger::ChainNode &block, const AccountBuffer &bank,
