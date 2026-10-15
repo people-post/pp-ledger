@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L-SMOKE-L1: beacon→relay→miner tip advances after tx inject.
-# Uses short slots; may be cost/flake without forced leader (see TEST_STRATEGY.md).
+# Uses short slots + tx inject (see docs/ops/TEST_STRATEGY.md).
 #
 # Usage:
 #   ./scripts/test/pp_ledger_l1_smoke.sh

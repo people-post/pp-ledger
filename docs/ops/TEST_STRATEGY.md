@@ -65,8 +65,9 @@ three miners start in parallel. RPC / tip waits poll every 0.5 s.
 
 Multi-process OsUdp dial requires `LedgerAmpRuntime` to call `SetAcceptEnabled(true)`
 (same as pp-browser `MeshHost`). In-process Amp memory fabric gtests still own RPC
-correctness under loss/reorder (`L-NET-*`). L1/LATEJOIN remain sensitive to empty-slot
-lottery until out-of-process forced-leader exists.
+correctness under loss/reorder (`L-NET-*`). L1/LATEJOIN are deterministic without forced
+leaders: registered miners (A1), the delivery window (B) and heartbeats (C) keep the tip moving
+([SLOT_COMMITTEE_OPEN_ITEMS.md § F](../architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)).
 
 ---
 
@@ -75,7 +76,7 @@ lottery until out-of-process forced-leader exists.
 | Gate | Contents | Status |
 |------|----------|--------|
 | **PR** | `ctest` (unit + Amp RPC compose) | Wired today via `scripts/ci-build.sh --with-tests` |
-| **Nightly / manual** | `--suite l0` / `l1` / `latejoin` via `pp_ledger_local_test.sh` | L0 green locally; L1/LATEJOIN `cost/flake` (slot lottery); **not CI-gated** |
+| **Nightly / manual** | `--suite l0` / `l1` / `latejoin` via `pp_ledger_local_test.sh` | L0 / L1 / LATEJOIN green locally (`--suite smoke`, 10/10); **not CI-gated** yet |
 | **Weekly / manual** | Chaos restart, soak, capacity curves | Planned (`cost/flake` until green) |
 | **Image (manual)** | `deploy/compose.smoke.yml` + `--suite image` | Scaffold only |
 
@@ -99,8 +100,8 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-NET-REORDER** | RPC survives reorder window | Integration (`RoundTripSurvivesReorderWindow`) | Amp `MemoryDatagramIo::SetReorderWindow` (random release) |
 | **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`scripts/test/pp_ledger_l0_smoke.sh`) | L0a/b/c fail-fast; green on localhost OsUdp |
 | **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
-| **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke (`scripts/test/pp_ledger_l1_smoke.sh`) | Short slots + tx inject; `cost/flake` (empty-slot lottery) |
-| **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; `cost/flake` (slot lottery) |
+| **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke (`scripts/test/pp_ledger_l1_smoke.sh`) | Short slots + tx inject; green |
+| **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; green |
 | **L-SMOKE-IMAGE** | Packaged image compose boots / client probe | Smoke (`deploy/compose.smoke.yml`) | Scaffold; `--suite image` |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
