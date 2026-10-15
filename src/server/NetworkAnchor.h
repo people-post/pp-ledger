@@ -9,7 +9,7 @@
 
 namespace pp {
 
-/** Optional participant pin for network identity (see docs/architecture/LEDGER_TOPOLOGY.md §8). */
+/** Optional participant pin for network identity (see docs/architecture/LEDGER_TOPOLOGY.md, Network anchor). */
 struct NetworkAnchor {
   std::string network_id;
   std::string genesis_hash;

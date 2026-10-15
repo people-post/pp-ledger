@@ -1,7 +1,6 @@
 # Name directory — domains, locals, and account attachments
 
 **Status:** Accepted design (schema / wire only; no runtime yet)  
-**Date:** 2026-09-03  
 **Related:** [design.md](DESIGN.md) (accounts & reserved band), [platform-integration.md](../architecture/PLATFORM_INTEGRATION.md) (pp-node `ledger_gateway`, mesh edge), [LEDGER_TOPOLOGY.md](../architecture/LEDGER_TOPOLOGY.md) (terminal-owned indexes)
 
 Cross-repo phone-book north star (pp-browser): N029 / `NAME_DIRECTORY_NORTH_STAR.md` — HTTP/Amp directory now; **this chain registry is eventual name authority**.
@@ -367,21 +366,3 @@ Public edge remains **pp-node `ledger_gateway`**; terminal `pp-beacon` stays sca
 **Now:** envelope validate on write + ad-hoc hydrate on read; reserved tx/RPC ids.  
 **Later:** DomainIndex / NameIndex + grant validation + name/attach RPC; attested crypto + DomainIndex check; slot upsert txs; optional attachment tip index for gateways; browser chain provider.  
 **Not blocking:** PostIndex, name transfer, requiring attestation for all apps, vanity encoding.
-
----
-
-## Decision log
-
-| Date | Decision |
-|------|----------|
-| 2026-09-03 | Memorable names are `{local, domain}` with canonical `local@domain` |
-| 2026-09-03 | NameIndex maps name → ledger `uint64`; Brief Account ID / PeerId live in opaque slot `data` |
-| 2026-09-03 | Mesh dial target is PeerId (consumer); chain does not dial and does not treat PeerId as a keyword |
-| 2026-09-03 | Only reserved accounts register domains; user locals require DomainGrant |
-| 2026-09-03 | No first-class PostIndex v1 — posts tip in consumer profile data |
-| 2026-09-03 | Attachment = multi-profile envelope; chain validates structure/caps; payload opaque |
-| 2026-09-03 | `profile_id` = existing publisher wallet id (no free-form string squat) |
-| 2026-09-03 | Subject account owner has full on-chain authority over their attachment slots |
-| 2026-09-03 | Publisher proposal auth is host-side; attested (reserved+domain) is the on-chain authenticity bit |
-| 2026-09-03 | Default publish path = slot upsert via wallet host; user signs; apps never hold keys |
-| 2026-09-03 | Hard cut: AccountAttachment envelope on writes; hydrate ad-hoc from tip block (buffer stays light); reserve T_* 7–15 and T_REQ 2101–2103 |

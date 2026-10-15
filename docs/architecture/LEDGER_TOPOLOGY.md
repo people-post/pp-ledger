@@ -1,308 +1,152 @@
-# Ledger network topology — design guidance
+# Ledger network topology
 
-**Status:** agreed long-term guidance (2026-09-02).  
-**Scope:** beacon / gateway / miner interaction over the fleet ledger RPC, independent of
-transport binding (AMP today; libp2p at the pp-browser edge per
-[platform-integration.md](PLATFORM_INTEGRATION.md)).  
-**Related:** [design.md](../product/DESIGN.md) (roles & consensus), [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)
-(wire format & config field names), [NAME_DIRECTORY.md](../product/NAME_DIRECTORY.md) (DomainIndex /
-NameIndex — future terminal-owned registries).
-
-This document is **normative guidance** for making the chain protocol robust, efficient, and
-reliable. Implementation may lag; new work should move toward these properties rather than
-away from them.
+How the beacon, relays and miners interact over the fleet ledger RPC (AMP). Wire format and config
+field names: [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md). Roles and consensus:
+[DESIGN.md](../product/DESIGN.md). Planned improvements (reorg repair, upstream cross-checks,
+range sync, …): [projects/ledger-topology](../../projects/ledger-topology/DESIGN.md).
 
 ---
 
-## 1. Problem statement
-
-The fleet has three operational roles — **terminal beacon**, **gateway**, and **miner** — but
-participants on the wire must not need to know which role they reached. Gateways may chain;
-miners may run at the edge; ops may insert or move hops without reconfiguring client logic.
-
-Robustness therefore cannot depend on peer **role labels**. It depends on:
-
-1. A single terminal authority for canonical state.
-2. A uniform RPC surface at every hop.
-3. Cryptographic chain validation at every node.
-4. Explicit **realization** semantics for mutations.
-5. Multi-upstream consistency checks where participants configure more than one endpoint.
-
----
-
-## 2. Terminology
+## Roles
 
 | Term | Meaning |
 |------|---------|
-| **Terminal beacon** | The sole node that commits canonical chain state and the authoritative stakeholder registry. Often on a private network; not required to be reachable from the public internet. |
-| **Gateway** | Any node that exposes the fleet ledger RPC downstream and has an upstream path toward the terminal (`pp-relay`, edge relay, pp-node, …). Gateways cache and forward; they are not final authority. |
-| **Participant** | Miner, client, or edge miner that **consumes** upstream endpoints. Uses the same RPC whether upstream is a gateway or terminal. |
-| **Opaque upstream** | A configured multiaddr (e.g. miner `beacons[]`, gateway `beacon`) with **no role metadata**. Naming is historical; semantics are “upstream ledger endpoint.” |
-| **Realization** | A mutation is **realized** when the terminal beacon has accepted it into authoritative state (or an equivalent synchronous commit on the critical path). |
-| **Write-through** | Gateway returns success on a mutation only after its upstream path reports success for that mutation. |
-| **Watermark** | Metadata describing how fresh a replica is: head height/hash, checkpoint id, registry version, estimated lag behind terminal. |
-
-Config field names (`beacons[]`, `beacon`) remain for compatibility; this document uses
-**upstream** when describing behavior.
-
----
-
-## 3. Topology model
+| **Terminal beacon** | The only node that commits canonical chain state; holds the pending transaction pool and the miner registry. Usually on a private network. |
+| **Gateway** | A node that serves the ledger RPC downstream and forwards toward the terminal — today `pp-relay`. Gateways may chain. They are not an authority. |
+| **Participant** | Miner or client that consumes upstream endpoints, with the same RPC whether the upstream is a gateway or the terminal. |
+| **Opaque upstream** | A configured multiaddr (miner `beacons[]`, relay `beacon`) with no role metadata: "an upstream ledger endpoint". |
+| **Realization** | A mutation is realized when the terminal has accepted it into authoritative state. |
+| **Write-through** | A gateway reports success on a mutation only after its upstream path reported success. |
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│  Participants (miners, clients, edge miners)                  │
-│  — uniform client; opaque upstream[]; validate chain locally │
+│  Participants (miners, clients)                              │
+│  — opaque upstream[]; validate the chain locally             │
 └───────────────────────────┬─────────────────────────────────┘
                             │  same RPC at every hop
 ┌───────────────────────────▼─────────────────────────────────┐
-│  Gateways (relay, edge relay, pp-node, …)                   │
-│  — cache + forward; may chain; never final authority        │
+│  Gateways (relays) — forward; may chain; never an authority  │
 └───────────────────────────┬─────────────────────────────────┘
                             │  write-through for mutations
 ┌───────────────────────────▼─────────────────────────────────┐
-│  Terminal beacon                                            │
-│  — sole writer of canonical chain + authoritative registry  │
+│  Terminal beacon — sole writer of the canonical chain        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-```mermaid
-flowchart TB
-  subgraph participants["Participants"]
-    M1[Miner]
-    M2[Edge miner]
-    C[Client]
-  end
-  subgraph gateways["Gateways (may chain)"]
-    R1[Regional relay]
-    R2[Edge relay]
-  end
-  T[Terminal beacon]
-  M1 & M2 & C --> R1 & R2
-  R1 --> R2
-  R2 --> T
-```
-
-**Deployment intent**
-
-- Terminal beacon: scarce, private, high trust; validates everything.
-- Gateways: public-facing; small curated set operated by the org; shield the terminal.
-- Miners: customer-facing producers; may sit at the edge; same upstream abstraction as
-  datacenter miners.
-
-**Chaining:** a gateway’s upstream may be another gateway. No hop inspects whether the next
-hop is terminal. Only the last hop in a successful write path performs realization.
-
-**Connection direction (recommended):** gateways initiate or maintain associations toward the
-terminal across private links; participants dial gateways on public multiaddrs. The terminal
-should not need a public listen address.
+No hop inspects whether the next one is the terminal; only the last hop of a successful write
+realizes it. Gateways dial toward the terminal; participants dial gateways; the terminal needs no
+public listen address.
 
 ---
 
-## 4. Design principles
-
-| # | Principle | Rationale |
-|---|-----------|-----------|
-| P1 | **Uniform RPC** | One handler surface (`/pp-ledger/rpc/1.0.0`); no role-specific protocol forks. |
-| P2 | **Single writer** | One terminal; avoids split-brain commits. |
-| P3 | **Local verification** | Every node validates blocks and transactions it applies; gateways get no trust discount. |
-| P4 | **Opaque upstream** | Participants configure endpoints, not roles; ops owns topology. |
-| P5 | **Write-through mutations** | Downstream success implies terminal realization (or gateway must error). |
-| P6 | **Chain-anchored trust** | Participants pin network identity; they trust cryptography and consistency, not peer labels. |
-| P7 | **Separation of planes** | Control, sync, write, query, and gossip have different consistency and caching rules. |
-| P8 | **Fail safe on ambiguity** | Fork, wrong network, or divergent upstreams → stop mining / reject upstream, do not guess. |
-
----
-
-## 5. Core invariants
-
-These are non-negotiable for a correct deployment:
+## Principles and invariants
 
 | ID | Invariant |
 |----|-----------|
 | **I1** | Only the terminal beacon commits canonical chain state. |
-| **I2** | Gateways return success on a mutation only if the terminal accepted it on the forwarding path (write-through). |
-| **I3** | Every node cryptographically validates every block and transaction before applying it. |
-| **I4** | Every participant pins `network_id` and a trusted genesis or checkpoint anchor; foreign chains are rejected. |
-| **I5** | Slot time used for mining is derived from terminal-calibrated clock, not raw local wall clock alone. |
-| **I6** | The stakeholder / miner registry is terminal-owned; gateway copies are replicas with a defined freshness bound. |
+| **I2** | A gateway returns success on a mutation only if the terminal accepted it on the forwarding path. |
+| **I3** | Every node validates every block and transaction before applying it (relays: the whole chain from genesis, same `Chain` code as the beacon). |
+| **I4** | A participant may pin network identity (`networkAnchor`); a mismatching upstream is rejected. |
+| **I5** | Slot time comes from the terminal's clock (calibrated offset), not the local wall clock. |
+| **I6** | The miner registry is terminal-owned; gateways forward registration. |
 
-Violations of I2 (e.g. local-only registration on a gateway) or I4 (blind trust of the first
-upstream) undermine the whole model regardless of transport security.
+Design rules behind them: one RPC surface with no role-specific forks; a single writer (no
+split-brain commits); local verification at every node; participants configure endpoints, not
+roles; fail safe on ambiguity (wrong network → reject the upstream).
 
----
-
-## 6. Logical planes
-
-One protocol id is sufficient on the wire; behavior is split by **plane**:
-
-| Plane | Purpose | Examples | Consistency | Gateway may cache? |
-|-------|---------|----------|-------------|------------------|
-| **Control** | Join, time, health | `REGISTER`, `CALIBRATION`, `STATUS` | Strong (terminal-backed) | No for `REGISTER`; calibration only if locked to terminal |
-| **Sync** | Catch up chain | `BLOCK_GET`, checkpoint fetch | Strong per block (verified) | Yes, with watermarks |
-| **Write** | Submit work | `BLOCK_ADD`, stake updates | Strong (realized at terminal) | No — forward |
-| **Query** | Read state | `ACCOUNT_GET`, `TX_*` | Eventual within lag bound | Yes |
-| **Gossip** | Miner mesh hints | block announcements, mempool (future) | Eventual | N/A (peer-to-peer) |
-
-Efficiency comes from caching **Sync** and **Query**, not from weakening **Control** or
-**Write**.
+The beacon itself is authenticated only by the Amp peer id its direct downstream pins (one hop).
+End-to-end beacon authentication is in design:
+[projects/beacon-authority](../../projects/beacon-authority/DESIGN.md).
 
 ---
 
-## 7. Realization contract (normative)
+## Realization contract
 
-For each RPC class, define **who may answer** and **what success means**:
+| RPC | Answered by | Success means | Gateway rule |
+|-----|-------------|---------------|--------------|
+| `REGISTER` | Terminal | Miner is in the registry | Write-through |
+| `CALIBRATION` | Terminal; a gateway answers with its own clock + offset to its upstream | Terminal time | Mirror the calibrated clock |
+| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion` | Serve local state |
+| `MINER_LIST` | Terminal registry | Ids at `registryVersion` | Forward |
+| `BLOCK_GET` | Any node | Block from local storage | Serve locally |
+| `BLOCK_ADD` | Terminal | Block committed | Write-through; store locally only after the terminal accepts |
+| `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` | Serve from own tip |
+| `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through |
+| `TX_PULL` | Terminal pool | Pending txs for the leader | Pass through |
+| `ACCOUNT_GET`, `TX_*` | Any node | State at its own tip | Serve locally |
 
-| RPC / class | Answered by | Success means | Gateway rule |
-|-------------|-------------|---------------|--------------|
-| `REGISTER` | Terminal | Miner appears in authoritative registry | **Write-through**; return terminal `BeaconState` |
-| `CALIBRATION` | Terminal (or gateway mirroring terminal clock) | Timestamp reflects terminal slot time | Forward, or serve only if synced within ε ms |
-| `STATUS` | Gateway OK | Head, checkpoint, epoch consistent with terminal within lag | Cache with watermark |
-| `MINER_LIST` | Terminal registry | Matches terminal at `registry_version` | Forward or replica; must not serve stale registry for leader routing |
-| `BLOCK_GET` | Gateway or terminal | Block verifies under pinned network + parent link | Serve locally if present; else fetch upstream |
-| `BLOCK_ADD` | Terminal | Block committed to canonical chain | **Write-through**; propagate terminal response |
-| `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` | Serve from own tip; a gateway's tip follows its own `BLOCK_WAIT` upstream (§10.2) |
-| `TX_ADD` | Terminal pending pool | Tx held for the slot leader | **Write-through** up the tree; §10.3 |
-| `TX_PULL` | Terminal pending pool | Pending txs for the leader's slot | Pass through to the terminal |
-| `ACCOUNT_GET`, `TX_*` | Gateway OK | State at height ≤ terminal head − read_lag | Cache allowed |
+### Request direction
 
-**Mutations that must reach the terminal:** chain commits (`BLOCK_ADD`), registry changes
-(`REGISTER`, stake updates). All other participant-facing writes either route to the slot
-pool (`TX_ADD`) or are reads.
-
-Gateways must **forward terminal errors verbatim** (e.g. `FORK_DETECTED`, `WRONG_NETWORK`,
-`STALE_REGISTRY`) so participants can react without knowing hop count.
-
-### 7.1 Request direction (normative)
-
-Each node knows its upstreams by peer id (the `/p2p/<PeerId>` of its configured
-multiaddrs) and AMP authenticates every request's sender, so a node can tell
-whether a request came from its own upstream. `Server::isAllowedFrom` applies
-one table for all roles before any handler runs:
+Each node knows its upstreams by peer id (the `/p2p/<PeerId>` of its configured multiaddrs), and
+AMP authenticates every request's sender. `Server::isAllowedFrom` applies one table for all roles
+before any handler runs:
 
 | Request | From downstream | From own upstream |
 |---------|-----------------|-------------------|
-| `BLOCK_ADD`, `REGISTER`, `TX_ADD` (writes travelling up to the terminal) | Accepted | **Refused** |
+| `BLOCK_ADD`, `REGISTER`, `TX_ADD` (writes travelling up) | Accepted | **Refused** |
 | `BLOCK_WAIT` (blocks travel down) | Accepted | **Refused** |
-| `MINER_LIST`, `TX_PULL` (the registry and pool live upstream) | Accepted | **Refused** |
+| `MINER_LIST`, `TX_PULL` (registry and pool live upstream) | Accepted | **Refused** |
 | Everything else | Accepted | Accepted |
 
-Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from
-their upstream, never by having blocks pushed into them.
+Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from their upstream.
 
-Before any of this, `allowedPeers` (optional, any role) admits only listed peer
-ids and the node's upstreams (`Server::isAllowedPeer`, checked before queueing):
-e.g. a beacon reachable only by its relays.
+`allowedPeers` (optional, any role) admits only listed peer ids and the node's upstreams
+(`Server::isAllowedPeer`, checked before queueing) — e.g. a beacon reachable only by its relays.
 
-The same place sets each request's priority (`Server::laneFor`): reads such as
-`BLOCK_GET` and `BLOCK_WAIT` (downstream sync) and account / history queries go to a low-priority
-lane with its own capacity and a per-peer cap, so serving downstream sync never
-blocks the node's own work (docs/architecture/THREADING.md).
+Each request also gets a priority lane (`Server::laneFor`): reads such as `BLOCK_GET`,
+`BLOCK_WAIT` and account / history queries go to a low-priority lane with its own capacity and a
+per-peer cap, so serving downstream sync never blocks a node's own work
+([THREADING.md](THREADING.md)).
 
 ---
 
-## 8. Network anchor (participant config)
+## Network anchor
 
-Every participant should pin network identity **independently of upstream multiaddrs**:
+A participant may pin network identity independently of its upstream multiaddrs:
 
 ```json
-{
-  "network_id": "pp-mainnet-1",
-  "genesis_hash": "<hex>",
-  "trusted_checkpoint": {
-    "id": 42,
-    "block_hash": "<hex>"
-  }
-}
+"networkAnchor": { "networkId": "pp-mainnet-1", "genesisHash": "<hex>", "trustedCheckpointId": 42 }
 ```
 
-**Bootstrap sequence**
-
-1. Associate with an upstream (opaque multiaddr).
-2. Call `STATUS` (or equivalent); verify `network_id` and checkpoint ≥ trusted minimum.
-3. Reject upstream on mismatch — wrong network or likely eclipse.
-4. Sync from `max(local_tip, trusted_checkpoint)` toward head.
-
-This is how participants stay safe **without** learning whether upstream is a gateway or
-terminal.
+At startup a miner fetches `STATUS` from each upstream and rejects one whose `networkId` differs
+or whose checkpoint is below `trustedCheckpointId`; when it connects it checks the genesis hash
+(`NetworkAnchor.h`).
 
 ---
 
-## 9. Chain sync
-
-Sync is the primary reliability challenge under opaque gateways.
-
-### 9.1 Modes
+## Chain sync
 
 | Mode | When | Behavior |
 |------|------|----------|
-| **Cold start** | New node | Anchor verify → sync checkpoint → blocks to head |
-| **Catch-up** | Behind by many blocks | Range fetch in batches (not one RPC per block) |
-| **Tip follow** | Near head | Poll head watermark; fetch only new blocks |
-| **Reorg repair** | Parent hash mismatch | Walk back to common ancestor; replay forward |
-| **Gap fill** | Missing intermediate block | Fetch range `[from, to]` without full resync |
+| **Cold start** | New node | Anchor check → mount (miner: from the upstream's checkpoint; relay: from genesis) → sync to head |
+| **Catch-up** | Behind | `BlockSync` fetches the gap with up to 4 `BLOCK_GET`s in flight, applying in order |
+| **Tip follow** | Near head | One `BLOCK_WAIT` held open to the upstream; its reply triggers a sync |
 
-### 9.2 Watermarks
+A block that does not extend the local tip fails the sync, which backs off (0.5 s → 8 s); a miner
+then rotates to its next upstream.
 
-Replicas (gateways and participants) track:
+**Several upstreams (miners).** At startup a miner fetches `STATUS` from each `beacons[]` entry,
+drops any failing the anchor, and syncs from the one with the highest `nextBlockId`. It
+broadcasts its own blocks (`BLOCK_ADD`) to every upstream at once. Sync, `TX_*`, registration and
+calibration use the active upstream only.
 
-| Field | Use |
-|-------|-----|
-| `head_height` / `head_hash` | Highest contiguous validated block |
-| `checkpoint_id` | Latest stable checkpoint (see [design.md](../product/DESIGN.md)) |
-| `registry_version` | Generation of terminal miner/stake registry |
-| `replica_lag` | Estimated blocks (or ms) behind terminal |
+**Gateways** sync from their single configured upstream (the relay's `beacon`), never from
+downstream miners.
 
-**Policy knobs (ops-tunable):**
-
-- `max_read_lag` — gateway may serve queries if lag ≤ this.
-- `max_write_lag` — gateway should reject or defer write-through if lag exceeds this (optional).
-
-### 9.3 Multi-upstream selection
-
-Participants configure `upstream[]` (miner `beacons[]`). Recommended algorithm:
-
-```text
-1. STATUS from each upstream
-2. Reject any failing network_id / checkpoint / genesis checks
-3. Score survivors: height, RTT, error rate, hash agreement at common height
-4. Sync from highest-scoring upstream
-5. Spot-check random blocks against a second upstream
-6. On hash divergence at same height → blacklist upstream, failover, do not mine
-```
-
-Broadcasting writes (`BLOCK_ADD`) should use **all** healthy upstreams (or an ordered list
-with retry), not only the sync source.
-
-### 9.4 Gateway chain sync
-
-Gateway G₁ → G₂ → terminal: each gateway syncs from its **configured upstream**, not from
-downstream miners. A gateway’s read freshness is bounded by its upstream path. For deep
-chains, consider:
-
-- Limiting chain depth in production, or
-- A **gateway mesh** for block replication between regional gateways (read path only),
-  reducing serial latency.
-
-### 9.5 Checkpoints
-
-Align with the checkpoint model in [design.md](../product/DESIGN.md): new participants may join from a
-trusted checkpoint and replay only subsequent blocks. Sync logic should treat checkpoint
-boundaries as first-class (fast join, pruning compatibility).
+**Checkpoints:** every node rotates checkpoints deterministically; a miner joins from a
+checkpoint and replays only later blocks ([BLOCK_PIPELINE.md](BLOCK_PIPELINE.md)).
 
 ---
 
-## 10. Miner coordination
+## Miner coordination
 
-SlotCommittee slot leadership requires more than “leader posts `BLOCK_ADD` upstream.”
+### Block propagation — up to commit, down by waiting
 
-### 10.1 Block propagation — up to commit, down by waiting
-
-| Path | Purpose | Required |
-|------|---------|----------|
-| **A. Leader → terminal** (`BLOCK_ADD`, upward only) | Canonical commit | **Yes** — only realization path |
-| **B. Upstream → downstream** (`BLOCK_WAIT`, downward only) | Fast propagation to gateways and miners | Yes (falls back to C) |
-| **C. Participant → upstream sync** (periodic) | Safety net | **Yes** — catches anything B missed |
+| Path | Purpose |
+|------|---------|
+| **Leader → terminal** (`BLOCK_ADD`, up only) | Canonical commit — the only realization path |
+| **Upstream → downstream** (`BLOCK_WAIT`, down only) | Fast propagation to gateways and miners |
+| **Participant → upstream sync** | Safety net for anything a wait missed |
 
 ```mermaid
 sequenceDiagram
@@ -321,211 +165,102 @@ sequenceDiagram
   V->>G: BLOCK_GET (BlockSync)
 ```
 
-### 10.2 BLOCK_WAIT (downward propagation)
+### BLOCK_WAIT
 
-- Each relay and miner keeps one `BLOCK_WAIT {knownNextBlockId}` open to its
-  upstream (`UpstreamTipWatch`). The upstream (beacon or relay) replies with its
-  `nextBlockId` as soon as that passes `knownNextBlockId`, or unchanged after a
-  hold of T/2 (`NetworkTuning::blockWaitHold`); the downstream then re-arms.
-- When the reply shows the upstream ahead, the downstream syncs (`BlockSync`,
-  `BLOCK_GET` from that upstream) and applies blocks only after full validation (I3).
-- **Downward only, once per block:** only an upstream answers a wait (a wait
-  from one's own upstream is refused, §7.1), and the next wait starts from the
-  `nextBlockId` already reported, so a block is announced to each downstream
-  once, with no list of downstreams and no dialing toward them (NAT-friendly).
-- Cheap to misuse: one wait per peer is held (a newer one answers the older);
-  waits sit in the low-priority lane; a reply only triggers a sync from the
-  node's own upstream, which BlockSync rate-limits.
-- Miners do not serve `BLOCK_WAIT`. An upstream that does not serve it makes the
-  watch back off (1 s → 30 s); path C keeps the node in sync.
+- Each relay and miner keeps one `BLOCK_WAIT {knownNextBlockId}` open to its upstream
+  (`UpstreamTipWatch`). The upstream replies with its `nextBlockId` as soon as that passes
+  `knownNextBlockId`, or unchanged after a hold of T/2; the downstream then re-arms.
+- When the reply shows the upstream ahead, the downstream syncs and applies blocks only after full
+  validation (I3).
+- **Downward only, once per block:** only an upstream answers a wait, and the next wait starts from
+  the `nextBlockId` already reported — no list of downstreams, no dialing toward them
+  (NAT-friendly).
+- Cheap to misuse: one wait per peer is held (a newer one answers the older); waits sit in the
+  low-priority lane; a reply only triggers a rate-limited sync from the node's own upstream.
+- Miners do not serve `BLOCK_WAIT`. An upstream that does not serve it makes the watch back off
+  (1 s → 30 s); sync keeps the node current.
 
-### 10.3 Transactions — up to the terminal pool, pulled by the leader
+### Transactions — up to the terminal pool, pulled by the leader
 
 | Step | Actor | Action |
 |------|-------|--------|
 | 1 | Client | `TX_ADD` to a relay or the terminal (pp-client `-b`, pp-http) |
-| 2 | Relay / miner | Pass `TX_ADD` up to its upstream (write-through); never to another miner |
-| 3 | Terminal | Hold it in the pending pool (`TxPool`: bounded, deduplicated, expires at the tx's validity window or after 10 min) |
-| 4 | Slot leader | At its slot's start, `TX_PULL {slot}` through its upstream (relays pass it through); waits up to min(1 s, slot/3) before producing |
-| 5 | Leader | Pool what applies; include in the block; `BLOCK_ADD` up to the terminal |
-| 6 | Terminal | Drop the block's records from the pending pool |
+| 2 | Relay / miner | Pass `TX_ADD` up (write-through); never to another miner |
+| 3 | Terminal | Hold it in `TxPool` (bounded, deduplicated, expires with the tx's validity window or after 10 min) |
+| 4 | Slot leader | `TX_PULL {slot}` through its upstream at the slot's start; waits up to min(1 s, slot/3) |
+| 5 | Leader | Pool what applies; include it; `BLOCK_ADD` up to the terminal |
+| 6 | Terminal | Drop the block's records from the pool |
 
-No miner learns another miner's address: a transaction never goes miner →
-miner. The terminal drops a transaction only once a committed block includes it
-(or it expires), so one a leader missed or could not fit reaches the next
-leader. `TX_ADD` and `TX_PULL` are refused from a node's own upstream (§7.1).
+A transaction never goes miner → miner. The terminal drops one only once a committed block
+includes it (or it expires), so one a leader missed reaches the next leader.
 
-**Leader pool.** A leader validates every transaction it pools against its
-buffer for the current slot, rebuilt from the tip whenever the tip moves. When
-a slot rebuilds the pool, pending transactions that no longer apply (included
-elsewhere, balance spent, validity window ended) are dropped rather than
-aborting the slot. A rejection by the leader's pool is final, like a forward
-rejection; out-of-order dependent transactions must be resubmitted.
+**Leader pool.** A leader validates every transaction it pools against its buffer for the current
+slot, rebuilt from the tip whenever the tip moves; a block draft holds each idempotency key once.
+Pending transactions that no longer apply are dropped rather than aborting the slot. A rejection by
+the leader's pool is final; out-of-order dependent transactions must be resubmitted.
 
-### 10.4 Registration and stake
+### Registration
 
-`REGISTER` must be **write-through** and **authenticated**:
-
-- Registrant proves control of mining keys: the record is signed by the miner
-  account's keys (same rule as its transactions: on-chain `publicKeys` /
-  `minSignatures`). The terminal also refuses an `issuedAt` more than 5 min from its
-  clock or not newer than the recorded one (replay). Gateways pass records on
-  unchanged and cannot forge them. Signing format: WIRE_SCHEMA.md.
-- Terminal records `{ miner_id, last renewal }` (no network address) and a `registry_version`.
-- `MINER_LIST` includes `registry_version` so participants detect stale gateway cache.
-- **Renewal:** miners re-register every 60 s; the terminal stamps each record
-  and drops one not renewed within 5 min (`MinerRegistry`). `registry_version`
-  changes only when the list does (join, expiry), not on renewal.
-- **Address exposure:** miners have no published address. Registrations
-  carry none, `MINER_LIST` returns ids only and is accepted only from
-  downstream (§7.1), and transactions reach the leader by `TX_PULL` (§10.3).
-  Miners dial out to their relays (sentry pattern) and need no public listen
-  address, so the public leader schedule cannot be used to flood the next slot
-  leader.
+- `REGISTER` records are signed by the miner account's keys (on-chain `publicKeys` /
+  `minSignatures`); the terminal refuses an `issuedAt` more than 5 min from its clock or not newer
+  than the recorded one. Gateways pass records on unchanged.
+- The terminal keeps `{ miner_id, last renewal }` (no address) and a `registryVersion`, which
+  changes only when the list does. Miners renew every 60 s; a record not renewed within 5 min is
+  dropped (`MinerRegistry`).
+- **No published miner addresses:** registrations carry none, `MINER_LIST` returns ids only, and
+  transactions reach the leader by `TX_PULL`. Miners dial out to relays, so the public leader
+  schedule cannot be used to flood the next leader.
+- Leader election uses on-chain miner registration (`T_MINER_REGISTER`), not this registry
+  ([WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#miner-registration-and-liveness)).
 
 ---
 
-## 11. Time and slots
+## Time and slots
 
-Slot leadership is time-sensitive.
-
-1. `CALIBRATION` returns terminal time plus `next_block_id` / slot / epoch.
-2. Miner estimates `offset_ms` using multiple RTT samples; prefer low-RTT samples.
-3. Re-calibrate on epoch boundaries and when observed blocks disagree with expected slot.
-4. If multiple upstreams disagree on time beyond a threshold → **do not mine** until resolved.
-
-Gateways must not invent time. They forward terminal calibration or serve from a clock
-explicitly synchronized to the terminal within ε.
+`CALIBRATION` returns the terminal's time. Relays and miners calibrate once at startup to their
+upstream: up to 5 samples, the lowest-RTT one wins (or the first if its RTT ≤ 200 ms), applied as a
+whole-second offset. A relay answers `CALIBRATION` with its own clock plus that offset. Slot,
+epoch, the seal window and the delivery deadline all use the calibrated clock.
 
 ---
 
-## 12. Security model (topology-opaque)
+## Security model
 
-### 12.1 What cryptography provides
+| Threat | Mitigation today |
+|--------|------------------|
+| Invalid blocks / transactions | Rejected locally at every node (I3) |
+| Wrong network | `networkAnchor` (network id, genesis hash, trusted checkpoint) |
+| Fake registration | Signed `REGISTER`, verified by the terminal |
+| Flooding | Per-peer lanes and caps; `allowedPeers`; AMP link limits |
+| Targeted flooding of the next leader | Miner addresses not published |
+| Fake beacon behind a relay | Not covered (blocks are unsigned) — [projects/beacon-authority](../../projects/beacon-authority/DESIGN.md) |
 
-- Invalid blocks and transactions are rejected locally.
-- Forging canonical history requires breaking signatures and consensus rules.
-
-### 12.2 What participants must add
-
-| Threat | Mitigation |
-|--------|------------|
-| Wrong network / eclipse | Network anchor (§8); multi-upstream hash comparison |
-| Stale reads | Watermarks; `max_read_lag`; cross-check `STATUS` |
-| Withheld writes | Multi-upstream `BLOCK_ADD`; `BLOCK_WAIT` + sync detects missing blocks |
-| Fake registration | Signed `REGISTER`; terminal verification |
-| Gateway censorship | Multiple upstreams; monitoring head lag |
-| Flooding / abuse | Per-PeerId rate limits on gateways (ops layer) |
-| Targeted flooding of the next slot leader | Miner addresses not published (§10.4); relay-only access |
-
-Participants do **not** authenticate “this peer is the real beacon.” They authenticate **chain
-continuity and network identity**.
-
-### 12.3 Ops-only controls (invisible on the wire)
-
-These do not violate uniform RPC or opaque upstream:
-
-- Terminal: allowlist gateway PeerIds for inbound associations.
-- Gateway: rate limits, connection caps, payload size limits.
-- Private terminal: no public multiaddr; gateways dial inward.
+**Ops-only controls** (invisible on the wire): the terminal allowlists its relays (`allowedPeers`);
+relays limit connections and payload sizes; a private terminal has no public multiaddr.
 
 ---
 
-## 13. Reliability patterns
-
-### 13.1 Upstream health
-
-Track per upstream: height rank, error rate, RTT, hash agreement with peers. Use for sync
-source selection, calibration, and ordered write retry.
-
-### 13.2 Idempotency
+## Reliability
 
 | Operation | Idempotent? | Note |
 |-----------|-------------|------|
-| `BLOCK_ADD` (same hash) | Yes | Terminal and gateways answer a block they already hold (same id and hash) with success, without validating it again; a gateway does not forward it again. A different block at that id is refused (`BlockAddPolicy.h`) |
-| `REGISTER` (same miner_id) | Yes | Upsert semantics |
-| `TX_ADD` | Yes (pool) | The terminal pool holds one copy per record; the chain refuses a repeated idempotent id |
+| `BLOCK_ADD` (same hash) | Yes | A node already holding the block (same id and hash) answers success without validating or forwarding again; a different block at that id is refused (`BlockAddPolicy.h`) |
+| `REGISTER` | Yes | Upsert |
+| `TX_ADD` | Yes | The pool holds one copy per record; the chain refuses a repeated idempotent id |
 
-Gateways should safely forward retries.
-
-### 13.3 Persistent upstream associations
-
-Gateways should maintain long-lived transport associations to upstream(s) with reconnect and
-backoff. This improves write-through latency and makes “realized at terminal” easier to
-reason about than per-request dial.
-
-### 13.4 Failure modes
-
-| Failure | Expected behavior |
-|---------|-------------------|
-| Primary upstream down | Failover to next in `upstream[]` |
-| Gateway down | Participant uses alternate upstream |
-| Terminal unavailable | Writes fail; reads from gateway within `max_read_lag` if policy allows |
-| Partition / fork | Hash mismatch → reject upstream; **do not mine** |
-| Missed slot | Empty slot; chain continues per SlotCommittee |
+| Failure | Behavior today |
+|---------|----------------|
+| Miner's upstream down | Rotates to the next `beacons[]` entry |
+| Relay's beacon down | Writes fail; the relay keeps serving its own chain |
+| Terminal unavailable | Writes fail |
+| Block that does not extend the tip | Sync fails and backs off; there is no reorg repair |
+| Missed slot | Empty slot; the chain continues |
 
 ---
 
-## 14. Efficiency guidelines
+## Non-goals
 
-| Area | Guidance |
-|------|----------|
-| Block sync | Batch / range API (`BLOCK_GET_RANGE` or equivalent); avoid one block per RPC at scale |
-| Checkpoints | Sync to checkpoint first, then tail blocks |
-| Gateway cache | Block cache + account reads at or behind head |
-| Gossip | Announce hash only; fetch on demand |
-| Miner storage | Partial history acceptable when checkpoint-anchored |
-| Relay chains | Prefer shallow chains or gateway mesh for read replication |
-
-Optimize only after invariants I1–I6 hold.
-
----
-
-## 15. Recommended protocol extensions
-
-Small, role-neutral extensions that support the model:
-
-| Extension | Purpose |
-|-----------|---------|
-| `STATUS` v2 fields | `network_id`, `head_hash`, `registry_version`, `replica_lag` |
-| `BLOCK_GET_RANGE` | Efficient catch-up |
-| Signed `REGISTER` | Registry authentication |
-| Stable error codes | `WRONG_NETWORK`, `FORK_DETECTED`, `STALE_REGISTRY`, `UPSTREAM_LAG` |
-
-None of these expose peer role to participants.
-
----
-
-## 16. Implementation phasing (guidance)
-
-| Phase | Focus | Unlocks |
-|-------|-------|---------|
-| **P0** | I2 write-through for all mutations; network anchor; multi-upstream `STATUS` compare | Correctness |
-| **P1** | Batch sync, watermarks, reorg handling | Reliable catch-up |
-| **P2** | Downward block propagation (`BLOCK_WAIT`, done); signed `REGISTER` | Multi-miner liveness |
-| **P3** | Gateway cache policy, persistent upstream, range reads | Efficiency |
-| **P4** | Gateway mesh, ops ACL on transport | Production hardening |
-
-Order matters: P0 before optimizing read paths.
-
----
-
-## 17. Non-goals
-
-- Exposing relay vs terminal role on the wire or in participant config semantics.
-- DHT or open peer discovery for fleet infrastructure nodes (curated multiaddrs instead).
-- Embedding libp2p inside pp-ledger core ([platform-integration.md](PLATFORM_INTEGRATION.md)).
-- Gateways committing canonical state without terminal realization.
+- Exposing relay vs terminal role on the wire or in participant config.
+- DHT or open peer discovery for fleet nodes (curated multiaddrs instead).
+- Gateways committing canonical state.
 - Trusting upstream IP or DNS instead of chain anchors and hashes.
-
----
-
-## 18. Summary
-
-**Terminal beacon** is the sole commit point for chain and registry. **Gateways** are
-verify-and-cache forwarders over a **uniform RPC**. **Participants** stay safe by pinning
-network identity, requiring write-through mutations, validating all data locally, using
-multiple opaque upstreams for consistency, and waiting on their upstream (`BLOCK_WAIT`) so
-new blocks reach them at once.
-
-Ops owns topology; the protocol owns correctness.

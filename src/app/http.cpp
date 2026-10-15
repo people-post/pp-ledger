@@ -441,7 +441,7 @@ static void handleBeaconCalibration(const httplib::Request&, httplib::Response& 
 
 /**
  * Public view of a registered miner: id and last renewal only. Network
- * addresses are never published (relay-only access; LEDGER_TOPOLOGY.md §12).
+ * addresses are never published (relay-only access; LEDGER_TOPOLOGY.md, Security model).
  */
 static std::shared_ptr<Object> publicMinerJson(const pp::Client::MinerInfo& miner) {
   auto obj = std::make_shared<Object>();

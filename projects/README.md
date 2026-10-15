@@ -27,6 +27,8 @@ Do not put phase status in `AGENTS.md`.
 | Project | Intent |
 |---------|--------|
 | [beacon-authority](beacon-authority/) | Verifiable beacon (certificate, signed tips, generations) and promotion after loss or a move — open item E |
+| [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
+| [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
 
 ## Done / archived
 

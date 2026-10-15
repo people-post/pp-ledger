@@ -64,7 +64,6 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | [ops/CONFIGURATION.md](ops/CONFIGURATION.md) | Every config field: `init-config.json`, each role's `config.json`, fixed network timing |
 | [ops/TEST_STRATEGY.md](ops/TEST_STRATEGY.md) | Purpose IDs (`L-*`), smoke driver, CI ladder |
 | [ops/GITHUB_ACTIONS.md](ops/GITHUB_ACTIONS.md) | CI / Actions setup |
-| [ops/DEVELOPMENT_BUDGET.md](ops/DEVELOPMENT_BUDGET.md) | Roadmap / budget planning |
 
 Smoke scripts: `scripts/test/pp_ledger_local_test.sh`. Image compose: `deploy/`.
 

@@ -6,7 +6,7 @@ Purpose IDs (`L-*`) are the vocabulary for ledger qualification. Doctrine:
 [TESTING.md](../architecture/TESTING.md).
 
 Related: [AGENTS.md](../../AGENTS.md), [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md),
-[development-budget-plan.md](DEVELOPMENT_BUDGET.md) (Phase A: adversarial
+[development budget plan](../../projects/development-budget/PLAN.md) (Phase A: adversarial
 ingress / invariants).
 
 ---

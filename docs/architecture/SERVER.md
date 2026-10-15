@@ -190,7 +190,7 @@ There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 
 Which origins may send what (e.g. nothing travelling up is accepted from a
 node's own upstream) is one table in `Server::isAllowedFrom`; see
-[LEDGER_TOPOLOGY.md §7.1](LEDGER_TOPOLOGY.md).
+[LEDGER_TOPOLOGY.md — Request direction](LEDGER_TOPOLOGY.md#request-direction).
 
 ### Stakeholders
 
