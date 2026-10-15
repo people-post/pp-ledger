@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_H
 
 #include "Chain.h"
+#include "TipSigner.h"
 
 #include "../consensus/SlotCommittee.h"
 #include "../ledger/Ledger.h"
@@ -12,7 +13,9 @@
 
 #include <cstdint>
 #include <list>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -124,10 +127,26 @@ public:
   Roe<void> mount(const MountConfig &config);
   void refresh();
 
+  /**
+   * Commit `block`; once tip signing is open, sign it (sign after durable commit). A block that
+   * commits but cannot be signed still counts: the error is logged and the tip stays where it was.
+   */
   Roe<void> addBlock(const Ledger::ChainNode &block);
+
+  /**
+   * Start signing tips with `key` (after mount; beacon-authority ba3). Loads the persisted tip and
+   * refuses a ledger that ends below it or differs from it — the beacon would then sign a second
+   * block at a height it already signed. Signs the committed tip if it is not signed yet (the
+   * genesis block after --init, or a crash between commit and signing).
+   */
+  Roe<void> openTipSigning(const utl::MlDsaKeyPair &key);
+  /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
+  std::optional<Client::SignedTip> getSignedTip() const;
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
+  /** The latest signed tip, beside the ledger. */
+  constexpr static const char *FILE_SIGNED_TIP = "signed-tip.dat";
 
   struct Config {
     std::string workDir;
@@ -167,8 +186,16 @@ private:
                       const std::string &networkId,
                       const std::string &errorContext) const;
 
+  /** Refuse a ledger that ends below the persisted tip or holds another block at its height. */
+  Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const;
+  /** Sign the committed tip under the certificate in force. */
+  TipSigner::Roe<void> signCommittedTip();
+
   Chain chain_;
   Config config_;
+  std::unique_ptr<TipSigner> tipSigner_;
+  /** Generation already warned about as not certifying this key (one warning per generation). */
+  uint64_t uncertifiedWarnedGeneration_{0};
 };
 
 // Ostream operators for easy logging

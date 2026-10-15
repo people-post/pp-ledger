@@ -340,7 +340,13 @@ void Server::pollBlockWaits() {
 }
 
 void Server::answerBlockWaits(std::vector<RequestQueue::Reply> replies, uint64_t tip) {
-  const std::string response = packResponse(utl::binaryPack(tip));
+  if (replies.empty()) {
+    return;
+  }
+  Client::TipReply answer;
+  answer.nextBlockId = tip;
+  answer.setTip(latestSignedTip());
+  const std::string response = packResponse(utl::binaryPack(answer));
   for (auto& reply : replies) {
     reply(response);
   }

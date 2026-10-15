@@ -333,6 +333,71 @@ TEST(BeaconServerInitTest, RegistrationMustBeSignedByTheMiner) {
   EXPECT_FALSE(beacon.verifyMinerRegistration(replayedLater, net).isOk());
 }
 
+// beacon-authority ba3: once mounted with its signing key, the beacon signs its committed tip (the
+// genesis block after --init) and keeps it across restarts; it refuses a ledger that no longer
+// holds the block it signed, and signs nothing with a key the chain does not certify.
+TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
+  GenesisSetup setup("pp-ledger-beacon-signed-tip-test");
+  setup.writeInitConfig();
+  const auto beaconKey = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(beaconKey, "keys/beacon-signing");
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  const auto authority = setup.genesisMeta().authority;
+
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  Client::SignedTip first;
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    EXPECT_FALSE(beacon.getSignedTip().has_value()) << "no signing before openTipSigning";
+    ASSERT_TRUE(beacon.openTipSigning(beaconKey).isOk());
+    ASSERT_TRUE(beacon.getSignedTip().has_value());
+    first = beacon.getSignedTip().value();
+    EXPECT_EQ(first.height, 0u);
+    EXPECT_EQ(first.generation, 1u);
+    EXPECT_EQ(first.networkId, "test-net");
+    EXPECT_EQ(first.blockHash, beacon.readBlock(0).value().hash);
+    EXPECT_TRUE(first.verify(authority.beacon.publicKey)) << "signed by the generation-1 key";
+  }
+  {
+    Beacon beacon; // restart: the persisted tip, not a fresh signature
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning(beaconKey).isOk());
+    EXPECT_EQ(beacon.getSignedTip(), first);
+  }
+  {
+    Beacon beacon; // another key: the beacon runs but signs nothing
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    std::filesystem::rename(setup.dir / "data" / "signed-tip.dat", setup.dir / "signed-tip.keep");
+    ASSERT_TRUE(beacon.openTipSigning(utl::mlDsaGenerate().value()).isOk());
+    EXPECT_FALSE(beacon.getSignedTip().has_value());
+    std::filesystem::rename(setup.dir / "signed-tip.keep", setup.dir / "data" / "signed-tip.dat");
+  }
+
+  auto writeTip = [&](Client::SignedTip tip) {
+    std::ofstream(setup.dir / "data" / "signed-tip.dat", std::ios::binary | std::ios::trunc) << tip.ltsToString();
+  };
+  auto ahead = first;
+  ahead.height = 3; // the ledger lost blocks the beacon signed
+  writeTip(ahead);
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    auto refused = beacon.openTipSigning(beaconKey);
+    ASSERT_FALSE(refused.isOk());
+    EXPECT_NE(refused.error().message.find("below the last signed tip"), std::string::npos) << refused.error().message;
+  }
+  auto replaced = first;
+  replaced.blockHash = "another block";
+  writeTip(replaced);
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    EXPECT_FALSE(beacon.openTipSigning(beaconKey).isOk());
+  }
+}
+
 // --- Relay / miner without config: a template to fill in, never a guess ---
 
 #include "MinerServer.h"

@@ -6,6 +6,7 @@
 #include "common/ResultOrError.hpp"
 #include "lib/common/Meta.h"
 #include "BlockSync.h"
+#include "UpstreamSignedTip.h"
 #include "UpstreamTipWatch.h"
 #include "Relay.h"
 #include "Server.h"
@@ -113,6 +114,9 @@ private:
   std::string handleParsedRequest(const Client::Request &request) override;
   /** Serves BLOCK_WAIT: downstreams learn of each block once this relay has synced it. */
   std::optional<uint64_t> blockWaitTip() const override { return relay_.getNextBlockId(); }
+  std::optional<Client::SignedTip> latestSignedTip() const override { return upstreamTip_.latest(); }
+  /** Keep a signed tip heard from upstream (STATUS, BLOCK_WAIT, BLOCK_ADD and REGISTER replies). */
+  void noteSignedTip(const std::optional<Client::SignedTip> &tip);
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   /** Compute time offset in ms to beacon (beacon_time_ms = local_time_ms + offset). */
@@ -171,6 +175,8 @@ private:
 
   uint64_t registryVersion_{0};
   std::string networkId_;
+  /** The beacon's newest signed tip, passed on unchanged. */
+  UpstreamSignedTip upstreamTip_;
 };
 
 } // namespace pp

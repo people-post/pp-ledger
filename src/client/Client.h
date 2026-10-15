@@ -112,8 +112,8 @@ public:
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
   /**
    * Downstream → upstream: payload binaryPack(uint64 knownNextBlockId). The
-   * upstream replies binaryPack(uint64 its nextBlockId) once that passes the
-   * known one, or after a hold (NetworkTuning::blockWaitHold) with it unchanged.
+   * upstream replies binaryPack(TipReply) once its nextBlockId passes the known
+   * one, or after a hold (NetworkTuning::blockWaitHold) with it unchanged.
    */
   static constexpr const uint32_t T_REQ_BLOCK_WAIT = 1003;
 
@@ -221,6 +221,59 @@ public:
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
   };
 
+  /**
+   * The beacon's signature over a block it committed (beacon-authority ba3): only the latest is
+   * kept and served. One signature authenticates the hash chain below it; `generation` names the
+   * beacon certificate whose key signed.
+   */
+  struct SignedTip {
+    constexpr static const uint32_t VERSION = 1;
+
+    std::string networkId;
+    uint64_t generation{0};
+    uint64_t height{0};    ///< block index
+    std::string blockHash; ///< raw block hash
+    std::string signature; ///< ML-DSA-65, by the beacon key, over signingMessage()
+
+    /** Domain-separated bytes the beacon signs: network, generation, height, block hash. */
+    std::string signingMessage() const;
+    /** True when `signature` is `publicKey`'s over signingMessage(). */
+    bool verify(const std::string &publicKey) const;
+
+    bool operator==(const SignedTip &other) const {
+      return networkId == other.networkId && generation == other.generation && height == other.height &&
+             blockHash == other.blockHash && signature == other.signature;
+    }
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & networkId & generation & height & blockHash & signature;
+    }
+
+    /** Versioned bytes (disk, and the `signedTip` field of STATUS). */
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+  };
+
+  /**
+   * BLOCK_WAIT and BLOCK_ADD reply: the replying node's next block id and the latest signed tip
+   * it holds (relays pass the beacon's on unchanged).
+   */
+  struct TipReply {
+    uint64_t nextBlockId{0};
+    bool hasSignedTip{false};
+    SignedTip signedTip;
+
+    std::optional<SignedTip> tip() const { return hasSignedTip ? std::optional<SignedTip>(signedTip) : std::nullopt; }
+    void setTip(const std::optional<SignedTip> &tip) {
+      hasSignedTip = tip.has_value();
+      signedTip = tip.value_or(SignedTip{});
+    }
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & nextBlockId & hasSignedTip & signedTip;
+    }
+  };
+
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
@@ -233,6 +286,8 @@ public:
     std::string networkId;
     std::string headHash;
     uint64_t registryVersion{ 0 };
+    /** The beacon's latest signed tip (a relay serves the one it holds); absent before the first. */
+    std::optional<SignedTip> signedTip;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
@@ -314,7 +369,7 @@ public:
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);
 
   Roe<void> addTransaction(const Ledger::Record &record);
-  Roe<bool> addBlock(const Ledger::ChainNode& block);
+  Roe<TipReply> addBlock(const Ledger::ChainNode& block);
 
   /**
    * Async variants: start the call and return; `done` runs once with the
@@ -325,14 +380,15 @@ public:
   void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done);
   void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
   void addTransactionAsync(const Ledger::Record &record, Done<void> done);
-  void addBlockAsync(const Ledger::ChainNode &block, Done<bool> done);
+  /** BLOCK_ADD: the reply carries the beacon's signed tip once it has committed the block. */
+  void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done);
   /** TX_PULL: pending transactions for the leader of `slot`. */
   void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done);
   void fetchCalibrationAsync(Done<CalibrationResponse> done);
   void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
   void fetchBeaconStateAsync(Done<BeaconState> done);
   /** BLOCK_WAIT: `done` gets the upstream's next block id once it passes `knownNextBlockId` (or unchanged after a hold). */
-  void waitForBlockAsync(uint64_t knownNextBlockId, Done<uint64_t> done);
+  void waitForBlockAsync(uint64_t knownNextBlockId, Done<TipReply> done);
 
   /** True when the call failed before a server answered (worth retrying later). */
   static bool isTransportError(int32_t code) {
@@ -343,6 +399,7 @@ private:
   static Roe<BeaconState> parseBeaconState(const std::string &payload);
   static Roe<CalibrationResponse> parseCalibration(const std::string &payload);
   static Roe<Ledger::ChainNode> parseBlock(const std::string &payload);
+  static Roe<TipReply> parseTipReply(const std::string &payload);
   static Roe<std::vector<MinerInfo>> parseMinerList(const std::string &payload);
   std::string packRequest(uint32_t type, const std::string &payload);
   static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);

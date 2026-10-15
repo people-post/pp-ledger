@@ -153,3 +153,29 @@ replacing the admin keys at once; the recovery set (ba7) is the remedy.
 **Alternatives:** Carry the certificate in `T_CONFIG` (would apply at the epoch boundary and blur
 config with authority); several certificates per block applied in order (needs per-draft authority
 state for one rare record).
+
+## B012 — Signed tip: one file, written before it is served; relays keep the newest
+
+**Date:** 2026-10-15
+**Decision:** The beacon signs each block right after `Chain::addBlock` commits it, under the
+certificate in force after that block, and writes the tip to `data/signed-tip.dat` (versioned;
+write aside, then rename) before any reply can carry it. The file is the "last signed height":
+signing a different block at or below it is refused, and at start a ledger that ends below it or
+holds another block at its height is refused (restore the ledger). A start signs the committed tip
+if it is unsigned, which covers genesis and a crash between commit and signing. A beacon whose key
+the certificate in force does not name keeps running and signs nothing. The tip travels as a
+packed field on `STATUS` and in a new `TipReply {nextBlockId, signedTip?}` that replaces the
+`BLOCK_WAIT` and `BLOCK_ADD` reply payloads (breaking, B008). Relays hold the newest tip they hear
+on any of `STATUS` / `BLOCK_WAIT` / `BLOCK_ADD` / `REGISTER` (higher height, or higher generation
+at one height) and serve it unverified; a second tip for the same generation and height is
+ignored with a warning. The current certificate on `STATUS` moves to ba5, which needs it.
+**Rationale:** Writing before serving is what makes "never two tips at one height" survive a
+crash: a signature that was never stored was never sent. Signing in the commit path, not on a
+timer, gives every block its own tip with no extra state. A relay serving what it heard, unchecked,
+keeps ba3 to transport; verification belongs with the adoption rule (ba4), where a node also has
+to decide what to do with a bad tip.
+**Cons:** A relay can serve a tip ahead of the blocks it holds (it heard the tip first); downstreams
+sync to it. Until ba4 a relay passes on a forged tip as readily as a real one.
+**Alternatives:** Persist only the height and re-sign on start (a restart would produce a second,
+different signature for the same tip, which ba6 could mistake for equivocation unless signatures
+are deterministic); verify at the relay now (needs the generation rules of ba5 to be complete).

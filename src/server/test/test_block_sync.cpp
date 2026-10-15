@@ -21,6 +21,8 @@ namespace {
 class FakeUpstream : public ILedgerTransport {
 public:
   std::vector<Ledger::ChainNode> chain;
+  /** Sent with BLOCK_WAIT replies, as a beacon (or relay) does. */
+  std::optional<Client::SignedTip> signedTip;
   std::deque<std::pair<Client::Request, Done>> pending;
 
   Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
@@ -42,7 +44,10 @@ public:
     }
     Client::Response response;
     if (request.type == Client::T_REQ_BLOCK_WAIT) {
-      response.payload = utl::binaryPack(static_cast<uint64_t>(chain.size()));
+      Client::TipReply reply;
+      reply.nextBlockId = chain.size();
+      reply.setTip(signedTip);
+      response.payload = utl::binaryPack(reply);
     } else if (request.type == Client::T_REQ_CALIBRATION) {
       Client::CalibrationResponse cal;
       cal.nextBlockId = chain.size();
@@ -378,6 +383,7 @@ protected:
     h.dialUpstream = []() { return pp::Roe<void>(); };
     h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
     h.onUpstreamAhead = [this]() { ++syncRequests_; };
+    h.onSignedTip = [this](const Client::SignedTip &tip) { tips_.push_back(tip); };
     h.postToServerThread = [this](std::function<void()> task) { tasks_.push_back(std::move(task)); };
     return h;
   }
@@ -385,6 +391,7 @@ protected:
     return utl::binaryUnpack<uint64_t>(upstream_->pending.at(index).first.payload).value();
   }
   int syncRequests_ = 0;
+  std::vector<Client::SignedTip> tips_;
 };
 
 TEST_F(TipWatchTest, KeepsOneWaitOutAndRequestsSyncWhenUpstreamIsAhead) {
@@ -415,6 +422,29 @@ TEST_F(TipWatchTest, NoSyncWhenUpstreamIsNotAhead) {
   EXPECT_EQ(syncRequests_, 0);
   watch.maintain();
   EXPECT_EQ(upstream_->pending.size(), 1u); // re-armed
+}
+
+// beacon-authority ba3: the signed tip rides the BLOCK_WAIT reply and reaches the node's hook.
+TEST_F(TipWatchTest, SignedTipInTheReplyIsHandedOn) {
+  Client::SignedTip tip;
+  tip.networkId = "net";
+  tip.generation = 1;
+  tip.height = 9;
+  tip.blockHash = "hash-9";
+  tip.signature = "sig";
+  upstream_->signedTip = tip;
+  UpstreamTipWatch watch(client_, watchHooks());
+  watch.maintain();
+  upstream_->complete(0);
+  drain();
+  ASSERT_EQ(tips_.size(), 1u);
+  EXPECT_EQ(tips_[0], tip);
+
+  upstream_->signedTip.reset(); // an upstream with no signed tip yet
+  watch.maintain();
+  upstream_->complete(0);
+  drain();
+  EXPECT_EQ(tips_.size(), 1u);
 }
 
 TEST_F(TipWatchTest, FailureBacksOffInsteadOfRetryingAtOnce) {

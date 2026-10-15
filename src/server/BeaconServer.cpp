@@ -39,31 +39,13 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 namespace {
 
 /**
- * The beacon signing key pair under `workDir` (beacon-authority B006): created when neither file
- * exists, else both must exist and belong together (an operator may pre-generate them with
- * `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
+ * The beacon signing key pair under `workDir` (beacon-authority B006): both files must exist and
+ * belong together.
  */
-BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &workDir) {
   const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
   const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
-  const bool haveKey = std::filesystem::exists(keyPath);
-  const bool havePub = std::filesystem::exists(pubPath);
-  if (!haveKey && !havePub) {
-    std::error_code ec;
-    std::filesystem::create_directories(keyPath.parent_path(), ec);
-    auto pair = utl::mlDsaGenerate();
-    if (!pair) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to generate beacon signing key: " + pair.error().message);
-    }
-    if (auto w = utl::writeToNewFile(keyPath.string(), utl::hexEncode(pair->privateKey) + "\n"); !w) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + keyPath.string() + ": " + w.error().message);
-    }
-    if (auto w = utl::writeToNewFile(pubPath.string(), utl::hexEncode(pair->publicKey) + "\n"); !w) {
-      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + pubPath.string() + ": " + w.error().message);
-    }
-    return pair->publicKey;
-  }
-  if (!haveKey || !havePub) {
+  if (!std::filesystem::exists(keyPath) || !std::filesystem::exists(pubPath)) {
     return BeaconServer::Error(BeaconServer::E_CONFIG, std::string("Beacon signing key needs both ") +
                                                            BeaconServer::FILE_BEACON_SIGNING_KEY + " and " +
                                                            BeaconServer::FILE_BEACON_SIGNING_PUB);
@@ -86,7 +68,39 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &w
     return BeaconServer::Error(BeaconServer::E_CONFIG, std::string(BeaconServer::FILE_BEACON_SIGNING_KEY) + " and " +
                                                            BeaconServer::FILE_BEACON_SIGNING_PUB + " do not match");
   }
-  return publicKey;
+  utl::MlDsaKeyPair pair;
+  pair.publicKey = publicKey;
+  pair.privateKey = privateKey.value();
+  return pair;
+}
+
+/**
+ * --init: the beacon signing key pair, created when neither file exists (an operator may
+ * pre-generate them with `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
+ */
+BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+  const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
+  const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
+  if (!std::filesystem::exists(keyPath) && !std::filesystem::exists(pubPath)) {
+    std::error_code ec;
+    std::filesystem::create_directories(keyPath.parent_path(), ec);
+    auto pair = utl::mlDsaGenerate();
+    if (!pair) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to generate beacon signing key: " + pair.error().message);
+    }
+    if (auto w = utl::writeToNewFile(keyPath.string(), utl::hexEncode(pair->privateKey) + "\n"); !w) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + keyPath.string() + ": " + w.error().message);
+    }
+    if (auto w = utl::writeToNewFile(pubPath.string(), utl::hexEncode(pair->publicKey) + "\n"); !w) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + pubPath.string() + ": " + w.error().message);
+    }
+    return pair->publicKey;
+  }
+  auto pair = loadBeaconSigningKey(workDir);
+  if (!pair) {
+    return pair.error();
+  }
+  return pair.value().publicKey;
 }
 
 /** `entry.publicKeys` (hex ML-DSA-65) and optional `minSignatures` (1..count; default all). */
@@ -674,6 +688,14 @@ Service::Roe<void> BeaconServer::onStart() {
 
   log().info << "Beacon core initialized";
 
+  auto signingKey = loadBeaconSigningKey(getWorkDir());
+  if (!signingKey) {
+    return Service::Error(E_CONFIG, signingKey.error().message);
+  }
+  if (auto signing = beacon_.openTipSigning(signingKey.value()); !signing) {
+    return Service::Error(-4, "Failed to open tip signing: " + signing.error().message);
+  }
+
   auto keyResult = loadOrCreateIdentityKey();
   if (!keyResult) {
     return Service::Error(E_CONFIG, keyResult.error().message);
@@ -769,6 +791,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.nStakeholders = beacon_.getStakeholders().size();
   state.networkId = beacon_.getNetworkId(); // from genesis
   state.registryVersion = miners_.version();
+  state.signedTip = beacon_.getSignedTip();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -861,7 +884,7 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   }
   switch (checkBlockAdd(beacon_, block)) {
   case BlockAddCheck::AlreadyHave:
-    return {"Block already added"};
+    return tipReply(); // a leader retrying: the signed tip covers its block
   case BlockAddCheck::Conflicts:
     return Error(E_REQUEST, "Block " + std::to_string(block.block.index) + " conflicts with the stored block");
   case BlockAddCheck::New:
@@ -879,7 +902,14 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
   txPool_.removeIncluded(block.block.records);
-  return {"Block added"};
+  return tipReply();
+}
+
+std::string BeaconServer::tipReply() const {
+  Client::TipReply reply;
+  reply.nextBlockId = beacon_.getNextBlockId();
+  reply.setTip(beacon_.getSignedTip());
+  return utl::binaryPack(reply);
 }
 
 BeaconServer::Roe<std::string>

@@ -71,6 +71,12 @@ static void setValidationWindow(uint64_t& idempotentId, int64_t& validationTsMin
 
 void printBeaconStatus(const pp::Client::BeaconState& status) {
   std::cout << "Current Timestamp: " << pp::utl::formatTimestampLocal(status.currentTimestamp) << "\n";
+  if (status.signedTip) {
+    std::cout << "Signed tip: block " << status.signedTip->height << ", generation " << status.signedTip->generation
+              << "\n";
+  } else {
+    std::cout << "Signed tip: none\n";
+  }
   std::cout << pp::common::io::metaToJsonString(status.ltsToMeta(), 2) << "\n";
 }
 

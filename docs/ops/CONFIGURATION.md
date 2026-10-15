@@ -9,7 +9,8 @@ anything not listed here is fixed in code.
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
 | `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
-| `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`) |
+| `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
+| `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
 
 ## `init-config.json` (beacon, genesis)
 
@@ -157,7 +158,8 @@ terminal; a relay lists its miners and trusted clients.
 
 The beacon signs with its own key, `keys/beacon-signing.key` (`.pub` beside it), separate from its
 network identity. `--init` creates the pair when neither file exists, else reuses it when both exist
-and match; the genesis record certifies its public key as beacon generation 1.
+and match; the genesis record certifies its public key as beacon generation 1. Every start loads
+it and signs each committed block with it (`pp-client status` shows `Signed tip: block …`).
 
 To certify a new beacon key (the next generation), the admins write, sign and submit a
 `T_BEACON_CERT` ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):

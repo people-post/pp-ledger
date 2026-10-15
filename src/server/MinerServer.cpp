@@ -849,19 +849,19 @@ void MinerServer::startBroadcast(const Ledger::ChainNode &block) {
   for (size_t i = 0; i < upstreams.size(); ++i) {
     // Each call captures the dial key set just before it, so the sends run in parallel.
     if (auto dial = broadcastClient_.setAmpPeer("upstream:" + std::to_string(i), upstreams[i]); !dial) {
-      onBroadcastResult(id, i, Client::Roe<bool>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
+      onBroadcastResult(id, i, Client::Roe<Client::TipReply>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
       continue;
     }
-    broadcastClient_.addBlockAsync(block, completeOnServerThread<bool>([this, id, i](Client::Roe<bool> result) {
+    broadcastClient_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, id, i](Client::Roe<Client::TipReply> result) {
       onBroadcastResult(id, i, std::move(result));
     }));
   }
   if (upstreams.empty()) {
-    onBroadcastResult(id, 0, Client::Roe<bool>(Client::Error(Client::E_NOT_CONNECTED, "No upstream configured")));
+    onBroadcastResult(id, 0, Client::Roe<Client::TipReply>(Client::Error(Client::E_NOT_CONNECTED, "No upstream configured")));
   }
 }
 
-void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<bool> result) {
+void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Client::Roe<Client::TipReply> result) {
   if (!broadcast_ || broadcast_->id != broadcastId) {
     return; // a later result for a broadcast that already finished
   }

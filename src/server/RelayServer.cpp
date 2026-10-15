@@ -229,6 +229,7 @@ void RelayServer::initBlockSync() {
   watchHooks.dialUpstream = hooks.dialUpstream;
   watchHooks.nextBlockId = hooks.nextBlockId;
   watchHooks.onUpstreamAhead = [this]() { blockSyncRequested_ = true; };
+  watchHooks.onSignedTip = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
   watchHooks.postToServerThread = hooks.postToServerThread;
   blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
   blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
@@ -262,7 +263,18 @@ void RelayServer::startBeaconStateRefresh() {
         if (!status.value().networkId.empty()) {
           networkId_ = status.value().networkId;
         }
+        noteSignedTip(status.value().signedTip);
       }));
+}
+
+void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
+  if (!tip) {
+    return;
+  }
+  if (upstreamTip_.offer(*tip) == UpstreamSignedTip::Offer::Conflict) {
+    log().warning << "Upstream sent a second signed tip for block " << tip->height << " (generation "
+                  << tip->generation << "); keeping the first";
+  }
 }
 
 void RelayServer::initHandlers() {
@@ -341,6 +353,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.nStakeholders = relay_.getStakeholders().size();
   state.networkId = networkId_;
   state.registryVersion = registryVersion_;
+  state.signedTip = upstreamTip_.latest();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -459,9 +472,13 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
     return;
   }
   switch (checkBlockAdd(relay_, block)) {
-  case BlockAddCheck::AlreadyHave:
-    reply(packResponse("Block already added")); // we synced it from upstream: it is there already
+  case BlockAddCheck::AlreadyHave: { // we synced it from upstream: it is there already
+    Client::TipReply known;
+    known.nextBlockId = relay_.getNextBlockId();
+    known.setTip(upstreamTip_.latest());
+    reply(packResponse(utl::binaryPack(known)));
     return;
+  }
   case BlockAddCheck::Conflicts:
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Block " + std::to_string(block.block.index) +
                                                            " conflicts with the stored block")));
@@ -473,13 +490,15 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message)));
     return;
   }
-  client_.addBlockAsync(block, completeOnServerThread<bool>([this, block, reply](Client::Roe<bool> result) {
+  client_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, block, reply](
+                                                                            Client::Roe<Client::TipReply> result) {
     if (!result) {
       replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
       return;
     }
     relay_.addBlock(block); // Don't care about the result
-    reply(packResponse("Block added"));
+    noteSignedTip(result.value().tip());
+    reply(packResponse(utl::binaryPack(result.value()))); // the beacon's reply, unchanged
   }));
 }
 
@@ -557,6 +576,7 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
                        if (!state.value().networkId.empty()) {
                          networkId_ = state.value().networkId;
                        }
+                       noteSignedTip(state.value().signedTip);
                        reply(packResponse(utl::binaryPack(state.value().ltsToMeta())));
                      }));
 }

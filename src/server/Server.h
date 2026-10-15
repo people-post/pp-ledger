@@ -170,6 +170,8 @@ protected:
    * id so the base can answer BLOCK_WAIT; nullopt (default) = not served.
    */
   virtual std::optional<uint64_t> blockWaitTip() const { return std::nullopt; }
+  /** The beacon's latest signed tip this node holds, sent with each BLOCK_WAIT answer. */
+  virtual std::optional<Client::SignedTip> latestSignedTip() const { return std::nullopt; }
 
 private:
   /** Server thread: one queued request — deferred, or handled now and replied. */

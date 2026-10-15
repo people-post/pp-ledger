@@ -100,6 +100,34 @@ pp::common::Meta Client::UserAccount::ltsToMeta() const {
   return j;
 }
 
+std::string Client::SignedTip::signingMessage() const {
+  return std::string("pp-ledger/signed-tip/v1") + utl::binaryPack(networkId) + utl::binaryPack(generation) +
+         utl::binaryPack(height) + utl::binaryPack(blockHash);
+}
+
+bool Client::SignedTip::verify(const std::string &publicKey) const {
+  return utl::mlDsaVerify(publicKey, signingMessage(), signature);
+}
+
+std::string Client::SignedTip::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Client::SignedTip::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  return !ar.failed();
+}
+
 std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
   return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
          utl::binaryPack(issuedAt);
@@ -171,6 +199,9 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   if (registryVersion != 0) {
     m.setUIntForJson("registryVersion", registryVersion);
   }
+  if (signedTip) {
+    m.set("signedTip", signedTip->ltsToString());
+  }
   return m;
 }
 
@@ -184,6 +215,14 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
   networkId = meta.getOrDefault("networkId", std::string{});
   headHash = meta.getOrDefault("headHash", std::string{});
   registryVersion = meta.getNonNegInt("registryVersion").value_or(0);
+  signedTip.reset();
+  if (auto packed = meta.getOrDefault("signedTip", std::string{}); !packed.empty()) {
+    SignedTip tip;
+    if (!tip.ltsFromString(packed)) {
+      return Error(E_INVALID_RESPONSE, "Invalid signed tip in beacon state");
+    }
+    signedTip = std::move(tip);
+  }
   return true;
 }
 
@@ -325,16 +364,19 @@ void Client::fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done) {
                    });
 }
 
-void Client::waitForBlockAsync(uint64_t knownNextBlockId, Done<uint64_t> done) {
+Client::Roe<Client::TipReply> Client::parseTipReply(const std::string &payload) {
+  auto reply = utl::binaryUnpack<TipReply>(payload);
+  if (!reply) {
+    return Error(E_INVALID_RESPONSE, "Invalid tip reply: " + reply.error().message);
+  }
+  return reply.value();
+}
+
+void Client::waitForBlockAsync(uint64_t knownNextBlockId, Done<TipReply> done) {
   sendRequestAsync(T_REQ_BLOCK_WAIT, utl::binaryPack(knownNextBlockId), fastTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
-                     if (!result) {
-                       done(Roe<uint64_t>(Error(result.error().code, result.error().message)));
-                       return;
-                     }
-                     auto next = utl::binaryUnpack<uint64_t>(result.value());
-                     done(next ? Roe<uint64_t>(next.value())
-                               : Roe<uint64_t>(Error(E_INVALID_RESPONSE, "Invalid block wait reply")));
+                     done(result ? parseTipReply(result.value())
+                                 : Roe<TipReply>(Error(result.error().code, result.error().message)));
                    });
 }
 
@@ -500,7 +542,7 @@ Client::fetchTransactionByIndex(const TxGetByIndexRequest &request) {
   return responseResult.value();
 }
 
-Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
+Client::Roe<Client::TipReply> Client::addBlock(const Ledger::ChainNode& block) {
   log().debug << "Adding block " << block.block.index;
 
   std::string payload = block.ltsToString();
@@ -508,14 +550,14 @@ Client::Roe<bool> Client::addBlock(const Ledger::ChainNode& block) {
   if (!result) {
     return result.error();
   }
-  return true;
+  return parseTipReply(result.value());
 }
 
-void Client::addBlockAsync(const Ledger::ChainNode &block, Done<bool> done) {
+void Client::addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done) {
   log().debug << "Adding block " << block.block.index;
   sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), dataTimeout(),
                    [done = std::move(done)](Roe<std::string> result) {
-                     done(result ? Roe<bool>(true) : Roe<bool>(result.error()));
+                     done(result ? parseTipReply(result.value()) : Roe<TipReply>(result.error()));
                    });
 }
 

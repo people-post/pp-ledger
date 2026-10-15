@@ -146,9 +146,11 @@ public:
   std::thread::id deferredThread;
   /** Set to serve BLOCK_WAIT (like a beacon / relay). */
   std::optional<uint64_t> tip;
+  std::optional<Client::SignedTip> signedTip;
 
 protected:
   std::optional<uint64_t> blockWaitTip() const override { return tip; }
+  std::optional<Client::SignedTip> latestSignedTip() const override { return signedTip; }
 
 public:
 
@@ -448,7 +450,7 @@ TEST(BlockWaitListTest, OneWaitPerPeerAndBounded) {
 }
 
 uint64_t replyTip(const Client::Response& response) {
-  return utl::binaryUnpack<uint64_t>(response.payload).value();
+  return utl::binaryUnpack<Client::TipReply>(response.payload).value().nextBlockId;
 }
 
 TEST(ServerThreadTest, BlockWaitIsAnsweredWhenTheTipMoves) {
@@ -466,6 +468,32 @@ TEST(ServerThreadTest, BlockWaitIsAnsweredWhenTheTipMoves) {
   ASSERT_EQ(replies.size(), 2u);
   EXPECT_EQ(replies.items[1].errorCode, 0);
   EXPECT_EQ(replyTip(replies.items[1]), 7u);
+}
+
+// beacon-authority ba3: every BLOCK_WAIT answer carries the latest signed tip the node holds.
+TEST(ServerThreadTest, BlockWaitAnswerCarriesTheSignedTip) {
+  EchoServer server;
+  server.tip = 6;
+  Replies replies;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{4}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.serveRequestsFor(20ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_FALSE(utl::binaryUnpack<Client::TipReply>(replies.items[0].payload).value().hasSignedTip);
+
+  Client::SignedTip tip;
+  tip.networkId = "net";
+  tip.generation = 1;
+  tip.height = 6;
+  tip.blockHash = "hash-6";
+  tip.signature = "sig";
+  server.signedTip = tip;
+  server.enqueueRequest(packRequest(utl::binaryPack(uint64_t{4}), Client::T_REQ_BLOCK_WAIT), replies.sink(), "m1");
+  server.serveRequestsFor(20ms);
+  ASSERT_EQ(replies.size(), 2u);
+  auto answer = utl::binaryUnpack<Client::TipReply>(replies.items[1].payload).value();
+  EXPECT_EQ(answer.nextBlockId, 6u);
+  ASSERT_TRUE(answer.tip().has_value());
+  EXPECT_EQ(*answer.tip(), tip);
 }
 
 TEST(ServerThreadTest, BlockWaitHoldEndsWithTheTipUnchanged) {
