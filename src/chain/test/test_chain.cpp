@@ -2450,6 +2450,43 @@ TEST_F(ChainComposeTest, ConfigUpdate_AppliesAtNextEpochAndOnlyOneIsPending) {
 
 // Genesis issuance (to reserve, fee included) is capped per epoch by
 // maxIssuancePerEpoch (100 in the harness); a new epoch starts afresh.
+// Slot timing is fixed at genesis (BLOCK_PIPELINE open item D): the slot schedule is set once
+// from it, so a config update may not change slotDuration or slotsPerEpoch either way.
+TEST_F(ChainComposeTest, ConfigUpdate_RefusesSlotTimingChanges) {
+  auto &producer = harness_.producer;
+  const std::vector<utl::MlDsaKeyPair> rotated = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  uint64_t idem = 1;
+  auto tryConfig = [&](const std::function<void(Chain::BlockChainConfig &)> &change) {
+    Chain::GenesisAccountMeta gm;
+    gm.config = harness_.chainConfig;
+    change(gm.config);
+    gm.genesis.wallet = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
+    gm.genesis.wallet.publicKeys = {rotated[0].publicKey, rotated[1].publicKey, rotated[2].publicKey};
+    gm.genesis.wallet.minSignatures = 2;
+    gm.genesis.meta = AccountAttachment::emptySerialized();
+    Ledger::TxConfig tx;
+    tx.meta = gm.ltsToString();
+    tx.idempotentId = idem++;
+    tx.validationTsMin = harness_.chainConfig.genesisTime;
+    tx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(
+        scratch, makeRecord(Ledger::T_CONFIG, tx, harness_.genesisKey, producer.getNetworkId()), kTestMinerId);
+  };
+  auto refused = [&](const std::function<void(Chain::BlockChainConfig &)> &change, const std::string &why) {
+    auto added = tryConfig(change);
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  };
+  refused([](auto &c) { c.slotDuration -= 1; }, "Slot duration is fixed at genesis");
+  refused([](auto &c) { c.slotDuration += 1; }, "Slot duration is fixed at genesis");
+  refused([](auto &c) { c.slotsPerEpoch += 1; }, "Slots per epoch is fixed at genesis");
+  refused([](auto &c) { c.slotsPerEpoch -= 1; }, "Slots per epoch is fixed at genesis");
+  auto other = tryConfig([](auto &c) { c.maxTransactionsPerBlock += 1; });
+  EXPECT_TRUE(other.isOk()) << other.error().message;
+}
+
 TEST_F(ChainComposeTest, GenesisIssuance_CappedPerEpoch) {
   auto &producer = harness_.producer;
   auto issue = [&](uint64_t amount, uint64_t idem) {

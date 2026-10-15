@@ -122,8 +122,9 @@ not installed in `RecordHandler`.
   config follow the same rule, so a raised limit cannot be used in the epoch
   that raised it.
 - **The genesis account (keys, rotation) is replaced at once.**
-- Fields that may not move: `genesisTime`; `slotDuration` may only shrink,
-  `slotsPerEpoch` only grow.
+- Fields that may not move: `genesisTime`, `slotDuration` and `slotsPerEpoch` — slot timing
+  is fixed at genesis (the slot schedule is set once from it; slot and epoch numbering stay
+  continuous for every node).
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`) is
   `config`, `genesis`, and a pending section (`hasPending`, `pending` = activation epoch +
   config). `T_GENESIS` and `T_CONFIG` carry no pending section (a `T_CONFIG`'s `config` is

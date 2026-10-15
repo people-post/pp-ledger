@@ -150,17 +150,11 @@ mutable `BlockChainConfig` fields.
 Leaders seal after their slot ends and deliver within `min(slot / 3, 2 s)`; the beacon refuses
 late blocks. Normative: [WIRE_SCHEMA.md — Slot timing](../contracts/WIRE_SCHEMA.md#slot-timing).
 
-### D. `T_CONFIG` timing fields do not reach `SlotCommittee`
+### D. `T_CONFIG` timing fields — **settled: fixed at genesis**
 
-A config update replaces `BlockChainConfig` (at the next epoch boundary), but
-the slot schedule runs on `SlotCommittee::Config` (`slotDuration`,
-`slotsPerEpoch`), set once at init and never updated. A `T_CONFIG` that shrinks
-`slotDuration` or grows `slotsPerEpoch` (the only directions allowed) changes
-the stored config, not slot timing, epoch numbering or leader election — the
-two disagree from then on. Decide: apply timing changes to `SlotCommittee` at
-the activation epoch (slot/epoch math must stay continuous across the change,
-for every node, including replay and late join), or make timing fields
-immutable after genesis and refuse them in `T_CONFIG`.
+`slotDuration` and `slotsPerEpoch` cannot change after genesis: a `T_CONFIG` changing either is
+refused, so the stored config and the slot schedule (`SlotCommittee::Config`, set once at init)
+always agree. Normative: [WIRE_SCHEMA.md — Config updates](../contracts/WIRE_SCHEMA.md#config-updates).
 
 ### E. Genesis renewal re-records config — **settled**
 
