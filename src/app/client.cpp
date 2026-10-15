@@ -2,6 +2,7 @@
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "../ledger/Ledger.h"
+#include "../chain/Types.h"
 #include "../consensus/Types.hpp"
 #include "../network/LedgerAmpRuntime.h"
 #include "../network/amp/AmpIdentity.h"
@@ -13,6 +14,8 @@
 
 #include <cli11.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -153,6 +156,49 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
     return 1;
   }
   std::cout << "Transaction written to " << outputPath << "\n";
+  return 0;
+}
+
+/**
+ * mk-beacon-cert (beacon-authority ba2): an unsigned T_BEACON_CERT record for the next beacon
+ * generation. Admins add their signatures with sign-tx (--network-id) and submit with submit-tx.
+ */
+static int runMkBeaconCert(const std::string &networkId, uint64_t generation, const std::string &pubkeyArg,
+                           uint64_t cutoverHeight, const std::string &outputPath) {
+  std::string pubHex = pubkeyArg;
+  if (std::ifstream pubFile(pubkeyArg); pubFile) {
+    std::ostringstream text;
+    text << pubFile.rdbuf();
+    pubHex = text.str();
+  }
+  pubHex.erase(std::remove_if(pubHex.begin(), pubHex.end(), [](unsigned char c) { return std::isspace(c); }),
+               pubHex.end());
+  if (pubHex.rfind("0x", 0) == 0) {
+    pubHex = pubHex.substr(2);
+  }
+  pp::BeaconCertificate cert;
+  cert.networkId = networkId;
+  cert.generation = generation;
+  cert.publicKey = pp::utl::hexDecode(pubHex);
+  cert.cutoverHeight = cutoverHeight;
+  if (cert.publicKey.size() != pp::utl::kMlDsaPublicKeyBytes) {
+    std::cerr << "Error: --pubkey must be an ML-DSA-65 public key (hex or a .pub file)\n";
+    return 1;
+  }
+  pp::Ledger::TxBeaconCert tx;
+  tx.fee = 0;
+  tx.meta = cert.ltsToString();
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_BEACON_CERT;
+  rec.data = pp::utl::binaryPack(tx);
+  auto result = pp::utl::writeToNewFile(outputPath, pp::utl::binaryPack(rec));
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Beacon certificate (generation " << generation << ") written to " << outputPath
+            << "; sign it with the admin keys (sign-tx --network-id " << networkId << ") and submit-tx\n";
   return 0;
 }
 
@@ -442,6 +488,20 @@ int main(int argc, char *argv[]) {
   mk_tx_cmd->add_option("-o,--output", mk_output, "Output file (must not exist)")
       ->required();
 
+  // mk-beacon-cert: create an unsigned T_BEACON_CERT record file
+  auto* mk_cert_cmd = app.add_subcommand(
+      "mk-beacon-cert", "Create an unsigned beacon certificate (next generation) for the admin keys to sign");
+  std::string mk_cert_network, mk_cert_pubkey, mk_cert_output;
+  uint64_t mk_cert_generation = 0, mk_cert_cutover = 0;
+  mk_cert_cmd->add_option("--network-id", mk_cert_network, "The chain's networkId")->required();
+  mk_cert_cmd->add_option("--generation", mk_cert_generation, "The new generation (current + 1)")->required();
+  mk_cert_cmd->add_option("--pubkey", mk_cert_pubkey, "New beacon signing public key (hex or .pub file)")
+      ->required();
+  mk_cert_cmd->add_option("--cutover", mk_cert_cutover,
+                          "Last block height the previous generation may sign")
+      ->required();
+  mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
+
   // mk-account: create unsigned T_NEW_USER transaction file
   auto* mk_account_cmd = app.add_subcommand("mk-account",
                                             "Create unsigned T_NEW_USER transaction file");
@@ -545,6 +605,10 @@ int main(int argc, char *argv[]) {
   // Handle mk-tx (no server connection needed)
   if (mk_tx_cmd->parsed()) {
     return runMkTx(mk_from, mk_to, mk_amount, mk_output);
+  }
+
+  if (mk_cert_cmd->parsed()) {
+    return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, mk_cert_output);
   }
 
   // Handle mk-account (no server connection needed)

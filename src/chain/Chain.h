@@ -43,6 +43,7 @@ public:
   using BlockChainConfig = ::pp::BlockChainConfig;
   using GenesisAccountMeta = ::pp::GenesisAccountMeta;
   using ChainAuthority = ::pp::ChainAuthority;
+  using BeaconCertificate = ::pp::BeaconCertificate;
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
@@ -143,6 +144,12 @@ public:
   std::string getNetworkId() const;
   /** Recovery set + beacon certificate in force; nullopt before genesis is applied. */
   std::optional<ChainAuthority> getAuthority() const { return txContext_.optAuthority; }
+  /**
+   * A T_BEACON_CERT record received outside a block (a peer, a file): signed by the admin set in
+   * force, for this chain, a higher generation than the one in force, with a new key. Returns the
+   * certificate. (On chain the record must also be exactly the next generation.)
+   */
+  Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record &record) const;
 
   // ----------------- methods -------------------------------------
   std::string calculateHash(const Ledger::Block &block) const;

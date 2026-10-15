@@ -10,6 +10,7 @@ target_link_libraries(pp-client PRIVATE
     pp_ledger_common
     pp_client
     pp_ledger
+    pp_chain
     CLI11::CLI11
 )
 set_target_properties(pp-client PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PP_APP_OUTPUT_DIR}")

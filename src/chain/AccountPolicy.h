@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -57,6 +58,17 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet);
  */
 Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
                                    const std::string &networkId);
+
+/**
+ * A later beacon certificate against the authority in force (beacon-authority ba2): the chain's
+ * `networkId`; a valid key that is new — not the current beacon key, an admin key or a recovery
+ * key; `cutoverHeight` not below the current one. On chain (`commitBlockId` set): exactly the
+ * next generation, and `cutoverHeight` below the block that commits it. Out of band (nullopt): any
+ * higher generation.
+ */
+Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const ChainAuthority &current,
+                                        const Client::Wallet &adminWallet, const std::string &networkId,
+                                        std::optional<uint64_t> commitBlockId);
 
 /** Remove + re-add an account with the given wallet at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,

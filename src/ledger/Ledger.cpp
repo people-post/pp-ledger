@@ -26,6 +26,7 @@ std::string transactionTypeToHumanString(uint16_t type) {
     case Ledger::T_END_USER: return "end_user";
     case Ledger::T_MINER_REGISTER: return "miner_register";
     case Ledger::T_MINER_REVOKE: return "miner_revoke";
+    case Ledger::T_BEACON_CERT: return "beacon_cert";
     default: return "unknown_" + std::to_string(type);
   }
 }
@@ -132,6 +133,12 @@ pp::common::Meta Ledger::TxConfig::ltsToMeta() const {
   return m;
 }
 
+pp::common::Meta Ledger::TxBeaconCert::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  return m;
+}
+
 pp::common::Meta Ledger::TxUserUpdate::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
@@ -161,7 +168,7 @@ pp::common::Meta Ledger::TxMiner::ltsToMeta() const {
 uint16_t Ledger::typeOf(const TypedTx &tx) {
   static constexpr uint16_t kTypeByIndex[] = {T_DEFAULT,     T_GENESIS, T_NEW_USER,       T_CONFIG,
                                               T_USER_UPDATE, T_RENEWAL, T_END_USER,       T_MINER_REGISTER,
-                                              T_MINER_REVOKE};
+                                              T_MINER_REVOKE, T_BEACON_CERT};
   static_assert(std::size(kTypeByIndex) == std::variant_size_v<TypedTx>);
   return kTypeByIndex[tx.index()];
 }
@@ -277,6 +284,13 @@ Ledger::Record::decode() const {
     auto txRoe = utl::binaryUnpack<Ledger::TxMinerRevoke>(data);
     if (!txRoe) {
       return Ledger::Error(1, "Invalid packed TxMinerRevoke payload: " + txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_BEACON_CERT: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxBeaconCert>(data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxBeaconCert payload: " + txRoe.error().message);
     }
     return Ledger::TypedTx(txRoe.value());
   }

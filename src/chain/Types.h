@@ -146,6 +146,11 @@ struct BeaconCertificate {
   uint64_t cutoverHeight{0};
 
   template <typename Archive> void serialize(Archive &ar) { ar &networkId &generation &publicKey &cutoverHeight; }
+
+  /** Versioned form carried in a T_BEACON_CERT record's `meta`. */
+  constexpr static const uint32_t VERSION = 1;
+  std::string ltsToString() const;
+  bool ltsFromString(const std::string &str);
 };
 
 /** Who holds authority over the chain: the recovery set and the current beacon certificate. */
