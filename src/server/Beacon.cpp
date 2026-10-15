@@ -253,8 +253,8 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::openTipSigning(const utl::MlDsaKeyPair &key) {
-  auto signer = std::make_unique<TipSigner>(config_.workDir + "/" + FILE_SIGNED_TIP, key);
+Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys) {
+  auto signer = std::make_unique<TipSigner>(config_.workDir + "/" + FILE_SIGNED_TIP, keys);
   signer->redirectLogger(log().getFullName() + ".TipSigner");
   if (auto loaded = signer->load(); !loaded) {
     return Error(5, loaded.error().message);
@@ -277,6 +277,16 @@ Beacon::Roe<void> Beacon::openTipSigning(const utl::MlDsaKeyPair &key) {
 
 std::optional<Client::SignedTip> Beacon::getSignedTip() const {
   return tipSigner_ ? tipSigner_->latest() : std::nullopt;
+}
+
+bool Beacon::isSuperseded() const {
+  const auto authority = chain_.getAuthority();
+  return tipSigner_ && authority && !tipSigner_->holdsKey(authority->beacon.publicKey);
+}
+
+uint64_t Beacon::getGeneration() const {
+  const auto authority = chain_.getAuthority();
+  return authority ? authority->beacon.generation : 0;
 }
 
 Beacon::Roe<void> Beacon::checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const {
@@ -312,7 +322,7 @@ TipSigner::Roe<void> Beacon::signCommittedTip() {
   if (!signed_ && signed_.error().code == TipSigner::E_NOT_CERTIFIED &&
       uncertifiedWarnedGeneration_ != authority->beacon.generation) {
     uncertifiedWarnedGeneration_ = authority->beacon.generation;
-    log().warning << "Not signing tips: " << signed_.error().message;
+    log().error << signed_.error().message << ": this beacon stands down (stops committing, serves reads)";
   }
   return signed_;
 }

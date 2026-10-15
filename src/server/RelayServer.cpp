@@ -218,10 +218,11 @@ void RelayServer::initBlockSync() {
   };
   hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
   hooks.tipHash = [this]() { return relay_.getTipHash(); };
-  hooks.verifyTip = [this](const Client::SignedTip &tip) -> pp::Roe<void> {
-    auto verified = relay_.verifySignedTip(tip);
-    return verified ? pp::Roe<void>() : pp::Roe<void>(pp::Error(verified.error().message));
+  hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
+    auto trail = relay_.authorityTrail();
+    return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
+  hooks.onTipVerified = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = relay_.calculateHash(block.block);
@@ -274,8 +275,9 @@ void RelayServer::startBeaconStateRefresh() {
 
 bool RelayServer::coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const {
   const auto tip = reply.tip();
+  // The block may itself certify the generation that signed the tip.
   return tip && tip->height == block.block.index && tip->blockHash == relay_.calculateHash(block.block) &&
-         relay_.verifySignedTip(*tip);
+         relay_.verifySignedTip(*tip, {&block.block});
 }
 
 void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
@@ -511,11 +513,11 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
       replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
       return;
     }
-    noteSignedTip(result.value().tip());
     // Store it now only if the beacon's signed tip vouches for it; otherwise sync brings it.
     if (coversBlock(result.value(), block)) {
       relay_.addBlock(block); // Don't care about the result
     }
+    noteSignedTip(result.value().tip()); // after the block: it may certify the tip's generation
     reply(packResponse(utl::binaryPack(result.value()))); // the beacon's reply, unchanged
   }));
 }

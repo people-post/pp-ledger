@@ -34,6 +34,8 @@ add_library(pp_chain STATIC
     GenesisTxHandler.h
     ConfigPolicy.cpp
     ConfigPolicy.h
+    AuthorityTrail.cpp
+    AuthorityTrail.h
     BeaconCertTxHandler.cpp
     BeaconCertTxHandler.h
     ConfigTxHandler.cpp

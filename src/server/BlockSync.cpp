@@ -59,7 +59,9 @@ void BlockSync::onStatus(Client::Roe<Client::BeaconState> result) {
   status_ = std::move(result.value());
   if (!hooks_.tipHash()) {
     const uint64_t first = hooks_.nextBlockId();
-    log().info << "No local blocks: taking block " << first << " from upstream on trust";
+    const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
+    log().info << "No local blocks: taking block " << first << " from upstream"
+               << (pinned ? " (pinned)" : " on trust");
     beginRange(Phase::Bootstrap, first, first + 1);
   } else {
     syncToSignedTip();
@@ -73,9 +75,14 @@ void BlockSync::syncToSignedTip() {
     return;
   }
   tip_ = *status_.signedTip;
-  if (auto verified = hooks_.verifyTip(tip_); !verified) {
-    finish(false, "Upstream's signed tip (block " + std::to_string(tip_.height) +
-                      ") does not verify: " + verified.error().message);
+  auto trail = hooks_.authorityTrail();
+  if (!trail) {
+    finish(false, "Beacon authority unavailable: " + trail.error().message);
+    return;
+  }
+  trail_ = std::move(trail.value());
+  // A tip of a later generation can verify only once the blocks certifying it are followed.
+  if (tip_.generation <= trail_->beacon().generation && !verifyTip()) {
     return;
   }
   const uint64_t next = hooks_.nextBlockId();
@@ -89,6 +96,10 @@ void BlockSync::syncToSignedTip() {
     return;
   }
   if (tip_.height < next) {
+    if (tip_.generation > trail_->beacon().generation) {
+      finish(false, "Signed tip of a later generation for a block this node already holds");
+      return;
+    }
     finish(true, {}); // nothing signed beyond what we hold
     return;
   }
@@ -174,6 +185,11 @@ bool BlockSync::process(Ledger::ChainNode block) {
   switch (phase_) {
   case Phase::Bootstrap: {
     block.hash = chain_block::calculateBlockHash(block.block);
+    if (const auto pinned = hooks_.firstBlockHash ? hooks_.firstBlockHash() : std::nullopt;
+        pinned && *pinned != block.hash) {
+      finish(false, "Block " + std::to_string(nextToProcess_) + " is not the pinned first block");
+      return false;
+    }
     if (auto applied = hooks_.applyBlock(block); !applied) {
       finish(false, "Failed to add block " + std::to_string(nextToProcess_) + ": " + applied.error().message);
       return false;
@@ -194,6 +210,10 @@ bool BlockSync::process(Ledger::ChainNode block) {
 bool BlockSync::authenticate(Ledger::ChainNode block) {
   if (block.block.previousHash != linkHash_) {
     finish(false, "Block " + std::to_string(nextToProcess_) + " does not extend the block below it");
+    return false;
+  }
+  if (auto observed = trail_->observe(block.block); !observed) {
+    finish(false, "Beacon authority does not follow: " + observed.error().message);
     return false;
   }
   block.hash = chain_block::calculateBlockHash(block.block);
@@ -232,6 +252,9 @@ void BlockSync::endPhase() {
       finish(false, "Blocks up to " + std::to_string(tip_.height) + " do not lead to the signed tip");
       return;
     }
+    if (!verifyTip()) {
+      return;
+    }
     beginRange(Phase::Apply, authBase_, target_);
     return;
   case Phase::Apply:
@@ -242,6 +265,15 @@ void BlockSync::endPhase() {
   }
 }
 
+bool BlockSync::verifyTip() {
+  if (auto verified = trail_->verifyTip(tip_); !verified) {
+    finish(false, "Upstream's signed tip (block " + std::to_string(tip_.height) +
+                      ") does not verify: " + verified.error().message);
+    return false;
+  }
+  return true;
+}
+
 void BlockSync::finish(bool ok, std::string error) {
   inFlight_ = false;
   ++attempt_; // late results of this sync are ignored
@@ -250,6 +282,11 @@ void BlockSync::finish(bool ok, std::string error) {
   held_.clear();
   authHashes_.clear();
   outstanding_ = 0;
+  const bool tipVerified = ok && trail_.has_value() && status_.signedTip.has_value();
+  trail_.reset();
+  if (tipVerified && hooks_.onTipVerified) {
+    hooks_.onTipVerified(tip_);
+  }
   if (ok) {
     backoff_ = std::chrono::milliseconds(0);
     notBefore_ = {};

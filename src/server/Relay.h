@@ -53,8 +53,10 @@ public:
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
-  /** A beacon signed tip of this chain's beacon generation in force (Chain::verifySignedTip). */
-  Roe<void> verifySignedTip(const Client::SignedTip &tip) const;
+  /** A beacon signed tip, of the generation in force here or after `pending` (Chain::verifySignedTip). */
+  Roe<void> verifySignedTip(const Client::SignedTip &tip, const std::vector<const Ledger::Block *> &pending = {}) const;
+  /** The beacon authority at the local tip (Chain::authorityTrail). */
+  Roe<AuthorityTrail> authorityTrail() const;
   /** Hash of the last block held; none while the ledger is empty. */
   std::optional<std::string> getTipHash() const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */

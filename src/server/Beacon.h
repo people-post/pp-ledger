@@ -139,9 +139,17 @@ public:
    * block at a height it already signed. Signs the committed tip if it is not signed yet (the
    * genesis block after --init, or a crash between commit and signing).
    */
-  Roe<void> openTipSigning(const utl::MlDsaKeyPair &key);
+  Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys);
   /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
   std::optional<Client::SignedTip> getSignedTip() const;
+  /**
+   * The certificate in force names a key this beacon does not hold (beacon-authority ba5): a
+   * later generation belongs to another beacon, so this one stands down — it stops committing
+   * and serves reads only. False before openTipSigning.
+   */
+  bool isSuperseded() const;
+  /** The beacon generation in force (0 before the chain is loaded). */
+  uint64_t getGeneration() const;
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
@@ -194,7 +202,7 @@ private:
   Chain chain_;
   Config config_;
   std::unique_ptr<TipSigner> tipSigner_;
-  /** Generation already warned about as not certifying this key (one warning per generation). */
+  /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};
 };
 

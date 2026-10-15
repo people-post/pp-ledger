@@ -1329,21 +1329,31 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
   return cert.value();
 }
 
-Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip) const {
+Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
   if (!txContext_.optAuthority.has_value()) {
     return Error(E_STATE_INIT, "Chain authority not initialized");
   }
-  const auto &beacon = txContext_.optAuthority->beacon;
-  if (tip.networkId != getNetworkId()) {
-    return Error(E_TX_VALIDATION, "Signed tip is for network '" + tip.networkId + "'");
+  auto admin = txContext_.bank.getAccount(AccountBuffer::ID_GENESIS);
+  if (!admin) {
+    return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
   }
-  if (tip.generation != beacon.generation) {
-    return Error(E_TX_VALIDATION, "Signed tip is from beacon generation " + std::to_string(tip.generation) +
-                                      "; generation " + std::to_string(beacon.generation) + " is in force here");
+  return AuthorityTrail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
+}
+
+Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip,
+                                        const std::vector<const Ledger::Block *> &pending) const {
+  auto trail = authorityTrail();
+  if (!trail) {
+    return trail.error();
   }
-  if (!tip.verify(beacon.publicKey)) {
-    return Error(E_TX_SIGNATURE, "Signed tip is not signed by the beacon of generation " +
-                                     std::to_string(beacon.generation));
+  for (const auto *block : pending) {
+    if (auto observed = trail.value().observe(*block); !observed) {
+      return Error(observed.error().code, observed.error().message);
+    }
+  }
+  auto verified = trail.value().verifyTip(tip);
+  if (!verified) {
+    return Error(verified.error().code, verified.error().message);
   }
   return {};
 }

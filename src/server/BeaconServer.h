@@ -34,6 +34,9 @@ public:
   /** Beacon signing key pair under the work dir (same format as `pp-client keygen -o`). */
   constexpr static const char *FILE_BEACON_SIGNING_KEY = "keys/beacon-signing.key";
   constexpr static const char *FILE_BEACON_SIGNING_PUB = "keys/beacon-signing.pub";
+  /** Optional: a key staged for a rotation; signs once a certificate names it. */
+  constexpr static const char *FILE_BEACON_SIGNING_NEXT_KEY = "keys/beacon-signing.next.key";
+  constexpr static const char *FILE_BEACON_SIGNING_NEXT_PUB = "keys/beacon-signing.next.pub";
   static constexpr const int32_t E_NETWORK = -2;
   static constexpr const int32_t E_BEACON = -3;
   static constexpr const int32_t E_REQUEST = -4;

@@ -351,7 +351,7 @@ TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
     Beacon beacon;
     ASSERT_TRUE(beacon.mount(mount).isOk());
     EXPECT_FALSE(beacon.getSignedTip().has_value()) << "no signing before openTipSigning";
-    ASSERT_TRUE(beacon.openTipSigning(beaconKey).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey}).isOk());
     ASSERT_TRUE(beacon.getSignedTip().has_value());
     first = beacon.getSignedTip().value();
     EXPECT_EQ(first.height, 0u);
@@ -363,15 +363,16 @@ TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
   {
     Beacon beacon; // restart: the persisted tip, not a fresh signature
     ASSERT_TRUE(beacon.mount(mount).isOk());
-    ASSERT_TRUE(beacon.openTipSigning(beaconKey).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey}).isOk());
     EXPECT_EQ(beacon.getSignedTip(), first);
   }
   {
     Beacon beacon; // another key: the beacon runs but signs nothing
     ASSERT_TRUE(beacon.mount(mount).isOk());
     std::filesystem::rename(setup.dir / "data" / "signed-tip.dat", setup.dir / "signed-tip.keep");
-    ASSERT_TRUE(beacon.openTipSigning(utl::mlDsaGenerate().value()).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({utl::mlDsaGenerate().value()}).isOk());
     EXPECT_FALSE(beacon.getSignedTip().has_value());
+    EXPECT_TRUE(beacon.isSuperseded()) << "no key it holds is certified: it stands down";
     std::filesystem::rename(setup.dir / "signed-tip.keep", setup.dir / "data" / "signed-tip.dat");
   }
 
@@ -384,7 +385,7 @@ TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
   {
     Beacon beacon;
     ASSERT_TRUE(beacon.mount(mount).isOk());
-    auto refused = beacon.openTipSigning(beaconKey);
+    auto refused = beacon.openTipSigning({beaconKey});
     ASSERT_FALSE(refused.isOk());
     EXPECT_NE(refused.error().message.find("below the last signed tip"), std::string::npos) << refused.error().message;
   }
@@ -394,7 +395,7 @@ TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
   {
     Beacon beacon;
     ASSERT_TRUE(beacon.mount(mount).isOk());
-    EXPECT_FALSE(beacon.openTipSigning(beaconKey).isOk());
+    EXPECT_FALSE(beacon.openTipSigning({beaconKey}).isOk());
   }
 }
 

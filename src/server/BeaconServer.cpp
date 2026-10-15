@@ -42,15 +42,14 @@ namespace {
  * The beacon signing key pair under `workDir` (beacon-authority B006): both files must exist and
  * belong together.
  */
-BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &workDir) {
-  const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
-  const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
+BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &workDir, const std::string &keyName,
+                                                          const std::string &pubName) {
+  const std::filesystem::path keyPath = std::filesystem::path(workDir) / keyName;
+  const std::filesystem::path pubPath = std::filesystem::path(workDir) / pubName;
   if (!std::filesystem::exists(keyPath) || !std::filesystem::exists(pubPath)) {
-    return BeaconServer::Error(BeaconServer::E_CONFIG, std::string("Beacon signing key needs both ") +
-                                                           BeaconServer::FILE_BEACON_SIGNING_KEY + " and " +
-                                                           BeaconServer::FILE_BEACON_SIGNING_PUB);
+    return BeaconServer::Error(BeaconServer::E_CONFIG, "Beacon signing key needs both " + keyName + " and " + pubName);
   }
-  auto privateKey = utl::readPrivateKey(BeaconServer::FILE_BEACON_SIGNING_KEY, workDir);
+  auto privateKey = utl::readPrivateKey(keyName, workDir);
   if (!privateKey) {
     return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to read beacon signing key: " + privateKey.error().message);
   }
@@ -65,13 +64,37 @@ BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &wor
   const std::string probe = "pp-ledger/beacon-signing-key-probe/v1";
   auto sig = utl::mlDsaSign(privateKey.value(), probe);
   if (!sig || !utl::mlDsaVerify(publicKey, probe, sig.value())) {
-    return BeaconServer::Error(BeaconServer::E_CONFIG, std::string(BeaconServer::FILE_BEACON_SIGNING_KEY) + " and " +
-                                                           BeaconServer::FILE_BEACON_SIGNING_PUB + " do not match");
+    return BeaconServer::Error(BeaconServer::E_CONFIG, keyName + " and " + pubName + " do not match");
   }
   utl::MlDsaKeyPair pair;
   pair.publicKey = publicKey;
   pair.privateKey = privateKey.value();
   return pair;
+}
+
+/**
+ * Every start: the beacon signing key, and the next one when an operator staged it for a rotation
+ * (beacon-authority ba5). The beacon signs with whichever the certificate in force names.
+ */
+BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const std::string &workDir) {
+  std::vector<utl::MlDsaKeyPair> keys;
+  auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
+                                      BeaconServer::FILE_BEACON_SIGNING_PUB);
+  if (!current) {
+    return current.error();
+  }
+  keys.push_back(current.value());
+  const auto root = std::filesystem::path(workDir);
+  if (std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_KEY) ||
+      std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_PUB)) {
+    auto next = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_NEXT_KEY,
+                                     BeaconServer::FILE_BEACON_SIGNING_NEXT_PUB);
+    if (!next) {
+      return next.error();
+    }
+    keys.push_back(next.value());
+  }
+  return keys;
 }
 
 /**
@@ -96,7 +119,7 @@ BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &w
     }
     return pair->publicKey;
   }
-  auto pair = loadBeaconSigningKey(workDir);
+  auto pair = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY, BeaconServer::FILE_BEACON_SIGNING_PUB);
   if (!pair) {
     return pair.error();
   }
@@ -688,12 +711,16 @@ Service::Roe<void> BeaconServer::onStart() {
 
   log().info << "Beacon core initialized";
 
-  auto signingKey = loadBeaconSigningKey(getWorkDir());
-  if (!signingKey) {
-    return Service::Error(E_CONFIG, signingKey.error().message);
+  auto signingKeys = loadBeaconSigningKeys(getWorkDir());
+  if (!signingKeys) {
+    return Service::Error(E_CONFIG, signingKeys.error().message);
   }
-  if (auto signing = beacon_.openTipSigning(signingKey.value()); !signing) {
+  if (auto signing = beacon_.openTipSigning(signingKeys.value()); !signing) {
     return Service::Error(-4, "Failed to open tip signing: " + signing.error().message);
+  }
+  if (beacon_.isSuperseded()) {
+    log().error << "Beacon generation " << beacon_.getGeneration()
+                << " certifies none of this beacon's keys: it serves reads only";
   }
 
   auto keyResult = loadOrCreateIdentityKey();
@@ -817,8 +844,20 @@ void BeaconServer::runLoop() {
   log().info << "Request handler thread stopped";
 }
 
+namespace {
+/** Requests that make the beacon act as the terminal: refused once it stood down. */
+bool isTerminalWrite(uint32_t type) {
+  return type == Client::T_REQ_BLOCK_ADD || type == Client::T_REQ_TX_ADD || type == Client::T_REQ_TX_PULL ||
+         type == Client::T_REQ_REGISTER;
+}
+} // namespace
+
 std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
   log().debug << "Handling request: " << request.type;
+  if (isTerminalWrite(request.type) && beacon_.isSuperseded()) {
+    return Server::packResponse(1, "This beacon stood down: beacon generation " +
+                                       std::to_string(beacon_.getGeneration()) + " certifies another key");
+  }
   auto it = requestHandlers_.find(request.type);
   Roe<std::string> result = (it != requestHandlers_.end())
                                 ? it->second(request)

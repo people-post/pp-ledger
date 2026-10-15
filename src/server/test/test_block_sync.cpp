@@ -6,6 +6,8 @@
 #include <gtest/gtest.h>
 
 #include <deque>
+#include <map>
+#include <optional>
 #include <functional>
 #include <string>
 #include <thread>
@@ -26,27 +28,74 @@ Ledger::ChainNode makeBlock(uint64_t index, const std::string &previousHash = ""
   return node;
 }
 
-std::vector<Ledger::ChainNode> makeChain(size_t length) {
+/** `length` linked blocks; `records` puts records in some of them. */
+std::vector<Ledger::ChainNode> makeChain(size_t length, const std::map<uint64_t, std::vector<Ledger::Record>> &records = {}) {
   std::vector<Ledger::ChainNode> chain;
   for (uint64_t i = 0; i < length; ++i) {
-    chain.push_back(makeBlock(i, chain.empty() ? std::string() : chain.back().hash));
+    Ledger::ChainNode node;
+    node.block.index = i;
+    node.block.previousHash = chain.empty() ? std::string() : chain.back().hash;
+    if (auto it = records.find(i); it != records.end()) {
+      node.block.records = it->second;
+    }
+    node.hash = chain_block::calculateBlockHash(node.block);
+    chain.push_back(node);
   }
   return chain;
 }
 
-/** A tip over `block`; the fake verifier accepts signature "good" of generation 1. */
-Client::SignedTip tipFor(const Ledger::ChainNode &block, const std::string &signature = "good") {
+/** The generation-1 beacon key of the test chain. */
+const utl::MlDsaKeyPair &beaconKey() {
+  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
+  return key;
+}
+
+/** A tip over `block`, signed by `key` (the test beacon's unless given). */
+Client::SignedTip tipFor(const Ledger::ChainNode &block, const utl::MlDsaKeyPair &key = beaconKey(),
+                         uint64_t generation = 1) {
   Client::SignedTip tip;
   tip.networkId = "net";
-  tip.generation = 1;
+  tip.generation = generation;
   tip.height = block.block.index;
   tip.blockHash = block.hash;
-  tip.signature = signature;
+  tip.signature = utl::mlDsaSign(key.privateKey, tip.signingMessage()).value();
   return tip;
 }
 
-pp::Roe<void> fakeVerify(const Client::SignedTip &tip) {
-  return tip.signature == "good" ? pp::Roe<void>() : pp::Roe<void>(pp::Error("bad signature"));
+/** The test chain's admin set: one key. */
+const utl::MlDsaKeyPair &adminKey() {
+  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
+  return key;
+}
+
+/** The authority at the local tip of a test node: generation 1 is beaconKey(). */
+pp::Roe<AuthorityTrail> testTrail() {
+  ChainAuthority authority;
+  authority.beacon.networkId = "net";
+  authority.beacon.generation = 1;
+  authority.beacon.publicKey = beaconKey().publicKey;
+  Client::Wallet admin;
+  admin.publicKeys = {adminKey().publicKey};
+  admin.minSignatures = 1;
+  admin.keyType = Crypto::TK_ML_DSA_65;
+  return AuthorityTrail("net", authority, admin);
+}
+
+/** A T_BEACON_CERT for `generation` with `key`, signed by `signer` (the admin set's key unless given). */
+Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uint64_t cutoverHeight,
+                          const utl::MlDsaKeyPair &signer = adminKey()) {
+  BeaconCertificate cert;
+  cert.networkId = "net";
+  cert.generation = generation;
+  cert.publicKey = key.publicKey;
+  cert.cutoverHeight = cutoverHeight;
+  Ledger::TxBeaconCert tx;
+  tx.meta = cert.ltsToString();
+  Ledger::Record record;
+  record.type = Ledger::T_BEACON_CERT;
+  record.data = utl::binaryPack(tx);
+  record.signatures = {utl::mlDsaSign(signer.privateKey, record.signingMessage("net")).value()};
+  return record;
 }
 
 /** STATUS as an upstream serves it: its next block id and signed tip. */
@@ -139,7 +188,7 @@ protected:
     h.tipHash = [this]() {
       return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
     };
-    h.verifyTip = fakeVerify;
+    h.authorityTrail = testTrail;
     h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
       if (block.block.index != local_.size()) {
         return pp::Error("out of order: " + std::to_string(block.block.index));
@@ -282,7 +331,7 @@ TEST_F(BlockSyncTest, BlocksAlreadyAppliedElsewhereAreSkipped) {
 // --- beacon-authority ba4: commit only what a verified signed tip vouches for ---
 
 TEST_F(BlockSyncTest, ATipThatDoesNotVerifyFetchesNothing) {
-  upstream_->signedTip = tipFor(upstream_->chain.back(), "forged");
+  upstream_->signedTip = tipFor(upstream_->chain.back(), utl::mlDsaGenerate().value());
   BlockSync sync(client_, hooks());
   sync.start();
   runToEnd();
@@ -373,6 +422,79 @@ TEST_F(BlockSyncTest, ANodeWithNoBlocksTakesTheFirstOnTrust) {
   EXPECT_TRUE(results_[0].ok) << results_[0].error;
   EXPECT_EQ(local_.size(), 10u);
   EXPECT_EQ(results_[0].blocksAdded, 10u);
+}
+
+// --- beacon-authority ba5: follow the generation the admin set certifies along the range ---
+
+TEST_F(BlockSyncTest, FollowsAGenerationCertifiedInTheRange) {
+  const auto nextKey = utl::mlDsaGenerate().value();
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, nextKey, 4)}}});
+  local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
+  upstream_->signedTip = tipFor(upstream_->chain.back(), nextKey, 2);
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 10u);
+}
+
+TEST_F(BlockSyncTest, TheOldGenerationAboveTheCertificateIsSuperseded) {
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, utl::mlDsaGenerate().value(), 4)}}});
+  local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
+  upstream_->signedTip = tipFor(upstream_->chain.back()); // generation 1 still signing at block 9
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("superseded"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, ACertificateTheAdminSetDidNotSignMovesNothing) {
+  const auto thiefKey = utl::mlDsaGenerate().value();
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, thiefKey, 4, /*signer=*/thiefKey)}}});
+  local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
+  upstream_->signedTip = tipFor(upstream_->chain.back(), thiefKey, 2);
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("not signed by the admin set"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, ALaterGenerationNoBlockCertifiesIsRefused) {
+  upstream_->signedTip = tipFor(upstream_->chain.back(), utl::mlDsaGenerate().value(), 2);
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, APinnedFirstBlockMustMatch) {
+  local_.clear();
+  std::optional<std::string> pinned = "another genesis";
+  auto h = hooks();
+  h.firstBlockHash = [&]() { return pinned; };
+  BlockSync refused(client_, h);
+  refused.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_TRUE(local_.empty());
+
+  pinned = upstream_->chain[0].hash;
+  BlockSync taken(client_, h);
+  taken.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_TRUE(results_[1].ok) << results_[1].error;
+  EXPECT_EQ(local_.size(), 10u);
 }
 
 TEST_F(BlockSyncTest, DestroyedSyncDropsLateResults) {
@@ -479,7 +601,7 @@ protected:
     h.tipHash = [this]() {
       return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
     };
-    h.verifyTip = fakeVerify;
+    h.authorityTrail = testTrail;
     h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
       local_.push_back(block);
       return {};

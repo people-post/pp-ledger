@@ -196,18 +196,24 @@ One signature authenticates the hash chain below it, so the block format does no
   At start it refuses a ledger that ends below that tip or holds another block at its height
   (restore the ledger it signed), and signs the committed tip if it is not signed yet (genesis
   after `--init`, or a crash between commit and signing).
-- **Only the certified key signs.** If the certificate in force names another key, the beacon
-  keeps running and signs nothing (it warns once per generation).
+- **Only the certified key signs.** The beacon holds `keys/beacon-signing.key` and, staged for a
+  rotation, `keys/beacon-signing.next.key`; it signs with whichever the certificate in force names.
+  If it names neither, a later generation belongs to another beacon: this one **stands down** —
+  it refuses `BLOCK_ADD`, `TX_ADD`, `TX_PULL` and `REGISTER` and serves reads only.
 - **Where it travels:** `STATUS` (`signedTip`, the packed versioned tip; absent before the first),
   and the `BLOCK_WAIT` and `BLOCK_ADD` replies, which are `TipReply {nextBlockId, hasSignedTip,
   signedTip}`. A `BLOCK_ADD` reply carries the tip that covers the block just added. Relays keep
   the newest tip they hear from upstream that verifies (higher height, or higher generation at
   one height) and pass it on unchanged.
 
-**Adoption rule** (relays and miners). A tip *verifies* when it names this chain's `networkId`,
-the beacon generation in force at the node, and its signature checks with that generation's key
-(`Chain::verifySignedTip`; a tip of another generation does not verify yet — generations are
-beacon-authority ba5).
+**Adoption rule** (relays and miners). A tip *verifies* when it names this chain's `networkId`
+and the beacon generation in force at its height, and its signature checks with that
+generation's key. The node finds that generation by following the blocks up to the tip from its
+own state (`AuthorityTrail`): a `T_CONFIG` replaces the admin set and a `T_BEACON_CERT` raises
+the generation, each only if the admin set in force at that point signed it (for a certificate,
+under the on-chain rules above). A tip of an older generation is superseded — once a certificate
+for generation N+1 is in force, generation N signs nothing above it (its `cutoverHeight` is below
+the certifying block); a later generation no block certifies does not verify.
 
 - **Sync** (`BlockSync`) commits only blocks a verified tip vouches for: it takes the upstream's
   tip from `STATUS`, fetches the blocks from the local tip up to it, checks that each hashes to
@@ -217,9 +223,14 @@ beacon-authority ba5).
 - **Own blocks:** a miner commits the block it produced only when a `BLOCK_ADD` reply carries a
   verified tip for exactly that block (height and hash); a relay forwarding a `BLOCK_ADD` stores
   the block under the same rule. Otherwise the block arrives later by sync, if the beacon took it.
+- **Upstream choice:** a miner with several upstreams follows the one whose signed tip has the
+  highest generation, then the longest chain; a false claim fails its sync and the miner rotates.
 - **First block:** a node with no blocks takes its first one (genesis, or a miner's checkpoint
-  renewal) from its upstream on trust — it is where the node learns the beacon's key. A miner can
-  pin the genesis hash (`networkAnchor.genesisHash`), which does not yet cover a checkpoint start.
+  renewal) from its upstream — it is where the node learns the beacon's key. A miner that pins
+  genesis (`networkAnchor.genesisHash`) pins that first block too: the checkpoint if it carries
+  the genesis authority (a tip signed by that key then vouches for the chain back to it), else
+  genesis itself, syncing the whole chain. Without a pin (relays; miners without an anchor) the
+  first block is taken on trust.
 
 ## Account / ledger model
 

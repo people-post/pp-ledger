@@ -1028,3 +1028,99 @@ run_latejoin_scenario() {
   fi
   echo -e "${GREEN}✓ L-SMOKE-LATEJOIN: miner3 nextBlockId=$miner_tip >= beacon=$beacon_tip${NC}"
 }
+
+# --- L-SMOKE-ROTATION (beacon-authority ba5): rotate the beacon signing key on the same server ---
+
+# Stage keys/beacon-signing.next.{key,pub} on the beacon (before it starts: keys load at start).
+stage_next_beacon_key() {
+  local keys="${TEST_DIR}/beacon/keys"
+  rm -f "$keys/beacon-signing.next.key" "$keys/beacon-signing.next.pub"
+  "$BUILD_DIR/app/pp-client" keygen -o "$keys/beacon-signing.next" >/dev/null || die "pp-client keygen failed"
+  echo -e "${CYAN}Staged the next beacon signing key${NC}"
+}
+
+# Beacon generation of the signed tip the relay serves (empty if none).
+signed_tip_generation() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/^Signed tip: block [0-9]*, generation \([0-9]*\)$/\1/p'
+}
+
+run_rotation_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-ROTATION ═══${NC}"
+  wait_for_blocks 2 60 || true
+  local generation
+  generation=$(signed_tip_generation)
+  [[ "$generation" == "1" ]] || die "L-SMOKE-ROTATION: expected generation 1 before rotating, got '${generation}'"
+
+  # The admins certify the staged key as generation 2: write, sign offline (genesis is 3-of-3), submit.
+  local cert="${TEST_DIR}/rotation-cert.tx" key_dir="${TEST_DIR}/keys" next i
+  next=$(get_next_block_id)
+  rm -f "$cert"
+  run_pp_client mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" --generation 2 \
+    --pubkey "${TEST_DIR}/beacon/keys/beacon-signing.next.pub" --cutover $((next - 1)) -o "$cert" >/dev/null ||
+    die "mk-beacon-cert failed"
+  for i in 1 2 3; do
+    run_pp_client sign-tx -k "$key_dir/genesis${i}.key" --network-id "$SMOKE_NETWORK_ID" "$cert" >/dev/null ||
+      die "sign-tx failed"
+  done
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" >/dev/null || die "submit-tx failed"
+  echo -e "${CYAN}Submitted the generation-2 certificate (cutover $((next - 1)))${NC}"
+
+  local deadline=$((SECONDS + 90))
+  while ((SECONDS < deadline)); do
+    generation=$(signed_tip_generation)
+    [[ "$generation" == "2" ]] && break
+    sleep 1
+  done
+  [[ "$generation" == "2" ]] || die "L-SMOKE-ROTATION: the relay never served a generation-2 tip (got '${generation}')"
+  echo -e "${GREEN}✓ Relay serves a generation-2 signed tip${NC}"
+
+  # The chain keeps moving under the new key, and every miner follows it.
+  local after
+  after=$(get_next_block_id)
+  inject_transactions_for_block_production || true
+  wait_for_blocks $((after + 1)) 90 || die "L-SMOKE-ROTATION: no block after the rotation"
+  local beacon_tip
+  beacon_tip=$(get_next_block_id)
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$beacon_tip" 90 || die "L-SMOKE-ROTATION: miner${i} did not follow generation 2"
+  done
+  [[ "$(signed_tip_generation)" == "2" ]] || die "L-SMOKE-ROTATION: generation went back"
+  echo -e "${GREEN}✓ Generation 2 signs; miners at nextBlockId >= ${beacon_tip}${NC}"
+
+  # A fresh miner that pins genesis: the checkpoint no longer carries the genesis authority, so it
+  # syncs from the pinned genesis and follows the certificate along the chain.
+  stop_miner_by_id 3
+  rm -rf "${TEST_DIR}/miner3/data"
+  local log_lines
+  log_lines=$(wc -l <"${TEST_DIR}/miner3/miner.log" 2>/dev/null || echo 0)
+  start_anchored_miner 3 || die "L-SMOKE-ROTATION: anchored miner3 did not start"
+  beacon_tip=$(get_next_block_id)
+  wait_for_miner_tip 3 "$beacon_tip" 90 || die "L-SMOKE-ROTATION: anchored miner3 did not catch up"
+  tail -n +$((log_lines + 1)) "${TEST_DIR}/miner3/miner.log" | grep -a -q "No local blocks: taking block 0 from upstream (pinned)" ||
+    die "L-SMOKE-ROTATION: miner3 did not start from its pinned genesis"
+  echo -e "${GREEN}✓ L-SMOKE-ROTATION: generation 2 signs; miners follow; an anchored fresh miner catches up${NC}"
+}
+
+# Hex of the genesis block hash, as the relay serves block 0.
+genesis_hash_hex() {
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" block 0 2>/dev/null |
+    sed -n 's/.*"hash": *"\(0x[0-9a-fA-F]*\)".*/\1/p' | head -1
+}
+
+# Start a miner whose config pins genesis (networkAnchor.genesisHash).
+start_anchored_miner() {
+  local miner_id=$1
+  local miner_dir="${TEST_DIR}/miner${miner_id}"
+  local miner_port=$((MINER_BASE_PORT + miner_id - 1)) hash
+  hash=$(genesis_hash_hex)
+  [[ -n "$hash" ]] || die "could not read the genesis hash"
+  mkdir -p "$miner_dir"
+  [[ -f "$miner_dir/.signature" ]] || touch "$miner_dir/.signature"
+  create_miner_config "$miner_id" "$miner_dir" "$miner_port"
+  sed -i "s|^  \"beacons\"|  \"networkAnchor\": {\"genesisHash\": \"${hash}\"},\n  \"beacons\"|" "$miner_dir/config.json"
+  grep -q '"networkAnchor"' "$miner_dir/config.json" || die "failed to pin genesis in miner${miner_id} config"
+  run_bg_cmd "${miner_dir}/console.log" "$BUILD_DIR/app/pp-miner" -d "$miner_dir" ${DEBUG_FLAG}
+  save_pid "miner${miner_id}" $!
+  await_miner "$miner_id"
+}
+

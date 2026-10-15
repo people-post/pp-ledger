@@ -102,6 +102,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
 | **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke (`scripts/test/pp_ledger_l1_smoke.sh`) | Short slots + tx inject; green |
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; green |
+| **L-SMOKE-ROTATION** | Beacon key rotation: generation 2 signs, miners follow | Smoke (`scripts/test/pp_ledger_rotation_smoke.sh`, `--suite rotation`) | Own network (next key staged before start); `mk-beacon-cert` → `sign-tx` ×3 → `submit-tx`; green |
 | **L-SMOKE-IMAGE** | Packaged image compose boots / client probe | Smoke (`deploy/compose.smoke.yml`) | Scaffold; `--suite image` |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
@@ -114,13 +115,14 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 
 | Script | Role |
 |--------|------|
-| `scripts/test/pp_ledger_local_test.sh` | Suite driver (`unit` / `l0` / `l1` / `latejoin` / `smoke`[=l0] / `image`) |
+| `scripts/test/pp_ledger_local_test.sh` | Suite driver (`unit` / `l0` / `l1` / `latejoin` / `smoke`[=l0] / `rotation` / `image`) |
 | `scripts/test/pp_ledger_network.sh` | Lifecycle `up` / `stop` / `clear` / `status` |
 | `scripts/test/pp_ledger_smoke_lib.sh` | Shared bring-up + hard-fail `pp-client` helpers |
 | `scripts/test/fixtures/*.tmpl` | Amp-aligned config templates |
 | `scripts/test/pp_ledger_l0_smoke.sh` | L-SMOKE-L0 (L0a→L0b→L0c) |
 | `scripts/test/pp_ledger_l1_smoke.sh` | L-SMOKE-L1 |
 | `scripts/test/pp_ledger_latejoin_smoke.sh` | L-SMOKE-LATEJOIN |
+| `scripts/test/pp_ledger_rotation_smoke.sh` | L-SMOKE-ROTATION |
 | `test-network.sh` / `test-checkpoint-cycles.sh` | Thin root wrappers |
 | `deploy/compose.smoke.yml` | Image smoke scaffold |
 
