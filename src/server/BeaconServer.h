@@ -29,6 +29,11 @@ public:
 
   // Error codes
   static constexpr const int32_t E_CONFIG = -1;
+  /** Recovery delay when init-config omits `recovery.delayEpochs`: about 30 days (beacon-authority B007). */
+  constexpr static const uint64_t DEFAULT_RECOVERY_DELAY_SECONDS = 30ULL * 24 * 60 * 60;
+  /** Beacon signing key pair under the work dir (same format as `pp-client keygen -o`). */
+  constexpr static const char *FILE_BEACON_SIGNING_KEY = "keys/beacon-signing.key";
+  constexpr static const char *FILE_BEACON_SIGNING_PUB = "keys/beacon-signing.pub";
   static constexpr const int32_t E_NETWORK = -2;
   static constexpr const int32_t E_BEACON = -3;
   static constexpr const int32_t E_REQUEST = -4;
@@ -127,11 +132,16 @@ private:
     std::vector<Beacon::GenesisMiner> genesisMiners;
     /** Genesis, reserve, registrar, fee, recycle by public key (`systemAccounts`). */
     Beacon::InitKeyConfig systemAccounts;
+    /** Recovery key set (`recovery`): keys, minSignatures (default all), delayEpochs. */
+    Beacon::AccountKeys recovery;
+    /** Default (at parse time when omitted): ~DEFAULT_RECOVERY_DELAY_SECONDS of epochs, at least 1. */
+    uint64_t recoveryDelayEpochs{0};
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);
     Roe<void> parseGenesisMiners(const pp::common::Object& jd);
     Roe<void> parseSystemAccounts(const pp::common::Object& jd);
+    Roe<void> parseRecovery(const pp::common::Object& jd);
   };
 
   /** Default genesis miner stake: an equal share of 1/GENESIS_MINER_STAKE_SHARE of the supply. */

@@ -4,9 +4,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,7 @@ namespace {
  */
 struct GenesisSetup {
   std::filesystem::path dir;
-  std::vector<utl::MlDsaKeyPair> genesis, reserve, registrar, fee, recycle;
+  std::vector<utl::MlDsaKeyPair> genesis, reserve, registrar, fee, recycle, recovery;
 
   explicit GenesisSetup(const std::string &name) : dir(std::filesystem::temp_directory_path() / name) {
     std::error_code ec;
@@ -34,6 +36,7 @@ struct GenesisSetup {
     reserve.push_back(utl::mlDsaGenerate().value());
     registrar.push_back(utl::mlDsaGenerate().value());
     recycle.push_back(utl::mlDsaGenerate().value());
+    recovery.push_back(utl::mlDsaGenerate().value());
   }
   ~GenesisSetup() {
     std::error_code ec;
@@ -48,14 +51,19 @@ struct GenesisSetup {
     return "[" + out + "]";
   }
 
-  void writeInitConfig(const std::string &extra = "") const {
+  /** `recovery`: the init-config `recovery` object; empty = this setup's recovery keys; "none" = omit it. */
+  void writeInitConfig(const std::string &extra = "", const std::string &recoveryJson = "") const {
+    const std::string recoveryField =
+        recoveryJson == "none" ? std::string()
+                               : R"(, "recovery": )" +
+                                     (recoveryJson.empty() ? R"({"publicKeys": )" + pubs(recovery) + "}" : recoveryJson);
     std::ofstream(dir / "init-config.json")
         << R"({"networkId": "test-net", "systemAccounts": {)"
         << R"("genesis": {"publicKeys": )" << pubs(genesis) << R"(, "minSignatures": 2},)"
         << R"("fee": {"publicKeys": )" << pubs(fee) << R"(},)"
         << R"("reserve": {"publicKeys": )" << pubs(reserve) << R"(},)"
         << R"("registrar": {"publicKeys": )" << pubs(registrar) << R"(},)"
-        << R"("recycle": {"publicKeys": )" << pubs(recycle) << R"(}})" << extra << "}";
+        << R"("recycle": {"publicKeys": )" << pubs(recycle) << R"(}})" << recoveryField << extra << "}";
   }
 
   /** Write `key`'s private key to a file, as `pp-client keygen -o` does. */
@@ -63,6 +71,29 @@ struct GenesisSetup {
     const auto path = dir / (name + ".key");
     std::ofstream(path) << utl::hexEncode(key.privateKey) << "\n";
     return path.string();
+  }
+
+  /** The genesis meta of an initialized work dir. */
+  Chain::GenesisAccountMeta genesisMeta() const {
+    Beacon beacon;
+    Beacon::MountConfig mount;
+    mount.workDir = (dir / "data").string();
+    EXPECT_TRUE(beacon.mount(mount).isOk());
+    auto genesis = beacon.readBlock(0);
+    EXPECT_TRUE(genesis.isOk());
+    auto tx = utl::binaryUnpack<Ledger::TxGenesis>(genesis.value().block.records.at(0).data);
+    Chain::GenesisAccountMeta gm;
+    EXPECT_TRUE(tx.isOk() && gm.ltsFromString(tx.value().meta));
+    return gm;
+  }
+
+  /** Write a key pair as `pp-client keygen -o <dir>/<stem>` does. */
+  void writeKeyPair(const utl::MlDsaKeyPair &key, const std::string &stem, bool withPub = true) const {
+    std::filesystem::create_directories((dir / stem).parent_path());
+    std::ofstream(dir / (stem + ".key")) << utl::hexEncode(key.privateKey) << "\n";
+    if (withPub) {
+      std::ofstream(dir / (stem + ".pub")) << utl::hexEncode(key.publicKey) << "\n";
+    }
   }
 
   /** Run --init in its own scope (a live server keeps ledger files open). */
@@ -112,6 +143,85 @@ TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
   EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{setup.registrar[0].publicKey});
   const auto &balances = registrar.value().wallet.mBalances;
   EXPECT_TRUE(balances.empty() || balances.at(AccountBuffer::ID_GENESIS) == 0);
+}
+
+// beacon-authority ba1: --init writes the beacon signing key pair and the genesis record carries the
+// recovery set and the generation-1 certificate over that key (delay defaults to ~30 days).
+TEST(BeaconServerInitTest, InitWritesTheSigningKeyAndGenesisCarriesTheAuthority) {
+  GenesisSetup setup("pp-ledger-beacon-authority-test");
+  setup.writeInitConfig();
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  ASSERT_TRUE(std::filesystem::exists(setup.dir / BeaconServer::FILE_BEACON_SIGNING_KEY));
+  std::ifstream pubFile(setup.dir / BeaconServer::FILE_BEACON_SIGNING_PUB);
+  std::string pubHex;
+  pubFile >> pubHex;
+
+  const Chain::GenesisAccountMeta gm = setup.genesisMeta();
+  const auto &authority = gm.authority;
+  EXPECT_EQ(authority.recovery.publicKeys, std::vector<std::string>{setup.recovery[0].publicKey});
+  EXPECT_EQ(authority.recovery.minSignatures, 1u);
+  const uint64_t epochSeconds = gm.config.slotDuration * gm.config.slotsPerEpoch;
+  EXPECT_EQ(authority.recovery.delayEpochs,
+            std::max<uint64_t>(1, (BeaconServer::DEFAULT_RECOVERY_DELAY_SECONDS + epochSeconds - 1) / epochSeconds));
+  EXPECT_EQ(authority.beacon.generation, 1u);
+  EXPECT_EQ(authority.beacon.cutoverHeight, 0u);
+  EXPECT_EQ(authority.beacon.networkId, "test-net");
+  EXPECT_EQ(authority.beacon.publicKey, utl::hexDecode(pubHex));
+}
+
+// An operator may generate the signing key elsewhere first (pp-client keygen -o keys/beacon-signing).
+TEST(BeaconServerInitTest, InitReusesAPreGeneratedSigningKey) {
+  GenesisSetup setup("pp-ledger-beacon-signing-reuse-test");
+  const auto signing = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(signing, "keys/beacon-signing");
+  setup.writeInitConfig();
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  EXPECT_EQ(setup.genesisMeta().authority.beacon.publicKey, signing.publicKey);
+}
+
+TEST(BeaconServerInitTest, InitRefusesAHalfOrMismatchedSigningKey) {
+  {
+    GenesisSetup setup("pp-ledger-beacon-signing-half-test");
+    setup.writeKeyPair(utl::mlDsaGenerate().value(), "keys/beacon-signing", false);
+    setup.writeInitConfig();
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_FALSE(init.isOk());
+    EXPECT_NE(init.error().message.find("needs both"), std::string::npos) << init.error().message;
+  }
+  {
+    GenesisSetup setup("pp-ledger-beacon-signing-mismatch-test");
+    const auto a = utl::mlDsaGenerate().value();
+    const auto b = utl::mlDsaGenerate().value();
+    setup.writeKeyPair(a, "keys/beacon-signing", false);
+    std::ofstream(setup.dir / BeaconServer::FILE_BEACON_SIGNING_PUB) << utl::hexEncode(b.publicKey) << "\n";
+    setup.writeInitConfig();
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_FALSE(init.isOk());
+    EXPECT_NE(init.error().message.find("do not match"), std::string::npos) << init.error().message;
+  }
+}
+
+TEST(BeaconServerInitTest, InitRefusesABadRecoverySet) {
+  auto refused = [](const std::string &name, const std::function<std::string(const GenesisSetup &)> &recovery,
+                    const std::string &why) {
+    GenesisSetup setup(name);
+    setup.writeInitConfig("", recovery(setup));
+    auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+    ASSERT_FALSE(init.isOk()) << why;
+    EXPECT_NE(init.error().message.find(why), std::string::npos) << init.error().message;
+  };
+  refused("pp-ledger-beacon-recovery-missing-test", [](const GenesisSetup &) { return std::string("none"); },
+          "Field 'recovery'");
+  refused("pp-ledger-beacon-recovery-admin-test",
+          [](const GenesisSetup &s) { return R"({"publicKeys": )" + GenesisSetup::pubs({s.genesis[2]}) + "}"; },
+          "must not be an admin");
+  refused("pp-ledger-beacon-recovery-delay-test",
+          [](const GenesisSetup &s) {
+            return R"({"publicKeys": )" + GenesisSetup::pubs(s.recovery) + R"(, "delayEpochs": 0})";
+          },
+          "delayEpochs must be a positive integer");
 }
 
 // The genesis key signs genesis M-of-N: too few, foreign or repeated keys fail.

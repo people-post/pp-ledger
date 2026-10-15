@@ -118,8 +118,49 @@ struct IssuanceBaseline {
   int64_t genesisBalance{0};
 };
 
+/**
+ * Recovery key set (projects/beacon-authority B004 / B007): the top authority. Its only power is
+ * replacing the admin set (the genesis account's keys), announced and applied `delayEpochs`
+ * later. Fixed at genesis; `T_CONFIG` cannot change it.
+ */
+struct RecoverySet {
+  /** Raw ML-DSA-65 public keys. */
+  std::vector<std::string> publicKeys;
+  uint8_t minSignatures{0};
+  uint64_t delayEpochs{0};
+
+  template <typename Archive> void serialize(Archive &ar) { ar &publicKeys &minSignatures &delayEpochs; }
+};
+
+/**
+ * Beacon certificate (beacon-authority B001 / B006): which key signs tips, for which generation.
+ * Admin-signed through the record that carries it (generation 1: the genesis record).
+ */
+struct BeaconCertificate {
+  std::string networkId;
+  /** 1 at genesis; +1 per promotion. */
+  uint64_t generation{0};
+  /** Raw ML-DSA-65 public key of the beacon signing key (not the Amp identity). */
+  std::string publicKey;
+  /** Generation > 1: last height the previous generation may sign. 0 at genesis. */
+  uint64_t cutoverHeight{0};
+
+  template <typename Archive> void serialize(Archive &ar) { ar &networkId &generation &publicKey &cutoverHeight; }
+};
+
+/** Who holds authority over the chain: the recovery set and the current beacon certificate. */
+struct ChainAuthority {
+  RecoverySet recovery;
+  BeaconCertificate beacon;
+
+  template <typename Archive> void serialize(Archive &ar) { ar &recovery &beacon; }
+  /** Byte-wise equality of the serialized form. */
+  bool operator==(const ChainAuthority &other) const;
+  bool operator!=(const ChainAuthority &other) const { return !(*this == other); }
+};
+
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 7;
+  constexpr static const uint32_t VERSION = 8;
 
   BlockChainConfig config;
   Client::UserAccount genesis;
@@ -127,9 +168,11 @@ struct GenesisAccountMeta {
    *  a T_CONFIG's `config` is itself the update). */
   bool hasPending{false};
   PendingChainConfig pending;
+  /** Set at genesis; every later genesis meta (T_CONFIG, genesis renewal) carries it unchanged. */
+  ChainAuthority authority;
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar &config &genesis &hasPending &pending;
+    ar &config &genesis &hasPending &pending &authority;
   }
 
   /** Set config + pending to the state in force for a block of `epoch` (a pending update whose
@@ -145,6 +188,7 @@ struct GenesisAccountMeta {
 
 std::ostream &operator<<(std::ostream &os, const CheckpointConfig &config);
 std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config);
+std::ostream &operator<<(std::ostream &os, const ChainAuthority &authority);
 
 } // namespace pp
 

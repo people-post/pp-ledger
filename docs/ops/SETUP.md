@@ -14,6 +14,7 @@ Every account holder makes its own keys; the beacon only receives public keys.
 cd build
 # Each holder, on their own machine (genesis: 3 holders, any 2 sign):
 ./app/pp-client keygen -o genesis1     # genesis2, genesis3, reserve, registrar, fee, recycle likewise
+./app/pp-client keygen -o recovery1    # recovery set: different holders than the genesis keys
 mkdir -p beacon
 ./app/pp-beacon -d beacon --init       # writes a beacon/init-config.json template and stops
 # fill in networkId and the public keys (*.pub), then:
@@ -22,7 +23,9 @@ mkdir -p beacon
 
 This creates the genesis block (block 0) declaring the system accounts and any
 genesis miners by public key. The genesis keys are the chain's admin keys:
-keep them offline. Fields and rules: [CONFIGURATION.md](CONFIGURATION.md).
+keep them offline. The recovery keys can replace the admin keys (after a delay of about a month):
+keep them apart from the admin keys and from each other. `--init` also writes the beacon's signing
+key, `beacon/keys/beacon-signing.key`. Fields and rules: [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Mode 2: Mount an existing beacon
 
@@ -220,6 +223,7 @@ cat > beacon/init-config.json << 'JSON'
   "systemAccounts": {"genesis": {"publicKeys": ["<g1>", "<g2>", "<g3>"], "minSignatures": 2},
                      "reserve": {"publicKeys": ["<reserve>"]}, "registrar": {"publicKeys": ["<registrar>"]},
                      "fee": {"publicKeys": ["<fee>"]}, "recycle": {"publicKeys": ["<recycle>"]}},
+  "recovery": {"publicKeys": ["<r1>", "<r2>", "<r3>"], "minSignatures": 2},
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<miner 1 public key hex>"]},
     {"id": 1048577, "publicKeys": ["<miner 2 public key hex>"]}
@@ -227,6 +231,7 @@ cat > beacon/init-config.json << 'JSON'
 }
 JSON
 ./app/pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
+#   also writes beacon/keys/beacon-signing.{key,pub}: the beacon's signing key, certified by genesis
 ./app/pp-beacon -d beacon     # prints "AMP ledger listener: /ip4/.../p2p/<beacon peer id>"
 ```
 

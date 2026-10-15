@@ -35,6 +35,26 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
   return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const ChainAuthority &authority) {
+  os << "ChainAuthority{recovery: {keys: " << authority.recovery.publicKeys.size()
+     << ", minSignatures: " << static_cast<int>(authority.recovery.minSignatures)
+     << ", delayEpochs: " << authority.recovery.delayEpochs << "}, beacon: {networkId: "
+     << authority.beacon.networkId << ", generation: " << authority.beacon.generation
+     << ", cutoverHeight: " << authority.beacon.cutoverHeight << "}}";
+  return os;
+}
+
+bool ChainAuthority::operator==(const ChainAuthority &other) const {
+  auto pack = [](const ChainAuthority &a) {
+    std::ostringstream oss(std::ios::binary);
+    OutputArchive ar(oss);
+    ChainAuthority copy = a;
+    ar &copy;
+    return oss.str();
+  };
+  return pack(*this) == pack(other);
+}
+
 void GenesisAccountMeta::setConfigStateAt(const BlockChainConfig &active,
                                           const std::optional<PendingChainConfig> &pendingUpdate,
                                           uint64_t epoch) {

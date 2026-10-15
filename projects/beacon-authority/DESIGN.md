@@ -41,7 +41,7 @@ account's keys at once ([WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md)).
 |-----|-------|--------|------------|
 | **Recovery set** (new) | Public keys + threshold (e.g. 3 of 5), held apart, used almost never | **Only** replace the admin set — announced, applied ~30 days later ([B004](DECISIONS.md#b004--recovery-set-narrow-slow-visible), [B007](DECISIONS.md#b007--recovery-delay-about-a-month-admin-set-frozen-meanwhile)) | Itself (its own threshold) |
 | **Admin set** (existing genesis account) | Public keys + `minSignatures` | Genesis, `T_CONFIG`, **issue beacon certificates** | Itself (`T_CONFIG`, as today) or the recovery set |
-| **Beacon signing key** (new) | One ML-DSA key on the beacon host, `keys/beacon-signing.key` — separate from the Amp identity ([B006](DECISIONS.md#b006--a-separate-beacon-signing-key)) | Sign tips for its generation | A new certificate from the admin set |
+| **Beacon signing key** (new) | One ML-DSA key on the beacon host, `keys/beacon-signing.key` + `.pub` — separate from the Amp identity ([B006](DECISIONS.md#b006--a-separate-beacon-signing-key)) | Sign tips for its generation | A new certificate from the admin set |
 
 The recovery set is the top authority, so it must come from genesis and must not be changeable by
 `T_CONFIG` (like `genesisTime`): if the admin set could set it, the admin set would be on top again.
@@ -52,11 +52,10 @@ The recovery set is the top authority, so it must come from genesis and must not
 BeaconCertificate {
   networkId
   generation        // 1 at genesis; +1 per promotion
-  beaconPublicKey   // ML-DSA
+  publicKey         // ML-DSA beacon signing key
   cutoverHeight     // generation > 1: last height the previous generation may sign
-  issuedAt
-  signatures        // admin set, ≥ minSignatures
 }
+// Signed by the admin set through the record that carries it (generation 1: the genesis record).
 ```
 
 - **Generation 1** is issued at `pp-beacon --init`: it generates the beacon signing key, and the
@@ -140,7 +139,7 @@ This adds no new denial of service: producing the evidence takes the beacon's ke
 - New record types: beacon certificate; recovery action (announce / effect).
 - `STATUS`, `BLOCK_WAIT`, `BLOCK_ADD` reply: carry the signed tip (and the current certificate on
   `STATUS`).
-- Beacon disk: `keys/beacon-signing.key`, last signed height, latest signed tip.
+- Beacon disk: `keys/beacon-signing.key` / `.pub` (ba1), last signed height, latest signed tip.
 - Nodes: highest certificate seen, latest verified signed tip, equivocation evidence.
 
 ### Settled questions

@@ -49,6 +49,15 @@ Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
 /** Genesis wallet must have ≥3 keys and ≥2 required signatures. */
 Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet);
 
+/**
+ * Chain authority as genesis sets it (beacon-authority ba1): a recovery set of valid, distinct
+ * ML-DSA keys none of which is an admin key, 1 ≤ minSignatures ≤ keys, delayEpochs ≥ 1; and a
+ * generation-1 beacon certificate for `networkId`, cutover 0, whose key is neither an admin nor a
+ * recovery key.
+ */
+Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
+                                   const std::string &networkId);
+
 /** Remove + re-add an account with the given wallet at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,

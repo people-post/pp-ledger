@@ -295,6 +295,9 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
       }
       gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig,
                           txContext_.consensus.getEpochFromSlot(slot));
+      if (txContext_.optAuthority.has_value()) {
+        gm.authority = txContext_.optAuthority.value();
+      }
       tx.meta = gm.ltsToString();
     }
   }
@@ -581,7 +584,8 @@ void Chain::abandonSeal() {
 Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
-                     txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint};
+                     txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
+                     txContext_.optAuthority};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -593,6 +597,7 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.pendingChainConfig = std::move(snapshot.pendingChainConfig);
   txContext_.issuanceBaseline = snapshot.issuanceBaseline;
   txContext_.checkpoint = snapshot.checkpoint;
+  txContext_.optAuthority = std::move(snapshot.optAuthority);
 }
 
 Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {

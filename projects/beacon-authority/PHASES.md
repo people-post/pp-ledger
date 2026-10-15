@@ -5,7 +5,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 ## Part 1 — the real beacon
 
 - [x] **ba0** Settle DESIGN open questions (B006–B009)
-- [ ] **ba1** Genesis trust roots (breaking): recovery set (keys, threshold, delay in epochs) in
+- [x] **ba1** Genesis trust roots (breaking): recovery set (keys, threshold, delay in epochs) in
       genesis; `T_CONFIG` cannot change it; `--init` generates `keys/beacon-signing.key` and the
       generation-1 certificate
 - [ ] **ba2** Beacon certificate record and verification (genesis → admin set → certificate)

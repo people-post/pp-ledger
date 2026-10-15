@@ -9,6 +9,7 @@ anything not listed here is fixed in code.
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
 | `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
+| `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`) |
 
 ## `init-config.json` (beacon, genesis)
 
@@ -22,6 +23,7 @@ anything not listed here is fixed in code.
     "fee":       {"publicKeys": ["<hex>"]},
     "recycle":   {"publicKeys": ["<hex>"]}
   },
+  "recovery": {"publicKeys": ["<hex>", "<hex>", "<hex>"], "minSignatures": 2},
   "genesisMiners": [
     {"id": 1048576, "publicKeys": ["<hex ML-DSA-65 public key>"]}
   ]
@@ -87,6 +89,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `minerMaxMissedSlots` | 3 | Slots a due miner may miss in a row before it is deregistered. `0` = never |
 | `minerReregisterCooldownEpochs` | 0 | Epochs an automatically deregistered miner waits before registering again |
 | `genesisMiners` | none | Miner accounts created at genesis (below), registered at block 0 |
+| `recovery` | **required** | `{publicKeys, minSignatures?, delayEpochs?}`: the key set whose only power is replacing the admin (genesis account) keys, after `delayEpochs` (default: ~30 days of epochs). Keys are held apart and must not be admin keys. Fixed at genesis |
 
 **Genesis miners.** System accounts (genesis, reserve, registrar, fee, recycle) never
 lead slots, and only registered miners are elected, so a new chain needs miners from block 0.
@@ -151,6 +154,10 @@ upstreams. Typical: the beacon lists its relays, so only relays reach the
 terminal; a relay lists its miners and trusted clients.
 
 ## Identity keys
+
+The beacon signs with its own key, `keys/beacon-signing.key` (`.pub` beside it), separate from its
+network identity. `--init` creates the pair when neither file exists, else reuses it when both exist
+and match; the genesis record certifies its public key as beacon generation 1.
 
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as

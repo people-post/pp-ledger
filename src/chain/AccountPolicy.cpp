@@ -1,6 +1,10 @@
 #include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "../client/AccountAttachment.h"
+#include "lib/common/Utilities.h"
+
+#include <algorithm>
+#include <set>
 
 namespace pp::chain_tx {
 
@@ -85,6 +89,54 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
   if (wallet.minSignatures < 2) {
     return TxError(chain_err::E_TX_VALIDATION,
                    "Genesis account must have at least 2 signatures");
+  }
+  return {};
+}
+
+Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client::Wallet &adminWallet,
+                                   const std::string &networkId) {
+  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+  auto isAdminKey = [&](const std::string &key) {
+    return std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), key) !=
+           adminWallet.publicKeys.end();
+  };
+  const RecoverySet &recovery = authority.recovery;
+  if (recovery.publicKeys.empty()) {
+    return invalid("Recovery set needs at least one public key");
+  }
+  std::set<std::string> seen;
+  for (const auto &key : recovery.publicKeys) {
+    if (key.size() != utl::kMlDsaPublicKeyBytes) {
+      return invalid("Recovery set has a malformed public key");
+    }
+    if (!seen.insert(key).second) {
+      return invalid("Recovery set lists the same key twice");
+    }
+    if (isAdminKey(key)) {
+      return invalid("A recovery key must not be an admin (genesis account) key");
+    }
+  }
+  if (recovery.minSignatures == 0 || recovery.minSignatures > recovery.publicKeys.size()) {
+    return invalid("Recovery minSignatures must be between 1 and its key count");
+  }
+  if (recovery.delayEpochs == 0) {
+    return invalid("Recovery delayEpochs must be at least 1");
+  }
+  const BeaconCertificate &beacon = authority.beacon;
+  if (beacon.generation != 1) {
+    return invalid("The genesis beacon certificate must be generation 1");
+  }
+  if (beacon.cutoverHeight != 0) {
+    return invalid("The genesis beacon certificate must have cutoverHeight 0");
+  }
+  if (beacon.networkId != networkId) {
+    return invalid("Beacon certificate networkId does not match the chain");
+  }
+  if (beacon.publicKey.size() != utl::kMlDsaPublicKeyBytes) {
+    return invalid("Beacon certificate has a malformed public key");
+  }
+  if (isAdminKey(beacon.publicKey) || seen.count(beacon.publicKey) != 0) {
+    return invalid("The beacon signing key must not be an admin or recovery key");
   }
   return {};
 }

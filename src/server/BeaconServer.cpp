@@ -6,9 +6,12 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include "common/io/Json.h"
 
@@ -34,6 +37,57 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 } // namespace
 
 namespace {
+
+/**
+ * The beacon signing key pair under `workDir` (beacon-authority B006): created when neither file
+ * exists, else both must exist and belong together (an operator may pre-generate them with
+ * `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
+ */
+BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+  const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
+  const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
+  const bool haveKey = std::filesystem::exists(keyPath);
+  const bool havePub = std::filesystem::exists(pubPath);
+  if (!haveKey && !havePub) {
+    std::error_code ec;
+    std::filesystem::create_directories(keyPath.parent_path(), ec);
+    auto pair = utl::mlDsaGenerate();
+    if (!pair) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to generate beacon signing key: " + pair.error().message);
+    }
+    if (auto w = utl::writeToNewFile(keyPath.string(), utl::hexEncode(pair->privateKey) + "\n"); !w) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + keyPath.string() + ": " + w.error().message);
+    }
+    if (auto w = utl::writeToNewFile(pubPath.string(), utl::hexEncode(pair->publicKey) + "\n"); !w) {
+      return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to write " + pubPath.string() + ": " + w.error().message);
+    }
+    return pair->publicKey;
+  }
+  if (!haveKey || !havePub) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, std::string("Beacon signing key needs both ") +
+                                                           BeaconServer::FILE_BEACON_SIGNING_KEY + " and " +
+                                                           BeaconServer::FILE_BEACON_SIGNING_PUB);
+  }
+  auto privateKey = utl::readPrivateKey(BeaconServer::FILE_BEACON_SIGNING_KEY, workDir);
+  if (!privateKey) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, "Failed to read beacon signing key: " + privateKey.error().message);
+  }
+  std::ifstream pubFile(pubPath);
+  std::string pubHex((std::istreambuf_iterator<char>(pubFile)), std::istreambuf_iterator<char>());
+  pubHex.erase(std::remove_if(pubHex.begin(), pubHex.end(), [](unsigned char c) { return std::isspace(c); }),
+               pubHex.end());
+  const std::string publicKey = utl::hexDecode(pubHex);
+  if (publicKey.size() != utl::kMlDsaPublicKeyBytes) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, pubPath.string() + " is not a hex ML-DSA-65 public key");
+  }
+  const std::string probe = "pp-ledger/beacon-signing-key-probe/v1";
+  auto sig = utl::mlDsaSign(privateKey.value(), probe);
+  if (!sig || !utl::mlDsaVerify(publicKey, probe, sig.value())) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, std::string(BeaconServer::FILE_BEACON_SIGNING_KEY) + " and " +
+                                                           BeaconServer::FILE_BEACON_SIGNING_PUB + " do not match");
+  }
+  return publicKey;
+}
 
 /** `entry.publicKeys` (hex ML-DSA-65) and optional `minSignatures` (1..count; default all). */
 BeaconServer::Roe<Beacon::AccountKeys> parseAccountKeys(const Object &entry, const std::string &where) {
@@ -81,6 +135,11 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
       accounts.set(name, entry);
     }
     j.set("systemAccounts", accounts);
+    // The recovery set: held apart from the admin (genesis) keys, used almost never.
+    Object recoveryEntry;
+    std::vector<Value> recoveryKeys{Value(std::string("<hex public key from recovery1.pub>"))};
+    recoveryEntry.set("publicKeys", Object::array(std::move(recoveryKeys)));
+    j.set("recovery", recoveryEntry);
   }
   j.setJsonUInt("slotDuration", slotDuration);
   j.setJsonUInt("slotsPerEpoch", slotsPerEpoch);
@@ -254,7 +313,34 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
   if (auto accounts = parseSystemAccounts(jd); !accounts) {
     return accounts;
   }
+  if (auto recoveryParsed = parseRecovery(jd); !recoveryParsed) {
+    return recoveryParsed;
+  }
   return parseGenesisMiners(jd);
+}
+
+BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseRecovery(const Object &jd) {
+  const Object *entry = jd.getObject("recovery");
+  if (!entry) {
+    return Error(E_CONFIG, "Field 'recovery' {publicKeys, minSignatures, delayEpochs} is required: the key set "
+                           "that can replace the admin (genesis) keys");
+  }
+  auto keys = parseAccountKeys(*entry, "recovery");
+  if (!keys) {
+    return keys.error();
+  }
+  recovery = keys.value();
+  if (entry->contains("delayEpochs")) {
+    auto delay = entry->getNonNegInt("delayEpochs");
+    if (!delay || *delay == 0) {
+      return Error(E_CONFIG, "recovery.delayEpochs must be a positive integer");
+    }
+    recoveryDelayEpochs = *delay;
+  } else {
+    const uint64_t epochSeconds = slotDuration * slotsPerEpoch;
+    recoveryDelayEpochs = std::max<uint64_t>(1, (DEFAULT_RECOVERY_DELAY_SECONDS + epochSeconds - 1) / epochSeconds);
+  }
+  return {};
 }
 
 BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const Object &jd) {
@@ -468,6 +554,21 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   }
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
+
+  auto signingKey = loadOrCreateBeaconSigningKey(workDir);
+  if (!signingKey) {
+    return signingKey.error();
+  }
+  initConfig.authority.recovery.publicKeys = initFileConfig.recovery.publicKeys;
+  initConfig.authority.recovery.minSignatures = initFileConfig.recovery.minSignatures;
+  initConfig.authority.recovery.delayEpochs = initFileConfig.recoveryDelayEpochs;
+  initConfig.authority.beacon.generation = 1;
+  initConfig.authority.beacon.publicKey = signingKey.value();
+  initConfig.authority.beacon.cutoverHeight = 0;
+  log().info << "  Recovery set: " << initConfig.authority.recovery.publicKeys.size() << " key(s), "
+             << static_cast<int>(initConfig.authority.recovery.minSignatures) << " to sign, delay "
+             << initConfig.authority.recovery.delayEpochs << " epoch(s)";
+  log().info << "  Beacon signing key: " << FILE_BEACON_SIGNING_KEY << " (generation 1)";
 
   initConfig.key = initFileConfig.systemAccounts;
   for (const auto &keyFile : genesisKeyFiles) {
