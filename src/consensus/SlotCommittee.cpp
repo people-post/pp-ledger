@@ -180,6 +180,14 @@ void SlotCommittee::init(const Config& config) {
   clearEpochSeed();
 }
 
+void SlotCommittee::setSlotTiming(int64_t genesisTime, uint64_t slotDuration, uint64_t slotsPerEpoch) {
+  config_.genesisTime = genesisTime;
+  config_.slotDuration = slotDuration;
+  config_.slotsPerEpoch = slotsPerEpoch;
+  cache_ = {};
+  clearEpochSeed();
+}
+
 SlotCommittee::TipState SlotCommittee::saveTipState() const {
   return TipState{config_, cache_.mStakeholders, cache_.lastStakeUpdateEpoch,
                   epochSeed_, epochSeedEpoch_};

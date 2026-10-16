@@ -83,8 +83,8 @@ void BlockSync::syncToSignedTip() {
     authHashes_.clear();
     held_.clear();
     const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
-    log().info << "No local blocks: authenticating blocks " << next << " to " << tip_.height
-               << " from block " << next << (pinned ? " (pinned)" : " (taken on trust)");
+    log().info << "No local blocks: authenticating blocks " << next << " to " << tip_.height << " from block "
+               << next << (pinned ? " (pinned)" : "");
     beginRange(Phase::Authenticate, next, tip_.height + 1);
     return;
   }

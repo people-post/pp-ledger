@@ -182,10 +182,12 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
                              "Genesis account balance mismatch");
   }
 
+  const bool strict = chain_block::admissionTxStrict(admissionMode);
   auto attachmentRoe = chain_tx::validateAndCanonicalizeAttachment(
       gm.genesis.meta,
       [&](uint64_t id) {
-        return id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
+        // A node warming up does not hold every account (beacon-authority ba5b).
+        return !strict || id == AccountBuffer::ID_GENESIS || bank.hasAccount(id);
       },
       "Genesis account attachment: ");
   if (!attachmentRoe) {

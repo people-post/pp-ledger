@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <random>
+
 #include <ctime>
 #include <filesystem>
 #include <functional>
@@ -3381,14 +3383,24 @@ protected:
     return makeRecord(Ledger::T_DEFAULT, tx, harness_.reserveKey, harness_.producer.getNetworkId());
   }
 
-  /** The reserve funds a new user account `id` with `balance`, valid at `slot`. */
-  Ledger::Record newUserAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key, int64_t balance) {
+  /**
+   * The reserve funds a new user account `id` with `balance`, valid at `slot`. `profileBytes` > 0
+   * gives it a self-published profile that large (its renewal then costs more than the free meta).
+   */
+  Ledger::Record newUserAt(uint64_t slot, uint64_t id, const utl::MlDsaKeyPair &key, int64_t balance,
+                           size_t profileBytes = 0) {
     Ledger::TxNewUser nu;
     nu.fromWalletId = AccountBuffer::ID_RESERVE;
     nu.toWalletId = id;
     nu.amount = static_cast<uint64_t>(balance);
-    nu.fee = 6; // meta fee 1 + newAccountFee 5
-    nu.meta = makeUserAccount(key.publicKey, balance).ltsToString();
+    nu.fee = profileBytes == 0 ? 6 : 6 + profileBytes; // meta fee + newAccountFee 5, generously
+    auto account = makeUserAccount(key.publicKey, balance);
+    if (profileBytes > 0) {
+      AccountAttachment attachment;
+      attachment.profiles[id].data = std::string(profileBytes, 'p');
+      account.meta = attachment.ltsToString();
+    }
+    nu.meta = account.ltsToString();
     nu.idempotentId = idem_++;
     windowAt(nu, slot);
     return makeRecord(Ledger::T_NEW_USER, nu, harness_.reserveKey, harness_.producer.getNetworkId());
@@ -3435,12 +3447,22 @@ protected:
     return produce(tip, slot_, records);
   }
 
+  /** Leaders forced on the producer (test hook); every joiner gets the same. */
+  std::vector<std::pair<uint64_t, uint64_t>> forced_;
+  void forceLeader(uint64_t slot, uint64_t id) {
+    harness_.producer.forceSlotLeader(slot, id);
+    forced_.emplace_back(slot, id);
+  }
+
   /** A joiner as Miner::init makes one: consensus without config (it comes from the chain). */
   std::unique_ptr<Chain> openJoiner(uint64_t startingBlockId, bool fresh) {
     auto joiner = std::make_unique<Chain>();
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.timeOffset = 0;
     joiner->initConsensus(consensusConfig);
+    for (const auto &[slot, id] : forced_) {
+      joiner->forceSlotLeader(slot, id);
+    }
     if (fresh) {
       Ledger::InitConfig ledger;
       ledger.workDir = joinerDir_.string();
@@ -3452,6 +3474,41 @@ protected:
     auto loaded = joiner->loadFromLedger(startingBlockId);
     EXPECT_TRUE(loaded.isOk()) << loaded.error().message;
     return joiner;
+  }
+
+  /**
+   * A fresh joiner starts at checkpoint `start`, takes every block to the producer's tip (Full from
+   * the next checkpoint on) and ends with the producer's state for `accounts`.
+   */
+  void joinFrom(uint64_t start, const std::vector<uint64_t> &accounts) {
+    joiner_.reset();
+    std::error_code ec;
+    std::filesystem::remove_all(joinerDir_, ec);
+    joiner_ = openJoiner(start, /*fresh=*/true);
+    feed(*joiner_, start, harness_.producer.getNextBlockId());
+    ASSERT_FALSE(HasFailure()) << "joining at checkpoint " << start;
+    for (uint64_t id : accounts) {
+      auto ours = joiner_->getAccount(id);
+      auto theirs = harness_.producer.getAccount(id);
+      ASSERT_EQ(ours.isOk(), theirs.isOk()) << "account " << id << ", joining at " << start;
+      if (theirs.isOk()) {
+        EXPECT_TRUE(ours.value().wallet == theirs.value().wallet) << "account " << id << ", joining at " << start;
+      }
+    }
+  }
+
+  /** Every checkpoint the producer rotated to (oldest first). */
+  std::vector<uint64_t> rotations_;
+
+  /** produce(), recording checkpoint rotations. */
+  Ledger::ChainNode produceTracked(const Ledger::ChainNode &previous, uint64_t slot,
+                                   std::vector<Ledger::Record> records) {
+    const uint64_t before = harness_.producer.getCheckpoint().currentId;
+    auto block = produce(previous, slot, std::move(records));
+    if (harness_.producer.getCheckpoint().currentId != before) {
+      rotations_.push_back(harness_.producer.getCheckpoint().currentId);
+    }
+    return block;
   }
 
   /** The joiner takes the producer's blocks [from, to). */
@@ -3621,6 +3678,96 @@ TEST_F(CheckpointJoinTest, EpochOpeningBlocksCarryTheirCommittee) {
   EXPECT_NE(stray.error().message.find("does not open its epoch"), std::string::npos) << stray.error().message;
 }
 
+// Warm-up applies every effect on the accounts a joiner holds, whoever else a transaction touches:
+// users created before the joiner's checkpoint keep paying each other (and fees) while the joiner
+// does not hold them yet — fees still reach the fee account, credits still reach known recipients.
+TEST_F(CheckpointJoinTest, WarmUpAppliesEveryEffectOnHeldAccounts) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Users are created one every few blocks, so their renewals (and the joiner's knowledge of them)
+  // fall at different blocks from each other and from the system accounts'.
+  std::vector<std::pair<uint64_t, utl::MlDsaKeyPair>> users;
+  auto addUser = [&]() {
+    const uint64_t id = AccountBuffer::ID_FIRST_USER + 10 + users.size();
+    users.emplace_back(id, makeKeyPair());
+    return newUserAt(slot_, id, users.back().second, 100000);
+  };
+  // Two users created together, out of step with the system accounts' renewals: while warming up,
+  // the joiner holds the fee account before it holds either of them, and they pay each other.
+  ++slot_;
+  tip = produce(tip, slot_, {transferAt(slot_)});
+  ++slot_;
+  {
+    std::vector<Ledger::Record> pair{addUser()};
+    pair.push_back(addUser());
+    tip = produce(tip, slot_, pair);
+  }
+  ASSERT_FALSE(HasFailure());
+  // Accounts too poor to renew (a large profile makes renewal cost more than their 5) are ended at
+  // their renewal (T_END_USER), their balances recycled — some before the joiner's checkpoint, some
+  // during its warm-up while it does not hold them.
+  std::vector<uint64_t> poor;
+  auto addPoorUser = [&]() {
+    const uint64_t id = AccountBuffer::ID_FIRST_USER + 100 + poor.size();
+    poor.push_back(id);
+    return newUserAt(slot_, id, makeKeyPair(), 5, /*profileBytes=*/700);
+  };
+  auto userTransfer = [&](int from, uint64_t to, uint64_t amount) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = users[static_cast<size_t>(from)].first;
+    tx.toWalletId = to;
+    tx.amount = amount;
+    tx.fee = 2;
+    tx.idempotentId = idem_++;
+    windowAt(tx, slot_);
+    return makeRecord(Ledger::T_DEFAULT, tx, users[static_cast<size_t>(from)].second, producer.getNetworkId());
+  };
+  // Every block: one user pays the next user, another pays the reserve; plus the usual transfer;
+  // every third block a new user (up to eight).
+  auto traffic = [&]() {
+    const size_t n = users.size();
+    const int a = static_cast<int>(slot_ % n);
+    const int b = static_cast<int>((slot_ + 1) % n);
+    std::vector<Ledger::Record> records{userTransfer(0, users[1].first, 5), userTransfer(1, users[0].first, 4),
+                                        userTransfer(a, users[static_cast<size_t>(b)].first, 3 + slot_ % 5),
+                                        userTransfer(b, AccountBuffer::ID_RESERVE, 1), transferAt(slot_)};
+    if (slot_ % 3 == 0 && users.size() < 8) {
+      records.push_back(addUser());
+    }
+    if (slot_ % 4 == 1 && poor.size() < 6) {
+      records.push_back(addPoorUser());
+    }
+    return records;
+  };
+  // Long enough for several checkpoints; a joiner starts from each (each warm-up meets the
+  // traffic at a different point of the accounts' renewal cycles).
+  while (rotations_.size() < 6) {
+    ++slot_;
+    tip = produceTracked(tip, slot_, traffic());
+    ASSERT_FALSE(HasFailure()) << "slot " << slot_;
+    ASSERT_LT(slot_, 400u);
+  }
+  std::vector<uint64_t> ids = {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE,
+                               AccountBuffer::ID_RECYCLE, kTestMinerId};
+  for (const auto &user : users) {
+    ids.push_back(user.first);
+  }
+  ids.insert(ids.end(), poor.begin(), poor.end());
+  size_t ended = 0;
+  for (uint64_t id : poor) {
+    ended += producer.getAccount(id).isOk() ? 0 : 1;
+  }
+  EXPECT_GT(ended, 0u) << "some poor accounts were ended";
+  EXPECT_GT(producer.getAccount(AccountBuffer::ID_RECYCLE).value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0)
+      << "their balances were recycled";
+  for (size_t k = 0; k + 1 < rotations_.size(); ++k) {
+    joinFrom(rotations_[k], ids);
+    ASSERT_FALSE(HasFailure());
+  }
+}
+
 // Renewal due-sets and checkpoint rotation read block slot times, never a node's clock: a node
 // replaying the chain from genesis years later (Full, every renewal checked) agrees with the
 // producer. With checkpointMinAgeSeconds > 0 a clock-based cut-off would ask other accounts to
@@ -3699,56 +3846,152 @@ TEST_F(CheckpointLivenessTest, WarmUpChargesSkippedSlotsExactly) {
   ASSERT_TRUE(minerOf(producer, kMinerB).registered);
 
   // B becomes due 8640 slots after registering; jump past that and keep producing only in the
-  // genesis miner's slots. The joiner's window runs from one checkpoint to the next; leaders are
-  // random, so take the first window in which B was charged. A new miner registers in each window.
+  // genesis miner's slots, so every slot B leads is skipped and charged. A new miner registers
+  // after each checkpoint. Then a joiner starts from every checkpoint after the jump: each warm-up
+  // meets the charges at a different point of the accounts' renewal cycles.
   slot_ += 8650;
-  uint64_t lastRotation = producer.getCheckpoint().currentId;
-  uint64_t start = 0;
-  uint64_t missedAtStart = 0;
-  uint64_t minerC = 0;
-  uint64_t nextNewMiner = kMinerC;
-  bool windowNeedsMiner = false;
-  while (true) {
+  rotations_.clear();
+  const uint64_t missedBefore = minerOf(producer, kMinerB).missedDue;
+  std::vector<uint64_t> newMiners;
+  size_t registeredFor = 0;
+  while (rotations_.size() < 6) {
     std::vector<Ledger::Record> records;
     const auto key = makeKeyPair();
-    if (windowNeedsMiner) {
-      records.push_back(newUserAt(slot_ + 1, nextNewMiner, key, 900000));
+    const bool registerNow = rotations_.size() > registeredFor;
+    const uint64_t id = kMinerC + newMiners.size();
+    if (registerNow) {
+      records.push_back(newUserAt(slot_ + 1, id, key, 900000));
     }
-    tip = nextLedByGenesisMiner(tip, records);
+    do {
+      ++slot_;
+    } while (!genesisMinerLeads(slot_));
+    records.push_back(transferAt(slot_));
+    tip = produceTracked(tip, slot_, records);
     ASSERT_FALSE(HasFailure()) << "slot " << slot_;
-    if (windowNeedsMiner) {
-      tip = nextLedByGenesisMiner(tip, {registerMinerAt(slot_ + 1, nextNewMiner, key)});
+    if (registerNow) {
+      do {
+        ++slot_;
+      } while (!genesisMinerLeads(slot_));
+      tip = produceTracked(tip, slot_, {registerMinerAt(slot_, id, key), transferAt(slot_)});
       ASSERT_FALSE(HasFailure()) << "slot " << slot_;
-      minerC = nextNewMiner++;
-      windowNeedsMiner = false;
+      newMiners.push_back(id);
+      registeredFor = rotations_.size();
     }
-    const uint64_t rotation = producer.getCheckpoint().currentId;
-    if (rotation != lastRotation) {
-      lastRotation = rotation;
-      const uint64_t missed = minerOf(producer, kMinerB).missedDue;
-      if (start != 0 && missed > missedAtStart) {
-        break; // window [start, rotation) had charges; the joiner works from `rotation`
-      }
-      start = rotation;
-      missedAtStart = missed;
-      windowNeedsMiner = true;
-    }
-    ASSERT_LT(slot_, 8650u + 20000u) << "B never charged within a checkpoint window";
+    ASSERT_LT(slot_, 8650u + 20000u) << "too few checkpoints after the jump";
   }
-  ASSERT_TRUE(minerOf(producer, minerC).registered) << "a miner registered during the warm-up";
+  ASSERT_GT(minerOf(producer, kMinerB).missedDue, missedBefore) << "B charged after the jump";
 
-  joiner_ = openJoiner(start, /*fresh=*/true);
-  feed(*joiner_, start, producer.getNextBlockId());
-  ASSERT_FALSE(HasFailure());
-  for (int i = 0; i < 3; ++i) {
-    tip = nextLedByGenesisMiner(tip);
-    feed(*joiner_, tip.block.index, tip.block.index + 1);
+  std::vector<uint64_t> ids = {kTestMinerId, kMinerB, AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE,
+                               AccountBuffer::ID_FEE};
+  ids.insert(ids.end(), newMiners.begin(), newMiners.end());
+  for (size_t k = 0; k + 1 < rotations_.size(); ++k) {
+    joinFrom(rotations_[k], ids);
     ASSERT_FALSE(HasFailure());
   }
-  for (uint64_t id : {kTestMinerId, kMinerB, minerC, AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE}) {
-    auto ours = joiner_->getAccount(id);
-    auto theirs = producer.getAccount(id);
-    ASSERT_TRUE(ours.isOk() && theirs.isOk()) << "account " << id;
-    EXPECT_TRUE(ours.value().wallet == theirs.value().wallet) << "account " << id;
+}
+
+// The checkpoint block's own liveness step, deterministically (leaders forced on the producer and
+// every joiner): each epoch's first two slots are B's and skipped, so the epoch's first block — a
+// checkpoint — charges B for them. Blocks per epoch are chosen so that every other checkpoint block
+// also renews B: a joiner starting there holds B when that block's liveness runs (the block before
+// it is not held; the charges start at the epoch's first slot all the same).
+TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
+  auto &producer = harness_.producer;
+  const uint64_t slotsPerEpoch = harness_.chainConfig.slotsPerEpoch;
+  const uint64_t minBlocks = harness_.chainConfig.checkpoint.minBlocks;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  auto produceLedByGenesisMiner = [&](uint64_t slot, std::vector<Ledger::Record> records) {
+    forceLeader(slot, kTestMinerId);
+    records.push_back(transferAt(slot));
+    tip = produceTracked(tip, slot, records);
+  };
+  const auto keyB = makeKeyPair();
+  produceLedByGenesisMiner(++slot_, {newUserAt(slot_, kMinerB, keyB, 2000000)});
+  produceLedByGenesisMiner(++slot_, {registerMinerAt(slot_, kMinerB, keyB)});
+  ASSERT_FALSE(HasFailure());
+  // The block that last recorded B (its creation or a renewal): renewal falls due from it.
+  auto lastRecordedB = [&]() -> uint64_t {
+    for (uint64_t id = producer.getNextBlockId(); id-- > 0;) {
+      const auto block = producer.readBlock(id);
+      if (!block) {
+        continue;
+      }
+      for (const auto &r : block.value().block.records) {
+        if ((r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kMinerB) ||
+            (r.type == Ledger::T_NEW_USER && utl::binaryUnpack<Ledger::TxNewUser>(r.data).value().toWalletId == kMinerB)) {
+          return id;
+        }
+      }
+    }
+    return 0;
+  };
+
+  slot_ += 8650; // B is due from here on
+  rotations_.clear();
+  std::vector<uint64_t> renewingB;
+  const auto keyC = makeKeyPair();
+  for (uint64_t round = 0; round < 8; ++round) {
+    const uint64_t epoch = slot_ / slotsPerEpoch + 1;
+    const uint64_t first = epoch * slotsPerEpoch;
+    forceLeader(first, kMinerB);
+    forceLeader(first + 1, kMinerB);
+    // Pick how many blocks this epoch gets (at least minBlocks, so the next epoch's first block is
+    // a checkpoint): renewals of B fall every minBlocks blocks; aim the next checkpoint at one of
+    // them in even rounds, and away from them in odd rounds.
+    const bool wantRenewal = round % 2 == 0;
+    const uint64_t firstIndex = producer.getNextBlockId();
+    uint64_t blocks = minBlocks;
+    for (; blocks < minBlocks + 3; ++blocks) {
+      uint64_t nextRenewal = std::max(lastRecordedB() + minBlocks, firstIndex);
+      while (nextRenewal < firstIndex + blocks) {
+        nextRenewal += minBlocks;
+      }
+      if ((nextRenewal == firstIndex + blocks) == wantRenewal) {
+        break;
+      }
+    }
+    for (uint64_t i = 0; i < blocks; ++i) {
+      std::vector<Ledger::Record> records;
+      if (round == 3 && i == 1) {
+        records.push_back(newUserAt(first + 2 + i, kMinerC, keyC, 900000)); // a miner joins mid-window
+      }
+      if (round == 3 && i == 2) {
+        records.push_back(registerMinerAt(first + 2 + i, kMinerC, keyC));
+      }
+      produceLedByGenesisMiner(first + 2 + i, records);
+      ASSERT_FALSE(HasFailure()) << "round " << round << ", block " << i;
+    }
+    slot_ = first + 2 + blocks - 1;
+    if (wantRenewal) {
+      renewingB.push_back(firstIndex + blocks);
+    }
+  }
+  // The next epoch's first block closes the last round.
+  const uint64_t first = (slot_ / slotsPerEpoch + 1) * slotsPerEpoch;
+  forceLeader(first, kMinerB);
+  forceLeader(first + 1, kMinerB);
+  produceLedByGenesisMiner(first + 2, {});
+  ASSERT_FALSE(HasFailure());
+
+  // Every even round's checkpoint block renewed B and charged it for the epoch's first two slots.
+  for (uint64_t index : renewingB) {
+    const auto block = producer.readBlock(index).value();
+    ASSERT_TRUE(std::find(rotations_.begin(), rotations_.end(), index) != rotations_.end()) << "block " << index;
+    bool renews = false;
+    for (const auto &r : block.block.records) {
+      renews = renews || (r.type == Ledger::T_RENEWAL &&
+                          utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kMinerB);
+    }
+    EXPECT_TRUE(renews) << "checkpoint " << index << " renews B";
+  }
+  ASSERT_TRUE(minerOf(producer, kMinerC).registered);
+
+  const std::vector<uint64_t> ids = {kTestMinerId, kMinerB, kMinerC, AccountBuffer::ID_GENESIS,
+                                     AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE};
+  for (size_t k = 0; k + 1 < rotations_.size(); ++k) {
+    joinFrom(rotations_[k], ids);
+    ASSERT_FALSE(HasFailure());
   }
 }
+

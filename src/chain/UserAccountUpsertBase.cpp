@@ -83,7 +83,7 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       " bytes";
   auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(
       tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr,
-      tx.walletId, deserializeError);
+      tx.walletId, deserializeError, chain_block::admissionTxStrict(admissionMode));
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }

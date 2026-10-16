@@ -144,6 +144,10 @@ chain_tx::Roe<void> MinerTxHandler::applyMiner(const Ledger::TxMiner &tx, const 
 
   auto accountRoe = bank.getAccount(tx.walletId);
   if (!accountRoe) {
+    if (!chain_block::admissionTxStrict(admissionMode)) {
+      // Warming up: the account arrives with its renewal; the fee still reaches a held fee account.
+      return chain_tx::creditFeeToFeeAccount(bank, tx.fee, "Failed to credit miner fee: ");
+    }
     return chain_tx::TxError(chain_err::E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(tx.walletId));
   }
   const Client::Wallet wallet = accountRoe.value().wallet;

@@ -2,6 +2,7 @@
 #include "AccountPolicy.h"
 #include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
+#include "EndUserTxHandler.h"
 #include "MinerLiveness.h"
 #include "RecordHandler.h"
 #include "TxFees.h"
@@ -301,15 +302,14 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
       tx.meta = gm.ltsToString();
     }
   }
-  // T_END_USER does not need metadata update
-
   Ledger::Record rec;
   rec.type = type;
   if (type == Ledger::T_END_USER) {
     Ledger::TxEndUser endTx;
     endTx.walletId = tx.walletId;
     endTx.fee = tx.fee;
-    endTx.meta = tx.meta;
+    // The balances it leaves to the recycle account (a node warming up may not hold the account).
+    endTx.meta = EndUserTxHandler::writtenOffMeta(account.wallet.mBalances);
     rec.data = utl::binaryPack(endTx);
   } else {
     rec.data = utl::binaryPack(tx);
@@ -682,17 +682,21 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
   if (!txContext_.optChainConfig.has_value() || block.block.index == 0) {
     return {};
   }
-  auto prev = txContext_.ledger.readBlock(block.block.index - 1);
-  if (!prev) {
-    // Late-join replay starts at a checkpoint: the block before it is not held. Full admission
-    // always has it.
+  uint64_t prevSlot = 0;
+  if (auto prev = txContext_.ledger.readBlock(block.block.index - 1)) {
+    prevSlot = prev.value().block.slot;
+  } else {
+    // Late join starts at a checkpoint, whose previous block is not held. A checkpoint opens its
+    // epoch, so the previous block lies in an earlier epoch and the skipped slots charged are
+    // exactly those from the epoch's first slot: any previous slot before it gives the same.
     if (chain_block::admissionTxStrict(mode)) {
       return Error(E_BLOCK_NOT_FOUND, "Previous block not found for miner liveness: " + prev.error().message);
     }
-    return {};
+    const uint64_t epochFirstSlot = block.block.epoch * txContext_.consensus.getConfig().slotsPerEpoch;
+    prevSlot = epochFirstSlot > 0 ? epochFirstSlot - 1 : 0;
   }
   auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
-                                                        txContext_.optChainConfig.value(), prev.value().block.slot,
+                                                        txContext_.optChainConfig.value(), prevSlot,
                                                         block.block, chain_block::admissionTxStrict(mode)));
   if (!applied) {
     return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
@@ -1173,12 +1177,8 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
     txContext_.pendingChainConfig.reset();
   }
   txContext_.optAuthority = gm.authority;
-  // Slot timing is fixed at genesis; keep this node's clock offset.
-  auto consensusConfig = txContext_.consensus.getConfig();
-  consensusConfig.genesisTime = gm.config.genesisTime;
-  consensusConfig.slotDuration = gm.config.slotDuration;
-  consensusConfig.slotsPerEpoch = gm.config.slotsPerEpoch;
-  txContext_.consensus.init(consensusConfig);
+  // Slot timing is fixed at genesis; this node keeps its clock offset.
+  txContext_.consensus.setSlotTiming(gm.config.genesisTime, gm.config.slotDuration, gm.config.slotsPerEpoch);
   epochStakeSnapshots_.clear();
   // The renewal records genesis as the previous epoch left it (it renews first): in place before
   // the block, so this epoch's issuance baseline is right too.

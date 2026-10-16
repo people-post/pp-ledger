@@ -173,64 +173,9 @@ chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferLoose(
     const Ledger::TxDefault &tx, [[maybe_unused]] const TxContext &ctx,
     AccountBuffer &bank) const {
-  if (bank.hasAccount(tx.fromWalletId)) {
-    if (bank.hasAccount(tx.toWalletId)) {
-      auto transferResult = bank.transferBalance(
-          tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount, tx.fee);
-      if (!transferResult) {
-        return chain_tx::TxError(
-            chain_err::E_TX_TRANSFER,
-            "Failed to transfer balance: " + transferResult.error().message);
-      }
-    } else {
-      if (tx.tokenId == AccountBuffer::ID_GENESIS) {
-        auto withdrawResult = bank.withdrawBalance(
-            tx.fromWalletId, tx.tokenId,
-            static_cast<int64_t>(tx.amount) + static_cast<int64_t>(tx.fee));
-        if (!withdrawResult) {
-          return chain_tx::TxError(
-              chain_err::E_TX_TRANSFER,
-              "Failed to withdraw balance: " + withdrawResult.error().message);
-        }
-      } else {
-        auto withdrawAmountResult = bank.withdrawBalance(
-            tx.fromWalletId, tx.tokenId, static_cast<int64_t>(tx.amount));
-        if (!withdrawAmountResult) {
-          return chain_tx::TxError(
-              chain_err::E_TX_TRANSFER,
-              "Failed to withdraw balance: " +
-                  withdrawAmountResult.error().message);
-        }
-        if (tx.fee > 0) {
-          auto withdrawFeeResult =
-              bank.withdrawBalance(tx.fromWalletId, AccountBuffer::ID_GENESIS,
-                                   static_cast<int64_t>(tx.fee));
-          if (!withdrawFeeResult) {
-            return chain_tx::TxError(
-                chain_err::E_TX_TRANSFER,
-                "Failed to withdraw fee: " + withdrawFeeResult.error().message);
-          }
-        }
-      }
-      if (auto credited = chain_tx::creditFeeToFeeAccount(
-              bank, tx.fee, "Failed to credit fee: ");
-          !credited) {
-        return credited;
-      }
-    }
-  } else {
-    if (bank.hasAccount(tx.toWalletId)) {
-      auto depositResult = bank.depositBalance(
-          tx.toWalletId, tx.tokenId, static_cast<int64_t>(tx.amount));
-      if (!depositResult) {
-        return chain_tx::TxError(
-            chain_err::E_TX_TRANSFER,
-            "Failed to deposit balance: " + depositResult.error().message);
-      }
-    }
-  }
-
-  return {};
+  // Warm-up (beacon-authority ba5b): every leg on an account this node holds, fee included.
+  return chain_tx::applyTransferToHeldAccounts(bank, tx.fromWalletId, tx.toWalletId, tx.tokenId, tx.amount,
+                                               tx.fee);
 }
 
 } // namespace pp
