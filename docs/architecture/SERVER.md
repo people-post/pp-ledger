@@ -423,7 +423,8 @@ After starting a beacon and miner, you can test the system:
 
 `Ctrl+C` (SIGINT) or SIGTERM — what `docker stop` and systemd send — stops a server gracefully,
 exit code 0; `pp-http` too. A stop during startup (a relay or miner syncing from its upstream for
-up to 5 minutes) ends the start at once: the node does not go on to run.
+up to 5 minutes, or a miner waiting that long for an upstream to answer — its relay may be
+restarting too) ends the start at once: the node does not go on to run.
 
 ## Storage Management
 

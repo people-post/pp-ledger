@@ -181,6 +181,9 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 | `port` | 8517 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served (see below); typically the beacon's relays |
 
+Moving the beacon to another host (all keys safe) is plain operations:
+[MOVING_THE_BEACON.md](MOVING_THE_BEACON.md).
+
 ### Promoting a relay (case 2: the beacon key was stolen)
 
 When the beacon's key is stolen, the admins certify a new key held on one of the maintainer's relays
@@ -322,7 +325,7 @@ Not configurable. Every request deadline derives from one RPC timeout T = 15 s
 | Server drops a request still queued after | T/2 |
 | RPC channel with nothing inbound is reset after | 2T on the server, the call's deadline on the client |
 | Upstream holds a `BLOCK_WAIT` for | T/2 |
-| Relay / miner startup sync | 5 min |
+| Relay / miner startup sync (a miner's wait for an upstream to answer included) | 5 min |
 
 The request queue holds 1024 requests (reads get a further quarter in a
 low-priority lane, at most 16 per peer).
