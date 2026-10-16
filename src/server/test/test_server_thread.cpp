@@ -2,6 +2,7 @@
 #include "BlockWaitList.h"
 #include "MinerRegistry.h"
 #include "RequestQueue.h"
+#include "BlockSync.h"
 #include "Server.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/io/Json.h"
@@ -118,6 +119,8 @@ public:
   using Server::laneFor;
   using Server::setRequestLimits;
   using Server::stopAmpServer;
+  using Server::requestRestart;
+  using Server::runStartupSync;
 
   std::atomic<int> active{0};
   std::atomic<int> maxActive{0};
@@ -762,6 +765,47 @@ TEST(NetworkAnchorTest, GenesisHashIsHexOfTheRawBlockHash) {
   EXPECT_FALSE(NetworkAnchor::fromJson(config).isOk());
   config.set("genesisHash", "abcd"); // too short
   EXPECT_FALSE(NetworkAnchor::fromJson(config).isOk());
+}
+
+// --- Restart (beacon-authority bp1: a rewind is a restart) ---
+
+// A restart requested while the node starts — its blocks past a cutover will not sync — ends the
+// startup sync at once, without an error, instead of retrying until it times out and the node
+// exits (which left a node that was offline during a cut unable to start).
+TEST(ServerThreadTest, AStartupSyncEndsWhenARestartIsRequested) {
+  EchoServer server;
+  Client client;
+  std::optional<BlockSync::Result> last;
+  BlockSync::Hooks hooks;
+  hooks.dialUpstream = []() { return pp::Roe<void>(pp::Error("upstream unreachable")); };
+  hooks.nextBlockId = []() { return uint64_t{5}; };
+  hooks.tipHash = []() { return std::optional<std::string>("tip"); };
+  hooks.postToServerThread = [](std::function<void()> task) { task(); };
+  hooks.onFinished = [&](const BlockSync::Result &result) {
+    last = result;
+    server.requestRestart(); // as orderRewindIfDue does when the sync brought a cutover below our tip
+  };
+  BlockSync sync(client, hooks);
+  const auto started = std::chrono::steady_clock::now();
+  const std::string error = server.runStartupSync(sync, last, 3000ms);
+  EXPECT_TRUE(error.empty()) << error;
+  EXPECT_LT(std::chrono::steady_clock::now() - started, 1000ms) << "it did not wait out its timeout";
+  EXPECT_TRUE(server.restartRequested());
+}
+
+// The run loop stops once the grace after the request has passed, serving requests until then.
+TEST(ServerThreadTest, ARequestedRestartStopsTheLoopAfterItsGrace) {
+  EchoServer server;
+  server.setStop(false);
+  server.requestRestart(150ms);
+  const auto started = std::chrono::steady_clock::now();
+  while (!server.isStopSet() && std::chrono::steady_clock::now() - started < 2000ms) {
+    server.serveRequestsFor(50ms);
+  }
+  const auto took = std::chrono::steady_clock::now() - started;
+  EXPECT_TRUE(server.isStopSet());
+  EXPECT_GE(took, 140ms) << "not before its grace";
+  EXPECT_LT(took, 1000ms);
 }
 
 } // namespace

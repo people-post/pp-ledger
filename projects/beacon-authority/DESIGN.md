@@ -216,8 +216,8 @@ generation.
 - **Trigger.** A node keeps a certificate of a later generation whose cutover *C* is below its
   committed tip (part 1 already refuses the old generation's tips above *C*). The blocks above *C*
   were signed by the old key past its cutover — invalid by the certificate's own terms — so the
-  node needs nothing more to know they must go. A node whose block *C* is not `cutoverHash` also
-  rewinds (its history forked at or below *C*).
+  node needs nothing more to know they must go. A node whose block *C* is not `cutoverHash` halts
+  and alerts instead (bp2): a fork at or below *C*, or a typo'd height, needs a human.
 - **Marker.** It writes `data/rewind.dat` durably — target height and the certificate that orders
   it — logs an error-level alert, and stops.
 - **Restart in-process.** The app's `main()` runs the role server in a loop: when `run()` returns
@@ -229,12 +229,19 @@ generation.
 - **Apply at start.** Before anything mounts the ledger, the new server applies the marker:
   truncate to *C* (the commit point is lowered before the data is cut, so a crash at any step
   repeats the rewind at the next start), then remove the marker. If *C* is below a miner's
-  starting checkpoint, or the node's block *C* is not `cutoverHash`, it discards the ledger
+  starting checkpoint, it discards the ledger
   and joins fresh — a relay from genesis, a miner at a checkpoint — through the existing fresh-join
   path. Then it syncs as usual.
-- **Bounded.** One rewind per certificate generation (generations only go up); a marker still
-  present after its restart stops the node with an error rather than looping. The rewind depth is
-  the admins' choice, as their signature is what orders it.
+- **Bounded.** A node's blocks no longer pass the cutover after the rewind, so the order is not
+  issued again; an order that cannot be applied stops the start with an error rather than looping.
+  **Depth** ([B025](DECISIONS.md#b025--a-node-rewinds-on-its-own-only-seven-days-deep)): a node rewinds
+  on its own only within seven days of slot time; deeper, it stops at its tip and waits for its
+  operator's `--approve-rewind <generation>`. More guards come with certificate v2 (bp2): the
+  cutover may not drop the block that committed the generation in force; a node whose block *C* is
+  not `cutoverHash` halts and alerts instead of joining fresh (a typo'd height must not wipe more);
+  `mk-beacon-cert` fills `cutoverHash` from a node and shows the depth before the admins sign.
+- **Back online.** A node that was down during the cut learns the certificate from its upstream's
+  `STATUS` in its startup sync and rewinds then, whether or not that sync succeeds.
 - **Reported.** Clients that read blocks above *C* see history change: the node logs it and
   reports its last rewind on `STATUS` (shape in bp1). Transactions from those blocks must be
   resubmitted — idempotency keys make it safe; ones whose validity window passed must be re-signed.

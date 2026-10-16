@@ -1584,6 +1584,28 @@ void Chain::refreshEquivocation() {
   }
 }
 
+std::optional<Client::RewindReport> Chain::rewindOrder() const {
+  const uint64_t next = getNextBlockId();
+  if (!seenCert_ || next == 0 || next - 1 <= seenCert_->cutoverHeight) {
+    return std::nullopt;
+  }
+  Client::RewindReport order;
+  order.keptUpTo = seenCert_->cutoverHeight;
+  order.droppedUpTo = next - 1;
+  order.generation = seenCert_->generation;
+  return order;
+}
+
+std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &order) const {
+  const uint64_t from = std::max(order.keptUpTo, txContext_.ledger.getStartingBlockId());
+  auto cut = readBlock(from);
+  auto last = readBlock(order.droppedUpTo);
+  if (!cut || !last || last.value().block.slot < cut.value().block.slot) {
+    return std::nullopt;
+  }
+  return (last.value().block.slot - cut.value().block.slot) * getSlotDuration();
+}
+
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
   if (seenCertRecord_) {
     return seenCertRecord_;

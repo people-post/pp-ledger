@@ -215,7 +215,9 @@ the leader's pool is final; out-of-order dependent transactions must be resubmit
   than the recorded one. Gateways pass records on unchanged.
 - The terminal keeps `{ miner_id, last renewal }` (no address) and a `registryVersion`, which
   changes only when the list does. Miners renew every 60 s; a record not renewed within 5 min is
-  dropped (`MinerRegistry`).
+  dropped (`MinerRegistry`). A miner starts even when its first registration is refused (a beacon
+  that stood down refuses them, [BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind))
+  and keeps renewing.
 - **No published miner addresses:** registrations carry none, `MINER_LIST` returns ids only, and
   transactions reach the leader by `TX_PULL`. Miners dial out to relays, so the public leader
   schedule cannot be used to flood the next leader.

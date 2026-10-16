@@ -511,6 +511,8 @@ Service::Roe<void> MinerServer::onStart() {
                                        minerInit.error().message);
   }
 
+  orderRewindIfDue(); // a certificate kept before the node went down
+
   // Initial catch-up: the same BlockSync as at run time; completions are
   // served here because the run loop has not started yet.
   initBlockSync();
@@ -646,6 +648,7 @@ void MinerServer::warnIfNotRegisteredMiner() {
 
 void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
   lastSyncResult_ = result;
+  orderRewindIfDue(); // the sync may have brought a certificate whose cutover is below our tip
   if (result.ok) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = miner_.getCurrentEpoch();
@@ -710,11 +713,23 @@ void MinerServer::onStop() {
   log().info << "MinerServer resources cleaned up";
 }
 
+void MinerServer::orderRewindIfDue() {
+  if (restartRequested()) {
+    return;
+  }
+  if (auto due = miner_.scheduleRewind(approvedRewindGeneration()); !due) {
+    log().error << due.error().message;
+  } else if (due.value()) {
+    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+  }
+}
+
 void MinerServer::runLoop() {
   log().info << "Block production and request handler loop started";
 
   while (!isStopSet()) {
     try {
+      orderRewindIfDue();
       // Update miner state
       miner_.refresh();
 
@@ -1203,13 +1218,16 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   if (!minerInfo) {
     return Error(E_CONFIG, minerInfo.error().message);
   }
+  // A refused registration does not stop the start: a beacon that stood down (beacon-authority
+  // part 2 — while a new one takes over) refuses them, and a miner restarting then, to rewind or by
+  // its operator, must come up and wait. The run loop registers again (REGISTER_RENEW_INTERVAL).
   auto stateResult = client_.registerMinerServer(minerInfo.value());
   if (!stateResult) {
-    return Error(E_NETWORK,
-                 "Failed to register with upstream: " + stateResult.error().message);
+    log().warning << "Registration refused for now (retried every "
+                  << std::chrono::duration_cast<std::chrono::seconds>(REGISTER_RENEW_INTERVAL).count()
+                  << " s): " << stateResult.error().message;
   }
-
-  const auto &state = stateResult.value();
+  const Client::BeaconState state = stateResult ? stateResult.value() : status.value();
   if (auto verified = verifyUpstreamState(state); !verified) {
     return Error(E_NETWORK, verified.error().message);
   }
@@ -1217,7 +1235,9 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_NETWORK, genesis.error().message);
   }
 
-  lastRegistration_ = std::chrono::steady_clock::now();
+  if (stateResult) {
+    lastRegistration_ = std::chrono::steady_clock::now();
+  }
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
   if (!state.networkId.empty()) {

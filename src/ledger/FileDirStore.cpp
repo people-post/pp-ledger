@@ -277,46 +277,54 @@ FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
     return Error("Cannot rewind to index " + std::to_string(index) +
                  " (max: " + std::to_string(totalBlockCount_) + ")");
   }
+  if (index == totalBlockCount_) {
+    return {}; // nothing to drop (and no file holds `index` to look up)
+  }
 
-  // Find which file contains the target index
+  // The file holding block `index` stays (cut at it); every later file goes. Each step leaves a
+  // prefix of the chain on disk, so a crash midway mounts consistently and the rewind is redone.
   auto [fileId, indexWithinFile] = findBlockFile(index);
-  
-  // Remove all files after the target file
+  if (fileId == 0) {
+    return Error("No block file holds block " + std::to_string(index));
+  }
   std::vector<uint32_t> filesToRemove;
-  for (const auto &[fid, fileInfo] : fileInfoMap_) {
+  for (uint32_t fid : fileIdOrder_) {
     if (fid > fileId) {
       filesToRemove.push_back(fid);
     }
   }
-
-  // Remove files from map and order
+  std::vector<std::unique_ptr<FileStore>> closing;
   for (uint32_t fid : filesToRemove) {
-    fileInfoMap_.erase(fid);
-    fileIdOrder_.erase(
-        std::remove(fileIdOrder_.begin(), fileIdOrder_.end(), fid),
-        fileIdOrder_.end());
+    if (auto it = fileInfoMap_.find(fid); it != fileInfoMap_.end()) {
+      closing.push_back(std::move(it->second.blockFile));
+      fileInfoMap_.erase(it);
+    }
+    fileIdOrder_.erase(std::remove(fileIdOrder_.begin(), fileIdOrder_.end(), fid), fileIdOrder_.end());
   }
-
-  // Rewind the target file
-  if (fileId > 0) {
-    auto it = fileInfoMap_.find(fileId);
-    if (it != fileInfoMap_.end() && it->second.blockFile) {
-      auto rewindResult = it->second.blockFile->rewindTo(indexWithinFile);
-      if (!rewindResult.isOk()) {
-        return Error("Failed to rewind file: " + rewindResult.error().message);
-      }
+  // 1. Unlist the later files durably.
+  if (!filesToRemove.empty() && !saveIndex()) {
+    return Error("Failed to save the index before removing block files");
+  }
+  // 2. Cut the file holding `index` (FileStore lowers its commit point first).
+  auto it = fileInfoMap_.find(fileId);
+  if (it == fileInfoMap_.end() || !it->second.blockFile) {
+    return Error("Block file " + std::to_string(fileId) + " is not open");
+  }
+  if (auto rewound = it->second.blockFile->rewindTo(indexWithinFile); !rewound) {
+    return Error("Failed to rewind file: " + rewound.error().message);
+  }
+  // 3. Delete the unlisted files; new files continue after the one kept.
+  for (auto &file : closing) {
+    if (file) {
+      file->close(); // Windows cannot delete an open file
     }
   }
-
-  // Recalculate total block count
-  totalBlockCount_ = 0;
-  for (const auto &[fid, fileInfo] : fileInfoMap_) {
-    if (fileInfo.blockFile) {
-      totalBlockCount_ += fileInfo.blockFile->getBlockCount();
-    }
+  for (uint32_t fid : filesToRemove) {
+    std::error_code ec;
+    std::filesystem::remove(getBlockFilePath(fid), ec);
   }
-
-  saveIndex();
+  currentFileId_ = fileId;
+  recalculateTotalBlockCount();
   return {};
 }
 

@@ -128,6 +128,25 @@ bool Client::SignedTip::ltsFromString(const std::string &str) {
   return !ar.failed();
 }
 
+std::string Client::RewindReport::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Client::RewindReport::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  return !ar.failed();
+}
+
 std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip &a, const SignedTip &b) {
   if (a.networkId != b.networkId || a.generation != b.generation || a.height != b.height ||
       a.blockHash == b.blockHash) {
@@ -243,6 +262,9 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   if (equivocation) {
     m.set("equivocation", equivocation->ltsToString());
   }
+  if (rewound) {
+    m.set("rewound", rewound->ltsToString());
+  }
   if (recovery) {
     m.set("recovery", utl::binaryPack(*recovery));
   }
@@ -290,6 +312,14 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
       return Error(E_INVALID_RESPONSE, "Invalid recovery status in beacon state");
     }
     recovery = std::move(status.value());
+  }
+  rewound.reset();
+  if (auto packed = meta.getOrDefault("rewound", std::string{}); !packed.empty()) {
+    RewindReport report;
+    if (!report.ltsFromString(packed)) {
+      return Error(E_INVALID_RESPONSE, "Invalid rewind report in beacon state");
+    }
+    rewound = report;
   }
   return true;
 }

@@ -181,6 +181,18 @@ public:
   const std::optional<Ledger::Record> &seenCertificateRecord() const { return seenCertRecord_; }
   const std::optional<BeaconCertificate> &seenCertificate() const { return seenCert_; }
   /**
+   * The rewind the held certificate orders (beacon-authority bp1, B023): this chain holds blocks
+   * above its cutover — signed by a superseded generation past it — so they must go. None when it
+   * holds none, or holds no certificate out of band.
+   */
+  std::optional<Client::RewindReport> rewindOrder() const;
+  /**
+   * How far back `order` reaches, in slot time: from the cutover block — or the first block this
+   * chain holds, when the cutover lies before it — to the block it would drop last. None when those
+   * blocks cannot be read.
+   */
+  std::optional<uint64_t> rewindDepthSeconds(const Client::RewindReport &order) const;
+  /**
    * The current certificate, as STATUS serves it: the one held out of band, else the latest
    * committed T_BEACON_CERT this node holds (none at generation 1, or from before a checkpoint
    * start).

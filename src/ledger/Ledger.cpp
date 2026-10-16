@@ -503,6 +503,37 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
   return {};
 }
 
+Ledger::Roe<void> Ledger::rewindTo(uint64_t nextBlockId) {
+  const uint64_t next = getNextBlockId();
+  if (nextBlockId > next) {
+    return Error("Cannot rewind forward to block " + std::to_string(nextBlockId) + " (next is " +
+                 std::to_string(next) + ")");
+  }
+  if (nextBlockId < meta_.startingBlockId) {
+    return Error("Cannot rewind below the ledger's first block " + std::to_string(meta_.startingBlockId));
+  }
+  if (nextBlockId == next) {
+    return {};
+  }
+  if (auto committed = commit(); !committed) {
+    return committed;
+  }
+  if (auto rewound = store_.rewindTo(nextBlockId - meta_.startingBlockId); !rewound) {
+    return Error("Failed to rewind the block store: " + rewound.error().message);
+  }
+  auto &checkpoints = meta_.checkpointIds;
+  checkpoints.erase(std::remove_if(checkpoints.begin(), checkpoints.end(),
+                                   [nextBlockId](uint64_t id) { return id >= nextBlockId; }),
+                    checkpoints.end());
+  if (!saveIndex()) {
+    return Error("Failed to save the index after rewinding");
+  }
+  latestBlockCache_.reset();
+  uncommittedBlocks_ = 0;
+  log().warning << "Rewound the ledger: next block " << next << " -> " << nextBlockId;
+  return {};
+}
+
 Ledger::Roe<void> Ledger::commit() {
   if (auto committed = store_.commit(); !committed) {
     return Error("Failed to commit blocks: " + committed.error().message);

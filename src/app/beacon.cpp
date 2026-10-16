@@ -6,7 +6,9 @@
 
 #include <cli11.hpp>
 
+#include <atomic>
 #include <csignal>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -15,9 +17,15 @@
 namespace {
 pp::BeaconServer* g_beaconServer = nullptr;
 
+/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
+std::atomic<bool> g_stopRequested{false};
+
 void signalHandler(int signal) {
-  if ((signal == SIGINT || signal == SIGTERM) && g_beaconServer) {
-    g_beaconServer->setStop(true);
+  if (signal == SIGINT || signal == SIGTERM) {
+    g_stopRequested = true;
+    if (g_beaconServer) {
+      g_beaconServer->setStop(true);
+    }
   }
 }
 } // namespace
@@ -38,26 +46,31 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
-int runBeacon(const std::string& workDir) {
+int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration) {
   auto logger = pp::logging::getLogger("pp");
-  
+
   logger.info << "Running beacon with work directory: " << workDir;
 
-  pp::BeaconServer beacon;
-  beacon.redirectLogger("pp.B");
+  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
+  // work directory for as long as the last one asks to be restarted.
+  while (!g_stopRequested) {
+    pp::BeaconServer beacon;
+    beacon.redirectLogger("pp.B");
+    beacon.setApprovedRewindGeneration(approvedRewindGeneration);
+    g_beaconServer = &beacon; // for the signal handler
 
-  // Set global pointer for signal handler
-  g_beaconServer = &beacon;
+    auto runResult = beacon.run(workDir);
+    g_beaconServer = nullptr;
 
-  auto runResult = beacon.run(workDir);
-  
-  // Clear global pointer
-  g_beaconServer = nullptr;
-  
-  if (!runResult) {
-    logger.error << "Failed to run beacon: " + runResult.error().message;
-    std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
-    return 1;
+    if (!runResult) {
+      logger.error << "Failed to run beacon: " + runResult.error().message;
+      std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
+      return 1;
+    }
+    if (!beacon.restartRequested()) {
+      break;
+    }
+    logger.warning << "Beacon restarting";
   }
 
   logger.info << "Beacon stopped";
@@ -80,6 +93,11 @@ int main(int argc, char *argv[]) {
 
   bool debugMode = false;
   app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
+
+  uint64_t approvedRewindGeneration = 0;
+  app.add_option("--approve-rewind", approvedRewindGeneration,
+                 "Apply the rewind ordered by this beacon generation although it reaches back further "
+                 "than a node rewinds on its own (7 days of slots); check the certificate first");
 
   app.footer(
     "Initialize (once):\n"
@@ -108,6 +126,6 @@ int main(int argc, char *argv[]) {
   if (initMode) {
     return initBeacon(workDir, genesisKeys);
   } else {
-    return runBeacon(workDir);
+    return runBeacon(workDir, approvedRewindGeneration);
   }
 }

@@ -94,6 +94,11 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
               << " keys, " << static_cast<int>(status.recovery->adminMinSignatures)
               << " signatures; the admin set is frozen until then)\n";
   }
+  if (status.rewound) {
+    std::cout << "Rewound: kept blocks up to " << status.rewound->keptUpTo << ", dropped "
+              << status.rewound->keptUpTo + 1 << " to " << status.rewound->droppedUpTo
+              << " (beacon generation " << status.rewound->generation << " cutover)\n";
+  }
   if (status.equivocation) {
     std::cout << "Equivocation: generation " << status.equivocation->generation() << " at block "
               << status.equivocation->height() << " (halted above it)\n";

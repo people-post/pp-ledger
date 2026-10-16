@@ -54,6 +54,12 @@ protected:
    * Service thread main loop - processes queued requests
    */
   void runLoop() override;
+  /**
+   * When the held certificate orders a rewind (beacon-authority bp1), write the order and restart
+   * after kRewindRestartGrace. Called once the role has loaded, when a sync finishes (startup syncs
+   * too: a node back online with blocks past the cutover cannot sync), and from the run loop.
+   */
+  void orderRewindIfDue();
 
   /**
    * Called before service thread starts - initializes beacon and network

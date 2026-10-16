@@ -772,3 +772,45 @@ TEST_F(LedgerTest, ACrashKeepsCommittedBlocksOnly) {
   ASSERT_TRUE(ledger.commit().isOk());
   EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-crash4"), 5u) << "an explicit commit";
 }
+
+// --- Rewind (beacon-authority bp1) ---
+
+// A rewind drops the blocks from a height on, with the checkpoints among them, durably; appending
+// continues from there.
+TEST_F(LedgerTest, RewindDropsBlocksAndCheckpointsDurably) {
+  ensureTestDirDoesNotExist();
+  Ledger ledger;
+  Ledger::InitConfig config;
+  config.workDir = testDir_.string();
+  ASSERT_TRUE(ledger.init(config).isOk());
+  for (uint64_t i = 0; i < 6; ++i) {
+    ASSERT_TRUE(ledger.addBlock(createTestBlock(i, "v1-" + std::to_string(i))).isOk());
+  }
+  ASSERT_TRUE(ledger.updateCheckpoints({1, 4}).isOk());
+
+  EXPECT_FALSE(ledger.rewindTo(7).isOk()) << "not forward";
+  ASSERT_TRUE(ledger.rewindTo(3).isOk());
+  EXPECT_EQ(ledger.getNextBlockId(), 3u);
+  EXPECT_EQ(ledger.readLastBlock().value().block.index, 2u);
+  EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-rewound"), 3u) << "durable";
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(3, "v2-3")).isOk());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(4, "v2-4")).isOk());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(5, "v2-5")).isOk());
+  ASSERT_TRUE(ledger.commit().isOk());
+  EXPECT_EQ(ledger.readBlock(3).value().hash, createTestBlock(3, "v2-3").hash);
+  EXPECT_TRUE(ledger.updateCheckpoints({1, 5}).isOk()) << "checkpoint 4 went with its block";
+  EXPECT_TRUE(ledger.rewindTo(6).isOk()) << "at the tip: nothing to drop";
+}
+
+TEST_F(LedgerTest, RewindRefusesTheBlocksBeforeItsStart) {
+  ensureTestDirDoesNotExist();
+  Ledger ledger;
+  Ledger::InitConfig config;
+  config.workDir = testDir_.string();
+  config.startingBlockId = 10;
+  ASSERT_TRUE(ledger.init(config).isOk());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(10, "a")).isOk());
+  EXPECT_FALSE(ledger.rewindTo(9).isOk());
+  EXPECT_TRUE(ledger.rewindTo(10).isOk());
+  EXPECT_EQ(ledger.getNextBlockId(), 10u);
+}

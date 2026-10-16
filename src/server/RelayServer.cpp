@@ -207,6 +207,8 @@ Service::Roe<void> RelayServer::onStart() {
                                        relayInit.error().message);
   }
 
+  orderRewindIfDue(); // a certificate kept before the node went down
+
   // Initial catch-up through the same BlockSync as at run time; completions
   // are served here because the run loop has not started yet.
   initBlockSync();
@@ -265,6 +267,7 @@ void RelayServer::initBlockSync() {
 
 void RelayServer::onBlockSyncFinished(const BlockSync::Result &result) {
   lastSyncResult_ = result;
+  orderRewindIfDue(); // the sync may have brought a certificate whose cutover is below our tip
   if (result.ok) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = relay_.getCurrentEpoch();
@@ -476,6 +479,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.signedTip = upstreamTip_.latest();
   state.equivocation = relay_.getEquivocation();
   state.recovery = relay_.getRecoveryStatus();
+  state.rewound = relay_.getLastRewind();
   state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {
@@ -486,11 +490,23 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   return state;
 }
 
+void RelayServer::orderRewindIfDue() {
+  if (restartRequested()) {
+    return;
+  }
+  if (auto due = relay_.scheduleRewind(approvedRewindGeneration()); !due) {
+    log().error << due.error().message;
+  } else if (due.value()) {
+    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+  }
+}
+
 void RelayServer::runLoop() {
   log().info << "Request handler loop started";
 
   while (!isStopSet()) {
     try {
+      orderRewindIfDue();
       relay_.refresh();
       syncBlocksPeriodically();
       tipWatch_->maintain();

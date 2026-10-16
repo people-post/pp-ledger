@@ -1248,7 +1248,8 @@ run_recovery_scenario() {
   echo -e "${GREEN}✓ L-SMOKE-RECOVERY: the new admin set is in force${NC}"
 }
 
-# --- L-SMOKE-OUT-OF-BAND (beacon-authority ba5c): a certificate not on chain (a stolen beacon key) ---
+# --- L-SMOKE-REWIND (beacon-authority ba5c, bp1): a certificate not on chain (a stolen beacon key)
+# orders every node holding blocks past its cutover to rewind; each restarts itself ---
 
 # The certificate the relay serves on STATUS: "<generation> <cutover>" (empty if none).
 status_certificate() {
@@ -1260,40 +1261,98 @@ status_signed_tip_height() {
   fetch_beacon_state 2>/dev/null | sed -n 's/^Signed tip: block \([0-9]*\), generation [0-9]*$/\1/p'
 }
 
+# The rewind the relay reports on STATUS: "<keptUpTo> <generation>" (empty if none).
+status_rewound() {
+  fetch_beacon_state 2>/dev/null |
+    sed -n 's/^Rewound: kept blocks up to \([0-9]*\), dropped [0-9]* to [0-9]* (beacon generation \([0-9]*\) cutover)$/\1 \2/p'
+}
+
+# Every process in the smoke network is still running (a rewind restarts in-process).
+all_processes_alive() {
+  local name pid
+  while IFS=: read -r name pid; do
+    kill -0 "$pid" 2>/dev/null || { echo "$name"; return 1; }
+  done <"$PID_FILE"
+}
+
 run_out_of_band_scenario() {
-  echo -e "${BLUE}═══ L-SMOKE-OUT-OF-BAND ═══${NC}"
+  echo -e "${BLUE}═══ L-SMOKE-REWIND (out of band) ═══${NC}"
   # The admins learn the beacon key was stolen two blocks ago: they certify generation 3 for a key
   # no running beacon holds, trusting the old generation only up to then, and hand the
   # certificate to the relay. It is not on chain, and the old beacon will never commit it.
   local tip cutover cert reply key="${TEST_DIR}/unheld-beacon-signing"
   tip=$(status_signed_tip_height)
-  [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-OUT-OF-BAND: no signed tip to start from (got '${tip}')"
+  [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-REWIND: no signed tip to start from (got '${tip}')"
   cutover=$((tip - 2))
+  # The last miner is down while the cut happens; it comes back afterwards (below).
+  local offline=$NUM_MINERS
+  stop_miner_by_id "$offline"
   rm -f "$key.key" "$key.pub"
   "$BUILD_DIR/app/pp-client" keygen -o "$key" >/dev/null || die "pp-client keygen failed"
   cert=$(make_beacon_cert 3 "$key.pub" "$cutover")
   reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" 2>&1) ||
-    die "L-SMOKE-OUT-OF-BAND: submit-tx failed: ${reply}"
+    die "L-SMOKE-REWIND: submit-tx failed: ${reply}"
   echo -e "${CYAN}Handed the relay a generation-3 certificate (cutover ${cutover}; signed tip was ${tip})${NC}"
 
-  # The relay keeps it, serves it, and stops serving the old generation's tip above the cutover.
+  # Every node holding blocks past the cutover rewinds to it by restarting itself, unattended.
+  local deadline=$((SECONDS + 60)) rewound=""
+  while ((SECONDS < deadline)); do
+    rewound=$(status_rewound)
+    [[ "$rewound" == "${cutover} 3" ]] && break
+    sleep 1
+  done
+  [[ "$rewound" == "${cutover} 3" ]] ||
+    die "L-SMOKE-REWIND: the relay did not report a rewind to block ${cutover} (got '${rewound}')"
+  [[ "$(get_next_block_id)" == "$((cutover + 1))" ]] ||
+    die "L-SMOKE-REWIND: the relay holds blocks past the cutover (nextBlockId $(get_next_block_id))"
   [[ "$(status_certificate)" == "3 ${cutover}" ]] ||
-    die "L-SMOKE-OUT-OF-BAND: the relay does not serve generation 3 on STATUS (got '$(status_certificate)')"
-  [[ -z "$(status_signed_tip_height)" ]] ||
-    die "L-SMOKE-OUT-OF-BAND: the relay still serves a tip above the cutover (block $(status_signed_tip_height))"
-  [[ -f "${TEST_DIR}/relay/data/beacon-cert.dat" ]] || die "L-SMOKE-OUT-OF-BAND: the relay did not persist it"
-  echo -e "${GREEN}✓ The relay serves generation 3 and no tip past its cutover${NC}"
+    die "L-SMOKE-REWIND: the relay does not serve generation 3 after its restart (got '$(status_certificate)')"
+  local served
+  served=$(status_signed_tip_height)
+  [[ -z "$served" || "$served" -le "$cutover" ]] ||
+    die "L-SMOKE-REWIND: the relay serves a tip past the cutover (block ${served})"
+  echo -e "${GREEN}✓ The relay rewound to block ${cutover}, restarted, and serves generation 3${NC}"
 
-  # The relay forwarded it: the beacon holds no key it names, so it stands down and nothing commits.
+  # The relay forwarded it: the beacon holds no key it names, so it stands down; it rewinds too.
   grep -a -q "Beacon generation 3 (seen out of band) certifies none of this beacon's keys" \
-    "${TEST_DIR}/beacon/beacon.log" || die "L-SMOKE-OUT-OF-BAND: the beacon did not stand down"
-  [[ -f "${TEST_DIR}/beacon/data/beacon-cert.dat" ]] || die "L-SMOKE-OUT-OF-BAND: the beacon did not persist it"
+    "${TEST_DIR}/beacon/beacon.log" || die "L-SMOKE-REWIND: the beacon did not stand down"
+  deadline=$((SECONDS + 30))
+  until grep -a -q "Rewound: kept blocks up to ${cutover}," "${TEST_DIR}/beacon/beacon.log"; do
+    ((SECONDS < deadline)) || die "L-SMOKE-REWIND: the beacon did not rewind"
+    sleep 1
+  done
+  # Miners learn it from the relay's STATUS once it is back, then rewind and restart themselves;
+  # their restart comes up although the beacon that stood down refuses their registration.
+  local i
+  for i in $(seq 1 $((offline - 1))); do
+    deadline=$((SECONDS + 60))
+    until grep -a -q "Rewound: kept blocks up to ${cutover}," "${TEST_DIR}/miner${i}/miner.log"; do
+      ((SECONDS < deadline)) || die "L-SMOKE-REWIND: miner${i} did not rewind"
+      sleep 1
+    done
+  done
+  local miners_rewound=$((offline - 1))
+  local stopped
+  stopped=$(all_processes_alive) || die "L-SMOKE-REWIND: ${stopped} stopped instead of restarting"
+  echo -e "${GREEN}✓ The beacon and ${miners_rewound} miner(s) rewound too; every process restarted in place${NC}"
+
+  # The miner that was down still holds blocks past the cutover: back online, it learns the
+  # certificate from the relay's STATUS in its startup sync and rewinds on its own.
+  start_miner "$offline" || die "L-SMOKE-REWIND: miner${offline} did not come back"
+  deadline=$((SECONDS + 60))
+  until grep -a -q "Rewound: kept blocks up to ${cutover}," "${TEST_DIR}/miner${offline}/miner.log"; do
+    ((SECONDS < deadline)) || die "L-SMOKE-REWIND: miner${offline}, back online, did not rewind"
+    sleep 1
+  done
+  stopped=$(all_processes_alive) || die "L-SMOKE-REWIND: ${stopped} stopped instead of restarting"
+  echo -e "${GREEN}✓ Miner${offline}, down during the cut, rewound once back online${NC}"
+
   local held
   held=$(get_next_block_id)
   inject_transactions_for_block_production >/dev/null 2>&1 || true
   sleep $((SLOT_DURATION * 4))
-  [[ "$(get_next_block_id)" == "$held" ]] || die "L-SMOKE-OUT-OF-BAND: the relay took blocks after the beacon stood down"
-  echo -e "${GREEN}✓ L-SMOKE-OUT-OF-BAND: the beacon stood down; the network takes nothing past the cutover${NC}"
+  [[ "$(get_next_block_id)" == "$held" ]] || die "L-SMOKE-REWIND: the relay took blocks past the cutover"
+  echo -e "${GREEN}✓ L-SMOKE-REWIND: every node rewound to the cutover on its own; nothing commits past it${NC}"
 }
 
 # Restart miner $1 with no data — "anchored" pins genesis — and check it starts at a checkpoint at

@@ -24,8 +24,9 @@ workDir/
 | `VolumeStore` | `maxVolumes` | append fails |
 
 Existing volumes are never relocated or rewritten for capacity. Only the tip
-volume is mutated on append; rewind may truncate the tip and delete later
-volumes.
+volume is mutated on append; a rewind (`Ledger::rewindTo`) cuts the file holding its target and
+deletes every later file and volume — the index first, then the data, so each step leaves a prefix
+of the chain and a crash midway mounts consistently.
 
 Default Ledger caps: 64 files × 128 MiB per volume (~8 GiB), up to 10 000 volumes.
 
@@ -76,6 +77,8 @@ now or no longer signed, superseded evidence) is removed with a log line. The be
 | `keys/beacon-signing.next.key`, `.pub` | beacon | A key pair staged for a rotation, same format; both or neither | Operator-managed |
 | `data/signed-tip.dat` | beacon | The latest signed tip: `SignedTip` versioned bytes (version 1) | Rewritten with every block it signs; never signs a different block at or below it. Keep it with the ledger; never copy it between beacons |
 | `data/beacon-cert.dat` | beacon, relay, miner | The highest beacon certificate held out of band: the packed `T_BEACON_CERT` record (`binaryPack(Record)`, as `pp-client mk-beacon-cert` writes it) | Removed once the chain commits its generation or a later one, or it no longer verifies |
+| `data/rewind.dat` | beacon, relay, miner | A rewind ordered before a restart: `RewindReport` versioned bytes (version 1) | Applied and removed at the next start, before the ledger mounts ([BEACON_AUTHORITY.md § Rewind](BEACON_AUTHORITY.md#rewind)) |
+| `data/rewound.dat` | beacon, relay, miner | The last rewind applied, same format (`STATUS.rewound`) | Replaced by the next rewind |
 | `data/equivocation.dat` | beacon, relay, miner | The equivocation evidence the node halts on: `Equivocation` versioned bytes (version 1) | Removed once a later generation supersedes it, or it no longer verifies |
 
 A node with no blocks yet keeps `beacon-cert.dat` and `equivocation.dat` and offers them once it

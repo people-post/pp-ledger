@@ -36,6 +36,7 @@ no migration (networks start from a new genesis on a change).
 | `Equivocation` | 1 | `first`, `second` (unversioned tips, `first.blockHash < second.blockHash`) | `STATUS.equivocation`, `EQUIVOCATION_ADD`, `data/equivocation.dat` |
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
+| `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
 
 Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
 evidence, replies).
@@ -227,6 +228,49 @@ A tip of the new generation still verifies only along blocks that commit its cer
 certificate bounds the old generation, it does not let a node follow the new one before the chain
 does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
 
+## Rewind
+
+A certificate's cutover below a node's committed tip is an order to rewind: the blocks above the
+cutover were signed by the superseded generation past it, so they are invalid by the certificate's
+own terms. Every node acts on it alone, with no operator and no service supervisor; only an
+admin-signed certificate of a higher generation, kept as above, can order it
+([projects/beacon-authority B022, B023, B025](../../projects/beacon-authority/DECISIONS.md)).
+
+- **Order** (`Chain::rewindOrder`): the node holds a certificate out of band and blocks above its
+  cutover. It checks for one once it has loaded (a certificate kept before it went down), whenever
+  a sync finishes — startup syncs too: a node back online with blocks past the cutover cannot sync,
+  and a requested restart ends its startup sync instead of failing it — and in its run loop.
+- **Bounded** (`rewind::schedule`): a node rewinds on its own only as far as seven days of slot time
+  (`rewind::kMaxAutomaticRewind`), measured from the cutover block — or the first block it holds,
+  when the cutover is older — to the last block it would drop. Deeper, or when that cannot be read,
+  it does nothing more than before: it refuses the old generation's tips past the cutover, so it
+  stops at its own tip, and logs one error-level alert per certificate. Its operator checks the
+  certificate and restarts the node with `--approve-rewind <generation>` to apply it. A mistaken
+  certificate thus cannot cut a network's history unattended.
+- **Order written.** Within reach (or approved), it writes the order (`RewindReport`: the cutover as
+  `keptUpTo`, its last block as `droppedUpTo`, the generation) to `data/rewind.dat`, logs an
+  error-level alert, keeps serving for 2 s (a forward in flight — the certificate itself —
+  finishes), and restarts.
+- **Restart.** The app runs a fresh server on the same work directory (`pp-beacon`, `pp-relay` and
+  `pp-miner` loop in `main`); every object is rebuilt from disk, as at a cold start. A signal stops
+  the loop.
+- **Apply**, at start, before the ledger mounts: the ledger keeps the blocks up to `keptUpTo`
+  (`Ledger::rewindTo`); when that lies below the ledger's first block (a miner started at a later
+  checkpoint) the ledger is removed and the node joins fresh. A beacon also drops a stored signed tip
+  above `keptUpTo`. The order is then kept as `data/rewound.dat` and removed; each step may be
+  repeated after a crash. An order that cannot be applied stops the start with an error.
+- **Afterwards** the node holds the certificate as before (it refuses the old generation above the
+  cutover) and syncs what is valid. Its blocks no longer pass the cutover, so the order is not
+  issued again. A miner starts even when its registration is refused (a beacon that stood down
+  refuses them) and registers again every minute.
+- **Reported:** the beacon's and relays' `STATUS` carries `rewound` (the last `RewindReport`;
+  absent if none) and `pp-client -b status` prints it. Clients that read blocks above the cutover
+  see history change; transactions from them must be resubmitted (idempotency keys make that safe;
+  re-signed if their validity window passed).
+
+A cutover at or above the tip orders nothing: honest rotations (no cutover, or one not reached)
+never rewind.
+
 ## Equivocation halt
 
 Two signed tips of one network, generation and height that name **different blocks** prove the
@@ -280,7 +324,7 @@ What the beacon authority adds to the ledger RPC ([LEDGER_TOPOLOGY.md § Realiza
 
 | Request (id) | Change |
 |--------------|--------|
-| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
+| `STATUS` (1), beacon and relays | Meta keys, each absent when there is none: `signedTip` (`SignedTip`, versioned bytes), `certificate` (packed `T_BEACON_CERT` record), `equivocation` (`Equivocation`, versioned bytes), `recovery` (packed `RecoveryStatus`), `rewound` (`RewindReport`, versioned bytes). A syncing node offers `certificate`, then `equivocation`, then checks `signedTip` |
 | `BLOCK_ADD` (1002), `BLOCK_WAIT` (1003) | Reply payload is a packed `TipReply` |
 | `AUTHORITY_PROOF` (1004) | New: [Authority proof](#authority-proof). Answered by nodes holding the chain from genesis |
 | `EQUIVOCATION_ADD` (1005) | New: payload `Equivocation` (versioned bytes), reply a short text; downstream to upstream only ([Equivocation halt](#equivocation-halt)) |

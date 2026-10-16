@@ -537,3 +537,27 @@ issuance. The skew bound can refuse a takeover until the host's clock is fixed.
 (the old beacon's side would not serve them); a fresh beacon host synced from scratch (slower,
 nothing gained); charging the outage and re-registering miners afterwards.
 
+## B025 — A node rewinds on its own only seven days deep
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
+**Decision:** A node applies a rewind unattended (B023) only when it reaches back at most seven days
+of slot time — from the cutover block, or the first block it holds when the cutover is older, to
+the last block it would drop (`rewind::kMaxAutomaticRewind`). Deeper, or when that cannot be read,
+it holds back: it keeps refusing the old generation past the cutover (so it stops at its tip),
+alerts once per certificate, and applies the rewind only when its operator restarts it with
+`--approve-rewind <generation>`. A node that was down during a cut checks for the order once it has
+loaded and whenever a sync finishes (a requested restart ends a startup sync instead of failing it).
+**Rationale:** The user's call: the bound is there to stop a catastrophic cut — a typo'd or otherwise
+mistaken certificate rewinding every node's history unattended — not to slow a real recovery, so it
+is generous. A theft is usually caught within hours (the equivocation halt), well inside it. Holding
+back costs nothing irreversible: the node already refuses the old generation past the cutover, so it
+waits safely while a human looks. A node coming back online used to fail its startup sync on blocks
+that no longer link (the network moved on) and exit, never reaching the run loop's check.
+**Cons:** A real theft found after more than a week needs every operator to approve — the deep case
+trades B023's automation for safety. Slot time measures the chain, not the wall clock, so a chain that
+was idle for long counts its idle slots.
+**Alternatives:** No bound (the admins' signature alone; one mistake cuts everything); a bound in
+blocks (block rates vary); approval over RPC (anyone who can reach the node could approve) or a file
+in the data directory (easy to leave behind).
+

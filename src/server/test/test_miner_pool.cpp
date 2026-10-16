@@ -1,6 +1,7 @@
 #include "BeaconServer.h"
 #include "Beacon.h"
 #include "Miner.h"
+#include "Rewind.h"
 #include "../../chain/AccountBuffer.h"
 #include "../../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
@@ -8,6 +9,9 @@
 #include "TestTempPath.h"
 
 #include <gtest/gtest.h>
+#include <iterator>
+#include <cctype>
+#include <algorithm>
 
 #include <chrono>
 #include <filesystem>
@@ -278,6 +282,93 @@ TEST_F(MinerPoolTest, EveryBlockTheBeaconAddsSurvivesACrash) {
   Ledger restarted;
   ASSERT_TRUE(restarted.mount(crashed.string()).isOk());
   EXPECT_EQ(restarted.getNextBlockId(), 2u) << "genesis and the block just added";
+}
+
+// beacon-authority bp1: a beacon ordered to rewind applies it at its next start — the ledger is cut
+// after the cutover, a tip it signed above it is dropped (that generation is superseded), and the
+// rewind is reported.
+TEST_F(MinerPoolTest, ABeaconAppliesARewindOrderAtItsNextStart) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 12)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+
+  const fs::path beaconDir = root_ / "beacon";
+  auto signingKey = [&]() {
+    utl::MlDsaKeyPair key;
+    key.privateKey = utl::readPrivateKey("keys/beacon-signing.key", beaconDir.string()).value();
+    std::ifstream pub(beaconDir / "keys" / "beacon-signing.pub");
+    std::string hex((std::istreambuf_iterator<char>(pub)), std::istreambuf_iterator<char>());
+    hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+    key.publicKey = utl::hexDecode(hex);
+    return key;
+  }();
+  Beacon::MountConfig mount;
+  mount.workDir = (beaconDir / "data").string();
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({signingKey}).isOk());
+    ASSERT_TRUE(beacon.addBlock(block).isOk());
+    ASSERT_EQ(beacon.getSignedTip()->height, 1u);
+  }
+  Client::RewindReport order;
+  order.keptUpTo = 0;
+  order.droppedUpTo = 1;
+  order.generation = 2;
+  ASSERT_TRUE(rewind::writeOrder(mount.workDir, order).isOk());
+
+  Beacon restarted;
+  ASSERT_TRUE(restarted.mount(mount).isOk());
+  EXPECT_EQ(restarted.getNextBlockId(), 1u) << "cut after the cutover";
+  EXPECT_EQ(restarted.getLastRewind(), std::optional<Client::RewindReport>(order));
+  ASSERT_TRUE(restarted.openTipSigning({signingKey}).isOk()) << "the tip above the cutover is gone";
+  EXPECT_EQ(restarted.getSignedTip()->height, 0u);
+}
+
+// beacon-authority bp1: a node rewinds on its own only within kMaxAutomaticRewind of slot time; a
+// deeper cut is held back — the node keeps refusing the old tips past it — until the operator
+// approves that generation (--approve-rewind).
+TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 13)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  Beacon beacon;
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  ASSERT_TRUE(beacon.addBlock(block).isOk());
+
+  BeaconCertificate cert; // generation 2, cutover at genesis: block 1 is past it
+  cert.networkId = "test-net";
+  cert.generation = 2;
+  cert.publicKey = utl::mlDsaGenerate().value().publicKey;
+  cert.cutoverHeight = 0;
+  Ledger::TxBeaconCert tx;
+  tx.meta = cert.ltsToString();
+  Ledger::Record record;
+  record.type = Ledger::T_BEACON_CERT;
+  record.data = utl::binaryPack(tx);
+  for (size_t i = 0; i < 2; ++i) {
+    record.signatures.push_back(utl::mlDsaSign(genesisKeys_[i].privateKey, record.signingMessage("test-net")).value());
+  }
+  ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
+  const fs::path order = fs::path(mount.workDir) / rewind::FILE_ORDER;
+
+  beacon.setMaxAutomaticRewind(std::chrono::seconds(0)); // block 1 is a slot or more past genesis
+  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "held back";
+  EXPECT_FALSE(fs::exists(order));
+  EXPECT_FALSE(beacon.scheduleRewind(3).value()) << "an approval for another generation does not count";
+  EXPECT_TRUE(beacon.scheduleRewind(2).value()) << "approved";
+  EXPECT_TRUE(fs::exists(order));
+  fs::remove(order);
+
+  beacon.setMaxAutomaticRewind(rewind::kMaxAutomaticRewind);
+  EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "within seven days: on its own";
+  EXPECT_TRUE(fs::exists(order));
 }
 
 } // namespace
