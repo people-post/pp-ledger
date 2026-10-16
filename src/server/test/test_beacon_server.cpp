@@ -4,6 +4,7 @@
 #include "../chain/AccountBuffer.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
+#include "TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -28,7 +29,7 @@ struct GenesisSetup {
   std::filesystem::path dir;
   std::vector<utl::MlDsaKeyPair> genesis, reserve, registrar, fee, recycle, recovery;
 
-  explicit GenesisSetup(const std::string &name) : dir(std::filesystem::temp_directory_path() / name) {
+  explicit GenesisSetup(const std::string &name) : dir(pp::test::uniqueTempPath(name)) {
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
     std::filesystem::create_directories(dir);

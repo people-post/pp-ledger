@@ -1,7 +1,7 @@
 include(GoogleTest)
 
 add_executable(test_beacon_server test_beacon_server.cpp)
-target_link_libraries(test_beacon_server PRIVATE pp_server GTest::gtest_main)
+target_link_libraries(test_beacon_server PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_beacon_server)
 
 add_executable(test_server_thread test_server_thread.cpp)
@@ -9,7 +9,7 @@ target_link_libraries(test_server_thread PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_server_thread)
 
 add_executable(test_miner_pool test_miner_pool.cpp)
-target_link_libraries(test_miner_pool PRIVATE pp_server GTest::gtest_main)
+target_link_libraries(test_miner_pool PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_miner_pool)
 
 add_executable(test_block_sync test_block_sync.cpp)
@@ -17,5 +17,5 @@ target_link_libraries(test_block_sync PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_block_sync)
 
 add_executable(test_signed_tip test_signed_tip.cpp)
-target_link_libraries(test_signed_tip PRIVATE pp_server GTest::gtest_main)
+target_link_libraries(test_signed_tip PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_signed_tip)

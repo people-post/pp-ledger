@@ -8,6 +8,7 @@
 #include "../consensus/EpochSeed.h"
 #include "client/AccountAttachment.h"
 #include "client/Client.h"
+#include "TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -403,7 +404,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test";
+      pp::test::uniqueTempPath("pp-ledger-chain-test");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -435,7 +436,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -475,7 +476,7 @@ TEST(ChainTest,
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -575,7 +576,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -657,6 +658,8 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
     EXPECT_TRUE(matches);
   }
   EXPECT_EQ(blockId, 0u);
+
+  std::filesystem::remove_all(tempDir, ec);
 }
 
 TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
@@ -676,7 +679,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -719,7 +722,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-findtx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-findtx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -757,7 +760,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenNoBlocks) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -793,7 +796,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -836,7 +839,7 @@ TEST(ChainTest,
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-gettx";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-gettx");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -941,8 +944,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() /
-      "pp-ledger-chain-test-zero-idempotent-id";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-zero-idempotent-id");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1005,8 +1007,7 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
-                                  "pp-ledger-chain-test-nonincreasing-slot";
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-nonincreasing-slot");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1100,8 +1101,7 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
-                                  "pp-ledger-chain-test-far-future-slot";
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-far-future-slot");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1151,7 +1151,7 @@ TEST(ChainTest, FutureSlotTolerance_IsMaxOfTwoSlotsAndFifteenSeconds) {
 // ledger replay accepts a same-slot successor, checkBlockArrival rejects it.
 TEST(ChainTest, SlotMonotonicity_ArrivalOnlyNotStructural) {
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-arrival";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-arrival");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
 
@@ -1215,8 +1215,7 @@ TEST(ChainTest, LoadFromLedger_IgnoresFutureSlotBound) {
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
 
-  std::filesystem::path tempDir = std::filesystem::temp_directory_path() /
-                                  "pp-ledger-chain-test-reload-future";
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-reload-future");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
 
@@ -1281,7 +1280,7 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
   producer.initConsensus(consensusConfig);
 
   const auto tempDir =
-      std::filesystem::temp_directory_path() / "pp-ledger-chain-test-renewal";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-renewal");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
 
@@ -1375,7 +1374,7 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   consensusConfig.slotsPerEpoch = 10;
   producer.initConsensus(consensusConfig);
 
-  const auto tempDir = std::filesystem::temp_directory_path() / "pp-ledger-chain-test-system-accounts";
+  const auto tempDir = pp::test::uniqueTempPath("pp-ledger-chain-test-system-accounts");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   Ledger::InitConfig ledgerConfig;
@@ -1517,8 +1516,7 @@ TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() /
-      "pp-ledger-chain-test-replay-old-index";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-replay-old-index");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1607,8 +1605,7 @@ TEST(ChainTest,
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() /
-      "pp-ledger-chain-test-idempotency-replay";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-idempotency-replay");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1677,8 +1674,7 @@ TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
   validator.initConsensus(consensusConfig);
 
   std::filesystem::path tempDir =
-      std::filesystem::temp_directory_path() /
-      "pp-ledger-chain-test-late-joiner";
+      pp::test::uniqueTempPath("pp-ledger-chain-test-late-joiner");
   std::error_code ec;
   std::filesystem::remove_all(tempDir, ec);
   ASSERT_FALSE(ec);
@@ -1749,9 +1745,8 @@ struct ComposeHarness {
     reserveKey = makeKeyPair();
     recycleKey = makeKeyPair();
 
-    producerDir = std::filesystem::temp_directory_path() /
-                  "pp-ledger-compose-producer";
-    peerDir = std::filesystem::temp_directory_path() / "pp-ledger-compose-peer";
+    producerDir = pp::test::uniqueTempPath("pp-ledger-compose-producer");
+    peerDir = pp::test::uniqueTempPath("pp-ledger-compose-peer");
     std::error_code ec;
     std::filesystem::remove_all(producerDir, ec);
     std::filesystem::remove_all(peerDir, ec);
@@ -3505,7 +3500,7 @@ protected:
       c.checkpoint.minBlocks = 3;
       c.checkpoint.minAgeSeconds = minAgeSeconds_;
     });
-    joinerDir_ = std::filesystem::temp_directory_path() / "pp-ledger-checkpoint-joiner";
+    joinerDir_ = pp::test::uniqueTempPath("pp-ledger-checkpoint-joiner");
     std::error_code ec;
     std::filesystem::remove_all(joinerDir_, ec);
   }

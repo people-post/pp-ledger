@@ -133,7 +133,11 @@ it stays manual.
 
 ## Fixture conventions
 
-- Unique temp dirs under `std::filesystem::temp_directory_path()`.
+- Temp paths come from `pp::test::uniqueTempPath(name)` (`src/testing/TestTempPath.h`, target
+  `pp_testing`), never a fixed name under `temp_directory_path()`: ctest runs each test case in its
+  own process and `ctest -j` runs them side by side, so a fixed name is shared (one test wipes or
+  reopens another's ledger). The helper appends the process id. Remove what you create — the name
+  is new on every run, so nothing overwrites a leftover.
 - Destroy stores / mesh runtimes before wiping dirs (parent-only teardown).
 - Prefer `TEST_F` + `std::unique_ptr` over stack locals that outlive `remove_all`.
 - Multi-process smoke configs: render from `scripts/test/fixtures/`; do not hand-edit

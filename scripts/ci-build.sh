@@ -81,7 +81,8 @@ fi
 if [[ -n "$DO_TEST" ]]; then
   # ctest uses -C/--build-config for multi-config generators; --config is only
   # valid for `cmake --build`.
-  CTEST_ARGS=(--test-dir "$BUILD_DIR" --output-on-failure)
+  # Test cases run in parallel processes; tests take private temp paths (src/testing/TestTempPath.h).
+  CTEST_ARGS=(--test-dir "$BUILD_DIR" --output-on-failure --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-2}")
   if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
     CTEST_ARGS+=(-C Release)
   fi

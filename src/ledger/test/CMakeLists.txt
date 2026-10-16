@@ -7,6 +7,7 @@ add_executable(test_blockfile
 )
 target_link_libraries(test_blockfile PRIVATE
     pp_ledger
+    pp_testing
     GTest::gtest_main
 )
 gtest_discover_tests(test_blockfile)
@@ -16,6 +17,7 @@ add_executable(test_filedirstore
 )
 target_link_libraries(test_filedirstore PRIVATE
     pp_ledger
+    pp_testing
     GTest::gtest_main
 )
 gtest_discover_tests(test_filedirstore)
@@ -25,6 +27,7 @@ add_executable(test_volumestore
 )
 target_link_libraries(test_volumestore PRIVATE
     pp_ledger
+    pp_testing
     GTest::gtest_main
 )
 gtest_discover_tests(test_volumestore)
@@ -34,6 +37,7 @@ add_executable(test_ledger
 )
 target_link_libraries(test_ledger PRIVATE
     pp_ledger
+    pp_testing
     GTest::gtest_main
 )
 gtest_discover_tests(test_ledger)
