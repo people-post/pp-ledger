@@ -261,6 +261,38 @@ public:
   };
 
   /**
+   * Equivocation evidence (beacon-authority ba6): two signed tips of one network, generation and
+   * height naming different blocks — proof that the generation's beacon key signed twice (stolen,
+   * or two hosts running it). Signatures alone may differ for one block (ML-DSA signs with fresh
+   * randomness), so only the block hash counts. Stored in canonical order: first.blockHash <
+   * second.blockHash.
+   */
+  struct Equivocation {
+    constexpr static const uint32_t VERSION = 1;
+
+    SignedTip first;
+    SignedTip second;
+
+    /** Evidence from two tips, or none if they are not one network, generation and height with
+     *  different blocks. Signatures are not checked here (verify()). */
+    static std::optional<Equivocation> of(const SignedTip &a, const SignedTip &b);
+    /** Same shape as of() requires, and both tips signed by `publicKey`. */
+    bool verify(const std::string &publicKey) const;
+
+    const std::string &networkId() const { return first.networkId; }
+    uint64_t generation() const { return first.generation; }
+    uint64_t height() const { return first.height; }
+
+    bool operator==(const Equivocation &other) const { return first == other.first && second == other.second; }
+
+    template <typename Archive> void serialize(Archive &ar) { ar & first & second; }
+
+    /** Versioned bytes (disk, STATUS `equivocation`, EQUIVOCATION_ADD). */
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+  };
+
+  /**
    * BLOCK_WAIT and BLOCK_ADD reply: the replying node's next block id and the latest signed tip
    * it holds (relays pass the beacon's on unchanged).
    */

@@ -128,6 +128,41 @@ bool Client::SignedTip::ltsFromString(const std::string &str) {
   return !ar.failed();
 }
 
+std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip &a, const SignedTip &b) {
+  if (a.networkId != b.networkId || a.generation != b.generation || a.height != b.height ||
+      a.blockHash == b.blockHash) {
+    return std::nullopt;
+  }
+  Equivocation evidence;
+  evidence.first = a.blockHash < b.blockHash ? a : b;
+  evidence.second = a.blockHash < b.blockHash ? b : a;
+  return evidence;
+}
+
+bool Client::Equivocation::verify(const std::string &publicKey) const {
+  auto shaped = of(first, second);
+  return shaped && *shaped == *this && first.verify(publicKey) && second.verify(publicKey);
+}
+
+std::string Client::Equivocation::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Client::Equivocation::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  return !ar.failed();
+}
+
 std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
   return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
          utl::binaryPack(issuedAt);

@@ -175,7 +175,10 @@ TEST(UpstreamSignedTipTest, KeepsTheNewestAndIgnoresOlderOrConflicting) {
   EXPECT_EQ(held.offer(tipAt(5)), UpstreamSignedTip::Offer::Newer);
   EXPECT_EQ(held.offer(tipAt(5)), UpstreamSignedTip::Offer::Same);
   EXPECT_EQ(held.offer(tipAt(4)), UpstreamSignedTip::Offer::Older);
-  EXPECT_EQ(held.offer(tipAt(5, 1, "other")), UpstreamSignedTip::Offer::Conflict);
+  EXPECT_EQ(held.offer(tipAt(5, 1, "other")), UpstreamSignedTip::Offer::Conflict) << "another block";
+  auto resigned = tipAt(5);
+  resigned.signature = "another signature";
+  EXPECT_EQ(held.offer(resigned), UpstreamSignedTip::Offer::Same) << "one block signed twice is no conflict";
   EXPECT_EQ(held.latest(), tipAt(5));
 
   EXPECT_EQ(held.offer(tipAt(5, 2, "other")), UpstreamSignedTip::Offer::Newer) << "a higher generation at one height";

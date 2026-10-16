@@ -190,6 +190,13 @@ chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) cons
                                  std::to_string(seen_->generation) +
                                  " is certified (seen out of band, not on chain here yet)");
   }
+  if (equivocation_ && tip.generation == equivocation_->generation() && tip.height > equivocation_->height()) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Signed tip at block " + std::to_string(tip.height) + " is past block " +
+                                 std::to_string(equivocation_->height()) + ", where beacon generation " +
+                                 std::to_string(tip.generation) +
+                                 " signed two blocks (equivocation): halted until a later generation is certified");
+  }
   if (!tip.verify(beacon.publicKey)) {
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE, "Signed tip is not signed by the beacon of generation " +
                                                             std::to_string(beacon.generation));
