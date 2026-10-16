@@ -11,8 +11,9 @@ anything not listed here is fixed in code.
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
-| `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
-| `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
+| `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
+| `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
+| `data/equivocation.dat` | beacon, relay, miner | every start, when present. Not config: equivocation evidence the node halts on ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); removed once a later generation is certified. Deleting it makes the node forget evidence it halts on (its upstreams may serve it again) |
 
 ## `init-config.json` (beacon, genesis)
 
@@ -166,7 +167,7 @@ it and signs each committed block with it (`pp-client status` shows `Signed tip:
 
 **Rotating the key** (same server; the next generation). Stage the new pair beside the current
 one and restart the beacon so it holds both; then the admins write, sign and submit a
-`T_BEACON_CERT` for it ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
+`T_BEACON_CERT` for it ([BEACON_AUTHORITY.md § Later generations](../contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18)):
 
 ```bash
 pp-client keygen -o keys/beacon-signing.next                  # on the beacon host; restart pp-beacon
@@ -194,7 +195,7 @@ block after it, and a staged beacon holding the certificate commits nothing past
 **Replacing the admin keys** (lost or stolen admin keys; the recovery set's only power). The
 recovery key holders write, sign and submit a `T_RECOVERY` naming the new admin set — at least 3
 keys and a threshold of at least 2 — held apart from the recovery keys
-([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
+([BEACON_AUTHORITY.md § Recovery](../contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19)):
 
 ```bash
 pp-client keygen -o admin-new1                                # each new admin, offline; likewise 2, 3

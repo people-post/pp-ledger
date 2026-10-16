@@ -9,10 +9,11 @@ Unsettled product / protocol choices around [`SlotCommittee`](../../src/consensu
 ## E. Beacon loss → promotion
 
 One beacon at a time. If it is lost or must move, another node takes over, and the old beacon must
-not come back as a second authority. **In design:**
-[projects/beacon-authority](../../projects/beacon-authority/DESIGN.md) — part 1 makes the beacon
-verifiable (admin-signed certificate, signed tips, generations, equivocation halt); part 2 covers
-promotion (beacon stolen, server move, everything lost).
+not come back as a second authority. Part 1 — a verifiable beacon (admin-signed certificate, signed
+tips, generations, equivocation halt, recovery set) — has shipped:
+[BEACON_AUTHORITY.md](../contracts/BEACON_AUTHORITY.md). **In design:** part 2, promotion (beacon
+stolen, server move, everything lost) —
+[projects/beacon-authority](../../projects/beacon-authority/DESIGN.md).
 
 ## Miner bonds and slashing
 

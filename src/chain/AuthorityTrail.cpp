@@ -173,6 +173,9 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
   if (!cert) {
     return cert.error();
   }
+  if (lastCertificateBlock_ == blockId) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A block holds at most one beacon certificate");
+  }
   if (auto signed_ = verifyAdminSigned(record); !signed_) {
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
                              "Beacon certificate not signed by the admin set: " + signed_.error().message);
@@ -181,6 +184,7 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
       !valid) {
     return valid.error();
   }
+  lastCertificateBlock_.emplace(blockId);
   authority_.beacon = chain_tx::certificateInForce(cert.value(), blockId);
   return {};
 }

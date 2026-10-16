@@ -186,6 +186,7 @@ Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode &block) {
   }
   if (certificates_) {
     certificates_->retryPending();
+    certificates_->refresh(); // a block may have committed it, or replaced the admins who signed it
   }
   if (equivocations_) {
     equivocations_->retryPending();

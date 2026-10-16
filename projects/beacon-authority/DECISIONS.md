@@ -1,11 +1,14 @@
 # Beacon authority — decisions
 
 Rationale for [DESIGN.md](DESIGN.md). Outcomes move to `docs/contracts/` when they ship; mark the
-entry **superseded by** that doc then.
+entry **superseded by** that doc then. Part 1 shipped (ba8): every entry but B003 (moving the
+server — operations, part 2's runbook) names the doc that is now normative; read it there, read
+the why here.
 
 ## B001 — Authenticate the beacon end to end, anchored in genesis
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Trust chain](../../docs/contracts/BEACON_AUTHORITY.md#trust-chain) (normative; this entry keeps the why).
 **Decision:** The admin set signs a beacon certificate (generation + beacon public key); the beacon
 signs every tip it commits; nodes adopt blocks only up to a signed tip they can verify back to
 genesis. Pinned Amp peer ids remain, but only as a convenience.
@@ -18,6 +21,7 @@ stored with every block (offline auditability, but a block-format change and ~3.
 ## B002 — Only the admin set raises the generation
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Later generations](../../docs/contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18) (normative; this entry keeps the why).
 **Decision:** A new generation needs a certificate signed by the admin set. A beacon cannot sign
 a handover to a successor.
 **Rationale:** A thief holding the beacon key could otherwise hand itself a higher generation and
@@ -37,6 +41,7 @@ hosts at once is an operator error the equivocation halt (B005) catches.
 ## B004 — Recovery set: narrow, slow, visible
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Recovery](../../docs/contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19) (normative; this entry keeps the why).
 **Updated:** 2026-10-15 — delay and admin freeze in B007.
 **Decision:** Genesis carries a recovery key set with its own threshold. Its **only** power is to
 replace the admin set. A recovery action is announced on chain and takes effect only after a
@@ -52,6 +57,7 @@ defeats recovery from admin theft).
 ## B005 — Equivocation halts nodes
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Equivocation halt](../../docs/contracts/BEACON_AUTHORITY.md#equivocation-halt) (normative; this entry keeps the why).
 **Decision:** Two different signed tips at the same generation and height halt block commits and
 production above that height on any node that sees them; nodes keep serving reads, alert, pass the
 evidence on, and resume on a valid higher-generation certificate. The beacon signs only after a
@@ -64,6 +70,7 @@ key, so halting adds no new denial of service.
 ## B006 — A separate beacon signing key
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Genesis authority](../../docs/contracts/BEACON_AUTHORITY.md#genesis-authority), [LEDGER_STORAGE.md § Node state files](../../docs/contracts/LEDGER_STORAGE.md#node-state-files) (normative; this entry keeps the why).
 **Decision:** The beacon signs tips with its own ML-DSA key, `keys/beacon-signing.key`, generated at
 `pp-beacon --init`; the generation-1 certificate is signed there by the genesis keys. The Amp
 identity key stays transport-only. The certificate binds the signing key; it may carry the current
@@ -77,6 +84,7 @@ session).
 ## B007 — Recovery delay about a month; admin set frozen meanwhile
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Recovery](../../docs/contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19) (normative; this entry keeps the why).
 **Decision:** A recovery action applies a fixed number of epochs after it is announced (~30 days of
 slots; set in genesis). While it is pending, the admin set can issue no beacon generation and no
 `T_CONFIG`. The pending recovery is shown on `STATUS`, in logs and as an operator alert.
@@ -91,6 +99,7 @@ for the month).
 ## B008 — Breaking genesis change, no migration
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Formats](../../docs/contracts/BEACON_AUTHORITY.md#formats) (normative; this entry keeps the why).
 **Decision:** The recovery set and generation-1 certificate go into genesis as a breaking change.
 Existing (test) networks start from a new genesis; no bootstrap path.
 **Rationale:** Nothing is released, so no chain needs to survive. A bootstrap path would leave the
@@ -101,6 +110,7 @@ admin set on top until it ran.
 ## B009 — Sign every block; keep only the latest signed tip
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Signed tip](../../docs/contracts/BEACON_AUTHORITY.md#signed-tip) (normative; this entry keeps the why).
 **Decision:** The beacon signs every block it commits. The beacon and every node keep only the
 latest signed tip (and any equivocation evidence), not a signature per block.
 **Rationale:** Signing and verifying ML-DSA cost well under a millisecond — negligible per slot.
@@ -114,6 +124,7 @@ signature (offline per-block audit at the storage cost above).
 ## B010 — The authority rides the genesis account meta
 
 **Date:** 2026-10-15
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates), [BEACON_AUTHORITY.md § Formats](../../docs/contracts/BEACON_AUTHORITY.md#formats) (normative; this entry keeps the why).
 **Decision:** The recovery set and the current beacon certificate (`ChainAuthority`) live in
 `GenesisAccountMeta` (version 8) beside the config. `T_GENESIS` sets them — so the admin keys that
 sign genesis sign the generation-1 certificate; `T_CONFIG` and genesis renewals must carry them
@@ -132,6 +143,7 @@ key.
 ## B011 — `T_BEACON_CERT`: a record of its own, one per block, in force at once
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Later generations](../../docs/contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18) (normative; this entry keeps the why).
 **Decision:** Later generations ride a new record type, `T_BEACON_CERT` (18), signed by the admin
 set (genesis account), fee `0`, whose `meta` is the `BeaconCertificate` (versioned). On chain it
 must be exactly the next generation, with a fresh key (not the current beacon, admin or recovery
@@ -157,6 +169,7 @@ state for one rare record).
 ## B012 — Signed tip: one file, written before it is served; relays keep the newest
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Signed tip](../../docs/contracts/BEACON_AUTHORITY.md#signed-tip), [LEDGER_STORAGE.md § Node state files](../../docs/contracts/LEDGER_STORAGE.md#node-state-files) (normative; this entry keeps the why).
 **Decision:** The beacon signs each block right after `Chain::addBlock` commits it, under the
 certificate in force after that block, and writes the tip to `data/signed-tip.dat` (versioned;
 write aside, then rename) before any reply can carry it. The file is the "last signed height":
@@ -183,6 +196,7 @@ are deterministic); verify at the relay now (needs the generation rules of ba5 t
 ## B013 — Adoption: authenticate the range, then apply; first block on trust
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Adoption rule](../../docs/contracts/BEACON_AUTHORITY.md#adoption-rule) (normative; this entry keeps the why).
 **Decision:** `BlockSync` takes the upstream's signed tip from `STATUS` (replacing `CALIBRATION`),
 verifies it against the generation in force locally, then works in two passes. *Authenticate:*
 fetch the blocks from the local tip to the signed height and check that each one's computed hash
@@ -210,6 +224,7 @@ the pinned genesis now (needs the generation rules of ba5 when the key changed s
 ## B014 — Generations follow the admin-signed trail; rotation by a staged key
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Adoption rule](../../docs/contracts/BEACON_AUTHORITY.md#adoption-rule), [§ Signed tip](../../docs/contracts/BEACON_AUTHORITY.md#signed-tip) (normative; this entry keeps the why).
 **Decision:** A node checks a signed tip against the generation in force *at the tip's height*,
 found by following the blocks from its own state (`AuthorityTrail`): a `T_CONFIG` replaces the
 admin set and a `T_BEACON_CERT` raises the generation, each only if the admin set in force there
@@ -245,6 +260,7 @@ the operator at a restart).
 ## B015 — A checkpoint is where a miner can start: an epoch start, self-describing
 
 **Date:** 2026-10-15
+**Superseded by:** [BLOCK_PIPELINE.md § Checkpoints and late join](../../docs/architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join), [WIRE_SCHEMA.md § Account / ledger model](../../docs/contracts/WIRE_SCHEMA.md#account--ledger-model) (normative; this entry keeps the why).
 **Decision:** A checkpoint is the first block of an epoch, at least `checkpoint.minBlocks` after the
 current checkpoint, whose previous block's slot starts more than `checkpoint.minAgeSeconds` after
 the current checkpoint's block (`chain_block::rotatesCheckpoint`). It opens with the genesis
@@ -272,6 +288,7 @@ every block); the whole state in the checkpoint block (unbounded size).
 ## B016 — Warm-up is exact, or it stops
 
 **Date:** 2026-10-15
+**Superseded by:** [BLOCK_PIPELINE.md § Checkpoints and late join](../../docs/architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join) (normative; this entry keeps the why).
 **Decision:** A node warming up from a checkpoint (CheckpointReplay) applies every effect a record
 has on the accounts it holds, whoever else the record touches: payer debit, payee credit and fee
 credit each land if that account is held (`chain_tx::applyTransferToHeldAccounts`); a new
@@ -298,6 +315,7 @@ balances before writing) — refused now.
 ## B017 — Certificates out of band bound the old generation; the cutover bounds the commit
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Certificates out of band](../../docs/contracts/BEACON_AUTHORITY.md#certificates-out-of-band), [§ Later generations](../../docs/contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18) (normative; this entry keeps the why).
 **Decision:** Every node keeps the highest admin-signed `T_BEACON_CERT` it sees outside the blocks
 (`Chain::offerCertificate`, verified against its committed admin set and generation), from
 `STATUS` (`certificate`: the one held, else the latest on chain), a `TX_ADD` passing through it
@@ -338,6 +356,7 @@ already reaches every role).
 ## B018 — Equivocation: evidence by block hash, halt at the tip gate, resume on a later generation
 
 **Date:** 2026-10-15
+**Superseded by:** [BEACON_AUTHORITY.md § Equivocation halt](../../docs/contracts/BEACON_AUTHORITY.md#equivocation-halt) (normative; this entry keeps the why).
 **Decision:** Evidence is two signed tips of one network, generation and height naming different
 blocks (`Client::Equivocation`), checked against that generation's key — in force, or held out of
 band. Equal block hashes with different signatures are no evidence. A node keeps one piece per
@@ -364,6 +383,7 @@ including certificates (no way out without an operator); keep every tip seen for
 ## B019 — Recovery: a record of its own, pending in the authority, applied in place at its epoch
 
 **Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Recovery](../../docs/contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19) (normative; this entry keeps the why).
 **Decision:** The recovery set announces a new admin set with `T_RECOVERY` (record 19), signed by
 the recovery set in the chain authority rather than by an account. Committed, it sits in
 `ChainAuthority` as pending (`GenesisAccountMeta` v9), so genesis renewals and checkpoints carry it.
@@ -392,3 +412,28 @@ cannot change itself yet. One recovery at a time: a mistaken announcement waits 
 sign); keep the pending recovery outside the authority (checkpoint starters would miss it);
 replace the genesis account through `replaceGenesisAccount` (moves its blockId, breaking renewal
 when the apply block holds no genesis meta).
+
+## B020 — The authority is a contract of its own; one certificate per block is a block rule
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md), [LEDGER_STORAGE.md § Node state files](../../docs/contracts/LEDGER_STORAGE.md#node-state-files) (normative; this entry keeps the why).
+**Decision:** The beacon authority's normative text — formats and versions, records 18 / 19, signed
+tip, adoption rule, certificates out of band, equivocation halt, authority proof, RPC fields — is
+one contract, `docs/contracts/BEACON_AUTHORITY.md`; WIRE_SCHEMA keeps record ids and the genesis
+meta and points there. Node state files are part of the disk contract (`LEDGER_STORAGE.md`). "At
+most one `T_BEACON_CERT` (and one `T_RECOVERY`) per block" becomes a structural block rule checked
+in every admission mode (`chain_block::validateAuthorityRecordCount`) and by `AuthorityTrail`, not
+only a producer's draft check; a node's certificate file is removed as soon as the chain drops the
+certificate.
+**Rationale:** The authority grew phase by phase inside a document about block layouts; protocol
+behaviour (who refuses what, when) does not belong there, and one file per concern is easier to keep
+true. Checking every claim against the code found the draft-only rule: a block certifying N+1 and
+N+2 passed each certificate's own checks in turn, so validators accepted a generation jump the
+contract forbids.
+**Cons:** A block holding two certificates was valid before and is not now (breaking; nothing is
+released, B008). The state files are not synced to the device: a power loss can tear one (the node
+then refuses to start) — durability is left open.
+**Alternatives:** Keep the authority in WIRE_SCHEMA with sub-headings (one long file mixing layout
+and protocol); fix the per-block rule by checking "exactly next generation" against the trail
+(already true per record — the gap is two records in one block).
+

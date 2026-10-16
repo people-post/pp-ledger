@@ -187,7 +187,7 @@ There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 | `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions |
 | `REGISTER` | records | forwards up | — | Signed by the miner account's keys; renewed every 60 s |
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
-| `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([WIRE_SCHEMA.md § Equivocation halt](../contracts/WIRE_SCHEMA.md#equivocation-halt)); `data/equivocation.dat`; upward only |
+| `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
 Which origins may send what (e.g. nothing travelling up is accepted from a
 node's own upstream) is one table in `Server::isAllowedFrom`; see
@@ -461,10 +461,13 @@ workDir/
 
 ## Security Considerations
 
-1. **Beacon Trust**: Beacons must be trusted nodes (carefully selected)
+1. **Beacon authority**: nodes verify the beacon's signed tips back to genesis
+   ([BEACON_AUTHORITY.md](../contracts/BEACON_AUTHORITY.md)). Keep the beacon signing key on the
+   beacon host only, the admin (genesis) keys offline, and the recovery keys apart from both
 2. **Private Keys**: Private keys for node identity should be secure
 3. **Network Security**: Network endpoints should use TLS in production
-4. **Checkpoint Integrity**: Checkpoint integrity must be cryptographically verified
+4. **Checkpoint Integrity**: a miner pinning genesis checks its starting checkpoint against
+   `AUTHORITY_PROOF`; an unpinned node takes its first block on trust
 5. **Stake Validation**: Verify miner has claimed stake before producing
 6. **Timestamp Manipulation**: Prevent miners from manipulating block times
 7. **Transaction Validation**: Verify transactions before including in blocks

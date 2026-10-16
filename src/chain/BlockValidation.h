@@ -95,7 +95,13 @@ chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
                                                  const BlockChainConfig &config,
                                                  bool producerDue);
 
-/** Layer: txRoot, header hash, sequence / previousHash / txIndex. */
+/**
+ * At most one `T_BEACON_CERT` and one `T_RECOVERY` per block (beacon-authority B011, B019): each
+ * moves the authority the next one would be checked against.
+ */
+chain_tx::Roe<void> validateAuthorityRecordCount(const Ledger::Block &block);
+
+/** Layer: txRoot, header hash, authority records per block, sequence / previousHash / txIndex. */
 chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
                                          const Ledger &ledger);
 

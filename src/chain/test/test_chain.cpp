@@ -2675,6 +2675,60 @@ TEST_F(ChainComposeTest, BeaconCert_OnePerBlock) {
       << second.error().message;
 }
 
+// beacon-authority ba8: one certificate per block is a rule of the chain, not only of a producer's
+// draft. A block certifying N+1 and then N+2 passes each certificate's own checks in turn; validators
+// and the authority trail refuse it whole.
+TEST_F(ChainComposeTest, BeaconCert_ABlockWithTwoCertificatesIsRefused) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  const uint64_t slot = 1;
+  producer.setClockOverride(producer.getSlotStartTime(slot));
+  peer.setClockOverride(peer.getSlotStartTime(slot));
+  const auto current = producer.getAuthority().value();
+  const std::string net = producer.getNetworkId();
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  BeaconCertificate gen2 = nextCertificate(current);
+  gen2.cutoverHeight = UINT64_MAX;
+  BeaconCertificate gen3 = gen2;
+  gen3.generation = 3;
+  gen3.publicKey = makeKeyPair().publicKey;
+  const std::vector<Ledger::Record> records = {makeBeaconCertRecord(gen2, harness_.genesisKey, net, 1, genesisTime),
+                                               makeBeaconCertRecord(gen3, harness_.genesisKey, net, 2, genesisTime)};
+
+  Ledger::Block shape;
+  shape.records = records;
+  auto counted = chain_block::validateAuthorityRecordCount(shape);
+  ASSERT_FALSE(counted.isOk());
+  EXPECT_NE(counted.error().message.find("at most one beacon certificate"), std::string::npos);
+
+  // Sealed by a producer that skips the draft, the block still does not commit anywhere.
+  producer.refreshStakeholders(slot);
+  ASSERT_TRUE(producer.ensureEpochSeed(producer.getEpochFromSlot(slot)).isOk());
+  auto leader = producer.getSlotLeader(slot);
+  ASSERT_TRUE(leader.isOk());
+  auto block = producer.linkNextBlock(harness_.genesis, slot, leader.value(), producer.getSlotEndTime(slot), records);
+  ASSERT_TRUE(producer.sealBlock(block).isOk()) << "each certificate passes its own checks in turn";
+  EXPECT_FALSE(producer.addBlock(block).isOk());
+  EXPECT_EQ(producer.getAuthority()->beacon.generation, 1u);
+  auto atPeer = peer.addBlock(block);
+  ASSERT_FALSE(atPeer.isOk());
+  EXPECT_NE(atPeer.error().message.find("at most one beacon certificate"), std::string::npos)
+      << atPeer.error().message;
+  EXPECT_EQ(peer.getAuthority()->beacon.generation, 1u);
+
+  // A node following blocks or an authority proof refuses it too.
+  Client::AuthorityProof proof;
+  proof.steps = {{5, 0, records[0]}, {5, 0, records[1]}};
+  auto replayed = AuthorityTrail::replayProof(harness_.genesis.block, proof, 5, 0);
+  ASSERT_FALSE(replayed.isOk());
+  EXPECT_NE(replayed.error().message.find("at most one beacon certificate"), std::string::npos)
+      << replayed.error().message;
+  proof.steps = {{5, 0, records[0]}, {6, 0, records[1]}};
+  auto apart = AuthorityTrail::replayProof(harness_.genesis.block, proof, 6, 0);
+  ASSERT_TRUE(apart.isOk()) << apart.error().message;
+  EXPECT_EQ(apart.value().beacon().generation, 3u) << "one per block, in two blocks";
+}
+
 // Out of band (a peer, a file): any higher generation the admin set signed, for this chain.
 namespace {
 
