@@ -6,6 +6,10 @@ else()
   add_compile_options(-Wall -Wextra -Werror)
 endif()
 
+if(PP_LEDGER_BUILD_TESTS)
+  add_subdirectory(testing)
+endif()
+
 add_subdirectory(lib)
 add_subdirectory(consensus)
 add_subdirectory(network)

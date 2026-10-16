@@ -1,4 +1,5 @@
 #include "Utilities.h"
+#include "TestTempPath.h"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -207,7 +208,7 @@ std::string rawKeyWithEdges(const std::string &head, const std::string &tail) {
 
 std::filesystem::path writeKeyFile(const std::string &name,
                                    const std::string &bytes) {
-  const auto path = std::filesystem::temp_directory_path() / name;
+  const auto path = pp::test::uniqueTempPath(name);
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
   return path;
@@ -270,8 +271,7 @@ TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
 #if defined(_WIN32)
   GTEST_SKIP() << "0600 is POSIX-only; std::filesystem has no group/others on Windows";
 #endif
-  std::filesystem::path path = std::filesystem::temp_directory_path() /
-                               "pp-ledger-write-to-new-file-perms-test.txt";
+  std::filesystem::path path = pp::test::uniqueTempPath("pp-ledger-write-to-new-file-perms-test.txt");
   std::error_code ec;
   std::filesystem::remove(path, ec);
 
@@ -296,8 +296,7 @@ TEST(WriteToNewFileTest, WritesOwnerOnlyPermissions) {
 }
 
 TEST(WriteToNewFileTest, NeverOverwritesExistingFile) {
-  std::filesystem::path path = std::filesystem::temp_directory_path() /
-                               "pp-ledger-write-to-new-file-exists-test.txt";
+  std::filesystem::path path = pp::test::uniqueTempPath("pp-ledger-write-to-new-file-exists-test.txt");
   std::error_code ec;
   std::filesystem::remove(path, ec);
 

@@ -1,4 +1,5 @@
 #include "FileStore.h"
+#include "TestTempPath.h"
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -14,7 +15,7 @@ protected:
   pp::FileStore::InitConfig config;
 
   void SetUp() override {
-    testDir = (std::filesystem::temp_directory_path() / "pp-ledger-test").string();
+    testDir = pp::test::uniqueTempPath("pp-ledger-test").string();
     testFile = testDir + "/test_block.dat";
 
     std::error_code ec;
@@ -34,7 +35,7 @@ protected:
     // Close before delete — Windows cannot remove an open file handle.
     fileStore.close();
     std::error_code ec;
-    std::filesystem::remove(testFile, ec);
+    std::filesystem::remove_all(testDir, ec);
   }
 };
 

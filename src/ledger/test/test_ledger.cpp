@@ -1,4 +1,5 @@
 #include "../Ledger.h"
+#include "TestTempPath.h"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -9,7 +10,7 @@ class LedgerTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Create a unique test directory path (but don't create the directory itself)
-    testDir_ = std::filesystem::temp_directory_path() / "ledger_test";
+    testDir_ = pp::test::uniqueTempPath("ledger_test");
     cleanupTestDir();
   }
 

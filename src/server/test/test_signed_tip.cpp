@@ -2,6 +2,7 @@
 #include "UpstreamSignedTip.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
+#include "TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -18,8 +19,8 @@ namespace {
 class TipSignerTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    dir_ = std::filesystem::temp_directory_path() /
-           ("pp-ledger-tip-signer-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
+    dir_ = pp::test::uniqueTempPath("pp-ledger-tip-signer-" +
+                                    std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
     std::error_code ec;
     std::filesystem::remove_all(dir_, ec);
     std::filesystem::create_directories(dir_);

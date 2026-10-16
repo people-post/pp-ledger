@@ -54,7 +54,7 @@ run_unit() {
     die "ctest not configured; rebuild with -DPP_LEDGER_BUILD_TESTS=ON"
   fi
   echo -e "${BLUE}═══ suite unit (ctest) ═══${NC}"
-  (cd "$BUILD_DIR" && ctest --output-on-failure)
+  (cd "$BUILD_DIR" && ctest --output-on-failure -j "$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)")
 }
 
 ensure_network() {

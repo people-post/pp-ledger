@@ -1,4 +1,5 @@
 #include "VolumeStore.h"
+#include "TestTempPath.h"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <string>
@@ -12,8 +13,7 @@ protected:
 
   void SetUp() override {
     store.redirectLogger("volumestore");
-    testDir = (std::filesystem::temp_directory_path() /
-               "pp-ledger-volumestore-test")
+    testDir = pp::test::uniqueTempPath("pp-ledger-volumestore-test")
                   .string();
     std::error_code ec;
     std::filesystem::remove_all(testDir, ec);

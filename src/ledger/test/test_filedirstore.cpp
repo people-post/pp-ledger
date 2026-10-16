@@ -1,4 +1,5 @@
 #include "FileDirStore.h"
+#include "TestTempPath.h"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <cstring>
@@ -14,7 +15,7 @@ protected:
     
     void SetUp() override {
         fileDirStore.redirectLogger("filedirstore");
-        testDir = (std::filesystem::temp_directory_path() / "pp-ledger-filedirstore-test").string();
+        testDir = pp::test::uniqueTempPath("pp-ledger-filedirstore-test").string();
         
         // Clean up test directory
         std::error_code ec;

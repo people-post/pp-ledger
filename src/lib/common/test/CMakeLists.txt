@@ -46,6 +46,7 @@ add_executable(test_utilities
 
 target_link_libraries(test_utilities PRIVATE
     pp_ledger_common
+    pp_testing
     GTest::gtest_main
 )
 

@@ -4,6 +4,7 @@
 #include "../../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
+#include "TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -29,7 +30,7 @@ protected:
   static constexpr uint64_t kMinerId = AccountBuffer::ID_FIRST_ISSUED;
 
   void SetUp() override {
-    root_ = fs::temp_directory_path() / "pp-ledger-miner-pool-test";
+    root_ = pp::test::uniqueTempPath("pp-ledger-miner-pool-test");
     std::error_code ec;
     fs::remove_all(root_, ec);
     fs::create_directories(root_ / "beacon");
