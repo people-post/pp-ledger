@@ -110,6 +110,14 @@ public:
   uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
   bool isChainConfigReady() const;
+  /**
+   * Whether this node may seal a block at `slot` (beacon-authority ba5b): it validates blocks Full
+   * (it is not warming up from a checkpoint), and the blocks it holds reach back over the longest
+   * transaction validity window, so a transaction already committed cannot pass its idempotency
+   * check again. A node started at a checkpoint waits until its history covers that window.
+   */
+  Roe<void> sealReadiness(uint64_t slot) const;
+
 
   uint64_t getNextBlockId() const;
   Checkpoint getCheckpoint() const;

@@ -163,6 +163,8 @@ private:
   // slot last produced block in (at most one per slot)
   uint64_t lastProducedSlot_{0};
   SlotCache slotCache_; // Cache data for block production
+  /** Why the last slot this miner led was not sealed (logged once per reason). */
+  std::string sealNotReadyReason_;
 };
 
 } // namespace pp

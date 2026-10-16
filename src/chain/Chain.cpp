@@ -101,6 +101,28 @@ Chain::admissionModeFor(uint64_t blockIndex) const {
              : chain_block::BlockAdmissionMode::CheckpointReplay;
 }
 
+Chain::Roe<void> Chain::sealReadiness(uint64_t slot) const {
+  if (admissionModeFor(getNextBlockId()) != chain_block::BlockAdmissionMode::Full) {
+    return Error(E_BLOCK_VALIDATION, "Cannot seal while warming up from a checkpoint (until the next one)");
+  }
+  const uint64_t first = txContext_.ledger.getStartingBlockId();
+  if (first == 0 || !txContext_.optChainConfig.has_value()) {
+    return {};
+  }
+  auto earliest = txContext_.ledger.readBlock(first);
+  if (!earliest) {
+    return Error(E_BLOCK_NOT_FOUND, "First held block not found: " + earliest.error().message);
+  }
+  const int64_t windowStart = txContext_.consensus.getSlotStartTime(slot) -
+                              static_cast<int64_t>(txContext_.optChainConfig->maxValidationTimespanSeconds);
+  if (earliest.value().block.timestamp > windowStart) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Cannot seal yet: this node holds blocks from " + std::to_string(first) +
+                     " only, and a transaction valid now may have been committed before them");
+  }
+  return {};
+}
+
 bool Chain::rotatesCheckpointAt(uint64_t index, uint64_t epoch) const {
   return txContext_.optChainConfig.has_value() &&
          chain_block::rotatesCheckpoint(txContext_.ledger, txContext_.consensus, txContext_.optChainConfig.value(),
@@ -625,11 +647,8 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
 
   if (block.block.index > 0) {
     enterBlockEpoch(block.block.epoch);
-    if (admissionModeFor(block.block.index) !=
-        chain_block::BlockAdmissionMode::Full) {
-      return Error(E_BLOCK_VALIDATION,
-                   "Cannot seal under CheckpointReplay; finish tip catch-up "
-                   "first");
+    if (auto ready = sealReadiness(block.block.slot); !ready) {
+      return ready;
     }
     // Shared Full policy before apply (peers run the same layers via checkBlock).
     // Structural (hash) waits until stateRoot is known after apply.

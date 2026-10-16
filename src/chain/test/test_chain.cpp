@@ -3607,8 +3607,20 @@ TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeT
 
   joiner_ = openJoiner(start, /*fresh=*/true);
   EXPECT_FALSE(joiner_->isChainConfigReady()) << "config comes from the warm-up blocks";
-  feed(*joiner_, start, producer.getNextBlockId());
+  feed(*joiner_, start, checkpoint.currentId);
   ASSERT_FALSE(HasFailure());
+  auto warming = joiner_->sealReadiness(slot_ + 1);
+  ASSERT_FALSE(warming.isOk());
+  EXPECT_NE(warming.error().message.find("warming up"), std::string::npos) << warming.error().message;
+  feed(*joiner_, checkpoint.currentId, producer.getNextBlockId());
+  ASSERT_FALSE(HasFailure());
+  // Validating Full now, but it seals only once its blocks span the transaction validity window:
+  // before that, a transaction committed earlier could pass its idempotency check again.
+  auto young = joiner_->sealReadiness(slot_ + 1);
+  ASSERT_FALSE(young.isOk());
+  EXPECT_NE(young.error().message.find("Cannot seal yet"), std::string::npos) << young.error().message;
+  const uint64_t windowSlots = harness_.chainConfig.maxValidationTimespanSeconds / harness_.chainConfig.slotDuration;
+  EXPECT_TRUE(joiner_->sealReadiness(producer.readBlock(start).value().block.slot + windowSlots + 1).isOk());
   EXPECT_TRUE(joiner_->isChainConfigReady());
   EXPECT_TRUE(joiner_->getAuthority() == producer.getAuthority()) << "authority from the genesis renewal";
   EXPECT_EQ(joiner_->getCheckpoint().currentId, checkpoint.currentId);
