@@ -108,15 +108,20 @@ every node (B022–B024).
       left later files on disk), a miner starts although its registration is refused, a restarted
       server logs to its file once. In review: a node back online rewinds although its startup sync
       fails; a node rewinds on its own only seven days deep, deeper on `--approve-rewind` (B025)
-- [ ] **bp2** Reaching the new beacon, in two parts:
+- [x] **bp2** Reaching the new beacon, in two parts:
   - [x] **bp2a** Certificate v2 (`cutoverHash`, gateway `dialHints`; genesis meta v10): a cutover
         comes with its block's hash and commits right after it; it may not drop the block that
         committed the generation in force; a node holding another block *C* halts and alerts
         instead of rewinding; `mk-beacon-cert` reads block *C* from a node, fills the hash and shows
         what the cut drops. A node behind the cutover syncs to the vouched block with no tip; a
         node with no blocks is bounded by its upstream's `STATUS` certificate (B026)
-  - [ ] **bp2b** Certificates pushed up; relay candidate lists with the held certificate's
-        `dialHints`; re-ranking upstreams on a failed sync and on a new certificate
+  - [x] **bp2b** Relays and miners rank their upstreams (`UpstreamSet`): configured ones plus the
+        certificates' `dialHints` (not the node itself); `STATUS` from all in parallel, the highest
+        generation the node could verify, then the longest chain; at start, every minute, on a new
+        certificate and on a failed sync (that upstream avoided a minute). A new certificate goes
+        to every upstream. Relays take `beacons`. On the way: only the upstream followed is "own
+        upstream" for request direction; one AMP dial key per upstream (the miner reused one key,
+        so its probes could all reach the first upstream); a sync keeps its own client (B027)
 - [ ] **bp3** Taking over: `pp-beacon --promote` on a relay's directory, the taking-over state,
       no liveness charges across the outage, clock check and recalibration on a new generation;
       smoke drill of case 2 end to end (stolen key → certificate → rewind → takeover → resume)

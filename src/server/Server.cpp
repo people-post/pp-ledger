@@ -141,7 +141,11 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
 }
 
 bool Server::isAllowedPeer(const std::string& peerId) const {
-  return !allowedPeers_ || allowedPeers_->contains(peerId) || (!peerId.empty() && upstreamPeerIds_.contains(peerId));
+  if (!allowedPeers_ || allowedPeers_->contains(peerId)) {
+    return true;
+  }
+  std::lock_guard<std::mutex> lock(upstreamMutex_);
+  return !peerId.empty() && upstreamPeerIds_.contains(peerId);
 }
 
 Service::Roe<std::optional<std::set<std::string>>> Server::parseAllowedPeers(const pp::common::Object& config) {
@@ -201,20 +205,82 @@ RequestQueue::Lane Server::laneFor(const uint32_t type) {
   }
 }
 
-Service::Roe<void> Server::setUpstreams(const std::vector<std::string>& multiaddrs) {
-  upstreamPeerIds_.clear();
-  for (const auto& multiaddr : multiaddrs) {
-    auto parsed = pp::amp::ParseAdpMultiaddr(multiaddr);
-    if (!parsed) {
-      return Service::Error(-1, "Invalid upstream multiaddr '" + multiaddr + "': " + parsed.error().message);
-    }
-    upstreamPeerIds_.insert(parsed->peer_id);
+namespace {
+Service::Roe<std::string> upstreamPeerId(const std::string& multiaddr) {
+  auto parsed = pp::amp::ParseAdpMultiaddr(multiaddr);
+  if (!parsed) {
+    return Service::Error(-1, "Invalid upstream multiaddr '" + multiaddr + "': " + parsed.error().message);
   }
+  return parsed->peer_id;
+}
+} // namespace
+
+Service::Roe<void> Server::setUpstreams(const std::vector<std::string>& multiaddrs) {
+  std::set<std::string> peerIds;
+  for (const auto& multiaddr : multiaddrs) {
+    auto peerId = upstreamPeerId(multiaddr);
+    if (!peerId) {
+      return peerId.error();
+    }
+    peerIds.insert(peerId.value());
+  }
+  std::lock_guard<std::mutex> lock(upstreamMutex_);
+  upstreamPeerIds_ = std::move(peerIds);
+  followedPeerId_ = multiaddrs.empty() ? std::string{} : upstreamPeerId(multiaddrs.front()).value();
   return {};
 }
 
+Service::Roe<void> Server::addUpstream(const std::string& multiaddr) {
+  auto peerId = upstreamPeerId(multiaddr);
+  if (!peerId) {
+    return peerId.error();
+  }
+  if (auto self = upstreamPeerId(listenMultiaddr()); self && self.value() == peerId.value()) {
+    return Service::Error(-1, "Upstream '" + multiaddr + "' is this node");
+  }
+  std::lock_guard<std::mutex> lock(upstreamMutex_);
+  upstreamPeerIds_.insert(peerId.value());
+  return {};
+}
+
+Service::Roe<void> Server::followUpstream(const std::string& multiaddr) {
+  auto peerId = upstreamPeerId(multiaddr);
+  if (!peerId) {
+    return peerId.error();
+  }
+  std::lock_guard<std::mutex> lock(upstreamMutex_);
+  followedPeerId_ = peerId.value();
+  return {};
+}
+
+UpstreamSet::Hooks Server::upstreamHooks(Client& fanout) {
+  UpstreamSet::Hooks hooks;
+  hooks.fetchStatus = [this, &fanout](size_t index, const std::string& multiaddr, UpstreamSet::StatusDone done) {
+    // Each call captures the dial key set just before it, so the probes run in parallel.
+    if (auto dial = fanout.setAmpPeer(UpstreamSet::dialKey(index), multiaddr); !dial) {
+      done(Client::Roe<Client::BeaconState>(dial.error()));
+      return;
+    }
+    fanout.fetchBeaconStateAsync(completeOnServerThread<Client::BeaconState>(std::move(done)));
+  };
+  hooks.adopt = [this](const std::string& multiaddr) {
+    auto added = addUpstream(multiaddr);
+    if (!added) {
+      log().debug << "Not adding dial hint: " << added.error().message;
+    }
+    return added.isOk();
+  };
+  hooks.onFollow = [this](const std::string& multiaddr) {
+    if (auto followed = followUpstream(multiaddr); !followed) {
+      log().warning << followed.error().message;
+    }
+  };
+  return hooks;
+}
+
 Server::Origin Server::originOf(const std::string& peerId) const {
-  return !peerId.empty() && upstreamPeerIds_.contains(peerId) ? Origin::Upstream : Origin::Downstream;
+  std::lock_guard<std::mutex> lock(upstreamMutex_);
+  return !peerId.empty() && peerId == followedPeerId_ ? Origin::Upstream : Origin::Downstream;
 }
 
 void Server::postToServerThread(std::function<void()> task) {

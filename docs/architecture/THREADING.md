@@ -80,8 +80,10 @@ A role's run loop makes no blocking network calls:
   signed tip, then fetch the gap up to it with up to 4 requests in flight;
   blocks are checked against the tip's hash chain first and applied in order
   after (bodies beyond 1024 are fetched again for the apply pass). One
-  sync at a time; failures back off (0.5 s → 8 s) and a Miner fails over to the
-  next upstream. Block gets waiting past the tip are answered when a sync
+  sync at a time; failures back off (0.5 s → 8 s) and a Relay or Miner fails
+  over to another upstream. Ranking upstreams (`UpstreamSet`) asks each for
+  `STATUS` in parallel and decides on the server thread when all have answered;
+  `BlockSync` has its own client, so a new choice applies from the next sync. Block gets waiting past the tip are answered when a sync
   finishes (or at once while a failure backs off). A leader does not produce
   while a sync runs.
 - **Block broadcast** (Miner): sent to every upstream in parallel; the block

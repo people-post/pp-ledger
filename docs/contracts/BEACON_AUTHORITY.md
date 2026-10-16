@@ -191,8 +191,9 @@ holds equivocation evidence for, above that evidence's height.
 - **Own blocks:** a miner commits the block it produced only when a `BLOCK_ADD` reply carries a
   verified tip for exactly that block (height and hash); a relay forwarding a `BLOCK_ADD` stores
   the block under the same rule. Otherwise the block arrives later by sync, if the beacon took it.
-- **Upstream choice:** a miner with several upstreams follows the one whose signed tip has the
-  highest generation, then the longest chain; a false claim fails its sync and the miner rotates.
+- **Upstream choice:** a relay or miner with several upstreams follows the one whose signed tip has
+  the highest generation it could verify, then the longest chain; a false claim fails its sync and
+  the node moves on ([§ Upstreams](#upstreams)).
 - **First block:** a node with no blocks authenticates its whole range from its first block —
   genesis (its `T_GENESIS`) or a checkpoint (its opening genesis renewal) — which gives the
   authority and admin set the tip must verify under; nothing commits before. Later genesis
@@ -229,9 +230,8 @@ successor. Every node keeps the highest one it sees:
 - **Effect**, until a block commits that generation: a tip of an older generation **above its
   cutover does not verify**, whatever key signed it — at sync (the upstream's `STATUS` certificate
   is offered before its tip is checked), on `BLOCK_ADD` replies, and for the tip a relay serves (a
-  relay stops serving one the certificate rules out). A miner choosing its upstream at start skips
-  one whose tip is past it; later, a sync to it fails and the miner moves to its next upstream. A
-  beacon holding no key the certificate names stands down; one that holds it (a staged rotation)
+  relay stops serving one the certificate rules out). Relays and miners rank such an upstream last
+  ([§ Upstreams](#upstreams)). A beacon holding no key the certificate names stands down; one that holds it (a staged rotation)
   commits no block above the cutover that does not commit a certificate.
 
 - **Behind the cutover** (bp2): once the old generation is refused past the cutover, no tip vouches
@@ -247,6 +247,36 @@ successor. Every node keeps the highest one it sees:
 A tip of the new generation still verifies only along blocks that commit its certificate: the
 certificate bounds the old generation, it does not let a node follow the new one before the chain
 does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
+
+## Upstreams
+
+Relays and miners find the beacon through their upstreams (`UpstreamSet`, beacon-authority bp2b).
+Upstreams are opaque: a relay or the beacon, the same RPC either way.
+
+- **Candidates.** The configured ones (relay `beacon` / `beacons`, miner `beacons`), then the
+  `dialHints` of the certificate held out of band and of the one in force — gateways in front of a
+  new beacon — once the node has loaded its chain. A hint is added once, only if it is a valid ADP
+  multiaddr and not the node itself; at most 32 candidates. Hints are only addresses: what a
+  candidate serves is checked like any upstream's.
+- **Ranking.** `STATUS` from every candidate in parallel; the certificates and equivocation
+  evidence they carry are offered first, then two candidates serving tips of one generation and
+  height for different blocks are offered as evidence (ba6). A candidate whose `STATUS` is for
+  another network is disregarded, as is one whose tip this node could not verify
+  (`Chain::mayFollowTip`): an older generation than the one in force; a generation no certificate
+  here names (anyone can claim one); past a held certificate's cutover; above held equivocation
+  evidence. Among the rest: the highest tip generation, then the highest `nextBlockId` — the one
+  followed stays while of that generation and at most 2 blocks behind. None qualifying, the node
+  keeps its upstream.
+- **When.** At start (the node waits for it), every 60 s with more than one candidate, on a new
+  certificate, and when a sync fails — the failed upstream is avoided for 60 s and the next one
+  tried at once. A relay behind a beacon that stood down syncs without failing (it serves tips up to
+  the cutover), so ranking, not failure, moves it to the new beacon's gateways.
+- **Certificates go up.** A node keeping a new certificate, from any channel, sends it (`TX_ADD`) to
+  every candidate, not only the one followed, so the old beacon's side learns it from below.
+  Equivocation evidence a node finds goes to every candidate too.
+- **Which is "upstream".** Only the candidate followed now is the node's upstream for
+  [request direction](../architecture/LEDGER_TOPOLOGY.md#request-direction); every candidate passes
+  `allowedPeers`.
 
 ## Rewind
 

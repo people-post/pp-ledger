@@ -204,6 +204,18 @@ public:
    */
   std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const;
   /**
+   * Whether an upstream serving `tip` is worth following (beacon-authority bp2b, ranking): not of a
+   * generation older than the one in force, not past the cutover of a held certificate, not above
+   * equivocation evidence held, not of a generation no certificate here names (offer the
+   * upstream's certificate first). A cheap pre-check — the sync verifies the tip itself.
+   */
+  bool mayFollowTip(const Client::SignedTip &tip) const;
+  /**
+   * Where to reach the beacon (bp2b): the held certificate's `dialHints`, then those of the one in
+   * force; deduplicated, newest first.
+   */
+  std::vector<std::string> dialHints() const;
+  /**
    * The current certificate, as STATUS serves it: the one held out of band, else the latest
    * committed T_BEACON_CERT this node holds (none at generation 1, or from before a checkpoint
    * start).

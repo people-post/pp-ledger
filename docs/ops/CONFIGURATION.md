@@ -127,7 +127,8 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `beacon` | **required** | Upstream multiaddr (the beacon or another relay), ending in `/p2p/<peer id>` |
+| `beacon` | **required** (or `beacons`) | Upstream multiaddr (the beacon or another relay), ending in `/p2p/<peer id>` |
+| `beacons` | none | More upstream multiaddrs, after `beacon`; the relay follows the best of them (below) |
 | `port` | 8519 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served; typically the relay's miners and clients |
 | `networkAnchor.genesisHash` | none | Hex hash of the genesis this relay syncs from (as `pp-client block 0` prints it); without it the relay takes genesis from its upstream on trust |
@@ -150,6 +151,12 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
 | `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId"}`. `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
 | `allowedPeers` | anyone | Peer ids served (a miner serves reads to local clients) |
+
+Relays and miners follow the upstream whose signed tip has the highest beacon generation they could
+verify, then the longest chain, and re-rank every minute, on a failed sync and on a new beacon
+certificate. A beacon certificate's dial hints (`mk-beacon-cert --dial-hint`) are added as upstreams
+once the node has loaded its chain — configure at least one upstream reachable at start
+([BEACON_AUTHORITY.md § Upstreams](../contracts/BEACON_AUTHORITY.md#upstreams)).
 
 ## `allowedPeers` (any role)
 

@@ -144,29 +144,78 @@ MinerServer::MinerServer() {
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
   client_.redirectLogger(log().getFullName() + ".Client");
-  broadcastClient_.redirectLogger(log().getFullName() + ".BroadcastClient");
+  syncClient_.redirectLogger(log().getFullName() + ".SyncClient");
+  fanoutClient_.redirectLogger(log().getFullName() + ".FanoutClient");
 }
 
 MinerServer::~MinerServer() {}
 
-Client::Roe<void> MinerServer::dialPeerMultiaddr(const std::string& multiaddr,
-                                                 const std::string& peer_key) {
-  return client_.setAmpPeer(peer_key, multiaddr);
-}
-
-MinerServer::Roe<void> MinerServer::dialUpstreamIndex(size_t index) {
-  if (index >= config_.network.beacon_multiaddrs.size()) {
-    return Error(E_CONFIG, "upstream index out of range");
+MinerServer::Roe<void> MinerServer::dialUpstream(Client &client, size_t index) {
+  if (!upstreams_ || index >= upstreams_->all().size()) {
+    return Error(E_CONFIG, "No upstream [" + std::to_string(index) + "]");
   }
-  auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddrs[index], "beacon");
-  if (!dial) {
+  if (auto dial = client.setAmpPeer(UpstreamSet::dialKey(index), upstreams_->all()[index]); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
   return {};
 }
 
 MinerServer::Roe<void> MinerServer::dialActiveUpstream() {
-  return dialUpstreamIndex(active_upstream_index_);
+  return dialUpstream(client_, upstreams_ ? upstreams_->activeIndex() : 0);
+}
+
+void MinerServer::initUpstreams() {
+  UpstreamSet::Hooks hooks = upstreamHooks(fanoutClient_);
+  hooks.admit = [this](size_t index, const Client::BeaconState &state) {
+    if (auto verified = verifyUpstreamState(state); !verified) {
+      log().warning << "Disregarding upstream [" << index << "]: " << verified.error().message;
+      return false;
+    }
+    return true;
+  };
+  hooks.learn = [this](size_t index, const Client::BeaconState &state) {
+    const std::string from = "upstream [" + std::to_string(index) + "]'s STATUS";
+    if (state.certificate) {
+      noteCertificate(*state.certificate, from);
+    }
+    if (state.equivocation) {
+      miner_.noteEquivocation(*state.equivocation, from);
+    }
+  };
+  hooks.offerEquivocation = [this](const Client::Equivocation &evidence, const std::string &from) {
+    if (miner_.noteEquivocation(evidence, from) == Chain::EquivocationOffer::Newer) {
+      pushEquivocationUp(evidence);
+    }
+  };
+  hooks.mayFollow = [this](const Client::SignedTip &tip) { return miner_.mayFollowTip(tip); };
+  upstreams_ = std::make_unique<UpstreamSet>(config_.network.beacon_multiaddrs, std::move(hooks));
+  upstreams_->redirectLogger(log().getFullName() + ".Upstreams");
+}
+
+std::optional<Chain::CertificateOffer> MinerServer::noteCertificate(const Ledger::Record &record,
+                                                                    const std::string &from) {
+  auto offered = miner_.noteCertificate(record, from);
+  if (offered == Chain::CertificateOffer::Newer && upstreams_) {
+    // bp2b: up the tree, to the new beacon's gateways, and follow whichever serves the new generation.
+    pushCertificateUp(record);
+    upstreams_->addHints(miner_.getDialHints());
+    upstreams_->rerank("a new beacon certificate");
+  }
+  return offered;
+}
+
+void MinerServer::pushCertificateUp(const Ledger::Record &record) {
+  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
+    if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
+      log().warning << "Certificate not passed to upstream [" << i << "]: " << dial.error().message;
+      continue;
+    }
+    fanoutClient_.addTransactionAsync(record, completeOnServerThread<void>([this, i](Client::Roe<void> result) {
+      if (!result) {
+        log().debug << "Upstream [" << i << "] did not take the certificate: " << result.error().message;
+      }
+    }));
+  }
 }
 
 MinerServer::Roe<void> MinerServer::verifyUpstreamState(const Client::BeaconState& state) {
@@ -261,65 +310,18 @@ pp::Roe<void> MinerServer::checkStartingAuthority(uint64_t blockId, const ChainA
   return same ? pp::Roe<void>() : pp::Roe<void>(pp::Error(same.error().message));
 }
 
-std::vector<std::optional<Client::BeaconState>> MinerServer::fetchUpstreamStates() {
-  std::vector<std::optional<Client::BeaconState>> states(config_.network.beacon_multiaddrs.size());
-  for (size_t i = 0; i < states.size(); ++i) {
-    if (auto dial = dialUpstreamIndex(i); !dial) {
-      log().warning << "Skipping upstream [" << i << "] "
-                    << config_.network.beacon_multiaddrs[i] << ": "
-                    << dial.error().message;
-      continue;
-    }
-    auto status = client_.fetchBeaconState();
-    if (!status) {
-      log().warning << "Skipping upstream [" << i << "]: status failed: "
-                    << status.error().message;
-      continue;
-    }
-    if (auto verified = verifyUpstreamState(status.value()); !verified) {
-      log().warning << "Skipping upstream [" << i << "]: " << verified.error().message;
-      continue;
-    }
-    if (const auto &certificate = status.value().certificate) {
-      miner_.noteCertificate(*certificate, "upstream [" + std::to_string(i) + "]'s STATUS");
-    }
-    if (const auto &evidence = status.value().equivocation) {
-      miner_.noteEquivocation(*evidence, "upstream [" + std::to_string(i) + "]'s STATUS");
-    }
-    states[i] = std::move(status.value());
-  }
-  noteConflictingUpstreamTips(states);
-  return states;
-}
-
-void MinerServer::noteConflictingUpstreamTips(const std::vector<std::optional<Client::BeaconState>> &states) {
-  // Two upstreams serving tips of one generation and height for different blocks: if both verify,
-  // the beacon key signed twice (ba6) — two hosts running it, or a stolen key.
-  for (size_t i = 0; i < states.size(); ++i) {
-    for (size_t j = i + 1; j < states.size(); ++j) {
-      if (!states[i] || !states[j] || !states[i]->signedTip || !states[j]->signedTip) {
-        continue;
-      }
-      const auto evidence = Client::Equivocation::of(*states[i]->signedTip, *states[j]->signedTip);
-      if (evidence && miner_.noteEquivocation(*evidence, "upstreams [" + std::to_string(i) + "] and [" +
-                                                             std::to_string(j) + "]") ==
-                          Chain::EquivocationOffer::Newer) {
-        pushEquivocationUp(*evidence);
-      }
-    }
-  }
-}
-
 void MinerServer::pushEquivocationUp(const Client::Equivocation &evidence) {
   // To every upstream: each side of a split runs its own beacon host, and each must halt.
-  for (size_t i = 0; i < config_.network.beacon_multiaddrs.size(); ++i) {
-    if (auto dial = dialUpstreamIndex(i); !dial) {
+  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
+    if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
       log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << dial.error().message;
       continue;
     }
-    if (auto sent = client_.addEquivocation(evidence); !sent) {
-      log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << sent.error().message;
-    }
+    fanoutClient_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([this, i](Client::Roe<std::string> result) {
+      if (!result) {
+        log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << result.error().message;
+      }
+    }));
   }
 }
 
@@ -340,49 +342,6 @@ void MinerServer::dEquivocationAdd(const Client::Request &request, const Request
   client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
     replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
   }));
-}
-
-MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
-  // Follow the highest beacon generation, then the longest chain (beacon-authority ba5). Claims are
-  // checked when syncing: an upstream whose tip does not verify fails the sync and is rotated out.
-  // Every upstream's certificate is offered first (ba5c), so a tip past the cutover of a later
-  // generation any of them serves is not chosen.
-  const auto states = fetchUpstreamStates();
-  const auto seen = miner_.getSeenCertificate();
-  const auto halted = miner_.getEquivocation();
-  size_t best = config_.network.beacon_multiaddrs.size();
-  uint64_t best_generation = 0;
-  uint64_t best_height = 0;
-  for (size_t i = 0; i < states.size(); ++i) {
-    if (!states[i]) {
-      continue;
-    }
-    const auto &tip = states[i]->signedTip;
-    if (tip && seen && tip->generation < seen->generation && tip->height > seen->cutoverHeight) {
-      log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
-                    << tip->generation << ") is past the cutover of beacon generation " << seen->generation;
-      continue;
-    }
-    if (tip && halted && tip->generation == halted->generation() && tip->height > halted->height()) {
-      log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
-                    << tip->generation << ") is past the equivocation of that generation at block "
-                    << halted->height();
-      continue;
-    }
-    const uint64_t generation = tip ? tip->generation : 0;
-    if (generation > best_generation || (generation == best_generation && states[i]->nextBlockId >= best_height)) {
-      best_generation = generation;
-      best_height = states[i]->nextBlockId;
-      best = i;
-    }
-  }
-  if (best >= config_.network.beacon_multiaddrs.size()) {
-    return Error(E_NETWORK, "No healthy upstream available");
-  }
-  log().info << "Selected upstream [" << best << "] "
-             << config_.network.beacon_multiaddrs[best] << " (beacon generation " << best_generation
-             << ", nextBlockId=" << best_height << ")";
-  return best;
 }
 
 Service::Roe<void> MinerServer::onStart() {
@@ -456,6 +415,7 @@ Service::Roe<void> MinerServer::onStart() {
   if (auto upstreams = setUpstreams(config_.network.beacon_multiaddrs); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
   }
+  initUpstreams();
 
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(config_.privateKeys.front(), config_.network.udp_port);
   if (!ampCfg) {
@@ -470,8 +430,9 @@ Service::Roe<void> MinerServer::onStart() {
   if (!ampRuntime()) {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  client_.attachAmpTransport(*ampRuntime(), "beacon");
-  broadcastClient_.attachAmpTransport(*ampRuntime(), "upstream:0");
+  client_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
+  syncClient_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
+  fanoutClient_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();
@@ -512,6 +473,9 @@ Service::Roe<void> MinerServer::onStart() {
   }
 
   orderRewindIfDue(); // a certificate kept before the node went down
+  if (upstreams_->addHints(miner_.getDialHints()) > 0) {
+    upstreams_->rerank("the certificates' dial hints"); // the startup sync waits for it
+  }
 
   // Initial catch-up: the same BlockSync as at run time; completions are
   // served here because the run loop has not started yet.
@@ -582,7 +546,7 @@ MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
 void MinerServer::initBlockSync() {
   BlockSync::Hooks hooks;
   hooks.dialUpstream = [this]() -> pp::Roe<void> {
-    auto dial = dialActiveUpstream();
+    auto dial = dialUpstream(syncClient_, upstreams_->activeIndex());
     return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
   };
   hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
@@ -596,9 +560,7 @@ void MinerServer::initBlockSync() {
     auto trail = miner_.authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
-  hooks.offerCertificate = [this](const Ledger::Record &record) {
-    miner_.noteCertificate(record, "the upstream's STATUS");
-  };
+  hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the upstream's STATUS"); };
   hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
     miner_.noteEquivocation(evidence, "the upstream's STATUS");
   };
@@ -612,11 +574,14 @@ void MinerServer::initBlockSync() {
   hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
   hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
   UpstreamTipWatch::Hooks watchHooks;
-  watchHooks.dialUpstream = hooks.dialUpstream;
+  watchHooks.dialUpstream = [this]() -> pp::Roe<void> {
+    auto dial = dialActiveUpstream();
+    return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
+  };
   watchHooks.nextBlockId = hooks.nextBlockId;
   watchHooks.onUpstreamAhead = [this]() { blockSyncRequested_ = true; };
   watchHooks.postToServerThread = hooks.postToServerThread;
-  blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
+  blockSync_ = std::make_unique<BlockSync>(syncClient_, std::move(hooks));
   blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
   tipWatch_ = std::make_unique<UpstreamTipWatch>(client_, std::move(watchHooks));
   tipWatch_->redirectLogger(log().getFullName() + ".TipWatch");
@@ -654,11 +619,8 @@ void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = miner_.getCurrentEpoch();
     warnIfNotRegisteredMiner();
-  } else if (config_.network.beacon_multiaddrs.size() > 1) {
-    // Fail over: the next attempt (after backoff) uses the next upstream.
-    active_upstream_index_ = (active_upstream_index_ + 1) % config_.network.beacon_multiaddrs.size();
-    log().info << "Switching upstream to [" << active_upstream_index_ << "] "
-               << config_.network.beacon_multiaddrs[active_upstream_index_];
+  } else {
+    upstreams_->noteFailed(); // the next attempt (after backoff) tries another upstream
   }
   resolvePendingBlockGets();
 }
@@ -736,6 +698,7 @@ void MinerServer::runLoop() {
 
       syncBlocksPeriodically();
       tipWatch_->maintain();
+      upstreams_->maintain();
       if (blockSyncRequested_) {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
@@ -914,7 +877,7 @@ void MinerServer::dTxAdd(const Client::Request &request, const RequestQueue::Rep
   // A beacon certificate counts here too (ba5c): a miner cut off from an honest beacon still keeps it.
   std::string kept;
   if (record.value().type == Ledger::T_BEACON_CERT) {
-    if (const auto offered = miner_.noteCertificate(record.value(), "a TX_ADD");
+    if (const auto offered = noteCertificate(record.value(), "a TX_ADD");
         offered == Chain::CertificateOffer::Newer || offered == Chain::CertificateOffer::Same) {
       kept = "Beacon certificate kept";
     }
@@ -1061,20 +1024,20 @@ void MinerServer::handleSlotLeaderRole() {
 }
 
 void MinerServer::startBroadcast(const Ledger::ChainNode &block) {
-  const auto &upstreams = config_.network.beacon_multiaddrs;
-  broadcast_ = PendingBroadcast{nextBroadcastId_++, block, BroadcastTally(upstreams.size())};
+  const size_t upstreams = upstreams_->all().size();
+  broadcast_ = PendingBroadcast{nextBroadcastId_++, block, BroadcastTally(upstreams)};
   const uint64_t id = broadcast_->id;
-  for (size_t i = 0; i < upstreams.size(); ++i) {
+  for (size_t i = 0; i < upstreams; ++i) {
     // Each call captures the dial key set just before it, so the sends run in parallel.
-    if (auto dial = broadcastClient_.setAmpPeer("upstream:" + std::to_string(i), upstreams[i]); !dial) {
+    if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
       onBroadcastResult(id, i, Client::Roe<Client::TipReply>(Client::Error(Client::E_NOT_CONNECTED, dial.error().message)));
       continue;
     }
-    broadcastClient_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, id, i](Client::Roe<Client::TipReply> result) {
+    fanoutClient_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, id, i](Client::Roe<Client::TipReply> result) {
       onBroadcastResult(id, i, std::move(result));
     }));
   }
-  if (upstreams.empty()) {
+  if (upstreams == 0) {
     onBroadcastResult(id, 0, Client::Roe<Client::TipReply>(Client::Error(Client::E_NOT_CONNECTED, "No upstream configured")));
   }
 }
@@ -1083,7 +1046,7 @@ void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Clien
   if (!broadcast_ || broadcast_->id != broadcastId) {
     return; // a later result for a broadcast that already finished
   }
-  const auto &upstreams = config_.network.beacon_multiaddrs;
+  const auto &upstreams = upstreams_->all();
   const std::string upstreamName = upstream < upstreams.size() ? upstreams[upstream] : std::string("?");
   if (!result) {
     log().warning << "Failed to add block to upstream " << upstreamName << ": " << result.error().message;
@@ -1196,14 +1159,14 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_CONFIG, "No beacon servers configured");
   }
 
-  auto best = selectBestUpstreamIndex();
-  if (!best) {
-    return Error(E_NETWORK, best.error().message);
+  // Follow the highest beacon generation, then the longest chain (ba5, bp2b). Claims are checked
+  // when syncing: an upstream whose tip does not verify fails the sync and is avoided a while.
+  upstreams_->rerank("start");
+  serveTasksUntil([this]() { return !upstreams_->ranking(); }, networkTuning().startupSyncTimeout);
+  if (!upstreams_->chosen()) {
+    return Error(E_NETWORK, "No healthy upstream available");
   }
-  active_upstream_index_ = best.value();
-
-  const auto& upstream_ma = config_.network.beacon_multiaddrs[active_upstream_index_];
-  log().info << "Connecting to upstream: " << upstream_ma;
+  log().info << "Connecting to upstream: " << upstreams_->active();
 
   if (auto dial = dialActiveUpstream(); !dial) {
     return Error(E_NETWORK, dial.error().message);

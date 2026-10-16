@@ -189,8 +189,8 @@ There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
 | `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
-Which origins may send what (e.g. nothing travelling up is accepted from a
-node's own upstream) is one table in `Server::isAllowedFrom`; see
+Which origins may send what (e.g. nothing travelling up is accepted from the
+upstream a node follows) is one table in `Server::isAllowedFrom`; see
 [LEDGER_TOPOLOGY.md — Request direction](LEDGER_TOPOLOGY.md#request-direction).
 
 ### Stakeholders

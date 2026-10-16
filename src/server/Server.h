@@ -7,6 +7,7 @@
 #include "BlockSync.h"
 #include "BlockWaitList.h"
 #include "RequestQueue.h"
+#include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
 
 #include <atomic>
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <set>
 #include <string>
 
@@ -140,9 +142,23 @@ protected:
 
   /**
    * Before start: this role's upstream endpoints (ADP multiaddrs ending in
-   * /p2p/<PeerId>). Requests from those peers have Origin::Upstream.
+   * /p2p/<PeerId>); it follows the first. Requests from the one it follows
+   * have Origin::Upstream; all of them pass allowedPeers.
    */
   Service::Roe<void> setUpstreams(const std::vector<std::string>& multiaddrs);
+  /** Running: one more upstream (a beacon certificate's dial hint); never this node itself. Any thread. */
+  Service::Roe<void> addUpstream(const std::string& multiaddr);
+  /**
+   * The upstream this node follows now (bp2b, UpstreamSet). Only it is Origin::Upstream: a relay
+   * that was below this one may be its candidate upstream and still send it writes. Any thread.
+   */
+  Service::Roe<void> followUpstream(const std::string& multiaddr);
+  /**
+   * The UpstreamSet hooks every role wires alike: STATUS through `fanout` (one dial key per
+   * upstream), a hint adopted unless it is this node (addUpstream), the one followed tracked
+   * (followUpstream). The role adds what it learns and how it judges a tip.
+   */
+  UpstreamSet::Hooks upstreamHooks(Client& fanout);
 
   /**
    * Before start: serve only these peers (and this node's upstreams). Unset =
@@ -216,7 +232,10 @@ private:
   std::string workDir_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   network::NetworkTuning tuning_;
+  /** Change while running (addUpstream, followUpstream); read on the io lane and the server thread. */
+  mutable std::mutex upstreamMutex_;
   std::set<std::string> upstreamPeerIds_;
+  std::string followedPeerId_;
   /** Fixed before start; read on the io lane without locking. */
   std::optional<std::set<std::string>> allowedPeers_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};

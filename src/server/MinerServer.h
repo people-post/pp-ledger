@@ -4,6 +4,7 @@
 #include "Miner.h"
 #include "NetworkAnchor.h"
 #include "BlockSync.h"
+#include "UpstreamSet.h"
 #include "UpstreamTipWatch.h"
 #include "BroadcastTally.h"
 #include "Server.h"
@@ -14,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <memory>
 #include <mutex>
 
 namespace pp {
@@ -116,14 +118,19 @@ private:
   bool signedTipCovers(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
   /** First upstream accepted it: commit our seal. */
   void commitProducedBlock(const Ledger::ChainNode& block);
-  Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
-  Roe<void> dialUpstreamIndex(size_t index);
+  /** Point `client` at upstream `index` (UpstreamSet::dialKey). */
+  Roe<void> dialUpstream(Client &client, size_t index);
+  /** Point client_ at the upstream followed now. */
   Roe<void> dialActiveUpstream();
-  /** STATUS of each upstream that answers and matches the anchor (none where not), offering its certificate. */
-  std::vector<std::optional<Client::BeaconState>> fetchUpstreamStates();
-  /** Upstreams serving tips of one generation and height for different blocks: equivocation (ba6). */
-  void noteConflictingUpstreamTips(const std::vector<std::optional<Client::BeaconState>> &states);
-  Roe<size_t> selectBestUpstreamIndex();
+  /** UpstreamSet wiring (bp2b). */
+  void initUpstreams();
+  /**
+   * A beacon certificate from STATUS or a TX_ADD: offer it; a new one goes to every upstream, its
+   * dial hints become upstreams and the upstreams are ranked again (bp2b).
+   */
+  std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record &record, const std::string &from);
+  /** A new certificate, to every upstream (TX_ADD). */
+  void pushCertificateUp(const Ledger::Record &record);
   Roe<void> verifyUpstreamState(const Client::BeaconState& state);
   Roe<void> verifyGenesisAnchor();
   /**
@@ -146,7 +153,7 @@ private:
   void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
   /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up. */
   void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** Evidence this miner found: to every upstream, so each beacon host halts. */
+  /** Evidence this miner found: to every upstream (fire and forget), so each beacon host halts. */
   void pushEquivocationUp(const Client::Equivocation &evidence);
   /** After a sync: answer block gets that were waiting for it. */
   void resolvePendingBlockGets();
@@ -159,10 +166,17 @@ private:
   Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
-  /** Upstream (beacon) client. */
+  /** The upstreams this miner may follow, and the one it follows (bp2b). */
+  std::unique_ptr<UpstreamSet> upstreams_;
+  /** Calls to the upstream followed now (forwarding, registration, tip watch). */
   Client client_;
-  /** Block broadcast to upstreams (one dial key per upstream). */
-  Client broadcastClient_;
+  /** BlockSync's: pointed at an upstream when a sync starts, so a re-rank cannot move a sync midway. */
+  Client syncClient_;
+  /**
+   * Calls to each upstream in turn (block broadcast, STATUS probes, pushes up): each captures the
+   * dial key set just before it, so they run in parallel.
+   */
+  Client fanoutClient_;
 
   /** A produced block awaiting its broadcast results (at most one). */
   struct PendingBroadcast {
@@ -193,7 +207,6 @@ private:
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};
   uint64_t registrationCheckedEpoch_{UINT64_MAX};
-  size_t active_upstream_index_{0};
   /** Genesis fetched and matched against networkAnchor.genesisHash (none without an anchor). */
   std::optional<Ledger::ChainNode> anchoredGenesis_;
   /** Hash the first block must have (BlockSync::Hooks::firstBlockHash). */

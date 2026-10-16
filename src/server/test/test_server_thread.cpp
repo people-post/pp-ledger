@@ -113,6 +113,8 @@ public:
   using Server::serveRequestsFor;
   using Server::setNetworkTuning;
   using Server::setUpstreams;
+  using Server::addUpstream;
+  using Server::followUpstream;
   using Server::setAllowedPeers;
   using Server::parseAllowedPeers;
   using Server::loadOrCreateIdentityKey;
@@ -293,6 +295,35 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   EXPECT_EQ(replies.items[2].errorCode, 0); // a downstream may submit blocks
   EXPECT_EQ(replies.items[3].errorCode, 0); // reads are fine either way
   EXPECT_EQ(server.handled.load(), 2);     // refused ones never reached a handler
+}
+
+// bp2b: a node may have several upstreams but follows one; only that one is "its upstream". A relay
+// that was below this one may be its candidate upstream and still send it writes.
+TEST(ServerThreadTest, OnlyTheUpstreamFollowedIsRefusedUpwardWrites) {
+  EchoServer server;
+  ASSERT_TRUE(server.setUpstreams({"/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/peer-a",
+                                   "/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/peer-b"}));
+  server.setAllowedPeers(std::set<std::string>{});
+  Replies replies;
+  server.enqueueRequest(packRequest("a", Client::T_REQ_TX_ADD), replies.sink(), "peer-a");
+  server.enqueueRequest(packRequest("b", Client::T_REQ_TX_ADD), replies.sink(), "peer-b");
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_NE(replies.items[0].errorCode, 0) << "the first is followed at start";
+  EXPECT_EQ(replies.items[1].errorCode, 0) << "a candidate, not followed: allowed, and may write";
+
+  ASSERT_TRUE(server.followUpstream("/ip4/127.0.0.1/udp/8518/adp/1.0.0/p2p/peer-b"));
+  ASSERT_TRUE(server.addUpstream("/ip4/127.0.0.1/udp/9001/adp/1.0.0/p2p/gateway"));
+  server.enqueueRequest(packRequest("a", Client::T_REQ_TX_ADD), replies.sink(), "peer-a");
+  server.enqueueRequest(packRequest("b", Client::T_REQ_TX_ADD), replies.sink(), "peer-b");
+  server.enqueueRequest(packRequest("g", Client::T_REQ_STATUS), replies.sink(), "gateway");
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 5u);
+  EXPECT_EQ(replies.items[2].errorCode, 0);
+  EXPECT_NE(replies.items[3].errorCode, 0);
+  EXPECT_EQ(replies.items[4].errorCode, 0) << "an added upstream passes allowedPeers";
+  EXPECT_FALSE(server.addUpstream("/ip4/127.0.0.1/udp/9001"));
+  EXPECT_FALSE(server.followUpstream("/ip4/127.0.0.1/udp/9001"));
 }
 
 TEST(ServerThreadTest, AllowedPeersAreServedOthersRefusedBeforeQueueing) {

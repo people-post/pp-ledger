@@ -3013,6 +3013,42 @@ TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
   EXPECT_EQ(producer.offerCertificate(gen3).value(), Offer::Older);
 }
 
+// beacon-authority bp2b: ranking upstreams. A tip is worth following only if this node could verify
+// it — a generation in force or held, not past a held certificate's cutover — and the certificates'
+// dial hints name where the beacon is reached.
+TEST_F(ChainComposeTest, BeaconCert_RankingFollowsCertifiedGenerationsAndHints) {
+  auto &producer = harness_.producer;
+  const auto current = producer.getAuthority().value();
+  const std::string net = producer.getNetworkId();
+  auto tip = [&](uint64_t generation, uint64_t height) {
+    Client::SignedTip t;
+    t.networkId = net;
+    t.generation = generation;
+    t.height = height;
+    t.blockHash = "block-" + std::to_string(height);
+    return t; // unsigned: ranking only pre-checks, the sync verifies
+  };
+  EXPECT_TRUE(producer.mayFollowTip(tip(1, 9)));
+  EXPECT_FALSE(producer.mayFollowTip(tip(2, 9))) << "no certificate here names generation 2: anyone can claim it";
+  EXPECT_TRUE(producer.dialHints().empty());
+
+  BeaconCertificate gen3 = nextCertificate(current);
+  gen3.generation = 3;
+  gen3.cutoverHeight = 4;
+  gen3.cutoverHash = std::string(32, 'c');
+  gen3.dialHints = {"/ip4/127.0.0.1/udp/9001/adp/1.0.0/p2p/gateway-a", "/ip4/127.0.0.1/udp/9002/adp/1.0.0/p2p/gateway-b"};
+  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 1,
+                                                           harness_.chainConfig.genesisTime))
+                .value(),
+            Chain::CertificateOffer::Newer);
+  EXPECT_EQ(producer.dialHints(), gen3.dialHints);
+  EXPECT_TRUE(producer.mayFollowTip(tip(3, 9))) << "the generation held";
+  EXPECT_TRUE(producer.mayFollowTip(tip(2, 4))) << "an older one, up to the cutover";
+  EXPECT_TRUE(producer.mayFollowTip(tip(1, 4)));
+  EXPECT_FALSE(producer.mayFollowTip(tip(1, 5))) << "past the cutover";
+  EXPECT_FALSE(producer.mayFollowTip(tip(4, 9))) << "above any certificate held";
+}
+
 // beacon-authority ba6 (B005): two tips of one generation and height naming different blocks are
 // proof the beacon key signed twice. A node holding the evidence verifies no tip of that generation
 // above its height — it commits nothing past it — until a later generation is certified, out of

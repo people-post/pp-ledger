@@ -39,8 +39,13 @@ pp::Roe<std::string> encodeObjectPretty(const Object &o) {
 Object RelayServer::RunFileConfig::ltsToJson() {
   Object j;
   j.setJsonUInt("port", port);
-  j.set("beacon", beacon.empty() ? std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>")
-                                 : beacon);
+  if (beacons.size() > 1) {
+    std::vector<Value> values(beacons.begin(), beacons.end());
+    j.set("beacons", Object::array(std::move(values)));
+  } else {
+    j.set("beacon", beacons.empty() ? std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>")
+                                    : beacons.front());
+  }
   return j;
 }
 
@@ -56,15 +61,44 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     port = DEFAULT_RELAY_PORT;
   }
 
-  auto beaconStr = jd.getString("beacon");
-  if (!beaconStr) {
-    return Error(E_CONFIG, "Field 'beacon' (upstream multiaddr) is required");
+  beacons.clear();
+  auto addBeacon = [this](const std::string &value, const std::string &field) -> Roe<void> {
+    auto ma = network::ParseBeaconMultiaddrString(value);
+    if (!ma) {
+      return Error(E_CONFIG, "Field '" + field + "': " + ma.error().message);
+    }
+    if (std::find(beacons.begin(), beacons.end(), *ma) == beacons.end()) {
+      beacons.push_back(std::move(*ma));
+    }
+    return {};
+  };
+  if (jd.contains("beacon")) {
+    auto beaconStr = jd.getString("beacon");
+    if (!beaconStr) {
+      return Error(E_CONFIG, "Field 'beacon' must be an upstream multiaddr string");
+    }
+    if (auto added = addBeacon(*beaconStr, "beacon"); !added) {
+      return added;
+    }
   }
-  auto ma = network::ParseBeaconMultiaddrString(*beaconStr);
-  if (!ma) {
-    return Error(E_CONFIG, "Field 'beacon': " + ma.error().message);
+  if (jd.contains("beacons")) {
+    const Array *beaconsArr = jd.getArray("beacons");
+    if (!beaconsArr) {
+      return Error(E_CONFIG, "Field 'beacons' must be an array of upstream multiaddrs");
+    }
+    for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
+      auto value = asString(beaconsArr->elements[i]);
+      if (!value) {
+        return Error(E_CONFIG, "beacons[" + std::to_string(i) + "] must be an upstream multiaddr string");
+      }
+      if (auto added = addBeacon(*value, "beacons[" + std::to_string(i) + "]"); !added) {
+        return added;
+      }
+    }
   }
-  beacon = std::move(*ma);
+  if (beacons.empty()) {
+    return Error(E_CONFIG, "Field 'beacon' (or 'beacons'), the upstream multiaddr, is required");
+  }
   auto allowed = parseAllowedPeers(jd);
   if (!allowed) {
     return Error(E_CONFIG, allowed.error().message);
@@ -89,11 +123,73 @@ RelayServer::RelayServer() {
   redirectLogger("RelayServer");
   relay_.redirectLogger(log().getFullName() + ".Relay");
   client_.redirectLogger(log().getFullName() + ".Client");
+  syncClient_.redirectLogger(log().getFullName() + ".SyncClient");
+  fanoutClient_.redirectLogger(log().getFullName() + ".FanoutClient");
 }
 
-Client::Roe<void> RelayServer::dialPeerMultiaddr(const std::string& multiaddr,
-                                                 const std::string& peer_key) {
-  return client_.setAmpPeer(peer_key, multiaddr);
+Client::Roe<void> RelayServer::dialUpstream(Client &client, size_t index) {
+  if (!upstreams_ || index >= upstreams_->all().size()) {
+    return Client::Error(Client::E_NOT_CONNECTED, "No upstream [" + std::to_string(index) + "]");
+  }
+  return client.setAmpPeer(UpstreamSet::dialKey(index), upstreams_->all()[index]);
+}
+
+Client::Roe<void> RelayServer::dialUpstream() {
+  return dialUpstream(client_, upstreams_ ? upstreams_->activeIndex() : 0);
+}
+
+void RelayServer::initUpstreams() {
+  UpstreamSet::Hooks hooks = upstreamHooks(fanoutClient_);
+  hooks.admit = [this](size_t index, const Client::BeaconState &state) {
+    const std::string networkId = relay_.getNetworkId();
+    if (!networkId.empty() && state.networkId != networkId) {
+      log().warning << "Disregarding upstream [" << index << "]: it serves network '" << state.networkId << "'";
+      return false;
+    }
+    return true;
+  };
+  hooks.learn = [this](size_t index, const Client::BeaconState &state) {
+    const std::string from = "upstream [" + std::to_string(index) + "]'s STATUS";
+    noteCertificate(state.certificate, from);
+    if (state.equivocation) {
+      noteEquivocation(*state.equivocation, from, /*pushUp=*/false);
+    }
+  };
+  hooks.offerEquivocation = [this](const Client::Equivocation &evidence, const std::string &from) {
+    noteEquivocation(evidence, from, /*pushUp=*/true);
+  };
+  hooks.mayFollow = [this](const Client::SignedTip &tip) { return relay_.mayFollowTip(tip); };
+  upstreams_ = std::make_unique<UpstreamSet>(config_.network.beacon_multiaddrs, std::move(hooks));
+  upstreams_->redirectLogger(log().getFullName() + ".Upstreams");
+}
+
+void RelayServer::learnUpstreamHints() {
+  if (upstreams_) {
+    upstreams_->addHints(relay_.getDialHints());
+  }
+}
+
+void RelayServer::rankUpstreamsAtStart() {
+  learnUpstreamHints();
+  if (restartRequested()) {
+    return;
+  }
+  upstreams_->rerank("start");
+  serveTasksUntil([this]() { return !upstreams_->ranking(); }, networkTuning().startupSyncTimeout);
+}
+
+void RelayServer::pushCertificateUp(const Ledger::Record &record) {
+  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
+    if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
+      log().warning << "Certificate not passed to upstream [" << i << "]: " << dial.error().message;
+      continue;
+    }
+    fanoutClient_.addTransactionAsync(record, completeOnServerThread<void>([this, i](Client::Roe<void> result) {
+      if (!result) {
+        log().debug << "Upstream [" << i << "] did not take the certificate: " << result.error().message;
+      }
+    }));
+  }
 }
 
 Service::Roe<void> RelayServer::onStart() {
@@ -143,7 +239,7 @@ Service::Roe<void> RelayServer::onStart() {
 
   // Apply configuration from RunFileConfig
   config_.network.udp_port = runFileConfig.port;
-  config_.network.beacon_multiaddr = runFileConfig.beacon;
+  config_.network.beacon_multiaddrs = runFileConfig.beacons;
   config_.network.genesisHash = runFileConfig.genesisHash;
   auto identityKey = loadOrCreateIdentityKey();
   if (!identityKey) {
@@ -152,14 +248,17 @@ Service::Roe<void> RelayServer::onStart() {
 
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config_.network.udp_port;
-  log().info << "  Beacon: " << config_.network.beacon_multiaddr;
+  for (const auto &upstream : config_.network.beacon_multiaddrs) {
+    log().info << "  Upstream: " << upstream;
+  }
   if (config_.network.genesisHash) {
     log().info << "  Genesis pinned (networkAnchor.genesisHash)";
   }
 
-  if (auto upstreams = setUpstreams({config_.network.beacon_multiaddr}); !upstreams) {
+  if (auto upstreams = setUpstreams(config_.network.beacon_multiaddrs); !upstreams) {
     return Service::Error(E_CONFIG, upstreams.error().message);
   }
+  initUpstreams();
 
   auto ampCfg = network::LedgerAmpConfigFromPrivateKey(identityKey.value(),
                                                        config_.network.udp_port);
@@ -176,11 +275,9 @@ Service::Roe<void> RelayServer::onStart() {
   if (!ampRuntime()) {
     return Service::Error(E_NETWORK, "AMP runtime unavailable after start");
   }
-  client_.attachAmpTransport(*ampRuntime(), "beacon");
-
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    return Service::Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message);
-  }
+  client_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
+  syncClient_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
+  fanoutClient_.attachAmpTransport(*ampRuntime(), UpstreamSet::dialKey(0));
 
   // Initialize Relay with starting block id 0 (no beacon sync, no block
   // production)
@@ -208,6 +305,7 @@ Service::Roe<void> RelayServer::onStart() {
   }
 
   orderRewindIfDue(); // a certificate kept before the node went down
+  rankUpstreamsAtStart();
 
   // Initial catch-up through the same BlockSync as at run time; completions
   // are served here because the run loop has not started yet.
@@ -230,7 +328,7 @@ Service::Roe<void> RelayServer::onStart() {
 void RelayServer::initBlockSync() {
   BlockSync::Hooks hooks;
   hooks.dialUpstream = [this]() -> pp::Roe<void> {
-    auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon");
+    auto dial = dialUpstream(syncClient_, upstreams_->activeIndex());
     return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
   };
   hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
@@ -241,9 +339,9 @@ void RelayServer::initBlockSync() {
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
   hooks.onTipVerified = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
-  hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the beacon's STATUS"); };
+  hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the upstream's STATUS"); };
   hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
-    noteEquivocation(evidence, "the beacon's STATUS", /*pushUp=*/false);
+    noteEquivocation(evidence, "the upstream's STATUS", /*pushUp=*/false);
   };
   hooks.vouchedCutover = [this]() { return relay_.vouchedCutover(); };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
@@ -255,12 +353,15 @@ void RelayServer::initBlockSync() {
   hooks.postToServerThread = [this](std::function<void()> task) { postToServerThread(std::move(task)); };
   hooks.onFinished = [this](const BlockSync::Result &result) { onBlockSyncFinished(result); };
   UpstreamTipWatch::Hooks watchHooks;
-  watchHooks.dialUpstream = hooks.dialUpstream;
+  watchHooks.dialUpstream = [this]() -> pp::Roe<void> {
+    auto dial = dialUpstream();
+    return dial ? pp::Roe<void>() : pp::Roe<void>(pp::Error(dial.error().message));
+  };
   watchHooks.nextBlockId = hooks.nextBlockId;
   watchHooks.onUpstreamAhead = [this]() { blockSyncRequested_ = true; };
   watchHooks.onSignedTip = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
   watchHooks.postToServerThread = hooks.postToServerThread;
-  blockSync_ = std::make_unique<BlockSync>(client_, std::move(hooks));
+  blockSync_ = std::make_unique<BlockSync>(syncClient_, std::move(hooks));
   blockSync_->redirectLogger(log().getFullName() + ".BlockSync");
   tipWatch_ = std::make_unique<UpstreamTipWatch>(client_, std::move(watchHooks));
   tipWatch_->redirectLogger(log().getFullName() + ".TipWatch");
@@ -273,6 +374,8 @@ void RelayServer::onBlockSyncFinished(const BlockSync::Result &result) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = relay_.getCurrentEpoch();
     startBeaconStateRefresh();
+  } else {
+    upstreams_->noteFailed(); // the next attempt (after backoff) tries another upstream
   }
   resolvePendingBlockGets();
 }
@@ -293,9 +396,9 @@ void RelayServer::startBeaconStateRefresh() {
         if (!status.value().networkId.empty()) {
           networkId_ = status.value().networkId;
         }
-        noteCertificate(status.value().certificate, "the beacon's STATUS");
+        noteCertificate(status.value().certificate, "the upstream's STATUS");
         if (const auto &evidence = status.value().equivocation) {
-          noteEquivocation(*evidence, "the beacon's STATUS", /*pushUp=*/false);
+          noteEquivocation(*evidence, "the upstream's STATUS", /*pushUp=*/false);
         }
         noteSignedTip(status.value().signedTip);
       }));
@@ -337,16 +440,19 @@ std::optional<Chain::EquivocationOffer> RelayServer::noteEquivocation(const Clie
 }
 
 void RelayServer::pushEquivocationUp(const Client::Equivocation &evidence) {
-  // So the beacon halts too; downstreams learn it from this relay's STATUS.
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
-    log().warning << "Equivocation evidence not passed up: " << dial.error().message;
-    return;
-  }
-  client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([this](Client::Roe<std::string> result) {
-    if (!result) {
-      log().warning << "Equivocation evidence not passed up: " << result.error().message;
+  // So the beacon halts too — each beacon host, if a split runs two; downstreams learn it from this
+  // relay's STATUS.
+  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
+    if (auto dial = dialUpstream(fanoutClient_, i); !dial) {
+      log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << dial.error().message;
+      continue;
     }
-  }));
+    fanoutClient_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([this, i](Client::Roe<std::string> result) {
+      if (!result) {
+        log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << result.error().message;
+      }
+    }));
+  }
 }
 
 void RelayServer::dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -360,7 +466,7 @@ void RelayServer::dEquivocationAdd(const Client::Request &request, const Request
                                ? "Equivocation evidence kept"
                                : "Equivocation evidence not kept here";
   // Up the tree whatever this relay made of it: the beacon judges for itself.
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+  if (auto dial = dialUpstream(); !dial) {
     replyWith(reply, Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
@@ -377,6 +483,12 @@ std::optional<Chain::CertificateOffer> RelayServer::noteCertificate(const std::o
   auto offered = relay_.noteCertificate(*record, from);
   if (offered == Chain::CertificateOffer::Newer) {
     dropHeldTipIfInvalid();
+    if (upstreams_) {
+      // bp2b: up the tree, to the new beacon's gateways, and follow whichever serves the new generation.
+      pushCertificateUp(*record);
+      learnUpstreamHints();
+      upstreams_->rerank("a new beacon certificate");
+    }
   }
   return offered;
 }
@@ -511,6 +623,7 @@ void RelayServer::runLoop() {
       relay_.refresh();
       syncBlocksPeriodically();
       tipWatch_->maintain();
+      upstreams_->maintain();
       if (blockSyncRequested_) {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
@@ -626,7 +739,7 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
   case BlockAddCheck::New:
     break;
   }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+  if (auto dial = dialUpstream(); !dial) {
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message)));
     return;
   }
@@ -741,7 +854,20 @@ RelayServer::hCalibration(const Client::Request & /*request*/) {
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+  // Any upstream: they all follow one beacon. Before ranking, so in configured order.
+  Roe<int64_t> offset = Error(E_NETWORK, "No upstream configured");
+  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
+    offset = calibrateTimeToUpstream(i);
+    if (offset) {
+      break;
+    }
+    log().debug << "Time calibration against upstream [" << i << "] failed: " << offset.error().message;
+  }
+  return offset;
+}
+
+RelayServer::Roe<int64_t> RelayServer::calibrateTimeToUpstream(size_t index) {
+  if (auto dial = dialUpstream(client_, index); !dial) {
     return Error(E_NETWORK, dial.error().message);
   }
 
@@ -784,7 +910,7 @@ RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
 }
 
 bool RelayServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+  if (auto dial = dialUpstream(); !dial) {
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message)));
     return false;
   }
@@ -805,7 +931,7 @@ void RelayServer::dTxAdd(const Client::Request &request, const RequestQueue::Rep
       kept = "Beacon certificate kept";
     }
   }
-  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+  if (auto dial = dialUpstream(); !dial) {
     replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message))
                                   : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;

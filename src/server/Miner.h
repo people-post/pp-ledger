@@ -144,6 +144,10 @@ public:
   std::optional<BeaconCertificate> getSeenCertificate() const { return chain_.seenCertificate(); }
   /** The block the held certificate vouches for (Chain::vouchedCutover). */
   std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const { return chain_.vouchedCutover(); }
+  /** Whether an upstream serving `tip` is worth following (Chain::mayFollowTip). */
+  bool mayFollowTip(const Client::SignedTip &tip) const { return chain_.mayFollowTip(tip); }
+  /** Where to reach the beacon: the certificates' dial hints (Chain::dialHints). */
+  std::vector<std::string> getDialHints() const { return chain_.dialHints(); }
 
 
   Roe<bool> produceBlock(Ledger::ChainNode &block);

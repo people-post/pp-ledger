@@ -21,6 +21,8 @@ LAB_KEYS_DIR="${PP_LEDGER_SMOKE_LAB_KEYS:-${BUILD_DIR}/test-smoke-lab-keys}"
 NUM_MINERS="${PP_LEDGER_SMOKE_MINERS:-3}"
 BEACON_PORT="${PP_LEDGER_SMOKE_BEACON_PORT:-8617}"
 RELAY_PORT="${PP_LEDGER_SMOKE_RELAY_PORT:-8622}"
+# A second relay, started by scenarios that need one (start_relay relay2 "$RELAY2_PORT").
+RELAY2_PORT="${PP_LEDGER_SMOKE_RELAY2_PORT:-8623}"
 MINER_BASE_PORT="${PP_LEDGER_SMOKE_MINER_BASE_PORT:-8618}"
 HTTP_PORT="${PP_LEDGER_SMOKE_HTTP_PORT:-8680}"
 
@@ -205,6 +207,7 @@ stop_network() {
     return 0
   fi
   echo -e "${YELLOW}Stopping smoke network...${NC}"
+  local name pid # not the caller's: bash variables are dynamically scoped
   while IFS=: read -r name pid; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
@@ -274,7 +277,7 @@ beacon_multiaddr() {
 }
 
 relay_multiaddr() {
-  cat "${MULTIADDR_DIR}/relay" 2>/dev/null || true
+  cat "${MULTIADDR_DIR}/${1:-relay}" 2>/dev/null || true
 }
 
 miner_multiaddr() {
@@ -290,7 +293,7 @@ initialize_beacon_with_test_config() {
   # A new genesis is a new chain: every node's ledger from an earlier run belongs to another
   # chain (relay errors on every request; miners' blocks are refused). Keys and Amp identities stay.
   local node_dir
-  for node_dir in "${TEST_DIR}/relay" "${TEST_DIR}"/miner*; do
+  for node_dir in "${TEST_DIR}"/relay* "${TEST_DIR}"/miner*; do
     [[ -d "$node_dir/data" ]] && rm -rf "$node_dir/data"
   done
   mkdir -p "$beacon_dir/keys"
@@ -366,25 +369,27 @@ create_beacon_config() {
     "BEACON_PORT=${BEACON_PORT}"
 }
 
+# Relay $1 (default "relay", in ${TEST_DIR}/$1) on UDP port $2 (default RELAY_PORT), following the beacon.
 create_relay_config() {
+  local name=${1:-relay} port=${2:-$RELAY_PORT}
   local beacon_ma
   beacon_ma=$(beacon_multiaddr)
   [[ -n "$beacon_ma" ]] || die "beacon multiaddr missing; start beacon first"
-  local relay_dir="${TEST_DIR}/relay"
+  local relay_dir="${TEST_DIR}/${name}"
   mkdir -p "$relay_dir/keys"
   if [[ ! -f "$relay_dir/keys/amp-identity.txt" ]]; then
-    if restore_lab_key "relay-amp-identity.txt" "$relay_dir/keys/amp-identity.txt"; then
-      echo -e "${CYAN}Restored lab relay Amp identity${NC}"
+    if restore_lab_key "${name}-amp-identity.txt" "$relay_dir/keys/amp-identity.txt"; then
+      echo -e "${CYAN}Restored lab ${name} Amp identity${NC}"
     else
       write_amp_identity_key "$relay_dir/keys/amp-identity.txt"
     fi
   fi
-  persist_lab_key "$relay_dir/keys/amp-identity.txt" "relay-amp-identity.txt"
+  persist_lab_key "$relay_dir/keys/amp-identity.txt" "${name}-amp-identity.txt"
   if [[ ! -f "$relay_dir/.signature" ]]; then
     touch "$relay_dir/.signature"
   fi
   render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
-    "RELAY_PORT=${RELAY_PORT}" \
+    "RELAY_PORT=${port}" \
     "BEACON_MULTIADDR=${beacon_ma}"
   # Optional: pin the genesis the relay syncs from (networkAnchor.genesisHash).
   if [[ "${PP_LEDGER_SMOKE_RELAY_PIN_GENESIS:-0}" == "1" ]]; then
@@ -499,21 +504,23 @@ start_beacon() {
   echo -e "${GREEN}✓ Beacon started on UDP ${BEACON_PORT}${NC}"
 }
 
+# Start relay $1 (default "relay") on UDP port $2 (default RELAY_PORT); see create_relay_config.
 start_relay() {
-  create_relay_config
-  local relay_dir="${TEST_DIR}/relay"
+  local name=${1:-relay} port=${2:-$RELAY_PORT}
+  create_relay_config "$name" "$port"
+  local relay_dir="${TEST_DIR}/${name}"
   run_bg_cmd "$relay_dir/console.log" "$BUILD_DIR/app/pp-relay" -d "$relay_dir" ${DEBUG_FLAG}
-  save_pid "relay" $!
-  wait_for_listen_multiaddr "$relay_dir/console.log" "${MULTIADDR_DIR}/relay" 45 || {
+  save_pid "$name" $!
+  wait_for_listen_multiaddr "$relay_dir/console.log" "${MULTIADDR_DIR}/${name}" 45 || {
     stop_network
-    die "relay failed to publish listen multiaddr"
+    die "${name} failed to publish listen multiaddr"
   }
   # Relay logs listen multiaddr before beacon sync; sync failure exits the process.
-  wait_until_ready "relay" "$relay_dir/console.log" 60 || {
+  wait_until_ready "$name" "$relay_dir/console.log" 60 || {
     stop_network
-    die "relay exited (often Amp dial/sync to beacon — see console.log)"
+    die "${name} exited (often Amp dial/sync to beacon — see console.log)"
   }
-  echo -e "${GREEN}✓ Relay started on UDP ${RELAY_PORT}${NC}"
+  echo -e "${GREEN}✓ ${name^} started on UDP ${port}${NC}"
 }
 
 launch_miner() {
@@ -1055,18 +1062,20 @@ signed_tip_generation() {
 }
 
 # The admins certify generation $1 for the key in $2 (a .pub file), with cutover $3 (none if
-# empty — with one, mk-beacon-cert reads the block's hash from the relay): write the record, sign
-# it offline (genesis is 3-of-3); prints the file.
+# empty — with one, mk-beacon-cert reads the block's hash from the relay) and dial hint $4 (none
+# if empty): write the record, sign it offline (genesis is 3-of-3); prints the file.
 make_beacon_cert() {
-  local generation=$1 pubkey=$2 cutover=${3:-} cert="${TEST_DIR}/cert-gen$1.tx" i
-  local node_args=() cutover_args=()
+  local generation=$1 pubkey=$2 cutover=${3:-} hint=${4:-} cert="${TEST_DIR}/cert-gen$1.tx" i
+  local node_args=() cutover_args=() hint_args=()
   if [[ -n "$cutover" ]]; then
     node_args=(${DEBUG_FLAG} -b --host "$(relay_multiaddr)")
     cutover_args=(--cutover "$cutover")
   fi
+  [[ -z "$hint" ]] || hint_args=(--dial-hint "$hint")
   rm -f "$cert"
   run_pp_client ${node_args[@]+"${node_args[@]}"} mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" \
-    --generation "$generation" --pubkey "$pubkey" ${cutover_args[@]+"${cutover_args[@]}"} -o "$cert" >/dev/null ||
+    --generation "$generation" --pubkey "$pubkey" ${cutover_args[@]+"${cutover_args[@]}"} \
+    ${hint_args[@]+"${hint_args[@]}"} -o "$cert" >/dev/null ||
     die "mk-beacon-cert failed"
   for i in 1 2 3; do
     run_pp_client sign-tx -k "${TEST_DIR}/keys/genesis${i}.key" --network-id "$SMOKE_NETWORK_ID" "$cert" >/dev/null ||
@@ -1261,6 +1270,12 @@ status_certificate() {
   fetch_beacon_state 2>/dev/null | sed -n 's/^Certificate: generation \([0-9]*\), cutover \([0-9a-z]*\)$/\1 \2/p'
 }
 
+# The certificate relay $1 serves on STATUS, as "generation cutover" (empty if none).
+relay_certificate() {
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr "$1")" status 2>/dev/null |
+    sed -n 's/^Certificate: generation \([0-9]*\), cutover \([0-9a-z]*\)$/\1 \2/p'
+}
+
 # The height of the signed tip the relay serves (empty if none).
 status_signed_tip_height() {
   fetch_beacon_state 2>/dev/null | sed -n 's/^Signed tip: block \([0-9]*\), generation [0-9]*$/\1/p'
@@ -1284,7 +1299,11 @@ run_out_of_band_scenario() {
   echo -e "${BLUE}═══ L-SMOKE-REWIND (out of band) ═══${NC}"
   # The admins learn the beacon key was stolen two blocks ago: they certify generation 3 for a key
   # no running beacon holds, trusting the old generation only up to then, and hand the
-  # certificate to the relay. It is not on chain, and the old beacon will never commit it.
+  # certificate to the relay. It is not on chain, and the old beacon will never commit it. It names
+  # relay2 — a second relay, below the same beacon — as where the new beacon is reached (bp2b).
+  start_relay relay2 "$RELAY2_PORT"
+  local hint
+  hint=$(relay_multiaddr relay2)
   local tip cutover cert reply key="${TEST_DIR}/unheld-beacon-signing"
   tip=$(status_signed_tip_height)
   [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-REWIND: no signed tip to start from (got '${tip}')"
@@ -1294,7 +1313,7 @@ run_out_of_band_scenario() {
   stop_miner_by_id "$offline"
   rm -f "$key.key" "$key.pub"
   "$BUILD_DIR/app/pp-client" keygen -o "$key" >/dev/null || die "pp-client keygen failed"
-  cert=$(make_beacon_cert 3 "$key.pub" "$cutover")
+  cert=$(make_beacon_cert 3 "$key.pub" "$cutover" "$hint")
   reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" 2>&1) ||
     die "L-SMOKE-REWIND: submit-tx failed: ${reply}"
   echo -e "${CYAN}Handed the relay a generation-3 certificate (cutover ${cutover}; signed tip was ${tip})${NC}"
@@ -1351,6 +1370,7 @@ run_out_of_band_scenario() {
   done
   stopped=$(all_processes_alive) || die "L-SMOKE-REWIND: ${stopped} stopped instead of restarting"
   echo -e "${GREEN}✓ Miner${offline}, down during the cut, rewound once back online${NC}"
+  check_dial_hint_adopted "$hint" "$cutover" "$offline"
 
   local held
   held=$(get_next_block_id)
@@ -1358,6 +1378,26 @@ run_out_of_band_scenario() {
   sleep $((SLOT_DURATION * 4))
   [[ "$(get_next_block_id)" == "$held" ]] || die "L-SMOKE-REWIND: the relay took blocks past the cutover"
   echo -e "${GREEN}✓ L-SMOKE-REWIND: every node rewound to the cutover on its own; nothing commits past it${NC}"
+}
+
+# bp2b: the certificate's dial hint ($1, relay2) became an upstream of relay1 and of miners 1..$3;
+# relay2 holds the certificate (cutover $2) — pushed up by relay1, or from the beacon's STATUS —
+# and did not take its own address for an upstream.
+check_dial_hint_adopted() {
+  local hint=$1 cutover=$2 miners=$3 i log deadline
+  local adopted="Added upstream [1] ${hint} (a beacon certificate's hint)"
+  for log in "${TEST_DIR}/relay/relay.log" $(for i in $(seq 1 "$miners"); do echo "${TEST_DIR}/miner${i}/miner.log"; done); do
+    deadline=$((SECONDS + 30))
+    until grep -a -F -q "$adopted" "$log"; do
+      ((SECONDS < deadline)) || die "L-SMOKE-REWIND: $(basename "$(dirname "$log")") did not add the dial hint as an upstream"
+      sleep 1
+    done
+  done
+  [[ "$(relay_certificate relay2)" == "3 ${cutover}" ]] ||
+    die "L-SMOKE-REWIND: relay2 does not hold generation 3 (got '$(relay_certificate relay2)')"
+  ! grep -a -q "Added upstream" "${TEST_DIR}/relay2/relay.log" ||
+    die "L-SMOKE-REWIND: relay2 took a dial hint for an upstream — its own address"
+  echo -e "${GREEN}✓ Relay1 and ${miners} miner(s) took the certificate's dial hint (relay2) as an upstream; relay2 holds it${NC}"
 }
 
 # Restart miner $1 with no data — "anchored" pins genesis — and check it starts at a checkpoint at
