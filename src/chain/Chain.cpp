@@ -1427,6 +1427,108 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
   return cert.value();
 }
 
+Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record &record) {
+  if (record.type != Ledger::T_BEACON_CERT) {
+    return Error(E_TX_VALIDATION, "Not a beacon certificate record");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
+  if (!tx) {
+    return Error(E_TX_VALIDATION, "Invalid beacon certificate record: " + tx.error().message);
+  }
+  auto cert = BeaconCertTxHandler::decodeCertificate(tx.value());
+  if (!cert) {
+    return Error(E_TX_VALIDATION, cert.error().message);
+  }
+  if (!txContext_.optAuthority.has_value()) {
+    return Error(E_STATE_INIT, "Chain authority not initialized");
+  }
+  // Order first: only a certificate that would be kept is worth its signature checks.
+  const uint64_t generation = cert.value().generation;
+  if (generation <= txContext_.optAuthority->beacon.generation ||
+      (seenCert_ && generation < seenCert_->generation)) {
+    return CertificateOffer::Older;
+  }
+  const bool sameGeneration = seenCert_ && generation == seenCert_->generation;
+  if (sameGeneration && cert.value().ltsToString() == seenCert_->ltsToString()) {
+    return CertificateOffer::Same;
+  }
+  auto verified = verifyBeaconCertificateRecord(record);
+  if (!verified) {
+    return verified.error();
+  }
+  if (sameGeneration) {
+    log().warning << "Another admin-signed beacon certificate for generation " << generation
+                  << " than the one held: keeping the one held";
+    return CertificateOffer::Conflict;
+  }
+  seenCert_ = verified.value();
+  seenCertRecord_ = record;
+  if (seenCert_->cutoverHeight == UINT64_MAX) {
+    log().info << "Holding beacon certificate generation " << generation << " (no cutover), not on chain yet";
+  } else {
+    log().info << "Holding beacon certificate generation " << generation << " (cutover at block "
+               << seenCert_->cutoverHeight << "), not on chain yet: older generations' tips above it are refused";
+  }
+  if (const uint64_t next = getNextBlockId(); next > 0 && next - 1 > seenCert_->cutoverHeight) {
+    log().warning << "This node holds blocks " << seenCert_->cutoverHeight + 1 << " to " << next - 1
+                  << ", above the cutover of beacon generation " << generation
+                  << ": it cannot follow that generation from here";
+  }
+  return CertificateOffer::Newer;
+}
+
+std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
+  if (seenCertRecord_) {
+    return seenCertRecord_;
+  }
+  for (auto it = authoritySteps_.rbegin(); it != authoritySteps_.rend(); ++it) {
+    if (it->record.type == Ledger::T_BEACON_CERT) {
+      return it->record;
+    }
+  }
+  return std::nullopt;
+}
+
+Chain::Roe<void> Chain::checkSeenCutover(const Ledger::Block &block) const {
+  if (!seenCert_ || block.index <= seenCert_->cutoverHeight) {
+    return {};
+  }
+  for (const auto &record : block.records) {
+    if (record.type == Ledger::T_BEACON_CERT) {
+      return {};
+    }
+  }
+  return Error(E_BLOCK_VALIDATION, "Block " + std::to_string(block.index) + " is past block " +
+                                       std::to_string(seenCert_->cutoverHeight) +
+                                       ", the cutover of beacon generation " +
+                                       std::to_string(seenCert_->generation) +
+                                       ": it must commit a beacon certificate");
+}
+
+void Chain::refreshSeenCertificate() {
+  if (!seenCert_ || !txContext_.optAuthority.has_value()) {
+    return;
+  }
+  const auto &inForce = txContext_.optAuthority->beacon;
+  if (seenCert_->generation <= inForce.generation) {
+    if (seenCert_->generation == inForce.generation && seenCert_->publicKey != inForce.publicKey) {
+      log().warning << "The chain committed another beacon certificate for generation " << inForce.generation
+                    << " than the one seen out of band";
+    } else {
+      log().info << "Beacon certificate generation " << seenCert_->generation << " is on chain now";
+    }
+    seenCert_.reset();
+    seenCertRecord_.reset();
+    return;
+  }
+  if (auto still = verifyBeaconCertificateRecord(*seenCertRecord_); !still) {
+    log().warning << "Dropping beacon certificate generation " << seenCert_->generation
+                  << " seen out of band: " << still.error().message;
+    seenCert_.reset();
+    seenCertRecord_.reset();
+  }
+}
+
 Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
   if (!txContext_.optAuthority.has_value()) {
     return Error(E_STATE_INIT, "Chain authority not initialized");
@@ -1435,14 +1537,21 @@ Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
   if (!admin) {
     return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
   }
-  return AuthorityTrail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
+  AuthorityTrail trail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
+  trail.setSeenCertificate(seenCert_);
+  return trail;
 }
 
 void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
+  bool changed = false;
   for (const auto &record : block.block.records) {
     if (AuthorityTrail::changesAuthority(record)) {
       authoritySteps_.push_back(Client::AuthorityStep{block.block.index, record});
+      changed = true;
     }
+  }
+  if (changed) {
+    refreshSeenCertificate();
   }
 }
 

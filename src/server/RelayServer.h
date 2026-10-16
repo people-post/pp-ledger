@@ -121,6 +121,14 @@ private:
   std::optional<Client::SignedTip> latestSignedTip() const override { return upstreamTip_.latest(); }
   /** Keep a signed tip heard from upstream (STATUS, BLOCK_WAIT, BLOCK_ADD and REGISTER replies). */
   void noteSignedTip(const std::optional<Client::SignedTip> &tip);
+  /**
+   * A beacon certificate from STATUS or a TX_ADD (ba5c): offer it; when it is a new one, recheck
+   * the held tip against its cutover. None when there is none or it is refused.
+   */
+  std::optional<Chain::CertificateOffer> noteCertificate(const std::optional<Ledger::Record> &record,
+                                                         const std::string &from);
+  /** Stop serving the held signed tip once it no longer verifies (a new certificate's cutover). */
+  void dropHeldTipIfInvalid();
   /** True when `reply` carries a signed tip, valid here, for exactly `block`. */
   bool coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
   bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;

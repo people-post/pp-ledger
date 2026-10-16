@@ -20,7 +20,8 @@ namespace pp {
  * Pulls missing blocks from an upstream without blocking the server thread, and commits only
  * blocks a beacon signed tip vouches for (beacon-authority ba4).
  *
- * 1. STATUS: the upstream's signed tip.
+ * 1. STATUS: the upstream's signed tip, and its current beacon certificate (offered to the node
+ *    first: a later generation seen out of band bounds the tips of earlier ones).
  * 2. Authenticate: fetch the blocks from the local tip to the signed tip and check that each one
  *    hashes to what it claims and links to the one before, from the local tip up to the signed
  *    block hash; follow the beacon authority along them (AuthorityTrail: admin-signed generation
@@ -65,6 +66,11 @@ public:
     std::function<pp::Roe<AuthorityTrail>()> authorityTrail;
     /** Optional: a signed tip this sync verified (the node may serve it on). */
     std::function<void(const Client::SignedTip &)> onTipVerified;
+    /**
+     * Optional: the beacon certificate the upstream serves on STATUS (beacon-authority ba5c),
+     * offered before its tip is checked — a later generation's cutover may refuse that tip.
+     */
+    std::function<void(const Ledger::Record &)> offerCertificate;
     /** Validate and append one block (its id is nextBlockId()). */
     std::function<pp::Roe<void>(const Ledger::ChainNode &)> applyBlock;
     /** Run a task on the server thread (Server::postToServerThread). */

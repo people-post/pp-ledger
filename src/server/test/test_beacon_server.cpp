@@ -1,5 +1,7 @@
 #include "BeaconServer.h"
+#include "CertificateStore.h"
 #include "../chain/AccountBuffer.h"
+#include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
@@ -396,6 +398,137 @@ TEST(BeaconServerInitTest, MountedBeaconSignsItsTipAndKeepsIt) {
     Beacon beacon;
     ASSERT_TRUE(beacon.mount(mount).isOk());
     EXPECT_FALSE(beacon.openTipSigning({beaconKey}).isOk());
+  }
+}
+
+// beacon-authority ba5c: a certificate seen out of band (a TX_ADD) is kept across restarts. Naming a
+// key the beacon does not hold, it stands the beacon down at once; naming one it holds (a staged
+// rotation), the beacon commits nothing above its cutover but a block that commits a certificate.
+TEST(BeaconServerInitTest, ACertificateSeenOutOfBandIsKeptAndBindsTheBeacon) {
+  GenesisSetup setup("pp-ledger-beacon-seen-cert-test");
+  setup.writeInitConfig();
+  const auto beaconKey = utl::mlDsaGenerate().value();
+  const auto nextKey = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(beaconKey, "keys/beacon-signing");
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  auto certFor = [&](const utl::MlDsaKeyPair &key, uint64_t generation) {
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = generation;
+    cert.publicKey = key.publicKey;
+    cert.cutoverHeight = 0;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    for (int i = 0; i < 2; ++i) {
+      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+    }
+    return record;
+  };
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  const auto certFile = setup.dir / "data" / "beacon-cert.dat";
+
+  const auto rotation = certFor(nextKey, 2);
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
+    ASSERT_EQ(beacon.offerCertificate(rotation).value(), Chain::CertificateOffer::Newer);
+    EXPECT_FALSE(beacon.isSuperseded()) << "it holds the key generation 2 names";
+    EXPECT_TRUE(std::filesystem::exists(certFile));
+    ASSERT_TRUE(beacon.getCurrentCertificate().has_value());
+    EXPECT_EQ(beacon.getCurrentCertificate()->data, rotation.data);
+    Ledger::ChainNode past;
+    past.block.index = 1;
+    auto refused = beacon.addBlock(past);
+    ASSERT_FALSE(refused.isOk());
+    EXPECT_NE(refused.error().message.find("must commit a beacon certificate"), std::string::npos)
+        << refused.error().message;
+  }
+  const auto stolen = certFor(utl::mlDsaGenerate().value(), 3);
+  {
+    Beacon beacon; // restart: generation 2 is still held
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
+    ASSERT_TRUE(beacon.getCurrentCertificate().has_value()) << "kept across the restart";
+    EXPECT_EQ(beacon.getCurrentCertificate()->data, rotation.data);
+    ASSERT_EQ(beacon.offerCertificate(stolen).value(), Chain::CertificateOffer::Newer);
+    EXPECT_EQ(beacon.supersededBy(), std::optional<uint64_t>(3)) << "generation 3 names another key";
+  }
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
+    EXPECT_EQ(beacon.supersededBy(), std::optional<uint64_t>(3)) << "it stays down after a restart";
+  }
+  std::ofstream(certFile, std::ios::trunc) << "garbage";
+  Beacon unreadable;
+  EXPECT_FALSE(unreadable.mount(mount).isOk()) << "a certificate file that does not read is not ignored";
+}
+
+// The store under any node's chain: it writes what the chain keeps, offers it again after a
+// restart, waits while the chain holds no block, and removes a certificate the chain will not keep.
+TEST(BeaconServerInitTest, CertificateStoreKeepsWhatTheChainKeeps) {
+  GenesisSetup setup("pp-ledger-certificate-store-test");
+  setup.writeInitConfig();
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  auto certFor = [&](uint64_t generation) {
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = generation;
+    cert.publicKey = utl::mlDsaGenerate().value().publicKey;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    for (int i = 0; i < 2; ++i) {
+      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+    }
+    return record;
+  };
+  const std::string file = (setup.dir / "beacon-cert.dat").string();
+  auto loadedChain = [&](Chain &chain) {
+    ASSERT_TRUE(chain.mountLedger((setup.dir / "data" / "ledger").string()).isOk());
+    ASSERT_TRUE(chain.loadFromLedger(0).isOk());
+  };
+  const auto gen2 = certFor(2);
+  {
+    Chain chain;
+    loadedChain(chain);
+    CertificateStore store(chain, file);
+    ASSERT_TRUE(store.load().isOk());
+    EXPECT_FALSE(std::filesystem::exists(file));
+    ASSERT_EQ(store.offer(gen2).value(), Chain::CertificateOffer::Newer);
+    EXPECT_TRUE(std::filesystem::exists(file));
+  }
+  {
+    Chain empty; // a node with no blocks cannot verify it yet: it waits, the file stays
+    CertificateStore store(empty, file);
+    ASSERT_TRUE(store.load().isOk());
+    store.retryPending();
+    EXPECT_FALSE(empty.seenCertificate().has_value());
+    EXPECT_TRUE(std::filesystem::exists(file));
+  }
+  {
+    Chain chain;
+    loadedChain(chain);
+    CertificateStore store(chain, file);
+    ASSERT_TRUE(store.load().isOk());
+    ASSERT_TRUE(chain.seenCertificate().has_value()) << "restored after a restart";
+    EXPECT_EQ(chain.seenCertificateRecord()->data, gen2.data);
+  }
+  std::ofstream(file, std::ios::binary | std::ios::trunc) << utl::binaryPack(certFor(1));
+  {
+    Chain chain;
+    loadedChain(chain);
+    CertificateStore store(chain, file);
+    ASSERT_TRUE(store.load().isOk());
+    EXPECT_FALSE(chain.seenCertificate().has_value());
+    EXPECT_FALSE(std::filesystem::exists(file)) << "not above the generation in force: removed";
   }
 }
 

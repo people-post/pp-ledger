@@ -127,11 +127,13 @@ Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uin
   return record;
 }
 
-/** STATUS as an upstream serves it: its next block id and signed tip. */
-std::string statusPayload(const std::vector<Ledger::ChainNode> &chain, const std::optional<Client::SignedTip> &tip) {
+/** STATUS as an upstream serves it: its next block id, signed tip and current certificate. */
+std::string statusPayload(const std::vector<Ledger::ChainNode> &chain, const std::optional<Client::SignedTip> &tip,
+                          const std::optional<Ledger::Record> &certificate = std::nullopt) {
   Client::BeaconState state;
   state.nextBlockId = chain.size();
   state.signedTip = tip;
+  state.certificate = certificate;
   return utl::binaryPack(state.ltsToMeta());
 }
 
@@ -146,6 +148,8 @@ public:
   std::optional<Client::SignedTip> signedTip;
   /** STATUS without `signedTip`: sign the last block of `chain` (false: no tip at all). */
   bool autoTip = true;
+  /** The certificate STATUS serves (beacon-authority ba5c). */
+  std::optional<Ledger::Record> certificate;
   size_t blockGets = 0;
 
   std::optional<Client::SignedTip> statusTip() const {
@@ -180,7 +184,7 @@ public:
       reply.setTip(signedTip);
       response.payload = utl::binaryPack(reply);
     } else if (request.type == Client::T_REQ_STATUS) {
-      response.payload = statusPayload(chain, statusTip());
+      response.payload = statusPayload(chain, statusTip(), certificate);
     } else {
       ++blockGets;
       const uint64_t id = utl::binaryUnpack<uint64_t>(request.payload).value();
@@ -584,6 +588,44 @@ TEST_F(BlockSyncTest, ALaterGenerationNoBlockCertifiesIsRefused) {
   ASSERT_EQ(results_.size(), 1u);
   EXPECT_FALSE(results_[0].ok);
   EXPECT_EQ(local_.size(), 3u);
+}
+
+// --- beacon-authority ba5c: a later generation seen out of band bounds the older one's tips ---
+
+// The admins certified generation 2 with cutover 6 (generation 1's key was stolen); the upstream
+// serves the certificate on STATUS but a tip of generation 1 at block 9. The node takes the
+// certificate before it checks the tip, so it refuses the tip and commits nothing.
+TEST_F(BlockSyncTest, ATipPastTheCutoverOfACertificateOnStatusIsRefused) {
+  upstream_->certificate = certRecord(2, utl::mlDsaGenerate().value(), 6);
+  std::optional<Ledger::Record> seen;
+  auto h = hooks();
+  h.offerCertificate = [&](const Ledger::Record &record) { seen = record; };
+  h.authorityTrail = [&]() -> pp::Roe<AuthorityTrail> {
+    auto trail = testTrail();
+    if (seen) {
+      BeaconCertificate cert;
+      EXPECT_TRUE(cert.ltsFromString(utl::binaryUnpack<Ledger::TxBeaconCert>(seen->data).value().meta));
+      trail.value().setSeenCertificate(cert);
+    }
+    return trail;
+  };
+  BlockSync sync(client_, h);
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("past block 6"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(upstream_->blockGets, 0u);
+  EXPECT_EQ(local_.size(), 3u);
+
+  // Up to the cutover, generation 1 still signs.
+  upstream_->signedTip = tipFor(upstream_->chain[6]);
+  BlockSync upToCutover(client_, h);
+  upToCutover.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_TRUE(results_[1].ok) << results_[1].error;
+  EXPECT_EQ(local_.size(), 7u);
 }
 
 TEST_F(BlockSyncTest, APinnedFirstBlockMustMatch) {

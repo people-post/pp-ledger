@@ -113,6 +113,8 @@ private:
   Client::Roe<void> dialPeerMultiaddr(const std::string& multiaddr, const std::string& peer_key);
   Roe<void> dialUpstreamIndex(size_t index);
   Roe<void> dialActiveUpstream();
+  /** STATUS of each upstream that answers and matches the anchor (none where not), offering its certificate. */
+  std::vector<std::optional<Client::BeaconState>> fetchUpstreamStates();
   Roe<size_t> selectBestUpstreamIndex();
   Roe<void> verifyUpstreamState(const Client::BeaconState& state);
   Roe<void> verifyGenesisAnchor();

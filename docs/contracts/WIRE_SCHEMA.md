@@ -170,8 +170,12 @@ certifies the next beacon. The record's `meta` is a `BeaconCertificate` (version
 - `networkId` is the chain's; `generation` is exactly the one in force + 1;
 - `publicKey` is a well-formed ML-DSA-65 key that is not the current beacon key, an admin key or a
   recovery key;
-- `cutoverHeight` (the last height the previous generation may sign) does not go back and is below
-  the block that commits the record;
+- `cutoverHeight` (the last height the previous generation may sign) does not go back, and the
+  block that commits the record is at most `cutoverHeight + 1`: the previous generation never
+  signs past it. A cutover not reached yet bounds nothing on chain; `2^64−1` (`mk-beacon-cert`
+  without `--cutover`) is none — the old key signs until the certificate commits. In force, the
+  certificate's `cutoverHeight` is the block before the one that commits it: the last block the
+  previous generation signed (`chain_tx::certificateInForce`);
 - not in the genesis block (that block certifies generation 1);
 - **at most one per block.** The certificate is in force as soon as its block applies; a genesis
   meta (renewal, `T_CONFIG`) from then on carries it.
@@ -179,6 +183,34 @@ certifies the next beacon. The record's `meta` is a `BeaconCertificate` (version
 Out of band (a certificate a node receives outside a block), `Chain::verifyBeaconCertificateRecord`
 checks the same record against the authority the node has: any generation above the one in force
 passes, so a node that is behind can still recognise a newer beacon.
+
+**Certificates out of band.** A certificate is self-verifying (genesis → admin set → certificate),
+so it may reach a node before any block commits it — the case of a stolen beacon key, whose
+holder will never commit its successor. Every node keeps the highest one it sees:
+
+- **Channels.** `STATUS` carries `certificate` (the packed `T_BEACON_CERT` record): the one the
+  node holds out of band, else the latest committed one it holds (absent at generation 1). A
+  `TX_ADD` of a `T_BEACON_CERT` is offered at every node it passes — relays and miners keep it and
+  forward it (when forwarding fails, the reply still says it was kept); the beacon keeps it and
+  pools it, and refuses one that is not above the generation in force or held. An operator hands
+  a node a certificate file with `pp-client submit-tx` to that node.
+- **Kept** (`Chain::offerCertificate`): verified against the node's own committed state as above;
+  kept if its generation is above both the one in force and the one held (another certificate for
+  the generation held is refused with a warning: the first stays). The record is written to
+  `data/beacon-cert.dat` before the offer returns and offered again at start; a node with no
+  blocks keeps it until its first block. It is dropped once a block commits its generation (or a
+  later one), or when an admin rotation leaves it unsigned.
+- **Effect**, until a block commits that generation: a tip of an older generation **above its
+  cutover does not verify**, whatever key signed it — at sync (the upstream's `STATUS`
+  certificate is offered before its tip is checked), on `BLOCK_ADD` replies, and for the tip a
+  relay serves (a relay stops serving one the certificate rules out). A miner choosing among
+  upstreams skips one whose tip is past it. A beacon holding no key the certificate names stands
+  down; one that holds it (a staged rotation) commits no block above the cutover that does not
+  commit a certificate.
+
+A tip of the new generation still verifies only along blocks that commit its certificate: the
+certificate bounds the old generation, it does not let a node follow the new one before the chain
+does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
 
 ### Signed tip
 
@@ -202,9 +234,12 @@ One signature authenticates the hash chain below it, so the block format does no
   after `--init`, or a crash between commit and signing).
 - **Only the certified key signs.** The beacon holds `keys/beacon-signing.key` and, staged for a
   rotation, `keys/beacon-signing.next.key`; it signs with whichever the certificate in force names.
-  If it names neither, a later generation belongs to another beacon: this one **stands down** —
-  it refuses `BLOCK_ADD`, `TX_ADD`, `TX_PULL` and `REGISTER` and serves reads only.
-- **Where it travels:** `STATUS` (`signedTip`, the packed versioned tip; absent before the first),
+  If it names neither — or a later certificate it holds out of band names another key — that
+  generation belongs to another beacon: this one **stands down**. It refuses `BLOCK_ADD`,
+  `TX_ADD` (except a beacon certificate, which it keeps), `TX_PULL` and `REGISTER` and serves
+  reads only.
+- **Where it travels:** `STATUS` (`signedTip`, the packed versioned tip; absent before the first;
+  beside it `certificate`, see [Certificates out of band](#chain-authority)),
   and the `BLOCK_WAIT` and `BLOCK_ADD` replies, which are `TipReply {nextBlockId, hasSignedTip,
   signedTip}`. A `BLOCK_ADD` reply carries the tip that covers the block just added. Relays keep
   the newest tip they hear from upstream that verifies (higher height, or higher generation at
@@ -216,8 +251,9 @@ generation's key. The node finds that generation by following the blocks up to t
 own state (`AuthorityTrail`): a `T_CONFIG` replaces the admin set and a `T_BEACON_CERT` raises
 the generation, each only if the admin set in force at that point signed it (for a certificate,
 under the on-chain rules above). A tip of an older generation is superseded — once a certificate
-for generation N+1 is in force, generation N signs nothing above it (its `cutoverHeight` is below
-the certifying block); a later generation no block certifies does not verify.
+for generation N+1 is in force, generation N signs nothing above it (in force, its `cutoverHeight`
+is the block before the certifying one); a later generation no block certifies does not verify.
+Nor does a tip above the cutover of a later certificate the node holds out of band.
 
 - **Sync** (`BlockSync`) commits only blocks a verified tip vouches for: it takes the upstream's
   tip from `STATUS`, fetches the blocks from the local tip up to it, checks that each hashes to

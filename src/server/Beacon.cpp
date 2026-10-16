@@ -226,6 +226,12 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
 
   uint64_t blockCount = loadResult.value();
 
+  certificates_ = std::make_unique<CertificateStore>(chain_, config.workDir + "/" + FILE_BEACON_CERT);
+  certificates_->redirectLogger(log().getFullName() + ".CertificateStore");
+  if (auto loaded = certificates_->load(); !loaded) {
+    return Error(3, loaded.error().message);
+  }
+
   log().info << "Beacon mounted successfully";
   log().info << "  Loaded " << blockCount << " blocks from ledger";
   log().info << "  Current slot: " << getCurrentSlot();
@@ -240,7 +246,9 @@ void Beacon::refresh() {
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
-  // Call base class implementation which validates and adds to chain/ledger
+  if (auto withinCutover = chain_.checkSeenCutover(block.block); !withinCutover) {
+    return Error(4, withinCutover.error().message);
+  }
   auto result = chain_.addBlock(block);
   if (!result) {
     return Error(4, result.error().message);
@@ -279,9 +287,39 @@ std::optional<Client::SignedTip> Beacon::getSignedTip() const {
   return tipSigner_ ? tipSigner_->latest() : std::nullopt;
 }
 
-bool Beacon::isSuperseded() const {
+std::optional<uint64_t> Beacon::supersededBy() const {
   const auto authority = chain_.getAuthority();
-  return tipSigner_ && authority && !tipSigner_->holdsKey(authority->beacon.publicKey);
+  if (!tipSigner_ || !authority) {
+    return std::nullopt;
+  }
+  if (const auto &seen = chain_.seenCertificate(); seen && !tipSigner_->holdsKey(seen->publicKey)) {
+    return seen->generation;
+  }
+  if (!tipSigner_->holdsKey(authority->beacon.publicKey)) {
+    return authority->beacon.generation;
+  }
+  return std::nullopt;
+}
+
+Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Record &record) {
+  if (!certificates_) {
+    return Error(6, "Beacon not mounted");
+  }
+  auto offered = certificates_->offer(record);
+  if (!offered) {
+    return Error(offered.error().code, offered.error().message);
+  }
+  if (offered.value() == Chain::CertificateOffer::Newer) {
+    if (const auto by = supersededBy()) {
+      log().error << "Beacon generation " << *by << " (seen out of band) certifies none of this beacon's keys: "
+                  << "it stands down and serves reads only";
+    }
+  }
+  return offered.value();
+}
+
+std::optional<Ledger::Record> Beacon::getCurrentCertificate() const {
+  return chain_.currentCertificateRecord();
 }
 
 uint64_t Beacon::getGeneration() const {

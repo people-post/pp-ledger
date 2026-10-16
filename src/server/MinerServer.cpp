@@ -259,13 +259,9 @@ pp::Roe<void> MinerServer::checkStartingAuthority(uint64_t blockId, const ChainA
   return same ? pp::Roe<void>() : pp::Roe<void>(pp::Error(same.error().message));
 }
 
-MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
-  // Follow the highest beacon generation, then the longest chain (beacon-authority ba5). Claims are
-  // checked when syncing: an upstream whose tip does not verify fails the sync and is rotated out.
-  size_t best = config_.network.beacon_multiaddrs.size();
-  uint64_t best_generation = 0;
-  uint64_t best_height = 0;
-  for (size_t i = 0; i < config_.network.beacon_multiaddrs.size(); ++i) {
+std::vector<std::optional<Client::BeaconState>> MinerServer::fetchUpstreamStates() {
+  std::vector<std::optional<Client::BeaconState>> states(config_.network.beacon_multiaddrs.size());
+  for (size_t i = 0; i < states.size(); ++i) {
     if (auto dial = dialUpstreamIndex(i); !dial) {
       log().warning << "Skipping upstream [" << i << "] "
                     << config_.network.beacon_multiaddrs[i] << ": "
@@ -282,10 +278,38 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
       log().warning << "Skipping upstream [" << i << "]: " << verified.error().message;
       continue;
     }
-    const uint64_t generation = status.value().signedTip ? status.value().signedTip->generation : 0;
-    if (generation > best_generation || (generation == best_generation && status.value().nextBlockId >= best_height)) {
+    if (const auto &certificate = status.value().certificate) {
+      miner_.noteCertificate(*certificate, "upstream [" + std::to_string(i) + "]'s STATUS");
+    }
+    states[i] = std::move(status.value());
+  }
+  return states;
+}
+
+MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
+  // Follow the highest beacon generation, then the longest chain (beacon-authority ba5). Claims are
+  // checked when syncing: an upstream whose tip does not verify fails the sync and is rotated out.
+  // Every upstream's certificate is offered first (ba5c), so a tip past the cutover of a later
+  // generation any of them serves is not chosen.
+  const auto states = fetchUpstreamStates();
+  const auto seen = miner_.getSeenCertificate();
+  size_t best = config_.network.beacon_multiaddrs.size();
+  uint64_t best_generation = 0;
+  uint64_t best_height = 0;
+  for (size_t i = 0; i < states.size(); ++i) {
+    if (!states[i]) {
+      continue;
+    }
+    const auto &tip = states[i]->signedTip;
+    if (tip && seen && tip->generation < seen->generation && tip->height > seen->cutoverHeight) {
+      log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
+                    << tip->generation << ") is past the cutover of beacon generation " << seen->generation;
+      continue;
+    }
+    const uint64_t generation = tip ? tip->generation : 0;
+    if (generation > best_generation || (generation == best_generation && states[i]->nextBlockId >= best_height)) {
       best_generation = generation;
-      best_height = status.value().nextBlockId;
+      best_height = states[i]->nextBlockId;
       best = i;
     }
   }
@@ -506,6 +530,9 @@ void MinerServer::initBlockSync() {
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
     auto trail = miner_.authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
+  };
+  hooks.offerCertificate = [this](const Ledger::Record &record) {
+    miner_.noteCertificate(record, "the upstream's STATUS");
   };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
@@ -798,15 +825,28 @@ void MinerServer::dTxAdd(const Client::Request &request, const RequestQueue::Rep
                          Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
     return;
   }
+  // A beacon certificate counts here too (ba5c): a miner cut off from an honest beacon still keeps it.
+  std::string kept;
+  if (record.value().type == Ledger::T_BEACON_CERT) {
+    if (const auto offered = miner_.noteCertificate(record.value(), "a TX_ADD");
+        offered == Chain::CertificateOffer::Newer || offered == Chain::CertificateOffer::Same) {
+      kept = "Beacon certificate kept";
+    }
+  }
   // Up the tree to the beacon's pool, where the slot leader pulls it: miners
   // never need each other's addresses.
   if (auto dial = dialActiveUpstream(); !dial) {
-    replyWith(reply, Roe<std::string>(Error(E_NETWORK, dial.error().message)));
+    replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, dial.error().message))
+                                  : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
-  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply](Client::Roe<void> result) {
-    replyWith(reply, result ? Roe<std::string>("Transaction submitted")
-                            : Roe<std::string>(Error(E_NETWORK, result.error().message)));
+  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply, kept](Client::Roe<void> result) {
+    if (result) {
+      replyWith(reply, Roe<std::string>("Transaction submitted"));
+    } else {
+      replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, result.error().message))
+                                    : Roe<std::string>(kept + "; the upstream refused it: " + result.error().message));
+    }
   }));
 }
 

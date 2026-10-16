@@ -142,7 +142,11 @@ struct BeaconCertificate {
   uint64_t generation{0};
   /** Raw ML-DSA-65 public key of the beacon signing key (not the Amp identity). */
   std::string publicKey;
-  /** Generation > 1: last height the previous generation may sign. 0 at genesis. */
+  /**
+   * Generation > 1: last height the previous generation may sign (2^64−1: none, it signs until
+   * this certificate commits). In force, the block before the commit (chain_tx::certificateInForce).
+   * 0 at genesis.
+   */
   uint64_t cutoverHeight{0};
 
   template <typename Archive> void serialize(Archive &ar) { ar &networkId &generation &publicKey &cutoverHeight; }

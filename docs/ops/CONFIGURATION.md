@@ -12,6 +12,7 @@ anything not listed here is fixed in code.
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
+| `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
 
 ## `init-config.json` (beacon, genesis)
 
@@ -170,7 +171,7 @@ one and restart the beacon so it holds both; then the admins write, sign and sub
 ```bash
 pp-client keygen -o keys/beacon-signing.next                  # on the beacon host; restart pp-beacon
 pp-client mk-beacon-cert --network-id <id> --generation <current + 1> \
-  --pubkey keys/beacon-signing.next.pub --cutover <current tip height> -o cert.tx
+  --pubkey keys/beacon-signing.next.pub -o cert.tx
 pp-client sign-tx -k admin1.key --network-id <id> cert.tx   # each admin, offline, until the quorum
 pp-client submit-tx -b <relay or beacon> cert.tx
 ```
@@ -179,6 +180,16 @@ From the block that commits the certificate the beacon signs with the next key, 
 miners follow (`pp-client status` shows the new generation). At a later restart the operator may
 move `beacon-signing.next.*` over `beacon-signing.*`. A certificate for a key the beacon does not
 hold makes it stand down (reads only): the network waits for the beacon that holds that key.
+
+No `--cutover` here: the current key is not suspect, so it signs until the certificate commits. A
+cutover is for a **stolen key**: `--cutover <the last height you trust>` makes every node that
+holds the certificate refuse the old generation's tips above that height, before any block
+commits it. Hand it to the network with `submit-tx` to any relay, miner or the beacon; each node
+it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
+it. Nodes already holding blocks above the cutover stop following; bringing up the new beacon and
+rewinding them is part 2 of [beacon-authority](../../projects/beacon-authority/DESIGN.md). Give
+an honest rotation a cutover only above the tip by a margin: the certificate must commit by the
+block after it, and a staged beacon holding the certificate commits nothing past it until then.
 
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as

@@ -115,9 +115,9 @@ chain_tx::Roe<void> BeaconCertTxHandler::applyBlock(const Ledger::TypedTx &tx, A
   if (!cert) {
     return cert.error();
   }
-  c.ctx.optAuthority->beacon = cert.value();
+  c.ctx.optAuthority->beacon = chain_tx::certificateInForce(cert.value(), c.blockId);
   log().info << "Beacon certificate generation " << cert.value().generation << " in force from block "
-             << c.blockId << " (previous generation signs up to " << cert.value().cutoverHeight << ")";
+             << c.blockId << " (the previous generation signed up to " << c.blockId - 1 << ")";
   return {};
 }
 
