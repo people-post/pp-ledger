@@ -201,14 +201,23 @@ public:
     pp::common::Meta ltsToMeta() const;
   };
 
+  /** A member of an epoch's committee: a stakeholder and its stake (consensus::Stakeholder). */
+  struct CommitteeMember {
+    uint64_t id{ 0 };
+    uint64_t stake{ 0 };
+
+    bool operator==(const CommitteeMember &other) const { return id == other.id && stake == other.stake; }
+    template <typename Archive> void serialize(Archive &ar) { ar & id & stake; }
+  };
+
   /**
    * Block data structure (without hash).
    *
    * Header fields are committed by the block hash (see headerToString).
-   * Body (`records`) is committed indirectly via `txRoot`.
+   * Body: `records` committed via `txRoot`, `committee` via `stakeSnapshotHash`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 5;
+    static constexpr uint16_t CURRENT_VERSION = 6;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
@@ -236,13 +245,20 @@ public:
      */
     std::string epochSeed;
 
-    // --- Body (not hashed directly; committed via txRoot) ---
+    // --- Body (not hashed directly) ---
+    /** Committed via txRoot. */
     std::vector<Record> records;
+    /**
+     * In the first block of an epoch: the committee the epoch elects leaders from, sorted by id —
+     * the preimage of stakeSnapshotHash. Empty in every other block. A node that holds only part
+     * of the accounts (warming up from a checkpoint) takes the epoch's leaders from it.
+     */
+    std::vector<CommitteeMember> committee;
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & previousHash & slot & slotLeader & epoch &
           txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed &
-          records;
+          records & committee;
     }
 
     /** Binary LTS of header fields only (used for block hash). */

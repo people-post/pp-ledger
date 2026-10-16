@@ -18,7 +18,30 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
       along the blocks (`AuthorityTrail`); older generations superseded; same-server rotation
       (`keys/beacon-signing.next`); a beacon whose key is no longer certified stands down (reads
       only); miners prefer the highest generation; an anchored miner pins its first block
-- [ ] **ba5b** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
+- [x] **ba5b** Checkpoints a miner can start from, with a verifiable authority (B015). A checkpoint
+      is the first block of an epoch, opens with the genesis renewal, and every epoch's first block
+      carries its committee. A miner starts at the previous checkpoint, warms up blindly, and works
+      (checks everything, seals) from the current one. Steps:
+  - [x] **ba5b.1** `AUTHORITY_PROOF`: beacon and relays index the records that change the authority
+        (`T_CONFIG`, `T_BEACON_CERT`) and serve them up to a block; `AuthorityTrail::replayProof`
+        replays them from genesis, following admin rotations
+  - [x] **ba5b.2** Checkpoints at epoch starts, opening with the genesis renewal; a node starting
+        there installs config, consensus, authority and the genesis account from it. Renewal
+        due-sets and rotation read slot times, not the node's clock (they were nondeterministic)
+  - [x] **ba5b.3** Each epoch's first block carries its committee (preimage of `stakeSnapshotHash`):
+        Full nodes check it; warm-up uses it, so leaders and liveness charges are exact
+  - [x] **ba5b.4** Warm-up is exact. Oracle with skipped slots and a miner registering mid-window:
+        the joiner validates Full blocks from the current checkpoint, live and after a restart
+  - [x] **ba5b.5** Fresh-node sync commits nothing before the tip verifies: the whole range is
+        authenticated; the authority comes from the starting block's genesis record or renewal
+  - [x] **ba5b.6** Anchors: a miner pinning genesis checks the starting block's authority and admin
+        set against the replayed proof; relays can pin `networkAnchor.genesisHash` too
+  - [x] **ba5b.7** Smoke: miners join at a checkpoint above 0, pinned and unpinned; docs (late
+        join, checkpoint rules), with the known limits. On the way (B016): warm-up applies every
+        effect on held accounts (a soft-mode audit), `T_END_USER` carries its written-off balances,
+        a joined miner seals once its history covers the transaction validity window, and a
+        self-transfer (it minted) is refused
+- [ ] **ba5c** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
       any peer or a file, the highest one seen persisted; `cutoverHeight` against a generation not
       yet on chain (needed by part 2's case 2)
 - [ ] **ba6** Equivocation halt: detection, evidence relay, halt and resume

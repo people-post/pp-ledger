@@ -43,12 +43,16 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `stakeSnapshotHash` | 32 bytes | Stake set used for leader election |
 | `epochSeed` | 32 bytes | Epoch lottery seed (same for all blocks in an epoch) |
 
-Full block LTS for disk also appends `records` after the header fields
-(`Block::ltsToString`). Hash does **not** include `records` bytes directly.
+Full block LTS for disk also appends the body after the header fields (`Block::ltsToString`,
+version **6**; other versions are refused). Hash does **not** include the body bytes directly.
 
 ### Body
 
-`records`: ordered list of `Record` (see below).
+- `records`: ordered list of `Record` (see below), committed by `txRoot`.
+- `committee`: in the **first block of an epoch**, the stakeholders `{id, stake}` the epoch elects
+  leaders from, sorted by id — the preimage of `stakeSnapshotHash`; empty in every other block.
+  Checked in every admission mode (`chain_block::validateBlockCommittee`): a node warming up from a
+  checkpoint, which holds only some accounts, takes each epoch's leaders from it.
 
 ### Commitments
 
@@ -225,12 +229,25 @@ the certifying block); a later generation no block certifies does not verify.
   the block under the same rule. Otherwise the block arrives later by sync, if the beacon took it.
 - **Upstream choice:** a miner with several upstreams follows the one whose signed tip has the
   highest generation, then the longest chain; a false claim fails its sync and the miner rotates.
-- **First block:** a node with no blocks takes its first one (genesis, or a miner's checkpoint
-  renewal) from its upstream — it is where the node learns the beacon's key. A miner that pins
-  genesis (`networkAnchor.genesisHash`) pins that first block too: the checkpoint if it carries
-  the genesis authority (a tip signed by that key then vouches for the chain back to it), else
-  genesis itself, syncing the whole chain. Without a pin (relays; miners without an anchor) the
-  first block is taken on trust.
+- **First block:** a node with no blocks authenticates its whole range from its first block —
+  genesis (its `T_GENESIS`) or a checkpoint (its opening genesis renewal) — which gives the
+  authority and admin set the tip must verify under; nothing commits before. Later genesis
+  renewals must agree with the authority followed. That first block is the node's root of trust:
+  - a **relay** starts at genesis and may pin it (`networkAnchor.genesisHash`);
+  - a **miner** starts at the upstream's checkpoint. Pinning genesis, it fetches `AUTHORITY_PROOF`
+    up to the checkpoint and replays it from genesis (below); the checkpoint's renewal must carry
+    the authority and admin set the replay reaches, else the miner starts at genesis. The sync
+    checks the block it actually starts from again.
+
+  Without a pin the first block is taken on trust.
+
+**Authority proof** (`AUTHORITY_PROOF`, request 1004, payload `uint64 upToBlockId`): the records
+that changed the authority (`T_CONFIG`, `T_BEACON_CERT`) from genesis up to that block, each with
+its block id, in chain order (`Client::AuthorityProof`). Served by nodes holding the chain from
+genesis (beacon, relays). A node replays it from a genesis block it trusts
+(`AuthorityTrail::replayProof`), taking each step only if the admin set in force there signed it:
+an upstream can withhold or reorder steps (the replay then misses the starting block's authority
+or fails), not forge them.
 
 ## Account / ledger model
 
@@ -266,11 +283,24 @@ the certifying block); a later generation no block certifies does not verify.
 
 - Renewal re-records an account's state in a recent block so old blocks can be
   dropped after a checkpoint; every account, system ones included, must renew
-  when due.
+  when due: an account last written before block `maxBlockIdForRenewal(x)` renews in block *x*,
+  where the cut-off is the newer limit of `x - checkpoint.minBlocks + 1` and the first block at or
+  after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
+  block's slot time, never a node's clock). An account that cannot pay its renewal fee is ended
+  instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
+  (packed `map<tokenId, int64>`; Full checks them against the account), so a node that does not
+  hold the account still credits the recycle account.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
-- Checkpoints mark chain ranges from which account state can be reconstructed.
+- **Checkpoints** are where a miner can start (BLOCK_PIPELINE § Checkpoints and late join): block
+  *C* becomes the next checkpoint when it is the first block of its epoch, at least
+  `checkpoint.minBlocks` after the current one, and the current one's block is more than
+  `checkpoint.minAgeSeconds` older than the slot of block *C−1* — so every account last written
+  before the current checkpoint renewed by then. A checkpoint block opens with the genesis
+  renewal (due or not): config, pending update, admin set and authority. The newest two are kept;
+  `STATUS.checkpointId` is the older, where a joining miner starts.
+- A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **7**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **8**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, and the miner settings
 ([Miner registration and liveness](#miner-registration-and-liveness)).

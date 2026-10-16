@@ -112,6 +112,12 @@ public:
 
   // ----- methods -----
   void init(const Config& config);
+  /**
+   * Slot timing on a running node (a node starting at a checkpoint learns it from the checkpoint's
+   * genesis renewal): genesis time, slot duration and slots per epoch; the clock offset and the
+   * test injectors stay. Stake cache and epoch seed start empty.
+   */
+  void setSlotTiming(int64_t genesisTime, uint64_t slotDuration, uint64_t slotsPerEpoch);
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   /** A block for `slot` is sealed after the slot ends: timestamp in [slotEnd, slotEnd + window). */
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;

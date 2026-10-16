@@ -433,6 +433,10 @@ AccountBuffer::Roe<void> AccountBuffer::withdrawBalance(uint64_t accountId,
 AccountBuffer::Roe<void>
 AccountBuffer::transferBalance(uint64_t fromId, uint64_t toId, uint64_t tokenId,
                                uint64_t amount, uint64_t fee) {
+  if (fromId == toId) {
+    // Both balances are read before either is written: the same account would gain `amount`.
+    return Error(E_INPUT, "Payer and payee are the same account: " + std::to_string(fromId));
+  }
   auto spendingResult = verifySpendingPower(fromId, tokenId, amount, fee);
   if (!spendingResult) {
     return spendingResult;

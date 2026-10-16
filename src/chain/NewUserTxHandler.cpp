@@ -173,13 +173,17 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
         "Account already exists: " + std::to_string(tx.toWalletId));
   }
 
-  auto spendingResult = bank.verifySpendingPower(
-      tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
-  if (!spendingResult) {
-    return chain_tx::TxError(
-        chain_err::E_ACCOUNT_BALANCE,
-        "Source account must have sufficient balance: " +
-            spendingResult.error().message);
+  // A node warming up may not hold the payer yet; the block was valid (beacon-authority ba5b).
+  const bool strict = chain_block::admissionTxStrict(admissionMode);
+  if (strict || bank.hasAccount(tx.fromWalletId)) {
+    auto spendingResult = bank.verifySpendingPower(
+        tx.fromWalletId, AccountBuffer::ID_GENESIS, tx.amount, tx.fee);
+    if (!spendingResult) {
+      return chain_tx::TxError(
+          chain_err::E_ACCOUNT_BALANCE,
+          "Source account must have sufficient balance: " +
+              spendingResult.error().message);
+    }
   }
 
   // After genesis, genesis creates no accounts (each would mint its balance
@@ -201,7 +205,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
 
   auto userAccountRoe = chain_tx::loadAndValidateUserAccountMeta(
       tx.meta, ctx.crypto, bank, isBufferMode ? &ctx.bank : nullptr,
-      tx.toWalletId, "Failed to deserialize user account: " + tx.meta);
+      tx.toWalletId, "Failed to deserialize user account: " + tx.meta, strict);
   if (!userAccountRoe) {
     return userAccountRoe.error();
   }
@@ -248,6 +252,10 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
         "Failed to add user account to buffer: " + addResult.error().message);
   }
 
+  if (!strict) {
+    return chain_tx::applyTransferToHeldAccounts(bank, tx.fromWalletId, tx.toWalletId, AccountBuffer::ID_GENESIS,
+                                                 tx.amount, tx.fee);
+  }
   auto transferResult =
       bank.transferBalance(tx.fromWalletId, tx.toWalletId,
                            AccountBuffer::ID_GENESIS, tx.amount, tx.fee);

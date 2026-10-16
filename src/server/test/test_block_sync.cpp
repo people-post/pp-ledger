@@ -28,6 +28,52 @@ Ledger::ChainNode makeBlock(uint64_t index, const std::string &previousHash = ""
   return node;
 }
 
+/** The generation-1 beacon key of the test chain. */
+const utl::MlDsaKeyPair &beaconKey() {
+  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
+  return key;
+}
+
+/** The test chain's admin set: one key. */
+const utl::MlDsaKeyPair &adminKey() {
+  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
+  return key;
+}
+
+/** The test chain's genesis meta: network "net", generation 1 = beaconKey(), admin set = adminKey(). */
+GenesisAccountMeta testGenesisMeta() {
+  GenesisAccountMeta gm;
+  gm.config.networkId = "net";
+  gm.authority.beacon.networkId = "net";
+  gm.authority.beacon.generation = 1;
+  gm.authority.beacon.publicKey = beaconKey().publicKey;
+  gm.genesis.wallet.publicKeys = {adminKey().publicKey};
+  gm.genesis.wallet.minSignatures = 1;
+  gm.genesis.wallet.keyType = Crypto::TK_ML_DSA_65;
+  return gm;
+}
+
+/** Genesis's record: where a node starting at block 0 learns the authority. */
+Ledger::Record genesisRecord() {
+  Ledger::TxGenesis tx;
+  tx.meta = testGenesisMeta().ltsToString();
+  Ledger::Record record;
+  record.type = Ledger::T_GENESIS;
+  record.data = utl::binaryPack(tx);
+  return record;
+}
+
+/** A genesis renewal carrying `gm`: what a checkpoint block opens with. */
+Ledger::Record genesisRenewal(const GenesisAccountMeta &gm = testGenesisMeta()) {
+  Ledger::TxRenewal tx;
+  tx.walletId = AccountBuffer::ID_GENESIS;
+  tx.meta = gm.ltsToString();
+  Ledger::Record record;
+  record.type = Ledger::T_RENEWAL;
+  record.data = utl::binaryPack(tx);
+  return record;
+}
+
 /** `length` linked blocks; `records` puts records in some of them. */
 std::vector<Ledger::ChainNode> makeChain(size_t length, const std::map<uint64_t, std::vector<Ledger::Record>> &records = {}) {
   std::vector<Ledger::ChainNode> chain;
@@ -37,17 +83,13 @@ std::vector<Ledger::ChainNode> makeChain(size_t length, const std::map<uint64_t,
     node.block.previousHash = chain.empty() ? std::string() : chain.back().hash;
     if (auto it = records.find(i); it != records.end()) {
       node.block.records = it->second;
+    } else if (i == 0) {
+      node.block.records = {genesisRecord()};
     }
     node.hash = chain_block::calculateBlockHash(node.block);
     chain.push_back(node);
   }
   return chain;
-}
-
-/** The generation-1 beacon key of the test chain. */
-const utl::MlDsaKeyPair &beaconKey() {
-  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
-  return key;
 }
 
 /** A tip over `block`, signed by `key` (the test beacon's unless given). */
@@ -62,23 +104,10 @@ Client::SignedTip tipFor(const Ledger::ChainNode &block, const utl::MlDsaKeyPair
   return tip;
 }
 
-/** The test chain's admin set: one key. */
-const utl::MlDsaKeyPair &adminKey() {
-  static const utl::MlDsaKeyPair key = utl::mlDsaGenerate().value();
-  return key;
-}
-
-/** The authority at the local tip of a test node: generation 1 is beaconKey(). */
+/** The authority at the local tip of a test node holding blocks: what genesis set. */
 pp::Roe<AuthorityTrail> testTrail() {
-  ChainAuthority authority;
-  authority.beacon.networkId = "net";
-  authority.beacon.generation = 1;
-  authority.beacon.publicKey = beaconKey().publicKey;
-  Client::Wallet admin;
-  admin.publicKeys = {adminKey().publicKey};
-  admin.minSignatures = 1;
-  admin.keyType = Crypto::TK_ML_DSA_65;
-  return AuthorityTrail("net", authority, admin);
+  const auto gm = testGenesisMeta();
+  return AuthorityTrail("net", gm.authority, gm.genesis.wallet);
 }
 
 /** A T_BEACON_CERT for `generation` with `key`, signed by `signer` (the admin set's key unless given). */
@@ -184,13 +213,13 @@ protected:
   BlockSync::Hooks hooks() {
     BlockSync::Hooks h;
     h.dialUpstream = []() { return pp::Roe<void>(); };
-    h.nextBlockId = [this]() { return static_cast<uint64_t>(local_.size()); };
+    h.nextBlockId = [this]() { return startAt_ + static_cast<uint64_t>(local_.size()); };
     h.tipHash = [this]() {
       return local_.empty() ? std::optional<std::string>() : std::optional<std::string>(local_.back().hash);
     };
     h.authorityTrail = testTrail;
     h.applyBlock = [this](const Ledger::ChainNode &block) -> pp::Roe<void> {
-      if (block.block.index != local_.size()) {
+      if (block.block.index != startAt_ + local_.size()) {
         return pp::Error("out of order: " + std::to_string(block.block.index));
       }
       if (block.block.index == failApplyAt_) {
@@ -219,6 +248,8 @@ protected:
   std::deque<std::function<void()>> tasks_;
   std::vector<BlockSync::Result> results_;
   uint64_t failApplyAt_ = UINT64_MAX;
+  /** The block a node with no blocks starts at (its ledger's starting block id). */
+  uint64_t startAt_ = 0;
 };
 
 TEST_F(BlockSyncTest, FetchesGapWithBoundedPipelineAndAppliesInOrder) {
@@ -413,7 +444,9 @@ TEST_F(BlockSyncTest, BeyondTheHeldBlocksBodiesAreFetchedAgain) {
   EXPECT_EQ(upstream_->blockGets, 7u + 5u);
 }
 
-TEST_F(BlockSyncTest, ANodeWithNoBlocksTakesTheFirstOnTrust) {
+// --- beacon-authority ba5b.5: a node with no blocks authenticates its range from its first block ---
+
+TEST_F(BlockSyncTest, ANodeWithNoBlocksStartsFromGenesis) {
   local_.clear();
   BlockSync sync(client_, hooks());
   sync.start();
@@ -422,6 +455,83 @@ TEST_F(BlockSyncTest, ANodeWithNoBlocksTakesTheFirstOnTrust) {
   EXPECT_TRUE(results_[0].ok) << results_[0].error;
   EXPECT_EQ(local_.size(), 10u);
   EXPECT_EQ(results_[0].blocksAdded, 10u);
+}
+
+// The first block is committed only with the rest, once the tip verifies under the authority it
+// carries: a forged tip leaves the node with nothing.
+TEST_F(BlockSyncTest, ANodeWithNoBlocksCommitsNothingBeforeTheTipVerifies) {
+  local_.clear();
+  upstream_->signedTip = tipFor(upstream_->chain.back(), utl::mlDsaGenerate().value());
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("does not verify"), std::string::npos) << results_[0].error;
+  EXPECT_TRUE(local_.empty());
+  EXPECT_GT(upstream_->blockGets, 0u) << "it authenticated the range first";
+}
+
+TEST_F(BlockSyncTest, ANodeWithNoBlocksStartsAtACheckpoint) {
+  upstream_->chain = makeChain(10, {{4, {genesisRenewal()}}});
+  local_.clear();
+  startAt_ = 4;
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 6u);
+  EXPECT_EQ(local_.front().block.index, 4u);
+}
+
+TEST_F(BlockSyncTest, AStartThatIsNotACheckpointIsRefused) {
+  local_.clear();
+  startAt_ = 4; // block 4 carries no genesis renewal
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("not a checkpoint"), std::string::npos) << results_[0].error;
+  EXPECT_TRUE(local_.empty());
+}
+
+// A later genesis renewal re-records the authority in force; one that disagrees (a key no
+// certificate named) fails the sync.
+TEST_F(BlockSyncTest, AGenesisRenewalThatDisagreesFailsTheSync) {
+  auto forged = testGenesisMeta();
+  forged.authority.beacon.publicKey = utl::mlDsaGenerate().value().publicKey;
+  upstream_->chain = makeChain(10, {{6, {genesisRenewal(forged)}}});
+  local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("disagrees"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+}
+
+TEST_F(BlockSyncTest, TheStartingAuthorityCanBeVetted) {
+  upstream_->chain = makeChain(10, {{4, {genesisRenewal()}}});
+  local_.clear();
+  startAt_ = 4;
+  auto h = hooks();
+  std::optional<uint64_t> vettedAt;
+  h.checkStartingAuthority = [&](uint64_t blockId, const ChainAuthority &authority, const Client::Wallet &admin) {
+    vettedAt = blockId;
+    EXPECT_EQ(authority.beacon.publicKey, beaconKey().publicKey);
+    EXPECT_EQ(admin.publicKeys, std::vector<std::string>{adminKey().publicKey});
+    return pp::Roe<void>(pp::Error("not the anchored authority"));
+  };
+  BlockSync sync(client_, h);
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_EQ(vettedAt, std::optional<uint64_t>(4));
+  EXPECT_TRUE(local_.empty());
 }
 
 // --- beacon-authority ba5: follow the generation the admin set certifies along the range ---

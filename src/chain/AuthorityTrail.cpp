@@ -1,5 +1,6 @@
 #include "AuthorityTrail.h"
 #include "AccountPolicy.h"
+#include "BlockValidation.h"
 #include "BeaconCertTxHandler.h"
 #include "ErrorCodes.h"
 #include "TxSignatures.h"
@@ -11,18 +12,96 @@ AuthorityTrail::AuthorityTrail(std::string networkId, ChainAuthority authority, 
     : networkId_(std::move(networkId)), authority_(std::move(authority)), admin_(std::move(admin)),
       logger_(logging::getLogger("AuthorityTrail")) {}
 
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromGenesis(const Ledger::Block &genesis) {
+  if (genesis.index != 0 || genesis.records.empty() || genesis.records[0].type != Ledger::T_GENESIS) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Not a genesis block");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxGenesis>(genesis.records[0].data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Unreadable genesis meta");
+  }
+  return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
+}
+
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Block &block) {
+  if (block.index == 0) {
+    return fromGenesis(block);
+  }
+  if (block.records.empty() || !chain_block::isGenesisRenewal(block.records.front())) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Block " + std::to_string(block.index) +
+                                 " is not a checkpoint: it does not open with the genesis renewal");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(block.records.front().data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable genesis renewal");
+  }
+  return AuthorityTrail(gm.config.networkId, gm.authority, gm.genesis.wallet);
+}
+
+bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
+  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT;
+}
+
 chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
   for (const auto &record : block.records) {
-    chain_tx::Roe<void> observed;
-    if (record.type == Ledger::T_CONFIG) {
-      observed = observeConfig(record);
-    } else if (record.type == Ledger::T_BEACON_CERT) {
-      observed = observeCertificate(record, block.index);
+    if (auto observed = observeRecord(record, block.index); !observed) {
+      return observed;
     }
-    if (!observed) {
-      return chain_tx::TxError(observed.error().code, "Block " + std::to_string(block.index) + ": " +
-                                                          observed.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, uint64_t blockId) {
+  chain_tx::Roe<void> observed;
+  if (record.type == Ledger::T_CONFIG) {
+    observed = observeConfig(record);
+  } else if (record.type == Ledger::T_BEACON_CERT) {
+    observed = observeCertificate(record, blockId);
+  } else if (chain_block::isGenesisRenewal(record)) {
+    observed = observeGenesisRenewal(record);
+  }
+  if (!observed) {
+    return chain_tx::TxError(observed.error().code, "Block " + std::to_string(blockId) + ": " +
+                                                        observed.error().message);
+  }
+  return {};
+}
+
+chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block &genesis,
+                                                          const Client::AuthorityProof &proof,
+                                                          uint64_t upToBlockId) {
+  auto trail = fromGenesis(genesis);
+  if (!trail) {
+    return trail.error();
+  }
+  uint64_t lastBlockId = 0;
+  for (const auto &step : proof.steps) {
+    if (step.blockId == 0 || step.blockId < lastBlockId || step.blockId > upToBlockId) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Authority proof step at block " + std::to_string(step.blockId) +
+                                   " is out of order or beyond block " + std::to_string(upToBlockId));
     }
+    if (!changesAuthority(step.record)) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Authority proof carries an unrelated record");
+    }
+    if (auto observed = trail.value().observeRecord(step.record, step.blockId); !observed) {
+      return observed.error();
+    }
+    lastBlockId = step.blockId;
+  }
+  return trail.value();
+}
+
+chain_tx::Roe<void> AuthorityTrail::agrees(const ChainAuthority &authority, const Client::Wallet &admin) const {
+  if (authority != authority_) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Its beacon authority is not the one the proof reaches");
+  }
+  if (admin.publicKeys != admin_.publicKeys || admin.minSignatures != admin_.minSignatures ||
+      admin.keyType != admin_.keyType) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Its admin set is not the one the proof reaches");
   }
   return {};
 }
@@ -50,6 +129,21 @@ chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record) 
   return {};
 }
 
+chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record &record) {
+  // A renewal re-records the genesis meta in force: it changes nothing, so it must agree.
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable genesis renewal");
+  }
+  if (auto same = agrees(gm.authority, gm.genesis.wallet); !same) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Genesis renewal disagrees with the authority and admin set followed: " +
+                                 same.error().message);
+  }
+  return {};
+}
+
 chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &record, uint64_t blockId) {
   auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
   if (!tx) {
@@ -69,33 +163,6 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
   }
   authority_.beacon = cert.value();
   return {};
-}
-
-std::optional<ChainAuthority> AuthorityTrail::carriedBy(const Ledger::Block &block) {
-  for (const auto &record : block.records) {
-    std::string meta;
-    if (record.type == Ledger::T_GENESIS) {
-      auto tx = utl::binaryUnpack<Ledger::TxGenesis>(record.data);
-      if (!tx) {
-        return std::nullopt;
-      }
-      meta = tx.value().meta;
-    } else if (record.type == Ledger::T_RENEWAL) {
-      auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
-      if (!tx || tx.value().walletId != AccountBuffer::ID_GENESIS) {
-        continue;
-      }
-      meta = tx.value().meta;
-    } else {
-      continue;
-    }
-    GenesisAccountMeta gm;
-    if (!gm.ltsFromString(meta)) {
-      return std::nullopt;
-    }
-    return gm.authority;
-  }
-  return std::nullopt;
 }
 
 chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) const {

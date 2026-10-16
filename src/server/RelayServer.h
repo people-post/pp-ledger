@@ -79,6 +79,8 @@ private:
 
     /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
     std::optional<std::set<std::string>> allowedPeers;
+    /** `networkAnchor.genesisHash`: the genesis this relay syncs from (beacon-authority ba5b). */
+    std::optional<std::string> genesisHash;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object &jd);
@@ -87,6 +89,8 @@ private:
   struct NetworkConfig {
     uint16_t udp_port{DEFAULT_RELAY_PORT};
     std::string beacon_multiaddr;
+    /** Raw hash genesis must have (BlockSync pins the relay's first block). */
+    std::optional<std::string> genesisHash;
   };
 
   struct Config {
@@ -134,6 +138,8 @@ private:
 
   // Getters
   Roe<std::string> hAccountGet(const Client::Request &request);
+  /** AUTHORITY_PROOF: authority-changing records from genesis up to a block (beacon-authority ba5b). */
+  Roe<std::string> hAuthorityProof(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);

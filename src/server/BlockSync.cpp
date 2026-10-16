@@ -57,15 +57,7 @@ void BlockSync::onStatus(Client::Roe<Client::BeaconState> result) {
     return;
   }
   status_ = std::move(result.value());
-  if (!hooks_.tipHash()) {
-    const uint64_t first = hooks_.nextBlockId();
-    const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
-    log().info << "No local blocks: taking block " << first << " from upstream"
-               << (pinned ? " (pinned)" : " on trust");
-    beginRange(Phase::Bootstrap, first, first + 1);
-  } else {
-    syncToSignedTip();
-  }
+  syncToSignedTip();
   advance();
 }
 
@@ -75,6 +67,27 @@ void BlockSync::syncToSignedTip() {
     return;
   }
   tip_ = *status_.signedTip;
+  const uint64_t next = hooks_.nextBlockId();
+  const auto localTip = hooks_.tipHash();
+  freshStart_ = !localTip.has_value();
+  if (freshStart_) {
+    // No blocks yet: the authority comes from the range's first block (authenticateFirst).
+    if (tip_.height < next) {
+      finish(false, "Upstream's signed tip (block " + std::to_string(tip_.height) + ") is below block " +
+                        std::to_string(next) + ", where this node starts");
+      return;
+    }
+    trail_.reset();
+    linkHash_.clear();
+    authBase_ = next;
+    authHashes_.clear();
+    held_.clear();
+    const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
+    log().info << "No local blocks: authenticating blocks " << next << " to " << tip_.height << " from block "
+               << next << (pinned ? " (pinned)" : "");
+    beginRange(Phase::Authenticate, next, tip_.height + 1);
+    return;
+  }
   auto trail = hooks_.authorityTrail();
   if (!trail) {
     finish(false, "Beacon authority unavailable: " + trail.error().message);
@@ -83,12 +96,6 @@ void BlockSync::syncToSignedTip() {
   trail_ = std::move(trail.value());
   // A tip of a later generation can verify only once the blocks certifying it are followed.
   if (tip_.generation <= trail_->beacon().generation && !verifyTip()) {
-    return;
-  }
-  const uint64_t next = hooks_.nextBlockId();
-  const auto localTip = hooks_.tipHash();
-  if (!localTip) {
-    finish(false, "Local tip is unreadable");
     return;
   }
   if (tip_.height + 1 == next && tip_.blockHash != *localTip) {
@@ -183,20 +190,6 @@ bool BlockSync::process(Ledger::ChainNode block) {
     return false;
   }
   switch (phase_) {
-  case Phase::Bootstrap: {
-    block.hash = chain_block::calculateBlockHash(block.block);
-    if (const auto pinned = hooks_.firstBlockHash ? hooks_.firstBlockHash() : std::nullopt;
-        pinned && *pinned != block.hash) {
-      finish(false, "Block " + std::to_string(nextToProcess_) + " is not the pinned first block");
-      return false;
-    }
-    if (auto applied = hooks_.applyBlock(block); !applied) {
-      finish(false, "Failed to add block " + std::to_string(nextToProcess_) + ": " + applied.error().message);
-      return false;
-    }
-    ++blocksAdded_;
-    return true;
-  }
   case Phase::Authenticate:
     return authenticate(std::move(block));
   case Phase::Apply:
@@ -207,7 +200,35 @@ bool BlockSync::process(Ledger::ChainNode block) {
   return true;
 }
 
+bool BlockSync::authenticateFirst(Ledger::ChainNode &block) {
+  const std::string hash = chain_block::calculateBlockHash(block.block);
+  if (const auto pinned = hooks_.firstBlockHash ? hooks_.firstBlockHash() : std::nullopt;
+      pinned && *pinned != hash) {
+    finish(false, "Block " + std::to_string(nextToProcess_) + " is not the pinned first block");
+    return false;
+  }
+  auto trail = AuthorityTrail::fromStartingBlock(block.block);
+  if (!trail) {
+    finish(false, "Cannot start from block " + std::to_string(nextToProcess_) + ": " + trail.error().message);
+    return false;
+  }
+  if (hooks_.checkStartingAuthority) {
+    if (auto vetted = hooks_.checkStartingAuthority(nextToProcess_, trail.value().authority(), trail.value().admin());
+        !vetted) {
+      finish(false, "Block " + std::to_string(nextToProcess_) + " carries an authority this node does not accept: " +
+                        vetted.error().message);
+      return false;
+    }
+  }
+  trail_ = std::move(trail.value());
+  linkHash_ = block.block.previousHash; // nothing below it to link to
+  return true;
+}
+
 bool BlockSync::authenticate(Ledger::ChainNode block) {
+  if (freshStart_ && nextToProcess_ == authBase_ && !authenticateFirst(block)) {
+    return false;
+  }
   if (block.block.previousHash != linkHash_) {
     finish(false, "Block " + std::to_string(nextToProcess_) + " does not extend the block below it");
     return false;
@@ -244,9 +265,6 @@ bool BlockSync::apply(Ledger::ChainNode block) {
 
 void BlockSync::endPhase() {
   switch (phase_) {
-  case Phase::Bootstrap:
-    syncToSignedTip();
-    return;
   case Phase::Authenticate:
     if (linkHash_ != tip_.blockHash) {
       finish(false, "Blocks up to " + std::to_string(tip_.height) + " do not lead to the signed tip");
@@ -298,6 +316,7 @@ void BlockSync::finish(bool ok, std::string error) {
     notBefore_ = std::chrono::steady_clock::now() + backoff_;
     log().warning << "Block sync failed (retry in " << backoff_.count() << " ms): " << error;
   }
+  freshStart_ = false;
   if (hooks_.onFinished) {
     hooks_.onFinished(Result{ok, blocksAdded_, std::move(error)});
   }

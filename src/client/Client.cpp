@@ -348,6 +348,18 @@ Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {
   return parseBlock(result.value());
 }
 
+Client::Roe<Client::AuthorityProof> Client::fetchAuthorityProof(uint64_t upToBlockId) {
+  auto result = sendRequest(T_REQ_AUTHORITY_PROOF, utl::binaryPack(upToBlockId), dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto proof = utl::binaryUnpack<AuthorityProof>(result.value());
+  if (!proof) {
+    return Error(E_INVALID_RESPONSE, "Invalid authority proof: " + proof.error().message);
+  }
+  return proof.value();
+}
+
 Client::Roe<Ledger::ChainNode> Client::parseBlock(const std::string &payload) {
   Ledger::ChainNode node;
   if (!node.ltsFromString(payload)) {

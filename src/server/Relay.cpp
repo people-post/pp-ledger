@@ -176,4 +176,12 @@ Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
+Relay::Roe<Client::AuthorityProof> Relay::authorityProof(uint64_t upToBlockId) const {
+  auto proof = chain_.authorityProof(upToBlockId);
+  if (!proof) {
+    return Error(proof.error().code, proof.error().message);
+  }
+  return proof.value();
+}
+
 } // namespace pp

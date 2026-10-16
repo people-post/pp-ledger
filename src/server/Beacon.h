@@ -107,6 +107,8 @@ public:
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
+  /** AUTHORITY_PROOF up to `upToBlockId` (Chain::authorityProof). */
+  Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
   /** networkId from loaded chain config (empty if not ready). */
   std::string getNetworkId() const;

@@ -110,6 +110,14 @@ public:
   uint64_t getProductionSlot() const;
   /** True when chain config has been loaded (from T_GENESIS or T_CONFIG). */
   bool isChainConfigReady() const;
+  /**
+   * Whether this node may seal a block at `slot` (beacon-authority ba5b): it validates blocks Full
+   * (it is not warming up from a checkpoint), and the blocks it holds reach back over the longest
+   * transaction validity window, so a transaction already committed cannot pass its idempotency
+   * check again. A node started at a checkpoint waits until its history covers that window.
+   */
+  Roe<void> sealReadiness(uint64_t slot) const;
+
 
   uint64_t getNextBlockId() const;
   Checkpoint getCheckpoint() const;
@@ -157,6 +165,12 @@ public:
    * committed yet to follow generation and admin changes, then verify a tip against them.
    */
   Roe<AuthorityTrail> authorityTrail() const;
+
+  /**
+   * The records that changed the authority from genesis up to `upToBlockId` (AUTHORITY_PROOF,
+   * beacon-authority ba5b). Only a chain loaded from genesis holds them all.
+   */
+  Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
 
   /**
    * A beacon signed tip of this chain, signed by the generation in force here — or, given the
@@ -259,7 +273,8 @@ public:
                                   const std::string &stakeHash) const;
 
 protected:
-  bool needsCheckpoint(const BlockChainConfig &config) const;
+  /** Block `index` of `epoch` becomes the next checkpoint (chain_block::rotatesCheckpoint). */
+  bool rotatesCheckpointAt(uint64_t index, uint64_t epoch) const;
 
 private:
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
@@ -283,8 +298,8 @@ private:
                                  const AccountBuffer::Account &account) const;
 
 
-  /** Calculate the maximum blockId for account renewals at a given block. */
-  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId) const;
+  /** Calculate the maximum blockId for account renewals at a given block and slot. */
+  Roe<uint64_t> calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const;
 
   Roe<uint64_t> calculateMinimumFeeForAccountMeta(const AccountBuffer &bank,
                                                   uint64_t accountId) const;
@@ -308,6 +323,17 @@ private:
   void rollbackTipUpdate(TipSnapshot snapshot);
 
   Roe<void> applyNextBlock(const Ledger::ChainNode &block);
+  /**
+   * Before a block's records: stake snapshot and epoch seed for its epoch. A node that starts at a
+   * checkpoint first installs config, consensus, authority and the genesis account from the
+   * checkpoint block's genesis renewal (beacon-authority ba5b). Under CheckpointReplay the epoch
+   * seed is the block's own (trusted catch-up); under Full it is derived.
+   */
+  Roe<void> prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
+  /** Record `epoch`'s committee (dropping later epochs' snapshots, which predate it). */
+  void recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders);
+  /** A node starting at checkpoint `block`: install what its genesis renewal carries. */
+  Roe<void> installCheckpointState(const Ledger::ChainNode &block);
   /**
    * Before a block of `epoch` is checked: put a pending config update in force
    * once its epoch has come, and on an epoch's first block record genesis's
@@ -360,6 +386,11 @@ private:
   std::optional<PendingSeal> pendingSeal_;
   /** Pre-seal tip state; the bank overlay stays open until commit/rollback. */
   std::optional<TipSnapshot> sealSnapshot_;
+  /** Authority-changing records of committed blocks, from `authorityStepsFrom_` (0 = genesis). */
+  std::vector<Client::AuthorityStep> authoritySteps_;
+  uint64_t authorityStepsFrom_{0};
+  /** Index a committed block's authority-changing records. */
+  void noteAuthoritySteps(const Ledger::ChainNode &block);
 
   /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;

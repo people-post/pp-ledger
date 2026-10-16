@@ -760,6 +760,10 @@ void BeaconServer::initHandlers() {
   auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
   hgb = [this](const Client::Request &request) { return hBlockGet(request); };
 
+  requestHandlers_[Client::T_REQ_AUTHORITY_PROOF] = [this](const Client::Request &request) {
+    return hAuthorityProof(request);
+  };
+
   auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
   hga = [this](const Client::Request &request) { return hAccountGet(request); };
 
@@ -1056,6 +1060,18 @@ BeaconServer::Roe<std::string>
 BeaconServer::hUnsupported(const Client::Request &request) {
   return Error(E_REQUEST,
                "Unsupported request type: " + std::to_string(request.type));
+}
+
+BeaconServer::Roe<std::string> BeaconServer::hAuthorityProof(const Client::Request &request) {
+  auto upTo = utl::binaryUnpack<uint64_t>(request.payload);
+  if (!upTo) {
+    return Error(E_REQUEST, "Invalid authority proof payload");
+  }
+  auto proof = beacon_.authorityProof(upTo.value());
+  if (!proof) {
+    return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
+  }
+  return utl::binaryPack(proof.value());
 }
 
 } // namespace pp

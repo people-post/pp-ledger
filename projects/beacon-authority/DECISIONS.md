@@ -241,3 +241,57 @@ certificate for a key no running beacon holds halts the chain until that beacon 
 (fails after an admin rotation the node has not applied; kept for ba5b's out-of-band channel);
 rename the next key over the current one at the switch (file moves in the commit path; left to
 the operator at a restart).
+
+## B015 — A checkpoint is where a miner can start: an epoch start, self-describing
+
+**Date:** 2026-10-15
+**Decision:** A checkpoint is the first block of an epoch, at least `checkpoint.minBlocks` after the
+current checkpoint, whose previous block's slot starts more than `checkpoint.minAgeSeconds` after
+the current checkpoint's block (`chain_block::rotatesCheckpoint`). It opens with the genesis
+renewal (due or not), carrying config, pending update, admin set and authority. Every epoch's first
+block carries its committee, the preimage of `stakeSnapshotHash` (ba5b.3). A miner starts at the
+upstream's previous checkpoint (`lastId`): it installs what the genesis renewal carries, replays
+blindly while every account renews (all are due by the block before the current checkpoint), and
+from the current checkpoint checks every block and may seal. Renewal due-sets and rotation read
+the block's slot time and stored blocks, never a node's clock.
+**Rationale:** A checkpoint is defined as the point a miner can join and start working, so the
+checkpoint itself must hold what a joining node lacks: config and authority (the genesis renewal),
+and the committee each epoch elects leaders from (liveness charges for skipped slots depend on it,
+and a node that holds only some accounts cannot compute it). Patching joiners instead — warm-up
+without config, recording liveness charges in every block — would fix symptoms of a checkpoint that
+was not a starting point. The old rules also read the wall clock: with the 1-year default
+`checkpointMinAgeSeconds`, nodes disagreed on due renewals and a replay could refuse history.
+**Cons:** Breaking chain-format and rule changes (no release yet). Checkpoints rotate up to an epoch
+later than before; the genesis account renews up to twice as often. Warm-up state is still taken on
+trust (the beacon vouches through its signed tip), not re-validated.
+**Alternatives:** Start from older checkpoints (does not converge: an inexact committee keeps
+producing wrong charges); a self-checking Full gate on a matching `stateRoot` (may never come while
+slots are skipped); liveness charges listed in each block (works, but fixes a symptom and costs
+every block); the whole state in the checkpoint block (unbounded size).
+
+## B016 — Warm-up is exact, or it stops
+
+**Date:** 2026-10-15
+**Decision:** A node warming up from a checkpoint (CheckpointReplay) applies every effect a record
+has on the accounts it holds, whoever else the record touches: payer debit, payee credit and fee
+credit each land if that account is held (`chain_tx::applyTransferToHeldAccounts`); a new
+account is created whether or not its payer is held; a miner record's fee reaches a held fee
+account; the checkpoint block's liveness charges start at its epoch's first slot. `T_END_USER`
+carries the balances it writes off (Full checks them), so a node that does not hold the ended
+account still credits the recycle account. Renewals of held accounts keep their balance and
+miner-state checks while warming up, and the first Full block checks `stateRoot` and the stake
+snapshot: a diverged warm-up stops the node with an error. A node started at a checkpoint seals
+only once its blocks reach back over the transaction validity window (`Chain::sealReadiness`).
+**Rationale:** The rotation smoke showed the old soft paths skipping effects (fees of transfers
+between accounts not yet held never reached the held fee account); an audit of every handler found
+the rest. Recording what a warming node cannot derive (the written-off balances, like the epoch
+committee in B015) keeps the warm-up a pure replay of block data. Idempotency is checked against
+held blocks, so sealing before the history covers the validity window could include a repeated
+transaction — the smoke's freshly joined miner did, and every block it sealed was refused.
+**Cons:** With a chain younger than the validity window (one day by default) a joined miner
+validates but does not seal; with the defaults (checkpoints a year apart) it never waits.
+**Alternatives:** Renewals overwrite a held account without checking (self-heals a divergence but
+hides bugs); a rotation rule tied to the validity window (misses a later `T_CONFIG` raising it).
+Also fixed here: a transfer to the payer itself minted its amount (`transferBalance` read both
+balances before writing) — refused now.
+

@@ -616,4 +616,12 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   return genesisBlock;
 }
 
+Beacon::Roe<Client::AuthorityProof> Beacon::authorityProof(uint64_t upToBlockId) const {
+  auto proof = chain_.authorityProof(upToBlockId);
+  if (!proof) {
+    return Error(proof.error().code, proof.error().message);
+  }
+  return proof.value();
+}
+
 } // namespace pp

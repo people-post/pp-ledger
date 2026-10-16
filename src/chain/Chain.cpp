@@ -2,6 +2,7 @@
 #include "AccountPolicy.h"
 #include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
+#include "EndUserTxHandler.h"
 #include "MinerLiveness.h"
 #include "RecordHandler.h"
 #include "TxFees.h"
@@ -100,12 +101,32 @@ Chain::admissionModeFor(uint64_t blockIndex) const {
              : chain_block::BlockAdmissionMode::CheckpointReplay;
 }
 
-bool Chain::needsCheckpoint(const BlockChainConfig &config) const {
-  const uint64_t age = chain_block::getBlockAgeSeconds(
-      txContext_.checkpoint.currentId, txContext_.ledger,
-      txContext_.consensus);
-  return chain_block::needsCheckpoint(config, txContext_.checkpoint,
-                                      getNextBlockId(), age);
+Chain::Roe<void> Chain::sealReadiness(uint64_t slot) const {
+  if (admissionModeFor(getNextBlockId()) != chain_block::BlockAdmissionMode::Full) {
+    return Error(E_BLOCK_VALIDATION, "Cannot seal while warming up from a checkpoint (until the next one)");
+  }
+  const uint64_t first = txContext_.ledger.getStartingBlockId();
+  if (first == 0 || !txContext_.optChainConfig.has_value()) {
+    return {};
+  }
+  auto earliest = txContext_.ledger.readBlock(first);
+  if (!earliest) {
+    return Error(E_BLOCK_NOT_FOUND, "First held block not found: " + earliest.error().message);
+  }
+  const int64_t windowStart = txContext_.consensus.getSlotStartTime(slot) -
+                              static_cast<int64_t>(txContext_.optChainConfig->maxValidationTimespanSeconds);
+  if (earliest.value().block.timestamp > windowStart) {
+    return Error(E_BLOCK_VALIDATION,
+                 "Cannot seal yet: this node holds blocks from " + std::to_string(first) +
+                     " only, and a transaction valid now may have been committed before them");
+  }
+  return {};
+}
+
+bool Chain::rotatesCheckpointAt(uint64_t index, uint64_t epoch) const {
+  return txContext_.optChainConfig.has_value() &&
+         chain_block::rotatesCheckpoint(txContext_.ledger, txContext_.consensus, txContext_.optChainConfig.value(),
+                                        txContext_.checkpoint, index, epoch);
 }
 
 Chain::Checkpoint Chain::getCheckpoint() const { return txContext_.checkpoint; }
@@ -303,15 +324,14 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
       tx.meta = gm.ltsToString();
     }
   }
-  // T_END_USER does not need metadata update
-
   Ledger::Record rec;
   rec.type = type;
   if (type == Ledger::T_END_USER) {
     Ledger::TxEndUser endTx;
     endTx.walletId = tx.walletId;
     endTx.fee = tx.fee;
-    endTx.meta = tx.meta;
+    // The balances it leaves to the recycle account (a node warming up may not hold the account).
+    endTx.meta = EndUserTxHandler::writtenOffMeta(account.wallet.mBalances);
     rec.data = utl::binaryPack(endTx);
   } else {
     rec.data = utl::binaryPack(tx);
@@ -321,10 +341,10 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
 }
 
 Chain::Roe<uint64_t>
-Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId) const {
+Chain::calculateMaxBlockIdForRenewal(uint64_t atBlockId, uint64_t atSlot) const {
   return mapTx(chain_block::calculateMaxBlockIdForRenewal(
       txContext_.ledger, txContext_.consensus, txContext_.optChainConfig,
-      txContext_.checkpoint, atBlockId));
+      txContext_.checkpoint, atBlockId, atSlot));
 }
 
 Chain::Roe<std::vector<Ledger::Record>>
@@ -332,21 +352,31 @@ Chain::collectRenewals(uint64_t slot) const {
   std::vector<Ledger::Record> renewals;
   const uint64_t nextBlockId = txContext_.ledger.getNextBlockId();
 
-  auto maxBlockIdResult = calculateMaxBlockIdForRenewal(nextBlockId);
+  auto maxBlockIdResult = calculateMaxBlockIdForRenewal(nextBlockId, slot);
   if (!maxBlockIdResult) {
     return maxBlockIdResult.error();
   }
   const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
-  if (maxBlockIdForRenewal == 0) {
+  std::vector<uint64_t> due;
+  if (maxBlockIdForRenewal > 0) {
+    due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
+  }
+  // A checkpoint block opens with the genesis renewal, due or not (beacon-authority ba5b).
+  if (txContext_.optChainConfig.has_value() &&
+      rotatesCheckpointAt(nextBlockId, txContext_.consensus.getEpochFromSlot(slot)) &&
+      std::find(due.begin(), due.end(), AccountBuffer::ID_GENESIS) == due.end()) {
+    due.push_back(AccountBuffer::ID_GENESIS);
+  }
+  if (due.empty()) {
     return renewals;
   }
 
   // A renewal records the account's committed balance; validators check it
   // against the in-block balance when it applies. System accounts are
   // credited by other records in the block (fees, write-offs), so they renew
-  // first, before anything can credit them; then everyone else.
-  std::vector<uint64_t> due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
+  // first, before anything can credit them — genesis first of all — then everyone else.
   std::stable_partition(due.begin(), due.end(), [](uint64_t id) { return AccountIds::isSystemAccount(id); });
+  std::stable_partition(due.begin(), due.end(), [](uint64_t id) { return id == AccountBuffer::ID_GENESIS; });
   for (uint64_t accountId : due) {
     auto renewalResult = createRenewalTx(accountId, slot);
     if (!renewalResult) {
@@ -539,6 +569,10 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
     refreshStakeholders(block.block.slot);
     block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash(
         txContext_.consensus.getStakeholders());
+    block.block.committee.clear();
+    if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
+      block.block.committee = chain_block::toCommittee(txContext_.consensus.getStakeholders());
+    }
     auto seedRoe = ensureBlockEpochSeed(block);
     if (!seedRoe) {
       return seedRoe;
@@ -613,11 +647,8 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
 
   if (block.block.index > 0) {
     enterBlockEpoch(block.block.epoch);
-    if (admissionModeFor(block.block.index) !=
-        chain_block::BlockAdmissionMode::Full) {
-      return Error(E_BLOCK_VALIDATION,
-                   "Cannot seal under CheckpointReplay; finish tip catch-up "
-                   "first");
+    if (auto ready = sealReadiness(block.block.slot); !ready) {
+      return ready;
     }
     // Shared Full policy before apply (peers run the same layers via checkBlock).
     // Structural (hash) waits until stateRoot is known after apply.
@@ -670,17 +701,21 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
   if (!txContext_.optChainConfig.has_value() || block.block.index == 0) {
     return {};
   }
-  auto prev = txContext_.ledger.readBlock(block.block.index - 1);
-  if (!prev) {
-    // Late-join replay starts at a checkpoint: the block before it is not held. Full admission
-    // always has it.
+  uint64_t prevSlot = 0;
+  if (auto prev = txContext_.ledger.readBlock(block.block.index - 1)) {
+    prevSlot = prev.value().block.slot;
+  } else {
+    // Late join starts at a checkpoint, whose previous block is not held. A checkpoint opens its
+    // epoch, so the previous block lies in an earlier epoch and the skipped slots charged are
+    // exactly those from the epoch's first slot: any previous slot before it gives the same.
     if (chain_block::admissionTxStrict(mode)) {
       return Error(E_BLOCK_NOT_FOUND, "Previous block not found for miner liveness: " + prev.error().message);
     }
-    return {};
+    const uint64_t epochFirstSlot = block.block.epoch * txContext_.consensus.getConfig().slotsPerEpoch;
+    prevSlot = epochFirstSlot > 0 ? epochFirstSlot - 1 : 0;
   }
   auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
-                                                        txContext_.optChainConfig.value(), prev.value().block.slot,
+                                                        txContext_.optChainConfig.value(), prevSlot,
                                                         block.block, chain_block::admissionTxStrict(mode)));
   if (!applied) {
     return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
@@ -728,6 +763,11 @@ void Chain::refreshStakeholders() {
       !txContext_.consensus.hasEpochSeedFor(clockEpoch)) {
     (void)ensureEpochSeed(clockEpoch);
   }
+}
+
+void Chain::recordEpochStakeSnapshot(uint64_t epoch, std::vector<consensus::Stakeholder> stakeholders) {
+  epochStakeSnapshots_.erase(epochStakeSnapshots_.lower_bound(epoch), epochStakeSnapshots_.end());
+  epochStakeSnapshots_.emplace(epoch, std::move(stakeholders));
 }
 
 void Chain::refreshStakeholders(uint64_t blockSlot) {
@@ -886,6 +926,8 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
     return Error(E_STATE_INIT,
                  "Failed to initialize ledger: " + result.error().message);
   }
+  authoritySteps_.clear();
+  authorityStepsFrom_ = config.startingBlockId;
   return {};
 }
 
@@ -909,6 +951,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.bank.reset();
   epochStakeSnapshots_.clear();
   pendingSeal_.reset();
+  authoritySteps_.clear();
+  authorityStepsFrom_ = startingBlockId;
 
   // Process blocks from ledger one by one (replay existing chain state)
   // Starting block id is always a checkpoint id
@@ -936,21 +980,8 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
                                       std::to_string(block.block.index));
     }
 
-    // Refresh stakeholders per epoch (so slot leader validation uses correct
-    // stake for this block's epoch; no-op when still in same epoch).
-    // Skip block 0 because:
-    //   1. Genesis installs consensus during T_GENESIS apply.
-    //   2. Consensus parameters are initialized while processing the genesis
-    //   transaction.
-    if (blockId > 0) {
-      refreshStakeholders(block.block.slot);
-      auto seedRoe = ensureBlockEpochSeed(block);
-      if (!seedRoe) {
-        return Error(E_BLOCK_VALIDATION,
-                     "Failed to ensure epoch seed for block " +
-                         std::to_string(blockId) + ": " +
-                         seedRoe.error().message);
-      }
+    if (auto prepared = prepareBlockEpoch(block, replayMode); !prepared) {
+      return Error(prepared.error().code, "Block " + std::to_string(blockId) + ": " + prepared.error().message);
     }
 
     auto processResult = processBlock(block, replayMode);
@@ -963,6 +994,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
       txContext_.consensus.setEpochSeed(block.block.epoch,
                                         block.block.epochSeed);
     }
+    noteAuthoritySteps(block);
 
     blockId++;
 
@@ -1024,6 +1056,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
     return applied;
   }
   commitTipUpdate();
+  noteAuthoritySteps(block);
 
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
@@ -1033,13 +1066,8 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
 
 Chain::Roe<void> Chain::applyNextBlock(const Ledger::ChainNode &block) {
   const auto admissionMode = admissionModeFor(block.block.index);
-  if (block.block.index > 0) {
-    refreshStakeholders(block.block.slot);
-    auto seedRoe = ensureBlockEpochSeed(block);
-    if (!seedRoe) {
-      return Error(E_BLOCK_VALIDATION,
-                   "Failed to ensure epoch seed: " + seedRoe.error().message);
-    }
+  if (auto prepared = prepareBlockEpoch(block, admissionMode); !prepared) {
+    return prepared;
   }
   auto processResult = processBlock(block, admissionMode);
   if (!processResult) {
@@ -1072,6 +1100,7 @@ Chain::Roe<void> Chain::commitSealedBlock(const Ledger::ChainNode &block) {
   if (!committed) {
     return committed;
   }
+  noteAuthoritySteps(block);
   log().info << "Block added: " << block.block.index
              << " from slot leader: " << block.block.slotLeader;
   return {};
@@ -1099,8 +1128,8 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
     return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
   }
 
-  // Rotate before persist so needsCheckpoint sees the same nextBlockId as the
-  // normal processNormalBlock → addBlock path.
+  // Rotate before persist, as the processNormalBlock → addBlock path does (the rule reads the
+  // block before this one from the ledger).
   maybeRotateCheckpoint(block);
 
   auto ledgerResult = txContext_.ledger.addBlock(block);
@@ -1115,13 +1144,78 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
   return {};
 }
 
+Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
+  // Genesis installs consensus while its record applies.
+  if (block.block.index == 0) {
+    return {};
+  }
+  if (!txContext_.optChainConfig.has_value()) {
+    if (auto installed = installCheckpointState(block); !installed) {
+      return installed;
+    }
+  }
+  if (!chain_block::admissionRunsConsensusAndBody(mode)) {
+    // Trusted catch-up: the node may hold only some accounts, so it takes each epoch's committee
+    // from the block opening it (checked against stakeSnapshotHash) and the block's own seed (the
+    // epochs before it may not be held). Leaders, and the liveness charges they drive, are exact.
+    if (chain_block::opensEpoch(txContext_.ledger, block.block)) {
+      if (auto committee = mapTxVoid(chain_block::validateBlockCommittee(txContext_.ledger, block.block));
+          !committee) {
+        return committee;
+      }
+      recordEpochStakeSnapshot(block.block.epoch, chain_block::fromCommittee(block.block.committee));
+    }
+    refreshStakeholders(block.block.slot);
+    if (block.block.epochSeed.size() == utl::SHA256_DIGEST_SIZE) {
+      txContext_.consensus.setEpochSeed(block.block.epoch, block.block.epochSeed);
+    }
+    return {};
+  }
+  refreshStakeholders(block.block.slot);
+  if (auto seeded = ensureBlockEpochSeed(block); !seeded) {
+    return Error(E_BLOCK_VALIDATION, "Failed to ensure epoch seed: " + seeded.error().message);
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
+  if (block.block.records.empty() || !chain_block::isGenesisRenewal(block.block.records.front())) {
+    return Error(E_STATE_INIT, "Block " + std::to_string(block.block.index) +
+                                   " is not a checkpoint: it does not open with the genesis renewal");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(block.block.records.front().data);
+  GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    return Error(E_INTERNAL_DESERIALIZE, "Unreadable genesis renewal in checkpoint block " +
+                                             std::to_string(block.block.index));
+  }
+  txContext_.optChainConfig = gm.config;
+  if (gm.hasPending) {
+    txContext_.pendingChainConfig.emplace(gm.pending);
+  } else {
+    txContext_.pendingChainConfig.reset();
+  }
+  txContext_.optAuthority = gm.authority;
+  // Slot timing is fixed at genesis; this node keeps its clock offset.
+  txContext_.consensus.setSlotTiming(gm.config.genesisTime, gm.config.slotDuration, gm.config.slotsPerEpoch);
+  epochStakeSnapshots_.clear();
+  // The renewal records genesis as the previous epoch left it (it renews first): in place before
+  // the block, so this epoch's issuance baseline is right too.
+  if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet));
+      !placed) {
+    return placed;
+  }
+  log().info << "Starting at checkpoint " << block.block.index
+             << ": config, consensus and authority from its genesis renewal (beacon generation "
+             << gm.authority.beacon.generation << ")";
+  return {};
+}
+
 void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
   if (block.block.index == 0) {
     return;
   }
-  if (txContext_.optChainConfig.has_value() &&
-      needsCheckpoint(txContext_.optChainConfig.value()) &&
-      block.block.index > txContext_.checkpoint.currentId) {
+  if (rotatesCheckpointAt(block.block.index, block.block.epoch)) {
     txContext_.checkpoint.lastId = txContext_.checkpoint.currentId;
     txContext_.checkpoint.currentId = block.block.index;
     log().info << "Checkpoint rotated: last=" << txContext_.checkpoint.lastId
@@ -1201,9 +1295,13 @@ Chain::Roe<void> Chain::processNormalBlock(
     return liveness;
   }
 
-  const std::string expectedStateRoot = txContext_.bank.calculateStateRoot();
-  if (block.block.stateRoot != expectedStateRoot) {
-    return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
+  // A node warming up from a checkpoint holds only the accounts renewed so far: its root cannot
+  // match until Full admission (from the next checkpoint), which checks every block.
+  if (chain_block::admissionTxStrict(mode)) {
+    const std::string expectedStateRoot = txContext_.bank.calculateStateRoot();
+    if (block.block.stateRoot != expectedStateRoot) {
+      return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
+    }
   }
 
   maybeRotateCheckpoint(block);
@@ -1338,6 +1436,32 @@ Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
     return Error(E_ACCOUNT_NOT_FOUND, "Genesis account not found");
   }
   return AuthorityTrail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
+}
+
+void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
+  for (const auto &record : block.block.records) {
+    if (AuthorityTrail::changesAuthority(record)) {
+      authoritySteps_.push_back(Client::AuthorityStep{block.block.index, record});
+    }
+  }
+}
+
+Chain::Roe<Client::AuthorityProof> Chain::authorityProof(uint64_t upToBlockId) const {
+  if (authorityStepsFrom_ != 0) {
+    return Error(E_STATE_INIT, "This node holds the chain from block " + std::to_string(authorityStepsFrom_) +
+                                   ", not from genesis");
+  }
+  if (upToBlockId >= getNextBlockId()) {
+    return Error(E_BLOCK_INDEX, "Block " + std::to_string(upToBlockId) + " is beyond this node's tip");
+  }
+  Client::AuthorityProof proof;
+  for (const auto &step : authoritySteps_) {
+    if (step.blockId > upToBlockId) {
+      break;
+    }
+    proof.steps.push_back(step);
+  }
+  return proof;
 }
 
 Chain::Roe<void> Chain::verifySignedTip(const Client::SignedTip &tip,

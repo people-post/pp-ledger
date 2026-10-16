@@ -308,6 +308,16 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   if (!slotCache_.isLeader) {
     return false;
   }
+  // Started at a checkpoint: no sealing until warmed up and holding the transaction validity
+  // window (the seal would be refused anyway).
+  if (auto ready = chain_.sealReadiness(slot); !ready) {
+    if (sealNotReadyReason_ != ready.error().message) {
+      sealNotReadyReason_ = ready.error().message;
+      log().info << "Leading slot " << slot << " but not sealing: " << sealNotReadyReason_;
+    }
+    return false;
+  }
+  sealNotReadyReason_.clear();
 
   // Local UX gate only; seal still runs Full admission (incl. heartbeat).
   uint64_t tipSlot = 0;

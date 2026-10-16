@@ -386,6 +386,14 @@ create_relay_config() {
   render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
     "RELAY_PORT=${RELAY_PORT}" \
     "BEACON_MULTIADDR=${beacon_ma}"
+  # Optional: pin the genesis the relay syncs from (networkAnchor.genesisHash).
+  if [[ "${PP_LEDGER_SMOKE_RELAY_PIN_GENESIS:-0}" == "1" ]]; then
+    local hash
+    hash=$(genesis_hash_hex "$beacon_ma")
+    [[ -n "$hash" ]] || die "could not read the genesis hash from the beacon"
+    sed -i "s|^  \"beacon\"|  \"networkAnchor\": {\"genesisHash\": \"${hash}\"},\n  \"beacon\"|" "$relay_dir/config.json"
+    grep -q '"networkAnchor"' "$relay_dir/config.json" || die "failed to pin genesis in the relay config"
+  fi
 }
 
 # Miner N (1-based smoke index) runs as genesis miner account 2^20 + N - 1.
@@ -1087,23 +1095,81 @@ run_rotation_scenario() {
   [[ "$(signed_tip_generation)" == "2" ]] || die "L-SMOKE-ROTATION: generation went back"
   echo -e "${GREEN}✓ Generation 2 signs; miners at nextBlockId >= ${beacon_tip}${NC}"
 
-  # A fresh miner that pins genesis: the checkpoint no longer carries the genesis authority, so it
-  # syncs from the pinned genesis and follows the certificate along the chain.
-  stop_miner_by_id 3
-  rm -rf "${TEST_DIR}/miner3/data"
-  local log_lines
-  log_lines=$(wc -l <"${TEST_DIR}/miner3/miner.log" 2>/dev/null || echo 0)
-  start_anchored_miner 3 || die "L-SMOKE-ROTATION: anchored miner3 did not start"
-  beacon_tip=$(get_next_block_id)
-  wait_for_miner_tip 3 "$beacon_tip" 90 || die "L-SMOKE-ROTATION: anchored miner3 did not catch up"
-  tail -n +$((log_lines + 1)) "${TEST_DIR}/miner3/miner.log" | grep -a -q "No local blocks: taking block 0 from upstream (pinned)" ||
-    die "L-SMOKE-ROTATION: miner3 did not start from its pinned genesis"
-  echo -e "${GREEN}✓ L-SMOKE-ROTATION: generation 2 signs; miners follow; an anchored fresh miner catches up${NC}"
+  # beacon-authority ba5b: once a checkpoint lies above the certificate, fresh miners start there
+  # (not at genesis), warm up, and go on to produce. Miner3 pins genesis: the upstream's authority
+  # proof (with the generation-2 certificate) must tie the checkpoint to it. Miner2 does not.
+  local checkpoint
+  checkpoint=$(wait_for_checkpoint_above "$next" 180) || die "L-SMOKE-ROTATION: no checkpoint above block ${next}"
+  echo -e "${CYAN}Checkpoint ${checkpoint} lies above the certificate${NC}"
+  join_fresh_miner 3 anchored "$checkpoint"
+  join_fresh_miner 2 plain "$checkpoint"
+  echo -e "${GREEN}✓ L-SMOKE-ROTATION: generation 2 signs; fresh miners start at a checkpoint (pinned and not) and validate past the next${NC}"
 }
 
-# Hex of the genesis block hash, as the relay serves block 0.
+# Restart miner $1 with no data — "anchored" pins genesis — and check it starts at a checkpoint at
+# or above $3, catches up, and keeps up past the next checkpoint: from there it checks every block
+# in Full (stateRoot included), which proves its warm-up exact. (It does not seal yet: its history
+# is shorter than the transaction validity window, as for any join on a chain this young.)
+join_fresh_miner() {
+  local miner_id=$1 mode=$2 above=$3
+  local log="${TEST_DIR}/miner${miner_id}/miner.log"
+  stop_miner_by_id "$miner_id"
+  rm -rf "${TEST_DIR}/miner${miner_id}/data"
+  local log_lines
+  log_lines=$(wc -l <"$log" 2>/dev/null || echo 0)
+  if [[ "$mode" == "anchored" ]]; then
+    start_anchored_miner "$miner_id" || die "miner${miner_id} (anchored) did not start"
+  else
+    start_miner "$miner_id" || die "miner${miner_id} did not start"
+  fi
+  local started
+  started=$(tail -n +$((log_lines + 1)) "$log" |
+    sed -n 's/.*No local blocks: authenticating blocks \([0-9]*\) to .*/\1/p' | head -1)
+  [[ -n "$started" && "$started" -ge "$above" ]] ||
+    die "miner${miner_id} (${mode}) did not start at a checkpoint >= ${above} (started at '${started}')"
+  if [[ "$mode" == "anchored" ]]; then
+    tail -n +$((log_lines + 1)) "$log" | grep -a -q "authority proof ties it to the anchored genesis" ||
+      die "miner${miner_id} did not tie its checkpoint to the anchored genesis"
+  fi
+  wait_for_miner_tip "$miner_id" "$(get_next_block_id)" 90 || die "miner${miner_id} (${mode}) did not catch up"
+  # A later checkpoint than the one after its start: it validated Full blocks in between.
+  local later
+  later=$(wait_for_checkpoint_above "$started" 180) ||
+    die "miner${miner_id} (${mode}): the chain did not pass the checkpoint after ${started}"
+  wait_for_miner_tip "$miner_id" "$(get_next_block_id)" 90 ||
+    die "miner${miner_id} (${mode}) fell behind after its warm-up (Full validation failed?)"
+  if tail -n +$((log_lines + 1)) "$log" | grep -a -q "Block sync failed"; then
+    tail -n +$((log_lines + 1)) "$log" | grep -a "Block sync failed" | tail -3 >&2
+    die "miner${miner_id} (${mode}) had sync failures after joining"
+  fi
+  echo -e "${GREEN}✓ Miner${miner_id} (${mode}) started at checkpoint ${started} and validated Full past checkpoint ${later}${NC}"
+}
+
+# The checkpointId the relay reports.
+get_checkpoint_id() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/.*"checkpointId": *\([0-9]*\).*/\1/p' | head -1
+}
+
+# Wait (keeping blocks coming) until the reported checkpoint is above block $1; prints it.
+wait_for_checkpoint_above() {
+  local above=$1 max_wait=${2:-120} deadline checkpoint
+  deadline=$((SECONDS + max_wait))
+  while ((SECONDS < deadline)); do
+    checkpoint=$(get_checkpoint_id)
+    if [[ -n "$checkpoint" && "$checkpoint" -gt "$above" ]]; then
+      echo "$checkpoint"
+      return 0
+    fi
+    inject_transactions_for_block_production >/dev/null 2>&1 || true
+    sleep 2
+  done
+  return 1
+}
+
+# Hex of the genesis block hash, as node $1 (default: the relay) serves block 0.
 genesis_hash_hex() {
-  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" block 0 2>/dev/null |
+  local host=${1:-$(relay_multiaddr)}
+  run_pp_client ${DEBUG_FLAG} -b --host "$host" block 0 2>/dev/null |
     sed -n 's/.*"hash": *"\(0x[0-9a-fA-F]*\)".*/\1/p' | head -1
 }
 

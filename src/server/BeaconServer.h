@@ -192,6 +192,8 @@ private:
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);
   Roe<std::string> hAccountGet(const Client::Request &request);
+  /** AUTHORITY_PROOF: authority-changing records from genesis up to a block (beacon-authority ba5b). */
+  Roe<std::string> hAuthorityProof(const Client::Request &request);
   Roe<std::string> hTxGetByWallet(const Client::Request &request);
   Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);

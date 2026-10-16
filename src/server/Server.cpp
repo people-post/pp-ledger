@@ -174,6 +174,7 @@ RequestQueue::Lane Server::laneFor(const uint32_t type) {
   switch (type) {
   case Client::T_REQ_BLOCK_GET:
   case Client::T_REQ_BLOCK_WAIT:
+  case Client::T_REQ_AUTHORITY_PROOF:
   case Client::T_REQ_ACCOUNT_GET:
   case Client::T_REQ_TX_GET_BY_WALLET:
   case Client::T_REQ_TX_GET_BY_INDEX:

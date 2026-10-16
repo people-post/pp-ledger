@@ -262,6 +262,9 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
                              "Genesis block txRoot mismatch");
   }
+  if (!block.block.committee.empty()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis block elects no committee");
+  }
 
   const auto &checkpointRec = block.block.records[0];
   if (checkpointRec.type != Ledger::T_GENESIS) {
@@ -410,40 +413,85 @@ validateIntraBlockIdempotency(const Ledger::ChainNode &block,
   return {};
 }
 
-uint64_t getBlockAgeSeconds(uint64_t blockId, const Ledger &ledger,
-                            const consensus::SlotCommittee &consensus) {
-  auto blockResult = ledger.readBlock(blockId);
-  if (!blockResult) {
-    return 0;
+std::vector<Ledger::CommitteeMember> toCommittee(const std::vector<consensus::Stakeholder> &stakeholders) {
+  std::vector<Ledger::CommitteeMember> committee;
+  committee.reserve(stakeholders.size());
+  for (const auto &s : stakeholders) {
+    committee.push_back(Ledger::CommitteeMember{s.id, s.stake});
   }
-  auto block = blockResult.value();
-  auto currentTime = consensus.getTimestamp();
-  int64_t blockTime = block.block.timestamp;
-  if (currentTime > blockTime) {
-    return static_cast<uint64_t>(currentTime - blockTime);
-  }
-  return 0;
+  std::sort(committee.begin(), committee.end(), [](const auto &a, const auto &b) { return a.id < b.id; });
+  return committee;
 }
 
-bool needsCheckpoint(const BlockChainConfig &config,
-                     const Checkpoint &checkpoint, uint64_t nextBlockId,
-                     uint64_t checkpointBlockAgeSeconds) {
-  uint64_t margin = config.slotsPerEpoch;
-  const uint64_t requiredBlocks =
-      checkpoint.currentId + config.checkpoint.minBlocks + margin;
-  if (nextBlockId < requiredBlocks) {
+std::vector<consensus::Stakeholder> fromCommittee(const std::vector<Ledger::CommitteeMember> &committee) {
+  std::vector<consensus::Stakeholder> stakeholders;
+  stakeholders.reserve(committee.size());
+  for (const auto &m : committee) {
+    stakeholders.push_back(consensus::Stakeholder{m.id, m.stake});
+  }
+  return stakeholders;
+}
+
+bool opensEpoch(const Ledger &ledger, const Ledger::Block &block) {
+  if (block.index == 0) {
+    return true;
+  }
+  auto previous = ledger.readBlock(block.index - 1);
+  return !previous || previous.value().block.epoch < block.epoch;
+}
+
+chain_tx::Roe<void> validateBlockCommittee(const Ledger &ledger, const Ledger::Block &block) {
+  if (!opensEpoch(ledger, block)) {
+    if (!block.committee.empty()) {
+      return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                               "Block " + std::to_string(block.index) + " does not open its epoch: no committee");
+    }
+    return {};
+  }
+  if (!std::is_sorted(block.committee.begin(), block.committee.end(),
+                      [](const auto &a, const auto &b) { return a.id < b.id; }) ||
+      calculateStakeSnapshotHash(fromCommittee(block.committee)) != block.stakeSnapshotHash) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Block " + std::to_string(block.index) +
+                                 " opens epoch " + std::to_string(block.epoch) +
+                                 ": its committee does not match stakeSnapshotHash");
+  }
+  return {};
+}
+
+bool isGenesisRenewal(const Ledger::Record &record) {
+  if (record.type != Ledger::T_RENEWAL) {
     return false;
   }
-  if (checkpointBlockAgeSeconds < config.checkpoint.minAgeSeconds) {
+  auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+  return tx && tx.value().walletId == AccountBuffer::ID_GENESIS;
+}
+
+bool rotatesCheckpoint(const Ledger &ledger, const consensus::SlotCommittee &consensus,
+                       const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
+                       uint64_t epoch) {
+  if (index == 0 || index <= checkpoint.currentId || index < checkpoint.currentId + config.checkpoint.minBlocks) {
     return false;
   }
-  return true;
+  auto previous = ledger.readBlock(index - 1);
+  if (!previous || previous.value().block.epoch >= epoch) {
+    return false; // not the first block of its epoch (or the block before is not held)
+  }
+  auto current = ledger.readBlock(checkpoint.currentId);
+  if (!current) {
+    return false;
+  }
+  // Strictly older than the renewal cut-off at the previous block: every account last written
+  // before the current checkpoint was due there (calculateMaxBlockIdForRenewal).
+  const int64_t previousSlotStart = consensus.getSlotStartTime(previous.value().block.slot);
+  return current.value().block.timestamp + static_cast<int64_t>(config.checkpoint.minAgeSeconds) <
+         previousSlotStart;
 }
 
 chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
     const Ledger &ledger, const consensus::SlotCommittee &consensus,
     const std::optional<BlockChainConfig> &optChainConfig,
-    const Checkpoint &checkpoint, uint64_t atBlockId) {
+    const Checkpoint &checkpoint, uint64_t atBlockId, uint64_t atSlot) {
   if (!optChainConfig.has_value()) {
     if (checkpoint.currentId > checkpoint.lastId) {
       return chain_tx::TxError(
@@ -464,8 +512,9 @@ chain_tx::Roe<uint64_t> calculateMaxBlockIdForRenewal(
 
   uint64_t maxBlockIdFromTime = atBlockId;
   if (minAgeSeconds > 0 && atBlockId > 0) {
+    // The block's own slot, not this node's clock: every node, and a replay years later, agrees.
     const int64_t cutoffTimestamp =
-        consensus.getTimestamp() - static_cast<int64_t>(minAgeSeconds);
+        consensus.getSlotStartTime(atSlot) - static_cast<int64_t>(minAgeSeconds);
     auto roeBlock = ledger.findBlockByTimestamp(cutoffTimestamp);
     if (roeBlock) {
       maxBlockIdFromTime = roeBlock.value().block.index;
@@ -485,11 +534,22 @@ chain_tx::Roe<void> validateAccountRenewals(
     const std::optional<BlockChainConfig> &optChainConfig,
     const Checkpoint &checkpoint, const RecordHandler &recordHandler) {
   auto maxBlockIdResult = calculateMaxBlockIdForRenewal(
-      ledger, consensus, optChainConfig, checkpoint, block.block.index);
+      ledger, consensus, optChainConfig, checkpoint, block.block.index, block.block.slot);
   if (!maxBlockIdResult) {
     return chain_tx::Roe<void>(maxBlockIdResult.error());
   }
   const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
+
+  // A checkpoint block opens with the genesis renewal, due or not: a node starting there reads
+  // config and authority from it (beacon-authority ba5b).
+  const bool checkpointBlock =
+      optChainConfig.has_value() &&
+      rotatesCheckpoint(ledger, consensus, optChainConfig.value(), checkpoint, block.block.index, block.block.epoch);
+  if (checkpointBlock && (block.block.records.empty() || !isGenesisRenewal(block.block.records.front()))) {
+    return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                             "Checkpoint block " + std::to_string(block.block.index) +
+                                 " must open with the genesis renewal");
+  }
 
   std::set<uint64_t> accountsNeedingRenewal;
   if (maxBlockIdForRenewal > 0) {
@@ -535,7 +595,8 @@ chain_tx::Roe<void> validateAccountRenewals(
     }
     const auto &account = accountResult.value();
 
-    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal) {
+    const bool checkpointGenesisRenewal = checkpointBlock && accountId == AccountBuffer::ID_GENESIS;
+    if (maxBlockIdForRenewal > 0 && account.blockId > maxBlockIdForRenewal && !checkpointGenesisRenewal) {
       return chain_tx::TxError(
           chain_err::E_ACCOUNT_RENEWAL,
           "Account renewal too early: account " + std::to_string(accountId) +
@@ -593,6 +654,9 @@ chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
   if (calculatedHash != block.hash) {
     return chain_tx::TxError(chain_err::E_BLOCK_HASH,
                              "Block hash validation failed");
+  }
+  if (auto committee = validateBlockCommittee(ledger, block.block); !committee) {
+    return committee;
   }
 
   return validateBlockSequence(ledger, block);

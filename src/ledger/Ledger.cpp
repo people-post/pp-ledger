@@ -64,10 +64,9 @@ bool Ledger::Block::ltsFromString(const std::string &str) {
     return false;
   }
 
-  // Validate version compatibility (can read current and future versions up
-  // to a limit)
-  if (version > CURRENT_VERSION) {
-    return false; // Unsupported future version
+  // One format: blocks are not migrated (a new chain starts from a new genesis).
+  if (version != CURRENT_VERSION) {
+    return false;
   }
 
   // Deserialize block fields
@@ -320,6 +319,17 @@ pp::common::Meta Ledger::Block::ltsToMeta() const {
     recVals.push_back(std::make_shared<pp::common::Meta>(rec.ltsToMeta()));
   }
   j.set("records", pp::common::Meta::array(std::move(recVals)));
+  if (!committee.empty()) {
+    std::vector<pp::common::Meta::Value> members;
+    members.reserve(committee.size());
+    for (const auto &member : committee) {
+      auto m = std::make_shared<pp::common::Meta>();
+      m->setUIntForJson("id", member.id);
+      m->setUIntForJson("stake", member.stake);
+      members.push_back(m);
+    }
+    j.set("committee", pp::common::Meta::array(std::move(members)));
+  }
   return j;
 }
 

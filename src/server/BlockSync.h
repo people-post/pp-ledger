@@ -30,9 +30,12 @@ namespace pp {
  * 3. Apply: commit the blocks in order (fetching again those not kept), each matching the hash
  *    authenticated for its height.
  *
- * A node with no blocks yet takes its first block (genesis, or the checkpoint's genesis renewal)
- * as the root of trust: that block is where it learns the beacon's key. `firstBlockHash` pins it
- * (a miner's anchored genesis, or a checkpoint tied to it); without a pin it is taken on trust.
+ * A node with no blocks yet authenticates its range from its first block — genesis, or a
+ * checkpoint opening with the genesis renewal — which is where it learns the beacon's key and the
+ * admin set (AuthorityTrail::fromStartingBlock); nothing commits before the tip verifies under
+ * them. That first block is the node's root of trust: `firstBlockHash` pins it (an anchored
+ * genesis), `checkStartingAuthority` vets the authority it carries (an anchored miner's proof);
+ * without either it is taken on trust.
  *
  * A few requests are in flight at a time; one sync at a time; failures back off exponentially.
  * Network results reach this object only through `postToServerThread`, so every member function
@@ -55,6 +58,9 @@ public:
     std::function<std::optional<std::string>()> tipHash;
     /** Optional: the hash the first block must have when the node holds none. */
     std::function<std::optional<std::string>()> firstBlockHash;
+    /** Optional: vet the authority and admin set a node with no blocks takes from block `blockId`. */
+    std::function<pp::Roe<void>(uint64_t blockId, const ChainAuthority &, const Client::Wallet &admin)>
+        checkStartingAuthority;
     /** The beacon authority at the local tip, to follow along the blocks being synced. */
     std::function<pp::Roe<AuthorityTrail>()> authorityTrail;
     /** Optional: a signed tip this sync verified (the node may serve it on). */
@@ -87,8 +93,7 @@ public:
 private:
   enum class Phase {
     Status,       ///< waiting for the upstream's STATUS
-    Bootstrap,    ///< first block of an empty node, taken on trust
-    Authenticate, ///< hash chain from the local tip to the signed tip; nothing committed
+    Authenticate, ///< hash chain from the local tip (or the first block) to the signed tip; nothing committed
     Apply,        ///< commit the authenticated blocks in order
   };
 
@@ -103,6 +108,8 @@ private:
   /** One block of the current phase; false if the sync finished (failed). */
   bool process(Ledger::ChainNode block);
   bool authenticate(Ledger::ChainNode block);
+  /** A node with no blocks: its first block starts the trail (and may be pinned or vetted). */
+  bool authenticateFirst(Ledger::ChainNode &block);
   bool apply(Ledger::ChainNode block);
   /** The current phase covered its range: start the next, or finish. */
   void endPhase();
@@ -138,6 +145,8 @@ private:
   std::map<uint64_t, Ledger::ChainNode> fetched_;
   /** Authenticate: hash of the block before the next one. */
   std::string linkHash_;
+  /** The node holds no block: the range starts its chain. */
+  bool freshStart_{false};
   /** Authenticated hashes from `authBase_` up to the signed tip. */
   uint64_t authBase_{0};
   std::vector<std::string> authHashes_;

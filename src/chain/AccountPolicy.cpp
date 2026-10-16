@@ -55,16 +55,17 @@ FnPublisherExists makeWorkingSetPublisherExists(
 Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
     const std::string &serializedMeta, const Crypto &crypto,
     const AccountBuffer &working, const AccountBuffer *committedOrNull,
-    uint64_t selfAccountId, std::string_view deserializeErrorMsg) {
+    uint64_t selfAccountId, std::string_view deserializeErrorMsg, bool requireKnownPublishers) {
   Client::UserAccount userAccount;
   if (!userAccount.ltsFromString(serializedMeta)) {
     return TxError(chain_err::E_INTERNAL_DESERIALIZE,
                    std::string(deserializeErrorMsg));
   }
 
+  const FnPublisherExists anyPublisher = [](uint64_t) { return true; };
   auto attachmentRoe = validateAndCanonicalizeAttachment(
       userAccount.meta,
-      makeWorkingSetPublisherExists(working, committedOrNull, selfAccountId),
+      requireKnownPublishers ? makeWorkingSetPublisherExists(working, committedOrNull, selfAccountId) : anyPublisher,
       "Account attachment: ");
   if (!attachmentRoe) {
     return attachmentRoe.error();
@@ -194,6 +195,34 @@ Roe<void> replaceGenesisAccount(AccountBuffer &bank, uint64_t blockId,
                                 const Client::Wallet &wallet) {
   return replaceAccount(bank, AccountBuffer::ID_GENESIS, blockId, wallet,
                         "Failed to add updated genesis account: ");
+}
+
+Roe<void> applyTransferToHeldAccounts(AccountBuffer &bank, uint64_t fromId, uint64_t toId, uint64_t tokenId,
+                                      uint64_t amount, uint64_t fee) {
+  const auto leg = [](const AccountBuffer::Roe<void> &result, const std::string &what) -> Roe<void> {
+    if (!result) {
+      return TxError(chain_err::E_TX_TRANSFER, what + ": " + result.error().message);
+    }
+    return {};
+  };
+  if (bank.hasAccount(fromId)) {
+    if (auto paid = leg(bank.withdrawBalance(fromId, tokenId, static_cast<int64_t>(amount)), "Payer"); !paid) {
+      return paid;
+    }
+    if (fee > 0) {
+      if (auto paid = leg(bank.withdrawBalance(fromId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(fee)),
+                          "Payer fee");
+          !paid) {
+        return paid;
+      }
+    }
+  }
+  if (bank.hasAccount(toId)) {
+    if (auto credited = leg(bank.depositBalance(toId, tokenId, static_cast<int64_t>(amount)), "Payee"); !credited) {
+      return credited;
+    }
+  }
+  return creditFeeToFeeAccount(bank, fee, "Fee: ");
 }
 
 Roe<void> creditFeeToFeeAccount(AccountBuffer &bank, uint64_t fee,

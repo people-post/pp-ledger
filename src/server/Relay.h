@@ -52,6 +52,8 @@ public:
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
 
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
+  /** AUTHORITY_PROOF up to `upToBlockId` (Chain::authorityProof). */
+  Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
   std::string calculateHash(const Ledger::Block &block) const;
   /** A beacon signed tip, of the generation in force here or after `pending` (Chain::verifySignedTip). */
   Roe<void> verifySignedTip(const Client::SignedTip &tip, const std::vector<const Ledger::Block *> &pending = {}) const;

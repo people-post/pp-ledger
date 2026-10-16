@@ -41,11 +41,13 @@ FnPublisherExists makeWorkingSetPublisherExists(
 /**
  * Deserialize user-account meta, canonicalize attachment, validate wallet
  * basics. `deserializeErrorMsg` is the full E_INTERNAL_DESERIALIZE message.
+ * `requireKnownPublishers` false (CheckpointReplay): a node warming up does not hold every account,
+ * so the attachment's publisher ids are not checked against its bank.
  */
 Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
     const std::string &serializedMeta, const Crypto &crypto,
     const AccountBuffer &working, const AccountBuffer *committedOrNull,
-    uint64_t selfAccountId, std::string_view deserializeErrorMsg);
+    uint64_t selfAccountId, std::string_view deserializeErrorMsg, bool requireKnownPublishers = true);
 
 /** Genesis wallet must have ≥3 keys and ≥2 required signatures. */
 Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet);
@@ -83,6 +85,16 @@ Roe<void> replaceGenesisAccount(AccountBuffer &bank, uint64_t blockId,
  * Credit `fee` to ID_FEE (no-op when fee==0 or fee account absent).
  * `failurePrefix` is prepended to the deposit error message.
  */
+/**
+ * A transfer's effects under CheckpointReplay (beacon-authority ba5b): a node warming up from a
+ * checkpoint holds only some accounts, and the block was valid, so each leg applies to whichever
+ * of payer (amount in `tokenId`, fee in the native token), payee and fee account it holds, exactly
+ * as the full chain applied it. A leg on an account not held is skipped; a leg on a held account
+ * that fails is an error (the node's state diverged).
+ */
+Roe<void> applyTransferToHeldAccounts(AccountBuffer &bank, uint64_t fromId, uint64_t toId, uint64_t tokenId,
+                                      uint64_t amount, uint64_t fee);
+
 Roe<void> creditFeeToFeeAccount(AccountBuffer &bank, uint64_t fee,
                                 std::string_view failurePrefix);
 
