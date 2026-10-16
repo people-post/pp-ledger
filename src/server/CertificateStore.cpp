@@ -16,11 +16,15 @@ CertificateStore::Roe<void> CertificateStore::load() {
   if (!std::filesystem::exists(path_)) {
     return {};
   }
-  std::ifstream in(path_, std::ios::binary);
-  if (!in) {
-    return Error(E_IO, "Failed to read " + path_);
+  std::string bytes;
+  {
+    // Closed before anything below may remove the file (Windows cannot remove an open file).
+    std::ifstream in(path_, std::ios::binary);
+    if (!in) {
+      return Error(E_IO, "Failed to read " + path_);
+    }
+    bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
   }
-  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   auto record = utl::binaryUnpack<Ledger::Record>(bytes);
   if (!record || record.value().type != Ledger::T_BEACON_CERT) {
     return Error(E_IO, path_ + " is not a beacon certificate record");
@@ -104,6 +108,9 @@ CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record &reco
 void CertificateStore::remove() const {
   std::error_code ec;
   std::filesystem::remove(path_, ec);
+  if (ec) {
+    log().warning << "Failed to remove " << path_ << ": " << ec.message();
+  }
 }
 
 } // namespace pp
