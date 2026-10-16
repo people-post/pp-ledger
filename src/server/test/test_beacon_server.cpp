@@ -258,6 +258,28 @@ TEST(BeaconServerInitTest, GenesisMustBeSignedByEnoughGenesisKeys) {
   EXPECT_TRUE(setup.init({g0, g1}).isOk());
 }
 
+// --init writes genesis once: a second one is refused (it used to delete the chain) unless --force;
+// a failed one leaves no partial chain behind.
+TEST(BeaconServerInitTest, InitDoesNotReplaceAChainUnlessForced) {
+  GenesisSetup setup("pp-ledger-beacon-reinit-test");
+  setup.writeInitConfig();
+  const auto g0 = setup.keyFile(setup.genesis[0], "g0");
+  const auto g1 = setup.keyFile(setup.genesis[1], "g1");
+  ASSERT_FALSE(setup.init({g0}).isOk()) << "too few signatures";
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / "data")) << "a failed init leaves nothing";
+  ASSERT_TRUE(setup.init({g0, g1}).isOk());
+  const auto ledger = setup.dir / "data" / "ledger";
+  ASSERT_TRUE(std::filesystem::exists(ledger));
+
+  auto again = setup.init({g0, g1});
+  ASSERT_FALSE(again.isOk());
+  EXPECT_NE(again.error().message.find("--force"), std::string::npos) << again.error().message;
+  EXPECT_TRUE(std::filesystem::exists(ledger)) << "the chain is kept";
+
+  BeaconServer server;
+  EXPECT_TRUE(server.init(setup.dir.string(), {g0, g1}, /*force=*/true).isOk());
+}
+
 // The genesis (admin) account must be M-of-N from the start (at least 3 keys,
 // 2 signatures): the shape its renewals and config updates are held to.
 TEST(BeaconServerInitTest, GenesisAccountMustBeMOfN) {

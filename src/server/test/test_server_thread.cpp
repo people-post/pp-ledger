@@ -756,9 +756,8 @@ TEST(ServerThreadTest, ServeTasksUntilRunsCompletionsAndLeavesRequestsQueued) {
 }
 
 // onStart runs while Service's stop flag is still set (it is cleared after).
-TEST(ServerThreadTest, ServeTasksUntilWorksWhileStopFlagIsSet) {
+TEST(ServerThreadTest, ServeTasksUntilServesPostedTasks) {
   EchoServer server;
-  server.setStop(true);
   bool done = false;
   std::thread io([&]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -766,6 +765,19 @@ TEST(ServerThreadTest, ServeTasksUntilWorksWhileStopFlagIsSet) {
   });
   EXPECT_TRUE(server.serveTasksUntil([&]() { return done; }, std::chrono::seconds(2)));
   io.join();
+}
+
+// A stop request (SIGTERM during a startup sync) ends the wait promptly, not at its timeout.
+TEST(ServerThreadTest, ServeTasksUntilEndsOnAStopRequest) {
+  EchoServer server;
+  std::thread stopper([&]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    server.setStop(true);
+  });
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_FALSE(server.serveTasksUntil([]() { return false; }, std::chrono::seconds(30)));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
+  stopper.join();
 }
 
 TEST(ServerThreadTest, ServeTasksUntilTimesOut) {

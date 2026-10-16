@@ -30,11 +30,11 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int initBeacon(const std::string& workDir, const std::vector<std::string>& genesisKeys) {
+int initBeacon(const std::string& workDir, const std::vector<std::string>& genesisKeys, bool force) {
   pp::BeaconServer beaconServer;
   beaconServer.redirectLogger("pp.BeaconServer");
 
-  auto result = beaconServer.init(workDir, genesisKeys);
+  auto result = beaconServer.init(workDir, genesisKeys, force);
   if (!result) {
     std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
     return 1;
@@ -93,6 +93,9 @@ int main(int argc, char *argv[]) {
   app.add_option("--genesis-key", genesisKeys,
                  "Genesis private key file to sign the genesis block (repeat for M-of-N); --init only");
 
+  bool forceInit = false;
+  app.add_flag("--force", forceInit, "--init only: replace an existing chain (data/) — destroys it");
+
   bool debugMode = false;
   app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
@@ -138,7 +141,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   if (initMode) {
-    return initBeacon(workDir, genesisKeys);
+    return initBeacon(workDir, genesisKeys, forceInit);
   } else {
     return runBeacon(workDir, approvedRewindGeneration, promote);
   }

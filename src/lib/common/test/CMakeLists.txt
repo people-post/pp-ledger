@@ -51,3 +51,15 @@ target_link_libraries(test_utilities PRIVATE
 )
 
 gtest_discover_tests(test_utilities)
+
+# Test for Service (start / run / stop)
+add_executable(test_service
+    test_service.cpp
+)
+
+target_link_libraries(test_service PRIVATE
+    pp_ledger_common
+    GTest::gtest_main
+)
+
+gtest_discover_tests(test_service)

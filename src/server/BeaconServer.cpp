@@ -496,7 +496,7 @@ BeaconServer::BeaconServer() {
 }
 
 BeaconServer::Roe<void>
-BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles) {
+BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -623,7 +623,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
     initConfig.key.genesisSigners.push_back(privateKey.value());
   }
 
-  auto result = initFromWorkDir(initConfig);
+  auto result = initFromWorkDir(initConfig, force);
   if (!result) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
@@ -634,10 +634,14 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
 }
 
 BeaconServer::Roe<void>
-BeaconServer::initFromWorkDir(const Beacon::InitConfig &config) {
+BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force) {
   log().info << "Initializing BeaconServer";
 
-  // Clean up work directory if it exists
+  // A chain is there already: genesis again would destroy it. Only on request.
+  if (std::filesystem::exists(config.workDir) && !std::filesystem::is_empty(config.workDir) && !force) {
+    return Error("Refusing to initialize: " + config.workDir +
+                 " already holds a chain. Remove it first, or pass --force to replace it");
+  }
   if (std::filesystem::exists(config.workDir)) {
     log().info << "  Removing existing work directory: " << config.workDir;
     std::error_code ec;
@@ -647,9 +651,17 @@ BeaconServer::initFromWorkDir(const Beacon::InitConfig &config) {
     }
   }
 
-  // Initialize beacon (which will create fresh directory)
-  auto result = beacon_.init(config);
+  // Genesis in a beacon of its own: its files are closed once it goes, so a failed attempt can be
+  // removed (a corrected --init then finds no chain; Windows cannot remove open files).
+  Beacon::Roe<void> result;
+  {
+    Beacon genesis;
+    genesis.redirectLogger(log().getFullName() + ".Beacon");
+    result = genesis.init(config);
+  }
   if (!result) {
+    std::error_code ec;
+    std::filesystem::remove_all(config.workDir, ec);
     return Error("Failed to initialize beacon: " + result.error().message);
   }
 

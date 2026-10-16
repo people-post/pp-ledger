@@ -358,13 +358,20 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
 }
 
 bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout) {
-  // No isStopSet() check: Service::run() clears the stop flag only after
-  // onStart(), which is where this runs. The timeout bounds the wait.
+  // Waits in short slices so a stop request (SIGTERM during a startup sync) ends it promptly.
+  constexpr auto kSlice = std::chrono::milliseconds(200);
   const auto deadline = RequestQueue::Clock::now() + timeout;
-  while (!done()) {
-    auto item = requests_->popTaskUntil(deadline);
-    if (!item) {
+  while (!done() && !isStopSet()) {
+    const auto now = RequestQueue::Clock::now();
+    if (now >= deadline) {
       break;
+    }
+    auto item = requests_->popTaskUntil(std::min(deadline, now + kSlice));
+    if (!item) {
+      if (requests_->isClosed()) {
+        break; // nothing more will come
+      }
+      continue;
     }
     try {
       item->task();
@@ -384,6 +391,10 @@ std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSyn
   while (remaining().count() > 0) {
     if (restartRequested_) {
       return {}; // the node restarts (a rewind) instead of syncing on
+    }
+    if (isStopSet()) {
+      log().info << "Startup sync interrupted: stop requested";
+      return {}; // Service::run() sees the stop and does not run
     }
     if (sync.start() == BlockSync::Start::BackingOff) {
       serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(100)));

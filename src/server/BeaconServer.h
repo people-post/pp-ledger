@@ -50,7 +50,11 @@ public:
    * signed with the genesis private keys in `genesisKeyFiles`. The beacon
    * generates and stores no account keys.
    */
-  Roe<void> init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles);
+  /**
+   * --init: write genesis into `workDir`/data. Refuses when data/ already holds a chain (a second
+   * --init would destroy it) unless `force`.
+   */
+  Roe<void> init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles, bool force = false);
 
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);
@@ -185,7 +189,7 @@ private:
     Chain::CheckpointConfig checkpoint;
   };
 
-  Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
+  Roe<void> initFromWorkDir(const Beacon::InitConfig& config, bool force);
 
   /** --promote: the relay's config.json — its port and allowedPeers kept, its upstreams to check the clock against. */
   struct Promotion {

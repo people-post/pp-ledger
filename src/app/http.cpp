@@ -17,8 +17,10 @@
 
 #include <cli11.hpp>
 
+#include <atomic>
 #include <cctype>
 #include <chrono>
+#include <csignal>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -30,6 +32,7 @@
 #include <queue>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <sodium.h>
@@ -993,6 +996,12 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
   res.set_content("", "application/json");
 }
 
+namespace {
+/** Set by SIGINT / SIGTERM (docker, systemd); a watcher thread stops the server (not signal-safe). */
+std::atomic<bool> g_httpStopRequested{false};
+void httpSignalHandler(int) { g_httpStopRequested = true; }
+} // namespace
+
 int main(int argc, char** argv) {
   CLI::App app{"HTTP API server for pp-ledger (client interfaces)"};
   uint16_t httpPort = 8080;
@@ -1258,6 +1267,21 @@ int main(int argc, char** argv) {
   httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
   httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
   httpLog.info << "MCP:    GET /mcp/sse (SSE endpoint), POST /mcp/messages?sessionId=<id>";
-  svr.listen(httpHost, static_cast<int>(httpPort));
+  std::signal(SIGINT, httpSignalHandler);
+  std::signal(SIGTERM, httpSignalHandler);
+  std::atomic<bool> listening{true};
+  std::thread stopWatcher([&]() {
+    while (listening && !g_httpStopRequested) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    svr.stop();
+  });
+  const bool listened = svr.listen(httpHost, static_cast<int>(httpPort));
+  listening = false;
+  stopWatcher.join();
+  if (!listened && !g_httpStopRequested) {
+    std::cerr << "Error: failed to listen on " << httpHost << ":" << httpPort << "\n";
+    return 1;
+  }
   return 0;
 }
