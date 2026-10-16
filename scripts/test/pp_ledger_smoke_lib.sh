@@ -1055,14 +1055,19 @@ signed_tip_generation() {
 }
 
 # The admins certify generation $1 for the key in $2 (a .pub file), with cutover $3 (none if
-# empty): write the record, sign it offline (genesis is 3-of-3); prints the file.
+# empty — with one, mk-beacon-cert reads the block's hash from the relay): write the record, sign
+# it offline (genesis is 3-of-3); prints the file.
 make_beacon_cert() {
   local generation=$1 pubkey=$2 cutover=${3:-} cert="${TEST_DIR}/cert-gen$1.tx" i
-  local cutover_args=()
-  [[ -n "$cutover" ]] && cutover_args=(--cutover "$cutover")
+  local node_args=() cutover_args=()
+  if [[ -n "$cutover" ]]; then
+    node_args=(${DEBUG_FLAG} -b --host "$(relay_multiaddr)")
+    cutover_args=(--cutover "$cutover")
+  fi
   rm -f "$cert"
-  run_pp_client mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" --generation "$generation" \
-    --pubkey "$pubkey" ${cutover_args[@]+"${cutover_args[@]}"} -o "$cert" >/dev/null || die "mk-beacon-cert failed"
+  run_pp_client ${node_args[@]+"${node_args[@]}"} mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" \
+    --generation "$generation" --pubkey "$pubkey" ${cutover_args[@]+"${cutover_args[@]}"} -o "$cert" >/dev/null ||
+    die "mk-beacon-cert failed"
   for i in 1 2 3; do
     run_pp_client sign-tx -k "${TEST_DIR}/keys/genesis${i}.key" --network-id "$SMOKE_NETWORK_ID" "$cert" >/dev/null ||
       die "sign-tx failed"

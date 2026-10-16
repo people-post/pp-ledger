@@ -112,12 +112,14 @@ pp::Roe<AuthorityTrail> testTrail() {
 
 /** A T_BEACON_CERT for `generation` with `key`, signed by `signer` (the admin set's key unless given). */
 Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uint64_t cutoverHeight,
-                          const utl::MlDsaKeyPair &signer = adminKey()) {
+                          const utl::MlDsaKeyPair &signer = adminKey(),
+                          const std::string &cutoverHash = std::string(32, 'c')) {
   BeaconCertificate cert;
   cert.networkId = "net";
   cert.generation = generation;
   cert.publicKey = key.publicKey;
   cert.cutoverHeight = cutoverHeight;
+  cert.cutoverHash = cert.hasCutover() ? cutoverHash : std::string();
   Ledger::TxBeaconCert tx;
   tx.meta = cert.ltsToString();
   Ledger::Record record;
@@ -546,7 +548,7 @@ TEST_F(BlockSyncTest, TheStartingAuthorityCanBeVetted) {
 
 TEST_F(BlockSyncTest, FollowsAGenerationCertifiedInTheRange) {
   const auto nextKey = utl::mlDsaGenerate().value();
-  upstream_->chain = makeChain(10, {{5, {certRecord(2, nextKey, 4)}}});
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, nextKey, BeaconCertificate::kNoCutover)}}});
   local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
   upstream_->signedTip = tipFor(upstream_->chain.back(), nextKey, 2);
   BlockSync sync(client_, hooks());
@@ -558,7 +560,7 @@ TEST_F(BlockSyncTest, FollowsAGenerationCertifiedInTheRange) {
 }
 
 TEST_F(BlockSyncTest, TheOldGenerationAboveTheCertificateIsSuperseded) {
-  upstream_->chain = makeChain(10, {{5, {certRecord(2, utl::mlDsaGenerate().value(), 4)}}});
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, utl::mlDsaGenerate().value(), BeaconCertificate::kNoCutover)}}});
   local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
   upstream_->signedTip = tipFor(upstream_->chain.back()); // generation 1 still signing at block 9
   BlockSync sync(client_, hooks());
@@ -572,7 +574,7 @@ TEST_F(BlockSyncTest, TheOldGenerationAboveTheCertificateIsSuperseded) {
 
 TEST_F(BlockSyncTest, ACertificateTheAdminSetDidNotSignMovesNothing) {
   const auto thiefKey = utl::mlDsaGenerate().value();
-  upstream_->chain = makeChain(10, {{5, {certRecord(2, thiefKey, 4, /*signer=*/thiefKey)}}});
+  upstream_->chain = makeChain(10, {{5, {certRecord(2, thiefKey, BeaconCertificate::kNoCutover, /*signer=*/thiefKey)}}});
   local_.assign(upstream_->chain.begin(), upstream_->chain.begin() + 3);
   upstream_->signedTip = tipFor(upstream_->chain.back(), thiefKey, 2);
   BlockSync sync(client_, hooks());
@@ -664,6 +666,103 @@ TEST_F(BlockSyncTest, ATipPastEquivocationEvidenceOnStatusIsRefused) {
   ASSERT_EQ(results_.size(), 2u);
   EXPECT_TRUE(results_[1].ok) << results_[1].error;
   EXPECT_EQ(local_.size(), 6u);
+}
+
+// --- beacon-authority bp2: a certificate's cutover block, vouched for by its hash ---
+
+namespace {
+
+/** `chain` grown to `length` blocks, `records` in some of the new ones. */
+void extendChain(std::vector<Ledger::ChainNode> &chain, size_t length,
+                 const std::map<uint64_t, std::vector<Ledger::Record>> &records = {}) {
+  while (chain.size() < length) {
+    Ledger::ChainNode node;
+    node.block.index = chain.size();
+    node.block.previousHash = chain.back().hash;
+    if (auto it = records.find(node.block.index); it != records.end()) {
+      node.block.records = it->second;
+    }
+    node.hash = chain_block::calculateBlockHash(node.block);
+    chain.push_back(node);
+  }
+}
+
+} // namespace
+
+// Once the old generation is refused past a cutover, no tip vouches for the blocks up to it: a node
+// behind it syncs to the block its held certificate vouches for, by hash, with no signed tip.
+TEST_F(BlockSyncTest, ANodeBehindItsCertificatesCutoverSyncsToItWithNoTip) {
+  upstream_->autoTip = false; // nothing signed past the node's tip
+  std::optional<std::pair<uint64_t, std::string>> vouched = std::make_pair(uint64_t{6}, upstream_->chain[6].hash);
+  auto h = hooks();
+  h.vouchedCutover = [&]() { return vouched; };
+  BlockSync sync(client_, h);
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 7u) << "up to the vouched block, not past it";
+
+  local_.resize(3);
+  vouched->second = upstream_->chain[5].hash; // not block 6
+  BlockSync wrong(client_, h);
+  wrong.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_FALSE(results_[1].ok);
+  EXPECT_NE(results_[1].error.find("vouches for"), std::string::npos) << results_[1].error;
+  EXPECT_EQ(local_.size(), 3u) << "nothing commits";
+}
+
+// A node with no blocks takes the upstream's STATUS certificate: checked against the authority it
+// builds from its first block, it bounds the old generation's tip and the range ends at its cutover.
+TEST_F(BlockSyncTest, ANodeWithNoBlocksStopsAtTheCutoverItsUpstreamServes) {
+  local_.clear();
+  upstream_->certificate = certRecord(2, utl::mlDsaGenerate().value(), 6, adminKey(), upstream_->chain[6].hash);
+  BlockSync sync(client_, hooks()); // the old generation still signs block 9
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_TRUE(results_[0].ok) << results_[0].error;
+  EXPECT_EQ(local_.size(), 7u) << "blocks 0 to 6: the old generation's tip past the cutover is not followed";
+
+  local_.clear();
+  const auto thief = utl::mlDsaGenerate().value();
+  upstream_->certificate = certRecord(2, utl::mlDsaGenerate().value(), 6, thief, upstream_->chain[6].hash);
+  BlockSync forged(client_, hooks());
+  forged.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_FALSE(results_[1].ok) << "a certificate the admin set did not sign vouches for nothing";
+  EXPECT_TRUE(local_.empty());
+}
+
+// On chain, a certificate with a cutover commits right after the block it vouches for, by its hash.
+TEST_F(BlockSyncTest, ACertificateWhoseHashIsNotItsCutoverBlockStopsTheSync) {
+  const auto nextKey = utl::mlDsaGenerate().value();
+  auto chain = makeChain(5);
+  extendChain(chain, 10, {{5, {certRecord(2, nextKey, 4, adminKey(), std::string(32, 'x'))}}});
+  upstream_->chain = chain;
+  local_.assign(chain.begin(), chain.begin() + 3);
+  upstream_->signedTip = tipFor(chain.back(), nextKey, 2);
+  BlockSync sync(client_, hooks());
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("is not the hash of block 4"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+
+  chain.resize(5);
+  extendChain(chain, 10, {{5, {certRecord(2, nextKey, 4, adminKey(), chain[4].hash)}}});
+  upstream_->chain = chain;
+  upstream_->signedTip = tipFor(chain.back(), nextKey, 2);
+  BlockSync good(client_, hooks());
+  good.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_TRUE(results_[1].ok) << results_[1].error;
+  EXPECT_EQ(local_.size(), 10u);
 }
 
 TEST_F(BlockSyncTest, APinnedFirstBlockMustMatch) {

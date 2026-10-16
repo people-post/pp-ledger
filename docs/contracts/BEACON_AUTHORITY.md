@@ -28,8 +28,8 @@ no migration (networks start from a new genesis on a change).
 
 | Form | Version | Fields, in order | Carried in |
 |------|---------|------------------|-----------|
-| `ChainAuthority` | — (genesis meta v9) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
-| `BeaconCertificate` | 1 | `networkId`, `generation`, `publicKey`, `cutoverHeight` | `T_BEACON_CERT` `meta` |
+| `ChainAuthority` | — (genesis meta v10) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
+| `BeaconCertificate` | 2 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints` | `T_BEACON_CERT` `meta` |
 | `RecoveryAnnouncement` | 1 | `networkId`, `adminPublicKeys`, `adminMinSignatures` (`uint8`) | `T_RECOVERY` `meta` |
 | `SignedTip` | 1 | `networkId`, `generation`, `height`, `blockHash` (raw), `signature` | `STATUS.signedTip`, `data/signed-tip.dat` |
 | `TipReply` | — | `nextBlockId`, `hasSignedTip`, `signedTip` (unversioned) | `BLOCK_WAIT`, `BLOCK_ADD` replies |
@@ -56,6 +56,7 @@ meta, except as the records below change it.
 | `beacon.generation` | 1 at genesis |
 | `beacon.publicKey` | Raw ML-DSA-65 beacon signing key: neither an admin nor a recovery key |
 | `beacon.cutoverHeight` | 0 at genesis |
+| `beacon.cutoverHash`, `beacon.dialHints` | Empty hash at genesis; hints optional (as below) |
 
 Code: `ChainAuthority`, checks in `chain_tx::validateGenesisAuthority`. `pp-beacon --init`
 generates the generation-1 key (`keys/beacon-signing.key`, `.pub`) and certifies it in the
@@ -64,8 +65,8 @@ genesis record.
 ## Later generations — `T_BEACON_CERT` (record 18)
 
 The admin set (genesis account, its `minSignatures`) certifies the next beacon. The record's `meta`
-is a `BeaconCertificate` (version `1`, then `networkId`, `generation`, `publicKey`,
-`cutoverHeight`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
+is a `BeaconCertificate` (version `2`, then `networkId`, `generation`, `publicKey`,
+`cutoverHeight`, `cutoverHash`, `dialHints`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
 idempotency key (genesis account, `idempotentId`) with the usual validation window. Rules (`chain_tx::validateNextBeaconCertificate`):
 
 - `networkId` is the chain's; `generation` is exactly the one in force + 1;
@@ -73,10 +74,19 @@ idempotency key (genesis account, `idempotentId`) with the usual validation wind
   recovery key;
 - `cutoverHeight` (the last height the previous generation may sign) does not go back, and the
   block that commits the record is at most `cutoverHeight + 1`: the previous generation never
-  signs past it. A cutover not reached yet bounds nothing on chain; `2^64−1` (`mk-beacon-cert`
-  without `--cutover`) is none — the old key signs until the certificate commits. In force, the
-  certificate's `cutoverHeight` is the block before the one that commits it: the last block the
-  previous generation signed (`chain_tx::certificateInForce`);
+  signs past it. `2^64−1` (`mk-beacon-cert` without `--cutover`; `kNoCutover`) is none — the old
+  key signs until the certificate commits: an honest rotation. In force, the certificate's
+  `cutoverHeight` is the block before the one that commits it: the last block the previous
+  generation signed (`chain_tx::certificateInForce`);
+- **with a cutover**, `cutoverHash` is the 32-byte hash of block `cutoverHeight` — the admins vouch
+  for it — and the record commits exactly in the next block, whose `previousHash` it must equal
+  (`validateCutoverBlock`; `AuthorityTrail` checks it too); without one, `cutoverHash` is empty. The
+  cutover may not drop the block that committed the generation in force: above generation 1 it is
+  above the cutover in force. `mk-beacon-cert --cutover` reads block `cutoverHeight` from a node
+  (`-b --host`), computes its hash and prints what the cut drops before the admins sign;
+- `dialHints`: at most 8 multiaddrs (each 1–256 bytes) of gateways — relays in front of the new
+  beacon, never the beacon itself — where nodes may look for it (`--dial-hint`). Hints only: nodes
+  trust tips, not addresses;
 - not in the genesis block (that block certifies generation 1);
 - **at most one per block** — a block holding two is refused whole (`validateAuthorityRecordCount`;
   `AuthorityTrail` likewise). The certificate is in force as soon as its block applies; a genesis
@@ -224,6 +234,16 @@ successor. Every node keeps the highest one it sees:
   beacon holding no key the certificate names stands down; one that holds it (a staged rotation)
   commits no block above the cutover that does not commit a certificate.
 
+- **Behind the cutover** (bp2): once the old generation is refused past the cutover, no tip vouches
+  for the blocks up to it until the new beacon signs the next one. A node behind it syncs first to
+  the block its held certificate vouches for — (`cutoverHeight`, `cutoverHash`) — checking the hash
+  chain up to it with no signed tip (`BlockSync`, `Chain::vouchedCutover`).
+- **A node with no blocks** cannot check a certificate against a chain yet: it reads the
+  upstream's `STATUS` certificate, checks it against the authority it builds from its first block
+  (`AuthorityTrail::acceptOutOfBand`) before the range commits, and is bounded by it like a held
+  one; when the certificate is of a later generation than the tip (or there is no tip), the range
+  ends at its cutover block.
+
 A tip of the new generation still verifies only along blocks that commit its certificate: the
 certificate bounds the old generation, it does not let a node follow the new one before the chain
 does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
@@ -240,6 +260,10 @@ admin-signed certificate of a higher generation, kept as above, can order it
   cutover. It checks for one once it has loaded (a certificate kept before it went down), whenever
   a sync finishes — startup syncs too: a node back online with blocks past the cutover cannot sync,
   and a requested restart ends its startup sync instead of failing it — and in its run loop.
+- **Same block, or nothing** (bp2): a node holding another block at the cutover height than the one
+  `cutoverHash` names does not rewind — its history forked at or below it, or the certificate names
+  the wrong block — not even when approved: it refuses the old tips past the cutover, alerts once,
+  and waits for an operator.
 - **Bounded** (`rewind::schedule`): a node rewinds on its own only as far as seven days of slot time
   (`rewind::kMaxAutomaticRewind`), measured from the cutover block — or the first block it holds,
   when the cutover is older — to the last block it would drop. Deeper, or when that cannot be read,

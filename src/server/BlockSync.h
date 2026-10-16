@@ -76,6 +76,12 @@ public:
      * after its certificate and before its tip — the node halts on it and refuses tips above it.
      */
     std::function<void(const Client::Equivocation &)> offerEquivocation;
+    /**
+     * Optional: the block the node's held certificate vouches for (Chain::vouchedCutover, bp2). A
+     * node behind it syncs up to it first, with no signed tip — once the old generation is refused
+     * past its cutover, no tip vouches for that block until the new beacon signs the next one.
+     */
+    std::function<std::optional<std::pair<uint64_t, std::string>>()> vouchedCutover;
     /** Validate and append one block (its id is nextBlockId()). */
     std::function<pp::Roe<void>(const Ledger::ChainNode &)> applyBlock;
     /** Run a task on the server thread (Server::postToServerThread). */
@@ -111,6 +117,12 @@ private:
   void onStatus(Client::Roe<Client::BeaconState> result);
   /** Check the upstream's signed tip and start authenticating up to it. */
   void syncToSignedTip();
+  /** A node with blocks, behind the block its held certificate vouches for: sync up to it. */
+  void syncToVouchedCutover(uint64_t height, std::string hash, const std::string &localTip);
+  /** A node with no blocks: authenticate from its first block up to the tip, or a cutover (bp2). */
+  void syncFresh(uint64_t next);
+  /** End of the range for a node with no blocks: check the STATUS certificate against the trail. */
+  bool acceptFreshCertificate();
   void beginRange(Phase phase, uint64_t from, uint64_t to);
   void onBlock(uint64_t blockId, Client::Roe<Ledger::ChainNode> result);
   void fetchMore();
@@ -143,6 +155,14 @@ private:
   Phase phase_{Phase::Status};
   Client::BeaconState status_;
   Client::SignedTip tip_;
+  /** The range's last block: the signed tip's, or one a certificate vouches for (bp2). */
+  uint64_t targetHeight_{0};
+  std::string targetHash_;
+  /** The target is a certificate's cutover block, not a signed tip: nothing to verify at the end. */
+  bool targetVouched_{false};
+  /** A node with no blocks aiming at the cutover the upstream's STATUS certificate names: the
+   *  certificate is checked against the trail it builds, before the range commits. */
+  std::optional<Ledger::Record> freshCertificate_;
   /** Authority along the blocks authenticated so far (from the local tip). */
   std::optional<AuthorityTrail> trail_;
   /** Current phase's range [base_, target_). */

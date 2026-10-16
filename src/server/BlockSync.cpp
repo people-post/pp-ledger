@@ -1,4 +1,5 @@
 #include "BlockSync.h"
+#include "../chain/Types.h"
 #include "../chain/BlockValidation.h"
 
 #include <algorithm>
@@ -68,32 +69,29 @@ void BlockSync::onStatus(Client::Roe<Client::BeaconState> result) {
 }
 
 void BlockSync::syncToSignedTip() {
+  const uint64_t next = hooks_.nextBlockId();
+  const auto localTip = hooks_.tipHash();
+  freshStart_ = !localTip.has_value();
+  targetVouched_ = false;
+  freshCertificate_.reset();
+  if (freshStart_) {
+    syncFresh(next);
+    return;
+  }
+  // Behind the block the node's held certificate vouches for: reach it first (bp2).
+  if (hooks_.vouchedCutover) {
+    if (auto vouched = hooks_.vouchedCutover(); vouched && vouched->first >= next) {
+      syncToVouchedCutover(vouched->first, std::move(vouched->second), *localTip);
+      return;
+    }
+  }
   if (!status_.signedTip) {
     finish(false, "Upstream has no beacon signed tip");
     return;
   }
   tip_ = *status_.signedTip;
-  const uint64_t next = hooks_.nextBlockId();
-  const auto localTip = hooks_.tipHash();
-  freshStart_ = !localTip.has_value();
-  if (freshStart_) {
-    // No blocks yet: the authority comes from the range's first block (authenticateFirst).
-    if (tip_.height < next) {
-      finish(false, "Upstream's signed tip (block " + std::to_string(tip_.height) + ") is below block " +
-                        std::to_string(next) + ", where this node starts");
-      return;
-    }
-    trail_.reset();
-    linkHash_.clear();
-    authBase_ = next;
-    authHashes_.clear();
-    held_.clear();
-    const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
-    log().info << "No local blocks: authenticating blocks " << next << " to " << tip_.height << " from block "
-               << next << (pinned ? " (pinned)" : "");
-    beginRange(Phase::Authenticate, next, tip_.height + 1);
-    return;
-  }
+  targetHeight_ = tip_.height;
+  targetHash_ = tip_.blockHash;
   auto trail = hooks_.authorityTrail();
   if (!trail) {
     finish(false, "Beacon authority unavailable: " + trail.error().message);
@@ -123,6 +121,84 @@ void BlockSync::syncToSignedTip() {
   log().info << "Syncing blocks " << next << " to " << tip_.height << " (signed tip, beacon generation "
              << tip_.generation << ")";
   beginRange(Phase::Authenticate, next, tip_.height + 1);
+}
+
+void BlockSync::syncToVouchedCutover(uint64_t height, std::string hash, const std::string &localTip) {
+  auto trail = hooks_.authorityTrail();
+  if (!trail) {
+    finish(false, "Beacon authority unavailable: " + trail.error().message);
+    return;
+  }
+  trail_ = std::move(trail.value());
+  const uint64_t next = hooks_.nextBlockId();
+  targetHeight_ = height;
+  targetHash_ = std::move(hash);
+  targetVouched_ = true;
+  linkHash_ = localTip;
+  authBase_ = next;
+  authHashes_.clear();
+  held_.clear();
+  log().info << "Syncing blocks " << next << " to " << height
+             << " (the cutover block a beacon certificate vouches for; no tip signs it)";
+  beginRange(Phase::Authenticate, next, height + 1);
+}
+
+void BlockSync::syncFresh(uint64_t next) {
+  // The upstream's STATUS certificate is checked against the authority this node builds from its
+  // first block, at the end of the range (acceptFreshCertificate): it bounds the tip like a held
+  // one, and when it is of a later generation than the tip (or there is no tip) the range aims at
+  // the block its cutover vouches for (bp2).
+  std::optional<BeaconCertificate> cert;
+  if (status_.certificate) {
+    if (auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(status_.certificate->data); tx) {
+      if (BeaconCertificate decoded; decoded.ltsFromString(tx.value().meta)) {
+        cert = decoded;
+        freshCertificate_ = *status_.certificate;
+      }
+    }
+  }
+  const auto &tip = status_.signedTip;
+  if (cert && cert->hasCutover() && cert->cutoverHeight >= next && (!tip || tip->generation < cert->generation)) {
+    targetHeight_ = cert->cutoverHeight;
+    targetHash_ = cert->cutoverHash;
+    targetVouched_ = true;
+  } else if (tip) {
+    tip_ = *tip;
+    targetHeight_ = tip_.height;
+    targetHash_ = tip_.blockHash;
+  } else {
+    finish(false, "Upstream has no beacon signed tip");
+    return;
+  }
+  // No blocks yet: the authority comes from the range's first block (authenticateFirst).
+  if (targetHeight_ < next) {
+    finish(false, "Upstream's " + std::string(targetVouched_ ? "vouched cutover" : "signed tip") + " (block " +
+                      std::to_string(targetHeight_) + ") is below block " + std::to_string(next) +
+                      ", where this node starts");
+    return;
+  }
+  trail_.reset();
+  linkHash_.clear();
+  authBase_ = next;
+  authHashes_.clear();
+  held_.clear();
+  const bool pinned = hooks_.firstBlockHash && hooks_.firstBlockHash().has_value();
+  log().info << "No local blocks: authenticating blocks " << next << " to " << targetHeight_ << " from block "
+             << next << (pinned ? " (pinned)" : "") << (targetVouched_ ? " (a certificate's cutover)" : "");
+  beginRange(Phase::Authenticate, next, targetHeight_ + 1);
+}
+
+bool BlockSync::acceptFreshCertificate() {
+  auto accepted = trail_->acceptOutOfBand(*freshCertificate_);
+  if (accepted) {
+    return true;
+  }
+  if (targetVouched_) {
+    finish(false, "The certificate whose cutover this node synced to does not verify: " + accepted.error().message);
+    return false;
+  }
+  log().warning << "Upstream's STATUS certificate not taken: " << accepted.error().message;
+  return true;
 }
 
 void BlockSync::beginRange(Phase phase, uint64_t from, uint64_t to) {
@@ -272,11 +348,15 @@ bool BlockSync::apply(Ledger::ChainNode block) {
 void BlockSync::endPhase() {
   switch (phase_) {
   case Phase::Authenticate:
-    if (linkHash_ != tip_.blockHash) {
-      finish(false, "Blocks up to " + std::to_string(tip_.height) + " do not lead to the signed tip");
+    if (linkHash_ != targetHash_) {
+      finish(false, "Blocks up to " + std::to_string(targetHeight_) + " do not lead to the " +
+                        (targetVouched_ ? "block the certificate vouches for" : "signed tip"));
       return;
     }
-    if (!verifyTip()) {
+    if (freshStart_ && freshCertificate_ && !acceptFreshCertificate()) {
+      return;
+    }
+    if (!targetVouched_ && !verifyTip()) {
       return;
     }
     beginRange(Phase::Apply, authBase_, target_);
@@ -306,7 +386,7 @@ void BlockSync::finish(bool ok, std::string error) {
   held_.clear();
   authHashes_.clear();
   outstanding_ = 0;
-  const bool tipVerified = ok && trail_.has_value() && status_.signedTip.has_value();
+  const bool tipVerified = ok && trail_.has_value() && status_.signedTip.has_value() && !targetVouched_;
   trail_.reset();
   if (tipVerified && hooks_.onTipVerified) {
     hooks_.onTipVerified(tip_);

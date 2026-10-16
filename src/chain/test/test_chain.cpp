@@ -2551,12 +2551,13 @@ Ledger::Record makeBeaconCertRecord(const BeaconCertificate &cert, const utl::Ml
   return makeRecord(Ledger::T_BEACON_CERT, tx, signer, networkId);
 }
 
-/** The next certificate after `current`: a fresh key, cutover 0. */
+/** The next certificate after `current`: a fresh key, no cutover (an honest rotation). */
 BeaconCertificate nextCertificate(const Chain::ChainAuthority &current) {
   BeaconCertificate next = current.beacon;
   next.generation = current.beacon.generation + 1;
   next.publicKey = makeKeyPair().publicKey;
-  next.cutoverHeight = 0;
+  next.cutoverHeight = BeaconCertificate::kNoCutover;
+  next.cutoverHash.clear();
   return next;
 }
 
@@ -2631,25 +2632,55 @@ TEST_F(ChainComposeTest, BeaconCert_CommitsNoLaterThanTheBlockAfterItsCutover) {
   const auto current = producer.getAuthority().value();
   const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet;
   const std::string net = producer.getNetworkId();
+  const std::string someHash(utl::SHA256_DIGEST_SIZE, 'h');
   BeaconCertificate next = nextCertificate(current);
-  auto commitAt = [&](uint64_t cutover, uint64_t blockId) {
+  auto commitAt = [&](uint64_t cutover, uint64_t blockId, const std::string &hash) {
     next.cutoverHeight = cutover;
+    next.cutoverHash = hash;
     return chain_tx::validateNextBeaconCertificate(next, current, admin, net, blockId);
   };
-  EXPECT_TRUE(commitAt(4, 5).isOk()) << "the block right after the cutover";
-  EXPECT_TRUE(commitAt(9, 5).isOk()) << "a cutover not reached yet bounds nothing on chain";
-  EXPECT_TRUE(commitAt(UINT64_MAX, 5).isOk()) << "no cutover: the old generation signs until the commit";
-  auto passed = commitAt(3, 5);
+  EXPECT_TRUE(commitAt(4, 5, someHash).isOk()) << "the block right after the cutover";
+  EXPECT_TRUE(commitAt(BeaconCertificate::kNoCutover, 5, "").isOk())
+      << "no cutover: the old generation signs until the commit";
+  auto passed = commitAt(3, 5, someHash);
   ASSERT_FALSE(passed.isOk()) << "block 4 was signed by the old generation, past its cutover";
   EXPECT_NE(passed.error().message.find("is passed"), std::string::npos) << passed.error().message;
+  auto early = commitAt(9, 5, someHash);
+  ASSERT_FALSE(early.isOk()) << "bp2: block 9 does not exist yet, so nothing can vouch for its hash";
+  EXPECT_NE(early.error().message.find("commits in block 10"), std::string::npos) << early.error().message;
+  EXPECT_FALSE(commitAt(4, 5, "").isOk()) << "a cutover comes with the block's hash";
+  EXPECT_FALSE(commitAt(BeaconCertificate::kNoCutover, 5, someHash).isOk()) << "no hash without a cutover";
+  next.cutoverHeight = 4;
+  next.cutoverHash = someHash;
   EXPECT_EQ(chain_tx::certificateInForce(next, 5).cutoverHeight, 4u);
 
-  // On chain: no cutover in the record, the block before the commit in force.
+  // bp2: the block that committed the generation in force (here generation 2, at block 4) stays.
+  auto rotated = current;
+  rotated.beacon.generation = 2;
+  rotated.beacon.cutoverHeight = 3;
+  BeaconCertificate gen3 = nextCertificate(rotated);
+  gen3.cutoverHash = someHash;
+  gen3.cutoverHeight = 3;
+  auto dropsCommit = chain_tx::validateNextBeaconCertificate(gen3, rotated, admin, net, std::nullopt);
+  ASSERT_FALSE(dropsCommit.isOk());
+  EXPECT_NE(dropsCommit.error().message.find("would drop block 4"), std::string::npos) << dropsCommit.error().message;
+  gen3.cutoverHeight = 4;
+  EXPECT_TRUE(chain_tx::validateNextBeaconCertificate(gen3, rotated, admin, net, std::nullopt).isOk());
+
+  // On chain: the hash must be block C's — the one before the commit.
   producer.setClockOverride(producer.getSlotStartTime(1));
-  BeaconCertificate open = nextCertificate(current);
-  open.cutoverHeight = UINT64_MAX;
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(
-      producer, harness_.genesis, 1, {makeBeaconCertRecord(open, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime)});
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  BeaconCertificate cut = nextCertificate(current);
+  cut.cutoverHeight = 0;
+  cut.cutoverHash = someHash;
+  AccountBuffer draft;
+  auto wrong = producer.addBufferTransaction(draft, makeBeaconCertRecord(cut, harness_.genesisKey, net, 1, genesisTime),
+                                             kTestMinerId);
+  ASSERT_FALSE(wrong.isOk());
+  EXPECT_NE(wrong.error().message.find("is not the hash of block 0"), std::string::npos) << wrong.error().message;
+  cut.cutoverHash = harness_.genesis.hash;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                                                 {makeBeaconCertRecord(cut, harness_.genesisKey, net, 2, genesisTime)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_EQ(producer.getAuthority()->beacon.generation, 2u);
   EXPECT_EQ(producer.getAuthority()->beacon.cutoverHeight, 0u) << "generation 1 signed up to block 0";
@@ -2764,6 +2795,7 @@ TEST_F(ChainComposeTest, SignedTip_VerifiesOnlyWithTheGenerationInForce) {
   producer.setClockOverride(producer.getSlotStartTime(1));
   const auto newKey = makeKeyPair();
   BeaconCertificate next = producer.getAuthority()->beacon;
+  next.cutoverHeight = BeaconCertificate::kNoCutover;
   next.generation = 2;
   next.publicKey = newKey.publicKey;
   Ledger::ChainNode block1 = makeNextBlockAtSlot(
@@ -2802,6 +2834,7 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
 
   producer.setClockOverride(producer.getSlotStartTime(1));
   BeaconCertificate next = producer.getAuthority()->beacon;
+  next.cutoverHeight = BeaconCertificate::kNoCutover;
   next.generation = 2;
   next.publicKey = makeKeyPair().publicKey;
   Ledger::ChainNode block1 = makeNextBlockAtSlot(
@@ -2908,10 +2941,12 @@ TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
   const std::string net = producer.getNetworkId();
   const auto genesisTime = harness_.chainConfig.genesisTime;
   uint64_t idem = 1;
-  auto certRecord = [&](uint64_t generation, uint64_t cutover, const utl::MlDsaKeyPair &signer) {
+  auto certRecord = [&](uint64_t generation, uint64_t cutover, const std::string &hash,
+                        const utl::MlDsaKeyPair &signer) {
     BeaconCertificate cert = nextCertificate(current);
     cert.generation = generation;
     cert.cutoverHeight = cutover;
+    cert.cutoverHash = hash;
     return makeBeaconCertRecord(cert, signer, net, idem++, genesisTime);
   };
   auto tipAt = [&](uint64_t height) {
@@ -2927,41 +2962,47 @@ TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
   EXPECT_FALSE(producer.currentCertificateRecord().has_value()) << "generation 1 has no record";
   EXPECT_TRUE(producer.verifySignedTip(tipAt(4)).isOk());
 
-  const auto gen3 = certRecord(3, 3, harness_.genesisKey);
+  // Block 1 (it will commit generation 2, with no cutover) is sealed elsewhere — the producer's own
+  // tip stays at genesis — and generation 3 vouches for it.
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(1));
+  const auto none = BeaconCertificate::kNoCutover;
+  Ledger::ChainNode block1 =
+      makeNextBlockAtSlot(harness_.peer, harness_.genesis, 1, {certRecord(2, none, "", harness_.genesisKey)});
+  const auto gen3 = certRecord(3, 1, block1.hash, harness_.genesisKey);
   ASSERT_EQ(producer.offerCertificate(gen3).value(), Offer::Newer);
   EXPECT_EQ(producer.offerCertificate(gen3).value(), Offer::Same);
-  EXPECT_EQ(producer.offerCertificate(certRecord(3, 3, harness_.genesisKey)).value(), Offer::Conflict)
+  EXPECT_EQ(producer.offerCertificate(certRecord(3, 1, block1.hash, harness_.genesisKey)).value(), Offer::Conflict)
       << "another key for the generation held";
-  EXPECT_EQ(producer.offerCertificate(certRecord(2, 3, harness_.genesisKey)).value(), Offer::Older);
-  EXPECT_EQ(producer.offerCertificate(certRecord(1, 3, harness_.genesisKey)).value(), Offer::Older);
-  EXPECT_FALSE(producer.offerCertificate(certRecord(4, 3, harness_.reserveKey)).isOk()) << "not admin-signed";
+  EXPECT_EQ(producer.offerCertificate(certRecord(2, 1, block1.hash, harness_.genesisKey)).value(), Offer::Older);
+  EXPECT_EQ(producer.offerCertificate(certRecord(1, 1, block1.hash, harness_.genesisKey)).value(), Offer::Older);
+  EXPECT_FALSE(producer.offerCertificate(certRecord(4, 1, block1.hash, harness_.reserveKey)).isOk())
+      << "not admin-signed";
   ASSERT_TRUE(producer.seenCertificate().has_value());
   EXPECT_EQ(producer.seenCertificate()->generation, 3u);
+  EXPECT_EQ(producer.vouchedCutover(), std::make_optional(std::make_pair(uint64_t{1}, block1.hash)));
   ASSERT_TRUE(producer.currentCertificateRecord().has_value());
   EXPECT_EQ(producer.currentCertificateRecord()->data, gen3.data) << "STATUS serves the one held";
 
-  EXPECT_TRUE(producer.verifySignedTip(tipAt(3)).isOk()) << "at the cutover";
-  auto past = producer.verifySignedTip(tipAt(4));
+  EXPECT_TRUE(producer.verifySignedTip(tipAt(1)).isOk()) << "at the cutover";
+  auto past = producer.verifySignedTip(tipAt(2));
   ASSERT_FALSE(past.isOk()) << "above the cutover";
-  EXPECT_NE(past.error().message.find("past block 3"), std::string::npos) << past.error().message;
+  EXPECT_NE(past.error().message.find("past block 1"), std::string::npos) << past.error().message;
 
   Ledger::Block plain;
-  plain.index = 3;
+  plain.index = 1;
   EXPECT_TRUE(producer.checkSeenCutover(plain).isOk());
-  plain.index = 4;
+  plain.index = 2;
   EXPECT_FALSE(producer.checkSeenCutover(plain).isOk()) << "the beacon commits nothing past the cutover";
-  plain.records.push_back(certRecord(2, 3, harness_.genesisKey));
+  plain.records.push_back(certRecord(2, none, "", harness_.genesisKey));
   EXPECT_TRUE(producer.checkSeenCutover(plain).isOk()) << "but a certificate";
 
   // Generation 2 on chain: generation 3 is still above it and stays held.
-  producer.setClockOverride(producer.getSlotStartTime(1));
-  Ledger::ChainNode block1 =
-      makeNextBlockAtSlot(producer, harness_.genesis, 1, {certRecord(2, UINT64_MAX, harness_.genesisKey)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   ASSERT_TRUE(producer.seenCertificate().has_value());
   EXPECT_EQ(producer.seenCertificate()->generation, 3u);
 
-  // Generation 3 on chain: the one held is dropped, and the tips rule falls back to the chain.
+  // Generation 3 on chain, right after the block it vouches for: the one held is dropped.
   producer.setClockOverride(producer.getSlotStartTime(2));
   Ledger::ChainNode block2 = makeNextBlockAtSlot(producer, block1, 2, {gen3});
   ASSERT_TRUE(producer.addBlock(block2).isOk());
@@ -3028,6 +3069,7 @@ TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGenera
   BeaconCertificate next = nextCertificate(current);
   next.publicKey = gen2Key.publicKey;
   next.cutoverHeight = 5;
+  next.cutoverHash = std::string(utl::SHA256_DIGEST_SIZE, '5'); // block 5 is not held here
   ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(next, harness_.genesisKey, net, 1,
                                                            harness_.chainConfig.genesisTime))
                 .value(),
@@ -3185,34 +3227,36 @@ TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
   const std::string net = producer.getNetworkId();
   const auto genesisTime = harness_.chainConfig.genesisTime;
   producer.setClockOverride(producer.getSlotStartTime(1));
-  BeaconCertificate gen2 = nextCertificate(current);
-  gen2.cutoverHeight = UINT64_MAX;
-  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1,
-                                                 {makeBeaconCertRecord(gen2, harness_.genesisKey, net, 1, genesisTime)});
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_FALSE(producer.rewindOrder().has_value()) << "no certificate held out of band";
 
-  BeaconCertificate gen3 = gen2;
-  gen3.generation = 3;
-  gen3.publicKey = makeKeyPair().publicKey;
-  gen3.cutoverHeight = 1;
-  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 2, genesisTime)).value(),
-            Chain::CertificateOffer::Newer);
+  uint64_t idem = 1;
+  auto offer = [&](uint64_t generation, uint64_t cutover, const std::string &hash) {
+    BeaconCertificate cert = nextCertificate(current);
+    cert.generation = generation;
+    cert.cutoverHeight = cutover;
+    cert.cutoverHash = hash;
+    return producer.offerCertificate(makeBeaconCertRecord(cert, harness_.genesisKey, net, idem++, genesisTime));
+  };
+  ASSERT_EQ(offer(2, 1, block1.hash).value(), Chain::CertificateOffer::Newer);
   EXPECT_FALSE(producer.rewindOrder().has_value()) << "the tip is at the cutover";
+  EXPECT_FALSE(producer.cutoverForked());
 
-  gen3.publicKey = makeKeyPair().publicKey;
-  gen3.generation = 4;
-  gen3.cutoverHeight = 0; // block 1 is past it
-  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 3, genesisTime)).value(),
-            Chain::CertificateOffer::Newer);
+  ASSERT_EQ(offer(3, 0, harness_.genesis.hash).value(), Chain::CertificateOffer::Newer); // block 1 is past it
   auto order = producer.rewindOrder();
   ASSERT_TRUE(order.has_value());
   EXPECT_EQ(order->keptUpTo, 0u);
   EXPECT_EQ(order->droppedUpTo, 1u);
-  EXPECT_EQ(order->generation, 4u);
+  EXPECT_EQ(order->generation, 3u);
+  EXPECT_FALSE(producer.cutoverForked());
   EXPECT_EQ(producer.rewindDepthSeconds(*order),
             std::optional<uint64_t>((block1.block.slot - harness_.genesis.block.slot) * producer.getSlotDuration()))
       << "slot time from the cutover block to the last block it drops";
+
+  // bp2: a certificate vouching for another block 1 than this chain holds — a fork, or a mistake.
+  ASSERT_EQ(offer(4, 1, std::string(utl::SHA256_DIGEST_SIZE, 'x')).value(), Chain::CertificateOffer::Newer);
+  EXPECT_TRUE(producer.cutoverForked()) << "the node halts and alerts instead of rewinding";
 }
 
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update

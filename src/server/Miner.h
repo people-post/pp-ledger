@@ -142,6 +142,8 @@ public:
                                                            const std::string &from);
   /** The certificate held out of band, above the generation in force (Chain::seenCertificate). */
   std::optional<BeaconCertificate> getSeenCertificate() const { return chain_.seenCertificate(); }
+  /** The block the held certificate vouches for (Chain::vouchedCutover). */
+  std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const { return chain_.vouchedCutover(); }
 
 
   Roe<bool> produceBlock(Ledger::ChainNode &block);

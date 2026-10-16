@@ -137,7 +137,7 @@ not installed in `RecordHandler`.
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  9) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  10) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), and `authority` (below). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
   checkpoint reads — must carry the config in force for its block, if an update is still pending

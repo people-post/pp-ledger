@@ -602,6 +602,7 @@ void MinerServer::initBlockSync() {
   hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
     miner_.noteEquivocation(evidence, "the upstream's STATUS");
   };
+  hooks.vouchedCutover = [this]() { return miner_.vouchedCutover(); };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = miner_.calculateHash(block.block);

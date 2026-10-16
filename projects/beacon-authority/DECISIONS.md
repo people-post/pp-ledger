@@ -344,7 +344,7 @@ is on chain would let a node accept blocks the new beacon has not yet committed;
 rewinding nodes past the cutover, is part 2.
 **Cons:** Nodes holding blocks above a cutover stop following and need part 2's rewind. A cutover
 the chain passes before the certificate commits makes it uncommittable (the staged beacon stops at
-the cutover instead of passing it; a new certificate is needed). Another admin-signed certificate
+the cutover instead of passing it; a new certificate is needed). (B026 drops cutovers in the future: a cutover now names an existing block by its hash.) Another admin-signed certificate
 for the generation held is refused (the first stays) — the admins issue a higher generation
 instead. A node with no blocks syncs its first range under the authority of its first block only.
 **Alternatives:** Keep `cutover < commit` and enforce cutovers only once on chain (no protection
@@ -560,4 +560,32 @@ was idle for long counts its idle slots.
 **Alternatives:** No bound (the admins' signature alone; one mistake cuts everything); a bound in
 blocks (block rates vary); approval over RPC (anyone who can reach the node could approve) or a file
 in the data directory (easy to leave behind).
+
+## B026 — A cutover names a block by its hash, and commits right after it
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Later generations](../../docs/contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18), [§ Certificates out of band](../../docs/contracts/BEACON_AUTHORITY.md#certificates-out-of-band), [§ Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind) (normative; this entry keeps the why).
+**Decision:** `BeaconCertificate` v2 (genesis meta v10) adds `cutoverHash` and `dialHints` (B024).
+A certificate with a cutover carries the 32-byte hash of block *C* and commits exactly in block
+*C*+1, whose `previousHash` it must equal; without a cutover the hash is empty. Above generation 1,
+*C* is above the cutover in force, so the block that committed the generation in force stays. A
+node holding another block at *C* never rewinds on that certificate — not even approved — and
+alerts. A node behind *C* syncs to (*C*, `cutoverHash`) with no tip; a node with no blocks checks
+its upstream's `STATUS` certificate against the authority it builds from its first block and is
+bounded by it (ending its range at *C* when the certificate is newer than the tip).
+`mk-beacon-cert --cutover` reads block *C* from a node, computes its hash and prints the depth.
+**Rationale:** The hash makes the cutover an exact block, which is what lets the certificate vouch
+for it when no tip can (the takeover gap) and what turns a mistaken height into a refusal instead of
+a deeper cut — the user asked for guards against cutting too much. A hash can only name a block that
+exists, so a cutover can no longer sit in the future: B017's "honest rotation with a margin" goes,
+and honest rotations use no cutover (they never needed one). Keeping the block that committed the
+generation in force avoids a chain whose own certificate is gone. A node with no blocks had no
+chain to check a certificate against; the authority it builds from its first block is the same
+root it trusts for everything else.
+**Cons:** Breaking certificate and genesis-meta formats (nothing released, B008). An operator must
+reach a node to write a certificate with a cutover. A node with no blocks still takes its first
+block on trust when unpinned, and its upstream chooses which certificate it shows.
+**Alternatives:** A height alone (a typo cuts more; nothing vouches for the block); a hash checked
+only out of band (the chain would accept a certificate naming the wrong block); letting an approval
+override a fork (the operator would be approving an unknown cut).
 

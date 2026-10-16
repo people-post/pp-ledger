@@ -67,13 +67,22 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
 /**
  * A later beacon certificate against the authority in force (beacon-authority ba2): the chain's
  * `networkId`; a valid key that is new — not the current beacon key, an admin key or a recovery
- * key; `cutoverHeight` not below the current one. On chain (`commitBlockId` set): exactly the
- * next generation, committed no later than the block after its cutover — the previous generation
- * never signs past it (ba5c). Out of band (nullopt): any higher generation.
+ * key; `cutoverHeight` not below the current one, and — with a cutover, generation in force above
+ * 1 — above it, so the block that committed the generation in force stays (bp2); `cutoverHash`
+ * set exactly when there is a cutover; dial hints bounded. On chain (`commitBlockId` set): exactly
+ * the next generation, committed no later than the block after its cutover — the previous
+ * generation never signs past it (ba5c) — and, with a cutover, exactly in that block (its hash is
+ * checked by validateCutoverBlock). Out of band (nullopt): any higher generation.
  */
 Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const ChainAuthority &current,
                                         const Client::Wallet &adminWallet, const std::string &networkId,
                                         std::optional<uint64_t> commitBlockId);
+
+/** A certificate's dial hints: at most 8, each a non-empty string of at most 256 bytes. */
+Roe<void> validateCertificateHints(const BeaconCertificate &cert);
+
+/** On chain, with a cutover: `cutoverBlockHash` (block C's, the one before the commit) is `cutoverHash`. */
+Roe<void> validateCutoverBlock(const BeaconCertificate &cert, const std::string &cutoverBlockHash);
 
 /**
  * The certificate in force once block `commitBlockId` commits it (ba5c): its `cutoverHeight` is the

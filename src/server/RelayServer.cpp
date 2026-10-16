@@ -245,6 +245,7 @@ void RelayServer::initBlockSync() {
   hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
     noteEquivocation(evidence, "the beacon's STATUS", /*pushUp=*/false);
   };
+  hooks.vouchedCutover = [this]() { return relay_.vouchedCutover(); };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = relay_.calculateHash(block.block);

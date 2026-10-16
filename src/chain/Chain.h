@@ -193,6 +193,17 @@ public:
    */
   std::optional<uint64_t> rewindDepthSeconds(const Client::RewindReport &order) const;
   /**
+   * The held certificate vouches for a block this chain holds at its cutover height, but with
+   * another hash (bp2): history forked at or below it, or the certificate names the wrong block.
+   * The node does not rewind then — a human must look.
+   */
+  bool cutoverForked() const;
+  /**
+   * The block a held certificate vouches for (`cutoverHeight`, `cutoverHash`): a node behind it may
+   * sync up to it with no signed tip (BlockSync). None without a held certificate with a cutover.
+   */
+  std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const;
+  /**
    * The current certificate, as STATUS serves it: the one held out of band, else the latest
    * committed T_BEACON_CERT this node holds (none at generation 1, or from before a checkpoint
    * start).

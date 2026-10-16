@@ -347,6 +347,7 @@ TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
   cert.generation = 2;
   cert.publicKey = utl::mlDsaGenerate().value().publicKey;
   cert.cutoverHeight = 0;
+  cert.cutoverHash = beacon.readBlock(0).value().hash;
   Ledger::TxBeaconCert tx;
   tx.meta = cert.ltsToString();
   Ledger::Record record;
@@ -369,6 +370,41 @@ TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
   beacon.setMaxAutomaticRewind(rewind::kMaxAutomaticRewind);
   EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "within seven days: on its own";
   EXPECT_TRUE(fs::exists(order));
+}
+
+// beacon-authority bp2: a certificate vouching for another block at the cutover than the node holds
+// orders no rewind — the node's history forked at or below it, or the certificate names the wrong
+// block (a typo'd height must not cut more): the node halts and alerts instead.
+TEST_F(MinerPoolTest, ACertificateVouchingForAnotherCutoverBlockIsNotObeyed) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 14)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  Beacon beacon;
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  ASSERT_TRUE(beacon.addBlock(block).isOk());
+
+  BeaconCertificate cert; // generation 2, cutover at genesis — with a hash that is not genesis's
+  cert.networkId = "test-net";
+  cert.generation = 2;
+  cert.publicKey = utl::mlDsaGenerate().value().publicKey;
+  cert.cutoverHeight = 0;
+  cert.cutoverHash = std::string(32, 'x');
+  Ledger::TxBeaconCert tx;
+  tx.meta = cert.ltsToString();
+  Ledger::Record record;
+  record.type = Ledger::T_BEACON_CERT;
+  record.data = utl::binaryPack(tx);
+  for (size_t i = 0; i < 2; ++i) {
+    record.signatures.push_back(utl::mlDsaSign(genesisKeys_[i].privateKey, record.signingMessage("test-net")).value());
+  }
+  ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
+  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "not on its own";
+  EXPECT_FALSE(beacon.scheduleRewind(2).value()) << "nor approved: an approval does not fix a fork";
+  EXPECT_FALSE(fs::exists(fs::path(mount.workDir) / rewind::FILE_ORDER));
 }
 
 } // namespace

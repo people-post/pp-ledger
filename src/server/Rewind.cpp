@@ -90,6 +90,16 @@ pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string
 pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration,
                             std::chrono::seconds maxAutomatic) {
   Scheduled scheduled;
+  if (chain.cutoverForked()) { // also at the cutover itself, where no rewind is due
+    const auto &cert = *chain.seenCertificate();
+    Client::RewindReport report;
+    report.keptUpTo = cert.cutoverHeight;
+    report.droppedUpTo = chain.getNextBlockId() - 1;
+    report.generation = cert.generation;
+    scheduled.kind = Scheduled::Kind::Forked;
+    scheduled.order = report;
+    return scheduled;
+  }
   scheduled.order = chain.rewindOrder();
   if (!scheduled.order) {
     return scheduled;

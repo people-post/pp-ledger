@@ -55,6 +55,21 @@ chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
     if (auto observed = observeRecord(record, block.index, block.epoch); !observed) {
       return observed;
     }
+    // A certificate with a cutover commits right after the block it vouches for (bp2).
+    // (observeRecord read the certificate already.)
+    if (record.type != Ledger::T_BEACON_CERT) {
+      continue;
+    }
+    auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
+    if (!tx) {
+      continue;
+    }
+    if (auto cert = BeaconCertTxHandler::decodeCertificate(tx.value()); cert) {
+      if (auto same = chain_tx::validateCutoverBlock(cert.value(), block.previousHash); !same) {
+        return chain_tx::TxError(same.error().code,
+                                 "Block " + std::to_string(block.index) + ": " + same.error().message);
+      }
+    }
   }
   return {};
 }
@@ -187,6 +202,32 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
   lastCertificateBlock_.emplace(blockId);
   authority_.beacon = chain_tx::certificateInForce(cert.value(), blockId);
   return {};
+}
+
+chain_tx::Roe<BeaconCertificate> AuthorityTrail::acceptOutOfBand(const Ledger::Record &record) {
+  if (record.type != Ledger::T_BEACON_CERT) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Not a beacon certificate record");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
+  if (!tx) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable beacon certificate");
+  }
+  auto cert = BeaconCertTxHandler::decodeCertificate(tx.value());
+  if (!cert) {
+    return cert.error();
+  }
+  if (auto signed_ = verifyAdminSigned(record); !signed_) {
+    return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
+                             "Beacon certificate not signed by the admin set: " + signed_.error().message);
+  }
+  if (auto valid = chain_tx::validateNextBeaconCertificate(cert.value(), authority_, admin_, networkId_, std::nullopt);
+      !valid) {
+    return valid.error();
+  }
+  if (!seen_ || cert.value().generation > seen_->generation) {
+    seen_ = cert.value();
+  }
+  return cert;
 }
 
 chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) const {

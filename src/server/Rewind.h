@@ -34,6 +34,7 @@ struct Scheduled {
     None,     ///< no rewind ordered
     Ordered,  ///< the order is written: the node restarts to apply it
     HeldBack, ///< deeper than the node rewinds on its own, and not approved
+    Forked,   ///< the node's block at the cutover is not the one the certificate vouches for
   };
   Kind kind{Kind::None};
   std::optional<Client::RewindReport> order;
@@ -42,9 +43,10 @@ struct Scheduled {
 };
 
 /**
- * Write the rewind `chain`'s held certificate orders (Chain::rewindOrder) to `dataDir`, unless it
- * reaches back further than `maxAutomatic` (or that cannot be read) and the operator has not
- * approved its generation (`approvedGeneration`, 0 = none).
+ * Write the rewind `chain`'s held certificate orders (Chain::rewindOrder) to `dataDir`, unless the
+ * node holds another block at the cutover (Forked: never on its own — a fork at or below it, or a
+ * mistaken certificate), or the rewind reaches back further than `maxAutomatic` (or that cannot be
+ * read) and the operator has not approved its generation (`approvedGeneration`, 0 = none).
  */
 pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration,
                             std::chrono::seconds maxAutomatic = kMaxAutomaticRewind);

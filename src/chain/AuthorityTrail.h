@@ -69,6 +69,12 @@ public:
    */
   void setSeenCertificate(std::optional<BeaconCertificate> seen) { seen_ = std::move(seen); }
   /**
+   * A certificate from outside the blocks, checked against this trail's admin set and authority
+   * (bp2: a node with no blocks has no chain to check it against): admin-signed, a higher
+   * generation, valid as out of band. Kept as the seen certificate, bounding verifyTip.
+   */
+  chain_tx::Roe<BeaconCertificate> acceptOutOfBand(const Ledger::Record &record);
+  /**
    * Equivocation evidence the node holds (beacon-authority ba6): verifyTip() then refuses a tip of
    * its generation above its height.
    */
