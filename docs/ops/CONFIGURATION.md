@@ -191,6 +191,25 @@ rewinding them is part 2 of [beacon-authority](../../projects/beacon-authority/D
 an honest rotation a cutover only above the tip by a margin: the certificate must commit by the
 block after it, and a staged beacon holding the certificate commits nothing past it until then.
 
+**Replacing the admin keys** (lost or stolen admin keys; the recovery set's only power). The
+recovery key holders write, sign and submit a `T_RECOVERY` naming the new admin set — at least 3
+keys and a threshold of at least 2 — held apart from the recovery keys
+([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)):
+
+```bash
+pp-client keygen -o admin-new1                                # each new admin, offline; likewise 2, 3
+pp-client mk-recovery --network-id <id> --admin-pubkey admin-new1.pub --admin-pubkey admin-new2.pub \
+  --admin-pubkey admin-new3.pub --min-signatures 2 -o recovery.tx
+pp-client sign-tx -k recovery1.key --network-id <id> recovery.tx   # each recovery holder, until its quorum
+pp-client submit-tx -b <relay or beacon> recovery.tx
+```
+
+Once a block commits it, `pp-client status` shows `Recovery: pending, applies at epoch E`, and every
+node logs an alert each epoch until then. Meanwhile the current admin set is frozen: no config
+update, no beacon certificate — so a stolen admin key gets nothing out of the wait, and an honest
+admin who sees an unexpected recovery has `delayEpochs` to act out of band (the admins cannot
+cancel it). From the first block of epoch E the new keys are the admin set.
+
 The beacon and each relay create `keys/amp-identity.txt` on first start; its
 peer id is the `/p2p/` part of their multiaddr, printed at start as
 `AMP ledger listener: ...`. A miner's identity is its first account key.
