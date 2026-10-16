@@ -68,8 +68,10 @@ public:
     Roe<std::string> readBlock(uint64_t index) const override;
     Roe<uint64_t> appendBlock(const std::string &block) override;
     Roe<void> rewindTo(uint64_t index) override;
+    /** Commit each block file holding uncommitted blocks, in file order. */
+    Roe<void> commit() override;
 
-    /** Flush index and close all open block files. Safe to call multiple times. */
+    /** Commit and close all open block files. Safe to call multiple times. */
     void close();
 
 private:
@@ -148,7 +150,6 @@ private:
     bool saveIndex();
     bool writeIndexHeader(std::ostream &os);
     bool readIndexHeader(std::istream &is);
-    void flush();
 
     Roe<void> openExistingBlockFiles();
     void recalculateTotalBlockCount();

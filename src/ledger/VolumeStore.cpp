@@ -1,5 +1,6 @@
 #include "VolumeStore.h"
 #include "common/Logger.h"
+#include "lib/common/FileSync.h"
 #include "common/Serialize.hpp"
 #include "lib/common/BinaryPack.hpp"
 
@@ -15,9 +16,8 @@ VolumeStore::VolumeStore() {}
 VolumeStore::~VolumeStore() { close(); }
 
 void VolumeStore::close() {
-  if (!config_.volumesDir.empty() &&
-      std::filesystem::exists(config_.volumesDir)) {
-    flush();
+  if (auto committed = commit(); !committed) {
+    log().error << "Failed to commit on close: " << committed.error().message;
   }
   volumeInfoMap_.clear();
   volumeIdOrder_.clear();
@@ -70,6 +70,10 @@ VolumeStore::Roe<void> VolumeStore::init(const InitConfig &config) {
 
   if (!saveIndex()) {
     return Error("Failed to create volumes index file");
+  }
+  const std::string parent = std::filesystem::path(config.volumesDir).parent_path().string();
+  if (auto synced = utl::syncDirectory(parent.empty() ? std::string(".") : parent); !synced) {
+    return Error(synced.error().message);
   }
 
   // Always start with v000001 — no root special case / relocate.
@@ -209,8 +213,20 @@ VolumeStore::Roe<uint64_t> VolumeStore::appendBlock(const std::string &block) {
   }
 
   totalBlockCount_++;
-  saveIndex();
   return totalBlockCount_ - 1;
+}
+
+VolumeStore::Roe<void> VolumeStore::commit() {
+  for (uint32_t volumeId : volumeIdOrder_) {
+    auto it = volumeInfoMap_.find(volumeId);
+    if (it == volumeInfoMap_.end() || !it->second.store) {
+      continue;
+    }
+    if (auto committed = it->second.store->commit(); !committed) {
+      return Error("Failed to commit volume " + std::to_string(volumeId) + ": " + committed.error().message);
+    }
+  }
+  return {};
 }
 
 VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
@@ -247,20 +263,27 @@ VolumeStore::Roe<void> VolumeStore::rewindTo(uint64_t index) {
     }
   }
 
+  // Unlist the later volumes durably before deleting them: an index naming a deleted volume
+  // would not mount.
+  std::vector<std::pair<uint32_t, std::unique_ptr<FileDirStore>>> removed;
   for (uint32_t vid : toRemove) {
-    auto it = volumeInfoMap_.find(vid);
-    if (it != volumeInfoMap_.end()) {
-      if (it->second.store) {
-        it->second.store->close();
-      }
-      std::string path = getVolumePath(vid);
-      std::error_code ec;
-      std::filesystem::remove_all(path, ec);
-      volumeInfoMap_.erase(vid);
+    if (auto it = volumeInfoMap_.find(vid); it != volumeInfoMap_.end()) {
+      removed.emplace_back(vid, std::move(it->second.store));
+      volumeInfoMap_.erase(it);
     }
     volumeIdOrder_.erase(
         std::remove(volumeIdOrder_.begin(), volumeIdOrder_.end(), vid),
         volumeIdOrder_.end());
+  }
+  if (!removed.empty() && !saveIndex()) {
+    return Error("Failed to save volumes index before removing volumes");
+  }
+  for (auto &[vid, store] : removed) {
+    if (store) {
+      store->close();
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(getVolumePath(vid), ec);
   }
 
   if (volumeId > 0) {
@@ -301,7 +324,14 @@ FileDirStore *VolumeStore::getActiveVolume(uint64_t dataSize) {
     return nullptr;
   }
   currentVolumeId_ = nextId;
-  saveIndex();
+  // List the new volume only once its directory exists on the device.
+  if (auto synced = utl::syncDirectory(config_.volumesDir); !synced) {
+    log().error << synced.error().message;
+    return nullptr;
+  }
+  if (!saveIndex()) {
+    return nullptr;
+  }
   return created;
 }
 
@@ -388,18 +418,10 @@ bool VolumeStore::loadIndex() {
 }
 
 bool VolumeStore::saveIndex() {
-  std::string tempPath = indexFilePath_ + ".tmp";
-  std::ofstream indexFile(tempPath, std::ios::binary | std::ios::trunc);
-  if (!indexFile.is_open()) {
-    log().error << "Failed to open volumes index for writing: " << tempPath;
+  std::ostringstream indexBytes(std::ios::binary);
+  if (!writeIndexHeader(indexBytes)) {
     return false;
   }
-
-  if (!writeIndexHeader(indexFile)) {
-    indexFile.close();
-    return false;
-  }
-
   for (uint32_t volumeId : volumeIdOrder_) {
     auto it = volumeInfoMap_.find(volumeId);
     if (it == volumeInfoMap_.end()) {
@@ -408,17 +430,10 @@ bool VolumeStore::saveIndex() {
     VolumeIndexEntry entry;
     entry.volumeId = volumeId;
     entry.startBlockId = it->second.startBlockId;
-    std::string packed = utl::binaryPack(entry);
-    indexFile.write(packed.data(),
-                    static_cast<std::streamsize>(packed.size()));
+    indexBytes << utl::binaryPack(entry);
   }
-
-  indexFile.close();
-
-  std::error_code ec;
-  std::filesystem::rename(tempPath, indexFilePath_, ec);
-  if (ec) {
-    log().error << "Failed to rename volumes index: " << ec.message();
+  if (auto replaced = utl::replaceFile(indexFilePath_, indexBytes.str()); !replaced) {
+    log().error << "Failed to save volumes index: " << replaced.error().message;
     return false;
   }
   return true;
@@ -454,12 +469,6 @@ bool VolumeStore::readIndexHeader(std::istream &is) {
   config_.maxFileSize = static_cast<size_t>(header.maxFileSize);
   config_.maxVolumes = static_cast<size_t>(header.maxVolumes);
   return true;
-}
-
-void VolumeStore::flush() {
-  if (!saveIndex()) {
-    log().error << "Failed to save volumes index during flush";
-  }
 }
 
 VolumeStore::Roe<void> VolumeStore::openExistingVolumes() {

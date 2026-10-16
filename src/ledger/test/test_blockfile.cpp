@@ -333,3 +333,86 @@ TEST_F(FileStoreTest, RequiresMinimumMaxSize) {
   auto result = fileStore.init(smallConfig);
   EXPECT_FALSE(result.isOk());
 }
+
+// --- Commit point: the header's block count (durable writes) ---
+
+namespace {
+
+/** The file as a power loss would leave it right now: what reached the file, nothing more. */
+std::string snapshot(const std::string &file, const std::string &name) {
+  const std::string copy = std::filesystem::path(file).parent_path().string() + "/" + name;
+  std::filesystem::copy_file(file, copy, std::filesystem::copy_options::overwrite_existing);
+  return copy;
+}
+
+} // namespace
+
+// Appends write data; only commit() writes the count that makes them survive a restart. Mount keeps
+// the committed blocks and drops the uncommitted tail, so the next append does not land after it.
+TEST_F(FileStoreTest, MountKeepsOnlyCommittedBlocks) {
+  ASSERT_TRUE(fileStore.init(config).isOk());
+  ASSERT_TRUE(fileStore.appendBlock("block-0").isOk());
+  ASSERT_TRUE(fileStore.appendBlock("block-1").isOk());
+  ASSERT_TRUE(fileStore.commit().isOk());
+  EXPECT_FALSE(fileStore.hasUncommitted());
+  const auto committedSize = fileStore.getCurrentSize();
+  ASSERT_TRUE(fileStore.appendBlock("block-2 never committed").isOk());
+  EXPECT_TRUE(fileStore.hasUncommitted());
+
+  const std::string crashed = snapshot(testFile, "crashed.dat");
+  pp::FileStore restarted;
+  ASSERT_TRUE(restarted.mount(crashed, config.maxSize).isOk());
+  EXPECT_EQ(restarted.getBlockCount(), 2u);
+  EXPECT_EQ(std::filesystem::file_size(crashed), committedSize) << "the uncommitted tail is gone";
+  ASSERT_TRUE(restarted.appendBlock("block-2 again").isOk());
+  EXPECT_EQ(restarted.readBlock(2).value(), "block-2 again");
+  EXPECT_EQ(restarted.readBlock(1).value(), "block-1");
+  restarted.close();
+}
+
+// A torn write after the committed blocks (a power loss mid-append) is dropped, however it looks.
+TEST_F(FileStoreTest, MountDropsATornTail) {
+  ASSERT_TRUE(fileStore.init(config).isOk());
+  ASSERT_TRUE(fileStore.appendBlock("block-0").isOk());
+  ASSERT_TRUE(fileStore.commit().isOk());
+  fileStore.close();
+  const auto committedSize = std::filesystem::file_size(testFile);
+  {
+    std::ofstream out(testFile, std::ios::binary | std::ios::app);
+    out << std::string(100, '\0'); // zeros parse as size prefixes of empty blocks
+  }
+  pp::FileStore restarted;
+  ASSERT_TRUE(restarted.mount(testFile, config.maxSize).isOk());
+  EXPECT_EQ(restarted.getBlockCount(), 1u);
+  EXPECT_EQ(std::filesystem::file_size(testFile), committedSize);
+  restarted.close();
+}
+
+// A header committing more blocks than the file holds is refused, not silently shortened.
+TEST_F(FileStoreTest, MountRefusesAHeaderAboveItsData) {
+  ASSERT_TRUE(fileStore.init(config).isOk());
+  ASSERT_TRUE(fileStore.appendBlock("block-0").isOk());
+  ASSERT_TRUE(fileStore.appendBlock("block-1").isOk());
+  ASSERT_TRUE(fileStore.commit().isOk());
+  fileStore.close();
+  std::filesystem::resize_file(testFile, std::filesystem::file_size(testFile) - 3);
+  pp::FileStore restarted;
+  auto mounted = restarted.mount(testFile, config.maxSize);
+  ASSERT_FALSE(mounted.isOk());
+  EXPECT_NE(mounted.error().message.find("header commits 2"), std::string::npos) << mounted.error().message;
+}
+
+// Rewind lowers the commit point and the data together; the result mounts as rewound.
+TEST_F(FileStoreTest, RewindIsCommitted) {
+  ASSERT_TRUE(fileStore.init(config).isOk());
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_TRUE(fileStore.appendBlock("block-" + std::to_string(i)).isOk());
+  }
+  ASSERT_TRUE(fileStore.rewindTo(1).isOk());
+  EXPECT_FALSE(fileStore.hasUncommitted());
+  pp::FileStore restarted;
+  ASSERT_TRUE(restarted.mount(snapshot(testFile, "rewound.dat"), config.maxSize).isOk());
+  EXPECT_EQ(restarted.getBlockCount(), 1u);
+  EXPECT_EQ(restarted.readBlock(0).value(), "block-0");
+  restarted.close();
+}

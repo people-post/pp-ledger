@@ -1,5 +1,6 @@
 #include "FileStore.h"
 #include "common/Logger.h"
+#include "lib/common/FileSync.h"
 #include <filesystem>
 
 namespace pp {
@@ -14,6 +15,7 @@ FileStore::Roe<void> FileStore::init(const InitConfig &config) {
   currentSize_ = 0;
   headerValid_ = false;
   blockCount_ = 0;
+  committedCount_ = 0;
   blockIndex_.clear();
   indexBuilt_ = false;
 
@@ -43,6 +45,11 @@ FileStore::Roe<void> FileStore::init(const InitConfig &config) {
     return headerResult.error();
   }
   currentSize_ = HEADER_SIZE;
+  committedCount_ = 0;
+  // The caller lists the file in an index next: it must exist on the device first.
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
   log().debug << "Created new file with header: " << filepath_;
 
   return {};
@@ -54,6 +61,7 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
   currentSize_ = 0;
   headerValid_ = false;
   blockCount_ = 0;
+  committedCount_ = 0;
   blockIndex_.clear();
   indexBuilt_ = false;
 
@@ -86,8 +94,15 @@ FileStore::Roe<void> FileStore::mount(const std::string &filepath, size_t maxSiz
   // Get total file size (including header)
   currentSize_ = std::filesystem::file_size(filepath_);
   
-  // Load block count from header
+  // The header commits its blocks; anything after them was never committed.
   blockCount_ = header_.blockCount;
+  committedCount_ = blockCount_;
+  if (auto built = buildBlockIndex(); !built) {
+    return built;
+  }
+  if (auto dropped = dropUncommittedTail(); !dropped) {
+    return dropped;
+  }
   log().debug << "Mounted existing file: " << filepath_
               << " (total size: " << currentSize_
               << " bytes, version: " << header_.version
@@ -179,13 +194,7 @@ FileStore::Roe<int64_t> FileStore::write(const void *data, uint64_t size) {
   blockCount_++;
   currentSize_ += SIZE_PREFIX_BYTES + size;
   
-  // Update block count in header immediately (for durability)
-  auto headerResult = updateHeaderBlockCount();
-  if (!headerResult.isOk()) {
-    log().warning << "Failed to update header block count: " 
-                  << headerResult.error().message;
-  }
-  
+  // Not committed yet: commit() writes the count once the data is on the device.
   log().debug << "Wrote block " << blockIdx << " (" << size 
               << " bytes) at file offset " << fileOffset
               << " (total file size: " << currentSize_ << ")";
@@ -275,13 +284,9 @@ bool FileStore::isOpen() const { return file_.is_open() && file_.good(); }
 
 void FileStore::close() {
   if (file_.is_open()) {
-    // Update block count in header before closing
-    auto result = updateHeaderBlockCount();
-    if (!result.isOk()) {
-      log().warning << "Failed to update header block count: " 
-                    << result.error().message;
+    if (auto committed = commit(); !committed) {
+      log().warning << "Failed to commit on close: " << committed.error().message;
     }
-    
     file_.close();
     log().debug << "Closed file: " << filepath_ << " (blocks: " << blockCount_ << ")";
   }
@@ -291,6 +296,58 @@ void FileStore::flush() {
   if (file_.is_open()) {
     file_.flush();
   }
+}
+
+FileStore::Roe<void> FileStore::commit() {
+  if (!hasUncommitted()) {
+    return {};
+  }
+  if (!isOpen()) {
+    return Error("File is not open: " + filepath_);
+  }
+  // Data first, then the count that commits it: a power loss between the two leaves the old count.
+  file_.flush();
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
+  if (auto header = updateHeaderBlockCount(); !header) {
+    return header;
+  }
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
+  committedCount_ = blockCount_;
+  return {};
+}
+
+FileStore::Roe<void> FileStore::truncateTo(int64_t size) {
+  file_.close(); // Windows cannot resize an open file
+  std::error_code ec;
+  std::filesystem::resize_file(filepath_, static_cast<uintmax_t>(size), ec);
+  if (ec) {
+    return Error("Failed to truncate " + filepath_ + ": " + ec.message());
+  }
+  currentSize_ = static_cast<size_t>(size);
+  return open();
+}
+
+FileStore::Roe<void> FileStore::dropUncommittedTail() {
+  const int64_t end = blockIndex_.empty()
+                          ? getDataOffset()
+                          : blockIndex_.back().offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) +
+                                static_cast<int64_t>(blockIndex_.back().size);
+  if (static_cast<int64_t>(currentSize_) <= end) {
+    return {};
+  }
+  log().warning << "Dropping " << (static_cast<int64_t>(currentSize_) - end) << " bytes after the "
+                << blockCount_ << " committed blocks of " << filepath_ << " (never committed)";
+  if (auto truncated = truncateTo(end); !truncated) {
+    return truncated;
+  }
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
+  return {};
 }
 
 FileStore::Roe<void> FileStore::writeHeader() {
@@ -407,7 +464,7 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
   int64_t offset = getDataOffset();
   int64_t fileEnd = static_cast<int64_t>(currentSize_);
   
-  while (offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) <= fileEnd) {
+  while (blockIndex_.size() < blockCount_ && offset + static_cast<int64_t>(SIZE_PREFIX_BYTES) <= fileEnd) {
     // Seek to current position
     file_.seekg(offset, std::ios::beg);
     if (!file_.good()) {
@@ -444,14 +501,11 @@ FileStore::Roe<void> FileStore::buildBlockIndex() {
              static_cast<int64_t>(blockSize);
   }
 
-  indexBuilt_ = true;
-  
-  // Update blockCount_ from scanned data if different from header
   if (blockIndex_.size() != blockCount_) {
-    log().debug << "Block count mismatch: header says " << blockCount_
-                << ", scanned " << blockIndex_.size();
-    blockCount_ = blockIndex_.size();
+    return Error(filepath_ + " holds " + std::to_string(blockIndex_.size()) +
+                 " complete blocks, but its header commits " + std::to_string(blockCount_));
   }
+  indexBuilt_ = true;
 
   log().debug << "Built block index with " << blockIndex_.size() << " blocks";
   return {};
@@ -527,58 +581,32 @@ FileStore::Roe<void> FileStore::rewindTo(uint64_t index) {
     return Error("Cannot rewind to index " + std::to_string(index) + 
                  " (max: " + std::to_string(blockCount_) + ")");
   }
-
-  // Truncate the file to remove blocks after the specified index
-  if (index < blockCount_) {
-    if (index == 0) {
-      // Rewind to beginning - keep only header
-      currentSize_ = HEADER_SIZE;
-      blockCount_ = 0;
-      blockIndex_.clear();
-      
-      // Truncate file to header size
-      file_.close();
-      std::filesystem::resize_file(filepath_, HEADER_SIZE);
-      auto openResult = open();
-      if (!openResult.isOk()) {
-        return Error(openResult.error().message);
-      }
-      
-      // Rewrite header with zero block count
-      header_.blockCount = 0;
-      auto headerResult = writeHeader();
-      if (!headerResult.isOk()) {
-        return Error(headerResult.error().message);
-      }
-    } else {
-      // Rewind to specific index - keep blocks up to (but not including) index
-      const BlockEntry &entry = blockIndex_[index];
-      int64_t truncateOffset = entry.offset;
-      
-      // Update counts
-      blockCount_ = index;
-      currentSize_ = truncateOffset;
-      
-      // Truncate block index
-      blockIndex_.resize(index);
-      
-      // Truncate file
-      file_.close();
-      std::filesystem::resize_file(filepath_, truncateOffset);
-      auto openResult = open();
-      if (!openResult.isOk()) {
-        return Error(openResult.error().message);
-      }
-      
-      // Update header
-      header_.blockCount = blockCount_;
-      auto headerResult = updateHeaderBlockCount();
-      if (!headerResult.isOk()) {
-        return Error(headerResult.error().message);
-      }
-    }
+  if (index == blockCount_) {
+    return {};
   }
-  
+
+  const int64_t end = index == 0 ? getDataOffset() : blockIndex_[index].offset;
+  // Lower the commit point before cutting the data: a crash in between leaves bytes past the
+  // committed blocks, which mount drops — never a count above the data.
+  file_.flush();
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
+  blockCount_ = index;
+  blockIndex_.resize(index);
+  if (auto header = updateHeaderBlockCount(); !header) {
+    return header;
+  }
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
+  committedCount_ = blockCount_;
+  if (auto truncated = truncateTo(end); !truncated) {
+    return truncated;
+  }
+  if (auto synced = utl::syncFile(filepath_); !synced) {
+    return Error(synced.error().message);
+  }
   return {};
 }
 

@@ -297,6 +297,8 @@ public:
 
   Roe<void> initLedger(const Ledger::InitConfig &config);
   Roe<void> mountLedger(const std::string &workDir);
+  /** When added blocks become durable (Ledger::CommitPolicy); the beacon commits every block. */
+  void setLedgerCommitPolicy(const Ledger::CommitPolicy &policy) { txContext_.ledger.setCommitPolicy(policy); }
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
   Roe<void> addBlock(const Ledger::ChainNode &block);
   /**

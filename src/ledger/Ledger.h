@@ -7,6 +7,7 @@
 #include "lib/common/Utilities.h"
 
 #include <vector>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <memory>
@@ -316,13 +317,30 @@ public:
     uint64_t startingBlockId{ 0 };
   };
 
+  /**
+   * When appended blocks are committed (made durable; see DirStore::commit): once this many are
+   * uncommitted, or the oldest has waited this long, the append that reaches it commits. A crash
+   * loses only uncommitted blocks — a relay or miner syncs them again; the beacon, which signs
+   * what it commits, commits every block (everyBlock()).
+   */
+  struct CommitPolicy {
+    uint64_t maxUncommittedBlocks{ 1000 };
+    std::chrono::milliseconds maxUncommittedAge{ 5000 };
+
+    static CommitPolicy everyBlock() { return CommitPolicy{ 1, std::chrono::milliseconds(0) }; }
+  };
+
   uint64_t getNextBlockId() const;
   /** First valid block ID (same as startingBlockId from init/mount). No blocks when getNextBlockId() <= getStartingBlockId(). */
   uint64_t getStartingBlockId() const;
 
   Roe<void> init(const InitConfig& config);
   Roe<void> mount(const std::string& workDir);
+  /** Append `block`; it is committed when the commit policy says so (commit()). */
   Roe<void> addBlock(const ChainNode& block);
+  /** Commit every block appended so far: it survives a crash or a power loss. */
+  Roe<void> commit();
+  void setCommitPolicy(const CommitPolicy &policy) { commitPolicy_ = policy; }
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
   Roe<ChainNode> readBlock(uint64_t blockId) const;
   Roe<ChainNode> readLastBlock() const;
@@ -380,6 +398,10 @@ private:
   std::string indexFilePath_;
   Meta meta_;
   VolumeStore store_;
+
+  CommitPolicy commitPolicy_;
+  uint64_t uncommittedBlocks_{ 0 };
+  std::chrono::steady_clock::time_point oldestUncommittedAt_{};
 
   /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
   mutable std::optional<ChainNode> latestBlockCache_;

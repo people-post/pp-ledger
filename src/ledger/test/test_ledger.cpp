@@ -2,6 +2,7 @@
 #include "TestTempPath.h"
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <chrono>
 #include <fstream>
 
 using namespace pp;
@@ -712,4 +713,62 @@ TEST_F(LedgerTest, StartingBlockIdPreservedWithNonZeroStartingBlockId) {
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+}
+
+// --- Commit policy: what a crash keeps ---
+
+namespace {
+
+/** The ledger directory as a crash would leave it right now (what reached its files). */
+std::filesystem::path snapshotDir(const std::filesystem::path &dir, const std::string &suffix) {
+  std::filesystem::path copy = dir;
+  copy += suffix;
+  std::error_code ec;
+  std::filesystem::remove_all(copy, ec);
+  std::filesystem::copy(dir, copy, std::filesystem::copy_options::recursive);
+  return copy;
+}
+
+uint64_t nextBlockIdAfterCrash(const std::filesystem::path &dir, const std::string &suffix) {
+  const auto copy = snapshotDir(dir, suffix);
+  uint64_t next = 0;
+  {
+    Ledger restarted;
+    EXPECT_TRUE(restarted.mount(copy.string()).isOk());
+    next = restarted.getNextBlockId();
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(copy, ec);
+  return next;
+}
+
+} // namespace
+
+// A block is durable once committed: by the policy (every block for the beacon, which signs what
+// it commits; batches for relays and miners) or by commit(). A crash loses only what follows.
+TEST_F(LedgerTest, ACrashKeepsCommittedBlocksOnly) {
+  ensureTestDirDoesNotExist();
+  Ledger ledger;
+  Ledger::InitConfig config;
+  config.workDir = testDir_.string();
+  ASSERT_TRUE(ledger.init(config).isOk());
+  Ledger::CommitPolicy batches;
+  batches.maxUncommittedBlocks = 3;
+  batches.maxUncommittedAge = std::chrono::hours(1);
+  ledger.setCommitPolicy(batches);
+
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(0, "a")).isOk());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(1, "b")).isOk());
+  EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-crash1"), 0u) << "two appended, none committed yet";
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(2, "c")).isOk());
+  EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-crash2"), 3u) << "the third append commits the batch";
+
+  ledger.setCommitPolicy(Ledger::CommitPolicy::everyBlock());
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(3, "d")).isOk());
+  EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-crash3"), 4u) << "every block, as the beacon commits";
+
+  ledger.setCommitPolicy(batches);
+  ASSERT_TRUE(ledger.addBlock(createTestBlock(4, "e")).isOk());
+  ASSERT_TRUE(ledger.commit().isOk());
+  EXPECT_EQ(nextBlockIdAfterCrash(testDir_, "-crash4"), 5u) << "an explicit commit";
 }

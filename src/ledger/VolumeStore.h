@@ -51,6 +51,8 @@ public:
   Roe<std::string> readBlock(uint64_t index) const override;
   Roe<uint64_t> appendBlock(const std::string &block) override;
   Roe<void> rewindTo(uint64_t index) override;
+  /** Commit each volume holding uncommitted blocks, in volume order. */
+  Roe<void> commit() override;
 
   void close();
 
@@ -118,7 +120,6 @@ private:
   bool saveIndex();
   bool writeIndexHeader(std::ostream &os);
   bool readIndexHeader(std::istream &is);
-  void flush();
 
   Roe<void> openExistingVolumes();
   void recalculateTotalBlockCount();

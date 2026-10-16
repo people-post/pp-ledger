@@ -1,6 +1,9 @@
 #include "FileDirStore.h"
 #include "TestTempPath.h"
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <chrono>
+#include <thread>
 #include <filesystem>
 #include <cstring>
 #include <cstdint>
@@ -88,6 +91,7 @@ TEST_F(FileDirStoreTest, LoadsExistingIndex) {
     ASSERT_TRUE(result1.isOk());
     
     // Mount existing directory - should load existing index
+    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
     pp::FileDirStore fileDirStore2;
     fileDirStore2.redirectLogger("filedirstore2");
     auto result = fileDirStore2.mount(config.dirPath);
@@ -417,6 +421,7 @@ TEST_F(FileDirStoreTest, CountSizeFromBlockIdAfterMount) {
         expectedTotal += data.size();
         fileDirStore.appendBlock(data);
     }
+    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
     pp::FileDirStore fileDirStore2;
     fileDirStore2.redirectLogger("filedirstore2");
     auto mountResult = fileDirStore2.mount(config.dirPath);
@@ -444,6 +449,7 @@ TEST_F(FileDirStoreTest, PersistsAcrossRestarts) {
     }
     
     // Second session - mount existing directory
+    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
     pp::FileDirStore fileDirStore2;
     fileDirStore2.redirectLogger("filedirstore2");
     fileDirStore2.mount(config.dirPath);
@@ -474,6 +480,7 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
     }
     
     // Mount existing directory
+    ASSERT_TRUE(fileDirStore.commit().isOk()); // a restart sees committed blocks only
     pp::FileDirStore fileDirStore2;
     fileDirStore2.redirectLogger("filedirstore2");
     fileDirStore2.mount(config.dirPath);
@@ -486,4 +493,46 @@ TEST_F(FileDirStoreTest, PersistsMultipleFiles) {
         ASSERT_TRUE(readResult.isOk());
         EXPECT_EQ(readResult.value(), blockData[i]);
     }
+}
+
+// --- Durable index (the file list) ---
+
+// The index lists files, not blocks: an append within a file leaves it alone. It used to be
+// rewritten in place on every append, so a crash mid-write left an index that would not mount.
+TEST_F(FileDirStoreTest, AppendsWithinAFileLeaveTheIndexAlone) {
+    ASSERT_TRUE(fileDirStore.init(config).isOk());
+    ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(0)).isOk()); // creates file 1 and lists it
+    const std::string index = testDir + "/idx.dat";
+    const auto listed = std::filesystem::last_write_time(index);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    for (uint64_t i = 1; i < 5; ++i) {
+        ASSERT_TRUE(fileDirStore.appendBlock(createTestBlock(i)).isOk());
+    }
+    ASSERT_TRUE(fileDirStore.commit().isOk());
+    EXPECT_EQ(std::filesystem::last_write_time(index), listed);
+}
+
+// A block file the index lists but the disk lost would shift every later block id: refused.
+TEST_F(FileDirStoreTest, AMissingListedBlockFileIsRefused) {
+    ASSERT_TRUE(fileDirStore.init(config).isOk());
+    const std::string large(400 * 1024, 'X');
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+    }
+    fileDirStore.close();
+    std::vector<std::filesystem::path> blockFiles;
+    for (const auto &entry : std::filesystem::directory_iterator(testDir)) {
+        if (entry.path().filename() != "idx.dat") {
+            blockFiles.push_back(entry.path());
+        }
+    }
+    ASSERT_GE(blockFiles.size(), 2u) << "the blocks span several files";
+    std::sort(blockFiles.begin(), blockFiles.end());
+    std::filesystem::remove(blockFiles.front());
+
+    pp::FileDirStore restarted;
+    restarted.redirectLogger("filedirstore2");
+    auto mounted = restarted.mount(testDir);
+    ASSERT_TRUE(mounted.isError());
+    EXPECT_NE(mounted.error().message.find("missing"), std::string::npos) << mounted.error().message;
 }

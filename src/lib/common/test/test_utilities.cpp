@@ -1,3 +1,4 @@
+#include "FileSync.h"
 #include "Utilities.h"
 #include "TestTempPath.h"
 #include <gtest/gtest.h>
@@ -321,4 +322,24 @@ TEST(ReadPrivateKeyTest, MissingKeyFileIsReportedAsNotFound) {
   auto key = pp::utl::readPrivateKey("keys/missing.key", "/nonexistent-dir");
   ASSERT_FALSE(key.isOk());
   EXPECT_NE(key.error().message.find("Key file not found"), std::string::npos) << key.error().message;
+}
+
+// Durable replace (FileSync): the new bytes replace the old whole, and nothing is left aside.
+TEST(FileSyncTest, ReplaceFileSwapsContentAndLeavesNoTemp) {
+  const auto dir = pp::test::uniqueTempPath("pp-ledger-file-sync-test");
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir);
+  const std::string path = (dir / "state.dat").string();
+  ASSERT_TRUE(pp::utl::replaceFile(path, "first").isOk());
+  ASSERT_TRUE(pp::utl::replaceFile(path, std::string("second\0bytes", 12)).isOk());
+  std::ifstream in(path, std::ios::binary);
+  const std::string read((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  EXPECT_EQ(read, std::string("second\0bytes", 12));
+  EXPECT_FALSE(std::filesystem::exists(path + ".tmp"));
+  EXPECT_TRUE(pp::utl::syncFile(path).isOk());
+  EXPECT_TRUE(pp::utl::syncDirectory(dir.string()).isOk());
+  EXPECT_FALSE(pp::utl::syncFile((dir / "missing.dat").string()).isOk());
+  std::filesystem::remove_all(dir, ec);
 }

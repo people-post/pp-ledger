@@ -137,8 +137,9 @@ stored, and keeps only the latest signature (`Client::SignedTip`):
 
 One signature authenticates the hash chain below it, so the block format does not change.
 
-- **Never two tips at one height.** The beacon writes the tip to `data/signed-tip.dat` (version
-  `1`) before serving it, and never signs a different block at or below the height stored there.
+- **Never two tips at one height.** The beacon commits the block durably, then writes the tip to
+  `data/signed-tip.dat` (version `1`, synced to the device) before serving it
+  ([LEDGER_STORAGE.md § Durability](LEDGER_STORAGE.md#durability)), and never signs a different block at or below the height stored there.
   At start it refuses a ledger that ends below that tip or holds another block at its height
   (restore the ledger it signed), and signs the committed tip if it is not signed yet (genesis
   after `--init`, or a crash between commit and signing).

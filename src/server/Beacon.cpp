@@ -152,6 +152,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
     return Error(2, "Failed to initialize ledger: " +
                         ledgerResult.error().message);
   }
+  // The beacon signs what it commits: every block is durable before it is signed (B009).
+  chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
 
   config_.workDir = config.workDir;
   auto chainConfig = config.chain;
@@ -217,6 +219,8 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
     return Error(3, "Failed to mount ledger: " +
                         ledgerMountResult.error().message);
   }
+  // The beacon signs what it commits: every block is durable before it is signed (B009).
+  chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
 
   auto loadResult = chain_.loadFromLedger(0);
   if (!loadResult) {

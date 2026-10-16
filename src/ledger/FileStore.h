@@ -16,9 +16,11 @@ namespace pp {
  * - Header: magic, version, blockCount, headerSize
  * - Block data: [size (8 bytes)][data (size bytes)]*
  * 
- * Block sizes are stored at the beginning of each block. On file close,
- * the total block count is written to the header. On first read by index,
- * the block index (offsets) is built by scanning the file.
+ * Block sizes are stored at the beginning of each block. The header's blockCount is the commit
+ * point: appends only write (and flush) block data; commit() syncs that data to the device, then
+ * writes the count and syncs again, so a committed block survives a power loss. mount() keeps the
+ * committed blocks and truncates whatever follows them — blocks appended but never committed, or a
+ * torn write. A file holding fewer complete blocks than its header commits is refused.
  */
 class FileStore : public Module {
 public:
@@ -97,10 +99,18 @@ public:
   Roe<uint64_t> getBlockSize(uint64_t index);
 
   /**
-   * Get the number of blocks stored in this file
+   * Get the number of blocks stored in this file (committed or not)
    * @return Number of blocks
    */
   uint64_t getBlockCount() const { return blockCount_; }
+
+  /**
+   * Make every block appended so far durable: sync the data, then write the block count to the
+   * header and sync it. A no-op when nothing is uncommitted.
+   */
+  Roe<void> commit();
+  /** True while blocks were appended since the last commit. */
+  bool hasUncommitted() const { return blockCount_ != committedCount_; }
 
   /**
    * Check if the file can accommodate more data
@@ -130,7 +140,7 @@ public:
   bool isOpen() const;
 
   /**
-   * Close the file (writes block count to header)
+   * Close the file (commits what was appended)
    */
   void close();
 
@@ -196,11 +206,15 @@ private:
   bool hasValidHeader() const;
 
   /**
-   * Build the block index by scanning the file
-   * Called lazily on first read by index
+   * Build the block index by scanning the header's committed blocks; error if the file holds
+   * fewer complete ones. Called at mount.
    * @return Roe<void> on success or error
    */
   Roe<void> buildBlockIndex();
+  /** At mount: drop the bytes after the committed blocks (an uncommitted or torn tail). */
+  Roe<void> dropUncommittedTail();
+  /** Truncate the file to `size` bytes and reopen it. */
+  Roe<void> truncateTo(int64_t size);
 
   /**
    * Ensure block index is built
@@ -233,6 +247,7 @@ private:
   
   // Block tracking
   uint64_t blockCount_{ 0 };           // Number of blocks written/loaded
+  uint64_t committedCount_{ 0 };       // Blocks the header commits (durable)
   std::vector<BlockEntry> blockIndex_; // Index of block offsets and sizes
   bool indexBuilt_{ false };           // Whether block index has been built
 
