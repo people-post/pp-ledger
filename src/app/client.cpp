@@ -795,13 +795,13 @@ int main(int argc, char *argv[]) {
 
   // Handle keygen command (no server connection needed)
   if (peer_id_cmd->parsed()) {
-    auto key = pp::utl::readPrivateKey(peerIdKey, "");
-    if (!key) {
-      std::cerr << "Error: " << key.error().message << "\n";
+    auto privateKey = pp::utl::readPrivateKey(peerIdKey, "");
+    if (!privateKey) {
+      std::cerr << "Error: " << privateKey.error().message << "\n";
       return 1;
     }
-    auto amp = pp::network::LedgerAmpConfigFromPrivateKey(key.value(), 0);
-    auto publicKey = pp::network::PublicKeyFromPrivateKey(key.value());
+    auto amp = pp::network::LedgerAmpConfigFromPrivateKey(privateKey.value(), 0);
+    auto publicKey = pp::network::PublicKeyFromPrivateKey(privateKey.value());
     if (!amp || !publicKey) {
       std::cerr << "Error: not an ML-DSA-65 private key\n";
       return 1;

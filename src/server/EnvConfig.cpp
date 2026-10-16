@@ -55,11 +55,26 @@ Roe<common::Value> parse(const Field &field, const std::string &text) {
 } // namespace
 
 std::optional<std::string> get(const std::string &name) {
+#ifdef _WIN32
+  // MSVC deprecates getenv (C4996): _dupenv_s copies the value.
+  char *buffer = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&buffer, &length, name.c_str()) != 0 || buffer == nullptr) {
+    return std::nullopt;
+  }
+  std::string value(buffer);
+  std::free(buffer);
+  if (value.empty()) {
+    return std::nullopt;
+  }
+  return value;
+#else
   const char *value = std::getenv(name.c_str());
   if (!value || *value == '\0') {
     return std::nullopt;
   }
   return std::string(value);
+#endif
 }
 
 Roe<std::optional<std::string>> secret(const std::string &name) {
