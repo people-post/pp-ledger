@@ -66,7 +66,7 @@ End-to-end beacon authentication is in design:
 |-----|-------------|---------------|--------------|
 | `REGISTER` | Terminal | Miner is in the registry | Write-through |
 | `CALIBRATION` | Terminal; a gateway answers with its own clock + offset to its upstream | Terminal time | Mirror the calibrated clock |
-| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip`, the current beacon `certificate` | Serve local state; the signed tip as heard from upstream; the highest certificate seen ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)) |
+| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip`, the current beacon `certificate`, any `equivocation` evidence | Serve local state; the signed tip as heard from upstream; the highest certificate seen ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)); the evidence the node halts on ([§ Equivocation halt](../contracts/WIRE_SCHEMA.md#equivocation-halt)) |
 | `MINER_LIST` | Terminal registry | Ids at `registryVersion` | Forward |
 | `BLOCK_GET` | Any node | Block from local storage | Serve locally |
 | `AUTHORITY_PROOF` | Terminal or gateway (chain held from genesis) | The authority-changing records up to a block ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) | Serve locally |
@@ -74,6 +74,7 @@ End-to-end beacon authentication is in design:
 | `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` and the latest signed tip it holds | Serve from own tip |
 | `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through; a beacon certificate is also kept by every node it passes |
 | `TX_PULL` | Terminal pool | Pending txs for the leader | Pass through |
+| `EQUIVOCATION_ADD` | Every node on the way up | Evidence kept; the node halts on it | Keep, then write-through |
 | `ACCOUNT_GET`, `TX_*` | Any node | State at its own tip | Serve locally |
 
 ### Request direction

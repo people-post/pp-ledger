@@ -182,11 +182,12 @@ There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 | `STATUS`, `CALIBRATION` | serves | serves | serves | Chain tip, slot/epoch, network id, registry version; clock |
 | `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
-| `BLOCK_ADD` | commits (refused once it stood down) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
+| `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
 | `TX_ADD` | pools (a beacon certificate is kept first; refused once it stood down, except a certificate) | forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
 | `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions |
 | `REGISTER` | records | forwards up | — | Signed by the miner account's keys; renewed every 60 s |
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
+| `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([WIRE_SCHEMA.md § Equivocation halt](../contracts/WIRE_SCHEMA.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
 Which origins may send what (e.g. nothing travelling up is accepted from a
 node's own upstream) is one table in `Server::isAllowedFrom`; see

@@ -59,7 +59,19 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         it rules out
   - [x] **ba5c.5** Tests (chain, sync, beacon, store; mutation-checked), smoke
         (L-SMOKE-OUT-OF-BAND in `--suite rotation`), docs
-- [ ] **ba6** Equivocation halt: detection, evidence relay, halt and resume
+- [x] **ba6** Equivocation halt: detection, evidence relay, halt and resume (B018). Steps:
+  - [x] **ba6.1** Evidence (`Client::Equivocation`: two tips, one height, different blocks) and the
+        halt: `Chain::offerEquivocation` checks it against the generation's key; `AuthorityTrail`
+        refuses that generation's tips above its height; a later certificate resumes.
+        `UpstreamSignedTip` conflicts by block hash only
+  - [x] **ba6.2** Storage and roles: `EquivocationStore` (`data/equivocation.dat`, shared `NodeFile`
+        helpers); relays and miners build evidence from conflicting tips; the beacon refuses
+        commits above it and producer writes (not a certificate); miners stop producing
+  - [x] **ba6.3** Channels: `STATUS.equivocation` down, `EQUIVOCATION_ADD` up (kept and forwarded
+        at each node; pushed up by the node that found it); `pp-client mk-equivocation` /
+        `add-equivocation`; status shows it
+  - [x] **ba6.4** Tests (chain, store, beacon, sync, wire; mutation-checked), smoke
+        (L-SMOKE-EQUIVOCATION in `--suite rotation`), docs
 - [ ] **ba7** Recovery action: announce, delay, apply (replace the admin set); admin set frozen while
       pending; pending recovery on `STATUS` / logs / alert
 - [ ] **ba8** Promote wire / disk changes into `docs/contracts/`

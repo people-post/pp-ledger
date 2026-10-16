@@ -335,3 +335,28 @@ before the commit: useless against a stolen key); accept the new generation's ti
 `STATUS` and a file (a cut-off node's operator then needs a new tool; `submit-tx` to the node
 already reaches every role).
 
+## B018 — Equivocation: evidence by block hash, halt at the tip gate, resume on a later generation
+
+**Date:** 2026-10-15
+**Decision:** Evidence is two signed tips of one network, generation and height naming different
+blocks (`Client::Equivocation`), checked against that generation's key — in force, or held out of
+band. Equal block hashes with different signatures are no evidence. A node keeps one piece per
+generation (`Chain::offerEquivocation`, persisted in `data/equivocation.dat`) and halts by refusing
+that generation's tips above the height in `AuthorityTrail::verifyTip`; the beacon refuses commits
+above it and producer writes, taking only a beacon certificate. Any later certificate, out of band
+or on chain, supersedes the generation and resumes. Evidence travels down on `STATUS`
+(`equivocation`) and up by `EQUIVOCATION_ADD`; relays build it from two upstream tips at one height,
+miners from tips of different upstreams, and push it up (miners to every upstream).
+`pp-client mk-equivocation` makes drill evidence from a beacon key.
+**Rationale:** ML-DSA signatures are randomized, so a re-signed block would look like equivocation
+by signature. Every adoption path already ends in `verifyTip`, so one gate halts sync, own-block
+commits and relays alike. A certificate is the only resume B005 allows; any later generation means
+the admins acted. Pushing up reaches the beacon (it must halt too); each side of a two-host split
+learns through the miners that see both.
+**Cons:** Only the latest tip is kept (B009), so a conflicting tip below a node's latest goes
+unnoticed; evidence for a generation the node cannot check yet is refused until its certificate
+arrives. The beacon accepts evidence against its own key from any downstream — producing it takes
+that key, so this adds no denial of service.
+**Alternatives:** Compare signatures (false positives from randomized signing); halt every write
+including certificates (no way out without an operator); keep every tip seen for detection
+(storage B009 avoided).

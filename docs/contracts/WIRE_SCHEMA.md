@@ -239,7 +239,8 @@ One signature authenticates the hash chain below it, so the block format does no
   `TX_ADD` (except a beacon certificate, which it keeps), `TX_PULL` and `REGISTER` and serves
   reads only.
 - **Where it travels:** `STATUS` (`signedTip`, the packed versioned tip; absent before the first;
-  beside it `certificate`, see [Certificates out of band](#chain-authority)),
+  beside it `certificate`, see [Certificates out of band](#chain-authority), and `equivocation`,
+  see [Equivocation halt](#equivocation-halt)),
   and the `BLOCK_WAIT` and `BLOCK_ADD` replies, which are `TipReply {nextBlockId, hasSignedTip,
   signedTip}`. A `BLOCK_ADD` reply carries the tip that covers the block just added. Relays keep
   the newest tip they hear from upstream that verifies (higher height, or higher generation at
@@ -284,6 +285,39 @@ genesis (beacon, relays). A node replays it from a genesis block it trusts
 (`AuthorityTrail::replayProof`), taking each step only if the admin set in force there signed it:
 an upstream can withhold or reorder steps (the replay then misses the starting block's authority
 or fails), not forge them.
+
+### Equivocation halt
+
+Two signed tips of one network, generation and height that name **different blocks** prove the
+generation's key signed twice — it is stolen, or two hosts run it. An honest beacon cannot produce
+them (it never signs a second block at or below its stored height). Signatures alone may differ
+for one block (ML-DSA signs with fresh randomness): only the block hash counts.
+
+- **Evidence** (`Client::Equivocation`, version `1`): the two tips, ordered by block hash. It
+  verifies when both tips are of one network, generation and height with different hashes, and
+  both signatures check with that generation's key — the one in force, or the certificate held out
+  of band. Evidence for an older generation is moot (superseded); for a generation no
+  certificate here names, it is refused until the certificate arrives.
+- **Halt:** a node holding evidence for generation G at height H verifies no tip of G above H
+  (`AuthorityTrail`), so it commits nothing past H by any path (sync, own block, relay). Miners
+  produce nothing above H and skip upstreams serving such tips; relays stop serving a held tip
+  above H; the beacon commits no block above H and refuses `BLOCK_ADD`, `TX_PULL`, `REGISTER` and
+  `TX_ADD` — except a beacon certificate, the way out. Every node keeps serving reads, logs an
+  error-level alert, and keeps one piece of evidence per generation in `data/equivocation.dat`
+  (written before the offer returns; offered again at start, waiting for a first block).
+- **Resume:** a certificate of a later generation — seen out of band or committed — supersedes G;
+  the evidence is dropped and its file removed.
+- **Where it travels:** down on `STATUS` (`equivocation`, the packed versioned evidence; absent if
+  none), offered after `certificate` and before the tip; up by `EQUIVOCATION_ADD` (request 1005,
+  payload the packed evidence, reply a short text; downstream to upstream only): relays and
+  miners keep it and forward it, the beacon keeps it. A relay whose upstream sends a second
+  verified tip for another block at one height, or a miner whose upstreams serve such tips, builds
+  the evidence and pushes it up (a miner to every upstream: each side of a split runs its own
+  beacon host). `pp-client add-equivocation <file>` submits evidence to any role;
+  `pp-client mk-equivocation` signs drill evidence with a beacon key.
+
+Only the latest tip is kept, so evidence is found when two tips of one height meet at a node; a
+conflicting tip below a node's latest goes unnoticed.
 
 ## Account / ledger model
 
