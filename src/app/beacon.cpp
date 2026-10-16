@@ -48,7 +48,8 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
-int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote) {
+int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote,
+              const std::string& logFile) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running beacon with work directory: " << workDir;
@@ -59,6 +60,7 @@ int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, boo
     pp::BeaconServer beacon;
     beacon.redirectLogger("pp.B");
     beacon.setApprovedRewindGeneration(approvedRewindGeneration);
+    beacon.setLogFile(logFile);
     beacon.setPromote(promote);
     promote = false; // the first start promotes; a restart (a rewind) runs the beacon it became
     g_beaconServer = &beacon; // for the signal handler
@@ -141,6 +143,6 @@ int main(int argc, char *argv[]) {
   if (initMode) {
     return initBeacon(options.workDir, genesisKeys, forceInit);
   } else {
-    return runBeacon(options.workDir, approvedRewindGeneration, promote);
+    return runBeacon(options.workDir, approvedRewindGeneration, promote, options.logFile);
   }
 }

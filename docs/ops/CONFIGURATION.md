@@ -26,7 +26,8 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | Variable | Role | Sets |
 |----------|------|------|
 | `PP_LEDGER_WORK_DIR` | beacon, relay, miner | `-d` |
-| `PP_LEDGER_LOG_LEVEL` | all, pp-http | `--log-level`: `debug`, `info`, `warning` (nodes' default), `error`; pp-http defaults to `info` |
+| `PP_LEDGER_LOG_LEVEL` | all, pp-http | `--log-level`: `debug`, `info` (default), `warning`, `error` (`--debug` = `debug`) |
+| `PP_LEDGER_LOG_FILE` | beacon, relay, miner | `--log-file`: also log to this file (relative: to the work directory); `none`: stderr only, for a container's log driver. Default `<role>.log` in the work directory |
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
 | `PP_LEDGER_HEALTH_PORT`, `PP_LEDGER_HEALTH_BIND` | beacon, relay, miner | `healthPort`, `healthBind` ([Health and metrics](#health-and-metrics)) |

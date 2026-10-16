@@ -27,7 +27,7 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration) {
+int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration, const std::string &logFile) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running relay with work directory: " << workDir;
@@ -38,6 +38,7 @@ int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration) {
     pp::RelayServer relay;
     relay.redirectLogger("pp.R");
     relay.setApprovedRewindGeneration(approvedRewindGeneration);
+    relay.setLogFile(logFile);
     g_relayServer = &relay; // for the signal handler
 
     auto runResult = relay.run(workDir);
@@ -84,5 +85,5 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runRelay(options.workDir, approvedRewindGeneration);
+  return runRelay(options.workDir, approvedRewindGeneration, options.logFile);
 }

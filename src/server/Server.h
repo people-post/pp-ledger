@@ -48,6 +48,13 @@ public:
    */
   void setApprovedRewindGeneration(uint64_t generation) { approvedRewindGeneration_ = generation; }
 
+  /**
+   * Before run: where the log is also written (`--log-file` / PP_LEDGER_LOG_FILE). Empty: the
+   * role's file in the work directory (beacon.log, relay.log, miner.log); "none": stderr only (a
+   * container's log driver collects it); else a path (relative: to the work directory).
+   */
+  void setLogFile(std::string logFile) { logFile_ = std::move(logFile); }
+
 protected:
   virtual bool useSignatureFile() const { return true; }
 
@@ -266,6 +273,7 @@ private:
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
+  std::string logFile_;
   std::unique_ptr<HealthEndpoint> health_;
   std::chrono::steady_clock::time_point healthPublishedAt_{};
   bool serving_{false};

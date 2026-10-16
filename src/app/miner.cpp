@@ -27,7 +27,7 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int runMiner(const std::string &workDir, uint64_t approvedRewindGeneration) {
+int runMiner(const std::string &workDir, uint64_t approvedRewindGeneration, const std::string &logFile) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running miner with work directory: " << workDir;
@@ -38,6 +38,7 @@ int runMiner(const std::string &workDir, uint64_t approvedRewindGeneration) {
     pp::MinerServer miner;
     miner.redirectLogger("pp.M");
     miner.setApprovedRewindGeneration(approvedRewindGeneration);
+    miner.setLogFile(logFile);
     g_minerServer = &miner; // for the signal handler
 
     auto runResult = miner.run(workDir);
@@ -84,5 +85,5 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runMiner(options.workDir, approvedRewindGeneration);
+  return runMiner(options.workDir, approvedRewindGeneration, options.logFile);
 }

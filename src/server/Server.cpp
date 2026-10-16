@@ -97,11 +97,14 @@ Service::Roe<void> Server::run(const std::string& workDir) {
   // same logger, and the logger cannot drop a handler.
   static std::mutex handlersMutex;
   static std::set<std::string> handlersAdded;
-  {
+  if (logFile_ != "none") {
+    const std::string path = logFile_.empty() ? workDir + "/" + getLogFileName()
+                             : std::filesystem::path(logFile_).is_absolute() ? logFile_
+                                                                              : workDir + "/" + logFile_;
     std::lock_guard<std::mutex> lock(handlersMutex);
-    const std::string key = log().getFullName() + "|" + workDir + "/" + getLogFileName();
+    const std::string key = log().getFullName() + "|" + path;
     if (handlersAdded.insert(key).second) {
-      log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
+      log().addFileHandler(path, logging::getLevel());
     }
   }
 
