@@ -284,6 +284,9 @@ std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSyn
     return std::chrono::duration_cast<std::chrono::milliseconds>(deadline - RequestQueue::Clock::now());
   };
   while (remaining().count() > 0) {
+    if (restartRequested_) {
+      return {}; // the node restarts (a rewind) instead of syncing on
+    }
     if (sync.start() == BlockSync::Start::BackingOff) {
       serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(100)));
       continue;

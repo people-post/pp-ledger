@@ -1284,6 +1284,9 @@ run_out_of_band_scenario() {
   tip=$(status_signed_tip_height)
   [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-REWIND: no signed tip to start from (got '${tip}')"
   cutover=$((tip - 2))
+  # The last miner is down while the cut happens; it comes back afterwards (below).
+  local offline=$NUM_MINERS
+  stop_miner_by_id "$offline"
   rm -f "$key.key" "$key.pub"
   "$BUILD_DIR/app/pp-client" keygen -o "$key" >/dev/null || die "pp-client keygen failed"
   cert=$(make_beacon_cert 3 "$key.pub" "$cutover")
@@ -1321,17 +1324,28 @@ run_out_of_band_scenario() {
   # Miners learn it from the relay's STATUS once it is back, then rewind and restart themselves;
   # their restart comes up although the beacon that stood down refuses their registration.
   local i
-  for i in $(seq 1 "$NUM_MINERS"); do
+  for i in $(seq 1 $((offline - 1))); do
     deadline=$((SECONDS + 60))
     until grep -a -q "Rewound: kept blocks up to ${cutover}," "${TEST_DIR}/miner${i}/miner.log"; do
       ((SECONDS < deadline)) || die "L-SMOKE-REWIND: miner${i} did not rewind"
       sleep 1
     done
   done
-  local miners_rewound=$NUM_MINERS
+  local miners_rewound=$((offline - 1))
   local stopped
   stopped=$(all_processes_alive) || die "L-SMOKE-REWIND: ${stopped} stopped instead of restarting"
   echo -e "${GREEN}✓ The beacon and ${miners_rewound} miner(s) rewound too; every process restarted in place${NC}"
+
+  # The miner that was down still holds blocks past the cutover: back online, it learns the
+  # certificate from the relay's STATUS in its startup sync and rewinds on its own.
+  start_miner "$offline" || die "L-SMOKE-REWIND: miner${offline} did not come back"
+  deadline=$((SECONDS + 60))
+  until grep -a -q "Rewound: kept blocks up to ${cutover}," "${TEST_DIR}/miner${offline}/miner.log"; do
+    ((SECONDS < deadline)) || die "L-SMOKE-REWIND: miner${offline}, back online, did not rewind"
+    sleep 1
+  done
+  stopped=$(all_processes_alive) || die "L-SMOKE-REWIND: ${stopped} stopped instead of restarting"
+  echo -e "${GREEN}✓ Miner${offline}, down during the cut, rewound once back online${NC}"
 
   local held
   held=$(get_next_block_id)

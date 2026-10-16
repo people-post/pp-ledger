@@ -511,6 +511,8 @@ Service::Roe<void> MinerServer::onStart() {
                                        minerInit.error().message);
   }
 
+  orderRewindIfDue(); // a certificate kept before the node went down
+
   // Initial catch-up: the same BlockSync as at run time; completions are
   // served here because the run loop has not started yet.
   initBlockSync();
@@ -646,6 +648,7 @@ void MinerServer::warnIfNotRegisteredMiner() {
 
 void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
   lastSyncResult_ = result;
+  orderRewindIfDue(); // the sync may have brought a certificate whose cutover is below our tip
   if (result.ok) {
     lastBlockSyncTime_ = std::chrono::steady_clock::now();
     lastSyncedEpoch_ = miner_.getCurrentEpoch();
@@ -710,18 +713,23 @@ void MinerServer::onStop() {
   log().info << "MinerServer resources cleaned up";
 }
 
+void MinerServer::orderRewindIfDue() {
+  if (restartRequested()) {
+    return;
+  }
+  if (auto due = miner_.scheduleRewind(approvedRewindGeneration()); !due) {
+    log().error << due.error().message;
+  } else if (due.value()) {
+    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+  }
+}
+
 void MinerServer::runLoop() {
   log().info << "Block production and request handler loop started";
 
   while (!isStopSet()) {
     try {
-      if (!restartRequested()) {
-        if (auto due = miner_.scheduleRewind(); !due) {
-          log().error << due.error().message;
-        } else if (due.value()) {
-          requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
-        }
-      }
+      orderRewindIfDue();
       // Update miner state
       miner_.refresh();
 

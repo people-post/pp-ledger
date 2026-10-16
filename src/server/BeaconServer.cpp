@@ -838,18 +838,23 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   return state;
 }
 
+void BeaconServer::orderRewindIfDue() {
+  if (restartRequested()) {
+    return;
+  }
+  if (auto due = beacon_.scheduleRewind(approvedRewindGeneration()); !due) {
+    log().error << due.error().message;
+  } else if (due.value()) {
+    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+  }
+}
+
 void BeaconServer::runLoop() {
   log().info << "Request handler thread started";
 
   while (!isStopSet()) {
     try {
-      if (!restartRequested()) {
-        if (auto due = beacon_.scheduleRewind(); !due) {
-          log().error << due.error().message;
-        } else if (due.value()) {
-          requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
-        }
-      }
+      orderRewindIfDue();
       beacon_.refresh();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {

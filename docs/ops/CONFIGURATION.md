@@ -190,7 +190,10 @@ commits it. Hand it to the network with `submit-tx` to any relay, miner or the b
 it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
 it. **A cutover below a node's tip is a rewind order:** every node holding blocks above it drops
 them by restarting itself, unattended, and waits at the cutover
-([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)); bringing up the new
+([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when the cutover is at
+most seven days of slots back. A deeper cut waits for each node's operator: check the certificate,
+then restart the node (`pp-beacon`, `pp-relay`, `pp-miner`) with `--approve-rewind <generation>`.
+Bringing up the new
 beacon is part 2 of [beacon-authority](../../projects/beacon-authority/DESIGN.md). Give
 an honest rotation a cutover only above the tip by a margin: the certificate must commit by the
 block after it, and a staged beacon holding the certificate commits nothing past it until then.

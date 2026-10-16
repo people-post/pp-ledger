@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -45,7 +46,7 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
-int runBeacon(const std::string& workDir) {
+int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running beacon with work directory: " << workDir;
@@ -55,6 +56,7 @@ int runBeacon(const std::string& workDir) {
   while (!g_stopRequested) {
     pp::BeaconServer beacon;
     beacon.redirectLogger("pp.B");
+    beacon.setApprovedRewindGeneration(approvedRewindGeneration);
     g_beaconServer = &beacon; // for the signal handler
 
     auto runResult = beacon.run(workDir);
@@ -92,6 +94,11 @@ int main(int argc, char *argv[]) {
   bool debugMode = false;
   app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
+  uint64_t approvedRewindGeneration = 0;
+  app.add_option("--approve-rewind", approvedRewindGeneration,
+                 "Apply the rewind ordered by this beacon generation although it reaches back further "
+                 "than a node rewinds on its own (7 days of slots); check the certificate first");
+
   app.footer(
     "Initialize (once):\n"
     "  pp-beacon -d <dir> --init --genesis-key genesis.key [--genesis-key ...]\n"
@@ -119,6 +126,6 @@ int main(int argc, char *argv[]) {
   if (initMode) {
     return initBeacon(workDir, genesisKeys);
   } else {
-    return runBeacon(workDir);
+    return runBeacon(workDir, approvedRewindGeneration);
   }
 }

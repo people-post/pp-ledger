@@ -234,12 +234,23 @@ A certificate's cutover below a node's committed tip is an order to rewind: the 
 cutover were signed by the superseded generation past it, so they are invalid by the certificate's
 own terms. Every node acts on it alone, with no operator and no service supervisor; only an
 admin-signed certificate of a higher generation, kept as above, can order it
-([projects/beacon-authority B022, B023](../../projects/beacon-authority/DECISIONS.md)).
+([projects/beacon-authority B022, B023, B025](../../projects/beacon-authority/DECISIONS.md)).
 
 - **Order** (`Chain::rewindOrder`): the node holds a certificate out of band and blocks above its
-  cutover. It writes the order (`RewindReport`: the cutover as `keptUpTo`, its last block as
-  `droppedUpTo`, the generation) to `data/rewind.dat`, logs an error-level alert, keeps serving for
-  2 s (a forward in flight — the certificate itself — finishes), and restarts.
+  cutover. It checks for one once it has loaded (a certificate kept before it went down), whenever
+  a sync finishes — startup syncs too: a node back online with blocks past the cutover cannot sync,
+  and a requested restart ends its startup sync instead of failing it — and in its run loop.
+- **Bounded** (`rewind::schedule`): a node rewinds on its own only as far as seven days of slot time
+  (`rewind::kMaxAutomaticRewind`), measured from the cutover block — or the first block it holds,
+  when the cutover is older — to the last block it would drop. Deeper, or when that cannot be read,
+  it does nothing more than before: it refuses the old generation's tips past the cutover, so it
+  stops at its own tip, and logs one error-level alert per certificate. Its operator checks the
+  certificate and restarts the node with `--approve-rewind <generation>` to apply it. A mistaken
+  certificate thus cannot cut a network's history unattended.
+- **Order written.** Within reach (or approved), it writes the order (`RewindReport`: the cutover as
+  `keptUpTo`, its last block as `droppedUpTo`, the generation) to `data/rewind.dat`, logs an
+  error-level alert, keeps serving for 2 s (a forward in flight — the certificate itself —
+  finishes), and restarts.
 - **Restart.** The app runs a fresh server on the same work directory (`pp-beacon`, `pp-relay` and
   `pp-miner` loop in `main`); every object is rebuilt from disk, as at a cold start. A signal stops
   the loop.

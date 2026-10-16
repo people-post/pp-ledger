@@ -118,9 +118,13 @@ public:
   Roe<void> applyPendingRewind(const std::string &ledgerDir);
   /**
    * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
-   * start; true when one was written — the caller restarts.
+   * start — unless it reaches back further than the node rewinds on its own and the operator has
+   * not approved its generation (`approvedGeneration`, 0 = none; rewind::schedule). True when an
+   * order was written: the caller restarts.
    */
-  Roe<bool> scheduleRewind();
+  Roe<bool> scheduleRewind(uint64_t approvedGeneration);
+  /** Tests: how far back the node rewinds on its own (default rewind::kMaxAutomaticRewind). */
+  void setMaxAutomaticRewind(std::chrono::seconds reach) { maxAutomaticRewind_ = reach; }
   /** The last rewind this node applied (STATUS); none if none. */
   const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
 
@@ -204,6 +208,9 @@ private:
   std::string sealNotReadyReason_;
   std::unique_ptr<CertificateStore> certificates_;
   std::optional<Client::RewindReport> lastRewind_;
+  std::chrono::seconds maxAutomaticRewind_{rewind::kMaxAutomaticRewind};
+  /** Generation whose rewind was last reported as held back (one alert per certificate). */
+  uint64_t heldBackGeneration_{0};
   std::unique_ptr<EquivocationStore> equivocations_;
 };
 

@@ -87,6 +87,27 @@ pp::Roe<std::optional<Client::RewindReport>> applyPendingOrder(const std::string
   return order;
 }
 
+pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration,
+                            std::chrono::seconds maxAutomatic) {
+  Scheduled scheduled;
+  scheduled.order = chain.rewindOrder();
+  if (!scheduled.order) {
+    return scheduled;
+  }
+  scheduled.depthSeconds = chain.rewindDepthSeconds(*scheduled.order);
+  const bool withinReach = scheduled.depthSeconds &&
+                           *scheduled.depthSeconds <= static_cast<uint64_t>(maxAutomatic.count());
+  if (!withinReach && approvedGeneration != scheduled.order->generation) {
+    scheduled.kind = Scheduled::Kind::HeldBack;
+    return scheduled;
+  }
+  if (auto written = writeOrder(dataDir, *scheduled.order); !written) {
+    return written.error();
+  }
+  scheduled.kind = Scheduled::Kind::Ordered;
+  return scheduled;
+}
+
 pp::Roe<std::optional<Client::RewindReport>> lastApplied(const std::string &dataDir) {
   return readReport(pathIn(dataDir, FILE_DONE));
 }

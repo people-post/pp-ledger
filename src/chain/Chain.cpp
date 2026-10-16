@@ -1596,6 +1596,16 @@ std::optional<Client::RewindReport> Chain::rewindOrder() const {
   return order;
 }
 
+std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &order) const {
+  const uint64_t from = std::max(order.keptUpTo, txContext_.ledger.getStartingBlockId());
+  auto cut = readBlock(from);
+  auto last = readBlock(order.droppedUpTo);
+  if (!cut || !last || last.value().block.slot < cut.value().block.slot) {
+    return std::nullopt;
+  }
+  return (last.value().block.slot - cut.value().block.slot) * getSlotDuration();
+}
+
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
   if (seenCertRecord_) {
     return seenCertRecord_;

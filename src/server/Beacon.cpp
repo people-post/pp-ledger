@@ -733,13 +733,29 @@ Beacon::Roe<void> Beacon::applyPendingRewind(const std::string &ledgerDir) {
   return {};
 }
 
-Beacon::Roe<bool> Beacon::scheduleRewind() {
-  const auto order = chain_.rewindOrder();
-  if (!order) {
-    return false;
+Beacon::Roe<bool> Beacon::scheduleRewind(uint64_t approvedGeneration) {
+  auto scheduled = rewind::schedule(chain_, config_.workDir, approvedGeneration, maxAutomaticRewind_);
+  if (!scheduled) {
+    return Error(3, "Failed to write the rewind order: " + scheduled.error().message);
   }
-  if (auto written = rewind::writeOrder(config_.workDir, *order); !written) {
-    return Error(3, "Failed to write the rewind order: " + written.error().message);
+  const auto &order = scheduled.value().order;
+  switch (scheduled.value().kind) {
+  case rewind::Scheduled::Kind::None:
+    return false;
+  case rewind::Scheduled::Kind::HeldBack:
+    if (heldBackGeneration_ != order->generation) {
+      heldBackGeneration_ = order->generation;
+      const auto &depth = scheduled.value().depthSeconds;
+      log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
+                  << order->keptUpTo << ", "
+                  << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
+                  << " of slots back — more than the " << maxAutomaticRewind_.count() / 3600
+                  << " h a node rewinds unattended. Check the certificate; to apply it, restart with "
+                  << "--approve-rewind " << order->generation;
+    }
+    return false;
+  case rewind::Scheduled::Kind::Ordered:
+    break;
   }
   log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
               << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation

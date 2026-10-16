@@ -3210,6 +3210,9 @@ TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
   EXPECT_EQ(order->keptUpTo, 0u);
   EXPECT_EQ(order->droppedUpTo, 1u);
   EXPECT_EQ(order->generation, 4u);
+  EXPECT_EQ(producer.rewindDepthSeconds(*order),
+            std::optional<uint64_t>((block1.block.slot - harness_.genesis.block.slot) * producer.getSlotDuration()))
+      << "slot time from the cutover block to the last block it drops";
 }
 
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update

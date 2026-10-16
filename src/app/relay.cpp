@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstdint>
 #include <iostream>
 #include <string>
 
@@ -24,7 +25,7 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int runRelay(const std::string &workDir) {
+int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running relay with work directory: " << workDir;
@@ -34,6 +35,7 @@ int runRelay(const std::string &workDir) {
   while (!g_stopRequested) {
     pp::RelayServer relay;
     relay.redirectLogger("pp.R");
+    relay.setApprovedRewindGeneration(approvedRewindGeneration);
     g_relayServer = &relay; // for the signal handler
 
     auto runResult = relay.run(workDir);
@@ -64,6 +66,11 @@ int main(int argc, char *argv[]) {
   app.add_flag("--debug", debugMode,
                "Enable debug logging (default: warning level)");
 
+  uint64_t approvedRewindGeneration = 0;
+  app.add_option("--approve-rewind", approvedRewindGeneration,
+                 "Apply the rewind ordered by this beacon generation although it reaches back further "
+                 "than a node rewinds on its own (7 days of slots); check the certificate first");
+
   app.footer(
       "Example:\n"
       "  pp-relay -d /path/to/work-dir [--debug]\n"
@@ -84,5 +91,5 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runRelay(workDir);
+  return runRelay(workDir, approvedRewindGeneration);
 }

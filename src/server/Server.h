@@ -37,6 +37,12 @@ public:
    */
   bool restartRequested() const { return restartRequested_; }
 
+  /**
+   * Before run: the operator approves the rewind ordered by beacon generation `generation`, deeper
+   * than a node rewinds on its own (`--approve-rewind`; rewind::kMaxAutomaticRewind). 0 = none.
+   */
+  void setApprovedRewindGeneration(uint64_t generation) { approvedRewindGeneration_ = generation; }
+
 protected:
   virtual bool useSignatureFile() const { return true; }
 
@@ -100,7 +106,8 @@ protected:
 
   /**
    * onStart: run `sync` to completion, retrying failed attempts (BlockSync's
-   * backoff) until one succeeds or `timeout` passes. `lastResult` is set by
+   * backoff) until one succeeds or `timeout` passes — or a restart is requested (a rewind: the
+   * node's blocks past a cutover will not sync, and the restart removes them). `lastResult` is set by
    * the role's onFinished hook; `extraDone` lets the role also wait for
    * follow-up work. Returns the last result's error, or "" on success.
    */
@@ -180,6 +187,8 @@ protected:
   /** The beacon's latest signed tip this node holds, sent with each BLOCK_WAIT answer. */
   virtual std::optional<Client::SignedTip> latestSignedTip() const { return std::nullopt; }
 
+  uint64_t approvedRewindGeneration() const { return approvedRewindGeneration_; }
+
   /** How long a node keeps serving after it ordered its own rewind, before it restarts. */
   static constexpr std::chrono::milliseconds kRewindRestartGrace{2000};
 
@@ -218,6 +227,7 @@ private:
   uint64_t lastPolledTip_{0};
   RequestQueue::Clock::time_point nextBlockWaitSweep_{};
   std::atomic<bool> restartRequested_{false};
+  uint64_t approvedRewindGeneration_{0};
   RequestQueue::Clock::time_point restartAt_{};
 };
 

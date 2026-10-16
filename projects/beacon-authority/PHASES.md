@@ -106,10 +106,13 @@ every node (B022–B024).
       drill (a cutover below the tip: every node rewinds and waits at the cutover). On the way:
       `Ledger::rewindTo`, FileDirStore's rewind (it dropped every file when rewinding to the end and
       left later files on disk), a miner starts although its registration is refused, a restarted
-      server logs to its file once
+      server logs to its file once. In review: a node back online rewinds although its startup sync
+      fails; a node rewinds on its own only seven days deep, deeper on `--approve-rewind` (B025)
 - [ ] **bp2** Reaching the new beacon: certificate v2 (`cutoverHash`, gateway `dialHints`) and sync to a
       certificate-vouched block; certificates pushed up; relay candidate lists; re-ranking on
-      failure and on a new certificate; fresh nodes bounded by the `STATUS` certificate
+      failure and on a new certificate; fresh nodes bounded by the `STATUS` certificate. Guards: a
+      cutover may not drop the block that committed the generation in force; a block *C* other than
+      `cutoverHash` halts and alerts; `mk-beacon-cert` fills `cutoverHash` and shows the depth
 - [ ] **bp3** Taking over: `pp-beacon --promote` on a relay's directory, the taking-over state,
       no liveness charges across the outage, clock check and recalibration on a new generation;
       smoke drill of case 2 end to end (stolen key → certificate → rewind → takeover → resume)

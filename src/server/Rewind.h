@@ -1,9 +1,12 @@
 #ifndef PP_LEDGER_REWIND_H
 #define PP_LEDGER_REWIND_H
 
+#include "Chain.h"
+
 #include "../client/Client.h"
 #include "common/Error.h"
 
+#include <chrono>
 #include <optional>
 #include <string>
 
@@ -17,6 +20,34 @@ namespace pp::rewind {
  */
 constexpr const char *FILE_ORDER = "rewind.dat";
 constexpr const char *FILE_DONE = "rewound.dat";
+
+/**
+ * How far back a node rewinds on its own (beacon-authority bp1): seven days of slots. A deeper
+ * cutover waits for its operator to approve its generation (`--approve-rewind`), so a mistaken
+ * certificate cannot cut a network's history unattended.
+ */
+constexpr std::chrono::seconds kMaxAutomaticRewind{7 * 24 * 3600};
+
+/** What schedule() did. */
+struct Scheduled {
+  enum class Kind {
+    None,     ///< no rewind ordered
+    Ordered,  ///< the order is written: the node restarts to apply it
+    HeldBack, ///< deeper than the node rewinds on its own, and not approved
+  };
+  Kind kind{Kind::None};
+  std::optional<Client::RewindReport> order;
+  /** Slot time the order reaches back; none when it could not be read (held back). */
+  std::optional<uint64_t> depthSeconds;
+};
+
+/**
+ * Write the rewind `chain`'s held certificate orders (Chain::rewindOrder) to `dataDir`, unless it
+ * reaches back further than `maxAutomatic` (or that cannot be read) and the operator has not
+ * approved its generation (`approvedGeneration`, 0 = none).
+ */
+pp::Roe<Scheduled> schedule(const Chain &chain, const std::string &dataDir, uint64_t approvedGeneration,
+                            std::chrono::seconds maxAutomatic = kMaxAutomaticRewind);
 
 /** Write `order` durably, for the next start to apply. */
 pp::Roe<void> writeOrder(const std::string &dataDir, const Client::RewindReport &order);
