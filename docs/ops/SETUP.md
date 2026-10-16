@@ -36,7 +36,7 @@ cd build
 ```
 
 The beacon will:
-- Create `beacon/ledger/` directory for blockchain data
+- Create `beacon/data/ledger/` for the chain
 - Create `beacon/beacon.log` for detailed logs
 - Create its network identity `keys/amp-identity.txt` on first start and print its listen multiaddr
 - Listen on the configured UDP port (default: 8517)
@@ -93,59 +93,22 @@ The miner will:
 
 The client connects to either the beacon server or miner server to query status and send commands.
 
-### Beacon commands
+Every command that talks to a node takes its ADP multiaddr with `--host`
+(`/ip4/<address>/udp/<port>/adp/1.0.0/p2p/<peer id>`; the peer id is printed at start as
+`AMP ledger listener:`, or worked out ahead with `pp-client peer-id <identity key>`). `-b` talks to
+a beacon or relay, `-m` to a miner.
 
 ```bash
-# Get beacon status (shows current block, slot, epoch, stakeholders)
-./app/pp-client -b status
-
-# Get block by ID
-./app/pp-client -b block 0
-
-# Get slot leader for a specific slot
-./app/pp-client -b slot-leader 100
+R=/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>
+./app/pp-client --host "$R" -b status            # tip, slot, epoch, signed tip, certificate
+./app/pp-client --host "$R" -b block 0
+./app/pp-client --host "$R" -b account 1048576
+./app/pp-client --host "$R" -b add-tx <from> <to> 100 -k <key>   # into the beacon's pool
+./app/pp-client --host "$M" -m status            # a miner: id, stake, pending transactions
 ```
 
-### Miner commands
-
-```bash
-# Get miner status (shows miner ID, stake, current slot, pending txs)
-./app/pp-client -m status
-
-# Add a transaction to the pending pool
-./app/pp-client -b add-tx alice bob 100   # to a relay or the beacon
-
-# Manually trigger block production (for testing)
-./app/pp-client -m produce-block
-```
-
-### Options
-
-- `-h <host>` — Server host (default: localhost)
-- `-h <host:port>` — Server host and port in one argument
-- `-p <port>` — Server port (overrides default)
-- `-b` — Connect to BeaconServer (default port: 8517)
-- `-m` — Connect to MinerServer (default port: 8518)
-- `--debug` — Enable debug logging
-
-### Examples
-
-```bash
-# Connect to beacon on default port
-./app/pp-client -b status
-
-# Connect to beacon on custom port
-./app/pp-client -b -p 8527 status
-
-# Connect to beacon on custom host and port
-./app/pp-client -h beacon.example.com:8517 -b status
-
-# Connect to miner on default port
-./app/pp-client -m status
-
-# Connect to miner on custom host
-./app/pp-client -h 192.168.1.100 -p 8622 -b add-tx wallet1 wallet2 500   # relay
-```
+Local commands (no node): `keygen`, `peer-id`, `mk-tx`, `mk-account`, `mk-beacon-cert`,
+`mk-recovery`, `mk-equivocation`, `sign-tx`. `./app/pp-client --help` lists them all.
 
 ---
 
@@ -168,7 +131,7 @@ make pp-http
 ### Options
 
 - `--port <port>` — HTTP listen port (default: 8080)
-- `--bind <address>` — Bind address (default: 0.0.0.0)
+- `--bind <address>` — Bind address (default: 127.0.0.1; `0.0.0.0` to expose)
 - `--beacon <multiaddr>` — Beacon ADP multiaddr (required)
 - `--miner <multiaddr>` — Miner ADP multiaddr (required)
 
@@ -271,7 +234,7 @@ each role's `config.json`, and the fixed network timing.
 - Ensure the work directory exists
 - For first-time setup, use `--init` flag to initialize the beacon
 - For existing beacon, ensure `config.json` exists in the work directory
-- Check that the port is not already in use: `netstat -tuln | grep <port>`
+- Check that the UDP port is not already in use: `ss -ulpn | grep <port>`
 
 **"Failed to initialize beacon"**
 - Ensure you have write permissions in the work directory
@@ -284,9 +247,10 @@ each role's `config.json`, and the fixed network timing.
 - Check that the miner's port is not already in use
 
 **"Failed to connect to beacon"**
-- Ensure the beacon server is running: `./app/pp-client -b status`
-- Check the beacon address and port in miner's `config.json`
-- Verify network connectivity: `telnet <beacon_host> <beacon_port>`
+- Ensure the upstream is running: `./app/pp-client --host <its multiaddr> -b status`
+- Check the upstream multiaddr (address, UDP port and peer id) in `config.json` or
+  `PP_LEDGER_UPSTREAMS`; the transport is UDP, so test reachability with the client, not `telnet`
+- A node with a health port answers `curl <host>:<healthPort>/readyz` with why it is not ready
 - Check firewall settings if running on different machines
 
 **"Failed to open index file for writing"**
