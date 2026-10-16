@@ -285,18 +285,8 @@ Service::Roe<void> RelayServer::onStart() {
       std::filesystem::path(getWorkDir()) / DIR_DATA;
   Relay::InitConfig relayConfig;
   relayConfig.workDir = relayDataDir.string();
-  relayConfig.timeOffset = 0;
+  relayConfig.timeOffsetMs = 0; // calibrated once the upstream to follow is chosen (below)
   relayConfig.startingBlockId = 0;
-
-  {
-    auto offsetResult = calibrateTimeToBeacon();
-    if (offsetResult) {
-      timeOffsetToBeaconMs_ = offsetResult.value();
-      relayConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
-    } else {
-      log().warning << "Time calibration skipped: " << offsetResult.error().message;
-    }
-  }
 
   auto relayInit = relay_.init(relayConfig);
   if (!relayInit) {
@@ -306,6 +296,12 @@ Service::Roe<void> RelayServer::onStart() {
 
   orderRewindIfDue(); // a certificate kept before the node went down
   rankUpstreamsAtStart();
+  if (auto offset = calibrateTimeToBeacon(); offset) {
+    applyTimeOffset(offset.value());
+  } else {
+    log().warning << "Time calibration skipped: " << offset.error().message;
+  }
+  initClockFollower();
 
   // Initial catch-up through the same BlockSync as at run time; completions
   // are served here because the run loop has not started yet.
@@ -624,6 +620,7 @@ void RelayServer::runLoop() {
       syncBlocksPeriodically();
       tipWatch_->maintain();
       upstreams_->maintain();
+      clock_->maintain();
       if (blockSyncRequested_) {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
@@ -746,6 +743,8 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
   client_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, block, reply](
                                                                             Client::Roe<Client::TipReply> result) {
     if (!result) {
+      // The upstream followed refused a block: it may stand behind a beacon that stood down (bp3).
+      upstreams_->suspect("the upstream refused block " + std::to_string(block.block.index));
       replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
       return;
     }
@@ -854,59 +853,40 @@ RelayServer::hCalibration(const Client::Request & /*request*/) {
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
-  // Any upstream: they all follow one beacon. Before ranking, so in configured order.
+  // The upstream followed first, then any other that answers.
   Roe<int64_t> offset = Error(E_NETWORK, "No upstream configured");
-  for (size_t i = 0; i < upstreams_->all().size(); ++i) {
-    offset = calibrateTimeToUpstream(i);
-    if (offset) {
-      break;
+  const size_t count = upstreams_->all().size();
+  for (size_t step = 0; step < count; ++step) {
+    const size_t i = (upstreams_->activeIndex() + step) % count;
+    auto estimated =
+        calibrateBlocking(calibrationFetch(client_, UpstreamSet::dialKey(i), upstreams_->all()[i]));
+    if (estimated) {
+      log().info << "Time calibrated through upstream [" << i << "]: offset " << estimated.value().offsetMs
+                 << " ms (round trip " << estimated.value().rttMs << " ms, " << estimated.value().samples
+                 << " sample(s))";
+      return estimated.value().offsetMs;
     }
-    log().debug << "Time calibration against upstream [" << i << "] failed: " << offset.error().message;
+    log().debug << "Time calibration through upstream [" << i << "] failed: " << estimated.error().message;
+    offset = Error(E_NETWORK, estimated.error().message);
   }
   return offset;
 }
 
-RelayServer::Roe<int64_t> RelayServer::calibrateTimeToUpstream(size_t index) {
-  if (auto dial = dialUpstream(client_, index); !dial) {
-    return Error(E_NETWORK, dial.error().message);
-  }
-
-  struct Sample {
-    int64_t offsetMs;
-    int64_t rttMs;
+void RelayServer::initClockFollower() {
+  clock_calibration::ClockFollower::Hooks hooks;
+  hooks.generation = [this]() { return relay_.getGeneration(); };
+  hooks.fetch = [this](Client::Done<Client::CalibrationResponse> done) {
+    calibrationFetch(client_, UpstreamSet::dialKey(upstreams_->activeIndex()), upstreams_->active())(std::move(done));
   };
-  std::vector<Sample> samples;
-  samples.reserve(static_cast<size_t>(CALIBRATION_SAMPLES));
+  hooks.apply = [this](int64_t offsetMs) { applyTimeOffset(offsetMs); };
+  clock_ = std::make_unique<clock_calibration::ClockFollower>(std::move(hooks));
+  clock_->redirectLogger(log().getFullName() + ".Clock");
+  clock_->calibratedFor(relay_.getGeneration());
+}
 
-  for (int i = 0; i < CALIBRATION_SAMPLES; ++i) {
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = client_.fetchCalibration();
-    auto t1 = std::chrono::steady_clock::now();
-    if (!result) {
-      return Error(E_NETWORK,
-                   "Failed to fetch beacon timestamp: " + result.error().message);
-    }
-    int64_t serverTimeMs = result.value().msTimestamp;
-    int64_t localTimeMs = utl::getCurrentTime() * 1000;
-    int64_t rttMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    int64_t offsetMs = serverTimeMs - localTimeMs + (rttMs / 2);
-    samples.push_back({offsetMs, rttMs});
-
-    if (rttMs <= RTT_THRESHOLD_MS) {
-      log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, RTT=" << rttMs << " ms (single sample)";
-      return offsetMs;
-    }
-    if (i == 0) {
-      log().debug << "High RTT (" << rttMs << " ms), taking up to " << CALIBRATION_SAMPLES << " samples";
-    }
-  }
-
-  auto best = std::min_element(samples.begin(), samples.end(),
-                              [](const Sample &a, const Sample &b) { return a.rttMs < b.rttMs; });
-  int64_t offsetMs = best->offsetMs;
-  log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, samples=" << samples.size()
-             << ", min RTT=" << best->rttMs << " ms";
-  return offsetMs;
+void RelayServer::applyTimeOffset(int64_t offsetMs) {
+  timeOffsetToBeaconMs_ = offsetMs;
+  relay_.setTimeOffsetMs(offsetMs);
 }
 
 bool RelayServer::dialUpstreamFor(const RequestQueue::Reply &reply) {

@@ -47,7 +47,7 @@ public:
 
   struct InitConfig {
     std::string workDir;
-    int64_t timeOffset{0};
+    int64_t timeOffsetMs{0};
     uint64_t minerId{0};
     uint64_t startingBlockId{0};
     std::vector<std::string> privateKeys; // hex-encoded private keys (multiple signatures)
@@ -144,6 +144,13 @@ public:
   std::optional<BeaconCertificate> getSeenCertificate() const { return chain_.seenCertificate(); }
   /** The block the held certificate vouches for (Chain::vouchedCutover). */
   std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const { return chain_.vouchedCutover(); }
+  /** Recalibrated to the beacon's clock (Chain::setTimeOffsetMs). */
+  void setTimeOffsetMs(int64_t offsetMs) { chain_.setTimeOffsetMs(offsetMs); }
+  /** The beacon generation in force (0 before the chain is loaded). */
+  uint64_t getGeneration() const {
+    const auto authority = chain_.getAuthority();
+    return authority ? authority->beacon.generation : 0;
+  }
   /** Whether an upstream serving `tip` is worth following (Chain::mayFollowTip). */
   bool mayFollowTip(const Client::SignedTip &tip) const { return chain_.mayFollowTip(tip); }
   /** Where to reach the beacon: the certificates' dial hints (Chain::dialHints). */
@@ -178,7 +185,8 @@ private:
     bool ready{false};
     uint64_t slot{0};
     bool isLeader{false};
-    std::vector<Ledger::Record> txRenewals;
+    /** Records the leader adds itself, rebuilt every slot: renewals, then a certificate due (bp3). */
+    std::vector<Ledger::Record> leaderRecords;
   };
 
   /** Transactions for the next block and count of pending included (for trimmed). */

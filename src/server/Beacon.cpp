@@ -138,7 +138,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   // Initialize consensus
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = utl::getCurrentTime();
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = config.chain.slotDuration;
   consensusConfig.slotsPerEpoch = config.chain.slotsPerEpoch;
   chain_.initConsensus(consensusConfig);
@@ -180,7 +180,7 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << consensusConfig.genesisTime;
-  log().info << "  Time offset: " << consensusConfig.timeOffset;
+  log().info << "  Time offset: " << consensusConfig.timeOffsetMs << " ms";
   log().info << "  Slot duration: " << consensusConfig.slotDuration;
   log().info << "  Slots per epoch: " << consensusConfig.slotsPerEpoch;
   log().info << "  Max custom meta size: "
@@ -315,13 +315,37 @@ std::optional<uint64_t> Beacon::supersededBy() const {
   if (!tipSigner_ || !authority) {
     return std::nullopt;
   }
-  if (const auto &seen = chain_.seenCertificate(); seen && !tipSigner_->holdsKey(seen->publicKey)) {
-    return seen->generation;
+  // The latest certificate decides: one held out of band (not on chain yet) above the one in force.
+  if (const auto &seen = chain_.seenCertificate()) {
+    return tipSigner_->holdsKey(seen->publicKey) ? std::nullopt : std::optional<uint64_t>(seen->generation);
   }
   if (!tipSigner_->holdsKey(authority->beacon.publicKey)) {
     return authority->beacon.generation;
   }
   return std::nullopt;
+}
+
+std::optional<uint64_t> Beacon::takingOver() const {
+  if (!tipSigner_) {
+    return std::nullopt;
+  }
+  return takeoverFor([this](const std::string &publicKey) { return tipSigner_->holdsKey(publicKey); });
+}
+
+std::optional<uint64_t> Beacon::takeoverWith(const std::vector<utl::MlDsaKeyPair> &keys) const {
+  return takeoverFor([&keys](const std::string &publicKey) {
+    return std::any_of(keys.begin(), keys.end(),
+                       [&publicKey](const utl::MlDsaKeyPair &key) { return key.publicKey == publicKey; });
+  });
+}
+
+std::optional<uint64_t> Beacon::takeoverFor(const std::function<bool(const std::string &publicKey)> &holds) const {
+  const auto authority = chain_.getAuthority();
+  const auto &seen = chain_.seenCertificate();
+  if (!authority || !seen || !holds(seen->publicKey) || holds(authority->beacon.publicKey)) {
+    return std::nullopt; // a staged rotation holds the key in force too: it is not a takeover
+  }
+  return seen->generation;
 }
 
 Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Record &record) {
@@ -407,7 +431,12 @@ TipSigner::Roe<void> Beacon::signCommittedTip() {
   if (!signed_ && signed_.error().code == TipSigner::E_NOT_CERTIFIED &&
       uncertifiedWarnedGeneration_ != authority->beacon.generation) {
     uncertifiedWarnedGeneration_ = authority->beacon.generation;
-    log().error << signed_.error().message << ": this beacon stands down (stops committing, serves reads)";
+    if (const auto generation = takingOver()) {
+      log().warning << "Taking over as beacon generation " << *generation << ": signs nothing until block "
+                    << chain_.seenCertificate()->cutoverHeight + 1 << " commits its certificate";
+    } else {
+      log().error << signed_.error().message << ": this beacon stands down (stops committing, serves reads)";
+    }
   }
   return signed_;
 }

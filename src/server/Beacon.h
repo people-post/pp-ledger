@@ -15,6 +15,7 @@
 #include "lib/common/Utilities.h"
 
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -173,6 +174,24 @@ public:
   /** The generation that certifies a key this beacon does not hold; none if it is not superseded. */
   std::optional<uint64_t> supersededBy() const;
   /**
+   * Taking over (bp3): a certificate held out of band names this beacon's key, and the one in force
+   * does not — a relay promoted to be the new beacon. It serves reads and STATUS (the certificate, no
+   * signed tip) and takes registrations and transactions; it commits nothing above the cutover but
+   * the block committing a certificate, and signs from there. Its generation; none otherwise.
+   */
+  std::optional<uint64_t> takingOver() const;
+  /** Whether a beacon holding `keys` would take over (takingOver), before it opens tip signing. */
+  std::optional<uint64_t> takeoverWith(const std::vector<utl::MlDsaKeyPair> &keys) const;
+  /** The latest signed tip's file under the mount's work directory (beacon only). */
+  static constexpr const char *FILE_SIGNED_TIP = "signed-tip.dat";
+  /** The certificate held out of band, above the one in force (Chain::seenCertificate). */
+  std::optional<BeaconCertificate> getHeldCertificate() const { return chain_.seenCertificate(); }
+  /** Block C here is not the one the held certificate vouches for (Chain::cutoverForked). */
+  bool cutoverForked() const { return chain_.cutoverForked(); }
+  /** Where the beacon is reached: the certificates' dial hints (Chain::dialHints). */
+  std::vector<std::string> getDialHints() const { return chain_.dialHints(); }
+  uint64_t getSlotDuration() const { return chain_.getSlotDuration(); }
+  /**
    * Equivocation evidence held (beacon-authority ba6): its height. The beacon then commits no block
    * above it and takes no producer writes until a later generation is certified (resume).
    */
@@ -198,8 +217,6 @@ public:
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
-  /** The latest signed tip, beside the ledger. */
-  constexpr static const char *FILE_SIGNED_TIP = "signed-tip.dat";
   /** The highest beacon certificate seen out of band, beside the ledger. */
   constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
   /** Equivocation evidence this node halts on (ba6), beside the ledger. */
@@ -247,6 +264,7 @@ private:
   Roe<void> dropSignedTipAbove(uint64_t height);
   /** Refuse a ledger that ends below the persisted tip or holds another block at its height. */
   Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const;
+  std::optional<uint64_t> takeoverFor(const std::function<bool(const std::string &publicKey)> &holds) const;
   /** Sign the committed tip under the certificate in force. */
   TipSigner::Roe<void> signCommittedTip();
 

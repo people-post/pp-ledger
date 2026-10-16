@@ -31,7 +31,7 @@ class SlotCommittee : public Module {
 public:
   struct Config {
     int64_t genesisTime{ 0 };    // timestamp of genesis block
-    int64_t timeOffset{ 0 };     // beacon_time = local_time + timeOffset_
+    int64_t timeOffsetMs{ 0 };   // beacon time (ms) = local time (ms) + timeOffsetMs
     uint64_t slotDuration{ 0 };  // duration of each slot in seconds
     uint64_t slotsPerEpoch{ 0 }; // number of slots in each epoch
   };
@@ -118,6 +118,8 @@ public:
    * test injectors stay. Stake cache and epoch seed start empty.
    */
   void setSlotTiming(int64_t genesisTime, uint64_t slotDuration, uint64_t slotsPerEpoch);
+  /** Recalibrated to the beacon (a node following a new generation, bp3); the rest stays. */
+  void setTimeOffsetMs(int64_t offsetMs) { config_.timeOffsetMs = offsetMs; }
   bool validateSlotLeader(uint64_t slotLeader, uint64_t slot) const;
   /** A block for `slot` is sealed after the slot ends: timestamp in [slotEnd, slotEnd + window). */
   bool validateBlockTiming(int64_t blockTimestamp, uint64_t slot) const;

@@ -58,14 +58,20 @@ chain_tx::Roe<BeaconCertificate> BeaconCertTxHandler::check(const Ledger::TxBeac
   if (blockId == 0) {
     return chain_tx::TxError(chain_err::E_TX_TYPE, "The genesis record certifies generation 1");
   }
-  if (auto idem = validateIdempotencyUsingContext(ctx, tx.idempotentId, AccountBuffer::ID_GENESIS,
-                                                  tx.validationTsMin, tx.validationTsMax, slot, admissionMode);
-      !idem) {
-    return idem.error();
-  }
   auto cert = decodeCertificate(tx);
   if (!cert) {
     return cert.error();
+  }
+  // A certificate with a cutover commits only in block C+1, after the new beacon takes over — hours
+  // or days after the admins signed it; it binds nodes out of band meanwhile, where no window
+  // applies. Its block is pinned by cutoverHash and a generation commits once, so it needs neither
+  // a validity window nor an idempotency key (bp3).
+  if (!cert.value().hasCutover()) {
+    if (auto idem = validateIdempotencyUsingContext(ctx, tx.idempotentId, AccountBuffer::ID_GENESIS,
+                                                    tx.validationTsMin, tx.validationTsMax, slot, admissionMode);
+        !idem) {
+      return idem.error();
+    }
   }
   if (!ctx.optAuthority.has_value() || !ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain authority not initialized");
@@ -102,6 +108,22 @@ chain_tx::Roe<BeaconCertificate> BeaconCertTxHandler::check(const Ledger::TxBeac
     }
   }
   return cert;
+}
+
+bool BeaconCertTxHandler::commitsCutover(const Ledger::Block &block) {
+  for (const auto &record : block.records) {
+    if (record.type != Ledger::T_BEACON_CERT) {
+      continue;
+    }
+    auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
+    if (!tx) {
+      continue;
+    }
+    if (auto cert = decodeCertificate(tx.value()); cert && cert.value().hasCutover()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 chain_tx::Roe<void> BeaconCertTxHandler::applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,

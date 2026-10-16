@@ -23,6 +23,8 @@ BEACON_PORT="${PP_LEDGER_SMOKE_BEACON_PORT:-8617}"
 RELAY_PORT="${PP_LEDGER_SMOKE_RELAY_PORT:-8622}"
 # A second relay, started by scenarios that need one (start_relay relay2 "$RELAY2_PORT").
 RELAY2_PORT="${PP_LEDGER_SMOKE_RELAY2_PORT:-8623}"
+# A third relay (the takeover drill's gateway in front of the new beacon).
+RELAY3_PORT="${PP_LEDGER_SMOKE_RELAY3_PORT:-8624}"
 MINER_BASE_PORT="${PP_LEDGER_SMOKE_MINER_BASE_PORT:-8618}"
 HTTP_PORT="${PP_LEDGER_SMOKE_HTTP_PORT:-8680}"
 
@@ -291,10 +293,18 @@ initialize_beacon_with_test_config() {
   local beacon_dir="${TEST_DIR}/beacon"
   rm -rf "$beacon_dir"
   # A new genesis is a new chain: every node's ledger from an earlier run belongs to another
-  # chain (relay errors on every request; miners' blocks are refused). Keys and Amp identities stay.
+  # chain (relay errors on every request; miners' blocks are refused), and its logs to another
+  # network (checks read them). A relay an earlier run promoted to beacon goes whole. Keys and Amp
+  # identities stay (the lab keys restore a removed relay's).
   local node_dir
   for node_dir in "${TEST_DIR}"/relay* "${TEST_DIR}"/miner*; do
-    [[ -d "$node_dir/data" ]] && rm -rf "$node_dir/data"
+    [[ -d "$node_dir" ]] || continue
+    if [[ -f "$node_dir/config.relay.json" ]]; then
+      rm -rf "$node_dir"
+      continue
+    fi
+    rm -rf "$node_dir/data"
+    rm -f "$node_dir"/*.log
   done
   mkdir -p "$beacon_dir/keys"
   touch "$beacon_dir/.signature"
@@ -369,11 +379,11 @@ create_beacon_config() {
     "BEACON_PORT=${BEACON_PORT}"
 }
 
-# Relay $1 (default "relay", in ${TEST_DIR}/$1) on UDP port $2 (default RELAY_PORT), following the beacon.
+# Relay $1 (default "relay", in ${TEST_DIR}/$1) on UDP port $2 (default RELAY_PORT), following
+# upstream $3 (default the beacon).
 create_relay_config() {
-  local name=${1:-relay} port=${2:-$RELAY_PORT}
-  local beacon_ma
-  beacon_ma=$(beacon_multiaddr)
+  local name=${1:-relay} port=${2:-$RELAY_PORT} beacon_ma=${3:-}
+  [[ -n "$beacon_ma" ]] || beacon_ma=$(beacon_multiaddr)
   [[ -n "$beacon_ma" ]] || die "beacon multiaddr missing; start beacon first"
   local relay_dir="${TEST_DIR}/${name}"
   mkdir -p "$relay_dir/keys"
@@ -504,10 +514,11 @@ start_beacon() {
   echo -e "${GREEN}✓ Beacon started on UDP ${BEACON_PORT}${NC}"
 }
 
-# Start relay $1 (default "relay") on UDP port $2 (default RELAY_PORT); see create_relay_config.
+# Start relay $1 (default "relay") on UDP port $2 (default RELAY_PORT), following upstream $3
+# (default the beacon); see create_relay_config.
 start_relay() {
-  local name=${1:-relay} port=${2:-$RELAY_PORT}
-  create_relay_config "$name" "$port"
+  local name=${1:-relay} port=${2:-$RELAY_PORT} upstream=${3:-}
+  create_relay_config "$name" "$port" "$upstream"
   local relay_dir="${TEST_DIR}/${name}"
   run_bg_cmd "$relay_dir/console.log" "$BUILD_DIR/app/pp-relay" -d "$relay_dir" ${DEBUG_FLAG}
   save_pid "$name" $!
@@ -997,14 +1008,14 @@ register_miner_account() {
   return 1
 }
 
-stop_miner_by_id() {
-  local miner_id=$1
-  local line pid
-  line=$(grep "^miner${miner_id}:" "$PID_FILE" 2>/dev/null || true)
-  [[ -n "$line" ]] || return 0
-  pid=$(echo "$line" | cut -d: -f2)
+# Stop node $1 (its name in the PID file) and forget its PID.
+stop_node() {
+  local name=$1
+  local pid
+  pid=$(pid_for_name "$name")
+  [[ -n "$pid" ]] || return 0
   if kill -0 "$pid" 2>/dev/null; then
-    echo -e "${CYAN}Stopping miner${miner_id}...${NC}"
+    echo -e "${CYAN}Stopping ${name}...${NC}"
     kill "$pid" 2>/dev/null || true
     # A clean stop commits the ledger; force it after 5 s so no two processes share the directory.
     local i
@@ -1014,7 +1025,11 @@ stop_miner_by_id() {
     done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
   fi
-  remove_pid_name "miner${miner_id}"
+  remove_pid_name "$name"
+}
+
+stop_miner_by_id() {
+  stop_node "miner$1"
 }
 
 run_latejoin_scenario() {
@@ -1308,8 +1323,10 @@ run_out_of_band_scenario() {
   tip=$(status_signed_tip_height)
   [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-REWIND: no signed tip to start from (got '${tip}')"
   cutover=$((tip - 2))
-  # The last miner is down while the cut happens; it comes back afterwards (below).
+  # The last miner is down while the cut happens; it comes back afterwards (below). It goes down
+  # holding a block past the cutover (it may trail the relay), or it would have nothing to rewind.
   local offline=$NUM_MINERS
+  wait_for_miner_tip "$offline" "$tip" 60 || die "L-SMOKE-REWIND: miner${offline} did not reach block ${tip}"
   stop_miner_by_id "$offline"
   rm -f "$key.key" "$key.pub"
   "$BUILD_DIR/app/pp-client" keygen -o "$key" >/dev/null || die "pp-client keygen failed"
@@ -1484,3 +1501,126 @@ start_anchored_miner() {
   await_miner "$miner_id"
 }
 
+
+# The signed tip relay $1 serves on STATUS, as "height generation" (empty if none).
+relay_signed_tip() {
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr "$1")" status 2>/dev/null |
+    sed -n 's/^Signed tip: block \([0-9]*\), generation \([0-9]*\)$/\1 \2/p'
+}
+
+# The log file of node $1: its role's log (a promoted relay logs to beacon.log from then on).
+node_log() {
+  case "$1" in
+    beacon) echo "${TEST_DIR}/beacon/beacon.log" ;;
+    miner*) echo "${TEST_DIR}/$1/miner.log" ;;
+    *) echo "${TEST_DIR}/$1/relay.log" ;;
+  esac
+}
+
+# Wait up to $3 s until relay $1's nextBlockId reaches $2.
+wait_for_relay_tip() {
+  local name=$1 target=$2 max_wait=${3:-60} deadline got
+  deadline=$((SECONDS + max_wait))
+  while ((SECONDS < deadline)); do
+    got=$(parse_next_block_id "$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr "$name")" status 2>&1)")
+    [[ -n "$got" && "$got" -ge "$target" ]] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
+# Wait up to $3 s until log $1 holds the fixed string $2.
+wait_for_log() {
+  local log=$1 text=$2 max_wait=${3:-60} deadline
+  deadline=$((SECONDS + max_wait))
+  until grep -a -F -q "$text" "$log" 2>/dev/null; do
+    ((SECONDS < deadline)) || return 1
+    sleep 1
+  done
+}
+
+# Case 2 end to end (beacon-authority bp3): the beacon key is stolen. The admins certify generation
+# 2 for a key the maintainer generated on relay2, trusting generation 1 only up to two blocks back,
+# with relay3 — a relay in front of relay2 — as the way to reach it. Every node rewinds; the
+# maintainer promotes relay2 (pp-beacon --promote); the next leader commits the certificate in the
+# block after the cutover, and the network resumes under generation 2 — relay1 and the miners,
+# configured for the old beacon's side only, find it through the hint.
+run_takeover_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-TAKEOVER (case 2) ═══${NC}"
+  wait_for_blocks 4 90 || die "L-SMOKE-TAKEOVER: the network did not get going"
+  local relay2="${TEST_DIR}/relay2" i
+  rm -f "$relay2/keys/beacon-signing.key" "$relay2/keys/beacon-signing.pub"
+  "$BUILD_DIR/app/pp-client" keygen -o "$relay2/keys/beacon-signing" >/dev/null || die "pp-client keygen failed"
+  local tip cutover cert reply
+  tip=$(status_signed_tip_height)
+  [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-TAKEOVER: no signed tip to start from (got '${tip}')"
+  cutover=$((tip - 2))
+  # Every node holds blocks past the cutover first (some trail the relay), so every node rewinds.
+  for i in relay2 relay3; do
+    wait_for_relay_tip "$i" "$tip" 60 || die "L-SMOKE-TAKEOVER: ${i} did not reach block ${tip}"
+  done
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$tip" 60 || die "L-SMOKE-TAKEOVER: miner${i} did not reach block ${tip}"
+  done
+  cert=$(make_beacon_cert 2 "$relay2/keys/beacon-signing.pub" "$cutover" "$(relay_multiaddr relay3)")
+  for i in relay relay2; do # the maintainer's relays
+    reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr "$i")" submit-tx "$cert" 2>&1) ||
+      die "L-SMOKE-TAKEOVER: submit-tx to ${i} failed: ${reply}"
+  done
+  echo -e "${CYAN}Certified generation 2 for relay2's key (cutover ${cutover}; signed tip was ${tip}), hint relay3${NC}"
+
+  # Everyone rewinds to the cutover; the old beacon, holding no key generation 2 names, stands down.
+  local node log
+  for node in beacon relay relay2 relay3 $(seq -f "miner%g" 1 "$NUM_MINERS"); do
+    log=$(node_log "$node")
+    wait_for_log "$log" "Rewound: kept blocks up to ${cutover}," 90 || die "L-SMOKE-TAKEOVER: ${node} did not rewind"
+  done
+  grep -a -q "certifies none of this beacon's keys" "${TEST_DIR}/beacon/beacon.log" ||
+    die "L-SMOKE-TAKEOVER: the old beacon did not stand down"
+  echo -e "${GREEN}✓ Every node rewound to block ${cutover}; the old beacon stood down${NC}"
+
+  # The maintainer promotes relay2: same directory, same identity and port, now the beacon.
+  stop_node relay2
+  run_bg_cmd "$relay2/console.log" "$BUILD_DIR/app/pp-beacon" -d "$relay2" --promote ${DEBUG_FLAG}
+  save_pid "relay2" $!
+  wait_until_ready relay2 "$relay2/console.log" 90 || die "L-SMOKE-TAKEOVER: relay2 did not start as the beacon"
+  grep -a -q "Promoted: this relay's work directory now runs the beacon" "$relay2/beacon.log" ||
+    die "L-SMOKE-TAKEOVER: relay2 was not promoted"
+  [[ -f "$relay2/config.relay.json" ]] || die "L-SMOKE-TAKEOVER: the relay's config was not kept"
+  grep -a -q "Clock check: " "$relay2/beacon.log" || die "L-SMOKE-TAKEOVER: no clock check"
+  echo -e "${GREEN}✓ Relay2 promoted: taking over as beacon generation 2${NC}"
+
+  # The next leader commits the certificate in block cutover+1; the new beacon signs it.
+  local deadline=$((SECONDS + 120)) committed=""
+  while ((SECONDS < deadline)); do
+    committed=$(grep -a -l "commits the beacon certificate held" "${TEST_DIR}"/miner*/miner.log 2>/dev/null | head -1)
+    [[ -n "$committed" ]] && grep -a -q "Beacon certificate generation 2 in force from block $((cutover + 1))" \
+      "$relay2/beacon.log" && break
+    sleep 1
+  done
+  grep -a -q "Beacon certificate generation 2 in force from block $((cutover + 1))" "$relay2/beacon.log" ||
+    die "L-SMOKE-TAKEOVER: the new beacon did not commit the certificate in block $((cutover + 1))"
+  echo -e "${GREEN}✓ $(basename "$(dirname "$committed")") led block $((cutover + 1)) with the certificate; the new beacon committed it${NC}"
+
+  # Relay1 and the miners follow generation 2 through relay3, the hint; production resumes.
+  inject_transactions_for_block_production >/dev/null 2>&1 || true
+  local served="" target=$((cutover + 4))
+  deadline=$((SECONDS + 180))
+  while ((SECONDS < deadline)); do
+    served=$(relay_signed_tip relay)
+    [[ -n "$served" && "${served#* }" == "2" && "${served% *}" -ge "$target" ]] && break
+    sleep 2
+  done
+  [[ -n "$served" && "${served#* }" == "2" && "${served% *}" -ge "$target" ]] ||
+    die "L-SMOKE-TAKEOVER: relay1 does not serve generation 2 up to block ${target} (serves '${served}')"
+  grep -a -F -q "Following upstream [1] $(relay_multiaddr relay3)" "${TEST_DIR}/relay/relay.log" ||
+    die "L-SMOKE-TAKEOVER: relay1 did not move to relay3"
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$target" 90 || die "L-SMOKE-TAKEOVER: miner${i} did not follow generation 2"
+    wait_for_log "${TEST_DIR}/miner${i}/miner.log" "Clock recalibrated for beacon generation 2" 60 ||
+      die "L-SMOKE-TAKEOVER: miner${i} did not recalibrate for generation 2"
+  done
+  local stopped
+  stopped=$(all_processes_alive) || die "L-SMOKE-TAKEOVER: ${stopped} stopped"
+  echo -e "${GREEN}✓ L-SMOKE-TAKEOVER: relay1 and ${NUM_MINERS} miner(s) follow generation 2 (block ${served% *}) through relay3; clocks recalibrated${NC}"
+}

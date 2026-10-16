@@ -67,7 +67,9 @@ genesis record.
 The admin set (genesis account, its `minSignatures`) certifies the next beacon. The record's `meta`
 is a `BeaconCertificate` (version `2`, then `networkId`, `generation`, `publicKey`,
 `cutoverHeight`, `cutoverHash`, `dialHints`); fee `0`; when `idempotentId` is non-zero (`mk-beacon-cert` sets one), an
-idempotency key (genesis account, `idempotentId`) with the usual validation window. Rules (`chain_tx::validateNextBeaconCertificate`):
+idempotency key (genesis account, `idempotentId`) with the usual validation window — except a certificate
+with a cutover, which has neither: it commits only in block `cutoverHeight` + 1, after the new beacon
+takes over, and binds nodes out of band until then ([§ Taking over](#taking-over)). Rules (`chain_tx::validateNextBeaconCertificate`):
 
 - `networkId` is the chain's; `generation` is exactly the one in force + 1;
 - `publicKey` is a well-formed ML-DSA-65 key that is not the current beacon key, an admin key or a
@@ -232,7 +234,8 @@ successor. Every node keeps the highest one it sees:
   is offered before its tip is checked), on `BLOCK_ADD` replies, and for the tip a relay serves (a
   relay stops serving one the certificate rules out). Relays and miners rank such an upstream last
   ([§ Upstreams](#upstreams)). A beacon holding no key the certificate names stands down; one that holds it (a staged rotation)
-  commits no block above the cutover that does not commit a certificate.
+  commits no block above the cutover that does not commit a certificate; one that holds it but not the
+  key in force takes over ([§ Taking over](#taking-over)).
 
 - **Behind the cutover** (bp2): once the old generation is refused past the cutover, no tip vouches
   for the blocks up to it until the new beacon signs the next one. A node behind it syncs first to
@@ -246,7 +249,7 @@ successor. Every node keeps the highest one it sees:
 
 A tip of the new generation still verifies only along blocks that commit its certificate: the
 certificate bounds the old generation, it does not let a node follow the new one before the chain
-does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
+does (the new beacon commits it right after the cutover, [§ Taking over](#taking-over)).
 
 ## Upstreams
 
@@ -268,8 +271,9 @@ Upstreams are opaque: a relay or the beacon, the same RPC either way.
   followed stays while of that generation and at most 2 blocks behind. None qualifying, the node
   keeps its upstream.
 - **When.** At start (the node waits for it), every 60 s with more than one candidate, on a new
-  certificate, and when a sync fails — the failed upstream is avoided for 60 s and the next one
-  tried at once. A relay behind a beacon that stood down syncs without failing (it serves tips up to
+  certificate, when a sync fails — the failed upstream is avoided for 60 s and the next one tried at
+  once — and when the upstream followed refuses a block (a miner's block no upstream took, a relay's
+  forwarded `BLOCK_ADD`), unless a round ran within 5 s. A relay behind a beacon that stood down syncs without failing (it serves tips up to
   the cutover), so ranking, not failure, moves it to the new beacon's gateways.
 - **Certificates go up.** A node keeping a new certificate, from any channel, sends it (`TX_ADD`) to
   every candidate, not only the one followed, so the old beacon's side learns it from below.
@@ -277,6 +281,40 @@ Upstreams are opaque: a relay or the beacon, the same RPC either way.
 - **Which is "upstream".** Only the candidate followed now is the node's upstream for
   [request direction](../architecture/LEDGER_TOPOLOGY.md#request-direction); every candidate passes
   `allowedPeers`.
+
+## Taking over
+
+Case 2 (beacon-authority bp3): the beacon key is stolen. The admins certify generation N+1 for a key
+held on one of the maintainer's relays — with a cutover *C* and, as `dialHints`, gateways in front of
+it — and hand the certificate to their relays. Every node rewinds to *C* ([§ Rewind](#rewind)); the old
+beacon stands down.
+
+- **Promotion.** `pp-beacon --promote -d <relay dir>` turns a relay's work directory into the beacon:
+  same ledger, identity and port. Before it writes anything it requires no `data/signed-tip.dat` (the
+  directory was never a beacon's), a certificate held with a cutover naming a key in
+  `keys/beacon-signing.{key,pub}` (the certified key, put there by the maintainer) while the one in
+  force names none of its keys, and block *C* held with `cutoverHash`. It then checks the host's
+  clock (below), keeps the relay's `config.json` as `config.relay.json` and writes the beacon's
+  (`port` and `allowedPeers` kept). Refused, nothing changes; later starts run the beacon plainly.
+- **Taking over** (`Beacon::takingOver`): a beacon holding a certificate out of band that names its
+  key, above one in force that does not, does not stand down. It serves reads and `STATUS` (the
+  certificate, no signed tip), takes registrations and transactions, commits nothing above the
+  cutover but a block that commits a certificate, and signs from there — as generation N+1 once it is
+  in force.
+- **Block *C*+1** carries the certificate: its slot leader, holding the certificate with its chain
+  ending at *C* (`Chain::certificateDueAt`), adds it itself after its renewals. The block charges no
+  skipped slots for miner liveness — the gap is the outage
+  ([WIRE_SCHEMA.md § Miner registration and liveness](WIRE_SCHEMA.md#miner-registration-and-liveness)).
+- **Reaching it.** Its gateways are upstream candidates of every node holding the certificate
+  ([§ Upstreams](#upstreams)): a miner's block reaches the new beacon through them, and relays and
+  miners follow generation N+1 there once it signs.
+- **Clocks.** A beacon's clock is its host's. Promotion asks the relay's configured upstreams and the
+  certificate's gateways for `CALIBRATION` and refuses when their median is further from this host
+  than the delivery window (`min(slot / 3, 2 s)`); with no answer it warns and goes on. Relays and
+  miners calibrate at start through the upstream they follow and again when the generation in force
+  rises (`clock_calibration::ClockFollower`), in milliseconds.
+- **Pool and registry** start empty: miners re-register within a minute; clients resubmit what the
+  dropped blocks held.
 
 ## Rewind
 

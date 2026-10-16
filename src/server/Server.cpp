@@ -235,12 +235,18 @@ Service::Roe<void> Server::addUpstream(const std::string& multiaddr) {
   if (!peerId) {
     return peerId.error();
   }
-  if (auto self = upstreamPeerId(listenMultiaddr()); self && self.value() == peerId.value()) {
+  if (isSelf(multiaddr)) {
     return Service::Error(-1, "Upstream '" + multiaddr + "' is this node");
   }
   std::lock_guard<std::mutex> lock(upstreamMutex_);
   upstreamPeerIds_.insert(peerId.value());
   return {};
+}
+
+bool Server::isSelf(const std::string& multiaddr) const {
+  auto peerId = upstreamPeerId(multiaddr);
+  auto self = upstreamPeerId(listenMultiaddr());
+  return peerId && self && peerId.value() == self.value();
 }
 
 Service::Roe<void> Server::followUpstream(const std::string& multiaddr) {
@@ -276,6 +282,32 @@ UpstreamSet::Hooks Server::upstreamHooks(Client& fanout) {
     }
   };
   return hooks;
+}
+
+clock_calibration::Fetch Server::calibrationFetch(Client& client, std::string dialKey, std::string multiaddr) {
+  return [this, &client, dialKey = std::move(dialKey), multiaddr = std::move(multiaddr)](
+             Client::Done<Client::CalibrationResponse> done) {
+    if (auto dial = client.setAmpPeer(dialKey, multiaddr); !dial) {
+      done(Client::Roe<Client::CalibrationResponse>(dial.error()));
+      return;
+    }
+    client.fetchCalibrationAsync(completeOnServerThread<Client::CalibrationResponse>(std::move(done)));
+  };
+}
+
+Client::Roe<clock_calibration::Offset> Server::calibrateBlocking(const clock_calibration::Fetch& fetch) {
+  // Shared: a sample still in flight when this gives up must not write into a returned frame.
+  auto result = std::make_shared<std::optional<Client::Roe<clock_calibration::Offset>>>();
+  clock_calibration::estimate(fetch, [result](Client::Roe<clock_calibration::Offset> offset) {
+    *result = std::move(offset);
+  });
+  // Each sample is bounded by the RPC timeout; a stuck one is given up on.
+  const auto timeout = tuning_.rpcTimeout * static_cast<int64_t>(clock_calibration::kMaxSamples + 1);
+  serveTasksUntil([&result]() { return result->has_value(); }, timeout);
+  if (!result->has_value()) {
+    return Client::Error(Client::E_NOT_CONNECTED, "Clock calibration timed out");
+  }
+  return std::move(**result);
 }
 
 Server::Origin Server::originOf(const std::string& peerId) const {

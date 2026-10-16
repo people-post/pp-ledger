@@ -119,6 +119,24 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 | `port` | 8517 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served (see below); typically the beacon's relays |
 
+### Promoting a relay (case 2: the beacon key was stolen)
+
+When the beacon's key is stolen, the admins certify a new key held on one of the maintainer's relays
+([BEACON_AUTHORITY.md § Taking over](../contracts/BEACON_AUTHORITY.md#taking-over)):
+
+1. On the chosen relay's host: `pp-client keygen -o <relay dir>/keys/beacon-signing` — the new
+   beacon's key pair; send the `.pub` to the admins.
+2. The admins: `pp-client -b --host <relay> mk-beacon-cert --network-id <id> --generation <N+1>
+   --pubkey beacon-signing.pub --cutover <last trusted block> --dial-hint <gateway relay> -o cert.tx`,
+   then `sign-tx` with enough admin keys. The gateways are relays that will follow the new beacon.
+3. `pp-client -b --host <relay> submit-tx cert.tx` to the maintainer's relays (the chosen one too).
+   Every node rewinds to the cutover and the old beacon stands down.
+4. Stop the chosen relay and start `pp-beacon -d <relay dir> --promote`. It checks the directory and
+   the host's clock, keeps `config.json` as `config.relay.json` and writes a beacon's (`port`,
+   `allowedPeers` kept), and takes over. Later starts are plain `pp-beacon -d <relay dir>`.
+5. Point the gateways at it (their `beacon` / `beacons`). The next slot leader commits the
+   certificate; relays and miners follow the new generation through the gateways.
+
 ## Relay `config.json`
 
 ```json

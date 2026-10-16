@@ -3,9 +3,10 @@
 #
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
-# Suites: unit | l0 | l1 | latejoin | smoke | rotation | image
+# Suites: unit | l0 | l1 | latejoin | smoke | rotation | takeover | image
 #   smoke == l0 → l1 → latejoin on one network (brought up once).
 #   rotation brings up its own network (the next beacon key is staged before the beacon starts).
+#   takeover brings up its own network (case 2: a relay promoted to be the new beacon).
 # See docs/ops/TEST_STRATEGY.md
 set -euo pipefail
 
@@ -31,7 +32,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|image
   --down                       stop network after run
 
 Examples:
@@ -96,6 +97,11 @@ run_smoke() {
   run_latejoin
 }
 
+run_takeover() {
+  # Its own network: relay2 becomes the beacon.
+  bash "${ROOT}/scripts/test/pp_ledger_takeover_smoke.sh"
+}
+
 run_rotation() {
   # Its own network: the beacon loads its next signing key at start.
   bash "${ROOT}/scripts/test/pp_ledger_rotation_smoke.sh"
@@ -158,6 +164,7 @@ case "$CMD" in
       latejoin) run_latejoin ;;
       smoke) run_smoke ;;
       rotation) run_rotation ;;
+      takeover) run_takeover ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
     esac

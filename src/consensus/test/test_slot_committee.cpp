@@ -1,5 +1,7 @@
 #include "SlotCommittee.h"
 #include <gtest/gtest.h>
+
+#include <chrono>
 #include <gmock/gmock.h>
 #include <set>
 
@@ -15,7 +17,7 @@ protected:
         consensus = std::make_unique<SlotCommittee>();
         consensus->init({
             .genesisTime = 0,
-            .timeOffset = 0,
+            .timeOffsetMs = 0,
             .slotDuration = 5,
             .slotsPerEpoch = 10,
         });
@@ -175,9 +177,26 @@ TEST_F(SlotCommitteeTest, SetsGenesisTime) {
 
 TEST_F(SlotCommitteeTest, SetsTimeOffset) {
     SlotCommittee::Config cfg = consensus->getConfig();
-    cfg.timeOffset = 60;  // local 60s behind beacon
+    cfg.timeOffsetMs = 60500;  // local clock 60.5 s behind the beacon's
     consensus->init(cfg);
-    EXPECT_EQ(consensus->getConfig().timeOffset, 60);
+    EXPECT_EQ(consensus->getConfig().timeOffsetMs, 60500);
+    auto localMs = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch()).count();
+    };
+    const int64_t before = localMs();
+    const int64_t beaconMs = consensus->getTimestampMs();
+    EXPECT_GE(beaconMs, before + 60500) << "kept to the millisecond: timing decisions are made in ms";
+    EXPECT_LE(beaconMs, localMs() + 60500);
+    const int64_t seconds = consensus->getTimestamp();
+    const int64_t secondsFromMs = consensus->getTimestampMs() / 1000;
+    EXPECT_LE(seconds - secondsFromMs, 1);
+    EXPECT_GE(seconds - secondsFromMs, -1);
+
+    consensus->setTimeOffsetMs(-250);  // recalibrated (a new beacon generation)
+    EXPECT_EQ(consensus->getConfig().timeOffsetMs, -250);
+    EXPECT_EQ(consensus->getConfig().genesisTime, cfg.genesisTime) << "the rest stays";
+    EXPECT_LE(consensus->getTimestampMs(), localMs() - 250);
 }
 
 TEST_F(SlotCommitteeTest, ReturnsErrorWhenNoStakeholders) {
@@ -257,7 +276,7 @@ TEST_F(SlotCommitteeWithStakeholdersTest, InitClearsInjectors) {
     consensus->forceSlotLeader(3, 2);
     consensus->init({
         .genesisTime = 0,
-        .timeOffset = 0,
+        .timeOffsetMs = 0,
         .slotDuration = 5,
         .slotsPerEpoch = 10,
     });

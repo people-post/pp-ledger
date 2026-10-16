@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -106,6 +108,11 @@ struct GenesisSetup {
     return server.init(dir.string(), genesisKeyFiles);
   }
 };
+
+std::string readAllText(const std::filesystem::path &path) {
+  std::ifstream in(path);
+  return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
 
 Client::MinerInfo signedBy(Client::MinerInfo miner, const std::vector<utl::MlDsaKeyPair> &keys,
                            const std::string &networkId) {
@@ -652,6 +659,84 @@ TEST(BeaconServerInitTest, CertificateStoreKeepsWhatTheChainKeeps) {
     EXPECT_FALSE(chain.seenCertificate().has_value());
     EXPECT_FALSE(std::filesystem::exists(file)) << "not above the generation in force: removed";
   }
+}
+
+// beacon-authority bp3: `pp-beacon --promote` turns a relay's work directory into the beacon taking
+// over, and refuses one that cannot take over — before it writes anything.
+TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
+  GenesisSetup setup("pp-ledger-beacon-promote-test");
+  setup.writeInitConfig();
+  const auto oldKey = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(oldKey, "keys/beacon-signing");
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  const auto config = setup.dir / "config.json";
+  const std::string relayConfig =
+      R"({"port": 18519, "beacon": "/ip4/127.0.0.1/udp/18517/adp/1.0.0/p2p/QmQxy7idP1HWWrhX6rzSxBp4Q94mKBzGGFjW3oCFgi69LZ"})";
+  auto promote = [&]() {
+    BeaconServer server;
+    server.setPromote(true);
+    auto run = server.run(setup.dir.string());
+    EXPECT_FALSE(run.isOk()) << "refused";
+    EXPECT_FALSE(std::filesystem::exists(setup.dir / "config.relay.json")) << "nothing written";
+    return run.isOk() ? std::string{} : run.error().message;
+  };
+  auto expectRefused = [&](const std::string &why) {
+    const std::string message = promote();
+    EXPECT_NE(message.find(why), std::string::npos) << message;
+  };
+  auto certFor = [&](const utl::MlDsaKeyPair &key, uint64_t cutover) {
+    Beacon reader;
+    Beacon::MountConfig mounted;
+    mounted.workDir = (setup.dir / "data").string();
+    EXPECT_TRUE(reader.mount(mounted).isOk());
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = 2;
+    cert.publicKey = key.publicKey;
+    cert.cutoverHeight = cutover;
+    cert.cutoverHash = cutover == BeaconCertificate::kNoCutover ? std::string() : reader.readBlock(0).value().hash;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    tx.idempotentId = 1;
+    tx.validationTsMin = 0;
+    tx.validationTsMax = std::numeric_limits<int32_t>::max();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    for (int i = 0; i < 2; ++i) {
+      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+    }
+    EXPECT_EQ(reader.offerCertificate(record).value(), Chain::CertificateOffer::Newer); // kept on disk
+  };
+
+  std::ofstream(config) << R"({"port": 18517})";
+  expectRefused("is not a relay's");
+
+  std::ofstream(config) << relayConfig;
+  std::filesystem::remove(setup.dir / "data" / "signed-tip.dat");
+  expectRefused("no beacon certificate above generation 1 is held");
+
+  const auto newKey = utl::mlDsaGenerate().value();
+  certFor(utl::mlDsaGenerate().value(), 0);
+  expectRefused("names another key");
+
+  std::filesystem::remove(setup.dir / "data" / "beacon-cert.dat");
+  setup.writeKeyPair(newKey, "keys/beacon-signing"); // the key the admins certified, put in place
+  certFor(newKey, BeaconCertificate::kNoCutover);
+  expectRefused("has no cutover");
+
+  std::filesystem::remove(setup.dir / "data" / "beacon-cert.dat");
+  certFor(newKey, 0);
+  {
+    Beacon signer; // a beacon's directory: it signed a tip
+    Beacon::MountConfig mounted;
+    mounted.workDir = (setup.dir / "data").string();
+    ASSERT_TRUE(signer.mount(mounted).isOk());
+    ASSERT_TRUE(signer.openTipSigning({oldKey}).isOk());
+  }
+  ASSERT_TRUE(std::filesystem::exists(setup.dir / "data" / "signed-tip.dat"));
+  expectRefused("was a beacon's");
+  EXPECT_EQ(readAllText(config), relayConfig) << "the relay's config is untouched";
 }
 
 // --- Relay / miner without config: a template to fill in, never a guess ---

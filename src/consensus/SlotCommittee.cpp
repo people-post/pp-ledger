@@ -60,11 +60,9 @@ int64_t SlotCommittee::getTimestamp() const {
   if (clockOverride_.has_value()) {
     return *clockOverride_;
   }
-  auto now = std::chrono::system_clock::now();
-  int64_t localTime =
-      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
-          .count();
-  return localTime + config_.timeOffset;
+  // Floor to the second, also for a negative offset (the beacon's whole seconds).
+  const int64_t ms = getTimestampMs();
+  return ms >= 0 ? ms / 1000 : -((-ms + 999) / 1000);
 }
 
 int64_t SlotCommittee::getTimestampMs() const {
@@ -74,7 +72,7 @@ int64_t SlotCommittee::getTimestampMs() const {
   const auto now = std::chrono::system_clock::now();
   const int64_t localMs =
       std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-  return localMs + config_.timeOffset * 1000;
+  return localMs + config_.timeOffsetMs;
 }
 
 uint64_t SlotCommittee::getCurrentSlot() const {

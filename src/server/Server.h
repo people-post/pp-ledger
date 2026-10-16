@@ -7,6 +7,7 @@
 #include "BlockSync.h"
 #include "BlockWaitList.h"
 #include "RequestQueue.h"
+#include "ClockCalibration.h"
 #include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
 
@@ -159,6 +160,12 @@ protected:
    * (followUpstream). The role adds what it learns and how it judges a tip.
    */
   UpstreamSet::Hooks upstreamHooks(Client& fanout);
+  /** `multiaddr` names this node (its peer id; false before the AMP server listens). */
+  bool isSelf(const std::string& multiaddr) const;
+  /** CALIBRATION from `multiaddr` (dial key `dialKey`) through `client`, dialed before each sample. */
+  clock_calibration::Fetch calibrationFetch(Client& client, std::string dialKey, std::string multiaddr);
+  /** Before the run loop (start, promotion): estimate through `fetch` and wait for it. */
+  Client::Roe<clock_calibration::Offset> calibrateBlocking(const clock_calibration::Fetch& fetch);
 
   /**
    * Before start: serve only these peers (and this node's upstreams). Unset =

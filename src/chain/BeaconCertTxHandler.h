@@ -34,6 +34,11 @@ public:
 
   /** The certificate a T_BEACON_CERT carries (fee must be 0). */
   static chain_tx::Roe<BeaconCertificate> decodeCertificate(const Ledger::TxBeaconCert &tx);
+  /**
+   * `block` commits a certificate with a cutover: the first block of a new beacon after an outage
+   * (bp3). Records that do not decode count as none (validation refuses them elsewhere).
+   */
+  static bool commitsCutover(const Ledger::Block &block);
 
 private:
   /** Checks shared by draft and block apply; returns the certificate to put in force. */

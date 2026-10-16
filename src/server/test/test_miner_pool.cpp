@@ -407,4 +407,64 @@ TEST_F(MinerPoolTest, ACertificateVouchingForAnotherCutoverBlockIsNotObeyed) {
   EXPECT_FALSE(fs::exists(fs::path(mount.workDir) / rewind::FILE_ORDER));
 }
 
+// beacon-authority bp3 (case 2): a relay promoted to be the new beacon holds the chain up to the
+// cutover and the admins' certificate naming its key. It takes over — not standing down, signing
+// nothing yet — and commits only the block after the cutover carrying that certificate, which the
+// leader puts in its block itself; from there it signs as the new generation.
+TEST_F(MinerPoolTest, APromotedRelayTakesOverAtTheCutover) {
+  // The relay's directory: the chain up to block 0 (the cutover here), no signed tip.
+  const fs::path relayData = root_ / "relay" / "data";
+  fs::create_directories(relayData);
+  fs::copy(root_ / "beacon" / "data" / "ledger", relayData / "ledger", fs::copy_options::recursive);
+  Beacon::MountConfig mount;
+  mount.workDir = relayData.string();
+  Beacon promoted;
+  ASSERT_TRUE(promoted.mount(mount).isOk());
+  const utl::MlDsaKeyPair newKey = utl::mlDsaGenerate().value();
+  ASSERT_TRUE(promoted.openTipSigning({newKey}).isOk());
+  EXPECT_TRUE(promoted.supersededBy().has_value()) << "before the certificate: generation 1's key is not its";
+
+  BeaconCertificate cert;
+  cert.networkId = "test-net";
+  cert.generation = 2;
+  cert.publicKey = newKey.publicKey;
+  cert.cutoverHeight = 0;
+  cert.cutoverHash = promoted.readBlock(0).value().hash;
+  Ledger::TxBeaconCert tx;
+  tx.meta = cert.ltsToString(); // no validity window: a cutover certificate needs none
+  Ledger::Record record;
+  record.type = Ledger::T_BEACON_CERT;
+  record.data = utl::binaryPack(tx);
+  for (size_t i = 0; i < 2; ++i) {
+    record.signatures.push_back(utl::mlDsaSign(genesisKeys_[i].privateKey, record.signingMessage("test-net")).value());
+  }
+  ASSERT_EQ(promoted.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
+  EXPECT_FALSE(promoted.supersededBy().has_value()) << "the certificate held names its key";
+  EXPECT_EQ(promoted.takingOver(), std::optional<uint64_t>(2));
+  EXPECT_FALSE(promoted.getSignedTip().has_value()) << "nothing signed before the cutover block";
+  ASSERT_EQ(miner_->noteCertificate(record, "a test"), std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
+
+  ASSERT_TRUE(waitForLeaderSlotAfter(-1).has_value());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.index, 1u);
+  ASSERT_EQ(block.block.records.size(), 1u) << "the leader put the certificate in its block itself";
+  EXPECT_EQ(block.block.records[0].type, Ledger::T_BEACON_CERT);
+
+  Ledger::ChainNode without = block;
+  without.block.records.clear();
+  EXPECT_FALSE(promoted.addBlock(without).isOk()) << "nothing else commits above the cutover";
+
+  auto added = promoted.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  EXPECT_EQ(promoted.getGeneration(), 2u);
+  EXPECT_FALSE(promoted.takingOver().has_value()) << "taken over";
+  ASSERT_TRUE(promoted.getSignedTip().has_value());
+  EXPECT_EQ(promoted.getSignedTip()->generation, 2u);
+  EXPECT_EQ(promoted.getSignedTip()->height, 1u);
+  EXPECT_TRUE(promoted.getSignedTip()->verify(newKey.publicKey));
+  ASSERT_TRUE(miner_->addBlock(block).isOk()) << "the miner commits it too";
+  EXPECT_EQ(miner_->getGeneration(), 2u);
+}
+
 } // namespace

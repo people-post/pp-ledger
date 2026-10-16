@@ -204,6 +204,14 @@ public:
    */
   std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const;
   /**
+   * The certificate block `blockId` must commit (bp3): the one held out of band, when it has a
+   * cutover, `blockId` is the block after it and this chain holds the block it vouches for. The
+   * slot leader puts it in its block itself — the beacon taking over commits nothing else there.
+   */
+  std::optional<Ledger::Record> certificateDueAt(uint64_t blockId) const;
+  /** Recalibrated to the beacon's clock (consensus::SlotCommittee::setTimeOffsetMs). */
+  void setTimeOffsetMs(int64_t offsetMs) { txContext_.consensus.setTimeOffsetMs(offsetMs); }
+  /**
    * Whether an upstream serving `tip` is worth following (beacon-authority bp2b, ranking): not of a
    * generation older than the one in force, not past the cutover of a held certificate, not above
    * equivocation evidence held, not of a generation no certificate here names (offer the

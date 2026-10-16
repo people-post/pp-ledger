@@ -82,6 +82,8 @@ now or no longer signed, superseded evidence) is removed with a log line. The be
 | `data/equivocation.dat` | beacon, relay, miner | The equivocation evidence the node halts on: `Equivocation` versioned bytes (version 1) | Removed once a later generation supersedes it, or it no longer verifies |
 
 A node with no blocks yet keeps `beacon-cert.dat` and `equivocation.dat` and offers them once it
-holds its first block. The beacon also keeps `keys/amp-identity.txt` (its network identity,
+holds its first block. A relay's work directory becomes a beacon's with `pp-beacon --promote` — the
+same files, plus the certified key in `keys/beacon-signing.{key,pub}`; the relay's `config.json` is
+kept as `config.relay.json` ([BEACON_AUTHORITY.md § Taking over](BEACON_AUTHORITY.md#taking-over)). The beacon also keeps `keys/amp-identity.txt` (its network identity,
 [AMP_TRANSPORT.md](AMP_TRANSPORT.md)); relays do too.
 

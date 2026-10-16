@@ -108,7 +108,10 @@ private:
   /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
   Roe<Client::MinerInfo> signedRegistration(const std::string &networkId) const;
   Roe<Client::BeaconState> connectToBeacon();
+  /** At start: the offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed. */
   Roe<int64_t> calibrateTimeToBeacon();
+  /** Recalibration when a new beacon generation is in force (bp3); after the miner has loaded. */
+  void initClockFollower();
   void initHandlers();
   void handleSlotLeaderRole();
   /** Send a produced (sealed) block to every upstream in parallel. */
@@ -200,9 +203,8 @@ private:
   /** Network id the upstream advertised at connect; registrations are signed for it. */
   std::string registrationNetworkId_;
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
-  static constexpr int64_t RTT_THRESHOLD_MS = 200;
-  static constexpr int CALIBRATION_SAMPLES = 5;
   int64_t timeOffsetToBeaconMs_{0};
+  std::unique_ptr<clock_calibration::ClockFollower> clock_;
 
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};

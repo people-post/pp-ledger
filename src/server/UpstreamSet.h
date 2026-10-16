@@ -52,6 +52,7 @@ public:
 
   static constexpr std::chrono::seconds kRerankInterval{60};
   static constexpr std::chrono::seconds kAvoidFailedFor{60};
+  static constexpr std::chrono::seconds kSuspectGap{5};
   static constexpr size_t kMaxUpstreams = 32;
   /** Within one generation, the upstream followed is kept unless this many blocks behind (no flapping). */
   static constexpr uint64_t kLagTolerance = 2;
@@ -82,6 +83,11 @@ public:
   const std::optional<Client::BeaconState> &lastStatus(size_t index) const;
   /** The active upstream's sync failed: avoid it a while, move on now, and re-rank. */
   void noteFailed();
+  /**
+   * The upstream followed refused what it should take (a block: it may be a beacon that stood
+   * down, or behind the new one): re-rank now, unless a round ran within kSuspectGap.
+   */
+  void suspect(const std::string &why);
   /** Run loop: re-rank every kRerankInterval when there is a choice. */
   void maintain();
   /**

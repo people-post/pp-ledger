@@ -11,7 +11,7 @@ namespace pp {
 
 std::ostream &operator<<(std::ostream &os, const Relay::InitConfig &config) {
   os << "InitConfig{workDir=\"" << config.workDir << "\", "
-     << "timeOffset=" << config.timeOffset << ", "
+     << "timeOffsetMs=" << config.timeOffsetMs << ", "
      << "startingBlockId=" << config.startingBlockId << "}";
   return os;
 }
@@ -147,10 +147,10 @@ Relay::Roe<void> Relay::init(const InitConfig &config) {
     }
   }
 
-  // Initialize consensus (timeOffset only; full config from genesis block when
+  // Initialize consensus (timeOffsetMs only; full config from genesis block when
   // loading)
   consensus::SlotCommittee::Config consensusConfig;
-  consensusConfig.timeOffset = config.timeOffset;
+  consensusConfig.timeOffsetMs = config.timeOffsetMs;
   chain_.initConsensus(consensusConfig);
 
   auto loadResult = chain_.loadFromLedger(config.startingBlockId);
