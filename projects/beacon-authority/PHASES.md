@@ -93,10 +93,22 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         where the docs were: miner `STATUS`, start-only upstream ranking, fresh-node first sync,
         write order and durability of the state files
 
-## Part 2 — promotion (design after part 1)
+## Part 2 — promotion
 
-- [ ] **bp0** Design note: bounded rewind to `cutoverHeight`, beacon candidate lists, clock carry-over,
-      pool / registry rebuild
-- [ ] **bp1** Case 2 (beacon stolen) procedure and tooling
-- [ ] **bp2** Case 3 (move the server) runbook
-- [ ] **bp3** Case 1 (re-genesis) runbook
+Design: [DESIGN.md § Part 2](DESIGN.md#part-2--promotion). Rare events: restart-based, automatic for
+every node (B022–B024).
+
+- [x] **bp0** Design note: case 2 end to end; rewind as a restart; every node adopts a cutover;
+      certificate v2 (`cutoverHash`, gateway `dialHints`), a promoted relay, no outage charges,
+      clock, pool / registry (B022–B024); phases below
+- [ ] **bp1** Rewind: `data/rewind.dat` marker, in-process restart loop in each app's `main()`,
+      truncate or fresh join at start, once per generation, alerts and `STATUS`; tests and a smoke
+      drill (a cutover below the tip: every node rewinds and waits at the cutover)
+- [ ] **bp2** Reaching the new beacon: certificate v2 (`cutoverHash`, gateway `dialHints`) and sync to a
+      certificate-vouched block; certificates pushed up; relay candidate lists; re-ranking on
+      failure and on a new certificate; fresh nodes bounded by the `STATUS` certificate
+- [ ] **bp3** Taking over: `pp-beacon --promote` on a relay's directory, the taking-over state,
+      no liveness charges across the outage, clock check and recalibration on a new generation;
+      smoke drill of case 2 end to end (stolen key → certificate → rewind → takeover → resume)
+- [ ] **bp4** Case 3 (move the server) runbook and smoke drill
+- [ ] **bp5** Case 1 (re-genesis): design note, then phases

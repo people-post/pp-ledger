@@ -1,6 +1,6 @@
 # Beacon authority — design
 
-**Status:** part 1 shipped (B001–B019; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2 outlined
+**Status:** part 1 shipped (B001–B021; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2 in design (bp0)
 **Open item:** [SLOT_COMMITTEE_OPEN_ITEMS.md § E](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md)
 
@@ -167,7 +167,11 @@ Promoted in ba8; the normative copies, so this section lists no formats:
 
 ---
 
-## Part 2 — promotion (outline)
+## Part 2 — promotion
+
+**Status:** bp0 design note, decided: [B022](DECISIONS.md#b022--a-rewind-is-a-restart),
+[B023](DECISIONS.md#b023--every-node-adopts-a-cutover-on-its-own),
+[B024](DECISIONS.md#b024--case-2-certificate-v2-a-promoted-relay-no-outage-charges).
 
 All three cases issue or re-use a certificate under part 1's rules; nodes follow the highest
 generation.
@@ -178,10 +182,135 @@ generation.
 | **2. Beacon stolen** — beacon key taken, admin keys safe | admin set | The admin set issues generation N+1 to a caught-up node, with `cutoverHeight` = the last tip trusted before the theft. Nodes on the thief's branch rewind to it; transactions after it are resubmitted (idempotency keys make that safe). Cut-off nodes get the certificate by file or config. |
 | **3. Move the server** — all keys safe | all | **Plain operations** ([B003](DECISIONS.md#b003--moving-the-server-is-plain-operations)): stop writes, copy data and beacon key, start the new host, retire the old. Same generation. Rotating to a new key (generation N+1 with a clean cutover) stays the operator's choice. |
 
-**Part 2 work** (designed after part 1): bounded rewind to a `cutoverHeight` (the only rewind —
-not general fork choice); relays and miners accepting a list of beacon candidates; carrying the
-calibrated network clock into the new beacon; how the transaction pool and miner registry rebuild
-on the new beacon.
+### Principles
+
+- **Rare events, simple mechanisms** ([B022](DECISIONS.md#b022--a-rewind-is-a-restart)). Part 2 runs
+  perhaps once in a network's life. Prefer what reuses paths every node runs daily — mount, load
+  from the ledger, startup sync, fresh join — over faster special-purpose code that runs once a
+  year and then breaks. Slow is fine; a restart is fine.
+- **Automatic for every node** ([B023](DECISIONS.md#b023--every-node-adopts-a-cutover-on-its-own)).
+  Miners and relays the maintainer does not run adopt a cutover with no operator and no service
+  supervisor.
+- **No new authority.** Only an admin-signed certificate (part 1) moves anything: a stolen beacon
+  key or a lying upstream cannot trigger a rewind or a takeover.
+
+### Case 2, end to end
+
+1. **Detect.** The equivocation halt (ba6) stops the network, or an operator finds the key stolen.
+2. **Certify.** The admins choose the last block they trust, *C*, and a new beacon host — one of
+   the maintainer's relays, which holds the chain from genesis — and sign generation N+1: the new
+   host's signing key, `cutoverHeight` = *C*, `cutoverHash` = block *C*'s hash, and `dialHints` =
+   gateways (the maintainer's relays) through which the new beacon is reached.
+3. **Spread.** The certificate is submitted to the maintainer's relays; it travels down on
+   `STATUS` (part 1) and **up** from every node that keeps it (bp2), so a third-party relay whose
+   only upstream is the old beacon still learns it from its miners.
+4. **Rewind.** Every node holding blocks above *C* rewinds to *C* by restarting itself (below).
+5. **Take over.** The maintainer starts `pp-beacon --promote` on the chosen relay's data. It
+   holds the certificate and its key, so it takes over at *C* instead of standing down.
+6. **Resume.** Nodes reach the new beacon (candidates and hints, bp2). The next slot leader seals
+   block *C*+1 carrying the certificate; the new beacon commits it and signs it as generation N+1.
+   From there the network runs as before; the old key's chain is dead to every node.
+
+### Rewind — decided ([B022](DECISIONS.md#b022--a-rewind-is-a-restart), [B023](DECISIONS.md#b023--every-node-adopts-a-cutover-on-its-own))
+
+- **Trigger.** A node keeps a certificate of a later generation whose cutover *C* is below its
+  committed tip (part 1 already refuses the old generation's tips above *C*). The blocks above *C*
+  were signed by the old key past its cutover — invalid by the certificate's own terms — so the
+  node needs nothing more to know they must go. A node whose block *C* is not `cutoverHash` also
+  rewinds (its history forked at or below *C*).
+- **Marker.** It writes `data/rewind.dat` durably — target height and the certificate that orders
+  it — logs an error-level alert, and stops.
+- **Restart in-process.** The app's `main()` runs the role server in a loop: when `run()` returns
+  "restart", it builds a **fresh** server on the same work directory. Every object — chain,
+  stores, sync, pools, network — is rebuilt, exactly as at a cold start; the clean stop releases
+  the port first. Audited global state: the libsodium initialiser (idempotent), the logger, and
+  the app's signal-handler pointer — none carries chain state. No supervisor is needed; with one,
+  nothing changes.
+- **Apply at start.** Before anything mounts the ledger, the new server applies the marker:
+  truncate to *C* (the commit point is lowered before the data is cut, so a crash at any step
+  repeats the rewind at the next start), then remove the marker. If *C* is below a miner's
+  starting checkpoint, or the node's block *C* is not `cutoverHash`, it discards the ledger
+  and joins fresh — a relay from genesis, a miner at a checkpoint — through the existing fresh-join
+  path. Then it syncs as usual.
+- **Bounded.** One rewind per certificate generation (generations only go up); a marker still
+  present after its restart stops the node with an error rather than looping. The rewind depth is
+  the admins' choice, as their signature is what orders it.
+- **Reported.** Clients that read blocks above *C* see history change: the node logs it and
+  reports its last rewind on `STATUS` (shape in bp1). Transactions from those blocks must be
+  resubmitted — idempotency keys make it safe; ones whose validity window passed must be re-signed.
+- **Honest rotations never rewind.** No cutover, or a cutover still above the tip, triggers
+  nothing. A cutover below the tip is a rewind order (B017); the operator docs must say so.
+
+### Certificate v2 — `cutoverHash` and `dialHints`
+
+`BeaconCertificate` version 2 adds, admin-signed with the rest:
+
+- **`cutoverHash`** — block *C*'s hash; empty when there is no cutover. It makes the rewind target
+  unambiguous, and it closes the **takeover gap**: once nodes refuse the old generation above *C*,
+  no tip of any generation vouches for block *C* until *C*+1 is signed — a node behind *C* could
+  not sync to it. With the hash, the certificate vouches for *C*: `BlockSync` may take
+  (*C*, `cutoverHash`) from a held certificate as its target, authenticate the hash chain up to it,
+  and commit with no signed tip. The new beacon gets a signed starting point the same way.
+- **`dialHints`** — multiaddrs of **gateways** through which the new beacon is reached: the
+  maintainer's relays in front of it, never the beacon itself, which stays private behind its relays
+  (`allowedPeers`). Upstreams are opaque endpoints and relays may chain
+  ([AMP_TRANSPORT.md § Topology](../../docs/contracts/AMP_TRANSPORT.md#topology-uniform-upstream)),
+  so a third-party relay or miner adds a hint as one more upstream candidate. Only a hint: nodes
+  trust tips, not addresses. The admins sign them with the certificate, so the hinted relays should
+  be long-lived; a later change of front relays without a new generation reaches nodes through
+  their candidate lists.
+
+Without v2: the rewind target is a height only, and a node behind *C* waits for a tip nobody serves
+any more — workable only if every node is at or above *C* when the certificate lands.
+
+### Reaching the new beacon (bp2)
+
+- **Certificates travel up.** A node that keeps a new certificate pushes it (`TX_ADD`) to every
+  upstream, as miners already push equivocation evidence: a third-party relay behind the old beacon
+  learns it from its miners. A subtree with no path to any node holding the certificate cannot
+  learn it; its operators get the file out of band (part 1).
+- **Candidate beacons.** Relays take a list of upstreams, as miners do, and follow the one whose
+  verified tip has the highest generation. A held certificate's `dialHints` are added as candidates.
+- **Re-rank** on a failed sync and on a new certificate, not only at start (part 1 limit: miners
+  rank once).
+- **Fresh nodes** (part 1 limit): a node with no blocks checks the upstream's `STATUS` certificate
+  against the authority it builds from its first block (`AuthorityTrail`) before it checks the tip,
+  so its first sync is bounded by the cutover too.
+
+### Taking over (bp3)
+
+- **Host and tooling.** The new beacon is one of the maintainer's relays: its work directory
+  already holds the chain from genesis, the identity key, and the certificate it kept. Relay and
+  beacon directories differ only in `config.json` and the beacon's signing key and
+  `signed-tip.dat`. `pp-beacon --promote -d <relay dir>` checks the staged signing key against the
+  held certificate, rewrites `config.json` for a beacon (keeping port and `allowedPeers`), and
+  starts. The maintainer runs it — an operator step only on the new beacon's host — and points the
+  hinted relays at it (their candidate lists).
+- **Taking-over state.** A beacon holding a certificate above the one in force that names its own
+  key does not stand down (part 1 stands it down because the in-force key is not its own). It
+  serves reads and `STATUS` (certificate, no signed tip), commits only block *C*+1 carrying that
+  certificate, and signs from *C*+1 on.
+- **Liveness.** Block *C*+1 skips every slot since *C* — the outage, not the miners' fault. The
+  block that commits a certificate with a cutover charges no skipped slots (otherwise due miners
+  would be counted as missing for the whole outage and deregistered).
+- **Pool and registry rebuild from scratch.** Miners re-register within a minute (`REGISTER`
+  renewal); the transaction pool starts empty and clients resubmit.
+- **Clock.** The beacon's clock is its host's (NTP); relays and miners calibrate to their upstream.
+  At takeover the new beacon compares its clock with its relays' calibrated time and refuses to
+  take over beyond a bound (a fraction of the delivery window); nodes recalibrate when they start
+  following a new generation (rewound nodes do at their restart).
+
+### Case 3 — move the server (bp4)
+
+Plain operations (B003): stop writes, copy the data directory and the signing key, start on the new
+host, retire the old. Same generation, same key; running both at once is caught by the equivocation
+halt (B005). Relays reach the new host through their candidate lists. Deliverable: a runbook and a
+smoke drill.
+
+### Case 1 — re-genesis (bp5)
+
+Everything lost: a new genesis committing to the last good state (block hash and state root at a
+chosen height). It needs state import into a genesis — a design of its own, after bp1–bp4.
 
 **Not covered:** admin keys stolen. The thief can issue itself a generation, indistinguishable from
 a legitimate one; the recovery set replaces the admin set, and the delay gives people time to
