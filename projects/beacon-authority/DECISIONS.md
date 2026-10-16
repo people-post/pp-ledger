@@ -589,3 +589,29 @@ block on trust when unpinned, and its upstream chooses which certificate it show
 only out of band (the chain would accept a certificate naming the wrong block); letting an approval
 override a fork (the operator would be approving an unknown cut).
 
+## B027 — Nodes rank their upstreams; "own upstream" is the one followed
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Upstreams](../../docs/contracts/BEACON_AUTHORITY.md#upstreams), [LEDGER_TOPOLOGY.md § Request direction](../../docs/architecture/LEDGER_TOPOLOGY.md#request-direction) (normative; this entry keeps the why).
+**Decision:** Relays and miners keep a list of upstream candidates — configured (relays may now list
+several, `beacons`), then the `dialHints` of the certificate held and the one in force, never the
+node itself — and rank them (`UpstreamSet`): `STATUS` from all in parallel, what they carry offered
+first, then the highest tip generation the node could verify, then the longest chain, keeping the
+one followed unless it is more than 2 blocks behind in that generation. They rank at start, every
+minute, on a new certificate and on a failed sync (the failed one avoided for a minute). A new
+certificate goes to every candidate. Only the candidate followed counts as the node's upstream for
+request direction. Each upstream has its own AMP dial key, and `BlockSync` its own client.
+**Rationale:** Failure-driven rotation cannot reach a new beacon: a relay behind a beacon that stood
+down keeps syncing successfully up to the cutover, so only comparing what upstreams serve moves it.
+Ranking only generations a certificate here names stops a node claiming generation 99 from
+attracting everyone. Request direction by the upstream followed: in a takeover, a relay that was
+below another can become its candidate, and a fixed set would refuse its writes and `BLOCK_WAIT`.
+Dial keys: the miner registered every upstream under one key, and AMP keeps the peer id first
+registered for a key and reuses its live link, so its probes "to each upstream" could all reach the
+first one. A sync bound to its own client cannot be redirected midway by a new choice.
+**Cons:** A `STATUS` to every candidate each minute. Hints are learnt once the chain loads, so a
+miner whose configured upstreams are all gone does not start (relays do: they rank after loading).
+A follower may trail the best upstream by 2 blocks.
+**Alternatives:** Rotating on failure only (above); probing serially on the server thread (blocks
+requests for seconds); unsigned hints on `STATUS` (the old side would not serve them, B024); request
+direction by every candidate (above).

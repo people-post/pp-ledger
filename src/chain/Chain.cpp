@@ -1596,6 +1596,44 @@ std::optional<Client::RewindReport> Chain::rewindOrder() const {
   return order;
 }
 
+bool Chain::mayFollowTip(const Client::SignedTip &tip) const {
+  if (txContext_.optAuthority) { // else nothing loaded yet: an empty node takes its first block on trust
+    const uint64_t inForce = txContext_.optAuthority->beacon.generation;
+    if (tip.generation < inForce) {
+      return false;
+    }
+    // A generation no certificate here names: anyone can claim one to be followed.
+    if (tip.generation > std::max(inForce, seenCert_ ? seenCert_->generation : 0)) {
+      return false;
+    }
+  }
+  if (seenCert_ && tip.generation < seenCert_->generation && tip.height > seenCert_->cutoverHeight) {
+    return false;
+  }
+  if (equivocation_ && tip.generation == equivocation_->generation() && tip.height > equivocation_->height()) {
+    return false;
+  }
+  return true;
+}
+
+std::vector<std::string> Chain::dialHints() const {
+  std::vector<std::string> hints;
+  auto add = [&hints](const BeaconCertificate &cert) {
+    for (const auto &hint : cert.dialHints) {
+      if (std::find(hints.begin(), hints.end(), hint) == hints.end()) {
+        hints.push_back(hint);
+      }
+    }
+  };
+  if (seenCert_) {
+    add(*seenCert_);
+  }
+  if (txContext_.optAuthority) {
+    add(txContext_.optAuthority->beacon);
+  }
+  return hints;
+}
+
 bool Chain::cutoverForked() const {
   if (!seenCert_ || !seenCert_->hasCutover()) {
     return false;

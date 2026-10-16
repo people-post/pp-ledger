@@ -14,7 +14,7 @@ range sync, …): [projects/ledger-topology](../../projects/ledger-topology/DESI
 | **Terminal beacon** | The only node that commits canonical chain state; holds the pending transaction pool and the miner registry. Usually on a private network. |
 | **Gateway** | A node that serves the ledger RPC downstream and forwards toward the terminal — today `pp-relay`. Gateways may chain. They are not an authority. |
 | **Participant** | Miner or client that consumes upstream endpoints, with the same RPC whether the upstream is a gateway or the terminal. |
-| **Opaque upstream** | A configured multiaddr (miner `beacons[]`, relay `beacon`) with no role metadata: "an upstream ledger endpoint". |
+| **Opaque upstream** | A configured multiaddr (miner `beacons[]`, relay `beacon` / `beacons[]`), or a beacon certificate's dial hint, with no role metadata: "an upstream ledger endpoint". |
 | **Realization** | A mutation is realized when the terminal has accepted it into authoritative state. |
 | **Write-through** | A gateway reports success on a mutation only after its upstream path reported success. |
 
@@ -81,9 +81,11 @@ as a convenience. Promotion after a loss is in design:
 
 ### Request direction
 
-Each node knows its upstreams by peer id (the `/p2p/<PeerId>` of its configured multiaddrs), and
-AMP authenticates every request's sender. `Server::isAllowedFrom` applies one table for all roles
-before any handler runs:
+Each node knows its upstreams by peer id (the `/p2p/<PeerId>` of their multiaddrs) and follows one
+of them; AMP authenticates every request's sender. Only the upstream followed now is "own
+upstream" (`Server::followUpstream`): after a new beacon takes over, a relay that was below another
+may become its upstream candidate and must still be able to send it writes.
+`Server::isAllowedFrom` applies one table for all roles before any handler runs:
 
 | Request | From downstream | From own upstream |
 |---------|-----------------|-------------------|
@@ -94,8 +96,8 @@ before any handler runs:
 
 Miners do not accept `BLOCK_ADD` at all: they learn blocks by syncing from their upstream.
 
-`allowedPeers` (optional, any role) admits only listed peer ids and the node's upstreams
-(`Server::isAllowedPeer`, checked before queueing) — e.g. a beacon reachable only by its relays.
+`allowedPeers` (optional, any role) admits only listed peer ids and the node's upstreams, every
+candidate included (`Server::isAllowedPeer`, checked before queueing) — e.g. a beacon reachable only by its relays.
 
 Each request also gets a priority lane (`Server::laneFor`): reads such as `BLOCK_GET`,
 `BLOCK_WAIT` and account / history queries go to a low-priority lane with its own capacity and a
@@ -127,18 +129,19 @@ or whose checkpoint is below `trustedCheckpointId`; when it connects it checks t
 | **Tip follow** | Near head | One `BLOCK_WAIT` held open to the upstream; its reply triggers a sync |
 
 A block that does not extend the local tip, a chain that does not lead to the signed hash, or a tip
-that does not verify fails the sync, which backs off (0.5 s → 8 s); a miner then rotates to its next
-upstream. Nothing above the signed tip is committed.
+that does not verify fails the sync, which backs off (0.5 s → 8 s); a relay or miner then moves to
+another upstream. Nothing above the signed tip is committed.
 
-**Several upstreams (miners).** At startup a miner fetches `STATUS` from each `beacons[]` entry,
-drops any failing the anchor, and syncs from the one whose signed tip has the highest beacon
-generation, then the highest `nextBlockId`. It
+**Several upstreams (relays and miners).** A node ranks its upstreams — configured, plus a beacon
+certificate's dial hints — by `STATUS` from all of them: the highest beacon generation it could
+verify, then the highest `nextBlockId` (a miner also drops any failing its anchor). It does so at
+start, every 60 s, on a new certificate and when a sync fails
+([BEACON_AUTHORITY.md § Upstreams](../contracts/BEACON_AUTHORITY.md#upstreams)). A miner
 broadcasts its own blocks (`BLOCK_ADD`) to every upstream at once and commits one only when a reply
-carries the beacon's verified signed tip for it. Sync, `TX_*`, registration and calibration use the
-active upstream only.
+carries the beacon's verified signed tip for it. Sync, forwarding, registration and calibration use
+the upstream followed only.
 
-**Gateways** sync from their single configured upstream (the relay's `beacon`), never from
-downstream miners.
+**Gateways** sync from the upstream they follow, never from downstream miners.
 
 **Checkpoints:** every node rotates checkpoints deterministically; a miner joins from a
 checkpoint and replays only later blocks ([BLOCK_PIPELINE.md](BLOCK_PIPELINE.md)).

@@ -23,3 +23,7 @@ gtest_discover_tests(test_signed_tip)
 add_executable(test_rewind test_rewind.cpp)
 target_link_libraries(test_rewind PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_rewind)
+
+add_executable(test_upstream_set test_upstream_set.cpp)
+target_link_libraries(test_upstream_set PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_upstream_set)

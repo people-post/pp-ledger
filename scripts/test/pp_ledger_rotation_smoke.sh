@@ -9,7 +9,8 @@
 # one pinning genesis (tied to it by the authority proof), one not — warm up and produce. The relay
 # pins genesis. Last (ba5c), the admins hand the relay a generation-3 certificate with a cutover
 # below the tip, as for a stolen key: the relay serves it and no tip past it, the beacon (holding
-# no key it names) stands down, and nothing commits.
+# no key it names) stands down, and nothing commits. The certificate names a second relay as where
+# the new beacon is reached (bp2b): the relay and the miners add it as an upstream.
 #
 # L-SMOKE-RECOVERY (beacon-authority ba7): the recovery set announces a new admin set; STATUS shows
 # it pending, the old admins' certificate is refused, and at its epoch the new set takes over — the
