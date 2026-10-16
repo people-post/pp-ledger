@@ -138,4 +138,23 @@ every node (B022–B024).
       ledger past genesis unless `--accept-ledger-tip` (B029); a miner waits at start for an upstream to
       answer, within the startup sync's 5 minutes (it gave up after one round, so a miner restarting
       for a rewind while its relay restarted too exited — the takeover drill's flake)
-- [ ] **bp5** Case 1 (re-genesis): design note, then phases
+- [x] **bp5** Case 1 (re-genesis) design note: a new network importing the old account state at a
+      chosen height, checked against block *H*'s state root (B030); the state root covers the whole
+      account (B031); the import in `T_IMPORT` blocks after genesis (B032); export, init and check
+      tools, roles (B033) — [DESIGN.md § Case 1](DESIGN.md#case-1--re-genesis-bp5)
+- [ ] **bp6** State leaf v2: `attachmentHash` in the account leaf, kept per account in
+      `AccountBuffer`, updated where attachments change (B031); WIRE_SCHEMA's commitments; tests that
+      the root changes with an attachment and not otherwise. Breaking (new genesis)
+- [ ] **bp7** State export: `StateSnapshot` (versioned: predecessor header + accounts with their old
+      leaf fields and attachments), `pp-client export-state -d <copy> --height H` (cut a copy after
+      *H*, load, dump, check the root against block *H*); tests: a snapshot's root equals the
+      block's, an altered account fails
+- [ ] **bp8** Importing genesis: genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
+      (ordering, slot 0, the end marker, the root check at *k*), applied fields (blockId, miner
+      resets, system keys), genesis rules for an importing genesis (supply, committee, config), and
+      `pp-beacon --init --import-state`; sync, adoption and checkpoints over the span; tests
+- [ ] **bp9** Tooling, runbook and drill: `pp-client check-predecessor`, `docs/ops/RE_GENESIS.md`,
+      `--suite regenesis` (an old network with users, a token and miners → export at *H* → a new
+      network: same ids, keys, balances and attachments; miners produce with their old keys; a
+      transaction signed for the new network commits, one signed for the old is refused); contracts
+      promoted (BEACON_AUTHORITY, WIRE_SCHEMA, LEDGER_STORAGE)

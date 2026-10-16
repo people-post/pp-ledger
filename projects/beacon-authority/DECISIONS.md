@@ -691,3 +691,103 @@ taking over, and a start whose rewind just dropped the tip.
   a relay would still keep theirs).
 - Always rotate to a new key on a move (B003's rejected alternative: an admin-key session for every
   routine move).
+
+## B030 — Re-genesis: a new network that imports the old state, checked against its state root
+
+**Date:** 2026-10-16
+**Decision:** Case 1 (no authority left the protocol could follow) is a new network: new
+`networkId`, new genesis, admin, recovery and beacon keys. Its genesis imports the old network's
+account state at a chosen height *H* verbatim and names its predecessor `{networkId, height,
+blockHash, stateRoot}` (genesis meta v11). Every node checks the import against
+`predecessor.stateRoot`; the chain does not start otherwise. It is ordered out of band; nothing on
+the old chain can order it.
+**Rationale:**
+- **No protocol path.** With the admin and recovery sets gone, anything that could hand the chain to
+  a new authority would hand it to a thief too (part 2's "no new authority").
+- **The state root already exists.** Block headers commit to the account tree; checking the import
+  against block *H*'s root takes nothing from the old chain but one header, so a node of the new
+  network verifies the whole import alone. The people running the re-genesis choose *H*, keys and
+  config — they cannot move a balance, change a key or add an account.
+- **A new network id is the clean break.** Every signature binds it (records, tips, certificates,
+  registrations), so nothing crosses between the networks, whoever keeps the old one running.
+- **Accounts survive.** Users and miners keep ids, keys and balances; only signatures after *H* are
+  redone.
+**Cons:**
+- Transactions after *H* are lost unless signed again; clients and operators must switch by hand.
+- Two networks may run side by side (a thief keeps the old one); only the announcement decides.
+- History is split at *H*: explorers join the two through the predecessor link.
+**Alternatives:**
+- Continue the old network under a hard-coded or social authority (would serve a thief).
+- A fresh network funded by `T_NEW_USER` from a list (one balance per account, no miner state,
+  nothing checks the list against the old chain).
+- Keep the old history in the new network (`startingBlockId` = *H* + 1): the new network would need
+  the old blocks for attachments and renewals, under a network id that no longer verifies them.
+
+## B031 — The state root commits to the whole account
+
+**Date:** 2026-10-16
+**Decision:** The account leaf becomes `SHA-256("pp-ledger/account-leaf/v2" || pack(id, wallet,
+blockId, attachmentHash))`, where `attachmentHash` is the SHA-256 of the account's packed
+`AccountAttachment` (empty attachment: the hash of an empty one). `AccountBuffer` keeps the hash per
+account; it changes only where the attachment does (`T_NEW_USER`, `T_USER_UPDATE`, renewals).
+Breaking ([B008](#b008--breaking-genesis-change-no-migration)).
+**Rationale:** Leaf v1 covers the attachment only through `blockId` — the block that holds it. A
+re-genesis importing an attachment could not be checked without the old blocks, so profile data and
+attestations could be changed unnoticed. With the hash in the leaf, the state root is a complete
+commitment, which is what an import (B030) and any future state proof need.
+**Cons:** 32 bytes per account in memory; every account write hashes its attachment (already in hand).
+**Alternatives:** Leave attachments unchecked in an import; drop attachments in a re-genesis; check
+them against old blocks (needs the old chain at every node).
+
+## B032 — The import rides in import blocks after genesis
+
+**Date:** 2026-10-16
+**Decision:**
+- **`T_IMPORT` (20)** carries one account: id, wallet, attachment, old `blockId`. Unsigned.
+- **Import span.** Block 0 holds `T_GENESIS` only (with the predecessor; no system records); blocks 1
+  … *k* hold only `T_IMPORT`, ids strictly ascending across the span, at slot 0, each within the RPC
+  payload cap; the last one is marked as the end. Nodes fold the old leaves into a tree as the span
+  arrives and require its root at *k* to equal `predecessor.stateRoot`.
+- **Applied:** an account's `blockId` becomes its import block; slot- and epoch-valued miner fields
+  are reset (`lastProducedSlot` 0, `missedDue` 0, `autoDeregisteredEpoch` never; `registered` kept);
+  system accounts keep balances and take their keys from the new `init-config.json`.
+- **Genesis rules for an importing genesis:** no initial-supply rule (the supply is what was
+  imported); epoch 0's committee is the registered miners after block *k*; the old
+  `BlockChainConfig` is carried except `networkId` (must differ) and `genesisTime`, and
+  `init-config.json` may override fields.
+**Rationale:**
+- **Size.** `BLOCK_GET` returns a block in one RPC payload (512 KiB): one block holds ~200 one-key
+  accounts. A span of ordinary blocks scales to any state and reuses sync, adoption up to a signed
+  tip, storage and checkpoints unchanged.
+- **Unsigned records.** The predecessor's state root authenticates every record; signatures would
+  only add ~3.3 KB each and a key that must exist at import time.
+- **Resetting slot fields.** They count slots of the old genesis time; carried as numbers they would
+  make miners due or deregistered at once. They are checked as imported, then reset by one rule
+  every node applies.
+**Cons:** Import blocks are a special case in validation (slot 0, no leader, no fees); a large state
+takes a long first sync (as a chain from genesis does).
+**Alternatives:** Everything in block 0 (bounded by the RPC cap); a snapshot file fetched out of band
+with only its hash in genesis (a second transport for nodes); raising the RPC cap (moves the limit).
+
+## B033 — Re-genesis tooling and roles
+
+**Date:** 2026-10-16
+**Decision:**
+- **Export** offline from a copy of a full node's directory (a relay holds the chain from genesis):
+  `pp-client export-state -d <copy> --height H -o state.snap` cuts the copy after *H*, loads it, and
+  writes a versioned `StateSnapshot` — header = the predecessor; accounts by id with their old leaf
+  fields — after checking its root against block *H*'s `stateRoot`.
+- **New genesis:** `pp-beacon --init --import-state state.snap` with a new `init-config.json`
+  (refuses the old network id), writes blocks 0 … *k* and signs the tip at *k*.
+- **Check:** `pp-client check-predecessor -d <old ledger> --host <node of the new network>` compares
+  the new genesis's predecessor with block *H* of a ledger the operator already trusts.
+- **Join:** relays and miners start fresh for the new network, pinning its genesis hash
+  (`networkAnchor.genesisHash`); miners keep their keys and ids. A runbook
+  (`docs/ops/RE_GENESIS.md`) and a smoke drill (`--suite regenesis`) cover it.
+**Rationale:** Every step reuses what operators already run (`--init`, anchors, fresh joins); the
+only new trust input — "block *H* is the old network's" — is one hash anyone with the old chain can
+check, offline.
+**Cons:** Fully manual; every operator acts. That is the point of "out of band", and case 1 is the
+case nobody should reach.
+**Alternatives:** Nodes switch on their own when they see a new genesis naming their network as
+predecessor (a thief could announce one too: the check proves the state, not who should run it).
