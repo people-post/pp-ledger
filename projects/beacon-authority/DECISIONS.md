@@ -506,3 +506,34 @@ from the admins rewinds the whole network.
 **Alternatives:** Operator-driven rewind (slow, partial); exit for a supervisor to restart (not every
 node has one).
 
+## B024 — Case 2: certificate v2, a promoted relay, no outage charges
+
+**Date:** 2026-10-16
+**Decision:** For case 2 (beacon key stolen):
+- **Certificate v2** adds, admin-signed, `cutoverHash` (block *C*'s hash; empty with no cutover)
+  and `dialHints` — multiaddrs of **gateways** in front of the new beacon (the maintainer's
+  relays), never the beacon itself, which stays private. A node holding the certificate may sync
+  to (*C*, `cutoverHash`) with no signed tip; a node whose block *C* differs rewinds below it
+  (fresh join).
+- **The new beacon is one of the maintainer's relays**, promoted with `pp-beacon --promote` on its
+  work directory (chain from genesis, identity, the kept certificate); a beacon holding a later
+  certificate that names its own key takes over instead of standing down, and commits only block
+  *C*+1 carrying it.
+- **No liveness charges across the outage:** the block committing a certificate with a cutover
+  charges no skipped slots.
+- **Clock:** the beacon's host clock (NTP); takeover refused beyond a skew bound against its relays'
+  calibrated time; nodes recalibrate when they follow a new generation.
+- **Pool and registry** rebuild from scratch (re-registration within a minute; clients resubmit).
+**Rationale:** Once the old generation is refused above *C*, nothing vouches for block *C* until
+*C*+1 is signed: without `cutoverHash` a node behind *C* could not reach it, and the new beacon
+would have no signed starting point. Hints must name relays because the beacon is hidden behind
+its relays and usually has no public address (the user's point); upstreams are opaque and relays
+chain, so a hinted relay is just another candidate. A relay already holds everything a beacon needs
+but its key and config, so promotion is a restart on the same data (B022's spirit). The outage is
+not the miners' fault; charging it would deregister due miners for it.
+**Cons:** A certificate format change (breaking; nothing released, B008). Hinted relays are fixed at
+issuance. The skew bound can refuse a takeover until the host's clock is fixed.
+**Alternatives:** Hints naming the beacon (it has no public address); unsigned hints on `STATUS`
+(the old beacon's side would not serve them); a fresh beacon host synced from scratch (slower,
+nothing gained); charging the outage and re-registering miners afterwards.
+
