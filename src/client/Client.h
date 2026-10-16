@@ -122,6 +122,12 @@ public:
    * from genesis (beacon, relays).
    */
   static constexpr const uint32_t T_REQ_AUTHORITY_PROOF = 1004;
+  /**
+   * Downstream → upstream (beacon-authority ba6): payload Equivocation::ltsToString(). Each node
+   * keeps the evidence if it verifies and halts on it; relays and miners pass it on up, so the
+   * beacon halts too. Reply: a short text.
+   */
+  static constexpr const uint32_t T_REQ_EQUIVOCATION_ADD = 1005;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
@@ -351,6 +357,11 @@ public:
      * absent at generation 1. Self-verifying: the receiver checks the admin signatures.
      */
     std::optional<Ledger::Record> certificate;
+    /**
+     * Equivocation evidence this node halts on (beacon-authority ba6); absent if none. Receivers
+     * check it against their own authority and halt with it.
+     */
+    std::optional<Equivocation> equivocation;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
@@ -445,6 +456,9 @@ public:
   void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done);
   void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
   void addTransactionAsync(const Ledger::Record &record, Done<void> done);
+  /** EQUIVOCATION_ADD: push equivocation evidence up (beacon-authority ba6). Returns the reply text. */
+  Roe<std::string> addEquivocation(const Equivocation &evidence);
+  void addEquivocationAsync(const Equivocation &evidence, Done<std::string> done);
   /** BLOCK_ADD: the reply carries the beacon's signed tip once it has committed the block. */
   void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done);
   /** TX_PULL: pending transactions for the leader of `slot`. */

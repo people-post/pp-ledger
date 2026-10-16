@@ -782,6 +782,9 @@ void BeaconServer::initHandlers() {
   hml = [this](const Client::Request &request) { return hMinerList(request); };
 
   requestHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &request) { return hTxAdd(request); };
+  requestHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &request) {
+    return hEquivocationAdd(request);
+  };
   requestHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &request) { return hTxPull(request); };
 };
 
@@ -823,6 +826,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.registryVersion = miners_.version();
   state.signedTip = beacon_.getSignedTip();
   state.certificate = beacon_.getCurrentCertificate();
+  state.equivocation = beacon_.getEquivocation();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -1003,6 +1007,25 @@ BeaconServer::hTxAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Transaction pool full, please retry later");
   }
   return Error(E_REQUEST, "Transaction not accepted");
+}
+
+BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request &request) {
+  Client::Equivocation evidence;
+  if (!evidence.ltsFromString(request.payload)) {
+    return Error(E_REQUEST, "Invalid equivocation evidence");
+  }
+  auto offered = beacon_.offerEquivocation(evidence);
+  if (!offered) {
+    return Error(E_REQUEST, "Equivocation evidence refused: " + offered.error().message);
+  }
+  switch (offered.value()) {
+  case Chain::EquivocationOffer::Newer:
+  case Chain::EquivocationOffer::Same:
+    return {"Equivocation evidence kept: halted above block " + std::to_string(evidence.height())};
+  case Chain::EquivocationOffer::Ignored:
+    return {"Equivocation evidence ignored: its generation is superseded, or evidence is already held"};
+  }
+  return {"Equivocation evidence ignored"};
 }
 
 BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &record) {

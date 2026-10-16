@@ -138,6 +138,10 @@ private:
   // Deferred: reply after an outbound call or the next sync
   void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
   void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up. */
+  void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** Evidence this miner found: to every upstream, so each beacon host halts. */
+  void pushEquivocationUp(const Client::Equivocation &evidence);
   /** After a sync: answer block gets that were waiting for it. */
   void resolvePendingBlockGets();
 

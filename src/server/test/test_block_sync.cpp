@@ -129,11 +129,13 @@ Ledger::Record certRecord(uint64_t generation, const utl::MlDsaKeyPair &key, uin
 
 /** STATUS as an upstream serves it: its next block id, signed tip and current certificate. */
 std::string statusPayload(const std::vector<Ledger::ChainNode> &chain, const std::optional<Client::SignedTip> &tip,
-                          const std::optional<Ledger::Record> &certificate = std::nullopt) {
+                          const std::optional<Ledger::Record> &certificate = std::nullopt,
+                          const std::optional<Client::Equivocation> &equivocation = std::nullopt) {
   Client::BeaconState state;
   state.nextBlockId = chain.size();
   state.signedTip = tip;
   state.certificate = certificate;
+  state.equivocation = equivocation;
   return utl::binaryPack(state.ltsToMeta());
 }
 
@@ -150,6 +152,8 @@ public:
   bool autoTip = true;
   /** The certificate STATUS serves (beacon-authority ba5c). */
   std::optional<Ledger::Record> certificate;
+  /** The equivocation evidence STATUS serves (beacon-authority ba6). */
+  std::optional<Client::Equivocation> equivocation;
   size_t blockGets = 0;
 
   std::optional<Client::SignedTip> statusTip() const {
@@ -184,7 +188,7 @@ public:
       reply.setTip(signedTip);
       response.payload = utl::binaryPack(reply);
     } else if (request.type == Client::T_REQ_STATUS) {
-      response.payload = statusPayload(chain, statusTip(), certificate);
+      response.payload = statusPayload(chain, statusTip(), certificate, equivocation);
     } else {
       ++blockGets;
       const uint64_t id = utl::binaryUnpack<uint64_t>(request.payload).value();
@@ -626,6 +630,40 @@ TEST_F(BlockSyncTest, ATipPastTheCutoverOfACertificateOnStatusIsRefused) {
   ASSERT_EQ(results_.size(), 2u);
   EXPECT_TRUE(results_[1].ok) << results_[1].error;
   EXPECT_EQ(local_.size(), 7u);
+}
+
+// beacon-authority ba6: evidence on STATUS is offered before the tip is checked; a node holding it
+// syncs nothing of that generation above its height.
+TEST_F(BlockSyncTest, ATipPastEquivocationEvidenceOnStatusIsRefused) {
+  Client::SignedTip fork = tipFor(upstream_->chain[5]);
+  fork.blockHash = "another block 5";
+  fork.signature = utl::mlDsaSign(beaconKey().privateKey, fork.signingMessage()).value();
+  upstream_->equivocation = Client::Equivocation::of(tipFor(upstream_->chain[5]), fork);
+  ASSERT_TRUE(upstream_->equivocation.has_value());
+  std::optional<Client::Equivocation> held;
+  auto h = hooks();
+  h.offerEquivocation = [&](const Client::Equivocation &evidence) { held = evidence; };
+  h.authorityTrail = [&]() -> pp::Roe<AuthorityTrail> {
+    auto trail = testTrail();
+    trail.value().setEquivocation(held);
+    return trail;
+  };
+  BlockSync sync(client_, h);
+  sync.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("equivocation"), std::string::npos) << results_[0].error;
+  EXPECT_EQ(local_.size(), 3u);
+
+  // Up to its height the generation still signs.
+  upstream_->signedTip = tipFor(upstream_->chain[5]);
+  BlockSync upToHeight(client_, h);
+  upToHeight.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_TRUE(results_[1].ok) << results_[1].error;
+  EXPECT_EQ(local_.size(), 6u);
 }
 
 TEST_F(BlockSyncTest, APinnedFirstBlockMustMatch) {

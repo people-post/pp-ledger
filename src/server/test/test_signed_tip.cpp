@@ -159,6 +159,14 @@ TEST(SignedTipWireTest, TravelsInStatusAndTipReplies) {
   EXPECT_EQ(parsed.certificate->signatures, cert.signatures);
   state.certificate->type = Ledger::T_DEFAULT;
   EXPECT_FALSE(parsed.ltsFromMeta(state.ltsToMeta()).isOk()) << "only a beacon certificate";
+  state.certificate.reset();
+
+  // beacon-authority ba6: equivocation evidence rides STATUS too.
+  EXPECT_FALSE(parsed.equivocation.has_value());
+  state.equivocation = Client::Equivocation::of(tipAt(7), tipAt(7, 1, "another block"));
+  ASSERT_TRUE(state.equivocation.has_value());
+  ASSERT_TRUE(parsed.ltsFromMeta(state.ltsToMeta()).isOk());
+  EXPECT_EQ(parsed.equivocation, state.equivocation);
 
   Client::TipReply reply;
   reply.nextBlockId = 8;

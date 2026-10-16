@@ -71,6 +71,11 @@ public:
      * offered before its tip is checked — a later generation's cutover may refuse that tip.
      */
     std::function<void(const Ledger::Record &)> offerCertificate;
+    /**
+     * Optional: equivocation evidence the upstream serves on STATUS (beacon-authority ba6), offered
+     * after its certificate and before its tip — the node halts on it and refuses tips above it.
+     */
+    std::function<void(const Client::Equivocation &)> offerEquivocation;
     /** Validate and append one block (its id is nextBlockId()). */
     std::function<pp::Roe<void>(const Ledger::ChainNode &)> applyBlock;
     /** Run a task on the server thread (Server::postToServerThread). */

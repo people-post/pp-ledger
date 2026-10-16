@@ -60,6 +60,9 @@ void BlockSync::onStatus(Client::Roe<Client::BeaconState> result) {
   if (status_.certificate && hooks_.offerCertificate) {
     hooks_.offerCertificate(*status_.certificate);
   }
+  if (status_.equivocation && hooks_.offerEquivocation) {
+    hooks_.offerEquivocation(*status_.equivocation);
+  }
   syncToSignedTip();
   advance();
 }
