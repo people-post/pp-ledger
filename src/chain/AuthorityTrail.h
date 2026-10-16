@@ -63,6 +63,11 @@ public:
    * generation above its cutover, whatever key signed it.
    */
   void setSeenCertificate(std::optional<BeaconCertificate> seen) { seen_ = std::move(seen); }
+  /**
+   * Equivocation evidence the node holds (beacon-authority ba6): verifyTip() then refuses a tip of
+   * its generation above its height.
+   */
+  void setEquivocation(std::optional<Client::Equivocation> evidence) { equivocation_ = std::move(evidence); }
 
   /**
    * A tip signed by the generation in force at the trail's end, for this network, and not above
@@ -85,6 +90,7 @@ private:
   ChainAuthority authority_;
   Client::Wallet admin_;
   std::optional<BeaconCertificate> seen_;
+  std::optional<Client::Equivocation> equivocation_;
   Crypto crypto_;
   mutable logging::Logger logger_;
 };

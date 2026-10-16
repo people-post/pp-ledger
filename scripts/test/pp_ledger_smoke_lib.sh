@@ -1116,6 +1116,74 @@ run_rotation_scenario() {
   echo -e "${GREEN}✓ L-SMOKE-ROTATION: generation 2 signs; fresh miners start at a checkpoint (pinned and not) and validate past the next${NC}"
 }
 
+# --- L-SMOKE-EQUIVOCATION (beacon-authority ba6): two tips at one height halt the network ---
+
+# The equivocation the relay serves on STATUS: "<generation> <height>" (empty if none).
+status_equivocation() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/^Equivocation: generation \([0-9]*\) at block \([0-9]*\) .*$/\1 \2/p'
+}
+
+# Wait up to $2 seconds for file $1 to exist ($3 = 0: to be gone).
+wait_for_file() {
+  local file=$1 max_wait=$2 present=${3:-1} deadline=$((SECONDS + $2))
+  while ((SECONDS < deadline)); do
+    if [[ "$present" == "1" && -f "$file" ]] || [[ "$present" == "0" && ! -f "$file" ]]; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+run_equivocation_halt_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-EQUIVOCATION (halt) ═══${NC}"
+  wait_for_blocks 2 60 || true
+  # A drill: the generation-1 beacon key signs two blocks at the current tip height, as a thief or a
+  # second host running the key would. The evidence goes to the relay, like any operator's report.
+  local tip evidence reply i
+  tip=$(status_signed_tip_height)
+  [[ -n "$tip" ]] || die "L-SMOKE-EQUIVOCATION: no signed tip to start from"
+  evidence="${TEST_DIR}/equivocation-drill.dat"
+  rm -f "$evidence"
+  run_pp_client mk-equivocation --network-id "$SMOKE_NETWORK_ID" --generation 1 --height "$tip" \
+    -k "${TEST_DIR}/beacon/keys/beacon-signing.key" -o "$evidence" >/dev/null || die "mk-equivocation failed"
+  reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" add-equivocation "$evidence" 2>&1) ||
+    die "L-SMOKE-EQUIVOCATION: add-equivocation failed: ${reply}"
+  echo -e "${CYAN}Handed the relay equivocation evidence at block ${tip}: ${reply}${NC}"
+
+  # The relay keeps and serves it; it passed it up, so the beacon halts too.
+  [[ "$(status_equivocation)" == "1 ${tip}" ]] ||
+    die "L-SMOKE-EQUIVOCATION: the relay does not serve the evidence on STATUS (got '$(status_equivocation)')"
+  [[ -f "${TEST_DIR}/relay/data/equivocation.dat" ]] || die "L-SMOKE-EQUIVOCATION: the relay did not persist it"
+  wait_for_file "${TEST_DIR}/beacon/data/equivocation.dat" 10 || die "L-SMOKE-EQUIVOCATION: the beacon did not keep it"
+  grep -a -q "EQUIVOCATION: beacon generation 1 signed two blocks at height ${tip}" "${TEST_DIR}/beacon/beacon.log" ||
+    die "L-SMOKE-EQUIVOCATION: the beacon did not alert"
+  # Miners learn it from their upstream's STATUS.
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_file "${TEST_DIR}/miner${i}/data/equivocation.dat" 90 ||
+      die "L-SMOKE-EQUIVOCATION: miner${i} did not keep the evidence"
+  done
+  echo -e "${GREEN}✓ Relay, beacon and every miner hold the evidence${NC}"
+
+  local held
+  held=$(get_next_block_id)
+  inject_transactions_for_block_production >/dev/null 2>&1 || true
+  sleep $((SLOT_DURATION * 4))
+  [[ "$(get_next_block_id)" == "$held" ]] || die "L-SMOKE-EQUIVOCATION: blocks committed after the halt"
+  echo -e "${GREEN}✓ L-SMOKE-EQUIVOCATION: the network halted at nextBlockId ${held}${NC}"
+}
+
+# After a later generation is certified (L-SMOKE-ROTATION's generation 2): every node resumed.
+check_equivocation_resumed() {
+  [[ -z "$(status_equivocation)" ]] || die "L-SMOKE-EQUIVOCATION: the relay still serves the evidence"
+  local node
+  for node in relay beacon; do
+    wait_for_file "${TEST_DIR}/${node}/data/equivocation.dat" 30 0 ||
+      die "L-SMOKE-EQUIVOCATION: ${node} still holds the superseded evidence"
+  done
+  echo -e "${GREEN}✓ L-SMOKE-EQUIVOCATION: generation 2 resumed the network; the evidence is gone${NC}"
+}
+
 # --- L-SMOKE-OUT-OF-BAND (beacon-authority ba5c): a certificate not on chain (a stolen beacon key) ---
 
 # The certificate the relay serves on STATUS: "<generation> <cutover>" (empty if none).

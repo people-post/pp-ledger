@@ -18,7 +18,7 @@ public:
     Newer,    ///< kept
     Same,     ///< already held
     Older,    ///< ignored
-    Conflict, ///< same generation and height, another block or signature: ignored (evidence is ba6)
+    Conflict, ///< same generation and height, another block: ignored here (equivocation evidence)
   };
 
   Offer offer(const Client::SignedTip &tip) {
@@ -30,7 +30,8 @@ public:
     if (tip.height < latest_->height || tip.generation < latest_->generation) {
       return Offer::Older;
     }
-    return tip == *latest_ ? Offer::Same : Offer::Conflict;
+    // One block signed twice is not a conflict: ML-DSA signatures carry fresh randomness.
+    return tip.blockHash == latest_->blockHash ? Offer::Same : Offer::Conflict;
   }
 
   const std::optional<Client::SignedTip> &latest() const { return latest_; }

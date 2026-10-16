@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_H
 
 #include "CertificateStore.h"
+#include "EquivocationStore.h"
 #include "Chain.h"
 #include "TipSigner.h"
 
@@ -153,6 +154,13 @@ public:
   bool isSuperseded() const { return supersededBy().has_value(); }
   /** The generation that certifies a key this beacon does not hold; none if it is not superseded. */
   std::optional<uint64_t> supersededBy() const;
+  /**
+   * Equivocation evidence held (beacon-authority ba6): its height. The beacon then commits no block
+   * above it and takes no producer writes until a later generation is certified (resume).
+   */
+  std::optional<uint64_t> haltedAbove() const;
+  /** Equivocation evidence pushed up (EQUIVOCATION_ADD): kept and persisted when it verifies. */
+  Roe<Chain::EquivocationOffer> offerEquivocation(const Client::Equivocation &evidence);
   /** The beacon generation in force (0 before the chain is loaded). */
   uint64_t getGeneration() const;
 
@@ -165,6 +173,8 @@ public:
   Roe<Chain::CertificateOffer> offerCertificate(const Ledger::Record &record);
   /** The current certificate for STATUS (Chain::currentCertificateRecord). */
   std::optional<Ledger::Record> getCurrentCertificate() const;
+  /** Equivocation evidence this node halts on (beacon-authority ba6), for STATUS; none if none. */
+  std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
@@ -172,6 +182,8 @@ private:
   constexpr static const char *FILE_SIGNED_TIP = "signed-tip.dat";
   /** The highest beacon certificate seen out of band, beside the ledger. */
   constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
+  /** Equivocation evidence this node halts on (ba6), beside the ledger. */
+  constexpr static const char *FILE_EQUIVOCATION = "equivocation.dat";
 
   struct Config {
     std::string workDir;
@@ -220,6 +232,7 @@ private:
   Config config_;
   std::unique_ptr<TipSigner> tipSigner_;
   std::unique_ptr<CertificateStore> certificates_;
+  std::unique_ptr<EquivocationStore> equivocations_;
   /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};
 };

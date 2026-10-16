@@ -184,6 +184,24 @@ public:
    * start).
    */
   std::optional<Ledger::Record> currentCertificateRecord() const;
+  /** What offerEquivocation did with equivocation evidence (beacon-authority ba6). */
+  enum class EquivocationOffer {
+    Newer,   ///< verified and kept: this node halts above its height
+    Same,    ///< already held
+    Ignored, ///< superseded generation (a later certificate is in force or seen), or evidence for
+             ///< the generation held already
+  };
+  /**
+   * Equivocation evidence from a peer, a file or this node's own tips (beacon-authority ba6):
+   * both tips signed by the key of their generation — the one in force, or the certificate held
+   * out of band. Once kept, tips of that generation above its height do not verify
+   * (authorityTrail()): the node commits and produces nothing past it. Dropped when a certificate
+   * of a later generation is seen or committed (resume). In memory only: the caller persists it.
+   */
+  Roe<EquivocationOffer> offerEquivocation(const Client::Equivocation &evidence);
+  /** The evidence held; none unless this node is halted on it. */
+  const std::optional<Client::Equivocation> &equivocation() const { return equivocation_; }
+
   /**
    * The beacon's commit rule while it holds a certificate out of band (ba5c): a block above its
    * cutover must commit a beacon certificate. The generation in force may sign nothing above the
@@ -428,6 +446,12 @@ private:
   std::optional<Ledger::Record> seenCertRecord_;
   /** After the authority changed: drop the seen certificate once committed or no longer signed. */
   void refreshSeenCertificate();
+  /** Equivocation evidence held (ba6), not superseded by a later certificate. */
+  std::optional<Client::Equivocation> equivocation_;
+  /** True once a certificate above `generation` is in force or seen out of band. */
+  bool isGenerationSuperseded(uint64_t generation) const;
+  /** Drop held evidence whose generation a later certificate superseded (resume). */
+  void refreshEquivocation();
 
   /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;

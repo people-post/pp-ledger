@@ -240,6 +240,9 @@ void RelayServer::initBlockSync() {
   };
   hooks.onTipVerified = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
   hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the beacon's STATUS"); };
+  hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
+    noteEquivocation(evidence, "the beacon's STATUS", /*pushUp=*/false);
+  };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = relay_.calculateHash(block.block);
@@ -287,6 +290,9 @@ void RelayServer::startBeaconStateRefresh() {
           networkId_ = status.value().networkId;
         }
         noteCertificate(status.value().certificate, "the beacon's STATUS");
+        if (const auto &evidence = status.value().equivocation) {
+          noteEquivocation(*evidence, "the beacon's STATUS", /*pushUp=*/false);
+        }
         noteSignedTip(status.value().signedTip);
       }));
 }
@@ -307,9 +313,56 @@ void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
     return;
   }
   if (upstreamTip_.offer(*tip) == UpstreamSignedTip::Offer::Conflict) {
-    log().warning << "Upstream sent a second signed tip for block " << tip->height << " (generation "
-                  << tip->generation << "); keeping the first";
+    // Both verified: the beacon key signed two blocks at one height (ba6).
+    if (const auto evidence = Client::Equivocation::of(*upstreamTip_.latest(), *tip)) {
+      noteEquivocation(*evidence, "the upstream's signed tips", /*pushUp=*/true);
+    }
   }
+}
+
+std::optional<Chain::EquivocationOffer> RelayServer::noteEquivocation(const Client::Equivocation &evidence,
+                                                                      const std::string &from, bool pushUp) {
+  auto offered = relay_.noteEquivocation(evidence, from);
+  if (offered == Chain::EquivocationOffer::Newer) {
+    dropHeldTipIfInvalid();
+    if (pushUp) {
+      pushEquivocationUp(evidence);
+    }
+  }
+  return offered;
+}
+
+void RelayServer::pushEquivocationUp(const Client::Equivocation &evidence) {
+  // So the beacon halts too; downstreams learn it from this relay's STATUS.
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    log().warning << "Equivocation evidence not passed up: " << dial.error().message;
+    return;
+  }
+  client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([this](Client::Roe<std::string> result) {
+    if (!result) {
+      log().warning << "Equivocation evidence not passed up: " << result.error().message;
+    }
+  }));
+}
+
+void RelayServer::dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+  Client::Equivocation evidence;
+  if (!evidence.ltsFromString(request.payload)) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid equivocation evidence")));
+    return;
+  }
+  const auto offered = noteEquivocation(evidence, "an EQUIVOCATION_ADD", /*pushUp=*/false);
+  const std::string kept = offered == Chain::EquivocationOffer::Newer || offered == Chain::EquivocationOffer::Same
+                               ? "Equivocation evidence kept"
+                               : "Equivocation evidence not kept here";
+  // Up the tree whatever this relay made of it: the beacon judges for itself.
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    replyWith(reply, Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
+    return;
+  }
+  client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+    replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
+  }));
 }
 
 std::optional<Chain::CertificateOffer> RelayServer::noteCertificate(const std::optional<Ledger::Record> &record,
@@ -376,6 +429,10 @@ void RelayServer::initHandlers() {
   deferredHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
     dTxAdd(r, reply);
   };
+  deferredHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &r,
+                                                             const RequestQueue::Reply &reply) {
+    dEquivocationAdd(r, reply);
+  };
   deferredHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
     dTxPull(r, reply);
   };
@@ -417,6 +474,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.networkId = networkId_;
   state.registryVersion = registryVersion_;
   state.signedTip = upstreamTip_.latest();
+  state.equivocation = relay_.getEquivocation();
   state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {

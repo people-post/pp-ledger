@@ -122,6 +122,12 @@ public:
    * from genesis (beacon, relays).
    */
   static constexpr const uint32_t T_REQ_AUTHORITY_PROOF = 1004;
+  /**
+   * Downstream → upstream (beacon-authority ba6): payload Equivocation::ltsToString(). Each node
+   * keeps the evidence if it verifies and halts on it; relays and miners pass it on up, so the
+   * beacon halts too. Reply: a short text.
+   */
+  static constexpr const uint32_t T_REQ_EQUIVOCATION_ADD = 1005;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
@@ -261,6 +267,38 @@ public:
   };
 
   /**
+   * Equivocation evidence (beacon-authority ba6): two signed tips of one network, generation and
+   * height naming different blocks — proof that the generation's beacon key signed twice (stolen,
+   * or two hosts running it). Signatures alone may differ for one block (ML-DSA signs with fresh
+   * randomness), so only the block hash counts. Stored in canonical order: first.blockHash <
+   * second.blockHash.
+   */
+  struct Equivocation {
+    constexpr static const uint32_t VERSION = 1;
+
+    SignedTip first;
+    SignedTip second;
+
+    /** Evidence from two tips, or none if they are not one network, generation and height with
+     *  different blocks. Signatures are not checked here (verify()). */
+    static std::optional<Equivocation> of(const SignedTip &a, const SignedTip &b);
+    /** Same shape as of() requires, and both tips signed by `publicKey`. */
+    bool verify(const std::string &publicKey) const;
+
+    const std::string &networkId() const { return first.networkId; }
+    uint64_t generation() const { return first.generation; }
+    uint64_t height() const { return first.height; }
+
+    bool operator==(const Equivocation &other) const { return first == other.first && second == other.second; }
+
+    template <typename Archive> void serialize(Archive &ar) { ar & first & second; }
+
+    /** Versioned bytes (disk, STATUS `equivocation`, EQUIVOCATION_ADD). */
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+  };
+
+  /**
    * BLOCK_WAIT and BLOCK_ADD reply: the replying node's next block id and the latest signed tip
    * it holds (relays pass the beacon's on unchanged).
    */
@@ -319,6 +357,11 @@ public:
      * absent at generation 1. Self-verifying: the receiver checks the admin signatures.
      */
     std::optional<Ledger::Record> certificate;
+    /**
+     * Equivocation evidence this node halts on (beacon-authority ba6); absent if none. Receivers
+     * check it against their own authority and halt with it.
+     */
+    std::optional<Equivocation> equivocation;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
@@ -413,6 +456,9 @@ public:
   void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done);
   void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
   void addTransactionAsync(const Ledger::Record &record, Done<void> done);
+  /** EQUIVOCATION_ADD: push equivocation evidence up (beacon-authority ba6). Returns the reply text. */
+  Roe<std::string> addEquivocation(const Equivocation &evidence);
+  void addEquivocationAsync(const Equivocation &evidence, Done<std::string> done);
   /** BLOCK_ADD: the reply carries the beacon's signed tip once it has committed the block. */
   void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done);
   /** TX_PULL: pending transactions for the leader of `slot`. */

@@ -188,6 +188,8 @@ private:
   std::optional<Client::SignedTip> latestSignedTip() const override { return beacon_.getSignedTip(); }
   /** BLOCK_ADD reply: next block id and the signed tip (which covers the block just added). */
   std::string tipReply() const;
+  /** Why a write is refused while halted on equivocation evidence above `above` (ba6). */
+  std::string haltedMessage(uint64_t above) const;
 
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);
@@ -202,6 +204,8 @@ private:
   Roe<std::string> hMinerList(const Client::Request &request);
   /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader. */
   Roe<std::string> hTxAdd(const Client::Request &request);
+  /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies; the beacon halts on it. */
+  Roe<std::string> hEquivocationAdd(const Client::Request &request);
   /** A T_BEACON_CERT in a TX_ADD (ba5c): kept if it is the highest seen; refused if it is not above. */
   Roe<void> offerCertificate(const Ledger::Record &record);
   /** TX_PULL: pending transactions for the slot leader (through its relay). */

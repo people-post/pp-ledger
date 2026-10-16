@@ -88,6 +88,10 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
       std::cout << "Certificate: unreadable\n";
     }
   }
+  if (status.equivocation) {
+    std::cout << "Equivocation: generation " << status.equivocation->generation() << " at block "
+              << status.equivocation->height() << " (halted above it)\n";
+  }
   std::cout << pp::common::io::metaToJsonString(status.ltsToMeta(), 2) << "\n";
 }
 
@@ -173,6 +177,68 @@ static int runMkTx(uint64_t fromWalletId, uint64_t toWalletId, uint64_t amount,
     return 1;
   }
   std::cout << "Transaction written to " << outputPath << "\n";
+  return 0;
+}
+
+/**
+ * mk-equivocation (beacon-authority ba6): equivocation evidence signed with a beacon key — two tips
+ * at one height for two made-up blocks. For drills and tests: it halts every node that takes it
+ * until the admins certify a later generation. Submit with add-equivocation.
+ */
+static int runMkEquivocation(const std::string &networkId, uint64_t generation, uint64_t height,
+                             const std::string &key, const std::string &outputPath) {
+  auto keyResult = pp::utl::readPrivateKey(key, "");
+  if (!keyResult) {
+    std::cerr << "Error: --key: " << keyResult.error().message << "\n";
+    return 1;
+  }
+  auto tipFor = [&](const std::string &label) -> std::optional<pp::Client::SignedTip> {
+    pp::Client::SignedTip tip;
+    tip.networkId = networkId;
+    tip.generation = generation;
+    tip.height = height;
+    tip.blockHash = pp::utl::sha256Raw("pp-ledger/equivocation-drill/" + label + std::to_string(randomAccountId()));
+    auto signature = pp::utl::mlDsaSign(keyResult.value(), tip.signingMessage());
+    if (!signature) {
+      std::cerr << "Error: " << signature.error().message << "\n";
+      return std::nullopt;
+    }
+    tip.signature = signature.value();
+    return tip;
+  };
+  const auto a = tipFor("a");
+  const auto b = tipFor("b");
+  if (!a || !b) {
+    return 1;
+  }
+  auto result = pp::utl::writeToNewFile(outputPath, pp::Client::Equivocation::of(*a, *b)->ltsToString());
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Equivocation evidence (generation " << generation << ", block " << height << ") written to "
+            << outputPath << "\n";
+  return 0;
+}
+
+/** add-equivocation (ba6): push evidence from a file to a node, which keeps it and passes it up. */
+static int runAddEquivocation(pp::Client &client, const std::string &filePath) {
+  auto content = readFileContent(filePath);
+  if (!content) {
+    std::cerr << "Error: " << content.error().message << "\n";
+    return 1;
+  }
+  pp::Client::Equivocation evidence;
+  if (!evidence.ltsFromString(content.value())) {
+    std::cerr << "Error: " << filePath << " is not equivocation evidence\n";
+    return 1;
+  }
+  auto result = client.addEquivocation(evidence);
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << result.value() << "\n";
   return 0;
 }
 
@@ -519,6 +585,22 @@ int main(int argc, char *argv[]) {
                           "until the certificate commits; give one when its key is stolen)");
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
+  // mk-equivocation / add-equivocation (beacon-authority ba6)
+  auto* mk_equiv_cmd = app.add_subcommand(
+      "mk-equivocation", "Sign equivocation evidence with a beacon key (drills: it halts the nodes that take it)");
+  std::string mk_equiv_network, mk_equiv_key, mk_equiv_output;
+  uint64_t mk_equiv_generation = 0, mk_equiv_height = 0;
+  mk_equiv_cmd->add_option("--network-id", mk_equiv_network, "The chain's networkId")->required();
+  mk_equiv_cmd->add_option("--generation", mk_equiv_generation, "The beacon generation of the key")->required();
+  mk_equiv_cmd->add_option("--height", mk_equiv_height, "The block height both tips claim")->required();
+  mk_equiv_cmd->add_option("-k,--key", mk_equiv_key, "Beacon signing private key (hex or file)")->required();
+  mk_equiv_cmd->add_option("-o,--output", mk_equiv_output, "Output file (must not exist)")->required();
+  auto* add_equiv_cmd = app.add_subcommand(
+      "add-equivocation", "Submit equivocation evidence from a file (to a relay or the beacon, -b; or a miner, -m)");
+  std::string add_equiv_file;
+  add_equiv_cmd->add_option("file", add_equiv_file, "Evidence file (mk-equivocation, or a node's equivocation.dat)")
+      ->required();
+
   // mk-account: create unsigned T_NEW_USER transaction file
   auto* mk_account_cmd = app.add_subcommand("mk-account",
                                             "Create unsigned T_NEW_USER transaction file");
@@ -626,6 +708,10 @@ int main(int argc, char *argv[]) {
 
   if (mk_cert_cmd->parsed()) {
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, mk_cert_output);
+  }
+
+  if (mk_equiv_cmd->parsed()) {
+    return runMkEquivocation(mk_equiv_network, mk_equiv_generation, mk_equiv_height, mk_equiv_key, mk_equiv_output);
   }
 
   // Handle mk-account (no server connection needed)
@@ -814,6 +900,10 @@ int main(int argc, char *argv[]) {
     } else {
       exitCode = runSubmitTx(client, submit_tx_file);
     }
+  }
+  // Handle add-equivocation (any role: each keeps it and passes it up)
+  else if (add_equiv_cmd->parsed()) {
+    exitCode = runAddEquivocation(client, add_equiv_file);
   }
 
   return exitCode;

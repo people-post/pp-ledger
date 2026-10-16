@@ -101,6 +101,8 @@ private:
   /** Point client_ at the upstream for a forwarded request; replies with the error if it cannot. */
   bool dialUpstreamFor(const RequestQueue::Reply &reply);
   void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up to the beacon. */
+  void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
   void dTxPull(const Client::Request &request, const RequestQueue::Reply &reply);
   /** BlockSync wiring and completion (server thread). */
   void initBlockSync();
@@ -127,6 +129,14 @@ private:
    */
   std::optional<Chain::CertificateOffer> noteCertificate(const std::optional<Ledger::Record> &record,
                                                          const std::string &from);
+  /**
+   * Equivocation evidence (ba6: two upstream tips at one height, STATUS, EQUIVOCATION_ADD): offer it;
+   * once kept, stop serving a held tip above its height. None when refused.
+   */
+  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation &evidence,
+                                                           const std::string &from, bool pushUp);
+  /** Send kept evidence up to the beacon (fire and forget). */
+  void pushEquivocationUp(const Client::Equivocation &evidence);
   /** Stop serving the held signed tip once it no longer verifies (a new certificate's cutover). */
   void dropHeldTipIfInvalid();
   /** True when `reply` carries a signed tip, valid here, for exactly `block`. */

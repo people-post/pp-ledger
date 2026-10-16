@@ -158,6 +158,8 @@ bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {
   case Client::T_REQ_BLOCK_ADD:
   case Client::T_REQ_REGISTER:
   case Client::T_REQ_TX_ADD:
+  // Equivocation evidence travels up to the beacon; down, it rides STATUS.
+  case Client::T_REQ_EQUIVOCATION_ADD:
   // Blocks flow down: our upstream never waits on us for them.
   case Client::T_REQ_BLOCK_WAIT:
   // The registry and the transaction pool live upstream: our upstream never

@@ -128,6 +128,41 @@ bool Client::SignedTip::ltsFromString(const std::string &str) {
   return !ar.failed();
 }
 
+std::optional<Client::Equivocation> Client::Equivocation::of(const SignedTip &a, const SignedTip &b) {
+  if (a.networkId != b.networkId || a.generation != b.generation || a.height != b.height ||
+      a.blockHash == b.blockHash) {
+    return std::nullopt;
+  }
+  Equivocation evidence;
+  evidence.first = a.blockHash < b.blockHash ? a : b;
+  evidence.second = a.blockHash < b.blockHash ? b : a;
+  return evidence;
+}
+
+bool Client::Equivocation::verify(const std::string &publicKey) const {
+  auto shaped = of(first, second);
+  return shaped && *shaped == *this && first.verify(publicKey) && second.verify(publicKey);
+}
+
+std::string Client::Equivocation::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool Client::Equivocation::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  return !ar.failed();
+}
+
 std::string Client::MinerInfo::signingMessage(const std::string &networkId) const {
   return std::string("pp-ledger/miner-register/v2") + utl::binaryPack(networkId) + utl::binaryPack(id) +
          utl::binaryPack(issuedAt);
@@ -205,6 +240,9 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   if (certificate) {
     m.set("certificate", utl::binaryPack(*certificate));
   }
+  if (equivocation) {
+    m.set("equivocation", equivocation->ltsToString());
+  }
   return m;
 }
 
@@ -233,6 +271,14 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
       return Error(E_INVALID_RESPONSE, "Invalid beacon certificate in beacon state");
     }
     certificate = std::move(record.value());
+  }
+  equivocation.reset();
+  if (auto packed = meta.getOrDefault("equivocation", std::string{}); !packed.empty()) {
+    Equivocation evidence;
+    if (!evidence.ltsFromString(packed)) {
+      return Error(E_INVALID_RESPONSE, "Invalid equivocation evidence in beacon state");
+    }
+    equivocation = std::move(evidence);
   }
   return true;
 }
@@ -608,6 +654,14 @@ void Client::pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Recor
     done(records ? Roe<std::vector<Ledger::Record>>(std::move(records.value()))
                  : Roe<std::vector<Ledger::Record>>(Error(E_INVALID_RESPONSE, "Invalid transaction pull reply")));
   });
+}
+
+Client::Roe<std::string> Client::addEquivocation(const Equivocation &evidence) {
+  return sendRequest(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), dataTimeout());
+}
+
+void Client::addEquivocationAsync(const Equivocation &evidence, Done<std::string> done) {
+  sendRequestAsync(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), dataTimeout(), std::move(done));
 }
 
 void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) {

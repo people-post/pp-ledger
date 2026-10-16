@@ -119,6 +119,7 @@ On seeing them, a node:
 - resumes on its own once a valid certificate of a higher generation arrives.
 
 This adds no new denial of service: producing the evidence takes the beacon's key.
+Shipped in ba6 ([B018](DECISIONS.md#b018--equivocation-evidence-by-block-hash-halt-at-the-tip-gate-resume-on-a-later-generation)).
 
 ### Recovery action
 

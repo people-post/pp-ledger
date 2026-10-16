@@ -281,9 +281,63 @@ std::vector<std::optional<Client::BeaconState>> MinerServer::fetchUpstreamStates
     if (const auto &certificate = status.value().certificate) {
       miner_.noteCertificate(*certificate, "upstream [" + std::to_string(i) + "]'s STATUS");
     }
+    if (const auto &evidence = status.value().equivocation) {
+      miner_.noteEquivocation(*evidence, "upstream [" + std::to_string(i) + "]'s STATUS");
+    }
     states[i] = std::move(status.value());
   }
+  noteConflictingUpstreamTips(states);
   return states;
+}
+
+void MinerServer::noteConflictingUpstreamTips(const std::vector<std::optional<Client::BeaconState>> &states) {
+  // Two upstreams serving tips of one generation and height for different blocks: if both verify,
+  // the beacon key signed twice (ba6) — two hosts running it, or a stolen key.
+  for (size_t i = 0; i < states.size(); ++i) {
+    for (size_t j = i + 1; j < states.size(); ++j) {
+      if (!states[i] || !states[j] || !states[i]->signedTip || !states[j]->signedTip) {
+        continue;
+      }
+      const auto evidence = Client::Equivocation::of(*states[i]->signedTip, *states[j]->signedTip);
+      if (evidence && miner_.noteEquivocation(*evidence, "upstreams [" + std::to_string(i) + "] and [" +
+                                                             std::to_string(j) + "]") ==
+                          Chain::EquivocationOffer::Newer) {
+        pushEquivocationUp(*evidence);
+      }
+    }
+  }
+}
+
+void MinerServer::pushEquivocationUp(const Client::Equivocation &evidence) {
+  // To every upstream: each side of a split runs its own beacon host, and each must halt.
+  for (size_t i = 0; i < config_.network.beacon_multiaddrs.size(); ++i) {
+    if (auto dial = dialUpstreamIndex(i); !dial) {
+      log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << dial.error().message;
+      continue;
+    }
+    if (auto sent = client_.addEquivocation(evidence); !sent) {
+      log().warning << "Equivocation evidence not passed to upstream [" << i << "]: " << sent.error().message;
+    }
+  }
+}
+
+void MinerServer::dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+  Client::Equivocation evidence;
+  if (!evidence.ltsFromString(request.payload)) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Invalid equivocation evidence")));
+    return;
+  }
+  const auto offered = miner_.noteEquivocation(evidence, "an EQUIVOCATION_ADD");
+  const std::string kept = offered == Chain::EquivocationOffer::Newer || offered == Chain::EquivocationOffer::Same
+                               ? "Equivocation evidence kept"
+                               : "Equivocation evidence not kept here";
+  if (auto dial = dialActiveUpstream(); !dial) {
+    replyWith(reply, Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
+    return;
+  }
+  client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+    replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
+  }));
 }
 
 MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
@@ -293,6 +347,7 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
   // generation any of them serves is not chosen.
   const auto states = fetchUpstreamStates();
   const auto seen = miner_.getSeenCertificate();
+  const auto halted = miner_.getEquivocation();
   size_t best = config_.network.beacon_multiaddrs.size();
   uint64_t best_generation = 0;
   uint64_t best_height = 0;
@@ -304,6 +359,12 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
     if (tip && seen && tip->generation < seen->generation && tip->height > seen->cutoverHeight) {
       log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
                     << tip->generation << ") is past the cutover of beacon generation " << seen->generation;
+      continue;
+    }
+    if (tip && halted && tip->generation == halted->generation() && tip->height > halted->height()) {
+      log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
+                    << tip->generation << ") is past the equivocation of that generation at block "
+                    << halted->height();
       continue;
     }
     const uint64_t generation = tip ? tip->generation : 0;
@@ -534,6 +595,9 @@ void MinerServer::initBlockSync() {
   hooks.offerCertificate = [this](const Ledger::Record &record) {
     miner_.noteCertificate(record, "the upstream's STATUS");
   };
+  hooks.offerEquivocation = [this](const Client::Equivocation &evidence) {
+    miner_.noteEquivocation(evidence, "the upstream's STATUS");
+  };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = miner_.calculateHash(block.block);
@@ -618,6 +682,10 @@ void MinerServer::initHandlers() {
   };
   deferredHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
     dTxAdd(r, reply);
+  };
+  deferredHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &r,
+                                                             const RequestQueue::Reply &reply) {
+    dEquivocationAdd(r, reply);
   };
 }
 

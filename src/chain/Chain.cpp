@@ -1463,6 +1463,7 @@ Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record
   }
   seenCert_ = verified.value();
   seenCertRecord_ = record;
+  refreshEquivocation();
   if (seenCert_->cutoverHeight == UINT64_MAX) {
     log().info << "Holding beacon certificate generation " << generation << " (no cutover), not on chain yet";
   } else {
@@ -1475,6 +1476,54 @@ Chain::Roe<Chain::CertificateOffer> Chain::offerCertificate(const Ledger::Record
                   << ": it cannot follow that generation from here";
   }
   return CertificateOffer::Newer;
+}
+
+bool Chain::isGenerationSuperseded(uint64_t generation) const {
+  return (txContext_.optAuthority.has_value() && generation < txContext_.optAuthority->beacon.generation) ||
+         (seenCert_ && generation < seenCert_->generation);
+}
+
+Chain::Roe<Chain::EquivocationOffer> Chain::offerEquivocation(const Client::Equivocation &evidence) {
+  if (!txContext_.optAuthority.has_value()) {
+    return Error(E_STATE_INIT, "Chain authority not initialized");
+  }
+  if (evidence.networkId() != getNetworkId()) {
+    return Error(E_TX_VALIDATION, "Equivocation evidence is for network '" + evidence.networkId() + "'");
+  }
+  const uint64_t generation = evidence.generation();
+  if (isGenerationSuperseded(generation)) {
+    return EquivocationOffer::Ignored;
+  }
+  if (equivocation_) {
+    return *equivocation_ == evidence ? EquivocationOffer::Same : EquivocationOffer::Ignored;
+  }
+  const auto &inForce = txContext_.optAuthority->beacon;
+  const std::string *publicKey = generation == inForce.generation ? &inForce.publicKey
+                                 : seenCert_ && generation == seenCert_->generation ? &seenCert_->publicKey
+                                                                                     : nullptr;
+  if (!publicKey) {
+    return Error(E_TX_VALIDATION, "Equivocation evidence names beacon generation " + std::to_string(generation) +
+                                      ", which no certificate here names (generation " +
+                                      std::to_string(inForce.generation) + " is in force)");
+  }
+  if (!evidence.verify(*publicKey)) {
+    return Error(E_TX_SIGNATURE, "Equivocation evidence is not two different blocks at one height signed by "
+                                 "the beacon of generation " + std::to_string(generation));
+  }
+  equivocation_ = evidence;
+  log().error << "EQUIVOCATION: beacon generation " << generation << " signed two blocks at height "
+              << evidence.height() << ": committing and producing nothing above it until a later generation "
+              << "is certified";
+  return EquivocationOffer::Newer;
+}
+
+void Chain::refreshEquivocation() {
+  if (equivocation_ && isGenerationSuperseded(equivocation_->generation())) {
+    log().info << "Beacon generation " << equivocation_->generation()
+               << " is superseded by a later certificate: resuming past its equivocation at height "
+               << equivocation_->height();
+    equivocation_.reset();
+  }
 }
 
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
@@ -1539,6 +1588,7 @@ Chain::Roe<AuthorityTrail> Chain::authorityTrail() const {
   }
   AuthorityTrail trail(getNetworkId(), txContext_.optAuthority.value(), admin.value().wallet);
   trail.setSeenCertificate(seenCert_);
+  trail.setEquivocation(equivocation_);
   return trail;
 }
 
@@ -1552,6 +1602,7 @@ void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
   }
   if (changed) {
     refreshSeenCertificate();
+    refreshEquivocation();
   }
 }
 

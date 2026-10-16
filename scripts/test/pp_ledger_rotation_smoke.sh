@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# L-SMOKE-EQUIVOCATION (beacon-authority ba6) first: evidence that the generation-1 key signed two
+# blocks at one height, handed to the relay, halts the relay, the beacon and every miner; the
+# rotation below (a later generation) resumes them, and the evidence is dropped.
+#
 # L-SMOKE-ROTATION (beacon-authority ba5, ba5b): stage a next beacon key, certify it as
 # generation 2 (mk-beacon-cert → sign-tx ×3 → submit-tx), assert the beacon signs with it and
 # miners follow. Then, once a checkpoint lies above the certificate, fresh miners start at it —
@@ -32,7 +36,9 @@ start_http
 inject_transactions_for_block_production
 
 wait_for_beacon_rpc 60
+run_equivocation_halt_scenario
 run_rotation_scenario
+check_equivocation_resumed
 run_out_of_band_scenario
 stop_network || true
 echo -e "${GREEN}L-SMOKE-ROTATION PASSED${NC}"

@@ -2914,6 +2914,101 @@ TEST_F(ChainComposeTest, BeaconCert_SeenOutOfBandBoundsOlderTipsUntilOnChain) {
   EXPECT_EQ(producer.offerCertificate(gen3).value(), Offer::Older);
 }
 
+// beacon-authority ba6 (B005): two tips of one generation and height naming different blocks are
+// proof the beacon key signed twice. A node holding the evidence verifies no tip of that generation
+// above its height — it commits nothing past it — until a later generation is certified, out of
+// band or on chain.
+TEST_F(ChainComposeTest, BeaconEquivocation_HaltsAboveItsHeightUntilALaterGeneration) {
+  auto &producer = harness_.producer;
+  const auto current = producer.getAuthority().value();
+  const std::string net = producer.getNetworkId();
+  auto tipBy = [&](const utl::MlDsaKeyPair &key, uint64_t generation, uint64_t height, const std::string &hash) {
+    Client::SignedTip tip;
+    tip.networkId = net;
+    tip.generation = generation;
+    tip.height = height;
+    tip.blockHash = hash;
+    tip.signature = utl::mlDsaSign(key.privateKey, tip.signingMessage()).value();
+    return tip;
+  };
+  auto tipAt = [&](uint64_t height) { return tipBy(testBeaconKey(), 1, height, "block-" + std::to_string(height)); };
+  using Offer = Chain::EquivocationOffer;
+
+  // Shape: one network, generation and height, different blocks; a re-signed block is no evidence.
+  const auto a = tipBy(testBeaconKey(), 1, 3, "block-3");
+  EXPECT_FALSE(Client::Equivocation::of(a, tipBy(testBeaconKey(), 1, 3, "block-3")).has_value());
+  EXPECT_FALSE(Client::Equivocation::of(a, tipBy(testBeaconKey(), 1, 4, "fork-3")).has_value());
+  const auto fork = tipBy(testBeaconKey(), 1, 3, "fork-3");
+  const auto evidence = Client::Equivocation::of(fork, a);
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_TRUE(Client::Equivocation::of(a, fork) == evidence) << "canonical order";
+
+  // Refused: not the beacon's key; a generation no certificate here names.
+  EXPECT_FALSE(producer.offerEquivocation(*Client::Equivocation::of(a, tipBy(makeKeyPair(), 1, 3, "fork-3"))).isOk());
+  const auto gen2Key = makeKeyPair();
+  auto unknown = producer.offerEquivocation(
+      *Client::Equivocation::of(tipBy(gen2Key, 2, 3, "x"), tipBy(gen2Key, 2, 3, "y")));
+  ASSERT_FALSE(unknown.isOk());
+  EXPECT_NE(unknown.error().message.find("no certificate here names"), std::string::npos) << unknown.error().message;
+  EXPECT_FALSE(producer.equivocation().has_value());
+
+  // Kept: tips of generation 1 above block 3 no longer verify.
+  EXPECT_TRUE(producer.verifySignedTip(tipAt(4)).isOk());
+  ASSERT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Newer);
+  EXPECT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Same);
+  EXPECT_EQ(producer.offerEquivocation(*Client::Equivocation::of(tipBy(testBeaconKey(), 1, 2, "x"),
+                                                                  tipBy(testBeaconKey(), 1, 2, "y")))
+                .value(),
+            Offer::Ignored)
+      << "one piece of evidence per generation";
+  EXPECT_TRUE(producer.verifySignedTip(tipAt(3)).isOk()) << "at its height";
+  auto halted = producer.verifySignedTip(tipAt(4));
+  ASSERT_FALSE(halted.isOk());
+  EXPECT_NE(halted.error().message.find("equivocation"), std::string::npos) << halted.error().message;
+
+  // Resume out of band: a certificate of generation 2 supersedes it.
+  BeaconCertificate next = nextCertificate(current);
+  next.publicKey = gen2Key.publicKey;
+  next.cutoverHeight = 5;
+  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(next, harness_.genesisKey, net, 1,
+                                                           harness_.chainConfig.genesisTime))
+                .value(),
+            Chain::CertificateOffer::Newer);
+  EXPECT_FALSE(producer.equivocation().has_value()) << "resumed";
+  EXPECT_TRUE(producer.verifySignedTip(tipAt(4)).isOk()) << "generation 1 up to the new cutover";
+  EXPECT_EQ(producer.offerEquivocation(*evidence).value(), Offer::Ignored) << "superseded";
+
+  // Evidence against the generation seen out of band verifies with its key.
+  const auto gen2Evidence = Client::Equivocation::of(tipBy(gen2Key, 2, 6, "x"), tipBy(gen2Key, 2, 6, "y"));
+  ASSERT_EQ(producer.offerEquivocation(*gen2Evidence).value(), Offer::Newer);
+}
+
+// ba6: committing a later certificate on chain resumes too.
+TEST_F(ChainComposeTest, BeaconEquivocation_ResumesWhenALaterCertificateCommits) {
+  auto &producer = harness_.producer;
+  const std::string net = producer.getNetworkId();
+  auto tipAt = [&](const std::string &hash) {
+    Client::SignedTip tip;
+    tip.networkId = net;
+    tip.generation = 1;
+    tip.height = 0;
+    tip.blockHash = hash;
+    tip.signature = utl::mlDsaSign(testBeaconKey().privateKey, tip.signingMessage()).value();
+    return tip;
+  };
+  ASSERT_EQ(producer.offerEquivocation(*Client::Equivocation::of(tipAt("x"), tipAt("y"))).value(),
+            Chain::EquivocationOffer::Newer);
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  BeaconCertificate next = nextCertificate(producer.getAuthority().value());
+  next.cutoverHeight = UINT64_MAX;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeBeaconCertRecord(next, harness_.genesisKey, net, 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  EXPECT_EQ(producer.getAuthority()->beacon.generation, 2u);
+  EXPECT_FALSE(producer.equivocation().has_value());
+}
+
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
 // must carry them unchanged (only their own records will change them).
 TEST_F(ChainComposeTest, ConfigUpdate_CannotChangeTheAuthority) {

@@ -276,9 +276,11 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   server.enqueueRequest(packRequest("list-up", Client::T_REQ_MINER_LIST), replies.sink(), "upstream-peer");
   server.enqueueRequest(packRequest("tx-up", Client::T_REQ_TX_ADD), replies.sink(), "upstream-peer");
   server.enqueueRequest(packRequest("pull-up", Client::T_REQ_TX_PULL), replies.sink(), "upstream-peer");
+  server.enqueueRequest(packRequest("evidence-up", Client::T_REQ_EQUIVOCATION_ADD), replies.sink(), "upstream-peer");
   server.serveRequestsFor(50ms);
 
-  ASSERT_EQ(replies.size(), 7u);
+  ASSERT_EQ(replies.size(), 8u);
+  EXPECT_NE(replies.items[7].errorCode, 0); // evidence travels up; down it rides STATUS
   EXPECT_NE(replies.items[5].errorCode, 0); // transactions only travel up
   EXPECT_NE(replies.items[6].errorCode, 0); // the pool lives upstream
   EXPECT_NE(replies.items[4].errorCode, 0); // the registry lives upstream

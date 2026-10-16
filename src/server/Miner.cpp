@@ -209,6 +209,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (auto loaded = certificates_->load(); !loaded) {
     return Error(2, loaded.error().message);
   }
+  equivocations_ = std::make_unique<EquivocationStore>(chain_, config.workDir + "/" + FILE_EQUIVOCATION);
+  equivocations_->redirectLogger(log().getFullName() + ".EquivocationStore");
+  if (auto loaded = equivocations_->load(); !loaded) {
+    return Error(2, loaded.error().message);
+  }
 
   log().info << "Miner initialized successfully";
   return {};
@@ -275,6 +280,10 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
 Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
                                                 uint64_t &tipSlotOut) const {
   tipSlotOut = 0;
+  // Halted (ba6): no tip of the equivocating generation will cover a block above its height.
+  if (const auto &evidence = chain_.equivocation(); evidence && chain_.getNextBlockId() > evidence->height()) {
+    return false;
+  }
   const bool hasWork =
       !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
   if (!hasWork) {
@@ -411,6 +420,10 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   if (certificates_) {
     certificates_->retryPending();
   }
+  if (equivocations_) {
+    equivocations_->retryPending();
+    equivocations_->refresh(); // a certificate on chain may have resumed it
+  }
   return {};
 }
 
@@ -419,7 +432,19 @@ std::optional<Chain::CertificateOffer> Miner::noteCertificate(const Ledger::Reco
   if (!certificates_) {
     return std::nullopt; // no chain yet: nothing to verify it against
   }
-  return certificates_->note(record, from);
+  auto offered = certificates_->note(record, from);
+  if (offered == Chain::CertificateOffer::Newer && equivocations_) {
+    equivocations_->refresh(); // a later generation resumes a halted one
+  }
+  return offered;
+}
+
+std::optional<Chain::EquivocationOffer> Miner::noteEquivocation(const Client::Equivocation &evidence,
+                                                                const std::string &from) {
+  if (!equivocations_) {
+    return std::nullopt; // no chain yet: nothing to verify it against
+  }
+  return equivocations_->note(evidence, from);
 }
 
 std::optional<Ledger::Record> Miner::getCurrentCertificate() const {

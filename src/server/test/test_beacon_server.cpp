@@ -1,5 +1,6 @@
 #include "BeaconServer.h"
 #include "CertificateStore.h"
+#include "EquivocationStore.h"
 #include "../chain/AccountBuffer.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
@@ -467,6 +468,117 @@ TEST(BeaconServerInitTest, ACertificateSeenOutOfBandIsKeptAndBindsTheBeacon) {
   std::ofstream(certFile, std::ios::trunc) << "garbage";
   Beacon unreadable;
   EXPECT_FALSE(unreadable.mount(mount).isOk()) << "a certificate file that does not read is not ignored";
+}
+
+// beacon-authority ba6: equivocation evidence against the beacon's own generation halts it — no block
+// above the evidence's height, across restarts — until a later generation is certified; then it
+// resumes and the evidence file goes.
+TEST(BeaconServerInitTest, AnEquivocationHaltsTheBeaconUntilALaterGeneration) {
+  GenesisSetup setup("pp-ledger-beacon-equivocation-test");
+  setup.writeInitConfig();
+  const auto beaconKey = utl::mlDsaGenerate().value();
+  const auto nextKey = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(beaconKey, "keys/beacon-signing");
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  auto tipBy = [](const utl::MlDsaKeyPair &key, const std::string &hash) {
+    Client::SignedTip tip;
+    tip.networkId = "test-net";
+    tip.generation = 1;
+    tip.height = 0;
+    tip.blockHash = hash;
+    tip.signature = utl::mlDsaSign(key.privateKey, tip.signingMessage()).value();
+    return tip;
+  };
+  const auto evidence = Client::Equivocation::of(tipBy(beaconKey, "x"), tipBy(beaconKey, "y")).value();
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  const auto file = setup.dir / "data" / "equivocation.dat";
+  Ledger::ChainNode next;
+  next.block.index = 1;
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
+    EXPECT_FALSE(beacon.offerEquivocation(Client::Equivocation::of(tipBy(beaconKey, "x"),
+                                                                   tipBy(utl::mlDsaGenerate().value(), "y"))
+                                              .value())
+                     .isOk())
+        << "one tip not signed by the beacon";
+    EXPECT_FALSE(beacon.haltedAbove().has_value());
+    ASSERT_EQ(beacon.offerEquivocation(evidence).value(), Chain::EquivocationOffer::Newer);
+    EXPECT_EQ(beacon.haltedAbove(), std::optional<uint64_t>(0));
+    EXPECT_TRUE(std::filesystem::exists(file));
+    auto refused = beacon.addBlock(next);
+    ASSERT_FALSE(refused.isOk());
+    EXPECT_NE(refused.error().message.find("Halted"), std::string::npos) << refused.error().message;
+  }
+  {
+    Beacon beacon; // restart: still halted
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({beaconKey, nextKey}).isOk());
+    EXPECT_EQ(beacon.haltedAbove(), std::optional<uint64_t>(0)) << "kept across the restart";
+    EXPECT_EQ(beacon.getEquivocation(), evidence);
+
+    // The admins certify generation 2 (a key this beacon holds): it resumes.
+    BeaconCertificate cert;
+    cert.networkId = "test-net";
+    cert.generation = 2;
+    cert.publicKey = nextKey.publicKey;
+    cert.cutoverHeight = 0;
+    Ledger::TxBeaconCert tx;
+    tx.meta = cert.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_BEACON_CERT;
+    record.data = utl::binaryPack(tx);
+    for (int i = 0; i < 2; ++i) {
+      record.signatures.push_back(utl::mlDsaSign(setup.genesis[i].privateKey, record.signingMessage("test-net")).value());
+    }
+    ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
+    EXPECT_FALSE(beacon.haltedAbove().has_value()) << "resumed";
+    EXPECT_FALSE(std::filesystem::exists(file)) << "the evidence is superseded";
+  }
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    EXPECT_FALSE(beacon.haltedAbove().has_value());
+  }
+}
+
+// The evidence store waits while the chain holds no block, like the certificate store.
+TEST(BeaconServerInitTest, EquivocationStoreWaitsForTheFirstBlock) {
+  GenesisSetup setup("pp-ledger-equivocation-store-test");
+  setup.writeInitConfig();
+  const auto beaconKey = utl::mlDsaGenerate().value();
+  setup.writeKeyPair(beaconKey, "keys/beacon-signing");
+  ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  auto tipBy = [&](const std::string &hash) {
+    Client::SignedTip tip;
+    tip.networkId = "test-net";
+    tip.generation = 1;
+    tip.height = 0;
+    tip.blockHash = hash;
+    tip.signature = utl::mlDsaSign(beaconKey.privateKey, tip.signingMessage()).value();
+    return tip;
+  };
+  const std::string file = (setup.dir / "equivocation.dat").string();
+  std::ofstream(file, std::ios::binary | std::ios::trunc)
+      << Client::Equivocation::of(tipBy("x"), tipBy("y")).value().ltsToString();
+  {
+    Chain empty;
+    EquivocationStore store(empty, file);
+    ASSERT_TRUE(store.load().isOk());
+    EXPECT_FALSE(empty.equivocation().has_value());
+    store.retryPending();
+    EXPECT_TRUE(std::filesystem::exists(file)) << "kept until the chain can verify it";
+  }
+  {
+    Chain chain;
+    ASSERT_TRUE(chain.mountLedger((setup.dir / "data" / "ledger").string()).isOk());
+    ASSERT_TRUE(chain.loadFromLedger(0).isOk());
+    EquivocationStore store(chain, file);
+    ASSERT_TRUE(store.load().isOk());
+    EXPECT_TRUE(chain.equivocation().has_value());
+  }
 }
 
 // The store under any node's chain: it writes what the chain keeps, offers it again after a

@@ -1,9 +1,6 @@
 #include "CertificateStore.h"
+#include "NodeFile.h"
 #include "lib/common/BinaryPack.hpp"
-
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 
 namespace pp {
 
@@ -13,18 +10,14 @@ CertificateStore::CertificateStore(Chain &chain, std::string path) : chain_(chai
 
 CertificateStore::Roe<void> CertificateStore::load() {
   pending_.reset();
-  if (!std::filesystem::exists(path_)) {
+  auto read = node_file::readIfExists(path_);
+  if (!read) {
+    return Error(E_IO, read.error().message);
+  }
+  if (!read.value()) {
     return {};
   }
-  std::string bytes;
-  {
-    // Closed before anything below may remove the file (Windows cannot remove an open file).
-    std::ifstream in(path_, std::ios::binary);
-    if (!in) {
-      return Error(E_IO, "Failed to read " + path_);
-    }
-    bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
+  const std::string bytes = *read.value();
   auto record = utl::binaryUnpack<Ledger::Record>(bytes);
   if (!record || record.value().type != Ledger::T_BEACON_CERT) {
     return Error(E_IO, path_ + " is not a beacon certificate record");
@@ -87,29 +80,15 @@ std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Reco
 }
 
 CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record &record) const {
-  // Write aside, then rename over: a crash leaves the old certificate or the new one.
-  const std::string temp = path_ + ".tmp";
-  {
-    std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-    out << utl::binaryPack(record);
-    out.flush();
-    if (!out) {
-      return Error(E_IO, "Failed to write " + temp);
-    }
-  }
-  std::error_code ec;
-  std::filesystem::rename(temp, path_, ec);
-  if (ec) {
-    return Error(E_IO, "Failed to replace " + path_ + ": " + ec.message());
+  if (auto written = node_file::replace(path_, utl::binaryPack(record)); !written) {
+    return Error(E_IO, written.error().message);
   }
   return {};
 }
 
 void CertificateStore::remove() const {
-  std::error_code ec;
-  std::filesystem::remove(path_, ec);
-  if (ec) {
-    log().warning << "Failed to remove " << path_ << ": " << ec.message();
+  if (auto removed = node_file::remove(path_); !removed) {
+    log().warning << removed.error().message;
   }
 }
 

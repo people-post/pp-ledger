@@ -782,6 +782,9 @@ void BeaconServer::initHandlers() {
   hml = [this](const Client::Request &request) { return hMinerList(request); };
 
   requestHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &request) { return hTxAdd(request); };
+  requestHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &request) {
+    return hEquivocationAdd(request);
+  };
   requestHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &request) { return hTxPull(request); };
 };
 
@@ -823,6 +826,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.registryVersion = miners_.version();
   state.signedTip = beacon_.getSignedTip();
   state.certificate = beacon_.getCurrentCertificate();
+  state.equivocation = beacon_.getEquivocation();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -863,6 +867,9 @@ std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
   if (const auto by = isTerminalWrite(request.type) ? beacon_.supersededBy() : std::nullopt) {
     return Server::packResponse(1, "This beacon stood down: beacon generation " + std::to_string(*by) +
                                        " certifies another key");
+  }
+  if (const auto above = isTerminalWrite(request.type) ? beacon_.haltedAbove() : std::nullopt) {
+    return Server::packResponse(1, haltedMessage(*above));
   }
   auto it = requestHandlers_.find(request.type);
   Roe<std::string> result = (it != requestHandlers_.end())
@@ -950,6 +957,12 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   return tipReply();
 }
 
+std::string BeaconServer::haltedMessage(uint64_t above) const {
+  return "This beacon is halted: beacon generation " + std::to_string(beacon_.getEquivocation()->generation()) +
+         " signed two blocks at height " + std::to_string(above) +
+         " (equivocation); nothing above it is committed until a later generation is certified";
+}
+
 std::string BeaconServer::tipReply() const {
   Client::TipReply reply;
   reply.nextBlockId = beacon_.getNextBlockId();
@@ -979,6 +992,10 @@ BeaconServer::hTxAdd(const Client::Request &request) {
     }
     return Error(E_REQUEST, "This beacon stood down: " + why);
   }
+  // Halted (ba6): only a certificate — the way out — is still taken.
+  if (const auto above = beacon_.haltedAbove(); above && !certificate) {
+    return Error(E_REQUEST, haltedMessage(*above));
+  }
   const int64_t now = nowSeconds();
   txPool_.expire(now);
   switch (txPool_.add(record.value(), now)) {
@@ -990,6 +1007,25 @@ BeaconServer::hTxAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Transaction pool full, please retry later");
   }
   return Error(E_REQUEST, "Transaction not accepted");
+}
+
+BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request &request) {
+  Client::Equivocation evidence;
+  if (!evidence.ltsFromString(request.payload)) {
+    return Error(E_REQUEST, "Invalid equivocation evidence");
+  }
+  auto offered = beacon_.offerEquivocation(evidence);
+  if (!offered) {
+    return Error(E_REQUEST, "Equivocation evidence refused: " + offered.error().message);
+  }
+  switch (offered.value()) {
+  case Chain::EquivocationOffer::Newer:
+  case Chain::EquivocationOffer::Same:
+    return {"Equivocation evidence kept: halted above block " + std::to_string(evidence.height())};
+  case Chain::EquivocationOffer::Ignored:
+    return {"Equivocation evidence ignored: its generation is superseded, or evidence is already held"};
+  }
+  return {"Equivocation evidence ignored"};
 }
 
 BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &record) {

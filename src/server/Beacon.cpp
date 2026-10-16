@@ -231,6 +231,11 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
   if (auto loaded = certificates_->load(); !loaded) {
     return Error(3, loaded.error().message);
   }
+  equivocations_ = std::make_unique<EquivocationStore>(chain_, config.workDir + "/" + FILE_EQUIVOCATION);
+  equivocations_->redirectLogger(log().getFullName() + ".EquivocationStore");
+  if (auto loaded = equivocations_->load(); !loaded) {
+    return Error(3, loaded.error().message);
+  }
 
   log().info << "Beacon mounted successfully";
   log().info << "  Loaded " << blockCount << " blocks from ledger";
@@ -246,6 +251,10 @@ void Beacon::refresh() {
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
+  if (const auto above = haltedAbove(); above && block.block.index > *above) {
+    return Error(4, "Halted: beacon generation " + std::to_string(chain_.equivocation()->generation()) +
+                        " signed two blocks at height " + std::to_string(*above) + " (equivocation)");
+  }
   if (auto withinCutover = chain_.checkSeenCutover(block.block); !withinCutover) {
     return Error(4, withinCutover.error().message);
   }
@@ -257,6 +266,9 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
     if (auto signed_ = signCommittedTip(); !signed_ && signed_.error().code != TipSigner::E_NOT_CERTIFIED) {
       log().error << "Block " << block.block.index << " committed but not signed: " << signed_.error().message;
     }
+  }
+  if (equivocations_) {
+    equivocations_->refresh(); // a certificate on chain may have resumed it
   }
   return {};
 }
@@ -310,10 +322,34 @@ Beacon::Roe<Chain::CertificateOffer> Beacon::offerCertificate(const Ledger::Reco
     return Error(offered.error().code, offered.error().message);
   }
   if (offered.value() == Chain::CertificateOffer::Newer) {
+    if (equivocations_) {
+      equivocations_->refresh(); // a later generation resumes a halted one
+    }
     if (const auto by = supersededBy()) {
       log().error << "Beacon generation " << *by << " (seen out of band) certifies none of this beacon's keys: "
                   << "it stands down and serves reads only";
     }
+  }
+  return offered.value();
+}
+
+std::optional<uint64_t> Beacon::haltedAbove() const {
+  const auto &evidence = chain_.equivocation();
+  return evidence ? std::optional<uint64_t>(evidence->height()) : std::nullopt;
+}
+
+Beacon::Roe<Chain::EquivocationOffer> Beacon::offerEquivocation(const Client::Equivocation &evidence) {
+  if (!equivocations_) {
+    return Error(6, "Beacon not mounted");
+  }
+  auto offered = equivocations_->offer(evidence);
+  if (!offered) {
+    return Error(offered.error().code, offered.error().message);
+  }
+  if (offered.value() == Chain::EquivocationOffer::Newer) {
+    log().error << "Beacon generation " << evidence.generation() << " signed two blocks at height "
+                << evidence.height() << ": this beacon commits nothing above it and serves reads only until "
+                << "a later generation is certified";
   }
   return offered.value();
 }
