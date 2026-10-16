@@ -396,7 +396,10 @@ conflicting tip below a node's latest goes unnoticed.
   when due: an account last written before block `maxBlockIdForRenewal(x)` renews in block *x*,
   where the cut-off is the newer limit of `x - checkpoint.minBlocks + 1` and the first block at or
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
-  block's slot time, never a node's clock). An account that cannot pay its renewal fee is ended
+  block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
+  the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
+  (the meta recorded at the account's last write); only the renewal fee leaves its balance.
+  Changing them takes the account's own `T_USER_UPDATE`. An account that cannot pay its renewal fee is ended
   instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
   (packed `map<tokenId, int64>`; Full checks them against the account), so a node that does not
   hold the account still credits the recycle account.
