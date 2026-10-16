@@ -188,7 +188,10 @@ TEST_F(SlotCommitteeTest, SetsTimeOffset) {
     const int64_t beaconMs = consensus->getTimestampMs();
     EXPECT_GE(beaconMs, before + 60500) << "kept to the millisecond: timing decisions are made in ms";
     EXPECT_LE(beaconMs, localMs() + 60500);
-    EXPECT_NEAR(consensus->getTimestamp(), consensus->getTimestampMs() / 1000, 1);
+    const int64_t seconds = consensus->getTimestamp();
+    const int64_t secondsFromMs = consensus->getTimestampMs() / 1000;
+    EXPECT_LE(seconds - secondsFromMs, 1);
+    EXPECT_GE(seconds - secondsFromMs, -1);
 
     consensus->setTimeOffsetMs(-250);  // recalibrated (a new beacon generation)
     EXPECT_EQ(consensus->getConfig().timeOffsetMs, -250);

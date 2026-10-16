@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <thread>
 
@@ -55,7 +56,7 @@ TEST(ClockCalibrationTest, OneShortRoundTripIsEnough) {
   estimate(upstream.fetch(), [&](Client::Roe<Offset> offset) { result = std::move(offset); });
   ASSERT_TRUE(result.has_value() && result->isOk());
   EXPECT_EQ(upstream.asked, 1u);
-  EXPECT_NEAR(result->value().offsetMs, 1'500, 50) << "kept to the millisecond, not the second";
+  EXPECT_LE(std::abs(result->value().offsetMs - 1'500), 50) << "kept to the millisecond, not the second";
 }
 
 TEST(ClockCalibrationTest, SlowRoundTripsTakeMoreSamplesAndKeepTheShortest) {
@@ -70,7 +71,7 @@ TEST(ClockCalibrationTest, SlowRoundTripsTakeMoreSamplesAndKeepTheShortest) {
   EXPECT_EQ(result->value().samples, kMaxSamples);
   EXPECT_GE(result->value().rttMs, slow.count());
   EXPECT_LT(result->value().rttMs, slow.count() + 50) << "the shortest round trip";
-  EXPECT_NEAR(result->value().offsetMs, -700, 50);
+  EXPECT_LE(std::abs(result->value().offsetMs - (-700)), 50);
 }
 
 TEST(ClockCalibrationTest, AFailedSampleFailsTheEstimate) {
@@ -101,7 +102,7 @@ TEST(ClockFollowerTest, EstimatesAgainWhenANewGenerationIsInForce) {
   generation = 2; // the block committing the new beacon's certificate applied
   follower.maintain();
   ASSERT_EQ(applied.size(), 1u);
-  EXPECT_NEAR(applied[0], 300, 50);
+  EXPECT_LE(std::abs(applied[0] - 300), 50);
   follower.maintain();
   EXPECT_EQ(applied.size(), 1u) << "once per generation";
 
