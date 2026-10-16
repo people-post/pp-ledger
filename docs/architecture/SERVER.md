@@ -177,9 +177,17 @@ Every role speaks the same binary ledger RPC (`/pp-ledger/rpc/1.0.0` over AMP:
 `src/client/Client.h`, wire in [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)).
 There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 
+**Nodes never serve or link HTTP.** pp-beacon, pp-relay and pp-miner speak only this RPC; no HTTP
+library (cpp-httplib, `src/lib/http`) is linked into `pp_server` or the node binaries, and the
+library is built only for pp-http (`PP_LEDGER_BUILD_HTTP`). Anything an operator or a web client
+wants over HTTP — the REST API, health, Prometheus `/metrics` — is pp-http talking to the nodes
+through `pp::Client`; a container or host probe uses `pp-client` (e.g. `pp-client health`). A new
+node capability is a new request type here plus, when HTTP is wanted, a pp-http route.
+
 | Request | Beacon | Relay | Miner | Notes |
 |---------|--------|-------|-------|-------|
 | `STATUS`, `CALIBRATION` | serves | serves | serves | Chain tip, slot/epoch, network id, registry version; clock |
+| `HEALTH` | serves | serves | serves | Liveness, readiness and metrics state (`Client::NodeHealth`); answered at once to any peer from the server thread's last snapshot, never queued ([CONFIGURATION.md § Health and metrics](../ops/CONFIGURATION.md#health-and-metrics)) |
 | `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |

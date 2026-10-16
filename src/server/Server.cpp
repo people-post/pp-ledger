@@ -8,6 +8,7 @@
 #include <set>
 #include <mutex>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 
 namespace pp {
@@ -127,81 +128,81 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
   return utl::binaryPack(resp);
 }
 
-void Server::onStop() {
-  if (health_) {
-    health_->stop();
-  }
-  stopAmpServer();
-}
+void Server::onStop() { stopAmpServer(); }
 
-Service::Roe<Server::HealthConfig> Server::parseHealthConfig(const pp::common::Object& config) {
-  HealthConfig health;
-  if (config.contains("healthPort")) {
-    auto port = config.getNonNegInt("healthPort");
-    if (!port || *port > 65535) {
-      return Service::Error(-1, "Field 'healthPort' must be between 0 and 65535 (0: none)");
-    }
-    if (*port != 0) {
-      health.port = static_cast<uint16_t>(*port);
-    }
-  }
-  if (config.contains("healthBind")) {
-    auto bind = config.getString("healthBind");
-    if (!bind || bind->empty()) {
-      return Service::Error(-1, "Field 'healthBind' must be an address (e.g. 0.0.0.0)");
-    }
-    health.bind = *bind;
-  }
-  return health;
-}
-
-Service::Roe<void> Server::startHealthEndpoint(const HealthConfig& config) {
-  if (!config.port) {
-    return {};
-  }
-  health_ = std::make_unique<HealthEndpoint>();
-  health_->redirectLogger(log().getFullName() + ".Health");
-  if (auto started = health_->start(config.bind, *config.port); !started) {
-    health_.reset();
-    return Service::Error(-1, started.error().message);
-  }
-  publishHealth();
-  return {};
-}
-
-void Server::fillHealth(HealthSnapshot& snapshot) const {
+void Server::fillHealth(Client::NodeHealth& health) const {
   const std::string listen = listenMultiaddr();
   if (const auto at = listen.rfind("/p2p/"); at != std::string::npos) {
-    snapshot.peerId = listen.substr(at + 5);
+    health.peerId = listen.substr(at + 5);
   }
-  snapshot.requestQueueDepth = requests_ ? requests_->size() : 0;
+  health.requestQueueDepth = requests_ ? requests_->size() : 0;
   if (const auto tip = latestSignedTip()) {
-    snapshot.signedTipHeight = tip->height;
+    health.signedTipHeight = tip->height;
   }
-  snapshot.ready = false;
-  snapshot.notReady = serving_ ? "not ready" : "starting";
+  health.ready = false;
+  health.notReady = serving_ ? "not ready" : "starting";
 }
 
 void Server::publishHealth() {
-  if (!health_) {
-    return;
-  }
   const auto now = std::chrono::steady_clock::now();
-  if (now - healthPublishedAt_ < std::chrono::seconds(1)) {
+  {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    if (health_ && now - healthPublishedAt_ < std::chrono::seconds(1)) {
+      return;
+    }
+  }
+  Client::NodeHealth health;
+  fillHealth(health);
+  std::lock_guard<std::mutex> lock(healthMutex_);
+  health_ = std::move(health);
+  healthPublishedAt_ = now;
+}
+
+std::string Server::healthResponse() const {
+  Client::NodeHealth health;
+  {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    if (!health_) {
+      return packResponse(Client::E_SERVER_ERROR, "Health not published yet: starting");
+    }
+    health = *health_;
+    health.reportAgeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - healthPublishedAt_)
+                             .count();
+  }
+  return packResponse(utl::binaryPack(health.ltsToMeta()));
+}
+
+void Server::writeListenMultiaddrFile() const {
+  if (workDir_.empty()) {
     return;
   }
-  healthPublishedAt_ = now;
-  HealthSnapshot snapshot;
-  fillHealth(snapshot);
-  health_->publish(std::move(snapshot));
+  // A wildcard bind is reached on loopback from the same host (or container).
+  std::string local = listenMultiaddr();
+  for (const auto& [any, loopback] : {std::pair<std::string, std::string>{"/ip4/0.0.0.0/", "/ip4/127.0.0.1/"},
+                                      std::pair<std::string, std::string>{"/ip6/::/", "/ip6/::1/"}}) {
+    if (local.rfind(any, 0) == 0) {
+      local = loopback + local.substr(any.size());
+    }
+  }
+  const auto path = std::filesystem::path(workDir_) / "listen.multiaddr";
+  std::ofstream out(path, std::ios::trunc);
+  out << local << "\n";
+  if (!out) {
+    log().warning << "Cannot write " << path.string();
+  }
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
+  const auto type = Client::peekRequestType(body);
+  if (type == Client::T_REQ_HEALTH) {
+    reply(healthResponse()); // a probe: any peer, never queued
+    return;
+  }
   if (!isAllowedPeer(peerId)) {
     reply(packResponse(1, "Peer not allowed by this node"));
     return;
   }
-  const auto type = Client::peekRequestType(body);
   const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
@@ -636,6 +637,8 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
     return started;
   }
   log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
+  writeListenMultiaddrFile();
+  publishHealth(); // HEALTH answers "starting" from now on
   return {};
 }
 

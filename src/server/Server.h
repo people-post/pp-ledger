@@ -11,7 +11,6 @@
 #include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
 #include "EnvConfig.h"
-#include "HealthEndpoint.h"
 
 #include <atomic>
 #include <chrono>
@@ -186,19 +185,11 @@ protected:
   /** Optional `allowedPeers` array of peer ids in a role's config.json; absent = nullopt. */
   static Service::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& config);
 
-  /** The probe / metrics endpoint (`healthPort`, `healthBind`; PP_LEDGER_HEALTH_PORT / _BIND). */
-  struct HealthConfig {
-    std::optional<uint16_t> port; ///< none: no endpoint
-    std::string bind{"127.0.0.1"};
-  };
-  static Service::Roe<HealthConfig> parseHealthConfig(const pp::common::Object& config);
-  /** In onStart, right after the config: probes answer during the startup sync (not ready yet). */
-  Service::Roe<void> startHealthEndpoint(const HealthConfig& config);
   /**
-   * Server thread: what probes and /metrics read. The base fills identity and the queue; roles add
-   * their chain state and readiness (call the base first).
+   * Server thread: what HEALTH answers (Client::NodeHealth). The base fills identity and the queue;
+   * roles add their chain state and readiness (call the base first).
    */
-  virtual void fillHealth(HealthSnapshot& snapshot) const;
+  virtual void fillHealth(Client::NodeHealth& health) const;
   /** True once the run loop serves requests (onStart is over). */
   bool isServing() const { return serving_; }
   Origin originOf(const std::string& peerId) const;
@@ -274,11 +265,17 @@ private:
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
   std::string logFile_;
-  std::unique_ptr<HealthEndpoint> health_;
+  /** The last published HEALTH, answered on the io lane (enqueueRequest) without queueing. */
+  mutable std::mutex healthMutex_;
+  std::optional<Client::NodeHealth> health_;
   std::chrono::steady_clock::time_point healthPublishedAt_{};
   bool serving_{false};
   /** Server thread: publish the health snapshot, at most once a second. */
   void publishHealth();
+  /** io lane: the HEALTH reply, from the last snapshot. */
+  std::string healthResponse() const;
+  /** `<work dir>/listen.multiaddr`: where a local `pp-client health` reaches this node. */
+  void writeListenMultiaddrFile() const;
   std::unique_ptr<RequestQueue> requests_;
   BlockWaitList blockWaits_{requestCapacity_};
   uint64_t lastPolledTip_{0};

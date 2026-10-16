@@ -6,10 +6,11 @@ One image (`ubuntu:24.04`, as CI) with `pp-beacon`, `pp-relay`, `pp-miner`, `pp-
 
 Nodes are configured from the environment ([CONFIGURATION.md § Environment](../docs/ops/CONFIGURATION.md#environment)):
 no config file, and keys come from secret files (`PP_*_FILE`). The image runs as a non-root user
-(uid 10001) with its work directory on the `/data` volume, logs to stderr only, stops cleanly on
-`SIGTERM`, and reports health on port 9090 inside the container (`/healthz`, `/readyz`,
-`/metrics`; [CONFIGURATION.md § Health and metrics](../docs/ops/CONFIGURATION.md#health-and-metrics)),
-which the image's `HEALTHCHECK` uses.
+(uid 10001) with its work directory on the `/data` volume, logs to stderr only, and stops cleanly on
+`SIGTERM`. Nodes serve no HTTP: the image's `HEALTHCHECK` asks the node over its own RPC
+(`pp-client --host-file /data/listen.multiaddr health`), and pp-http serves health and Prometheus
+`/metrics` for the nodes it talks to
+([CONFIGURATION.md § Health and metrics](../docs/ops/CONFIGURATION.md#health-and-metrics)).
 
 ## Sample stack (compose)
 
@@ -20,7 +21,8 @@ cd deploy
 ./init.sh            # once: keys, genesis config, peer ids (.env), then genesis
 docker compose up -d # waits on health: beacon, then relay, then miner, then http
 curl -s http://localhost:8080/api/beacon/state
-docker compose exec relay curl -s localhost:9090/metrics
+curl -s http://localhost:8080/metrics                      # beacon (the relay here), miner, core-beacon
+docker compose exec relay pp-client --host-file /data/listen.multiaddr health --ready
 ```
 
 `init.sh` generates every key into `secrets/` (0700), writes `secrets/init-config.json` with one

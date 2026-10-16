@@ -30,7 +30,6 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_LEDGER_LOG_FILE` | beacon, relay, miner | `--log-file`: also log to this file (relative: to the work directory); `none`: stderr only, for a container's log driver. Default `<role>.log` in the work directory |
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
-| `PP_LEDGER_HEALTH_PORT`, `PP_LEDGER_HEALTH_BIND` | beacon, relay, miner | `healthPort`, `healthBind` ([Health and metrics](#health-and-metrics)) |
 | `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
 | `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId` |
 | `PP_MINER_ID` | miner | `minerId` |
@@ -40,6 +39,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_BEACON_SIGNING_KEY` `[_FILE]` | beacon (`--init` and every start) | the beacon signing key (hex private key) instead of `keys/beacon-signing.key` / `.pub`; its public key is derived. Nothing is written |
 | `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
 | `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
+| `PP_HTTP_METRICS_TARGETS` | pp-http | `--metrics-target` (list of `NAME=MULTIADDR`: more nodes on `/metrics`) |
 
 A command-line option given explicitly wins over its variable. Peer ids can be worked out before
 anything starts: `pp-client peer-id <key>` prints the peer id and public key of a private key (hex
@@ -52,19 +52,31 @@ PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2
 
 ## Health and metrics
 
-Any node serves probes and Prometheus metrics over HTTP when `healthPort` (or
-`PP_LEDGER_HEALTH_PORT`) is set; `healthBind` (`PP_LEDGER_HEALTH_BIND`, default `127.0.0.1`) is the
-address — `0.0.0.0` for Kubernetes probes or a scraper on another host. Off by default.
+Nodes have no HTTP server (no HTTP library is linked into them; [SERVER.md](../architecture/SERVER.md#rpc-requests)).
+Health is a ledger RPC, `HEALTH`, which every node answers to any peer at once, from a snapshot its
+server thread publishes about once a second: it never waits in the request queue, and is not subject
+to `allowedPeers` (it tells a caller only what `STATUS` does, plus readiness). HTTP is pp-http's job.
 
-| Path | Answers |
-|------|---------|
-| `GET /healthz` | `200` while the server thread reports (at least every 30 s), else `503` — a liveness probe |
-| `GET /readyz` | `200` when ready, else `503` with the reason (`starting`, `not synced from the upstream`, `N blocks behind the upstream`, `halted on equivocation evidence`, `stood down…`) — a readiness probe. Beacon: running, not stood down or halted. Relay: synced and at most 3 blocks behind its upstream's signed tip. Miner: synced |
-| `GET /metrics` | Prometheus text: `pp_ledger_info{role,peer_id,network}`, `pp_ledger_up`, `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth` |
+| Field | Meaning |
+|-------|---------|
+| `role`, `peerId`, `networkId` | Identity |
+| `ready`, `notReady` | Ready to serve, else why not: `starting`, `not synced from the upstream`, `N blocks behind the upstream`, `halted on equivocation evidence`, `stood down…`. Beacon: running, not stood down or halted. Relay: synced and at most 3 blocks behind its upstream's signed tip. Miner: synced |
+| `reportAgeMs` | Since the server thread published. Live: under 30 s (`NodeHealth::live()`); a stuck server thread shows here |
+| `nextBlockId`, `upstreamNextBlockId`, `lastSyncAgeSeconds`, `signedTipHeight`, `generation`, `halted`, `recoveryPending`, `standingDown`, `requestQueueDepth` | Chain and node state, for metrics |
 
-The endpoint starts with the config, before a relay or miner's startup sync, so a node that is
-still syncing is healthy but not ready. It reads a snapshot the server thread publishes once a
-second: probes never touch the chain.
+A node answers `HEALTH` from the moment it listens, before a relay or miner's startup sync: a node
+still syncing is live but not ready. It writes its listen multiaddr (loopback for a wildcard bind)
+to `<work dir>/listen.multiaddr`, so a probe on the same host or in the same container needs no
+address:
+
+| Tool | Use |
+|------|-----|
+| `pp-client --host-file <work dir>/listen.multiaddr health` | Prints the JSON; exit 0 when live. `--ready`: exit 0 only when also ready. The image's `HEALTHCHECK`; a Kubernetes `exec` liveness / readiness probe |
+| pp-http `GET /api/beacon/health`, `GET /api/miner/health` | The JSON of its `--beacon` / `--miner`: `200` when the node answered (see `ready`), `502` when not |
+| pp-http `GET /metrics` | Prometheus text for its `--beacon` (`node="beacon"`), `--miner` (`node="miner"`) and each `--metrics-target NAME=MULTIADDR` (`node="NAME"`), asked in parallel: `pp_ledger_info{node,role,peer_id,network}`, `pp_ledger_up` (0 when the node did not answer or is not live), `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth`, `pp_ledger_report_age_seconds` |
+
+Prometheus scrapes pp-http, not the nodes; one pp-http can watch a whole deployment with
+`--metrics-target` (it needs no `allowedPeers` entry for `HEALTH`).
 
 ## `init-config.json` (beacon, genesis)
 

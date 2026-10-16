@@ -13,6 +13,14 @@ Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfil
 [`docs/README.md`](docs/README.md). Work in progress lives in [`projects/`](projects/README.md)
 (design, decisions, phases; status only in each project's `CURRENT_STATE.md`).
 
+**Nodes never serve or link HTTP.** `pp-beacon` / `pp-relay` / `pp-miner` speak only the ledger
+RPC (`src/client/Client.h` request types); cpp-httplib (`src/lib/http`) is built only for `pp-http`
+and must never be linked into `pp_server`. Anything wanted over HTTP (REST, health, Prometheus
+`/metrics`) is a pp-http route that calls the node through `pp::Client`; host or container probes
+use `pp-client` (e.g. `pp-client --host-file <work dir>/listen.multiaddr health`). A new node
+capability = a new RPC request type + (if needed) a pp-http route. See
+[`docs/architecture/SERVER.md` § RPC requests](docs/architecture/SERVER.md#rpc-requests).
+
 **Cross-repo work** (pp-cpp-* dependencies, pp-browser / pp-node relation, role matrix): see [`docs/architecture/PLATFORM_INTEGRATION.md`](docs/architecture/PLATFORM_INTEGRATION.md).
 
 **Name directory / domains** (memorable `local@domain`, reserved-account domain ownership — design only): see [`docs/product/NAME_DIRECTORY.md`](docs/product/NAME_DIRECTORY.md).
@@ -155,7 +163,7 @@ EOF
 | Miner   | 8518 | 8618+ |
 | HTTP API| 8080 | 8680 |
 
-Image smoke scaffold: `deploy/compose.smoke.yml` (ports 8617+; Amp multiaddr placeholders).
+Image smoke: `./scripts/test/pp_ledger_local_test.sh run --suite image` (`deploy/compose.yml` + `deploy/init.sh`; own subnet, host ports 285xx / 28080).
 
 ### HTTP API routes
 

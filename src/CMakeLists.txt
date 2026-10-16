@@ -16,9 +16,12 @@ add_subdirectory(network)
 add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(chain)
-# cpp-httplib: pp-http, and every node's health endpoint (server).
-add_subdirectory(lib/http)
 add_subdirectory(server)
+
+# cpp-httplib: pp-http only. Nodes never link an HTTP library (docs/architecture/SERVER.md).
+if(PP_LEDGER_BUILD_HTTP)
+  add_subdirectory(lib/http)
+endif()
 
 if(PP_LEDGER_BUILD_APPS)
   add_subdirectory(app)

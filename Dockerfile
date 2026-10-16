@@ -53,17 +53,16 @@ WORKDIR /data
 VOLUME /data
 
 # Container defaults (docs/ops/CONFIGURATION.md § Environment): the work directory is the volume,
-# logs go to stderr only (the log driver collects them), and the probe endpoint listens inside the
-# container (not published unless mapped).
+# and logs go to stderr only (the log driver collects them).
 ENV PP_LEDGER_WORK_DIR=/data \
-    PP_LEDGER_LOG_FILE=none \
-    PP_LEDGER_HEALTH_PORT=9090 \
-    PP_LEDGER_HEALTH_BIND=0.0.0.0
+    PP_LEDGER_LOG_FILE=none
 
 # The nodes stop cleanly on SIGTERM (what `docker stop` sends).
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
-    CMD curl -fsS "http://127.0.0.1:${PP_LEDGER_HEALTH_PORT}/healthz" >/dev/null || exit 1
+# Liveness over the node's own RPC (nodes have no HTTP): a node writes its address to
+# /data/listen.multiaddr when it listens. A pp-http container overrides this (deploy/compose.yml).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["pp-client", "--host-file", "/data/listen.multiaddr", "health"]
 
 # Select a role at runtime: pp-beacon, pp-relay, pp-miner, pp-http (see deploy/README.md).
 CMD ["pp-client", "--help"]

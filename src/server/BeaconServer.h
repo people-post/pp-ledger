@@ -72,7 +72,7 @@ protected:
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "BeaconServer"; }
-  void fillHealth(HealthSnapshot &snapshot) const override;
+  void fillHealth(Client::NodeHealth &health) const override;
   int32_t getRunErrorCode() const override { return E_BEACON; }
 
   void runLoop() override;
@@ -176,8 +176,6 @@ private:
 
     /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
     std::optional<std::set<std::string>> allowedPeers;
-    /** `healthPort` / `healthBind`: the probe and metrics endpoint (none by default). */
-    HealthConfig health;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object& jd);

@@ -94,12 +94,14 @@ services:
       PP_HTTP_PORT: "8080"
       PP_HTTP_BEACON: /ip4/${PP_LEDGER_NET:-172.28.0}.11/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
       PP_HTTP_MINER: /ip4/${PP_LEDGER_NET:-172.28.0}.12/udp/8518/adp/1.0.0/p2p/${MINER_PEER_ID:?run ./init.sh first}
+      # /metrics covers its beacon (here the relay) and miner; the beacon behind the relay too.
+      PP_HTTP_METRICS_TARGETS: core-beacon=/ip4/${PP_LEDGER_NET:-172.28.0}.10/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
     networks:
       ledger:
         ipv4_address: ${PP_LEDGER_NET:-172.28.0}.20
     ports:
       - "${PP_LEDGER_HTTP_HOST_PORT:-8080}:8080"
-    healthcheck:
+    healthcheck: # pp-http has no node RPC of its own: probe its API
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/beacon/state"]
       interval: 15s
       timeout: 5s

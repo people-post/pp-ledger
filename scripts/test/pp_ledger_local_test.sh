@@ -135,12 +135,24 @@ run_image() {
     docker compose up -d --wait --wait-timeout 240 >up.log 2>&1 || {
       cat up.log; docker compose logs --tail 40; die "L-SMOKE-IMAGE: the stack did not become healthy"; }
     echo -e "${GREEN}✓ beacon, relay, miner, http healthy${NC}"
-    local s
+    # Readiness over each node's RPC, as the image's HEALTHCHECK probes liveness (no HTTP in nodes).
+    local s out deadline
     for s in beacon relay miner; do
-      docker compose exec -T "$s" curl -fsS localhost:9090/readyz >/dev/null || die "L-SMOKE-IMAGE: ${s} not ready"
+      deadline=$((SECONDS + 60))
+      until out=$(docker compose exec -T "$s" pp-client --host-file /data/listen.multiaddr health --ready 2>&1); do
+        ((SECONDS < deadline)) || die "L-SMOKE-IMAGE: ${s} not ready: ${out}"
+        sleep 2
+      done
     done
-    next() { docker compose exec -T relay curl -s localhost:9090/metrics | sed -n 's/^pp_ledger_next_block_id //p'; }
-    local before after deadline=$((SECONDS + 90))
+    # Metrics come from pp-http, which asks the nodes over the RPC.
+    local metrics
+    metrics=$(curl -fsS localhost:28080/metrics) || die "L-SMOKE-IMAGE: pp-http /metrics"
+    for s in beacon miner core-beacon; do
+      grep -q "^pp_ledger_ready{node=\"${s}\"} 1$" <<<"$metrics" || die "L-SMOKE-IMAGE: /metrics: ${s} not ready"
+    done
+    next() { curl -s localhost:28080/metrics | sed -n 's/^pp_ledger_next_block_id{node="beacon"} //p'; }
+    local before after
+    deadline=$((SECONDS + 90))
     before=$(next)
     after=$before
     while ((SECONDS < deadline)) && [[ "$after" -le "$before" ]]; do
@@ -149,7 +161,7 @@ run_image() {
     done
     [[ "$after" -gt "$before" ]] || die "L-SMOKE-IMAGE: the chain did not grow (nextBlockId ${before})"
     curl -fsS localhost:28080/api/beacon/state >/dev/null || die "L-SMOKE-IMAGE: HTTP API"
-    echo -e "${GREEN}✓ ready; chain grows (nextBlockId ${before} → ${after}); HTTP API answers${NC}"
+    echo -e "${GREEN}✓ ready (pp-client health, pp-http /metrics); chain grows (nextBlockId ${before} → ${after}); HTTP API answers${NC}"
     docker compose stop -t 20 >/dev/null 2>&1
     local bad
     bad=$(docker compose ps -a --format '{{.Service}} {{.ExitCode}}' | awk '$2 != 0' || true)

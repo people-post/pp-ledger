@@ -49,7 +49,7 @@ protected:
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "RelayServer"; }
-  void fillHealth(HealthSnapshot &snapshot) const override;
+  void fillHealth(Client::NodeHealth &health) const override;
   int32_t getRunErrorCode() const override { return E_RELAY; }
 
   /**
@@ -88,8 +88,6 @@ private:
 
     /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
     std::optional<std::set<std::string>> allowedPeers;
-    /** `healthPort` / `healthBind`: the probe and metrics endpoint (none by default). */
-    HealthConfig health;
     /** `networkAnchor.genesisHash`: the genesis this relay syncs from (beacon-authority ba5b). */
     std::optional<std::string> genesisHash;
 

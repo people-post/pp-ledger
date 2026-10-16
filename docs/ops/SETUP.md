@@ -142,6 +142,7 @@ All routes are prefixed with `/api/`.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/beacon/state` | Beacon state (checkpoint, block, slot, epoch, timestamp) |
+| GET | `/api/beacon/health`, `/api/miner/health` | Node health over the RPC ([CONFIGURATION.md § Health and metrics](CONFIGURATION.md#health-and-metrics)) |
 | GET | `/api/beacon/calibration` | Beacon calibration data |
 | GET | `/api/beacon/miners` | Registered miner ids and last renewal (no network addresses) |
 | GET | `/api/miner/status` | Miner status (stake, nextBlockId, pending txs, etc.) |
@@ -152,6 +153,9 @@ All routes are prefixed with `/api/`.
 | GET | `/api/tx/by-index?txIndex=` | Transaction by global index |
 | POST | `/api/tx/build` | Build unsigned transaction hex from JSON |
 | POST | `/api/tx/submit` | Submit signed transaction (`type`, `transactionHex`, `signaturesHex[]`) |
+
+Also `GET /metrics` (outside `/api/`): Prometheus text for the beacon, the miner and any
+`--metrics-target NAME=MULTIADDR`.
 
 External integrations should use this HTTP API (or `pp-client`) rather than native language bindings.
 
@@ -250,7 +254,7 @@ each role's `config.json`, and the fixed network timing.
 - Ensure the upstream is running: `./app/pp-client --host <its multiaddr> -b status`
 - Check the upstream multiaddr (address, UDP port and peer id) in `config.json` or
   `PP_LEDGER_UPSTREAMS`; the transport is UDP, so test reachability with the client, not `telnet`
-- A node with a health port answers `curl <host>:<healthPort>/readyz` with why it is not ready
+- `pp-client --host-file <work dir>/listen.multiaddr health --ready` says why a node is not ready
 - Check firewall settings if running on different machines
 
 **"Failed to open index file for writing"**

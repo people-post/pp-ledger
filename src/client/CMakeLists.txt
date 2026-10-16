@@ -4,6 +4,8 @@ add_library(pp_client STATIC
     Client.h
     AccountAttachment.cpp
     AccountAttachment.h
+    HealthMetrics.cpp
+    HealthMetrics.h
     ILedgerTransport.h
     AmpLedgerTransport.cpp
     AmpLedgerTransport.h
