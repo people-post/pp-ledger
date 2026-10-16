@@ -3995,3 +3995,26 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
   }
 }
 
+// A transfer to the payer itself used to mint: transferBalance read both balances before writing
+// them, so the payee's write (+amount) overwrote the payer's (-amount). It is refused.
+TEST_F(ChainComposeTest, TransferToSelfIsRefused) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  const auto reserveBefore = producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances;
+  Ledger::TxDefault tx;
+  tx.tokenId = AccountBuffer::ID_GENESIS;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = AccountBuffer::ID_RESERVE;
+  tx.amount = 1000;
+  tx.fee = 1;
+  tx.idempotentId = 1;
+  tx.validationTsMin = harness_.chainConfig.genesisTime;
+  tx.validationTsMax = harness_.chainConfig.genesisTime + 3600;
+  AccountBuffer scratch;
+  auto added = producer.addBufferTransaction(
+      scratch, makeRecord(Ledger::T_DEFAULT, tx, harness_.reserveKey, producer.getNetworkId()), kTestMinerId);
+  ASSERT_FALSE(added.isOk()) << "a self-transfer must not apply";
+  EXPECT_NE(added.error().message.find("itself"), std::string::npos) << added.error().message;
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances, reserveBefore);
+}
+

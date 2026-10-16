@@ -146,6 +146,9 @@ chain_tx::Roe<void> DefaultTxHandler::applyBlock(const Ledger::TypedTx &tx,
 chain_tx::Roe<void> DefaultTxHandler::applyDefaultTransferStrict(
     const Ledger::TxDefault &tx, const TxContext &ctx,
     AccountBuffer &bank, uint64_t slot) const {
+  if (tx.fromWalletId == tx.toWalletId) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A transfer cannot pay the account itself");
+  }
   if (tx.fromWalletId == AccountBuffer::ID_GENESIS) {
     if (auto issued = checkGenesisIssuance(tx, ctx, bank, slot); !issued) {
       return issued;
