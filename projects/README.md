@@ -26,7 +26,7 @@ Do not put phase status in `AGENTS.md`.
 
 | Project | Intent |
 |---------|--------|
-| [beacon-authority](beacon-authority/) | Verifiable beacon (certificate, signed tips, generations) and promotion after loss or a move — open item E |
+| [beacon-authority](beacon-authority/) | Verifiable beacon (part 1 shipped: [BEACON_AUTHORITY.md](../docs/contracts/BEACON_AUTHORITY.md)) and promotion after loss or a move (part 2) — open item E |
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
 | [platform-integration](platform-integration/DESIGN.md) | Ledger roles in pp-node (gateway) and pp-browser (client, optional miner) over Amp |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |

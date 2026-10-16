@@ -643,6 +643,22 @@ chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
       "Empty heartbeat premature: slot lag below heartbeatSlots");
 }
 
+chain_tx::Roe<void> validateAuthorityRecordCount(const Ledger::Block &block) {
+  size_t certificates = 0;
+  size_t recoveries = 0;
+  for (const auto &record : block.records) {
+    certificates += record.type == Ledger::T_BEACON_CERT ? 1 : 0;
+    recoveries += record.type == Ledger::T_RECOVERY ? 1 : 0;
+  }
+  if (certificates > 1) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "A block holds at most one beacon certificate");
+  }
+  if (recoveries > 1) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "A block holds at most one recovery announcement");
+  }
+  return {};
+}
+
 chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
                                          const Ledger &ledger) {
   const std::string expectedTxRoot = calculateTxRoot(block.block.records);
@@ -657,6 +673,9 @@ chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
   }
   if (auto committee = validateBlockCommittee(ledger, block.block); !committee) {
     return committee;
+  }
+  if (auto authority = validateAuthorityRecordCount(block.block); !authority) {
+    return authority;
   }
 
   return validateBlockSequence(ledger, block);

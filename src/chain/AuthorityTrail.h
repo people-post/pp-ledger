@@ -96,6 +96,8 @@ private:
   ChainAuthority authority_;
   Client::Wallet admin_;
   std::optional<BeaconCertificate> seen_;
+  /** Block of the last certificate followed: a block holds at most one. */
+  std::optional<uint64_t> lastCertificateBlock_;
   std::optional<Client::Equivocation> equivocation_;
   Crypto crypto_;
   mutable logging::Logger logger_;

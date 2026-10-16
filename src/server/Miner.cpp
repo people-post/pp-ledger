@@ -419,6 +419,7 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   slotCache_ = {};
   if (certificates_) {
     certificates_->retryPending();
+    certificates_->refresh(); // a block may have committed it, or replaced the admins who signed it
   }
   if (equivocations_) {
     equivocations_->retryPending();
@@ -445,10 +446,6 @@ std::optional<Chain::EquivocationOffer> Miner::noteEquivocation(const Client::Eq
     return std::nullopt; // no chain yet: nothing to verify it against
   }
   return equivocations_->note(evidence, from);
-}
-
-std::optional<Ledger::Record> Miner::getCurrentCertificate() const {
-  return chain_.currentCertificateRecord();
 }
 
 // Private helper methods

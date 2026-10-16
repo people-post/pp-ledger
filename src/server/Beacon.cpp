@@ -267,6 +267,9 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
       log().error << "Block " << block.block.index << " committed but not signed: " << signed_.error().message;
     }
   }
+  if (certificates_) {
+    certificates_->refresh(); // a block may have committed it, or replaced the admins who signed it
+  }
   if (equivocations_) {
     equivocations_->refresh(); // a certificate on chain may have resumed it
   }

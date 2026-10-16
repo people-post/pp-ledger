@@ -34,8 +34,8 @@ public:
   CertificateStore(Chain &chain, std::string path);
 
   /**
-   * After mount: offer the stored certificate to the chain again. The file is removed once the
-   * chain has it on chain (or a later one), or it no longer verifies.
+   * After mount: offer the stored certificate to the chain again. The file is removed when the
+   * chain will not keep it: on chain already (or a later one), or it no longer verifies.
    */
   Roe<void> load();
 
@@ -51,15 +51,23 @@ public:
   /** A stored certificate the chain could not take yet (no blocks): offer it again. */
   void retryPending();
 
+  /**
+   * After blocks apply: remove the file once the chain no longer holds the certificate (a block
+   * committed its generation or a later one, or an admin change left it unsigned).
+   */
+  void refresh();
+
 private:
   /** Offer the stored record; remove the file when the chain will never keep it. */
   void offerStored(const Ledger::Record &record);
-  Roe<void> persist(const Ledger::Record &record) const;
-  void remove() const;
+  Roe<void> persist(const Ledger::Record &record);
+  void remove();
 
   Chain &chain_;
   std::string path_;
   std::optional<Ledger::Record> pending_;
+  /** The file holds a certificate (it may be removed). */
+  bool stored_{false};
   /** Data of the last certificate note() reported as refused. */
   std::string lastRefused_;
 };

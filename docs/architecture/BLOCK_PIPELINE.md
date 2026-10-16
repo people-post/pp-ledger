@@ -81,8 +81,9 @@ charges start at its epoch's first slot (its previous block is not held). Renewa
 accounts keep their balance and miner-state checks: they expose a diverged state instead of
 hiding it.
 
-Warm-up trusts its blocks: they come from a beacon-signed range (WIRE_SCHEMA § Signed tip, adoption
-rule) and are not re-validated as Full (open discussion A).
+Warm-up trusts its blocks: they come from a beacon-signed range
+([BEACON_AUTHORITY.md § Adoption rule](../contracts/BEACON_AUTHORITY.md#adoption-rule)) and are not
+re-validated as Full (open discussion A).
 
 ## Layers (`checkBlock*`)
 

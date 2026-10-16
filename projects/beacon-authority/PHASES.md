@@ -82,7 +82,16 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         renewals built and checked as the block's epoch holds the authority (found by the smoke)
   - [x] **ba7.3** Tests (chain, renewal, proof replay, wire; mutation-checked), smoke
         (L-SMOKE-RECOVERY in `--suite rotation`), docs
-- [ ] **ba8** Promote wire / disk changes into `docs/contracts/`
+- [x] **ba8** Promote wire / disk changes into `docs/contracts/` (B020). Steps:
+  - [x] **ba8.1** The authority's rules move out of WIRE_SCHEMA into their own contract,
+        `BEACON_AUTHORITY.md`, with a formats / versions table and the RPC changes; the node state
+        files join `LEDGER_STORAGE.md`; stale architecture text (security model, open item E)
+        updated; decisions marked superseded
+  - [x] **ba8.2** Every contract claim checked against the code. Fixed where the code was wrong: a
+        block holding two certificates was accepted (only a producer's draft refused it); a
+        certificate's file stayed on disk until restart after the chain dropped it. Corrected
+        where the docs were: miner `STATUS`, start-only upstream ranking, fresh-node first sync,
+        write order and durability of the state files
 
 ## Part 2 — promotion (design after part 1)
 

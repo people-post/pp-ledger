@@ -39,8 +39,9 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | Doc | Topic |
 |-----|--------|
 | [contracts/WIRE_SCHEMA.md](contracts/WIRE_SCHEMA.md) | Block/record layouts, **SlotCommittee** leader election |
+| [contracts/BEACON_AUTHORITY.md](contracts/BEACON_AUTHORITY.md) | Beacon certificates, signed tips, adoption rule, equivocation halt, recovery; their RPC fields |
 | [contracts/AMP_TRANSPORT.md](contracts/AMP_TRANSPORT.md) | Amp / ADP multiaddrs, ledger RPC over Amp |
-| [contracts/LEDGER_STORAGE.md](contracts/LEDGER_STORAGE.md) | On-disk volumes / indexes |
+| [contracts/LEDGER_STORAGE.md](contracts/LEDGER_STORAGE.md) | On-disk volumes / indexes; node state files (signing keys, signed tip, certificate, evidence) |
 
 ---
 

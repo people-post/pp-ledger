@@ -54,9 +54,11 @@ Design rules behind them: one RPC surface with no role-specific forks; a single 
 split-brain commits); local verification at every node; participants configure endpoints, not
 roles; fail safe on ambiguity (wrong network → reject the upstream).
 
-The beacon itself is authenticated only by the Amp peer id its direct downstream pins (one hop).
-End-to-end beacon authentication is in design:
-[projects/beacon-authority](../../projects/beacon-authority/DESIGN.md).
+The beacon is authenticated end to end, through any number of relays: a node commits a block only
+below a tip the beacon signed, with a key the admin-signed trail from genesis certifies
+([BEACON_AUTHORITY.md](../contracts/BEACON_AUTHORITY.md)). Pinned Amp peer ids authenticate one hop,
+as a convenience. Promotion after a loss is in design:
+[projects/beacon-authority](../../projects/beacon-authority/DESIGN.md) (part 2).
 
 ---
 
@@ -66,10 +68,10 @@ End-to-end beacon authentication is in design:
 |-----|-------------|---------------|--------------|
 | `REGISTER` | Terminal | Miner is in the registry | Write-through |
 | `CALIBRATION` | Terminal; a gateway answers with its own clock + offset to its upstream | Terminal time | Mirror the calibrated clock |
-| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip`, the current beacon `certificate`, any `equivocation` evidence, a pending `recovery` | Serve local state; the signed tip as heard from upstream; the highest certificate seen ([WIRE_SCHEMA.md § Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)); the evidence the node halts on ([§ Equivocation halt](../contracts/WIRE_SCHEMA.md#equivocation-halt)); the recovery pending on its chain ([§ Chain authority](../contracts/WIRE_SCHEMA.md#chain-authority)) |
+| `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip`, the current beacon `certificate`, any `equivocation` evidence, a pending `recovery` | Serve local state; the signed tip as heard from upstream; the highest certificate seen ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); the evidence the node halts on ([§ Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); the recovery pending on its chain ([§ Recovery](../contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
 | `MINER_LIST` | Terminal registry | Ids at `registryVersion` | Forward |
 | `BLOCK_GET` | Any node | Block from local storage | Serve locally |
-| `AUTHORITY_PROOF` | Terminal or gateway (chain held from genesis) | The authority-changing records up to a block ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) | Serve locally |
+| `AUTHORITY_PROOF` | Terminal or gateway (chain held from genesis) | The authority-changing records up to a block ([BEACON_AUTHORITY.md § Authority proof](../contracts/BEACON_AUTHORITY.md#authority-proof)) | Serve locally |
 | `BLOCK_ADD` | Terminal | Block committed; the reply carries the beacon's signed tip covering it | Write-through; store locally only after the terminal accepts; pass the reply on unchanged |
 | `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` and the latest signed tip it holds | Serve from own tip |
 | `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through; a beacon certificate is also kept by every node it passes |
@@ -121,7 +123,7 @@ or whose checkpoint is below `trustedCheckpointId`; when it connects it checks t
 | Mode | When | Behavior |
 |------|------|----------|
 | **Cold start** | New node | Anchor check → mount (miner: from the upstream's checkpoint, checked against `AUTHORITY_PROOF` when genesis is pinned; relay: from genesis) → sync to head. A miner warms up until the next checkpoint and seals once its history covers the transaction validity window ([BLOCK_PIPELINE.md § Checkpoints and late join](BLOCK_PIPELINE.md#checkpoints-and-late-join)) |
-| **Catch-up** | Behind | `BlockSync` takes the upstream's beacon signed tip from `STATUS`, fetches the gap up to it with up to 4 `BLOCK_GET`s in flight, checks the hash chain up to the signed hash, then applies in order ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) |
+| **Catch-up** | Behind | `BlockSync` takes the upstream's beacon signed tip from `STATUS`, fetches the gap up to it with up to 4 `BLOCK_GET`s in flight, checks the hash chain up to the signed hash, then applies in order ([BEACON_AUTHORITY.md § Adoption rule](../contracts/BEACON_AUTHORITY.md#adoption-rule)) |
 | **Tip follow** | Near head | One `BLOCK_WAIT` held open to the upstream; its reply triggers a sync |
 
 A block that does not extend the local tip, a chain that does not lead to the signed hash, or a tip
@@ -174,7 +176,7 @@ sequenceDiagram
 
 - Each relay and miner keeps one `BLOCK_WAIT {knownNextBlockId}` open to its upstream
   (`UpstreamTipWatch`). The upstream replies with its `nextBlockId` (and the beacon's latest
-  signed tip it holds — [WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) as
+  signed tip it holds — [BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)) as
   soon as that passes `knownNextBlockId`, or unchanged after a hold of T/2; the downstream then
   re-arms.
 - When the reply shows the upstream ahead, the downstream syncs and applies blocks only after full
@@ -240,7 +242,9 @@ epoch, the seal window and the delivery deadline all use the calibrated clock.
 | Fake registration | Signed `REGISTER`, verified by the terminal |
 | Flooding | Per-peer lanes and caps; `allowedPeers`; AMP link limits |
 | Targeted flooding of the next leader | Miner addresses not published |
-| Fake beacon behind a relay | Not covered (blocks are unsigned) — [projects/beacon-authority](../../projects/beacon-authority/DESIGN.md) |
+| Fake beacon behind a relay | Blocks commit only below a verified signed tip ([BEACON_AUTHORITY.md § Adoption rule](../contracts/BEACON_AUTHORITY.md#adoption-rule)); a relay can withhold or serve stale data, not forge |
+| Stolen beacon key | Admins certify a new generation with a cutover, enforced out of band; two tips at one height halt the network ([§ Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band), [§ Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); taking over is part 2 |
+| Stolen admin keys | The recovery set replaces them after a visible delay ([§ Recovery](../contracts/BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
 
 **Ops-only controls** (invisible on the wire): the terminal allowlists its relays (`allowedPeers`);
 relays limit connections and payload sizes; a private terminal has no public multiaddr.

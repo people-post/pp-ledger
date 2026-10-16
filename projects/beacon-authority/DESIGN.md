@@ -1,6 +1,6 @@
 # Beacon authority — design
 
-**Status:** proposed (part 1 decided — B001–B009; part 2 outlined)
+**Status:** part 1 shipped (B001–B019; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2 outlined
 **Open item:** [SLOT_COMMITTEE_OPEN_ITEMS.md § E](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md)
 
@@ -17,9 +17,11 @@ Part 1 lands first: part 2 is "issue a new authority under part 1's rules".
 
 ---
 
-## Where we are today
+## Where we started
 
-| Today | Consequence |
+Before part 1 (the first three rows are closed by it; the last two are part 2's):
+
+| Before | Consequence |
 |-------|-------------|
 | Nodes pin their upstream's Amp peer id in config; the Amp handshake proves the peer holds that key | Authenticates **one hop** only. Miners usually dial relays, so nobody checks the beacon behind them |
 | Blocks are not signed (header hash only; `slotLeader` is checked against the election) | Anyone with the genesis can build a valid-looking chain — e.g. of empty heartbeat blocks — and serve it |
@@ -34,6 +36,9 @@ account's keys at once ([WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md)).
 ---
 
 ## Part 1 — the real beacon
+
+Shipped. This part keeps the design as decided; where it and the contracts disagree, the
+contracts win ([BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)).
 
 ### Trust roots (in genesis)
 
@@ -137,16 +142,19 @@ Shipped in ba6 ([B018](DECISIONS.md#b018--equivocation-evidence-by-block-hash-ha
 Shipped in ba7 ([B019](DECISIONS.md#b019--recovery-a-record-of-its-own-pending-in-the-authority-applied-in-place-at-its-epoch)):
 the effect needs no record of its own — the first block of the apply epoch replaces the admin set.
 
-### Wire and storage impact (to promote into `docs/contracts/` when it ships)
+### Wire and storage (shipped)
 
-- **Breaking, no migration** ([B008](DECISIONS.md#b008--breaking-genesis-change-no-migration)):
-  nothing is released, so networks start from a new genesis.
-- Genesis: recovery set (keys, threshold, delay in epochs) and the generation-1 certificate.
-- New record types: beacon certificate; recovery action (announce / effect).
-- `STATUS`, `BLOCK_WAIT`, `BLOCK_ADD` reply: carry the signed tip (and the current certificate on
-  `STATUS`).
-- Beacon disk: `keys/beacon-signing.key` / `.pub` (ba1), last signed height, latest signed tip.
-- Nodes: highest certificate seen, latest verified signed tip, equivocation evidence.
+Promoted in ba8; the normative copies, so this section lists no formats:
+
+- [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md) — formats and versions, records
+  18 / 19, signed tip, adoption rule, certificates out of band, equivocation halt, authority proof,
+  RPC changes.
+- [WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md) — record ids, the genesis meta (v9) that
+  carries the authority, checkpoints.
+- [LEDGER_STORAGE.md § Node state files](../../docs/contracts/LEDGER_STORAGE.md#node-state-files) —
+  signing keys, `signed-tip.dat`, `beacon-cert.dat`, `equivocation.dat`.
+- [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md) — operator procedures: rotation, a stolen
+  key, replacing the admin keys.
 
 ### Settled questions
 

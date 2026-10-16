@@ -17,6 +17,7 @@ CertificateStore::Roe<void> CertificateStore::load() {
   if (!read.value()) {
     return {};
   }
+  stored_ = true;
   const std::string bytes = *read.value();
   auto record = utl::binaryUnpack<Ledger::Record>(bytes);
   if (!record || record.value().type != Ledger::T_BEACON_CERT) {
@@ -67,6 +68,13 @@ CertificateStore::Roe<Chain::CertificateOffer> CertificateStore::offer(const Led
   return offered.value();
 }
 
+void CertificateStore::refresh() {
+  if (stored_ && !pending_ && !chain_.seenCertificate().has_value()) {
+    log().info << "The chain no longer holds the stored beacon certificate: removing it";
+    remove();
+  }
+}
+
 std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Record &record, const std::string &from) {
   auto offered = offer(record);
   if (offered) {
@@ -79,17 +87,20 @@ std::optional<Chain::CertificateOffer> CertificateStore::note(const Ledger::Reco
   return std::nullopt;
 }
 
-CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record &record) const {
+CertificateStore::Roe<void> CertificateStore::persist(const Ledger::Record &record) {
   if (auto written = node_file::replace(path_, utl::binaryPack(record)); !written) {
     return Error(E_IO, written.error().message);
   }
+  stored_ = true;
   return {};
 }
 
-void CertificateStore::remove() const {
+void CertificateStore::remove() {
   if (auto removed = node_file::remove(path_); !removed) {
     log().warning << removed.error().message;
+    return;
   }
+  stored_ = false;
 }
 
 } // namespace pp

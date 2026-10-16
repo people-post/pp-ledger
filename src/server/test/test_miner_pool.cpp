@@ -38,8 +38,8 @@ protected:
     ASSERT_TRUE(minerKey.isOk());
     // Each system account's holder makes its own key; genesis signs genesis.
     // The genesis (admin) account is 2-of-3; two of its keys sign genesis.
-    std::vector<utl::MlDsaKeyPair> genesisKeys = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(),
-                                                  utl::mlDsaGenerate().value()};
+    genesisKeys_ = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value()};
+    const auto &genesisKeys = genesisKeys_;
     reserveKeys_ = {utl::mlDsaGenerate().value()};
     auto pub = [](const utl::MlDsaKeyPair &k) { return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})"; };
     std::vector<std::string> genesisKeyFiles;
@@ -163,6 +163,8 @@ protected:
   }
 
   fs::path root_;
+  /** The admin set: 2-of-3. */
+  std::vector<utl::MlDsaKeyPair> genesisKeys_;
   std::vector<utl::MlDsaKeyPair> reserveKeys_;
   std::unique_ptr<Miner> miner_;
 };
@@ -217,6 +219,41 @@ TEST_F(MinerPoolTest, AbandonedBlockThenRepulledTransactionStillSeals) {
   Ledger::ChainNode next;
   EXPECT_TRUE(produceWhenSealTime(next)) << "the leader must still seal";
   EXPECT_EQ(next.block.records.size(), 1u);
+}
+
+// beacon-authority ba8: a certificate held out of band leaves the disk as soon as a block commits
+// it — not at the next start, when a stale file would be offered again only to be dropped.
+TEST_F(MinerPoolTest, AHeldCertificateLeavesTheDiskOnceCommitted) {
+  BeaconCertificate cert;
+  cert.networkId = "test-net";
+  cert.generation = 2;
+  cert.publicKey = utl::mlDsaGenerate().value().publicKey;
+  cert.cutoverHeight = UINT64_MAX; // none: generation 1 signs until it commits
+  Ledger::TxBeaconCert tx;
+  tx.meta = cert.ltsToString();
+  tx.idempotentId = 9;
+  tx.validationTsMin = miner_->getConsensusTimestamp() - 60;
+  tx.validationTsMax = miner_->getConsensusTimestamp() + 3600;
+  Ledger::Record record;
+  record.type = Ledger::T_BEACON_CERT;
+  record.data = utl::binaryPack(tx);
+  for (size_t i = 0; i < 2; ++i) {
+    record.signatures.push_back(utl::mlDsaSign(genesisKeys_[i].privateKey, record.signingMessage("test-net")).value());
+  }
+  const fs::path file = root_ / "miner" / "beacon-cert.dat";
+  ASSERT_EQ(miner_->noteCertificate(record, "a test"), std::optional<Chain::CertificateOffer>(Chain::CertificateOffer::Newer));
+  ASSERT_TRUE(fs::exists(file));
+
+  ASSERT_TRUE(waitForLeaderSlotAfter(-1).has_value());
+  auto added = miner_->addTransaction(record);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.records.size(), 1u);
+  auto committed = miner_->addBlock(block);
+  ASSERT_TRUE(committed.isOk()) << committed.error().message;
+  EXPECT_FALSE(miner_->getSeenCertificate().has_value()) << "generation 2 is on chain";
+  EXPECT_FALSE(fs::exists(file)) << "and its file is gone";
 }
 
 } // namespace
