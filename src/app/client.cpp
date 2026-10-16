@@ -2,6 +2,7 @@
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "../ledger/Ledger.h"
+#include "../chain/BlockValidation.h"
 #include "../chain/Types.h"
 #include "../consensus/Types.hpp"
 #include "../network/LedgerAmpRuntime.h"
@@ -84,6 +85,9 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
       std::cout << "Certificate: generation " << cert.generation << ", cutover "
                 << (cert.cutoverHeight == UINT64_MAX ? std::string("none") : std::to_string(cert.cutoverHeight))
                 << "\n";
+      for (const auto &hint : cert.dialHints) {
+        std::cout << "Certificate dial hint: " << hint << "\n";
+      }
     } else {
       std::cout << "Certificate: unreadable\n";
     }
@@ -310,16 +314,50 @@ static int runMkRecovery(const std::string &networkId, const std::vector<std::st
 }
 
 /**
+ * With --cutover (beacon-authority bp2): read block `cutover` from the node the client is connected
+ * to, return its hash — computed from the block, not taken from the node — and print how much the
+ * cut drops, so the admins see it before they sign.
+ */
+static pp::Roe<std::string> describeCutover(pp::Client &client, uint64_t cutover) {
+  auto status = client.fetchBeaconState();
+  if (!status) {
+    return pp::Error(1, "Failed to read the node's status: " + status.error().message);
+  }
+  const uint64_t next = status.value().nextBlockId;
+  if (cutover >= next) {
+    return pp::Error(1, "Block " + std::to_string(cutover) + " does not exist on this node (next block " +
+                            std::to_string(next) + "): a cutover names a block the old key already signed. An "
+                            "honest rotation needs no cutover");
+  }
+  auto block = client.fetchBlock(cutover);
+  auto last = client.fetchBlock(next - 1);
+  if (!block || !last) {
+    return pp::Error(1, "Failed to read blocks " + std::to_string(cutover) + " and " + std::to_string(next - 1));
+  }
+  const std::string hash = pp::chain_block::calculateBlockHash(block.value().block);
+  const int64_t seconds = last.value().block.timestamp - block.value().block.timestamp;
+  std::cout << "Cutover at block " << cutover << " (hash 0x" << pp::utl::hexEncode(hash) << ").\n"
+            << "Every node holding them drops blocks " << cutover + 1 << " to " << next - 1 << ": "
+            << next - 1 - cutover << " blocks, about " << seconds / 3600 << " h of chain time on this node.\n"
+            << "Nodes rewind on their own up to 7 days of slots back; deeper, each operator must approve "
+            << "(--approve-rewind).\n";
+  return hash;
+}
+
+/**
  * mk-beacon-cert (beacon-authority ba2): an unsigned T_BEACON_CERT record for the next beacon
  * generation. Admins add their signatures with sign-tx (--network-id) and submit with submit-tx.
  */
 static int runMkBeaconCert(const std::string &networkId, uint64_t generation, const std::string &pubkeyArg,
-                           uint64_t cutoverHeight, const std::string &outputPath) {
+                           uint64_t cutoverHeight, const std::string &cutoverHash,
+                           const std::vector<std::string> &dialHints, const std::string &outputPath) {
   pp::BeaconCertificate cert;
   cert.networkId = networkId;
   cert.generation = generation;
   cert.publicKey = readPublicKeyArg(pubkeyArg);
   cert.cutoverHeight = cutoverHeight;
+  cert.cutoverHash = cutoverHash;
+  cert.dialHints = dialHints;
   if (cert.publicKey.empty()) {
     std::cerr << "Error: --pubkey must be an ML-DSA-65 public key (hex or a .pub file)\n";
     return 1;
@@ -631,14 +669,19 @@ int main(int argc, char *argv[]) {
   auto* mk_cert_cmd = app.add_subcommand(
       "mk-beacon-cert", "Create an unsigned beacon certificate (next generation) for the admin keys to sign");
   std::string mk_cert_network, mk_cert_pubkey, mk_cert_output;
-  uint64_t mk_cert_generation = 0, mk_cert_cutover = UINT64_MAX;
+  uint64_t mk_cert_generation = 0, mk_cert_cutover = pp::BeaconCertificate::kNoCutover;
+  std::vector<std::string> mk_cert_hints;
   mk_cert_cmd->add_option("--network-id", mk_cert_network, "The chain's networkId")->required();
   mk_cert_cmd->add_option("--generation", mk_cert_generation, "The new generation (current + 1)")->required();
   mk_cert_cmd->add_option("--pubkey", mk_cert_pubkey, "New beacon signing public key (hex or .pub file)")
       ->required();
   mk_cert_cmd->add_option("--cutover", mk_cert_cutover,
-                          "Last block height the previous generation may sign (default: none, it signs "
-                          "until the certificate commits; give one when its key is stolen)");
+                          "Last block the previous generation may sign — when its key is stolen. Reads the "
+                          "block from the node given with -b --host, fills its hash and shows what the cut "
+                          "drops. Default: none (an honest rotation)");
+  mk_cert_cmd->add_option("--dial-hint", mk_cert_hints,
+                          "A relay in front of the new beacon (ADP multiaddr), where nodes may look for it; "
+                          "repeat for more (at most 8)");
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
   // mk-recovery (beacon-authority ba7)
@@ -776,8 +819,14 @@ int main(int argc, char *argv[]) {
     return runMkTx(mk_from, mk_to, mk_amount, mk_output);
   }
 
-  if (mk_cert_cmd->parsed()) {
-    return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, mk_cert_output);
+  const bool mkCertNeedsNode = mk_cert_cmd->parsed() && mk_cert_cutover != pp::BeaconCertificate::kNoCutover;
+  if (mk_cert_cmd->parsed() && !mkCertNeedsNode) {
+    return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, "", mk_cert_hints,
+                           mk_cert_output);
+  }
+  if (mkCertNeedsNode && !connectToBeacon) {
+    std::cerr << "Error: --cutover reads the block from a node: give -b --host <relay or beacon multiaddr>.\n";
+    return 1;
   }
 
   if (mk_recovery_cmd->parsed()) {
@@ -862,6 +911,16 @@ int main(int argc, char *argv[]) {
   }
 
   int exitCode = 0;
+
+  if (mkCertNeedsNode) {
+    auto hash = describeCutover(client, mk_cert_cutover);
+    if (!hash) {
+      std::cerr << "Error: " << hash.error().message << "\n";
+      return 1;
+    }
+    return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, hash.value(),
+                           mk_cert_hints, mk_cert_output);
+  }
 
   // Handle beacon status command
   if (beacon_status->parsed() && connectToBeacon) {

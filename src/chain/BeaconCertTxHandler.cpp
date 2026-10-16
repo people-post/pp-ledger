@@ -88,6 +88,19 @@ chain_tx::Roe<BeaconCertificate> BeaconCertTxHandler::check(const Ledger::TxBeac
       !valid) {
     return valid.error();
   }
+  // Block C is the one before this (validateNextBeaconCertificate); a node warming up from this very
+  // block does not hold it, and takes the block on its signed tip.
+  if (cert.value().hasCutover() && blockId - 1 >= ctx.ledger.getStartingBlockId() &&
+      blockId - 1 < ctx.ledger.getNextBlockId()) {
+    auto cutoverBlock = ctx.ledger.readBlock(blockId - 1);
+    if (!cutoverBlock) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Cannot read the cutover block: " +
+                                                               cutoverBlock.error().message);
+    }
+    if (auto same = chain_tx::validateCutoverBlock(cert.value(), cutoverBlock.value().hash); !same) {
+      return same.error();
+    }
+  }
   return cert;
 }
 

@@ -413,12 +413,20 @@ TEST(BeaconServerInitTest, ACertificateSeenOutOfBandIsKeptAndBindsTheBeacon) {
   const auto nextKey = utl::mlDsaGenerate().value();
   setup.writeKeyPair(beaconKey, "keys/beacon-signing");
   ASSERT_TRUE(setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")}).isOk());
+  const std::string genesisHash = [&]() {
+    Beacon reader;
+    Beacon::MountConfig mounted;
+    mounted.workDir = (setup.dir / "data").string();
+    EXPECT_TRUE(reader.mount(mounted).isOk());
+    return reader.readBlock(0).value().hash;
+  }();
   auto certFor = [&](const utl::MlDsaKeyPair &key, uint64_t generation) {
     BeaconCertificate cert;
     cert.networkId = "test-net";
     cert.generation = generation;
     cert.publicKey = key.publicKey;
-    cert.cutoverHeight = 0;
+    cert.cutoverHeight = 0; // the old generation signs nothing past genesis
+    cert.cutoverHash = genesisHash;
     Ledger::TxBeaconCert tx;
     tx.meta = cert.ltsToString();
     Ledger::Record record;
@@ -525,7 +533,7 @@ TEST(BeaconServerInitTest, AnEquivocationHaltsTheBeaconUntilALaterGeneration) {
     cert.networkId = "test-net";
     cert.generation = 2;
     cert.publicKey = nextKey.publicKey;
-    cert.cutoverHeight = 0;
+    cert.cutoverHeight = BeaconCertificate::kNoCutover;
     Ledger::TxBeaconCert tx;
     tx.meta = cert.ltsToString();
     Ledger::Record record;
@@ -592,6 +600,7 @@ TEST(BeaconServerInitTest, CertificateStoreKeepsWhatTheChainKeeps) {
     BeaconCertificate cert;
     cert.networkId = "test-net";
     cert.generation = generation;
+    cert.cutoverHeight = BeaconCertificate::kNoCutover;
     cert.publicKey = utl::mlDsaGenerate().value().publicKey;
     Ledger::TxBeaconCert tx;
     tx.meta = cert.ltsToString();

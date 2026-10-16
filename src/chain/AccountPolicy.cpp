@@ -130,8 +130,11 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
   if (beacon.generation != 1) {
     return invalid("The genesis beacon certificate must be generation 1");
   }
-  if (beacon.cutoverHeight != 0) {
-    return invalid("The genesis beacon certificate must have cutoverHeight 0");
+  if (beacon.cutoverHeight != 0 || !beacon.cutoverHash.empty()) {
+    return invalid("The genesis beacon certificate must have cutoverHeight 0 and no cutoverHash");
+  }
+  if (auto hints = validateCertificateHints(beacon); !hints) {
+    return hints;
   }
   if (beacon.networkId != networkId) {
     return invalid("Beacon certificate networkId does not match the chain");
@@ -168,13 +171,57 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
       std::find(recoveryKeys.begin(), recoveryKeys.end(), next.publicKey) != recoveryKeys.end()) {
     return invalid("The new beacon key must not be the current beacon key, an admin key or a recovery key");
   }
+  if (auto shape = validateCertificateHints(next); !shape) {
+    return shape;
+  }
+  if (!(next.hasCutover() ? next.cutoverHash.size() == utl::SHA256_DIGEST_SIZE : next.cutoverHash.empty())) {
+    return invalid("Beacon certificate cutoverHash must be the 32-byte hash of the cutover block, and "
+                   "empty with no cutover");
+  }
   if (next.cutoverHeight < current.beacon.cutoverHeight) {
     return invalid("Beacon certificate cutoverHeight must not go back");
+  }
+  // The block that committed the generation in force (the one after its cutover) stays: cutting it
+  // would leave a chain whose own certificate is gone (beacon-authority bp2).
+  if (next.hasCutover() && current.beacon.generation > 1 && next.cutoverHeight <= current.beacon.cutoverHeight) {
+    return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) +
+                   " would drop block " + std::to_string(current.beacon.cutoverHeight + 1) +
+                   ", which committed generation " + std::to_string(current.beacon.generation));
   }
   if (commitBlockId.has_value() && *commitBlockId - 1 > next.cutoverHeight) {
     return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) +
                    " is passed: the previous generation would have signed up to block " +
                    std::to_string(*commitBlockId - 1));
+  }
+  // With a cutover the admins vouch for block C's hash, so block C must exist: the certificate
+  // commits right after it.
+  if (commitBlockId.has_value() && next.hasCutover() && *commitBlockId != next.cutoverHeight + 1) {
+    return invalid("Beacon certificate with a cutover at block " + std::to_string(next.cutoverHeight) +
+                   " commits in block " + std::to_string(next.cutoverHeight + 1) + ", not " +
+                   std::to_string(*commitBlockId));
+  }
+  return {};
+}
+
+Roe<void> validateCertificateHints(const BeaconCertificate &cert) {
+  constexpr size_t kMaxHints = 8;
+  constexpr size_t kMaxHintBytes = 256;
+  if (cert.dialHints.size() > kMaxHints) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "Beacon certificate carries more than " + std::to_string(kMaxHints) + " dial hints");
+  }
+  for (const auto &hint : cert.dialHints) {
+    if (hint.empty() || hint.size() > kMaxHintBytes) {
+      return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate dial hint is empty or too long");
+    }
+  }
+  return {};
+}
+
+Roe<void> validateCutoverBlock(const BeaconCertificate &cert, const std::string &cutoverBlockHash) {
+  if (cert.hasCutover() && cert.cutoverHash != cutoverBlockHash) {
+    return TxError(chain_err::E_TX_VALIDATION, "Beacon certificate cutoverHash is not the hash of block " +
+                                                   std::to_string(cert.cutoverHeight));
   }
   return {};
 }

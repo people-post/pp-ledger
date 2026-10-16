@@ -143,16 +143,33 @@ struct BeaconCertificate {
   /** Raw ML-DSA-65 public key of the beacon signing key (not the Amp identity). */
   std::string publicKey;
   /**
-   * Generation > 1: last height the previous generation may sign (2^64−1: none, it signs until
-   * this certificate commits). In force, the block before the commit (chain_tx::certificateInForce).
-   * 0 at genesis.
+   * Generation > 1: last height the previous generation may sign (kNoCutover: none, it signs
+   * until this certificate commits). In force, the block before the commit
+   * (chain_tx::certificateInForce). 0 at genesis.
    */
   uint64_t cutoverHeight{0};
+  /**
+   * With a cutover: the hash (raw 32 bytes) of block `cutoverHeight`, which the admins vouch for
+   * (beacon-authority bp2) — a node may sync up to it with no signed tip, and one holding another
+   * block there halts. Empty with no cutover.
+   */
+  std::string cutoverHash;
+  /**
+   * Multiaddrs of gateways — relays in front of this generation's beacon, never the beacon itself —
+   * where nodes may look for it (bp2). Hints only: nodes trust tips, not addresses.
+   */
+  std::vector<std::string> dialHints;
 
-  template <typename Archive> void serialize(Archive &ar) { ar &networkId &generation &publicKey &cutoverHeight; }
+  /** No cutover: the previous generation signs until the certificate commits. */
+  constexpr static const uint64_t kNoCutover = UINT64_MAX;
+  bool hasCutover() const { return cutoverHeight != kNoCutover; }
+
+  template <typename Archive> void serialize(Archive &ar) {
+    ar &networkId &generation &publicKey &cutoverHeight &cutoverHash &dialHints;
+  }
 
   /** Versioned form carried in a T_BEACON_CERT record's `meta`. */
-  constexpr static const uint32_t VERSION = 1;
+  constexpr static const uint32_t VERSION = 2;
   std::string ltsToString() const;
   bool ltsFromString(const std::string &str);
 };
@@ -208,7 +225,7 @@ struct ChainAuthority {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 9;
+  constexpr static const uint32_t VERSION = 10;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

@@ -186,17 +186,19 @@ hold makes it stand down (reads only): the network waits for the beacon that hol
 No `--cutover` here: the current key is not suspect, so it signs until the certificate commits. A
 cutover is for a **stolen key**: `--cutover <the last height you trust>` makes every node that
 holds the certificate refuse the old generation's tips above that height, before any block
-commits it. Hand it to the network with `submit-tx` to any relay, miner or the beacon; each node
+commits it. `mk-beacon-cert` then needs a node to read that block from — give `-b --host <relay>`
+before the subcommand — fills in its hash, and prints how many blocks (and hours of chain time) the
+cut drops; check that before signing. Add `--dial-hint <relay multiaddr>` (repeatable) for the
+relays in front of the new beacon. Hand it to the network with `submit-tx` to any relay, miner or the beacon; each node
 it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
 it. **A cutover below a node's tip is a rewind order:** every node holding blocks above it drops
 them by restarting itself, unattended, and waits at the cutover
 ([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when the cutover is at
 most seven days of slots back. A deeper cut waits for each node's operator: check the certificate,
 then restart the node (`pp-beacon`, `pp-relay`, `pp-miner`) with `--approve-rewind <generation>`.
-Bringing up the new
-beacon is part 2 of [beacon-authority](../../projects/beacon-authority/DESIGN.md). Give
-an honest rotation a cutover only above the tip by a margin: the certificate must commit by the
-block after it, and a staged beacon holding the certificate commits nothing past it until then.
+A node holding another block at the cutover height than the certificate names does not rewind at
+all (a fork, or a wrong height): it stops and alerts. Bringing up the new beacon is part 2 of
+[beacon-authority](../../projects/beacon-authority/DESIGN.md).
 
 **Replacing the admin keys** (lost or stolen admin keys; the recovery set's only power). The
 recovery key holders write, sign and submit a `T_RECOVERY` naming the new admin set — at least 3

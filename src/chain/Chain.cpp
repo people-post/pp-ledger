@@ -1596,6 +1596,25 @@ std::optional<Client::RewindReport> Chain::rewindOrder() const {
   return order;
 }
 
+bool Chain::cutoverForked() const {
+  if (!seenCert_ || !seenCert_->hasCutover()) {
+    return false;
+  }
+  const uint64_t cutover = seenCert_->cutoverHeight;
+  if (cutover < txContext_.ledger.getStartingBlockId() || cutover >= getNextBlockId()) {
+    return false;
+  }
+  auto block = readBlock(cutover);
+  return !block || block.value().hash != seenCert_->cutoverHash;
+}
+
+std::optional<std::pair<uint64_t, std::string>> Chain::vouchedCutover() const {
+  if (!seenCert_ || !seenCert_->hasCutover()) {
+    return std::nullopt;
+  }
+  return std::make_pair(seenCert_->cutoverHeight, seenCert_->cutoverHash);
+}
+
 std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &order) const {
   const uint64_t from = std::max(order.keptUpTo, txContext_.ledger.getStartingBlockId());
   auto cut = readBlock(from);

@@ -754,6 +754,15 @@ Beacon::Roe<bool> Beacon::scheduleRewind(uint64_t approvedGeneration) {
                   << "--approve-rewind " << order->generation;
     }
     return false;
+  case rewind::Scheduled::Kind::Forked:
+    if (heldBackGeneration_ != order->generation) {
+      heldBackGeneration_ = order->generation;
+      log().error << "Not rewinding: beacon generation " << order->generation << " vouches for another block "
+                  << order->keptUpTo << " than this node holds — its history forked at or below it, or the "
+                  << "certificate names the wrong block. Its tips past the cutover are refused; an operator "
+                  << "must look";
+    }
+    return false;
   case rewind::Scheduled::Kind::Ordered:
     break;
   }
