@@ -731,6 +731,9 @@ blockId, attachmentHash))`, where `attachmentHash` is the SHA-256 of the account
 `AccountAttachment` (empty attachment: the hash of an empty one). `AccountBuffer` keeps the hash per
 account; it changes only where the attachment does (`T_NEW_USER`, `T_USER_UPDATE`, renewals).
 Breaking ([B008](#b008--breaking-genesis-change-no-migration)).
+The attachment itself — the account's profiles: per publisher a slot with its data, sequence and
+optional attestation — is stored as before, in full, in the block log (the record that last wrote
+the account), and read from there; the hash is added beside it, not in place of it.
 **Rationale:** Leaf v1 covers the attachment only through `blockId` — the block that holds it. A
 re-genesis importing an attachment could not be checked without the old blocks, so profile data and
 attestations could be changed unnoticed. With the hash in the leaf, the state root is a complete
@@ -743,10 +746,11 @@ them against old blocks (needs the old chain at every node).
 
 **Date:** 2026-10-16
 **Decision:**
-- **`T_IMPORT` (20)** carries one account: id, wallet, attachment, old `blockId`. Unsigned.
+- **`T_IMPORT` (20)** carries one account: id, wallet, its full attachment (profiles), old
+  `blockId`. Unsigned.
 - **Import span.** Block 0 holds `T_GENESIS` only (with the predecessor; no system records); blocks 1
-  … *k* hold only `T_IMPORT`, ids strictly ascending across the span, at slot 0, each within the RPC
-  payload cap; the last one is marked as the end. Nodes fold the old leaves into a tree as the span
+  … *k* hold only `T_IMPORT`, ids strictly ascending across the span, at slot 0, each within
+  `maxBlockBytes` (B034); the last one is marked as the end. Nodes fold the old leaves into a tree as the span
   arrives and require its root at *k* to equal `predecessor.stateRoot`.
 - **Applied:** an account's `blockId` becomes its import block; slot- and epoch-valued miner fields
   are reset (`lastProducedSlot` 0, `missedDue` 0, `autoDeregisteredEpoch` never; `registered` kept);
@@ -756,9 +760,11 @@ them against old blocks (needs the old chain at every node).
   `BlockChainConfig` is carried except `networkId` (must differ) and `genesisTime`, and
   `init-config.json` may override fields.
 **Rationale:**
-- **Size.** `BLOCK_GET` returns a block in one RPC payload (512 KiB): one block holds ~200 one-key
-  accounts. A span of ordinary blocks scales to any state and reuses sync, adoption up to a signed
-  tip, storage and checkpoints unchanged.
+- **Size.** A block is bounded by `maxBlockBytes` (B034; 4 MiB, a few thousand one-key accounts). A
+  span of ordinary blocks scales to any state and reuses sync, adoption up to a signed tip, storage
+  and checkpoints unchanged.
+- **Full attachments.** Each record carries the account's whole profile, stored in the new block
+  log as any account's is; B031's hash only checks it.
 - **Unsigned records.** The predecessor's state root authenticates every record; signatures would
   only add ~3.3 KB each and a key that must exist at import time.
 - **Resetting slot fields.** They count slots of the old genesis time; carried as numbers they would
@@ -766,8 +772,8 @@ them against old blocks (needs the old chain at every node).
   every node applies.
 **Cons:** Import blocks are a special case in validation (slot 0, no leader, no fees); a large state
 takes a long first sync (as a chain from genesis does).
-**Alternatives:** Everything in block 0 (bounded by the RPC cap); a snapshot file fetched out of band
-with only its hash in genesis (a second transport for nodes); raising the RPC cap (moves the limit).
+**Alternatives:** Everything in block 0 (bounded by `maxBlockBytes`); a snapshot file fetched out of
+band with only its hash in genesis (a second transport for nodes).
 
 ## B033 — Re-genesis tooling and roles
 
@@ -791,3 +797,37 @@ check, offline.
 case nobody should reach.
 **Alternatives:** Nodes switch on their own when they see a new genesis naming their network as
 predecessor (a thief could announce one too: the check proves the state, not who should run it).
+
+## B034 — Blocks have a byte limit; the RPC carries what consensus allows
+
+**Date:** 2026-10-16
+**Decision:**
+- **`maxBlockBytes`** joins `BlockChainConfig` (set in genesis, changed by `T_CONFIG`; default
+  4 MiB): the packed block a node stores and sends. The slot leader stops adding records before the
+  next would pass it; every node refuses a larger block. How renewals — today allowed past
+  `maxTransactionsPerBlock` when due — share the limit is settled with the phase.
+- **One record always fits:** config checks (init and `T_CONFIG`) keep the largest record —
+  `maxCustomMetaSize` plus the most keys and signatures an account may have — well under
+  `maxBlockBytes`.
+- **The transport follows the chain.** Messages that carry blocks or records — `BLOCK_GET` and
+  `ACCOUNT_GET` replies, `BLOCK_ADD` and `TX_ADD` requests, `TX_PULL` and `TX_GET_*` replies — may be
+  `maxBlockBytes` plus a 64 KiB envelope, over Amp's Bulk profile (messages up to 4 MiB + 64 KiB);
+  `maxBlockBytes` may not exceed what the transport carries. Every other request keeps a small cap.
+  Replies listing many items (`TX_PULL`, `TX_GET_BY_WALLET`) stop at the cap and page as they do now.
+- **Memory stays bounded:** a request is checked against its type's cap as it arrives; a peer has
+  at most a few large messages in flight (if Amp has no per-protocol knob for it, it gets one in
+  pp-cpp-amp); the request queue bounds bytes as well as count.
+**Rationale:**
+- **The two limits disagreed.** The RPC capped every message at 512 KiB, a constant of the Amp
+  channel profile chosen, while consensus bounded only the transaction count (10240 a block): about
+  150 ML-DSA-signed transfers already pass 512 KiB. A leader could seal a block it cannot send up
+  and no node can fetch — with a busy pool, every leader in turn, and the chain stalls. A 1 MiB
+  account meta (`maxCustomMetaSize`) was legal yet could not even be submitted.
+- **A limit in consensus is the honest one.** Every node agrees on it, it is checked where blocks
+  are made and accepted, and the transport is sized from it instead of the other way round.
+- **4 MiB** is what Amp's Bulk profile carries in one message today: no chunking needed. Larger
+  blocks later mean fetching a block in pieces, not a smaller chain.
+**Cons:** Large messages cost memory per peer, hence the per-type caps and the in-flight bound; a
+config change of `maxBlockBytes` above the transport's ceiling needs a transport change first.
+**Alternatives:** Raise the RPC constant alone (the two limits still disagree); a byte limit only in
+the transport (blocks made that cannot travel); chunked block transfer now (not needed at 4 MiB).

@@ -321,7 +321,8 @@ and one guard — a copy without `data/signed-tip.dat` does not sign its ledger 
 **Status:** bp5 design note, decided: [B030](DECISIONS.md#b030--re-genesis-a-new-network-that-imports-the-old-state-checked-against-its-state-root),
 [B031](DECISIONS.md#b031--the-state-root-commits-to-the-whole-account),
 [B032](DECISIONS.md#b032--the-import-rides-in-import-blocks-after-genesis),
-[B033](DECISIONS.md#b033--re-genesis-tooling-and-roles).
+[B033](DECISIONS.md#b033--re-genesis-tooling-and-roles); prerequisite
+[B034](DECISIONS.md#b034--blocks-have-a-byte-limit-the-rpc-carries-what-consensus-allows).
 
 **When.** No authority is left that the protocol could follow: the beacon key and the admin keys
 are lost or stolen, and the recovery set cannot act (lost too, or the admin set it would replace is
@@ -356,12 +357,14 @@ is checked by anyone holding the old chain (one header), and announced with the 
 #### The import
 
 - **Records.** A new record type, `T_IMPORT` (20), carries one account as the old chain held it: its
-  id, wallet, attachment, and the old `blockId` its leaf was hashed with. Unsigned: the state root
-  authenticates it. `T_NEW_USER` cannot carry an account (one native balance only, no miner state,
-  fees, the genesis supply rule).
+  id, wallet (every balance, keys, threshold, miner state), its **full attachment** — every profile
+  slot with its data, sequence and attestation — and the old `blockId` its leaf was hashed with.
+  Unsigned: the state root authenticates it. `T_NEW_USER` cannot carry an account (one native
+  balance only, no miner state, fees, the genesis supply rule).
 - **Import blocks.** Block 0 is the genesis (`T_GENESIS` with the predecessor, no system records);
   blocks 1 … *k* — the **import span** — hold only `T_IMPORT` records, by ascending account id, at
-  slot 0, as many as fit the RPC's 512 KiB per block (~200 one-key accounts). They reuse every path
+  slot 0, each filled up to `maxBlockBytes` (B034: 4 MiB, a few thousand one-key accounts; one
+  account with the largest profile always fits). They reuse every path
   a node already has: sync, adoption up to a signed tip, storage. `pp-beacon --init --import-state`
   writes blocks 0 … *k* and signs the tip at *k*; the first produced block is *k* + 1.
 - **The check.** Nodes fold each imported leaf, `(id, wallet, old blockId, attachment hash)`, into a
@@ -369,7 +372,9 @@ is checked by anyone holding the old chain (one header), and announced with the 
   must end there (the last block says so). A node refuses an import block out of order, an id twice
   or out of order, or a span whose root does not match.
 - **Applied as.** Each account enters the new state at its import block (that is its `blockId` now:
-  renewals are due from there; its attachment is hydrated from the `T_IMPORT` record). Its old leaf
+  renewals are due from there). Its profile is stored in full, as every account's is today: in the
+  block log, in the record that last wrote the account — here the `T_IMPORT` record — and read from
+  there on demand; the hash in its leaf (B031) only lets nodes check it. Its old leaf
   is checked as imported; then fields that count slots or epochs of the old network are reset, since
   the new `genesisTime` gives them no meaning: a miner's `lastProducedSlot` = 0 (a fresh due period),
   `missedDue` = 0, `autoDeregisteredEpoch` = never; `registered` is kept.
