@@ -18,6 +18,7 @@ add_subdirectory(ledger)
 add_subdirectory(chain)
 add_subdirectory(server)
 
+# cpp-httplib: pp-http only. Nodes never link an HTTP library (docs/architecture/SERVER.md).
 if(PP_LEDGER_BUILD_HTTP)
   add_subdirectory(lib/http)
 endif()

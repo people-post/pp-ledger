@@ -155,6 +155,10 @@ public:
 
 protected:
   std::optional<uint64_t> blockWaitTip() const override { return tip; }
+  void fillHealth(Client::NodeHealth& health) const override {
+    Server::fillHealth(health);
+    health.role = "echo";
+  }
   std::optional<Client::SignedTip> latestSignedTip() const override { return signedTip; }
 
 public:
@@ -344,6 +348,35 @@ TEST(ServerThreadTest, AllowedPeersAreServedOthersRefusedBeforeQueueing) {
   EXPECT_EQ(replies.items[2].errorCode, 0);
   EXPECT_EQ(replies.items[3].errorCode, 0);
   EXPECT_EQ(server.handled.load(), 2);
+}
+
+Client::NodeHealth unpackHealth(const Client::Response& response) {
+  auto meta = utl::binaryUnpack<pp::common::Meta>(response.payload);
+  Client::NodeHealth health;
+  EXPECT_TRUE(meta && health.ltsFromMeta(meta.value()));
+  return health;
+}
+
+TEST(ServerThreadTest, HealthIsAnsweredAtOnceToAnyPeerFromWhatTheServerThreadPublished) {
+  Replies replies; // outlives the server, which answers the queued request when it closes
+  EchoServer server;
+  server.setAllowedPeers(std::set<std::string>{"relay-a"});
+  server.enqueueRequest(packRequest("", Client::T_REQ_HEALTH), replies.sink(), "probe");
+  ASSERT_EQ(replies.size(), 1u); // answered without queueing
+  EXPECT_NE(replies.items[0].errorCode, 0); // nothing published yet: starting
+
+  server.serveRequestsFor(10ms); // the server thread publishes
+  // A request waiting in the queue does not hold a probe up.
+  server.enqueueRequest(packRequest("queued"), replies.sink(), "relay-a");
+  server.enqueueRequest(packRequest("", Client::T_REQ_HEALTH), replies.sink(), "stranger");
+  ASSERT_EQ(replies.size(), 2u);
+  ASSERT_EQ(replies.items[1].errorCode, 0);
+  const auto health = unpackHealth(replies.items[1]);
+  EXPECT_EQ(health.role, "echo");
+  EXPECT_TRUE(health.live());
+  EXPECT_FALSE(health.readyNow()); // the base reports not ready; roles decide
+  EXPECT_EQ(health.notReady, "not ready");
+  EXPECT_EQ(server.handled.load(), 0);
 }
 
 TEST(ServerThreadTest, WithoutAllowedPeersAnyoneIsServed) {
@@ -756,9 +789,8 @@ TEST(ServerThreadTest, ServeTasksUntilRunsCompletionsAndLeavesRequestsQueued) {
 }
 
 // onStart runs while Service's stop flag is still set (it is cleared after).
-TEST(ServerThreadTest, ServeTasksUntilWorksWhileStopFlagIsSet) {
+TEST(ServerThreadTest, ServeTasksUntilServesPostedTasks) {
   EchoServer server;
-  server.setStop(true);
   bool done = false;
   std::thread io([&]() {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -766,6 +798,19 @@ TEST(ServerThreadTest, ServeTasksUntilWorksWhileStopFlagIsSet) {
   });
   EXPECT_TRUE(server.serveTasksUntil([&]() { return done; }, std::chrono::seconds(2)));
   io.join();
+}
+
+// A stop request (SIGTERM during a startup sync) ends the wait promptly, not at its timeout.
+TEST(ServerThreadTest, ServeTasksUntilEndsOnAStopRequest) {
+  EchoServer server;
+  std::thread stopper([&]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    server.setStop(true);
+  });
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_FALSE(server.serveTasksUntil([]() { return false; }, std::chrono::seconds(30)));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
+  stopper.join();
 }
 
 TEST(ServerThreadTest, ServeTasksUntilTimesOut) {

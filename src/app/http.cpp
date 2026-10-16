@@ -4,6 +4,7 @@
  * Also exposes a Model Context Protocol (MCP) server via SSE transport.
  */
 #include "Client.h"
+#include "HealthMetrics.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "network/LedgerAmpRuntime.h"
@@ -17,19 +18,25 @@
 
 #include <cli11.hpp>
 
+#include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
+#include <csignal>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <sodium.h>
@@ -426,6 +433,42 @@ static void handleBeaconState(const httplib::Request&, httplib::Response& res,
   }
   res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()),
                   "application/json");
+}
+
+/** A node's HEALTH as JSON: 200 when it answered (ready or not, see `ready`), 502 when it did not. */
+static void handleNodeHealth(const httplib::Request&, httplib::Response& res, pp::Client& client) {
+  auto r = client.fetchHealth();
+  if (!r) {
+    setJsonError(res, 502, r.error().message);
+    return;
+  }
+  res.set_content(pp::common::io::metaToJsonString(r.value().ltsToMeta()), "application/json");
+}
+
+/** A node pp-http reports on `/metrics` (beacon, miner, and any `--metrics-target`). */
+struct MetricsNode {
+  std::string name;
+  pp::Client* client;
+};
+
+/**
+ * Prometheus text for every node, asked over the Client RPC (nodes have no HTTP). Asked in
+ * parallel so a node that does not answer costs one timeout, not one per node.
+ */
+static void handleMetrics(const httplib::Request&, httplib::Response& res,
+                          const std::vector<MetricsNode>& nodes) {
+  std::vector<std::future<std::optional<pp::Client::NodeHealth>>> answers;
+  for (const auto& node : nodes) {
+    answers.push_back(std::async(std::launch::async, [client = node.client]() {
+      auto r = client->fetchHealth();
+      return r ? std::optional<pp::Client::NodeHealth>(r.value()) : std::nullopt;
+    }));
+  }
+  std::vector<pp::HealthMetricsTarget> targets;
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    targets.push_back({nodes[i].name, answers[i].get()});
+  }
+  res.set_content(pp::renderHealthMetrics(targets), "text/plain; version=0.0.4");
 }
 
 static void handleBeaconCalibration(const httplib::Request&, httplib::Response& res,
@@ -993,6 +1036,12 @@ static void handleMcpMessages(const httplib::Request& req, httplib::Response& re
   res.set_content("", "application/json");
 }
 
+namespace {
+/** Set by SIGINT / SIGTERM (docker, systemd); a watcher thread stops the server (not signal-safe). */
+std::atomic<bool> g_httpStopRequested{false};
+void httpSignalHandler(int) { g_httpStopRequested = true; }
+} // namespace
+
 int main(int argc, char** argv) {
   CLI::App app{"HTTP API server for pp-ledger (client interfaces)"};
   uint16_t httpPort = 8080;
@@ -1002,19 +1051,39 @@ int main(int argc, char** argv) {
   std::string corsOrigin;
   std::string beaconMultiaddr;
   std::string minerMultiaddr;
-  app.add_option("--port", httpPort, "HTTP server port")->default_val(8080);
+  std::string logLevel = "info";
+  std::vector<std::string> metricsTargets;
+  app.add_option("--port", httpPort, "HTTP server port")->default_val(8080)->envname("PP_HTTP_PORT");
   app.add_option("--bind", httpHost,
                 "HTTP bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
-      ->default_val("127.0.0.1");
+      ->default_val("127.0.0.1")
+      ->envname("PP_HTTP_BIND");
   app.add_option("--cors-origin", corsOrigin,
-                "Value for Access-Control-Allow-Origin (default: CORS disabled)");
+                "Value for Access-Control-Allow-Origin (default: CORS disabled)")
+      ->envname("PP_HTTP_CORS_ORIGIN");
   app.add_option("--beacon", beaconMultiaddr,
                  "Beacon ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
-      ->required();
+      ->required()
+      ->envname("PP_HTTP_BEACON");
   app.add_option("--miner", minerMultiaddr,
                  "Miner ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
-      ->required();
+      ->required()
+      ->envname("PP_HTTP_MINER");
+  app.add_option("--metrics-target", metricsTargets,
+                 "Another node on /metrics, NAME=MULTIADDR (repeatable; e.g. relay=/ip4/...)")
+      ->envname("PP_HTTP_METRICS_TARGETS")
+      ->delimiter(',');
+  app.add_option("--log-level", logLevel, "Log level: debug, info, warning or error")
+      ->envname("PP_LEDGER_LOG_LEVEL")
+      ->check(CLI::IsMember({"debug", "info", "warning", "error"}, CLI::ignore_case));
   CLI11_PARSE(app, argc, argv);
+  {
+    const std::string level = CLI::detail::to_lower(logLevel);
+    pp::logging::getRootLogger().setLevel(level == "debug"     ? pp::logging::Level::DEBUG
+                                          : level == "warning" ? pp::logging::Level::WARNING
+                                          : level == "error"   ? pp::logging::kLevelError
+                                                               : pp::logging::Level::INFO);
+  }
 
   if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' ||
       minerMultiaddr.empty() || minerMultiaddr.front() != '/') {
@@ -1052,6 +1121,29 @@ int main(int argc, char** argv) {
   if (auto dial = minerClient.setAmpPeer("miner", minerMultiaddr); !dial) {
     std::cerr << "Error: failed to dial miner: " << dial.error().message << "\n";
     return 1;
+  }
+
+  // Nodes on /metrics: the beacon, the miner, and any other named target.
+  std::vector<MetricsNode> metricsNodes{{"beacon", &beaconClient}, {"miner", &minerClient}};
+  std::vector<std::unique_ptr<pp::Client>> targetClients;
+  for (const auto& target : metricsTargets) {
+    const auto eq = target.find('=');
+    const std::string name = eq == std::string::npos ? std::string{} : target.substr(0, eq);
+    const std::string multiaddr = eq == std::string::npos ? std::string{} : target.substr(eq + 1);
+    const bool taken = std::any_of(metricsNodes.begin(), metricsNodes.end(),
+                                   [&](const MetricsNode& n) { return n.name == name; });
+    if (name.empty() || taken || multiaddr.empty() || multiaddr.front() != '/') {
+      std::cerr << "Error: --metrics-target must be NAME=MULTIADDR with a new name: " << target << "\n";
+      return 1;
+    }
+    auto client = std::make_unique<pp::Client>();
+    client->attachAmpTransport(ampRuntime, name);
+    if (auto dial = client->setAmpPeer(name, multiaddr); !dial) {
+      std::cerr << "Error: failed to dial " << name << ": " << dial.error().message << "\n";
+      return 1;
+    }
+    metricsNodes.push_back({name, client.get()});
+    targetClients.push_back(std::move(client));
   }
 
   // MCP session registry
@@ -1138,6 +1230,16 @@ int main(int argc, char** argv) {
       out.set("contents", Object::array({Value(std::make_shared<Object>(content))}));
       return out;
     }
+  });
+
+  svr.Get("/api/beacon/health", [&](const httplib::Request& req, httplib::Response& res) {
+    handleNodeHealth(req, res, beaconClient);
+  });
+  svr.Get("/api/miner/health", [&](const httplib::Request& req, httplib::Response& res) {
+    handleNodeHealth(req, res, minerClient);
+  });
+  svr.Get("/metrics", [&](const httplib::Request& req, httplib::Response& res) {
+    handleMetrics(req, res, metricsNodes);
   });
 
   svr.Get("/api/beacon/calibration", [&](const httplib::Request& req, httplib::Response& res) {
@@ -1254,10 +1356,25 @@ int main(int argc, char** argv) {
   httpLog.info << "HTTP API listening on " << httpHost << ":" << httpPort;
   httpLog.info << "Beacon: " << beaconMultiaddr;
   httpLog.info << "Miner:  " << minerMultiaddr;
-  httpLog.info << "Routes: GET /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
+  httpLog.info << "Routes: GET /metrics, /api/beacon/health, /api/miner/health, /api/beacon/state, /api/beacon/calibration, /api/beacon/miners, /api/miner/status, /api/block/<id>, /api/account/<id>";
   httpLog.info << "        POST /api/account/create (JSON: from, amount, key; optional: to, fee, newPubkey, meta, minSignatures)";
   httpLog.info << "        GET /api/tx/by-wallet?walletId=&beforeBlockId=, GET /api/tx/by-index?txIndex=, POST /api/tx/build (JSON), POST /api/tx/submit (JSON)";
   httpLog.info << "MCP:    GET /mcp/sse (SSE endpoint), POST /mcp/messages?sessionId=<id>";
-  svr.listen(httpHost, static_cast<int>(httpPort));
+  std::signal(SIGINT, httpSignalHandler);
+  std::signal(SIGTERM, httpSignalHandler);
+  std::atomic<bool> listening{true};
+  std::thread stopWatcher([&]() {
+    while (listening && !g_httpStopRequested) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    svr.stop();
+  });
+  const bool listened = svr.listen(httpHost, static_cast<int>(httpPort));
+  listening = false;
+  stopWatcher.join();
+  if (!listened && !g_httpStopRequested) {
+    std::cerr << "Error: failed to listen on " << httpHost << ":" << httpPort << "\n";
+    return 1;
+  }
   return 0;
 }

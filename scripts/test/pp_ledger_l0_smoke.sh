@@ -25,5 +25,6 @@ verify_build
 assert_l0a_pids_alive
 assert_l0b_beacon_rpc "$TIMEOUT_SEC"
 assert_l0c_miner_rpc "$TIMEOUT_SEC"
+assert_l0d_ready "$TIMEOUT_SEC"
 
 echo -e "${GREEN}L-SMOKE-L0 PASSED${NC}"

@@ -788,6 +788,29 @@ wait_for_miner_ready() {
 
 # ---- L0 ready-gate layers (fail-fast) ----
 
+# L-SMOKE-L0d: every node answers HEALTH ready (synced, not halted) within $1 seconds. Over the
+# Client RPC, as a container health check does: nodes have no HTTP (docs/architecture/SERVER.md).
+assert_l0d_ready() {
+  local max_wait=${1:-60} name file deadline out
+  local nodes=(beacon relay)
+  local i
+  for i in $(seq 1 "$NUM_MINERS"); do
+    nodes+=("miner${i}")
+  done
+  for name in "${nodes[@]}"; do
+    file="${TEST_DIR}/${name}/listen.multiaddr"
+    [[ -s "$file" ]] || die "L-SMOKE-L0d: ${name} wrote no ${file}"
+    deadline=$((SECONDS + max_wait))
+    while :; do
+      out=$("$BUILD_DIR/app/pp-client" --host-file "$file" health --ready 2>&1) && break
+      ((SECONDS < deadline)) || die "L-SMOKE-L0d: ${name} not ready: ${out}"
+      sleep 1
+    done
+    grep -q "\"role\": \"${name%%[0-9]*}\"" <<<"$out" || die "L-SMOKE-L0d: ${name} health: ${out}"
+  done
+  echo -e "${GREEN}✓ L-SMOKE-L0d: beacon, relay and ${NUM_MINERS} miner(s) ready (pp-client health)${NC}"
+}
+
 assert_l0a_pids_alive() {
   echo -e "${CYAN}L0a: process PIDs alive${NC}"
   pids_tree_healthy || {

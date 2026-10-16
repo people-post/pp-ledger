@@ -914,9 +914,17 @@ protected:
 // One transient failure must not kill a node at startup.
 TEST_F(StartupSyncTest, RetriesUntilSuccess) {
   upstream_->failures = 3;
-  server_.setStop(true);  // as during onStart
   EXPECT_EQ(server_.runStartupSync(*sync_, last_, std::chrono::seconds(5)), "");
   EXPECT_EQ(local_.size(), 6u);
+}
+
+// A stop request ends the startup sync at once (the node then does not run).
+TEST_F(StartupSyncTest, AStopRequestEndsIt) {
+  upstream_->failures = 1000000;
+  server_.setStop(true);
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_EQ(server_.runStartupSync(*sync_, last_, std::chrono::seconds(30)), "");
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
 }
 
 TEST_F(StartupSyncTest, GivesUpWithTheLastErrorAtTimeout) {

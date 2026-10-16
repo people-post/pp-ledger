@@ -44,6 +44,7 @@ protected:
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "MinerServer"; }
+  void fillHealth(Client::NodeHealth &health) const override;
   int32_t getRunErrorCode() const override { return E_MINER; }
 
   void runLoop() override;

@@ -61,6 +61,14 @@ pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& privat
   return config;
 }
 
+pp::Roe<std::string> PublicKeyFromPrivateKey(const std::string& private_key_raw) {
+  auto identity = IdentityFromPrivateKeyBytes(private_key_raw);
+  if (identity.ml_dsa_public_key.size() != utl::kMlDsaPublicKeyBytes) {
+    return pp::Error("not an ML-DSA-65 private key");
+  }
+  return std::string(identity.ml_dsa_public_key.begin(), identity.ml_dsa_public_key.end());
+}
+
 pp::Roe<std::string> ParseBeaconMultiaddrString(const std::string& value) {
   if (value.empty()) {
     return pp::Error("beacon multiaddr cannot be empty");

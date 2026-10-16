@@ -108,6 +108,11 @@ public:
   static constexpr const uint32_t T_REQ_MINER_LIST = 3;
   /** Request precise server timestamp in ms since epoch for time calibration. */
   static constexpr const uint32_t T_REQ_CALIBRATION = 4;
+  /**
+   * A node's health and gauges (NodeHealth). Answered at once, to any peer, from what the server
+   * thread last published: never queued, so probes work while the node syncs or is busy.
+   */
+  static constexpr const uint32_t T_REQ_HEALTH = 5;
 
   static constexpr const uint32_t T_REQ_BLOCK_GET = 1001;
   static constexpr const uint32_t T_REQ_BLOCK_ADD = 1002;
@@ -418,6 +423,40 @@ public:
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
   };
 
+  /**
+   * HEALTH: liveness, readiness and what pp-http exports as metrics
+   * (docs/ops/CONFIGURATION.md § Health and metrics). The server thread publishes it about once a
+   * second; reportAgeMs says how long ago, so a stuck server thread shows as not live.
+   */
+  struct NodeHealth {
+    /** Not published for this long: the server thread is stuck. */
+    static constexpr int64_t kStaleAfterMs = 30000;
+
+    std::string role;      ///< beacon | relay | miner
+    std::string peerId;    ///< the node's network identity
+    std::string networkId; ///< the chain's
+    bool ready{ false };
+    std::string notReady;  ///< why not, when !ready
+    uint64_t nextBlockId{ 0 };
+    std::optional<uint64_t> upstreamNextBlockId; ///< relay: from the upstream's signed tip
+    std::optional<int64_t> lastSyncAgeSeconds;   ///< relay, miner: since the last successful sync
+    std::optional<uint64_t> signedTipHeight;
+    uint64_t generation{ 0 };      ///< beacon generation in force
+    bool halted{ false };          ///< equivocation evidence held (beacon-authority ba6)
+    bool recoveryPending{ false }; ///< a recovery waits (ba7)
+    bool standingDown{ false };    ///< beacon: another key is certified
+    uint64_t requestQueueDepth{ 0 };
+    int64_t reportAgeMs{ -1 };     ///< since the server thread published; -1: never
+
+    /** The server thread is reporting. */
+    bool live() const { return reportAgeMs >= 0 && reportAgeMs < kStaleAfterMs; }
+    /** Ready to serve, as reported by a live server thread. */
+    bool readyNow() const { return live() && ready; }
+
+    pp::common::Meta ltsToMeta() const;
+    Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
+  };
+
   struct TxGetByWalletRequest {
     uint64_t walletId{ 0 };
     uint64_t beforeBlockId{ 0 };
@@ -483,6 +522,8 @@ public:
   const ILedgerTransport *transport() const { return transport_.get(); }
 
   Roe<BeaconState> fetchBeaconState();
+  /** HEALTH of the node this client talks to (any role). */
+  Roe<NodeHealth> fetchHealth();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */
   Roe<CalibrationResponse> fetchCalibration();
   Roe<BeaconState> registerMinerServer(const MinerInfo &minerInfo);

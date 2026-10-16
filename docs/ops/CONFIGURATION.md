@@ -2,19 +2,81 @@
 
 The one place that lists every config field. Each file is JSON in the role's
 work directory (`-d <dir>`). Omitted optional fields take the defaults below;
-anything not listed here is fixed in code.
+anything not listed here is fixed in code. Every `config.json` field a deployment sets, and the
+command-line options, can come from the environment instead ([Environment](#environment)).
 
 | File | Role | Read when |
 |------|------|-----------|
-| `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template |
-| `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
-| `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
+| `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
+| `config.json` | beacon, relay, miner | every start, optional when the environment sets what the role needs ([Environment](#environment)). With neither, the beacon runs on its defaults (nothing is written); the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
+| `keys/amp-identity.txt` | beacon, relay | every start; created on first start — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
 | `data/rewind.dat`, `data/rewound.dat` | beacon, relay, miner | Not config: a rewind ordered before a restart (applied and removed at the next start) and the last one applied ([LEDGER_STORAGE.md § Node state files](../contracts/LEDGER_STORAGE.md#node-state-files)). Do not edit |
 | `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
 | `data/equivocation.dat` | beacon, relay, miner | every start, when present. Not config: equivocation evidence the node halts on ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); removed once a later generation is certified. Deleting it makes the node forget evidence it halts on (its upstreams may serve it again) |
+
+## Environment
+
+Variables override the matching `config.json` field (the file may be absent) and pass the same
+checks. A secret marked `[_FILE]` can instead be given as a file path in `NAME_FILE` (Docker /
+Kubernetes secrets); setting both is an error. Lists take commas or newlines.
+
+| Variable | Role | Sets |
+|----------|------|------|
+| `PP_LEDGER_WORK_DIR` | beacon, relay, miner | `-d` |
+| `PP_LEDGER_LOG_LEVEL` | all, pp-http | `--log-level`: `debug`, `info` (default), `warning`, `error` (`--debug` = `debug`) |
+| `PP_LEDGER_LOG_FILE` | beacon, relay, miner | `--log-file`: also log to this file (relative: to the work directory); `none`: stderr only, for a container's log driver. Default `<role>.log` in the work directory |
+| `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
+| `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
+| `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
+| `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId` |
+| `PP_MINER_ID` | miner | `minerId` |
+| `PP_MINER_KEYS` `[_FILE]` | miner | `keys` (list: hex keys or key file paths) |
+| `PP_GENESIS_KEY_FILES` | beacon `--init` | `--genesis-key` (list of key files; keeps keys out of argv) |
+| `PP_LEDGER_IDENTITY_KEY` `[_FILE]` | beacon, relay | the network identity (hex private key) instead of `keys/amp-identity.txt`: a stable peer id, nothing written |
+| `PP_BEACON_SIGNING_KEY` `[_FILE]` | beacon (`--init` and every start) | the beacon signing key (hex private key) instead of `keys/beacon-signing.key` / `.pub`; its public key is derived. Nothing is written |
+| `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
+| `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
+| `PP_HTTP_METRICS_TARGETS` | pp-http | `--metrics-target` (list of `NAME=MULTIADDR`: more nodes on `/metrics`) |
+
+A command-line option given explicitly wins over its variable. Peer ids can be worked out before
+anything starts: `pp-client peer-id <key>` prints the peer id and public key of a private key (hex
+or a key file), so upstream multiaddrs can be written ahead. For example, a relay with no files:
+
+```bash
+PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id> \
+  PP_LEDGER_LOG_LEVEL=info pp-relay
+```
+
+## Health and metrics
+
+Nodes have no HTTP server (no HTTP library is linked into them; [SERVER.md](../architecture/SERVER.md#rpc-requests)).
+Health is a ledger RPC, `HEALTH`, which every node answers to any peer at once, from a snapshot its
+server thread publishes about once a second: it never waits in the request queue, and is not subject
+to `allowedPeers` (it tells a caller only what `STATUS` does, plus readiness). HTTP is pp-http's job.
+
+| Field | Meaning |
+|-------|---------|
+| `role`, `peerId`, `networkId` | Identity |
+| `ready`, `notReady` | Ready to serve, else why not: `starting`, `not synced from the upstream`, `N blocks behind the upstream`, `halted on equivocation evidence`, `stood down…`. Beacon: running, not stood down or halted. Relay: synced and at most 3 blocks behind its upstream's signed tip. Miner: synced |
+| `reportAgeMs` | Since the server thread published. Live: under 30 s (`NodeHealth::live()`); a stuck server thread shows here |
+| `nextBlockId`, `upstreamNextBlockId`, `lastSyncAgeSeconds`, `signedTipHeight`, `generation`, `halted`, `recoveryPending`, `standingDown`, `requestQueueDepth` | Chain and node state, for metrics |
+
+A node answers `HEALTH` from the moment it listens, before a relay or miner's startup sync: a node
+still syncing is live but not ready. It writes its listen multiaddr (loopback for a wildcard bind)
+to `<work dir>/listen.multiaddr`, so a probe on the same host or in the same container needs no
+address:
+
+| Tool | Use |
+|------|-----|
+| `pp-client --host-file <work dir>/listen.multiaddr health` | Prints the JSON; exit 0 when live. `--ready`: exit 0 only when also ready. The image's `HEALTHCHECK`; a Kubernetes `exec` liveness / readiness probe |
+| pp-http `GET /api/beacon/health`, `GET /api/miner/health` | The JSON of its `--beacon` / `--miner`: `200` when the node answered (see `ready`), `502` when not |
+| pp-http `GET /metrics` | Prometheus text for its `--beacon` (`node="beacon"`), `--miner` (`node="miner"`) and each `--metrics-target NAME=MULTIADDR` (`node="NAME"`), asked in parallel: `pp_ledger_info{node,role,peer_id,network}`, `pp_ledger_up` (0 when the node did not answer or is not live), `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth`, `pp_ledger_report_age_seconds` |
+
+Prometheus scrapes pp-http, not the nodes; one pp-http can watch a whole deployment with
+`--metrics-target` (it needs no `allowedPeers` entry for `HEALTH`).
 
 ## `init-config.json` (beacon, genesis)
 

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -181,6 +182,29 @@ TEST(BeaconServerInitTest, InitWritesTheSigningKeyAndGenesisCarriesTheAuthority)
   EXPECT_EQ(authority.beacon.publicKey, utl::hexDecode(pubHex));
 }
 
+// The signing key may be held outside the work directory (PP_BEACON_SIGNING_KEY or _FILE): genesis
+// certifies its public key (derived from it) and no key file is written.
+TEST(BeaconServerInitTest, InitTakesTheSigningKeyFromTheEnvironment) {
+  GenesisSetup setup("pp-ledger-beacon-signing-env-test");
+  setup.writeInitConfig();
+  const auto signing = utl::mlDsaGenerate().value();
+#ifdef _WIN32
+  _putenv_s("PP_BEACON_SIGNING_KEY", utl::hexEncode(signing.privateKey).c_str());
+#else
+  setenv("PP_BEACON_SIGNING_KEY", utl::hexEncode(signing.privateKey).c_str(), 1);
+#endif
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+#ifdef _WIN32
+  _putenv_s("PP_BEACON_SIGNING_KEY", "");
+#else
+  unsetenv("PP_BEACON_SIGNING_KEY");
+#endif
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  EXPECT_EQ(setup.genesisMeta().authority.beacon.publicKey, signing.publicKey);
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / BeaconServer::FILE_BEACON_SIGNING_KEY));
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / BeaconServer::FILE_BEACON_SIGNING_PUB));
+}
+
 // An operator may generate the signing key elsewhere first (pp-client keygen -o keys/beacon-signing).
 TEST(BeaconServerInitTest, InitReusesAPreGeneratedSigningKey) {
   GenesisSetup setup("pp-ledger-beacon-signing-reuse-test");
@@ -256,6 +280,28 @@ TEST(BeaconServerInitTest, GenesisMustBeSignedByEnoughGenesisKeys) {
   EXPECT_NE(repeated.error().message.find("twice"), std::string::npos) << repeated.error().message;
 
   EXPECT_TRUE(setup.init({g0, g1}).isOk());
+}
+
+// --init writes genesis once: a second one is refused (it used to delete the chain) unless --force;
+// a failed one leaves no partial chain behind.
+TEST(BeaconServerInitTest, InitDoesNotReplaceAChainUnlessForced) {
+  GenesisSetup setup("pp-ledger-beacon-reinit-test");
+  setup.writeInitConfig();
+  const auto g0 = setup.keyFile(setup.genesis[0], "g0");
+  const auto g1 = setup.keyFile(setup.genesis[1], "g1");
+  ASSERT_FALSE(setup.init({g0}).isOk()) << "too few signatures";
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / "data")) << "a failed init leaves nothing";
+  ASSERT_TRUE(setup.init({g0, g1}).isOk());
+  const auto ledger = setup.dir / "data" / "ledger";
+  ASSERT_TRUE(std::filesystem::exists(ledger));
+
+  auto again = setup.init({g0, g1});
+  ASSERT_FALSE(again.isOk());
+  EXPECT_NE(again.error().message.find("--force"), std::string::npos) << again.error().message;
+  EXPECT_TRUE(std::filesystem::exists(ledger)) << "the chain is kept";
+
+  BeaconServer server;
+  EXPECT_TRUE(server.init(setup.dir.string(), {g0, g1}, /*force=*/true).isOk());
 }
 
 // The genesis (admin) account must be M-of-N from the start (at least 3 keys,

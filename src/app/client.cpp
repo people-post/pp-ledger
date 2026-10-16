@@ -552,6 +552,26 @@ static int runSignTx(const std::string& filePath, const std::string& key,
   return 0;
 }
 
+/** `health`: the node's HEALTH as JSON; exit 0 when live (and ready, with --ready). */
+static int runHealth(pp::Client& client, bool requireReady) {
+  auto result = client.fetchHealth();
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  const auto& health = result.value();
+  std::cout << pp::common::io::metaToJsonString(health.ltsToMeta(), 2) << "\n";
+  if (!health.live()) {
+    std::cerr << "Not live: the server thread has not reported for " << health.reportAgeMs << " ms\n";
+    return 1;
+  }
+  if (requireReady && !health.ready) {
+    std::cerr << "Not ready: " << health.notReady << "\n";
+    return 1;
+  }
+  return 0;
+}
+
 static int runSubmitTx(pp::Client& client, const std::string& filePath) {
   auto content = readFileContent(filePath);
   if (!content) {
@@ -584,6 +604,10 @@ int main(int argc, char *argv[]) {
   app.add_option("--host", host, "Server host (or host:port)")
       ->capture_default_str();
 
+  std::string hostFile;
+  app.add_option("--host-file", hostFile,
+                 "Read the server multiaddr from a file (a node writes <work dir>/listen.multiaddr)");
+
   uint16_t port = 0;
   app.add_option("-p,--port", port, "Server port (overrides default)")
       ->check(CLI::Range(1, 65535));
@@ -599,6 +623,18 @@ int main(int argc, char *argv[]) {
   std::string keygenOut;
   keygen->add_option("-o,--out", keygenOut,
                      "Write <name>.key (private, hex, 0600) and <name>.pub (public, hex); never overwrites");
+
+  // Local command: peer-id
+  auto* peer_id_cmd = app.add_subcommand(
+      "peer-id", "Print the network peer id and public key of a private key (to write multiaddrs ahead of start)");
+  std::string peerIdKey;
+  peer_id_cmd->add_option("key", peerIdKey, "Private key: hex, or a key file (e.g. keys/amp-identity.txt)")
+      ->required();
+
+  // Any node: health (a container health check: exit 0 when live, with --ready when ready)
+  auto* health_cmd = app.add_subcommand("health", "Print a node's health (any role); exit 1 when not live");
+  bool healthReady = false;
+  health_cmd->add_flag("--ready", healthReady, "Exit 1 unless the node is also ready (synced, not halted)");
 
   // Beacon commands
   auto* beacon_status = app.add_subcommand("status", "Get beacon/miner status");
@@ -787,6 +823,23 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(app, argc, argv);
 
   // Handle keygen command (no server connection needed)
+  if (peer_id_cmd->parsed()) {
+    auto privateKey = pp::utl::readPrivateKey(peerIdKey, "");
+    if (!privateKey) {
+      std::cerr << "Error: " << privateKey.error().message << "\n";
+      return 1;
+    }
+    auto amp = pp::network::LedgerAmpConfigFromPrivateKey(privateKey.value(), 0);
+    auto publicKey = pp::network::PublicKeyFromPrivateKey(privateKey.value());
+    if (!amp || !publicKey) {
+      std::cerr << "Error: not an ML-DSA-65 private key\n";
+      return 1;
+    }
+    std::cout << "Peer id:          " << amp.value().local_peer_id << "\n";
+    std::cout << "Public key (hex): " << pp::utl::hexEncode(publicKey.value()) << "\n";
+    return 0;
+  }
+
   if (keygen->parsed()) {
     auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {
@@ -850,8 +903,20 @@ int main(int argc, char *argv[]) {
     return runSignTx(sign_tx_file, sign_key, sign_network_id);
   }
 
-  // For server commands, validate beacon/miner flag
-  if (!connectToBeacon && !connectToMiner) {
+  if (!hostFile.empty()) {
+    auto content = readFileContent(hostFile);
+    if (!content) {
+      std::cerr << "Error: " << content.error().message << "\n";
+      return 1;
+    }
+    host = *content;
+    while (!host.empty() && std::isspace(static_cast<unsigned char>(host.back()))) {
+      host.pop_back(); // the trailing newline
+    }
+  }
+
+  // For server commands, validate beacon/miner flag (health speaks to any role)
+  if (!connectToBeacon && !connectToMiner && !health_cmd->parsed()) {
     std::cerr << "Error: Must specify -b/--beacon or -m/--miner for server commands.\n";
     std::cerr << "Run '" << argv[0] << " --help' for more information.\n";
     return 1;
@@ -920,6 +985,10 @@ int main(int argc, char *argv[]) {
     }
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, hash.value(),
                            mk_cert_hints, mk_cert_output);
+  }
+
+  if (health_cmd->parsed()) {
+    return runHealth(client, healthReady);
   }
 
   // Handle beacon status command

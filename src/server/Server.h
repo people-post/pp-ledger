@@ -10,6 +10,7 @@
 #include "ClockCalibration.h"
 #include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
+#include "EnvConfig.h"
 
 #include <atomic>
 #include <chrono>
@@ -45,6 +46,13 @@ public:
    * than a node rewinds on its own (`--approve-rewind`; rewind::kMaxAutomaticRewind). 0 = none.
    */
   void setApprovedRewindGeneration(uint64_t generation) { approvedRewindGeneration_ = generation; }
+
+  /**
+   * Before run: where the log is also written (`--log-file` / PP_LEDGER_LOG_FILE). Empty: the
+   * role's file in the work directory (beacon.log, relay.log, miner.log); "none": stderr only (a
+   * container's log driver collects it); else a path (relative: to the work directory).
+   */
+  void setLogFile(std::string logFile) { logFile_ = std::move(logFile); }
 
 protected:
   virtual bool useSignatureFile() const { return true; }
@@ -102,8 +110,8 @@ protected:
 
   /**
    * Server thread, before the run loop serves requests (e.g. onStart): run
-   * completion tasks until `done()` or `timeout`; requests stay queued.
-   * Ignores the stop flag (still set during onStart). Returns done().
+   * completion tasks until `done()`, `timeout` or a stop request; requests stay
+   * queued. Returns done().
    */
   bool serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout);
 
@@ -176,6 +184,14 @@ protected:
   bool isAllowedPeer(const std::string& peerId) const;
   /** Optional `allowedPeers` array of peer ids in a role's config.json; absent = nullopt. */
   static Service::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& config);
+
+  /**
+   * Server thread: what HEALTH answers (Client::NodeHealth). The base fills identity and the queue;
+   * roles add their chain state and readiness (call the base first).
+   */
+  virtual void fillHealth(Client::NodeHealth& health) const;
+  /** True once the run loop serves requests (onStart is over). */
+  bool isServing() const { return serving_; }
   Origin originOf(const std::string& peerId) const;
 
   /**
@@ -248,6 +264,18 @@ private:
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};
+  std::string logFile_;
+  /** The last published HEALTH, answered on the io lane (enqueueRequest) without queueing. */
+  mutable std::mutex healthMutex_;
+  std::optional<Client::NodeHealth> health_;
+  std::chrono::steady_clock::time_point healthPublishedAt_{};
+  bool serving_{false};
+  /** Server thread: publish the health snapshot, at most once a second. */
+  void publishHealth();
+  /** io lane: the HEALTH reply, from the last snapshot. */
+  std::string healthResponse() const;
+  /** `<work dir>/listen.multiaddr`: where a local `pp-client health` reaches this node. */
+  void writeListenMultiaddrFile() const;
   std::unique_ptr<RequestQueue> requests_;
   BlockWaitList blockWaits_{requestCapacity_};
   uint64_t lastPolledTip_{0};

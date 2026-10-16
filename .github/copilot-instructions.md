@@ -8,7 +8,7 @@ Canonical map: [`docs/README.md`](../docs/README.md) — tiers `architecture/` �
 
 ## Project Summary
 
-`pp-ledger` is a C++20 blockchain with SlotCommittee leader election (beacon-centered), written with CMake. It has no Docker/containerization. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
+`pp-ledger` is a C++20 blockchain with SlotCommittee leader election (beacon-centered), written with CMake. Optional Docker packaging: `Dockerfile`, `deploy/`. Key binaries: `pp-beacon` (validator), `pp-relay` (trusted intermediary), `pp-miner` (block producer), `pp-client` (CLI), `pp-http` (HTTP API proxy).
 
 ## Repository Layout
 
@@ -81,6 +81,7 @@ See `.aicodeguide` for the full style guide. Key points:
 - **Relay does NOT require `--init`** — it auto-creates `config.json` on first run.
 - **Relay config uses a `"beacon"` object** (single upstream beacon), NOT a `"beacons"` array like miners use.
 - **Miners point their `"beacons"` config to relay endpoints**, not directly to beacon endpoints in production deployments.
+- **Nodes never serve or link HTTP.** Beacon/relay/miner speak only the ledger RPC; cpp-httplib is for `pp-http` only. Health and metrics are the `HEALTH` RPC, exposed over HTTP by `pp-http` (`/metrics`, `/api/*/health`) and probed with `pp-client health` — never add an HTTP endpoint to a node (`docs/architecture/SERVER.md` § RPC requests).
 - **HTTP API routes are prefixed with `/api/`** (e.g., `/api/beacon/state`, `/api/miner/status`). The README may not reflect this.
 - **VRF leader election is probabilistic** — a miner may not be elected for many consecutive slots. This is normal.
 - **`test-network.sh`** is the correct script name (not `start-test-network.sh`).

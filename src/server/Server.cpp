@@ -8,6 +8,7 @@
 #include <set>
 #include <mutex>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 
 namespace pp {
@@ -97,11 +98,14 @@ Service::Roe<void> Server::run(const std::string& workDir) {
   // same logger, and the logger cannot drop a handler.
   static std::mutex handlersMutex;
   static std::set<std::string> handlersAdded;
-  {
+  if (logFile_ != "none") {
+    const std::string path = logFile_.empty() ? workDir + "/" + getLogFileName()
+                             : std::filesystem::path(logFile_).is_absolute() ? logFile_
+                                                                              : workDir + "/" + logFile_;
     std::lock_guard<std::mutex> lock(handlersMutex);
-    const std::string key = log().getFullName() + "|" + workDir + "/" + getLogFileName();
+    const std::string key = log().getFullName() + "|" + path;
     if (handlersAdded.insert(key).second) {
-      log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
+      log().addFileHandler(path, logging::getLevel());
     }
   }
 
@@ -124,16 +128,81 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
   return utl::binaryPack(resp);
 }
 
-void Server::onStop() {
-  stopAmpServer();
+void Server::onStop() { stopAmpServer(); }
+
+void Server::fillHealth(Client::NodeHealth& health) const {
+  const std::string listen = listenMultiaddr();
+  if (const auto at = listen.rfind("/p2p/"); at != std::string::npos) {
+    health.peerId = listen.substr(at + 5);
+  }
+  health.requestQueueDepth = requests_ ? requests_->size() : 0;
+  if (const auto tip = latestSignedTip()) {
+    health.signedTipHeight = tip->height;
+  }
+  health.ready = false;
+  health.notReady = serving_ ? "not ready" : "starting";
+}
+
+void Server::publishHealth() {
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    if (health_ && now - healthPublishedAt_ < std::chrono::seconds(1)) {
+      return;
+    }
+  }
+  Client::NodeHealth health;
+  fillHealth(health);
+  std::lock_guard<std::mutex> lock(healthMutex_);
+  health_ = std::move(health);
+  healthPublishedAt_ = now;
+}
+
+std::string Server::healthResponse() const {
+  Client::NodeHealth health;
+  {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    if (!health_) {
+      return packResponse(Client::E_SERVER_ERROR, "Health not published yet: starting");
+    }
+    health = *health_;
+    health.reportAgeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - healthPublishedAt_)
+                             .count();
+  }
+  return packResponse(utl::binaryPack(health.ltsToMeta()));
+}
+
+void Server::writeListenMultiaddrFile() const {
+  if (workDir_.empty()) {
+    return;
+  }
+  // A wildcard bind is reached on loopback from the same host (or container).
+  std::string local = listenMultiaddr();
+  for (const auto& [any, loopback] : {std::pair<std::string, std::string>{"/ip4/0.0.0.0/", "/ip4/127.0.0.1/"},
+                                      std::pair<std::string, std::string>{"/ip6/::/", "/ip6/::1/"}}) {
+    if (local.rfind(any, 0) == 0) {
+      local = loopback + local.substr(any.size());
+    }
+  }
+  const auto path = std::filesystem::path(workDir_) / "listen.multiaddr";
+  std::ofstream out(path, std::ios::trunc);
+  out << local << "\n";
+  if (!out) {
+    log().warning << "Cannot write " << path.string();
+  }
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
+  const auto type = Client::peekRequestType(body);
+  if (type == Client::T_REQ_HEALTH) {
+    reply(healthResponse()); // a probe: any peer, never queued
+    return;
+  }
   if (!isAllowedPeer(peerId)) {
     reply(packResponse(1, "Peer not allowed by this node"));
     return;
   }
-  const auto type = Client::peekRequestType(body);
   const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
@@ -326,6 +395,8 @@ bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQue
 }
 
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
+  serving_ = true;
+  publishHealth();
   auto deadline = RequestQueue::Clock::now() + budget;
   if (restartRequested_) {
     if (RequestQueue::Clock::now() >= restartAt_) {
@@ -358,13 +429,21 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
 }
 
 bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout) {
-  // No isStopSet() check: Service::run() clears the stop flag only after
-  // onStart(), which is where this runs. The timeout bounds the wait.
+  // Waits in short slices so a stop request (SIGTERM during a startup sync) ends it promptly.
+  constexpr auto kSlice = std::chrono::milliseconds(200);
   const auto deadline = RequestQueue::Clock::now() + timeout;
-  while (!done()) {
-    auto item = requests_->popTaskUntil(deadline);
-    if (!item) {
+  while (!done() && !isStopSet()) {
+    publishHealth(); // probes see a node that is starting, not a dead one
+    const auto now = RequestQueue::Clock::now();
+    if (now >= deadline) {
       break;
+    }
+    auto item = requests_->popTaskUntil(std::min(deadline, now + kSlice));
+    if (!item) {
+      if (requests_->isClosed()) {
+        break; // nothing more will come
+      }
+      continue;
     }
     try {
       item->task();
@@ -384,6 +463,10 @@ std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSyn
   while (remaining().count() > 0) {
     if (restartRequested_) {
       return {}; // the node restarts (a rewind) instead of syncing on
+    }
+    if (isStopSet()) {
+      log().info << "Startup sync interrupted: stop requested";
+      return {}; // Service::run() sees the stop and does not run
     }
     if (sync.start() == BlockSync::Start::BackingOff) {
       serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(100)));
@@ -499,6 +582,18 @@ pp::amp::PeerLinkManager* Server::peerLinks() {
 }
 
 Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
+  // From the environment (PP_LEDGER_IDENTITY_KEY or _FILE, hex): a stable peer id, nothing written.
+  auto fromEnv = env_config::secret("PP_LEDGER_IDENTITY_KEY");
+  if (!fromEnv) {
+    return Service::Error(-1, fromEnv.error().message);
+  }
+  if (fromEnv.value()) {
+    const std::string key = utl::hexDecode(*fromEnv.value());
+    if (key.size() != utl::kMlDsaPrivateKeyBytes) {
+      return Service::Error(-1, "PP_LEDGER_IDENTITY_KEY is not a hex ML-DSA-65 private key");
+    }
+    return key;
+  }
   const std::filesystem::path keysDir = std::filesystem::path(workDir_) / "keys";
   const std::filesystem::path keyPath = keysDir / "amp-identity.txt";
   if (!std::filesystem::exists(keyPath)) {
@@ -542,6 +637,8 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
     return started;
   }
   log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
+  writeListenMultiaddrFile();
+  publishHealth(); // HEALTH answers "starting" from now on
   return {};
 }
 

@@ -76,17 +76,56 @@ BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &wor
 }
 
 /**
+ * A beacon signing key from the environment (`variable` or `variable`_FILE: the hex private key);
+ * its public key is derived. None when unset.
+ */
+BeaconServer::Roe<std::optional<utl::MlDsaKeyPair>> beaconSigningKeyFromEnv(const std::string &variable) {
+  auto secret = env_config::secret(variable);
+  if (!secret) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, secret.error().message);
+  }
+  if (!secret.value()) {
+    return std::optional<utl::MlDsaKeyPair>{};
+  }
+  utl::MlDsaKeyPair pair;
+  pair.privateKey = utl::hexDecode(*secret.value());
+  auto publicKey = network::PublicKeyFromPrivateKey(pair.privateKey);
+  if (!publicKey) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, variable + ": " + publicKey.error().message);
+  }
+  pair.publicKey = publicKey.value();
+  return std::optional<utl::MlDsaKeyPair>(std::move(pair));
+}
+
+/**
  * Every start: the beacon signing key, and the next one when an operator staged it for a rotation
- * (beacon-authority ba5). The beacon signs with whichever the certificate in force names.
+ * (beacon-authority ba5). The beacon signs with whichever the certificate in force names. Each
+ * comes from the environment (PP_BEACON_SIGNING_KEY, PP_BEACON_SIGNING_NEXT_KEY) or its files.
  */
 BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const std::string &workDir) {
   std::vector<utl::MlDsaKeyPair> keys;
-  auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
-                                      BeaconServer::FILE_BEACON_SIGNING_PUB);
-  if (!current) {
-    return current.error();
+  auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
+  if (!fromEnv) {
+    return fromEnv.error();
   }
-  keys.push_back(current.value());
+  if (fromEnv.value()) {
+    keys.push_back(*fromEnv.value());
+  } else {
+    auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
+                                        BeaconServer::FILE_BEACON_SIGNING_PUB);
+    if (!current) {
+      return current.error();
+    }
+    keys.push_back(current.value());
+  }
+  auto nextFromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_NEXT_KEY");
+  if (!nextFromEnv) {
+    return nextFromEnv.error();
+  }
+  if (nextFromEnv.value()) {
+    keys.push_back(*nextFromEnv.value());
+    return keys;
+  }
   const auto root = std::filesystem::path(workDir);
   if (std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_KEY) ||
       std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_PUB)) {
@@ -105,6 +144,14 @@ BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const st
  * pre-generate them with `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
  */
 BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+  // Held outside the work directory (PP_BEACON_SIGNING_KEY): nothing is written.
+  auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
+  if (!fromEnv) {
+    return fromEnv.error();
+  }
+  if (fromEnv.value()) {
+    return fromEnv.value()->publicKey;
+  }
   const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
   const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
   if (!std::filesystem::exists(keyPath) && !std::filesystem::exists(pubPath)) {
@@ -496,7 +543,7 @@ BeaconServer::BeaconServer() {
 }
 
 BeaconServer::Roe<void>
-BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles) {
+BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -623,7 +670,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
     initConfig.key.genesisSigners.push_back(privateKey.value());
   }
 
-  auto result = initFromWorkDir(initConfig);
+  auto result = initFromWorkDir(initConfig, force);
   if (!result) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
@@ -634,10 +681,14 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
 }
 
 BeaconServer::Roe<void>
-BeaconServer::initFromWorkDir(const Beacon::InitConfig &config) {
+BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force) {
   log().info << "Initializing BeaconServer";
 
-  // Clean up work directory if it exists
+  // A chain is there already: genesis again would destroy it. Only on request.
+  if (std::filesystem::exists(config.workDir) && !std::filesystem::is_empty(config.workDir) && !force) {
+    return Error("Refusing to initialize: " + config.workDir +
+                 " already holds a chain. Remove it first, or pass --force to replace it");
+  }
   if (std::filesystem::exists(config.workDir)) {
     log().info << "  Removing existing work directory: " << config.workDir;
     std::error_code ec;
@@ -647,9 +698,17 @@ BeaconServer::initFromWorkDir(const Beacon::InitConfig &config) {
     }
   }
 
-  // Initialize beacon (which will create fresh directory)
-  auto result = beacon_.init(config);
+  // Genesis in a beacon of its own: its files are closed once it goes, so a failed attempt can be
+  // removed (a corrected --init then finds no chain; Windows cannot remove open files).
+  Beacon::Roe<void> result;
+  {
+    Beacon genesis;
+    genesis.redirectLogger(log().getFullName() + ".Beacon");
+    result = genesis.init(config);
+  }
   if (!result) {
+    std::error_code ec;
+    std::filesystem::remove_all(config.workDir, ec);
     return Error("Failed to initialize beacon: " + result.error().message);
   }
 
@@ -674,36 +733,16 @@ Service::Roe<void> BeaconServer::onStart() {
     }
     runFileConfig = promotion.value().config;
     clockReferences = promotion.value().clockReferences;
-  } else if (!std::filesystem::exists(configPath)) {
-    log().info << "No " << FILE_CONFIG
-               << " found, creating with default values";
-
-    // Use default values from RunFileConfig struct
-    auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
-    if (!encoded) {
-      return Service::Error(-2, "Failed to encode " + std::string(FILE_CONFIG) +
-                                    ": " + encoded.error().message);
-    }
-
-    std::ofstream configFile(configPath);
-    if (!configFile) {
-      return Service::Error(-2, "Failed to create " + std::string(FILE_CONFIG));
-    }
-    configFile << encoded.value() << std::endl;
-    configFile.close();
-
-    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
   } else {
-    // Load existing configuration
-    auto jsonResult = utl::loadJsonFile(configPathStr);
-    if (!jsonResult) {
-      return Service::Error(-3, "Failed to load config file: " +
-                                    jsonResult.error().message);
+    auto loaded = env_config::loadConfig(configPathStr, env_config::commonFields());
+    if (!loaded) {
+      return Service::Error(E_CONFIG, loaded.error().message);
     }
-
-    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
-    if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " +
+    if (!loaded.value()) {
+      // No file and no environment: the defaults (nothing is written; the directory may be read-only).
+      log().info << "No " << FILE_CONFIG << " and no PP_LEDGER_* settings: using defaults";
+    } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+      return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
                                           parseResult.error().message);
     }
   }
@@ -1313,6 +1352,27 @@ BeaconServer::Roe<std::string> BeaconServer::hAuthorityProof(const Client::Reque
     return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
   }
   return utl::binaryPack(proof.value());
+}
+
+void BeaconServer::fillHealth(Client::NodeHealth &health) const {
+  Server::fillHealth(health);
+  health.role = "beacon";
+  health.networkId = beacon_.getNetworkId();
+  health.nextBlockId = beacon_.getNextBlockId();
+  health.generation = beacon_.getGeneration();
+  health.halted = beacon_.haltedAbove().has_value();
+  health.standingDown = beacon_.isSuperseded();
+  health.recoveryPending = beacon_.getRecoveryStatus().has_value();
+  if (!isServing()) {
+    return;
+  }
+  if (health.standingDown) {
+    health.notReady = "stood down: another beacon key is certified";
+  } else if (health.halted) {
+    health.notReady = "halted on equivocation evidence";
+  } else {
+    health.ready = true;
+  }
 }
 
 } // namespace pp

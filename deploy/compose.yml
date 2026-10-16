@@ -1,60 +1,138 @@
-# Sample single-host stack: Beacon → Relay → Miner → HTTP API
+# Sample single-host stack: beacon → relay → miner, and the HTTP API — configured from the
+# environment (docs/ops/CONFIGURATION.md § Environment), keys mounted as secrets.
 #
-# See deploy/README.md for init and first-start steps.
+# One-time setup: ./init.sh (keys, genesis config, peer ids in .env, then genesis). Then:
+#   docker compose up -d
+# See deploy/README.md.
 #
-# Image: set PP_LEDGER_IMAGE to a local tag while developing, or a GHCR release tag in production.
+# Nodes find each other by fixed addresses on the `ledger` network: multiaddrs take IP addresses
+# (not hostnames), and peer ids come from .env (written by init.sh from the identity keys).
 
 name: pp-ledger
 
 x-image: &image ${PP_LEDGER_IMAGE:-ghcr.io/people-post/pp-ledger:latest}
 
 services:
+  # One-shot: `docker compose --profile init run --rm beacon-init` (init.sh does it).
+  beacon-init:
+    image: *image
+    profiles: ["init"]
+    command: ["pp-beacon", "--init"]
+    environment:
+      PP_GENESIS_KEY_FILES: /run/secrets/genesis1,/run/secrets/genesis2
+      PP_BEACON_SIGNING_KEY_FILE: /run/secrets/beacon_signing
+    secrets: [genesis1, genesis2, beacon_signing]
+    volumes:
+      - beacon-data:/data
+      - ./secrets/init-config.json:/data/init-config.json:ro
+    healthcheck:
+      disable: true
+
   beacon:
     image: *image
-    command: ["pp-beacon", "-d", "/data"]
+    command: ["pp-beacon"]
+    environment:
+      PP_LEDGER_PORT: "8517"
+      PP_BEACON_SIGNING_KEY_FILE: /run/secrets/beacon_signing
+      PP_LEDGER_IDENTITY_KEY_FILE: /run/secrets/beacon_identity
+    secrets: [beacon_signing, beacon_identity]
     volumes:
-      - ./data/beacon:/data
+      - beacon-data:/data
+    networks:
+      ledger:
+        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.10
     ports:
-      - "8517:8517"
+      - "${PP_LEDGER_BEACON_HOST_PORT:-8517}:8517/udp"
     restart: unless-stopped
 
   relay:
     image: *image
-    command: ["pp-relay", "-d", "/data"]
+    command: ["pp-relay"]
+    environment:
+      PP_LEDGER_PORT: "8519"
+      PP_LEDGER_UPSTREAMS: /ip4/${PP_LEDGER_NET:-172.28.0}.10/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
+      PP_LEDGER_IDENTITY_KEY_FILE: /run/secrets/relay_identity
+    secrets: [relay_identity]
     volumes:
-      - ./data/relay:/data
+      - relay-data:/data
+    networks:
+      ledger:
+        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.11
     ports:
-      - "8519:8519"
+      - "${PP_LEDGER_RELAY_HOST_PORT:-8519}:8519/udp"
     depends_on:
-      - beacon
+      beacon:
+        condition: service_healthy
     restart: unless-stopped
 
   miner:
     image: *image
-    command: ["pp-miner", "-d", "/data"]
+    command: ["pp-miner"]
+    environment:
+      PP_LEDGER_PORT: "8518"
+      PP_MINER_ID: ${MINER_ID:-1048576}
+      PP_MINER_KEYS_FILE: /run/secrets/miner_key
+      PP_LEDGER_UPSTREAMS: /ip4/${PP_LEDGER_NET:-172.28.0}.11/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+    secrets: [miner_key]
     volumes:
-      - ./data/miner:/data
+      - miner-data:/data
+    networks:
+      ledger:
+        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.12
     ports:
-      - "8518:8518"
+      - "${PP_LEDGER_MINER_HOST_PORT:-8518}:8518/udp"
     depends_on:
-      - relay
+      relay:
+        condition: service_healthy
     restart: unless-stopped
 
   http:
     image: *image
-    # Peer dialing uses ADP multiaddrs (replace peer IDs after listeners publish).
-    # Bare host:port is not sufficient for Amp.
-    command:
-      [
-        "pp-http",
-        "--bind", "0.0.0.0",
-        "--port", "8080",
-        "--beacon", "/ip4/relay/udp/8519/adp/1.0.0/p2p/REPLACE_RELAY_PEER_ID",
-        "--miner", "/ip4/miner/udp/8518/adp/1.0.0/p2p/REPLACE_MINER_PEER_ID",
-      ]
+    command: ["pp-http"]
+    environment:
+      PP_HTTP_BIND: 0.0.0.0
+      PP_HTTP_PORT: "8080"
+      PP_HTTP_BEACON: /ip4/${PP_LEDGER_NET:-172.28.0}.11/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+      PP_HTTP_MINER: /ip4/${PP_LEDGER_NET:-172.28.0}.12/udp/8518/adp/1.0.0/p2p/${MINER_PEER_ID:?run ./init.sh first}
+      # /metrics covers its beacon (here the relay) and miner; the beacon behind the relay too.
+      PP_HTTP_METRICS_TARGETS: core-beacon=/ip4/${PP_LEDGER_NET:-172.28.0}.10/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
+    networks:
+      ledger:
+        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.20
     ports:
-      - "8080:8080"
+      - "${PP_LEDGER_HTTP_HOST_PORT:-8080}:8080"
+    healthcheck: # pp-http has no node RPC of its own: probe its API
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/beacon/state"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
     depends_on:
-      - relay
-      - miner
+      miner:
+        condition: service_healthy
     restart: unless-stopped
+
+networks:
+  ledger:
+    ipam:
+      config:
+        - subnet: ${PP_LEDGER_NET:-172.28.0}.0/24
+
+volumes:
+  beacon-data:
+  relay-data:
+  miner-data:
+
+# Written by init.sh. Readable by the container user (0644) inside secrets/ (0700 on the host).
+secrets:
+  genesis1:
+    file: ./secrets/genesis1.key
+  genesis2:
+    file: ./secrets/genesis2.key
+  beacon_signing:
+    file: ./secrets/beacon-signing.key
+  beacon_identity:
+    file: ./secrets/beacon-identity.key
+  relay_identity:
+    file: ./secrets/relay-identity.key
+  miner_key:
+    file: ./secrets/miner.key

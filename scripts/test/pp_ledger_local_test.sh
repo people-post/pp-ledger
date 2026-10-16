@@ -108,25 +108,70 @@ run_rotation() {
 }
 
 run_image() {
-  echo -e "${BLUE}═══ suite image (compose smoke scaffold) ═══${NC}"
-  local compose="${ROOT}/deploy/compose.smoke.yml"
-  [[ -f "$compose" ]] || die "missing $compose"
-  if [[ "${PP_LEDGER_SMOKE_IMAGE_RUN:-0}" != "1" ]]; then
-    echo -e "${YELLOW}SKIPPED: image suite scaffold only.${NC}"
-    echo "  Compose file: $compose"
-    echo "  Set PP_LEDGER_SMOKE_IMAGE_RUN=1 after filling Amp multiaddrs / peer IDs."
-    echo "  See deploy/configs/smoke/README.md and docs/ops/TEST_STRATEGY.md"
-    return 0
+  # The image and the sample stack (deploy/compose.yml) as an operator runs them: build the image,
+  # deploy/init.sh (keys, genesis, peer ids from the environment), `docker compose up --wait`, then
+  # readiness, chain growth, the HTTP API and a clean stop. Own project, subnet and host ports.
+  echo -e "${BLUE}═══ suite image (L-SMOKE-IMAGE: compose stack from the environment) ═══${NC}"
+  command -v docker >/dev/null 2>&1 || die "docker required for --suite image"
+  local image="${PP_LEDGER_IMAGE:-}"
+  if [[ -z "$image" ]]; then
+    image="pp-ledger:smoke"
+    echo -e "${CYAN}Building ${image} (set PP_LEDGER_IMAGE to use an existing one)...${NC}"
+    docker build -t "$image" "${ROOT}" >"${ROOT}/build/docker-build.log" 2>&1 ||
+      die "docker build failed: see build/docker-build.log"
   fi
-  if ! command -v docker >/dev/null 2>&1; then
-    die "docker required for --suite image"
-  fi
+  local stack
+  stack=$(mktemp -d)
+  cp "${ROOT}/deploy/compose.yml" "${ROOT}/deploy/init.sh" "$stack/"
   (
-    cd "${ROOT}/deploy"
-    docker compose -f compose.smoke.yml config >/dev/null
-    echo -e "${GREEN}✓ compose.smoke.yml validates${NC}"
-    echo -e "${YELLOW}Full image bring-up is still manual (Amp multiaddrs after init).${NC}"
+    cd "$stack"
+    export COMPOSE_PROJECT_NAME=pp-ledger-image-smoke PP_LEDGER_IMAGE="$image" \
+      PP_LEDGER_SLOT_DURATION=2 PP_LEDGER_SLOTS_PER_EPOCH=10 PP_LEDGER_NET="${PP_LEDGER_SMOKE_IMAGE_NET:-172.29.7}" \
+      PP_LEDGER_BEACON_HOST_PORT=28517 PP_LEDGER_RELAY_HOST_PORT=28519 PP_LEDGER_MINER_HOST_PORT=28518 \
+      PP_LEDGER_HTTP_HOST_PORT=28080
+    cleanup() { docker compose down -v >/dev/null 2>&1 || true; }
+    trap cleanup EXIT
+    ./init.sh >init.log 2>&1 || { cat init.log; die "L-SMOKE-IMAGE: init.sh failed"; }
+    docker compose up -d --wait --wait-timeout 240 >up.log 2>&1 || {
+      cat up.log; docker compose logs --tail 40; die "L-SMOKE-IMAGE: the stack did not become healthy"; }
+    echo -e "${GREEN}✓ beacon, relay, miner, http healthy${NC}"
+    # Readiness over each node's RPC, as the image's HEALTHCHECK probes liveness (no HTTP in nodes).
+    local s out deadline
+    for s in beacon relay miner; do
+      deadline=$((SECONDS + 60))
+      until out=$(docker compose exec -T "$s" pp-client --host-file /data/listen.multiaddr health --ready 2>&1); do
+        ((SECONDS < deadline)) || die "L-SMOKE-IMAGE: ${s} not ready: ${out}"
+        sleep 2
+      done
+    done
+    # Metrics come from pp-http, which asks the nodes over the RPC.
+    local metrics
+    metrics=$(curl -fsS localhost:28080/metrics) || die "L-SMOKE-IMAGE: pp-http /metrics"
+    for s in beacon miner core-beacon; do
+      grep -q "^pp_ledger_ready{node=\"${s}\"} 1$" <<<"$metrics" || die "L-SMOKE-IMAGE: /metrics: ${s} not ready"
+    done
+    next() { curl -s localhost:28080/metrics | sed -n 's/^pp_ledger_next_block_id{node="beacon"} //p'; }
+    local before after
+    deadline=$((SECONDS + 90))
+    before=$(next)
+    after=$before
+    while ((SECONDS < deadline)) && [[ "$after" -le "$before" ]]; do
+      sleep 3
+      after=$(next)
+    done
+    [[ "$after" -gt "$before" ]] || die "L-SMOKE-IMAGE: the chain did not grow (nextBlockId ${before})"
+    curl -fsS localhost:28080/api/beacon/state >/dev/null || die "L-SMOKE-IMAGE: HTTP API"
+    echo -e "${GREEN}✓ ready (pp-client health, pp-http /metrics); chain grows (nextBlockId ${before} → ${after}); HTTP API answers${NC}"
+    docker compose stop -t 20 >/dev/null 2>&1
+    local bad
+    bad=$(docker compose ps -a --format '{{.Service}} {{.ExitCode}}' | awk '$2 != 0' || true)
+    [[ -z "$bad" ]] || die "L-SMOKE-IMAGE: unclean stop: ${bad}"
+    echo -e "${GREEN}✓ every container stopped cleanly (exit 0)${NC}"
   )
+  local status=$?
+  rm -rf "$stack"
+  [[ $status -eq 0 ]] || exit $status
+  echo -e "${GREEN}L-SMOKE-IMAGE PASSED${NC}"
 }
 
 CMD=${1:-}

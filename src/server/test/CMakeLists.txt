@@ -31,3 +31,11 @@ gtest_discover_tests(test_upstream_set)
 add_executable(test_clock_calibration test_clock_calibration.cpp)
 target_link_libraries(test_clock_calibration PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_clock_calibration)
+
+add_executable(test_env_config test_env_config.cpp)
+target_link_libraries(test_env_config PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_env_config)
+
+add_executable(test_node_health test_node_health.cpp)
+target_link_libraries(test_node_health PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_node_health)

@@ -324,6 +324,59 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
   return true;
 }
 
+pp::common::Meta Client::NodeHealth::ltsToMeta() const {
+  pp::common::Meta m;
+  m.set("role", role);
+  m.set("peerId", peerId);
+  m.set("networkId", networkId);
+  m.set("ready", ready);
+  if (!notReady.empty()) {
+    m.set("notReady", notReady);
+  }
+  m.setUIntForJson("nextBlockId", nextBlockId);
+  if (upstreamNextBlockId) {
+    m.setUIntForJson("upstreamNextBlockId", *upstreamNextBlockId);
+  }
+  if (lastSyncAgeSeconds) {
+    m.set("lastSyncAgeSeconds", *lastSyncAgeSeconds);
+  }
+  if (signedTipHeight) {
+    m.setUIntForJson("signedTipHeight", *signedTipHeight);
+  }
+  m.setUIntForJson("generation", generation);
+  m.set("halted", halted);
+  m.set("recoveryPending", recoveryPending);
+  m.set("standingDown", standingDown);
+  m.setUIntForJson("requestQueueDepth", requestQueueDepth);
+  m.set("reportAgeMs", reportAgeMs);
+  return m;
+}
+
+Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) {
+  role = meta.getOrDefault("role", std::string{});
+  peerId = meta.getOrDefault("peerId", std::string{});
+  networkId = meta.getOrDefault("networkId", std::string{});
+  ready = meta.getOrDefault("ready", false);
+  notReady = meta.getOrDefault("notReady", std::string{});
+  nextBlockId = meta.getNonNegInt("nextBlockId").value_or(0);
+  upstreamNextBlockId = meta.getNonNegInt("upstreamNextBlockId");
+  lastSyncAgeSeconds.reset();
+  if (meta.contains("lastSyncAgeSeconds")) {
+    lastSyncAgeSeconds = meta.getOrDefault("lastSyncAgeSeconds", int64_t{0});
+  }
+  signedTipHeight = meta.getNonNegInt("signedTipHeight");
+  generation = meta.getNonNegInt("generation").value_or(0);
+  halted = meta.getOrDefault("halted", false);
+  recoveryPending = meta.getOrDefault("recoveryPending", false);
+  standingDown = meta.getOrDefault("standingDown", false);
+  requestQueueDepth = meta.getNonNegInt("requestQueueDepth").value_or(0);
+  reportAgeMs = meta.getOrDefault("reportAgeMs", int64_t{-1});
+  if (role.empty()) {
+    return Error(E_INVALID_RESPONSE, "Health without a role");
+  }
+  return true;
+}
+
 pp::common::Meta Client::TxGetByWalletResponse::ltsToMeta() const {
   std::vector<pp::common::Meta::Value> txs;
   txs.reserve(transactions.size());
@@ -518,6 +571,22 @@ Client::Roe<Client::BeaconState> Client::parseBeaconState(const std::string &pay
     return Error(parseResult.error().code, parseResult.error().message);
   }
   return state;
+}
+
+Client::Roe<Client::NodeHealth> Client::fetchHealth() {
+  auto result = sendRequest(T_REQ_HEALTH, "", fastTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto meta = utl::binaryUnpack<pp::common::Meta>(result.value());
+  if (!meta) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack health Meta: " + meta.error().message);
+  }
+  NodeHealth health;
+  if (auto parsed = health.ltsFromMeta(meta.value()); !parsed) {
+    return Error(parsed.error().code, parsed.error().message);
+  }
+  return health;
 }
 
 Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &minerInfo) {

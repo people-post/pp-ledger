@@ -7,6 +7,8 @@ add_library(pp_server STATIC
     TxPool.cpp
     CertificateStore.cpp
     CertificateStore.h
+    EnvConfig.cpp
+    EnvConfig.h
     EquivocationStore.cpp
     EquivocationStore.h
     NodeFile.cpp

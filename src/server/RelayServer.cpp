@@ -49,6 +49,18 @@ Object RelayServer::RunFileConfig::ltsToJson() {
   return j;
 }
 
+namespace {
+/** config.json fields a relay takes from the environment (CONFIGURATION.md § Environment). */
+std::vector<env_config::Field> relayEnvFields() {
+  auto fields = env_config::commonFields();
+  fields.push_back({"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false});
+  for (auto &field : env_config::anchorFields()) {
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+} // namespace
+
 RelayServer::Roe<void>
 RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (jd.contains("port")) {
@@ -201,7 +213,11 @@ Service::Roe<void> RelayServer::onStart() {
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
 
-  if (!std::filesystem::exists(configPath)) {
+  auto loaded = env_config::loadConfig(configPathStr, relayEnvFields());
+  if (!loaded) {
+    return Service::Error(E_CONFIG, loaded.error().message);
+  }
+  if (!loaded.value()) {
     log().info << "No " << FILE_CONFIG
                << " found, creating with default values";
 
@@ -221,20 +237,10 @@ Service::Roe<void> RelayServer::onStart() {
     // A relay without an upstream cannot do anything: stop until it is set.
     return Service::Error(E_CONFIG, "Created " + configPathStr +
                                         ": set `beacon` to the upstream's multiaddr (printed by the beacon at "
-                                        "start) and start again");
-  } else {
-    // Load existing configuration
-    auto jsonResult = utl::loadJsonFile(configPathStr);
-    if (!jsonResult) {
-      return Service::Error(E_CONFIG, "Failed to load config file: " +
-                                          jsonResult.error().message);
-    }
-
-    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
-    if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " +
-                                          parseResult.error().message);
-    }
+                                        "start) and start again — or set PP_LEDGER_UPSTREAMS instead");
+  } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+    return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
+                                        parseResult.error().message);
   }
 
   // Apply configuration from RunFileConfig
@@ -980,6 +986,43 @@ RelayServer::Roe<std::string> RelayServer::hAuthorityProof(const Client::Request
     return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
   }
   return utl::binaryPack(proof.value());
+}
+
+namespace {
+/** A relay or miner this many blocks behind its upstream's signed tip is not ready. */
+constexpr uint64_t kReadyLagBlocks = 3;
+} // namespace
+
+void RelayServer::fillHealth(Client::NodeHealth &health) const {
+  Server::fillHealth(health);
+  health.role = "relay";
+  health.networkId = networkId_;
+  health.nextBlockId = relay_.getNextBlockId();
+  health.generation = relay_.getGeneration();
+  health.halted = relay_.getEquivocation().has_value();
+  health.recoveryPending = relay_.getRecoveryStatus().has_value();
+  if (health.signedTipHeight) {
+    health.upstreamNextBlockId = *health.signedTipHeight + 1;
+  }
+  if (lastSyncResult_ && lastSyncResult_->ok) {
+    health.lastSyncAgeSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastBlockSyncTime_).count();
+  }
+  if (!isServing()) {
+    return;
+  }
+  const uint64_t lag = health.upstreamNextBlockId && *health.upstreamNextBlockId > health.nextBlockId
+                           ? *health.upstreamNextBlockId - health.nextBlockId
+                           : 0;
+  if (health.halted) {
+    health.notReady = "halted on equivocation evidence";
+  } else if (!lastSyncResult_ || !lastSyncResult_->ok) {
+    health.notReady = "not synced from the upstream";
+  } else if (lag > kReadyLagBlocks) {
+    health.notReady = std::to_string(lag) + " blocks behind the upstream";
+  } else {
+    health.ready = true;
+  }
 }
 
 } // namespace pp
