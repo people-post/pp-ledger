@@ -161,8 +161,14 @@ public:
    * refuses a ledger that ends below it or differs from it — the beacon would then sign a second
    * block at a height it already signed. Signs the committed tip if it is not signed yet (the
    * genesis block after --init, or a crash between commit and signing).
+   *
+   * No persisted tip while it holds the key in force and its ledger holds blocks past genesis: a
+   * work directory moved without `data/signed-tip.dat`, or with a ledger older than the tip the
+   * last host signed (beacon-authority bp4). Refused unless `acceptLedgerTip` (the operator knows
+   * this ledger holds every block the key signed): signing its tip could sign a height a second
+   * time. Not refused when this start's rewind dropped the tip, or while taking over.
    */
-  Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys);
+  Roe<void> openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip = false);
   /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
   std::optional<Client::SignedTip> getSignedTip() const;
   /**
@@ -262,6 +268,8 @@ private:
 
   /** After a rewind: remove a persisted tip above `height` (signed by a superseded generation). */
   Roe<void> dropSignedTipAbove(uint64_t height);
+  /** openTipSigning with no persisted tip: refuse a ledger past genesis it would sign (bp4). */
+  Roe<void> checkUnsignedLedger(const TipSigner &signer, bool acceptLedgerTip) const;
   /** Refuse a ledger that ends below the persisted tip or holds another block at its height. */
   Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const;
   std::optional<uint64_t> takeoverFor(const std::function<bool(const std::string &publicKey)> &holds) const;
@@ -279,6 +287,8 @@ private:
   std::unique_ptr<EquivocationStore> equivocations_;
   /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};
+  /** This start's rewind removed the signed tip (dropSignedTipAbove): no tip is expected. */
+  bool droppedTipThisStart_{false};
 };
 
 // Ostream operators for easy logging

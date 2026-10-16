@@ -63,6 +63,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 |-----|--------|
 | [ops/SETUP.md](ops/SETUP.md) | Local beacon / relay / miner / client setup |
 | [ops/CONFIGURATION.md](ops/CONFIGURATION.md) | Every config field: `init-config.json`, each role's `config.json`, fixed network timing |
+| [ops/MOVING_THE_BEACON.md](ops/MOVING_THE_BEACON.md) | Runbook: move the beacon to another host (same key and generation) |
 | [ops/TEST_STRATEGY.md](ops/TEST_STRATEGY.md) | Purpose IDs (`L-*`), smoke driver, CI ladder |
 | [ops/GITHUB_ACTIONS.md](ops/GITHUB_ACTIONS.md) | CI / Actions setup |
 

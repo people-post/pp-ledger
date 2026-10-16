@@ -774,7 +774,7 @@ Service::Roe<void> BeaconServer::onStart() {
       return Service::Error(E_CONFIG, "Cannot promote: " + promotable.error().message);
     }
   }
-  if (auto signing = beacon_.openTipSigning(signingKeys.value()); !signing) {
+  if (auto signing = beacon_.openTipSigning(signingKeys.value(), acceptLedgerTip_); !signing) {
     return Service::Error(-4, "Failed to open tip signing: " + signing.error().message);
   }
   if (const auto by = beacon_.supersededBy()) {

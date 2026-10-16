@@ -66,6 +66,11 @@ public:
    * then keeps the relay's config.json as config.relay.json and writes the beacon's.
    */
   void setPromote(bool promote) { promote_ = promote; }
+  /**
+   * pp-beacon --accept-ledger-tip (beacon-authority bp4): with no data/signed-tip.dat, sign the
+   * ledger's last block as the tip (Beacon::openTipSigning refuses that by default).
+   */
+  void setAcceptLedgerTip(bool accept) { acceptLedgerTip_ = accept; }
 
 protected:
   bool useSignatureFile() const override { return false; }
@@ -257,6 +262,7 @@ private:
   /** --promote's clock check (one dial key per node asked). */
   Client client_;
   bool promote_{false};
+  bool acceptLedgerTip_{false};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;

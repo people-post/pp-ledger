@@ -1,9 +1,9 @@
 # Beacon authority — decisions
 
 Rationale for [DESIGN.md](DESIGN.md). Outcomes move to `docs/contracts/` when they ship; mark the
-entry **superseded by** that doc then. Part 1 shipped (ba8): every entry but B003 (moving the
-server — operations, part 2's runbook) names the doc that is now normative; read it there, read
-the why here.
+entry **superseded by** that doc then. Part 1 shipped (ba8): every entry names the doc that is now
+normative (B003, moving the server, since its runbook shipped in bp4); read it there, read the why
+here.
 
 ## B001 — Authenticate the beacon end to end, anchored in genesis
 
@@ -31,6 +31,7 @@ fence out the real network.
 ## B003 — Moving the server is plain operations
 
 **Date:** 2026-10-15
+**Superseded by:** [MOVING_THE_BEACON.md](../../docs/ops/MOVING_THE_BEACON.md) (the runbook, bp4; this entry keeps the why).
 **Decision:** With all keys safe, moving the beacon to a new host keeps its key and generation:
 stop writes, copy data and key, start the new host, retire the old. Rotating to a new key is
 optional, at the operator's choice.
@@ -657,3 +658,36 @@ direction by every candidate (above).
 - Pooling the held certificate at the new beacon's start (expiry, ordering).
 - A longer window from `mk-beacon-cert` (still finite; still a conflict to renew).
 - A clock check at every start of a beacon taking over (it has no upstreams once promoted).
+
+## B029 — A beacon with no signed tip does not sign a ledger past genesis unasked
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Signed tip](../../docs/contracts/BEACON_AUTHORITY.md#signed-tip), [MOVING_THE_BEACON.md](../../docs/ops/MOVING_THE_BEACON.md) (normative; this entry keeps the why).
+**Decision:** Case 3 stays plain operations (B003): copy the whole work directory after a clean
+stop, retire the old host, start the copy; relays list the new address as a second candidate ahead.
+One guard is added: a beacon that holds the key in force, has no `data/signed-tip.dat`, and whose
+ledger holds blocks past genesis refuses to start, unless the operator passes
+`--accept-ledger-tip`. Not refused: genesis only, a key not in force (it signs nothing), a beacon
+taking over, and a start whose rewind just dropped the tip.
+**Rationale:**
+- **The tip file is what stops a second signature.** With it, a ledger older than the tip is
+  refused (ba3). Without it the beacon signed whatever its ledger ended at — a copy taken from a
+  running beacon, or an old backup, would then sign heights the last host already signed, and the
+  next block at such a height is equivocation: every node halts until the admins certify a new
+  generation. A forgotten file in a routine move must not cost a network halt.
+- **Nothing else needs to change.** The drill showed a moved beacon resumes with the same peer id
+  at another address; relays with two candidates move to it within a minute or two (a dial that
+  failed before the new host was up waits Amp's 30 s backoff; re-ranking runs every minute and on a
+  failed sync).
+**Cons:**
+- The operator must remember the flag when the file is truly lost; the error says so.
+- Relays and miners keep the clock offset they took from the old host (no recalibration within one
+  generation): the runbook requires NTP on both hosts.
+- The outage's skipped slots are charged like any outage (no certificate commits): a miner already
+  due may be charged; a move of minutes charges nobody in practice.
+**Alternatives:**
+- Refuse whenever the file is missing (breaks a rewound beacon and one taking over).
+- Recalibrate on every change of upstream (relays switch upstreams among relays too; miners behind
+  a relay would still keep theirs).
+- Always rotate to a new key on a move (B003's rejected alternative: an admin-key session for every
+  routine move).

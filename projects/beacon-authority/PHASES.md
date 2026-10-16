@@ -130,5 +130,12 @@ every node (B022–B024).
       way: clock offsets in milliseconds (they were whole seconds, and local time was read in
       seconds), one asynchronous calibration for relays and miners, a refused block re-ranks the
       upstreams, smoke checks no longer read logs of an earlier network (B028)
-- [ ] **bp4** Case 3 (move the server) runbook and smoke drill
+- [x] **bp4** Case 3 (move the server): runbook [MOVING_THE_BEACON.md](../../docs/ops/MOVING_THE_BEACON.md)
+      (what moves, relays given the new address as a second candidate ahead, stop cleanly, retire
+      the old host first, copy, start, watch the relays move; never both hosts) and smoke drill
+      (`--suite move`: same peer id on another port, the relay follows within a minute or two, no
+      rewind or equivocation). On the way: a beacon with no `data/signed-tip.dat` does not sign a
+      ledger past genesis unless `--accept-ledger-tip` (B029); a miner waits at start for an upstream to
+      answer, within the startup sync's 5 minutes (it gave up after one round, so a miner restarting
+      for a rewind while its relay restarted too exited — the takeover drill's flake)
 - [ ] **bp5** Case 1 (re-genesis): design note, then phases

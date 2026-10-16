@@ -327,6 +327,72 @@ TEST_F(MinerPoolTest, ABeaconAppliesARewindOrderAtItsNextStart) {
   EXPECT_EQ(restarted.getSignedTip()->height, 0u);
 }
 
+// beacon-authority bp4 (moving the beacon): the whole work directory copied after a clean stop runs
+// on as the same beacon. Copied without data/signed-tip.dat, its ledger past genesis is not signed
+// as found — it may be older than the tip the last host signed — unless the operator accepts it.
+TEST_F(MinerPoolTest, ABeaconMovedWithoutItsSignedTipDoesNotSignItsLedgerUnasked) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 12)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+
+  const fs::path beaconDir = root_ / "beacon";
+  auto signingKey = [&]() {
+    utl::MlDsaKeyPair key;
+    key.privateKey = utl::readPrivateKey("keys/beacon-signing.key", beaconDir.string()).value();
+    std::ifstream pub(beaconDir / "keys" / "beacon-signing.pub");
+    std::string hex((std::istreambuf_iterator<char>(pub)), std::istreambuf_iterator<char>());
+    hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+    key.publicKey = utl::hexDecode(hex);
+    return key;
+  }();
+  Client::SignedTip signedTip;
+  {
+    Beacon beacon;
+    Beacon::MountConfig mount;
+    mount.workDir = (beaconDir / "data").string();
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({signingKey}).isOk());
+    ASSERT_TRUE(beacon.addBlock(block).isOk());
+    signedTip = beacon.getSignedTip().value();
+    ASSERT_EQ(signedTip.height, 1u);
+  } // a clean stop
+
+  auto moveTo = [&](const std::string &name, bool withTip) {
+    const fs::path moved = root_ / name;
+    fs::copy(beaconDir, moved, fs::copy_options::recursive);
+    if (!withTip) {
+      fs::remove(moved / "data" / "signed-tip.dat");
+    }
+    Beacon::MountConfig mount;
+    mount.workDir = (moved / "data").string();
+    return mount;
+  };
+  {
+    Beacon moved; // the whole directory: the same beacon, the same tip
+    ASSERT_TRUE(moved.mount(moveTo("moved", true)).isOk());
+    ASSERT_TRUE(moved.openTipSigning({signingKey}).isOk());
+    EXPECT_EQ(moved.getSignedTip(), std::optional<Client::SignedTip>(signedTip));
+  }
+  const auto withoutTip = moveTo("moved-without-tip", false);
+  {
+    Beacon moved;
+    ASSERT_TRUE(moved.mount(withoutTip).isOk());
+    auto refused = moved.openTipSigning({signingKey});
+    ASSERT_FALSE(refused.isOk());
+    EXPECT_NE(refused.error().message.find("--accept-ledger-tip"), std::string::npos) << refused.error().message;
+    EXPECT_FALSE(fs::exists(fs::path(withoutTip.workDir) / "signed-tip.dat")) << "nothing signed";
+  }
+  {
+    Beacon moved; // the operator knows this ledger holds every block the key signed
+    ASSERT_TRUE(moved.mount(withoutTip).isOk());
+    ASSERT_TRUE(moved.openTipSigning({signingKey}, /*acceptLedgerTip=*/true).isOk());
+    EXPECT_EQ(moved.getSignedTip()->height, 1u);
+    EXPECT_EQ(moved.getSignedTip()->blockHash, signedTip.blockHash);
+  }
+}
+
 // beacon-authority bp1: a node rewinds on its own only within kMaxAutomaticRewind of slot time; a
 // deeper cut is held back — the node keeps refusing the old tips past it — until the operator
 // approves that generation (--approve-rewind).

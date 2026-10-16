@@ -35,6 +35,8 @@ cd build
 ./app/pp-beacon -d beacon
 ```
 
+To run it on another host later: [MOVING_THE_BEACON.md](MOVING_THE_BEACON.md).
+
 The beacon will:
 - Create `beacon/data/ledger/` for the chain
 - Create `beacon/beacon.log` for detailed logs

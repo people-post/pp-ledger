@@ -155,7 +155,12 @@ One signature authenticates the hash chain below it, so the block format does no
   ([LEDGER_STORAGE.md § Durability](LEDGER_STORAGE.md#durability)), and never signs a different block at or below the height stored there.
   At start it refuses a ledger that ends below that tip or holds another block at its height
   (restore the ledger it signed), and signs the committed tip if it is not signed yet (genesis
-  after `--init`, or a crash between commit and signing).
+  after `--init`, or a crash between commit and signing). With **no** `signed-tip.dat`, a beacon
+  holding the key in force whose ledger holds blocks past genesis refuses to start — a directory
+  moved without the file, whose ledger may be older than the tip the last host signed — unless
+  started with `--accept-ledger-tip`; a rewind that dropped the tip, or a beacon taking over, is
+  not refused (bp4). Moving the beacon keeps its key, generation and this file
+  ([MOVING_THE_BEACON.md](../ops/MOVING_THE_BEACON.md)).
 - **Only the certified key signs.** The beacon holds `keys/beacon-signing.key` and, staged for a
   rotation, `keys/beacon-signing.next.key`; it signs with whichever the certificate in force names.
   If it names neither — or a later certificate it holds out of band names another key — that

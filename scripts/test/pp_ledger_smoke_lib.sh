@@ -25,6 +25,8 @@ RELAY_PORT="${PP_LEDGER_SMOKE_RELAY_PORT:-8622}"
 RELAY2_PORT="${PP_LEDGER_SMOKE_RELAY2_PORT:-8623}"
 # A third relay (the takeover drill's gateway in front of the new beacon).
 RELAY3_PORT="${PP_LEDGER_SMOKE_RELAY3_PORT:-8624}"
+# The beacon's port on its "new host" in L-SMOKE-MOVE (run_move_scenario).
+MOVED_BEACON_PORT="${PP_LEDGER_SMOKE_MOVED_BEACON_PORT:-8625}"
 MINER_BASE_PORT="${PP_LEDGER_SMOKE_MINER_BASE_PORT:-8618}"
 HTTP_PORT="${PP_LEDGER_SMOKE_HTTP_PORT:-8680}"
 
@@ -382,7 +384,7 @@ create_beacon_config() {
 # Relay $1 (default "relay", in ${TEST_DIR}/$1) on UDP port $2 (default RELAY_PORT), following
 # upstream $3 (default the beacon).
 create_relay_config() {
-  local name=${1:-relay} port=${2:-$RELAY_PORT} beacon_ma=${3:-}
+  local name=${1:-relay} port=${2:-$RELAY_PORT} beacon_ma=${3:-} more_upstreams=${4:-}
   [[ -n "$beacon_ma" ]] || beacon_ma=$(beacon_multiaddr)
   [[ -n "$beacon_ma" ]] || die "beacon multiaddr missing; start beacon first"
   local relay_dir="${TEST_DIR}/${name}"
@@ -401,6 +403,16 @@ create_relay_config() {
   render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
     "RELAY_PORT=${port}" \
     "BEACON_MULTIADDR=${beacon_ma}"
+  # More upstream candidates ($4, comma-separated): the relay's `beacons` list after `beacon`.
+  if [[ -n "$more_upstreams" ]]; then
+    python3 - "$relay_dir/config.json" "$more_upstreams" <<'PY' || die "failed to add upstreams to ${name}"
+import json, sys
+path, more = sys.argv[1], sys.argv[2]
+config = json.load(open(path))
+config["beacons"] = [m for m in more.split(",") if m]
+json.dump(config, open(path, "w"), indent=2)
+PY
+  fi
   # Optional: pin the genesis the relay syncs from (networkAnchor.genesisHash).
   if [[ "${PP_LEDGER_SMOKE_RELAY_PIN_GENESIS:-0}" == "1" ]]; then
     local hash
@@ -515,10 +527,10 @@ start_beacon() {
 }
 
 # Start relay $1 (default "relay") on UDP port $2 (default RELAY_PORT), following upstream $3
-# (default the beacon); see create_relay_config.
+# (default the beacon), with more candidates $4 (comma-separated); see create_relay_config.
 start_relay() {
-  local name=${1:-relay} port=${2:-$RELAY_PORT} upstream=${3:-}
-  create_relay_config "$name" "$port" "$upstream"
+  local name=${1:-relay} port=${2:-$RELAY_PORT} upstream=${3:-} more_upstreams=${4:-}
+  create_relay_config "$name" "$port" "$upstream" "$more_upstreams"
   local relay_dir="${TEST_DIR}/${name}"
   run_bg_cmd "$relay_dir/console.log" "$BUILD_DIR/app/pp-relay" -d "$relay_dir" ${DEBUG_FLAG}
   save_pid "$name" $!
@@ -1646,4 +1658,98 @@ run_takeover_scenario() {
   local stopped
   stopped=$(all_processes_alive) || die "L-SMOKE-TAKEOVER: ${stopped} stopped"
   echo -e "${GREEN}✓ L-SMOKE-TAKEOVER: relay1 and ${NUM_MINERS} miner(s) follow generation 2 (block ${served% *}) through relay3; clocks recalibrated${NC}"
+}
+
+# The beacon's multiaddr on its new host: the same peer id (its identity key moves with it), the
+# port MOVED_BEACON_PORT.
+moved_beacon_multiaddr() {
+  beacon_multiaddr | sed "s|/udp/${BEACON_PORT}/|/udp/${MOVED_BEACON_PORT}/|"
+}
+
+# Case 3 (beacon-authority bp4, docs/ops/MOVING_THE_BEACON.md): the beacon moves to a new host —
+# same key, same generation, plain operations. The relay lists the new address ahead (a second
+# candidate). The maintainer stops the beacon cleanly, copies its whole work directory, retires the
+# old host (its signing key removed), and starts the copy on the new port. The relay moves to it
+# within a minute or two; the chain goes on under generation 1 with no rewind and no equivocation.
+# On the way: a copy without data/signed-tip.dat refuses to start.
+run_move_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-MOVE (case 3) ═══${NC}"
+  wait_for_blocks 4 90 || die "L-SMOKE-MOVE: the network did not get going"
+  local old="${TEST_DIR}/beacon" new="${TEST_DIR}/beacon-moved" torn="${TEST_DIR}/beacon-torn"
+  local new_ma before
+  new_ma=$(moved_beacon_multiaddr)
+  before=$(relay_signed_tip relay)
+  [[ "${before#* }" == "1" ]] || die "L-SMOKE-MOVE: no generation-1 tip on the relay (got '${before}')"
+
+  # 1. Stop writes: the beacon stops cleanly (SIGTERM), so its ledger and signed tip are on disk.
+  local pid
+  pid=$(pid_for_name beacon)
+  kill "$pid"
+  (sleep 20; kill -9 "$pid" 2>/dev/null) &
+  local watchdog=$! status=0
+  wait "$pid" || status=$?
+  kill "$watchdog" 2>/dev/null || true
+  remove_pid_name beacon
+  [[ $status -eq 0 ]] || die "L-SMOKE-MOVE: the beacon did not stop cleanly on SIGTERM (exit ${status})"
+  echo -e "${GREEN}✓ Old beacon stopped cleanly${NC}"
+
+  # 2. Copy the whole work directory (dotfiles too) to the new host; retire the old one.
+  rm -rf "$new" "$torn"
+  cp -a "$old" "$new"
+  rm -f "$new/beacon.log" "$new/console.log" "$new/listen.multiaddr"
+  rm -f "$old/keys/beacon-signing.key" # the old host must never sign again
+  echo -e "${GREEN}✓ Work directory copied; old host's signing key removed${NC}"
+
+  # A copy that left data/signed-tip.dat behind is refused: it could sign heights again.
+  cp -a "$new" "$torn"
+  rm -f "$torn/data/signed-tip.dat"
+  local out
+  if out=$(PP_LEDGER_PORT="$MOVED_BEACON_PORT" timeout 30 "$BUILD_DIR/app/pp-beacon" -d "$torn" 2>&1); then
+    die "L-SMOKE-MOVE: a copy without its signed tip started"
+  fi
+  grep -a -q -- "--accept-ledger-tip" <<<"$out" || die "L-SMOKE-MOVE: a copy without its signed tip: ${out}"
+  rm -rf "$torn"
+  echo -e "${GREEN}✓ A copy without data/signed-tip.dat refuses to start${NC}"
+
+  # 3. Start on the new host: same key, same identity (peer id), another address.
+  run_bg_cmd "$new/console.log" env PP_LEDGER_PORT="$MOVED_BEACON_PORT" "$BUILD_DIR/app/pp-beacon" -d "$new" ${DEBUG_FLAG}
+  save_pid beacon $!
+  wait_until_ready beacon "$new/console.log" 60 || die "L-SMOKE-MOVE: the moved beacon did not start"
+  wait_for_listen_multiaddr "$new/console.log" "${MULTIADDR_DIR}/beacon-moved" 10 ||
+    die "L-SMOKE-MOVE: the moved beacon did not listen"
+  [[ "$(relay_multiaddr beacon-moved)" == "$new_ma" ]] ||
+    die "L-SMOKE-MOVE: the moved beacon listens at $(relay_multiaddr beacon-moved), not ${new_ma}"
+  # It resumes from the tip it signed on the old host, at least the one the relay served.
+  local resumed
+  resumed=$(grep -a -o "Signed tip: block [0-9]*, generation 1" "$new/beacon.log" | head -1 | sed 's/[^0-9]*\([0-9]*\),.*/\1/')
+  [[ -n "$resumed" && "$resumed" -ge "${before% *}" ]] ||
+    die "L-SMOKE-MOVE: the moved beacon resumed from tip '${resumed}', below the relay's ${before% *}"
+  echo -e "${GREEN}✓ Beacon started on the new address, from its signed tip (block ${resumed})${NC}"
+
+  # 4. The relay moves to the new address; production resumes under generation 1.
+  wait_for_log "${TEST_DIR}/relay/relay.log" "Following upstream [1] ${new_ma}" 180 ||
+    die "L-SMOKE-MOVE: the relay did not move to the new address"
+  inject_transactions_for_block_production >/dev/null 2>&1 || true
+  local served="" target=$(( ${before% *} + 3 )) i deadline
+  deadline=$((SECONDS + 180))
+  while ((SECONDS < deadline)); do
+    served=$(relay_signed_tip relay)
+    [[ -n "$served" && "${served#* }" == "1" && "${served% *}" -ge "$target" ]] && break
+    sleep 2
+  done
+  [[ -n "$served" && "${served#* }" == "1" && "${served% *}" -ge "$target" ]] ||
+    die "L-SMOKE-MOVE: the relay does not serve generation 1 up to block ${target} (serves '${served}')"
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$target" 90 || die "L-SMOKE-MOVE: miner${i} did not follow"
+  done
+  local node log
+  for node in relay $(seq -f "miner%g" 1 "$NUM_MINERS"); do
+    log=$(node_log "$node")
+    ! grep -a -q -E "Rewound: |quivocation evidence" "$log" || die "L-SMOKE-MOVE: ${node} rewound or halted"
+  done
+  ! grep -a -q -E "Rewound: |quivocation evidence" "$new/beacon.log" || die "L-SMOKE-MOVE: the beacon rewound or halted"
+  [[ -z "$(status_equivocation)" ]] || die "L-SMOKE-MOVE: equivocation on STATUS"
+  local stopped
+  stopped=$(all_processes_alive) || die "L-SMOKE-MOVE: ${stopped} stopped"
+  echo -e "${GREEN}✓ L-SMOKE-MOVE: the relay and ${NUM_MINERS} miner(s) follow the moved beacon (generation 1, block ${served% *} from ${before% *}); no rewind, no equivocation${NC}"
 }

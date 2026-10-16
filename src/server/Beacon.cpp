@@ -284,7 +284,7 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
   return {};
 }
 
-Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys) {
+Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip) {
   auto signer = std::make_unique<TipSigner>(config_.workDir + "/" + FILE_SIGNED_TIP, keys);
   signer->redirectLogger(log().getFullName() + ".TipSigner");
   if (auto loaded = signer->load(); !loaded) {
@@ -294,6 +294,8 @@ Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &k
     if (auto held = checkLedgerHoldsSignedTip(*tip); !held) {
       return held;
     }
+  } else if (auto unsigned_ = checkUnsignedLedger(*signer, acceptLedgerTip); !unsigned_) {
+    return unsigned_;
   }
   tipSigner_ = std::move(signer);
   if (auto signed_ = signCommittedTip(); !signed_ && signed_.error().code != TipSigner::E_NOT_CERTIFIED) {
@@ -802,6 +804,25 @@ Beacon::Roe<bool> Beacon::scheduleRewind(uint64_t approvedGeneration) {
 }
 
 
+Beacon::Roe<void> Beacon::checkUnsignedLedger(const TipSigner &signer, bool acceptLedgerTip) const {
+  const auto authority = chain_.getAuthority();
+  const uint64_t nextBlockId = getNextBlockId();
+  if (nextBlockId <= 1 || droppedTipThisStart_ || !authority || !signer.holdsKey(authority->beacon.publicKey)) {
+    return {}; // only the genesis block, a rewind, or a key not in force (it signs nothing yet)
+  }
+  if (acceptLedgerTip) {
+    log().warning << "No signed tip: signing the ledger's block " << nextBlockId - 1
+                  << " as the tip (--accept-ledger-tip)";
+    return {};
+  }
+  return Error(5, "No " + std::string(FILE_SIGNED_TIP) + ", but the ledger holds blocks up to " +
+                      std::to_string(nextBlockId - 1) +
+                      ": a beacon directory moved from another host must bring its signed tip (copy the whole "
+                      "work directory after a clean stop). Signing this ledger's tip could sign a height the "
+                      "last host signed with another block (an equivocation halts the network). If this "
+                      "ledger certainly holds every block this key signed, start once with --accept-ledger-tip");
+}
+
 Beacon::Roe<void> Beacon::dropSignedTipAbove(uint64_t height) {
   const std::string path = config_.workDir + "/" + FILE_SIGNED_TIP;
   auto bytes = node_file::readIfExists(path);
@@ -815,6 +836,7 @@ Beacon::Roe<void> Beacon::dropSignedTipAbove(uint64_t height) {
   if (auto removed = node_file::remove(path); !removed) {
     return Error(3, removed.error().message);
   }
+  droppedTipThisStart_ = true;
   log().warning << "Dropped the signed tip for block " << tip.height << " (rewound to block " << height << ")";
   return {};
 }
