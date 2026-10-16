@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_H
 
 #include "CertificateStore.h"
+#include "Rewind.h"
 #include "EquivocationStore.h"
 #include "Chain.h"
 #include "TipSigner.h"
@@ -138,6 +139,19 @@ public:
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
   /**
+   * At start, before the ledger mounts: apply a rewind ordered before the restart
+   * (beacon-authority bp1, B022) and load the last one applied.
+   */
+  Roe<void> applyPendingRewind(const std::string &ledgerDir);
+  /**
+   * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
+   * start; true when one was written — the caller restarts.
+   */
+  Roe<bool> scheduleRewind();
+  /** The last rewind this node applied (STATUS); none if none. */
+  const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
+
+  /**
    * Start signing tips with `key` (after mount; beacon-authority ba3). Loads the persisted tip and
    * refuses a ledger that ends below it or differs from it — the beacon would then sign a second
    * block at a height it already signed. Signs the committed tip if it is not signed yet (the
@@ -225,6 +239,8 @@ private:
                       const std::string &networkId,
                       const std::string &errorContext) const;
 
+  /** After a rewind: remove a persisted tip above `height` (signed by a superseded generation). */
+  Roe<void> dropSignedTipAbove(uint64_t height);
   /** Refuse a ledger that ends below the persisted tip or holds another block at its height. */
   Roe<void> checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const;
   /** Sign the committed tip under the certificate in force. */
@@ -234,6 +250,7 @@ private:
   Config config_;
   std::unique_ptr<TipSigner> tipSigner_;
   std::unique_ptr<CertificateStore> certificates_;
+  std::optional<Client::RewindReport> lastRewind_;
   std::unique_ptr<EquivocationStore> equivocations_;
   /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};

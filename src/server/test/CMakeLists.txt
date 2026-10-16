@@ -19,3 +19,7 @@ gtest_discover_tests(test_block_sync)
 add_executable(test_signed_tip test_signed_tip.cpp)
 target_link_libraries(test_signed_tip PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_signed_tip)
+
+add_executable(test_rewind test_rewind.cpp)
+target_link_libraries(test_rewind PRIVATE pp_server pp_testing GTest::gtest_main)
+gtest_discover_tests(test_rewind)

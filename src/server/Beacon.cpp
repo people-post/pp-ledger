@@ -1,4 +1,5 @@
 #include "Beacon.h"
+#include "NodeFile.h"
 #include "../chain/AccountPolicy.h"
 #include "../chain/TxFees.h"
 #include "../client/AccountAttachment.h"
@@ -211,6 +212,9 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
 
   // Mount the ledger using Chain's mountLedger function
   std::string ledgerPath = config.workDir + "/" + DIR_LEDGER;
+  if (auto rewound = applyPendingRewind(ledgerPath); !rewound) {
+    return rewound;
+  }
   log().info << "Mounting ledger at: " << ledgerPath;
 
   // Mount the ledger
@@ -703,6 +707,62 @@ Beacon::Roe<Client::AuthorityProof> Beacon::authorityProof(uint64_t upToBlockId)
     return Error(proof.error().code, proof.error().message);
   }
   return proof.value();
+}
+
+
+Beacon::Roe<void> Beacon::applyPendingRewind(const std::string &ledgerDir) {
+  auto applied = rewind::applyPendingOrder(config_.workDir, ledgerDir);
+  if (!applied) {
+    return Error(3, "Failed to apply the pending rewind: " + applied.error().message);
+  }
+  if (const auto &order = applied.value()) {
+    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1
+                << " to " << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation
+                << ")";
+    // A tip above the kept blocks was signed by the superseded generation, which this beacon never
+    // signs with again (it stands down, or commits nothing above the cutover but a certificate).
+    if (auto dropped = dropSignedTipAbove(order->keptUpTo); !dropped) {
+      return dropped;
+    }
+  }
+  auto last = rewind::lastApplied(config_.workDir);
+  if (!last) {
+    return Error(3, last.error().message);
+  }
+  lastRewind_ = last.value();
+  return {};
+}
+
+Beacon::Roe<bool> Beacon::scheduleRewind() {
+  const auto order = chain_.rewindOrder();
+  if (!order) {
+    return false;
+  }
+  if (auto written = rewind::writeOrder(config_.workDir, *order); !written) {
+    return Error(3, "Failed to write the rewind order: " + written.error().message);
+  }
+  log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
+              << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
+              << "; restarting";
+  return true;
+}
+
+
+Beacon::Roe<void> Beacon::dropSignedTipAbove(uint64_t height) {
+  const std::string path = config_.workDir + "/" + FILE_SIGNED_TIP;
+  auto bytes = node_file::readIfExists(path);
+  if (!bytes) {
+    return Error(3, bytes.error().message);
+  }
+  Client::SignedTip tip;
+  if (!bytes.value() || !tip.ltsFromString(*bytes.value()) || tip.height <= height) {
+    return {}; // none, or unreadable (openTipSigning reports it), or still within the kept blocks
+  }
+  if (auto removed = node_file::remove(path); !removed) {
+    return Error(3, removed.error().message);
+  }
+  log().warning << "Dropped the signed tip for block " << tip.height << " (rewound to block " << height << ")";
+  return {};
 }
 
 } // namespace pp

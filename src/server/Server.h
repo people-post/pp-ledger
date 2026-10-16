@@ -9,6 +9,7 @@
 #include "RequestQueue.h"
 #include "../network/NetworkTuning.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,12 @@ public:
   ~Server() override;
 
   virtual Service::Roe<void> run(const std::string& workDir);
+
+  /**
+   * True when run() returned to be run again on a fresh server (beacon-authority bp1, B022): a
+   * rewind is applied by a restart. The app builds a new server on the same work directory.
+   */
+  bool restartRequested() const { return restartRequested_; }
 
 protected:
   virtual bool useSignatureFile() const { return true; }
@@ -173,6 +180,19 @@ protected:
   /** The beacon's latest signed tip this node holds, sent with each BLOCK_WAIT answer. */
   virtual std::optional<Client::SignedTip> latestSignedTip() const { return std::nullopt; }
 
+  /** How long a node keeps serving after it ordered its own rewind, before it restarts. */
+  static constexpr std::chrono::milliseconds kRewindRestartGrace{2000};
+
+  /**
+   * Stop the run loop after `grace` — time for requests in flight (a forward upstream) to finish —
+   * so run() returns with restartRequested() set. Safe during onStart: serveRequestsFor stops the
+   * loop once the grace has passed.
+   */
+  void requestRestart(std::chrono::milliseconds grace = std::chrono::milliseconds(0)) {
+    restartAt_ = RequestQueue::Clock::now() + grace;
+    restartRequested_ = true;
+  }
+
 private:
   /** Server thread: one queued request — deferred, or handled now and replied. */
   void serveRequest(const RequestQueue::Item& item);
@@ -197,6 +217,8 @@ private:
   BlockWaitList blockWaits_{requestCapacity_};
   uint64_t lastPolledTip_{0};
   RequestQueue::Clock::time_point nextBlockWaitSweep_{};
+  std::atomic<bool> restartRequested_{false};
+  RequestQueue::Clock::time_point restartAt_{};
 };
 
 } // namespace pp

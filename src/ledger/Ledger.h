@@ -340,6 +340,12 @@ public:
   Roe<void> addBlock(const ChainNode& block);
   /** Commit every block appended so far: it survives a crash or a power loss. */
   Roe<void> commit();
+  /**
+   * Drop every block from `nextBlockId` on (beacon-authority bp1: a rewind to a certificate's
+   * cutover), durably, with the checkpoints among them. `nextBlockId` must not be below the
+   * ledger's first block.
+   */
+  Roe<void> rewindTo(uint64_t nextBlockId);
   void setCommitPolicy(const CommitPolicy &policy) { commitPolicy_ = policy; }
   Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
   Roe<ChainNode> readBlock(uint64_t blockId) const;

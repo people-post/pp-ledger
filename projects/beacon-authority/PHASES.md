@@ -101,9 +101,12 @@ every node (B022–B024).
 - [x] **bp0** Design note: case 2 end to end; rewind as a restart; every node adopts a cutover;
       certificate v2 (`cutoverHash`, gateway `dialHints`), a promoted relay, no outage charges,
       clock, pool / registry (B022–B024); phases below
-- [ ] **bp1** Rewind: `data/rewind.dat` marker, in-process restart loop in each app's `main()`,
+- [x] **bp1** Rewind: `data/rewind.dat` marker, in-process restart loop in each app's `main()`,
       truncate or fresh join at start, once per generation, alerts and `STATUS`; tests and a smoke
-      drill (a cutover below the tip: every node rewinds and waits at the cutover)
+      drill (a cutover below the tip: every node rewinds and waits at the cutover). On the way:
+      `Ledger::rewindTo`, FileDirStore's rewind (it dropped every file when rewinding to the end and
+      left later files on disk), a miner starts although its registration is refused, a restarted
+      server logs to its file once
 - [ ] **bp2** Reaching the new beacon: certificate v2 (`cutoverHash`, gateway `dialHints`) and sync to a
       certificate-vouched block; certificates pushed up; relay candidate lists; re-ranking on
       failure and on a new certificate; fresh nodes bounded by the `STATUS` certificate

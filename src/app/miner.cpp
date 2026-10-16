@@ -3,6 +3,7 @@
 
 #include <cli11.hpp>
 
+#include <atomic>
 #include <csignal>
 #include <iostream>
 #include <string>
@@ -10,9 +11,15 @@
 namespace {
 pp::MinerServer *g_minerServer = nullptr;
 
+/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
+std::atomic<bool> g_stopRequested{false};
+
 void signalHandler(int signal) {
-  if ((signal == SIGINT || signal == SIGTERM) && g_minerServer) {
-    g_minerServer->setStop(true);
+  if (signal == SIGINT || signal == SIGTERM) {
+    g_stopRequested = true;
+    if (g_minerServer) {
+      g_minerServer->setStop(true);
+    }
   }
 }
 } // namespace
@@ -22,20 +29,24 @@ int runMiner(const std::string &workDir) {
 
   logger.info << "Running miner with work directory: " << workDir;
 
-  pp::MinerServer miner;
-  miner.redirectLogger("pp.M");
+  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
+  // work directory for as long as the last one asks to be restarted.
+  while (!g_stopRequested) {
+    pp::MinerServer miner;
+    miner.redirectLogger("pp.M");
+    g_minerServer = &miner; // for the signal handler
 
-  // Set global pointer for signal handler
-  g_minerServer = &miner;
+    auto runResult = miner.run(workDir);
+    g_minerServer = nullptr;
 
-  auto runResult = miner.run(workDir);
-
-  // Clear global pointer
-  g_minerServer = nullptr;
-
-  if (!runResult) {
-    logger.error << "Failed to run miner: " + runResult.error().message;
-    return 1;
+    if (!runResult) {
+      logger.error << "Failed to run miner: " + runResult.error().message;
+      return 1;
+    }
+    if (!miner.restartRequested()) {
+      break;
+    }
+    logger.warning << "Miner restarting";
   }
 
   logger.info << "Miner stopped";

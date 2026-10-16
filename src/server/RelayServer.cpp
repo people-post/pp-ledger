@@ -476,6 +476,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.signedTip = upstreamTip_.latest();
   state.equivocation = relay_.getEquivocation();
   state.recovery = relay_.getRecoveryStatus();
+  state.rewound = relay_.getLastRewind();
   state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {
@@ -491,6 +492,13 @@ void RelayServer::runLoop() {
 
   while (!isStopSet()) {
     try {
+      if (!restartRequested()) {
+        if (auto due = relay_.scheduleRewind(); !due) {
+          log().error << due.error().message;
+        } else if (due.value()) {
+          requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+        }
+      }
       relay_.refresh();
       syncBlocksPeriodically();
       tipWatch_->maintain();

@@ -1,6 +1,7 @@
 #include "BeaconServer.h"
 #include "Beacon.h"
 #include "Miner.h"
+#include "Rewind.h"
 #include "../../chain/AccountBuffer.h"
 #include "../../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
@@ -8,6 +9,9 @@
 #include "TestTempPath.h"
 
 #include <gtest/gtest.h>
+#include <iterator>
+#include <cctype>
+#include <algorithm>
 
 #include <chrono>
 #include <filesystem>
@@ -278,6 +282,49 @@ TEST_F(MinerPoolTest, EveryBlockTheBeaconAddsSurvivesACrash) {
   Ledger restarted;
   ASSERT_TRUE(restarted.mount(crashed.string()).isOk());
   EXPECT_EQ(restarted.getNextBlockId(), 2u) << "genesis and the block just added";
+}
+
+// beacon-authority bp1: a beacon ordered to rewind applies it at its next start — the ledger is cut
+// after the cutover, a tip it signed above it is dropped (that generation is superseded), and the
+// rewind is reported.
+TEST_F(MinerPoolTest, ABeaconAppliesARewindOrderAtItsNextStart) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 12)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+
+  const fs::path beaconDir = root_ / "beacon";
+  auto signingKey = [&]() {
+    utl::MlDsaKeyPair key;
+    key.privateKey = utl::readPrivateKey("keys/beacon-signing.key", beaconDir.string()).value();
+    std::ifstream pub(beaconDir / "keys" / "beacon-signing.pub");
+    std::string hex((std::istreambuf_iterator<char>(pub)), std::istreambuf_iterator<char>());
+    hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+    key.publicKey = utl::hexDecode(hex);
+    return key;
+  }();
+  Beacon::MountConfig mount;
+  mount.workDir = (beaconDir / "data").string();
+  {
+    Beacon beacon;
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.openTipSigning({signingKey}).isOk());
+    ASSERT_TRUE(beacon.addBlock(block).isOk());
+    ASSERT_EQ(beacon.getSignedTip()->height, 1u);
+  }
+  Client::RewindReport order;
+  order.keptUpTo = 0;
+  order.droppedUpTo = 1;
+  order.generation = 2;
+  ASSERT_TRUE(rewind::writeOrder(mount.workDir, order).isOk());
+
+  Beacon restarted;
+  ASSERT_TRUE(restarted.mount(mount).isOk());
+  EXPECT_EQ(restarted.getNextBlockId(), 1u) << "cut after the cutover";
+  EXPECT_EQ(restarted.getLastRewind(), std::optional<Client::RewindReport>(order));
+  ASSERT_TRUE(restarted.openTipSigning({signingKey}).isOk()) << "the tip above the cutover is gone";
+  EXPECT_EQ(restarted.getSignedTip()->height, 0u);
 }
 
 } // namespace

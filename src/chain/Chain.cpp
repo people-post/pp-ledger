@@ -1584,6 +1584,18 @@ void Chain::refreshEquivocation() {
   }
 }
 
+std::optional<Client::RewindReport> Chain::rewindOrder() const {
+  const uint64_t next = getNextBlockId();
+  if (!seenCert_ || next == 0 || next - 1 <= seenCert_->cutoverHeight) {
+    return std::nullopt;
+  }
+  Client::RewindReport order;
+  order.keptUpTo = seenCert_->cutoverHeight;
+  order.droppedUpTo = next - 1;
+  order.generation = seenCert_->generation;
+  return order;
+}
+
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {
   if (seenCertRecord_) {
     return seenCertRecord_;

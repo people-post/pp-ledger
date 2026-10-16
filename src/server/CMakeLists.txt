@@ -10,6 +10,8 @@ add_library(pp_server STATIC
     EquivocationStore.cpp
     EquivocationStore.h
     NodeFile.cpp
+    Rewind.cpp
+    Rewind.h
     NodeFile.h
     TipSigner.cpp
     TipSigner.h

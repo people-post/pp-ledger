@@ -828,6 +828,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.certificate = beacon_.getCurrentCertificate();
   state.equivocation = beacon_.getEquivocation();
   state.recovery = beacon_.getRecoveryStatus();
+  state.rewound = beacon_.getLastRewind();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -842,6 +843,13 @@ void BeaconServer::runLoop() {
 
   while (!isStopSet()) {
     try {
+      if (!restartRequested()) {
+        if (auto due = beacon_.scheduleRewind(); !due) {
+          log().error << due.error().message;
+        } else if (due.value()) {
+          requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+        }
+      }
       beacon_.refresh();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {

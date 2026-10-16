@@ -3177,6 +3177,41 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
   EXPECT_TRUE(after.value().agrees(producer.getAuthority().value(), admin.wallet).isOk());
 }
 
+// beacon-authority bp1 (B023): a chain holding blocks above the cutover of a certificate it keeps
+// out of band is ordered to rewind to the cutover; at or below it, nothing is ordered.
+TEST_F(ChainComposeTest, BeaconCert_ACutoverBelowTheTipOrdersARewind) {
+  auto &producer = harness_.producer;
+  const auto current = producer.getAuthority().value();
+  const std::string net = producer.getNetworkId();
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  BeaconCertificate gen2 = nextCertificate(current);
+  gen2.cutoverHeight = UINT64_MAX;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1,
+                                                 {makeBeaconCertRecord(gen2, harness_.genesisKey, net, 1, genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  EXPECT_FALSE(producer.rewindOrder().has_value()) << "no certificate held out of band";
+
+  BeaconCertificate gen3 = gen2;
+  gen3.generation = 3;
+  gen3.publicKey = makeKeyPair().publicKey;
+  gen3.cutoverHeight = 1;
+  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 2, genesisTime)).value(),
+            Chain::CertificateOffer::Newer);
+  EXPECT_FALSE(producer.rewindOrder().has_value()) << "the tip is at the cutover";
+
+  gen3.publicKey = makeKeyPair().publicKey;
+  gen3.generation = 4;
+  gen3.cutoverHeight = 0; // block 1 is past it
+  ASSERT_EQ(producer.offerCertificate(makeBeaconCertRecord(gen3, harness_.genesisKey, net, 3, genesisTime)).value(),
+            Chain::CertificateOffer::Newer);
+  auto order = producer.rewindOrder();
+  ASSERT_TRUE(order.has_value());
+  EXPECT_EQ(order->keptUpTo, 0u);
+  EXPECT_EQ(order->droppedUpTo, 1u);
+  EXPECT_EQ(order->generation, 4u);
+}
+
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
 // must carry them unchanged (only their own records will change them).
 TEST_F(ChainComposeTest, ConfigUpdate_CannotChangeTheAuthority) {

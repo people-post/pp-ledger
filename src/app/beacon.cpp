@@ -6,6 +6,7 @@
 
 #include <cli11.hpp>
 
+#include <atomic>
 #include <csignal>
 #include <filesystem>
 #include <iostream>
@@ -15,9 +16,15 @@
 namespace {
 pp::BeaconServer* g_beaconServer = nullptr;
 
+/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
+std::atomic<bool> g_stopRequested{false};
+
 void signalHandler(int signal) {
-  if ((signal == SIGINT || signal == SIGTERM) && g_beaconServer) {
-    g_beaconServer->setStop(true);
+  if (signal == SIGINT || signal == SIGTERM) {
+    g_stopRequested = true;
+    if (g_beaconServer) {
+      g_beaconServer->setStop(true);
+    }
   }
 }
 } // namespace
@@ -40,24 +47,28 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
 
 int runBeacon(const std::string& workDir) {
   auto logger = pp::logging::getLogger("pp");
-  
+
   logger.info << "Running beacon with work directory: " << workDir;
 
-  pp::BeaconServer beacon;
-  beacon.redirectLogger("pp.B");
+  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
+  // work directory for as long as the last one asks to be restarted.
+  while (!g_stopRequested) {
+    pp::BeaconServer beacon;
+    beacon.redirectLogger("pp.B");
+    g_beaconServer = &beacon; // for the signal handler
 
-  // Set global pointer for signal handler
-  g_beaconServer = &beacon;
+    auto runResult = beacon.run(workDir);
+    g_beaconServer = nullptr;
 
-  auto runResult = beacon.run(workDir);
-  
-  // Clear global pointer
-  g_beaconServer = nullptr;
-  
-  if (!runResult) {
-    logger.error << "Failed to run beacon: " + runResult.error().message;
-    std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
-    return 1;
+    if (!runResult) {
+      logger.error << "Failed to run beacon: " + runResult.error().message;
+      std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
+      return 1;
+    }
+    if (!beacon.restartRequested()) {
+      break;
+    }
+    logger.warning << "Beacon restarting";
   }
 
   logger.info << "Beacon stopped";

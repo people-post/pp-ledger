@@ -12,6 +12,7 @@ anything not listed here is fixed in code.
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
+| `data/rewind.dat`, `data/rewound.dat` | beacon, relay, miner | Not config: a rewind ordered before a restart (applied and removed at the next start) and the last one applied ([LEDGER_STORAGE.md § Node state files](../contracts/LEDGER_STORAGE.md#node-state-files)). Do not edit |
 | `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
 | `data/equivocation.dat` | beacon, relay, miner | every start, when present. Not config: equivocation evidence the node halts on ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); removed once a later generation is certified. Deleting it makes the node forget evidence it halts on (its upstreams may serve it again) |
 
@@ -187,8 +188,10 @@ cutover is for a **stolen key**: `--cutover <the last height you trust>` makes e
 holds the certificate refuse the old generation's tips above that height, before any block
 commits it. Hand it to the network with `submit-tx` to any relay, miner or the beacon; each node
 it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
-it. Nodes already holding blocks above the cutover stop following; bringing up the new beacon and
-rewinding them is part 2 of [beacon-authority](../../projects/beacon-authority/DESIGN.md). Give
+it. **A cutover below a node's tip is a rewind order:** every node holding blocks above it drops
+them by restarting itself, unattended, and waits at the cutover
+([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)); bringing up the new
+beacon is part 2 of [beacon-authority](../../projects/beacon-authority/DESIGN.md). Give
 an honest rotation a cutover only above the tip by a margin: the certificate must commit by the
 block after it, and a staged beacon holding the certificate commits nothing past it until then.
 

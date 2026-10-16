@@ -342,6 +342,28 @@ public:
   };
 
   /**
+   * A rewind to a certificate's cutover (beacon-authority bp1, B022): the blocks after
+   * `keptUpTo` up to `droppedUpTo` were signed by a superseded generation past its cutover and are
+   * gone. The order a node writes before it restarts (`data/rewind.dat`), the record it keeps once
+   * applied (`data/rewound.dat`), and what STATUS shows.
+   */
+  struct RewindReport {
+    constexpr static const uint32_t VERSION = 1;
+
+    uint64_t keptUpTo{0};    ///< the cutover: the last block kept
+    uint64_t droppedUpTo{0}; ///< the node's last block when the rewind was ordered
+    uint64_t generation{0};  ///< the certificate that ordered it
+
+    bool operator==(const RewindReport &other) const {
+      return keptUpTo == other.keptUpTo && droppedUpTo == other.droppedUpTo && generation == other.generation;
+    }
+    template <typename Archive> void serialize(Archive &ar) { ar & keptUpTo & droppedUpTo & generation; }
+
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+  };
+
+  /**
    * A recovery pending on chain (beacon-authority ba7), as STATUS shows it: the recovery set
    * announced a new admin set at `announcedAt`; it replaces the admin set at the first block of
    * `applyEpoch`, and until then the admin set is frozen.
@@ -388,6 +410,8 @@ public:
     std::optional<Equivocation> equivocation;
     /** A recovery pending on this node's chain (beacon-authority ba7); absent if none. */
     std::optional<RecoveryStatus> recovery;
+    /** The last rewind this node applied (beacon-authority bp1); absent if none. */
+    std::optional<RewindReport> rewound;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);

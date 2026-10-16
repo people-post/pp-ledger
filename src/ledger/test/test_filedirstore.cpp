@@ -536,3 +536,38 @@ TEST_F(FileDirStoreTest, AMissingListedBlockFileIsRefused) {
     ASSERT_TRUE(mounted.isError());
     EXPECT_NE(mounted.error().message.find("missing"), std::string::npos) << mounted.error().message;
 }
+
+// A rewind keeps the file holding the target cut at it and deletes every later file; appends then
+// continue in the kept file. Rewinding to the end is a no-op (it used to find no file there and
+// drop them all).
+TEST_F(FileDirStoreTest, RewindAcrossFilesDeletesTheLaterOnes) {
+    ASSERT_TRUE(fileDirStore.init(config).isOk());
+    const std::string large(400 * 1024, 'X');
+    for (int i = 0; i < 6; ++i) {
+        ASSERT_TRUE(fileDirStore.appendBlock(large + std::to_string(i)).isOk());
+    }
+    auto blockFiles = [&]() {
+        size_t n = 0;
+        for (const auto &entry : std::filesystem::directory_iterator(testDir)) {
+            n += entry.path().filename() != "idx.dat" ? 1 : 0;
+        }
+        return n;
+    };
+    ASSERT_GE(blockFiles(), 3u);
+    ASSERT_TRUE(fileDirStore.rewindTo(6).isOk());
+    EXPECT_EQ(fileDirStore.getBlockCount(), 6u) << "rewinding to the end drops nothing";
+
+    ASSERT_TRUE(fileDirStore.rewindTo(3).isOk());
+    EXPECT_EQ(fileDirStore.getBlockCount(), 3u);
+    EXPECT_EQ(blockFiles(), 2u) << "the later files are gone from disk";
+    ASSERT_TRUE(fileDirStore.appendBlock("again").isOk());
+    EXPECT_EQ(fileDirStore.readBlock(3).value(), "again");
+    EXPECT_EQ(fileDirStore.readBlock(2).value(), large + "2");
+
+    fileDirStore.close();
+    pp::FileDirStore restarted;
+    restarted.redirectLogger("filedirstore2");
+    ASSERT_TRUE(restarted.mount(testDir).isOk());
+    EXPECT_EQ(restarted.getBlockCount(), 4u);
+    EXPECT_EQ(restarted.readBlock(3).value(), "again");
+}

@@ -5,6 +5,8 @@
 #include "lib/common/Utilities.h"
 #include "amp/link/AdpMultiaddr.h"
 
+#include <set>
+#include <mutex>
 #include <filesystem>
 #include <thread>
 
@@ -91,7 +93,17 @@ Service::Roe<void> Server::run(const std::string& workDir) {
   }
 
   log().info << "Running " << getServerName() << " with work directory: " << workDir;
-  log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
+  // Once per process: a server restarted in-process (a rewind) logs to the same file through the
+  // same logger, and the logger cannot drop a handler.
+  static std::mutex handlersMutex;
+  static std::set<std::string> handlersAdded;
+  {
+    std::lock_guard<std::mutex> lock(handlersMutex);
+    const std::string key = log().getFullName() + "|" + workDir + "/" + getLogFileName();
+    if (handlersAdded.insert(key).second) {
+      log().addFileHandler(workDir + "/" + getLogFileName(), logging::getLevel());
+    }
+  }
 
   return Service::run();
 }
@@ -216,7 +228,14 @@ bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQue
 }
 
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
-  const auto deadline = RequestQueue::Clock::now() + budget;
+  auto deadline = RequestQueue::Clock::now() + budget;
+  if (restartRequested_) {
+    if (RequestQueue::Clock::now() >= restartAt_) {
+      setStop(true);
+      return;
+    }
+    deadline = std::min(deadline, restartAt_);
+  }
   while (!isStopSet()) {
     pollBlockWaits(); // the last item may have moved the tip
     auto item = requests_->popUntil(deadline);

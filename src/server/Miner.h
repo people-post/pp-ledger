@@ -6,6 +6,7 @@
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 #include "CertificateStore.h"
+#include "Rewind.h"
 #include "EquivocationStore.h"
 #include "Chain.h"
 
@@ -111,6 +112,19 @@ public:
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
   /**
+   * At start, before the ledger mounts: apply a rewind ordered before the restart
+   * (beacon-authority bp1, B022) and load the last one applied.
+   */
+  Roe<void> applyPendingRewind(const std::string &ledgerDir);
+  /**
+   * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
+   * start; true when one was written — the caller restarts.
+   */
+  Roe<bool> scheduleRewind();
+  /** The last rewind this node applied (STATUS); none if none. */
+  const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
+
+  /**
    * A beacon certificate from outside the blocks (ba5c: STATUS, TX_ADD), kept and persisted if it
    * is the highest seen (CertificateStore::note). None when refused (logged).
    */
@@ -189,6 +203,7 @@ private:
   /** Why the last slot this miner led was not sealed (logged once per reason). */
   std::string sealNotReadyReason_;
   std::unique_ptr<CertificateStore> certificates_;
+  std::optional<Client::RewindReport> lastRewind_;
   std::unique_ptr<EquivocationStore> equivocations_;
 };
 

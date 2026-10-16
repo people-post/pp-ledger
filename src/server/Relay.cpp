@@ -115,6 +115,9 @@ Relay::Roe<void> Relay::init(const InitConfig &config) {
 
   // Initialize ledger with startingBlockId (0 for relay)
   std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
+  if (auto rewound = applyPendingRewind(ledgerDir); !rewound) {
+    return rewound;
+  }
 
   if (std::filesystem::exists(ledgerDir)) {
     auto roe = chain_.mountLedger(ledgerDir);
@@ -225,6 +228,39 @@ Relay::Roe<Client::AuthorityProof> Relay::authorityProof(uint64_t upToBlockId) c
     return Error(proof.error().code, proof.error().message);
   }
   return proof.value();
+}
+
+
+Relay::Roe<void> Relay::applyPendingRewind(const std::string &ledgerDir) {
+  auto applied = rewind::applyPendingOrder(config_.workDir, ledgerDir);
+  if (!applied) {
+    return Error(2, "Failed to apply the pending rewind: " + applied.error().message);
+  }
+  if (const auto &order = applied.value()) {
+    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1
+                << " to " << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation
+                << ")";
+  }
+  auto last = rewind::lastApplied(config_.workDir);
+  if (!last) {
+    return Error(2, last.error().message);
+  }
+  lastRewind_ = last.value();
+  return {};
+}
+
+Relay::Roe<bool> Relay::scheduleRewind() {
+  const auto order = chain_.rewindOrder();
+  if (!order) {
+    return false;
+  }
+  if (auto written = rewind::writeOrder(config_.workDir, *order); !written) {
+    return Error(2, "Failed to write the rewind order: " + written.error().message);
+  }
+  log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
+              << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
+              << "; restarting";
+  return true;
 }
 
 } // namespace pp

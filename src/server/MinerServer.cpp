@@ -715,6 +715,13 @@ void MinerServer::runLoop() {
 
   while (!isStopSet()) {
     try {
+      if (!restartRequested()) {
+        if (auto due = miner_.scheduleRewind(); !due) {
+          log().error << due.error().message;
+        } else if (due.value()) {
+          requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+        }
+      }
       // Update miner state
       miner_.refresh();
 
@@ -1203,13 +1210,16 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   if (!minerInfo) {
     return Error(E_CONFIG, minerInfo.error().message);
   }
+  // A refused registration does not stop the start: a beacon that stood down (beacon-authority
+  // part 2 — while a new one takes over) refuses them, and a miner restarting then, to rewind or by
+  // its operator, must come up and wait. The run loop registers again (REGISTER_RENEW_INTERVAL).
   auto stateResult = client_.registerMinerServer(minerInfo.value());
   if (!stateResult) {
-    return Error(E_NETWORK,
-                 "Failed to register with upstream: " + stateResult.error().message);
+    log().warning << "Registration refused for now (retried every "
+                  << std::chrono::duration_cast<std::chrono::seconds>(REGISTER_RENEW_INTERVAL).count()
+                  << " s): " << stateResult.error().message;
   }
-
-  const auto &state = stateResult.value();
+  const Client::BeaconState state = stateResult ? stateResult.value() : status.value();
   if (auto verified = verifyUpstreamState(state); !verified) {
     return Error(E_NETWORK, verified.error().message);
   }
@@ -1217,7 +1227,9 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
     return Error(E_NETWORK, genesis.error().message);
   }
 
-  lastRegistration_ = std::chrono::steady_clock::now();
+  if (stateResult) {
+    lastRegistration_ = std::chrono::steady_clock::now();
+  }
   log().info << "Latest checkpoint ID: " << state.checkpointId;
   log().info << "Next block ID: " << state.nextBlockId;
   if (!state.networkId.empty()) {

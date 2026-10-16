@@ -3,6 +3,7 @@
 
 #include <cli11.hpp>
 
+#include <atomic>
 #include <csignal>
 #include <iostream>
 #include <string>
@@ -10,9 +11,15 @@
 namespace {
 pp::RelayServer *g_relayServer = nullptr;
 
+/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
+std::atomic<bool> g_stopRequested{false};
+
 void signalHandler(int signal) {
-  if ((signal == SIGINT || signal == SIGTERM) && g_relayServer) {
-    g_relayServer->setStop(true);
+  if (signal == SIGINT || signal == SIGTERM) {
+    g_stopRequested = true;
+    if (g_relayServer) {
+      g_relayServer->setStop(true);
+    }
   }
 }
 } // namespace
@@ -22,20 +29,24 @@ int runRelay(const std::string &workDir) {
 
   logger.info << "Running relay with work directory: " << workDir;
 
-  pp::RelayServer relay;
-  relay.redirectLogger("pp.R");
+  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
+  // work directory for as long as the last one asks to be restarted.
+  while (!g_stopRequested) {
+    pp::RelayServer relay;
+    relay.redirectLogger("pp.R");
+    g_relayServer = &relay; // for the signal handler
 
-  // Set global pointer for signal handler
-  g_relayServer = &relay;
+    auto runResult = relay.run(workDir);
+    g_relayServer = nullptr;
 
-  auto runResult = relay.run(workDir);
-
-  // Clear global pointer
-  g_relayServer = nullptr;
-
-  if (!runResult) {
-    logger.error << "Failed to run relay: " + runResult.error().message;
-    return 1;
+    if (!runResult) {
+      logger.error << "Failed to run relay: " + runResult.error().message;
+      return 1;
+    }
+    if (!relay.restartRequested()) {
+      break;
+    }
+    logger.warning << "Relay restarting";
   }
 
   logger.info << "Relay stopped";
