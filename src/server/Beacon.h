@@ -1,6 +1,7 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
+#include "CertificateStore.h"
 #include "Chain.h"
 #include "TipSigner.h"
 
@@ -145,18 +146,32 @@ public:
   /** The latest signed tip (none before openTipSigning, or while this key is not certified). */
   std::optional<Client::SignedTip> getSignedTip() const;
   /**
-   * The certificate in force names a key this beacon does not hold (beacon-authority ba5): a
-   * later generation belongs to another beacon, so this one stands down — it stops committing
-   * and serves reads only. False before openTipSigning.
+   * The certificate in force names a key this beacon does not hold (beacon-authority ba5), or a
+   * later certificate seen out of band does (ba5c): that generation belongs to another beacon, so
+   * this one stands down — it stops committing and serves reads only. False before openTipSigning.
    */
-  bool isSuperseded() const;
+  bool isSuperseded() const { return supersededBy().has_value(); }
+  /** The generation that certifies a key this beacon does not hold; none if it is not superseded. */
+  std::optional<uint64_t> supersededBy() const;
   /** The beacon generation in force (0 before the chain is loaded). */
   uint64_t getGeneration() const;
+
+  /**
+   * A beacon certificate from outside the blocks (TX_ADD, beacon-authority ba5c): kept and
+   * persisted if it is the highest generation seen. While it is not on chain, the beacon commits
+   * no block above its cutover that does not commit a certificate, and stands down if it does
+   * not hold its key.
+   */
+  Roe<Chain::CertificateOffer> offerCertificate(const Ledger::Record &record);
+  /** The current certificate for STATUS (Chain::currentCertificateRecord). */
+  std::optional<Ledger::Record> getCurrentCertificate() const;
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
   /** The latest signed tip, beside the ledger. */
   constexpr static const char *FILE_SIGNED_TIP = "signed-tip.dat";
+  /** The highest beacon certificate seen out of band, beside the ledger. */
+  constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
 
   struct Config {
     std::string workDir;
@@ -204,6 +219,7 @@ private:
   Chain chain_;
   Config config_;
   std::unique_ptr<TipSigner> tipSigner_;
+  std::unique_ptr<CertificateStore> certificates_;
   /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};
 };

@@ -202,6 +202,8 @@ private:
   Roe<std::string> hMinerList(const Client::Request &request);
   /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader. */
   Roe<std::string> hTxAdd(const Client::Request &request);
+  /** A T_BEACON_CERT in a TX_ADD (ba5c): kept if it is the highest seen; refused if it is not above. */
+  Roe<void> offerCertificate(const Ledger::Record &record);
   /** TX_PULL: pending transactions for the slot leader (through its relay). */
   Roe<std::string> hTxPull(const Client::Request &request);
   Roe<std::string> hUnsupported(const Client::Request &request);

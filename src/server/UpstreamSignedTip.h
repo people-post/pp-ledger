@@ -34,6 +34,8 @@ public:
   }
 
   const std::optional<Client::SignedTip> &latest() const { return latest_; }
+  /** Forget the held tip (it no longer verifies, e.g. past a certificate's cutover). */
+  void reset() { latest_.reset(); }
 
 private:
   std::optional<Client::SignedTip> latest_;

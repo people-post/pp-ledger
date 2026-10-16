@@ -235,7 +235,7 @@ when the old beacon will not commit the new one (stolen, case 2), which part 2 h
 rewind; ba5b prepares the channel.
 **Cons:** Until ba5b a stolen beacon key keeps signing for nodes the admins cannot reach on chain.
 `cutoverHeight` is enforced only implicitly (generation N signs nothing at or above the block
-that certifies N+1). Relays and unanchored miners still take their first block on trust. A
+that certifies N+1). (B017 makes it explicit: a certificate commits by the block after its cutover.) Relays and unanchored miners still take their first block on trust. A
 certificate for a key no running beacon holds halts the chain until that beacon runs (part 2).
 **Alternatives:** The current certificate on `STATUS`, checked against the node's admin set
 (fails after an admin rotation the node has not applied; kept for ba5b's out-of-band channel);
@@ -294,4 +294,44 @@ validates but does not seal; with the defaults (checkpoints a year apart) it nev
 hides bugs); a rotation rule tied to the validity window (misses a later `T_CONFIG` raising it).
 Also fixed here: a transfer to the payer itself minted its amount (`transferBalance` read both
 balances before writing) — refused now.
+
+## B017 — Certificates out of band bound the old generation; the cutover bounds the commit
+
+**Date:** 2026-10-15
+**Decision:** Every node keeps the highest admin-signed `T_BEACON_CERT` it sees outside the blocks
+(`Chain::offerCertificate`, verified against its committed admin set and generation), from
+`STATUS` (`certificate`: the one held, else the latest on chain), a `TX_ADD` passing through it
+(relays and miners keep it and forward it; the beacon keeps it and pools it), or an operator's
+`submit-tx` to the node; it is written to `data/beacon-cert.dat` before the offer returns and
+offered again at start (a node with no block yet waits for its first). Until a block commits that
+generation, a tip of an older generation above its cutover does not verify (`AuthorityTrail`);
+`BlockSync` offers the upstream's certificate before checking its tip, a relay stops serving a
+tip it rules out, a miner skips such an upstream. A beacon holding no key it names stands down; a
+beacon holding it commits no block above the cutover that does not commit a certificate. It is
+dropped once committed (or a later one is), or when an admin rotation leaves it unsigned. On chain
+the cutover rule changes: a certificate commits **by the block after its cutover** (was: the
+cutover below the commit block); the certificate in force carries the block before its commit as
+its cutover; `2^64−1` (`mk-beacon-cert` without `--cutover`) means none. A tip of the new
+generation still verifies only along blocks that commit it.
+**Rationale:** Out of band is what a stolen key needs (case 2): its holder will never commit its
+successor, so nodes must refuse its tips on the admins' word alone, and only a self-verifying
+certificate carries that word. Checking it against the node's own admin set keeps an upstream from
+planting one. The old on-chain rule allowed `cutover < commit block`, so the old generation could
+sign blocks above its cutover that then stayed on chain: once nodes refuse those tips out of band,
+an honest rotation with a cutover below its commit block deadlocks (nodes refuse the blocks the
+certificate must be committed above). Bounding the commit by the cutover makes the two agree; the
+in-force cutover keeps "cutover does not go back" meaningful after a generous one. An honest
+rotation needs no bound at all, hence "none". Following the new generation before its certificate
+is on chain would let a node accept blocks the new beacon has not yet committed; that, and
+rewinding nodes past the cutover, is part 2.
+**Cons:** Nodes holding blocks above a cutover stop following and need part 2's rewind. A cutover
+the chain passes before the certificate commits makes it uncommittable (the staged beacon stops at
+the cutover instead of passing it; a new certificate is needed). Another admin-signed certificate
+for the generation held is refused (the first stays) — the admins issue a higher generation
+instead. A node with no blocks syncs its first range under the authority of its first block only.
+**Alternatives:** Keep `cutover < commit` and enforce cutovers only once on chain (no protection
+before the commit: useless against a stolen key); accept the new generation's tips out of band
+(lets a node follow a branch no block certifies); refuse certificates in `TX_ADD` and use only
+`STATUS` and a file (a cut-off node's operator then needs a new tool; `submit-tx` to the node
+already reaches every role).
 

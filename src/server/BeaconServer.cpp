@@ -718,9 +718,8 @@ Service::Roe<void> BeaconServer::onStart() {
   if (auto signing = beacon_.openTipSigning(signingKeys.value()); !signing) {
     return Service::Error(-4, "Failed to open tip signing: " + signing.error().message);
   }
-  if (beacon_.isSuperseded()) {
-    log().error << "Beacon generation " << beacon_.getGeneration()
-                << " certifies none of this beacon's keys: it serves reads only";
+  if (const auto by = beacon_.supersededBy()) {
+    log().error << "Beacon generation " << *by << " certifies none of this beacon's keys: it serves reads only";
   }
 
   auto keyResult = loadOrCreateIdentityKey();
@@ -823,6 +822,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.networkId = beacon_.getNetworkId(); // from genesis
   state.registryVersion = miners_.version();
   state.signedTip = beacon_.getSignedTip();
+  state.certificate = beacon_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -849,18 +849,20 @@ void BeaconServer::runLoop() {
 }
 
 namespace {
-/** Requests that make the beacon act as the terminal: refused once it stood down. */
+/**
+ * Requests that make the beacon act as the terminal: refused once it stood down. TX_ADD is checked
+ * in its handler, which still takes a beacon certificate (ba5c).
+ */
 bool isTerminalWrite(uint32_t type) {
-  return type == Client::T_REQ_BLOCK_ADD || type == Client::T_REQ_TX_ADD || type == Client::T_REQ_TX_PULL ||
-         type == Client::T_REQ_REGISTER;
+  return type == Client::T_REQ_BLOCK_ADD || type == Client::T_REQ_TX_PULL || type == Client::T_REQ_REGISTER;
 }
 } // namespace
 
 std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
   log().debug << "Handling request: " << request.type;
-  if (isTerminalWrite(request.type) && beacon_.isSuperseded()) {
-    return Server::packResponse(1, "This beacon stood down: beacon generation " +
-                                       std::to_string(beacon_.getGeneration()) + " certifies another key");
+  if (const auto by = isTerminalWrite(request.type) ? beacon_.supersededBy() : std::nullopt) {
+    return Server::packResponse(1, "This beacon stood down: beacon generation " + std::to_string(*by) +
+                                       " certifies another key");
   }
   auto it = requestHandlers_.find(request.type);
   Roe<std::string> result = (it != requestHandlers_.end())
@@ -964,6 +966,19 @@ BeaconServer::hTxAdd(const Client::Request &request) {
   if (!record.value().decode()) {
     return Error(E_REQUEST, "Unknown or malformed transaction payload");
   }
+  const bool certificate = record.value().type == Ledger::T_BEACON_CERT;
+  if (certificate) {
+    if (auto kept = offerCertificate(record.value()); !kept) {
+      return kept.error();
+    }
+  }
+  if (const auto by = beacon_.supersededBy()) {
+    const std::string why = "beacon generation " + std::to_string(*by) + " certifies another key";
+    if (certificate) {
+      return {"Beacon certificate kept; this beacon stood down: " + why};
+    }
+    return Error(E_REQUEST, "This beacon stood down: " + why);
+  }
   const int64_t now = nowSeconds();
   txPool_.expire(now);
   switch (txPool_.add(record.value(), now)) {
@@ -975,6 +990,23 @@ BeaconServer::hTxAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Transaction pool full, please retry later");
   }
   return Error(E_REQUEST, "Transaction not accepted");
+}
+
+BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &record) {
+  auto offered = beacon_.offerCertificate(record);
+  if (!offered) {
+    return Error(E_REQUEST, "Beacon certificate refused: " + offered.error().message);
+  }
+  switch (offered.value()) {
+  case Chain::CertificateOffer::Newer:
+  case Chain::CertificateOffer::Same:
+    return {};
+  case Chain::CertificateOffer::Older:
+    return Error(E_REQUEST, "Beacon certificate refused: its generation is not above the one in force or held");
+  case Chain::CertificateOffer::Conflict:
+    return Error(E_REQUEST, "Beacon certificate refused: another certificate for its generation is held");
+  }
+  return {};
 }
 
 BeaconServer::Roe<std::string>

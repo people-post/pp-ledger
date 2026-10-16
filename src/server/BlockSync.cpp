@@ -57,6 +57,9 @@ void BlockSync::onStatus(Client::Roe<Client::BeaconState> result) {
     return;
   }
   status_ = std::move(result.value());
+  if (status_.certificate && hooks_.offerCertificate) {
+    hooks_.offerCertificate(*status_.certificate);
+  }
   syncToSignedTip();
   advance();
 }

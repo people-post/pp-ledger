@@ -100,7 +100,9 @@ ids stay as a convenience, not as the trust anchor.
 
 - A node follows the highest valid generation it has seen.
 - Generation N signatures stay valid up to generation N+1's `cutoverHeight`; any generation N tip
-  above it is rejected.
+  above it is rejected. On chain, N+1 therefore commits by the block after the cutover, and the
+  cutover in force is the block before its commit; a certificate with no cutover (an honest
+  rotation) bounds nothing until it commits ([B017](DECISIONS.md#b017--certificates-out-of-band-bound-the-old-generation-the-cutover-bounds-the-commit)).
 - A beacon that sees a higher generation than its own stops committing and runs as a relay.
 
 ### Equivocation halt

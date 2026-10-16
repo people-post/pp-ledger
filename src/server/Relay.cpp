@@ -156,6 +156,12 @@ Relay::Roe<void> Relay::init(const InitConfig &config) {
                  "Failed to load from ledger: " + loadResult.error().message);
   }
 
+  certificates_ = std::make_unique<CertificateStore>(chain_, config.workDir + "/" + FILE_BEACON_CERT);
+  certificates_->redirectLogger(log().getFullName() + ".CertificateStore");
+  if (auto loaded = certificates_->load(); !loaded) {
+    return Error(2, loaded.error().message);
+  }
+
   log().info << "Relay initialized successfully";
   log().info << "  Starting block ID: " << config.startingBlockId;
   log().info << "  Next block ID: " << getNextBlockId();
@@ -173,7 +179,22 @@ Relay::Roe<void> Relay::addBlock(const Ledger::ChainNode &block) {
   if (!result) {
     return Error(result.error().code, result.error().message);
   }
+  if (certificates_) {
+    certificates_->retryPending();
+  }
   return {};
+}
+
+std::optional<Chain::CertificateOffer> Relay::noteCertificate(const Ledger::Record &record,
+                                                            const std::string &from) {
+  if (!certificates_) {
+    return std::nullopt; // no chain yet: nothing to verify it against
+  }
+  return certificates_->note(record, from);
+}
+
+std::optional<Ledger::Record> Relay::getCurrentCertificate() const {
+  return chain_.currentCertificateRecord();
 }
 
 Relay::Roe<Client::AuthorityProof> Relay::authorityProof(uint64_t upToBlockId) const {

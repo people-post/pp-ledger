@@ -313,6 +313,12 @@ public:
     uint64_t registryVersion{ 0 };
     /** The beacon's latest signed tip (a relay serves the one it holds); absent before the first. */
     std::optional<SignedTip> signedTip;
+    /**
+     * The current beacon certificate (beacon-authority ba5c): the T_BEACON_CERT record of the
+     * highest generation this node has seen out of band, else the latest one on chain it holds;
+     * absent at generation 1. Self-verifying: the receiver checks the admin signatures.
+     */
+    std::optional<Ledger::Record> certificate;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);

@@ -161,7 +161,7 @@ chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &rec
       !valid) {
     return valid.error();
   }
-  authority_.beacon = cert.value();
+  authority_.beacon = chain_tx::certificateInForce(cert.value(), blockId);
   return {};
 }
 
@@ -181,6 +181,14 @@ chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) cons
                              "Signed tip is from beacon generation " + std::to_string(tip.generation) +
                                  ", which no certificate here names (generation " +
                                  std::to_string(beacon.generation) + " is in force)");
+  }
+  if (seen_ && tip.generation < seen_->generation && tip.height > seen_->cutoverHeight) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Signed tip at block " + std::to_string(tip.height) + " is past block " +
+                                 std::to_string(seen_->cutoverHeight) + ", the last one generation " +
+                                 std::to_string(tip.generation) + " may sign: generation " +
+                                 std::to_string(seen_->generation) +
+                                 " is certified (seen out of band, not on chain here yet)");
   }
   if (!tip.verify(beacon.publicKey)) {
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE, "Signed tip is not signed by the beacon of generation " +

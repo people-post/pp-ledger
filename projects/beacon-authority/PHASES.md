@@ -41,9 +41,24 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         effect on held accounts (a soft-mode audit), `T_END_USER` carries its written-off balances,
         a joined miner seals once its history covers the transaction validity window, and a
         self-transfer (it minted) is refused
-- [ ] **ba5c** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
+- [x] **ba5c** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
       any peer or a file, the highest one seen persisted; `cutoverHeight` against a generation not
-      yet on chain (needed by part 2's case 2)
+      yet on chain (needed by part 2's case 2) (B017). Steps:
+  - [x] **ba5c.1** Cutover semantics fixed first: on chain a certificate commits by the block after
+        its cutover (the old rule — cutover below the commit — let the old generation sign past it,
+        and would deadlock an honest rotation once nodes enforce cutovers); the cutover in force is
+        the block before the commit; `mk-beacon-cert` without `--cutover` means none
+  - [x] **ba5c.2** `Chain::offerCertificate`: the highest admin-signed certificate seen, dropped once
+        committed or unsigned by an admin rotation; `AuthorityTrail` refuses older generations'
+        tips above its cutover
+  - [x] **ba5c.3** Channels: `STATUS.certificate` (offered by `BlockSync` before the tip, and by a
+        miner choosing upstreams); `TX_ADD` keeps it at every node it passes; `CertificateStore`
+        persists it (`data/beacon-cert.dat`), also for a node that has no block yet
+  - [x] **ba5c.4** The beacon: stands down when a seen certificate names a key it does not hold;
+        holding it, commits nothing past the cutover but a certificate. Relays stop serving a tip
+        it rules out
+  - [x] **ba5c.5** Tests (chain, sync, beacon, store; mutation-checked), smoke
+        (L-SMOKE-OUT-OF-BAND in `--suite rotation`), docs
 - [ ] **ba6** Equivocation halt: detection, evidence relay, halt and resume
 - [ ] **ba7** Recovery action: announce, delay, apply (replace the admin set); admin set frozen while
       pending; pending recovery on `STATUS` / logs / alert

@@ -145,6 +145,20 @@ TEST(SignedTipWireTest, TravelsInStatusAndTipReplies) {
   state.signedTip.reset();
   ASSERT_TRUE(parsed.ltsFromMeta(state.ltsToMeta()).isOk());
   EXPECT_FALSE(parsed.signedTip.has_value());
+  EXPECT_FALSE(parsed.certificate.has_value());
+
+  // beacon-authority ba5c: the current certificate rides STATUS as its record.
+  Ledger::Record cert;
+  cert.type = Ledger::T_BEACON_CERT;
+  cert.data = "certificate";
+  cert.signatures = {"admin"};
+  state.certificate = cert;
+  ASSERT_TRUE(parsed.ltsFromMeta(state.ltsToMeta()).isOk());
+  ASSERT_TRUE(parsed.certificate.has_value());
+  EXPECT_EQ(parsed.certificate->data, "certificate");
+  EXPECT_EQ(parsed.certificate->signatures, cert.signatures);
+  state.certificate->type = Ledger::T_DEFAULT;
+  EXPECT_FALSE(parsed.ltsFromMeta(state.ltsToMeta()).isOk()) << "only a beacon certificate";
 
   Client::TipReply reply;
   reply.nextBlockId = 8;

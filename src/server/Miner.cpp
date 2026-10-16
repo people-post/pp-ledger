@@ -204,6 +204,12 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
                  "Failed to load from ledger: " + loadResult.error().message);
   }
 
+  certificates_ = std::make_unique<CertificateStore>(chain_, config.workDir + "/" + FILE_BEACON_CERT);
+  certificates_->redirectLogger(log().getFullName() + ".CertificateStore");
+  if (auto loaded = certificates_->load(); !loaded) {
+    return Error(2, loaded.error().message);
+  }
+
   log().info << "Miner initialized successfully";
   return {};
 }
@@ -402,7 +408,22 @@ Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
   }
   // The tip moved: this slot's renewals and buffer are stale.
   slotCache_ = {};
+  if (certificates_) {
+    certificates_->retryPending();
+  }
   return {};
+}
+
+std::optional<Chain::CertificateOffer> Miner::noteCertificate(const Ledger::Record &record,
+                                                            const std::string &from) {
+  if (!certificates_) {
+    return std::nullopt; // no chain yet: nothing to verify it against
+  }
+  return certificates_->note(record, from);
+}
+
+std::optional<Ledger::Record> Miner::getCurrentCertificate() const {
+  return chain_.currentCertificateRecord();
 }
 
 // Private helper methods

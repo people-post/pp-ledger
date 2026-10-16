@@ -5,6 +5,8 @@ add_library(pp_server STATIC
     RequestQueue.cpp
     BlockWaitList.cpp
     TxPool.cpp
+    CertificateStore.cpp
+    CertificateStore.h
     TipSigner.cpp
     TipSigner.h
     UpstreamSignedTip.h

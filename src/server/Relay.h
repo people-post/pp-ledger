@@ -5,10 +5,12 @@
 #include "../ledger/Ledger.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
+#include "CertificateStore.h"
 #include "Chain.h"
 
 #include <cstdint>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -61,6 +63,8 @@ public:
   Roe<AuthorityTrail> authorityTrail() const;
   /** Hash of the last block held; none while the ledger is empty. */
   std::optional<std::string> getTipHash() const;
+  /** The current certificate for STATUS (Chain::currentCertificateRecord). */
+  std::optional<Ledger::Record> getCurrentCertificate() const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
@@ -74,8 +78,18 @@ public:
 
   Roe<void> addBlock(const Ledger::ChainNode &block);
 
+  /**
+   * A beacon certificate from outside the blocks (ba5c: STATUS, TX_ADD), kept and persisted if it
+   * is the highest seen (CertificateStore::note). None when refused (logged).
+   */
+  std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record &record, const std::string &from);
+  /** The certificate held out of band, above the generation in force (Chain::seenCertificate). */
+  std::optional<BeaconCertificate> getSeenCertificate() const { return chain_.seenCertificate(); }
+
 private:
   constexpr static const char *DIR_LEDGER = "ledger";
+  /** The highest beacon certificate seen out of band, beside the ledger. */
+  constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
 
   struct Config {
     std::string workDir;
@@ -84,6 +98,7 @@ private:
 
   Chain chain_;
   Config config_;
+  std::unique_ptr<CertificateStore> certificates_;
 };
 
 // Ostream operators for easy logging

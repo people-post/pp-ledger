@@ -57,7 +57,17 @@ public:
   /** Whether a starting block's authority and admin set are the ones this trail reached. */
   chain_tx::Roe<void> agrees(const ChainAuthority &authority, const Client::Wallet &admin) const;
 
-  /** A tip signed by the generation in force at the trail's end, for this network. */
+  /**
+   * A later certificate the node holds out of band (beacon-authority ba5c): the admin set signed
+   * it, but no block followed here commits it yet. verifyTip() then refuses a tip of an older
+   * generation above its cutover, whatever key signed it.
+   */
+  void setSeenCertificate(std::optional<BeaconCertificate> seen) { seen_ = std::move(seen); }
+
+  /**
+   * A tip signed by the generation in force at the trail's end, for this network, and not above
+   * the cutover of a later certificate seen out of band.
+   */
   chain_tx::Roe<void> verifyTip(const Client::SignedTip &tip) const;
 
   const BeaconCertificate &beacon() const { return authority_.beacon; }
@@ -74,6 +84,7 @@ private:
   std::string networkId_;
   ChainAuthority authority_;
   Client::Wallet admin_;
+  std::optional<BeaconCertificate> seen_;
   Crypto crypto_;
   mutable logging::Logger logger_;
 };

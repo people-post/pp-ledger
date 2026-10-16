@@ -77,6 +77,17 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
   } else {
     std::cout << "Signed tip: none\n";
   }
+  if (status.certificate) {
+    auto tx = pp::utl::binaryUnpack<pp::Ledger::TxBeaconCert>(status.certificate->data);
+    pp::BeaconCertificate cert;
+    if (tx && cert.ltsFromString(tx.value().meta)) {
+      std::cout << "Certificate: generation " << cert.generation << ", cutover "
+                << (cert.cutoverHeight == UINT64_MAX ? std::string("none") : std::to_string(cert.cutoverHeight))
+                << "\n";
+    } else {
+      std::cout << "Certificate: unreadable\n";
+    }
+  }
   std::cout << pp::common::io::metaToJsonString(status.ltsToMeta(), 2) << "\n";
 }
 
@@ -498,14 +509,14 @@ int main(int argc, char *argv[]) {
   auto* mk_cert_cmd = app.add_subcommand(
       "mk-beacon-cert", "Create an unsigned beacon certificate (next generation) for the admin keys to sign");
   std::string mk_cert_network, mk_cert_pubkey, mk_cert_output;
-  uint64_t mk_cert_generation = 0, mk_cert_cutover = 0;
+  uint64_t mk_cert_generation = 0, mk_cert_cutover = UINT64_MAX;
   mk_cert_cmd->add_option("--network-id", mk_cert_network, "The chain's networkId")->required();
   mk_cert_cmd->add_option("--generation", mk_cert_generation, "The new generation (current + 1)")->required();
   mk_cert_cmd->add_option("--pubkey", mk_cert_pubkey, "New beacon signing public key (hex or .pub file)")
       ->required();
   mk_cert_cmd->add_option("--cutover", mk_cert_cutover,
-                          "Last block height the previous generation may sign")
-      ->required();
+                          "Last block height the previous generation may sign (default: none, it signs "
+                          "until the certificate commits; give one when its key is stolen)");
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
   // mk-account: create unsigned T_NEW_USER transaction file

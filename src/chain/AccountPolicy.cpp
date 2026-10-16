@@ -168,10 +168,17 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
   if (next.cutoverHeight < current.beacon.cutoverHeight) {
     return invalid("Beacon certificate cutoverHeight must not go back");
   }
-  if (commitBlockId.has_value() && next.cutoverHeight >= *commitBlockId) {
-    return invalid("Beacon certificate cutoverHeight must be below the block that commits it");
+  if (commitBlockId.has_value() && *commitBlockId - 1 > next.cutoverHeight) {
+    return invalid("Beacon certificate cutoverHeight " + std::to_string(next.cutoverHeight) +
+                   " is passed: the previous generation would have signed up to block " +
+                   std::to_string(*commitBlockId - 1));
   }
   return {};
+}
+
+BeaconCertificate certificateInForce(BeaconCertificate cert, uint64_t commitBlockId) {
+  cert.cutoverHeight = commitBlockId - 1;
+  return cert;
 }
 
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,

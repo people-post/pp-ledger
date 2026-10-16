@@ -65,12 +65,18 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
  * A later beacon certificate against the authority in force (beacon-authority ba2): the chain's
  * `networkId`; a valid key that is new — not the current beacon key, an admin key or a recovery
  * key; `cutoverHeight` not below the current one. On chain (`commitBlockId` set): exactly the
- * next generation, and `cutoverHeight` below the block that commits it. Out of band (nullopt): any
- * higher generation.
+ * next generation, committed no later than the block after its cutover — the previous generation
+ * never signs past it (ba5c). Out of band (nullopt): any higher generation.
  */
 Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const ChainAuthority &current,
                                         const Client::Wallet &adminWallet, const std::string &networkId,
                                         std::optional<uint64_t> commitBlockId);
+
+/**
+ * The certificate in force once block `commitBlockId` commits it (ba5c): its `cutoverHeight` is the
+ * last block the previous generation signed, `commitBlockId` − 1 — at or below the signed bound.
+ */
+BeaconCertificate certificateInForce(BeaconCertificate cert, uint64_t commitBlockId);
 
 /** Remove + re-add an account with the given wallet at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,

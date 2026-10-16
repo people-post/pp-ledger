@@ -3,7 +3,9 @@
 # generation 2 (mk-beacon-cert → sign-tx ×3 → submit-tx), assert the beacon signs with it and
 # miners follow. Then, once a checkpoint lies above the certificate, fresh miners start at it —
 # one pinning genesis (tied to it by the authority proof), one not — warm up and produce. The relay
-# pins genesis.
+# pins genesis. Last (ba5c), the admins hand the relay a generation-3 certificate with a cutover
+# below the tip, as for a stolen key: the relay serves it and no tip past it, the beacon (holding
+# no key it names) stands down, and nothing commits.
 #
 # Usage:
 #   ./scripts/test/pp_ledger_rotation_smoke.sh
@@ -31,5 +33,6 @@ inject_transactions_for_block_production
 
 wait_for_beacon_rpc 60
 run_rotation_scenario
+run_out_of_band_scenario
 stop_network || true
 echo -e "${GREEN}L-SMOKE-ROTATION PASSED${NC}"

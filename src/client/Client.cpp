@@ -202,6 +202,9 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   if (signedTip) {
     m.set("signedTip", signedTip->ltsToString());
   }
+  if (certificate) {
+    m.set("certificate", utl::binaryPack(*certificate));
+  }
   return m;
 }
 
@@ -222,6 +225,14 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
       return Error(E_INVALID_RESPONSE, "Invalid signed tip in beacon state");
     }
     signedTip = std::move(tip);
+  }
+  certificate.reset();
+  if (auto packed = meta.getOrDefault("certificate", std::string{}); !packed.empty()) {
+    auto record = utl::binaryUnpack<Ledger::Record>(packed);
+    if (!record || record.value().type != Ledger::T_BEACON_CERT) {
+      return Error(E_INVALID_RESPONSE, "Invalid beacon certificate in beacon state");
+    }
+    certificate = std::move(record.value());
   }
   return true;
 }

@@ -1052,6 +1052,22 @@ signed_tip_generation() {
   fetch_beacon_state 2>/dev/null | sed -n 's/^Signed tip: block [0-9]*, generation \([0-9]*\)$/\1/p'
 }
 
+# The admins certify generation $1 for the key in $2 (a .pub file), with cutover $3 (none if
+# empty): write the record, sign it offline (genesis is 3-of-3); prints the file.
+make_beacon_cert() {
+  local generation=$1 pubkey=$2 cutover=${3:-} cert="${TEST_DIR}/cert-gen$1.tx" i
+  local cutover_args=()
+  [[ -n "$cutover" ]] && cutover_args=(--cutover "$cutover")
+  rm -f "$cert"
+  run_pp_client mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" --generation "$generation" \
+    --pubkey "$pubkey" ${cutover_args[@]+"${cutover_args[@]}"} -o "$cert" >/dev/null || die "mk-beacon-cert failed"
+  for i in 1 2 3; do
+    run_pp_client sign-tx -k "${TEST_DIR}/keys/genesis${i}.key" --network-id "$SMOKE_NETWORK_ID" "$cert" >/dev/null ||
+      die "sign-tx failed"
+  done
+  echo "$cert"
+}
+
 run_rotation_scenario() {
   echo -e "${BLUE}═══ L-SMOKE-ROTATION ═══${NC}"
   wait_for_blocks 2 60 || true
@@ -1059,19 +1075,13 @@ run_rotation_scenario() {
   generation=$(signed_tip_generation)
   [[ "$generation" == "1" ]] || die "L-SMOKE-ROTATION: expected generation 1 before rotating, got '${generation}'"
 
-  # The admins certify the staged key as generation 2: write, sign offline (genesis is 3-of-3), submit.
-  local cert="${TEST_DIR}/rotation-cert.tx" key_dir="${TEST_DIR}/keys" next i
+  # The admins certify the staged key as generation 2, with no cutover (the old key is not
+  # stolen: it signs until the certificate commits), and submit it through the relay.
+  local cert next i
   next=$(get_next_block_id)
-  rm -f "$cert"
-  run_pp_client mk-beacon-cert --network-id "$SMOKE_NETWORK_ID" --generation 2 \
-    --pubkey "${TEST_DIR}/beacon/keys/beacon-signing.next.pub" --cutover $((next - 1)) -o "$cert" >/dev/null ||
-    die "mk-beacon-cert failed"
-  for i in 1 2 3; do
-    run_pp_client sign-tx -k "$key_dir/genesis${i}.key" --network-id "$SMOKE_NETWORK_ID" "$cert" >/dev/null ||
-      die "sign-tx failed"
-  done
+  cert=$(make_beacon_cert 2 "${TEST_DIR}/beacon/keys/beacon-signing.next.pub")
   run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" >/dev/null || die "submit-tx failed"
-  echo -e "${CYAN}Submitted the generation-2 certificate (cutover $((next - 1)))${NC}"
+  echo -e "${CYAN}Submitted the generation-2 certificate (no cutover)${NC}"
 
   local deadline=$((SECONDS + 90))
   while ((SECONDS < deadline)); do
@@ -1104,6 +1114,54 @@ run_rotation_scenario() {
   join_fresh_miner 3 anchored "$checkpoint"
   join_fresh_miner 2 plain "$checkpoint"
   echo -e "${GREEN}✓ L-SMOKE-ROTATION: generation 2 signs; fresh miners start at a checkpoint (pinned and not) and validate past the next${NC}"
+}
+
+# --- L-SMOKE-OUT-OF-BAND (beacon-authority ba5c): a certificate not on chain (a stolen beacon key) ---
+
+# The certificate the relay serves on STATUS: "<generation> <cutover>" (empty if none).
+status_certificate() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/^Certificate: generation \([0-9]*\), cutover \([0-9a-z]*\)$/\1 \2/p'
+}
+
+# The height of the signed tip the relay serves (empty if none).
+status_signed_tip_height() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/^Signed tip: block \([0-9]*\), generation [0-9]*$/\1/p'
+}
+
+run_out_of_band_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-OUT-OF-BAND ═══${NC}"
+  # The admins learn the beacon key was stolen two blocks ago: they certify generation 3 for a key
+  # no running beacon holds, trusting the old generation only up to then, and hand the
+  # certificate to the relay. It is not on chain, and the old beacon will never commit it.
+  local tip cutover cert reply key="${TEST_DIR}/unheld-beacon-signing"
+  tip=$(status_signed_tip_height)
+  [[ -n "$tip" && "$tip" -ge 2 ]] || die "L-SMOKE-OUT-OF-BAND: no signed tip to start from (got '${tip}')"
+  cutover=$((tip - 2))
+  rm -f "$key.key" "$key.pub"
+  "$BUILD_DIR/app/pp-client" keygen -o "$key" >/dev/null || die "pp-client keygen failed"
+  cert=$(make_beacon_cert 3 "$key.pub" "$cutover")
+  reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" 2>&1) ||
+    die "L-SMOKE-OUT-OF-BAND: submit-tx failed: ${reply}"
+  echo -e "${CYAN}Handed the relay a generation-3 certificate (cutover ${cutover}; signed tip was ${tip})${NC}"
+
+  # The relay keeps it, serves it, and stops serving the old generation's tip above the cutover.
+  [[ "$(status_certificate)" == "3 ${cutover}" ]] ||
+    die "L-SMOKE-OUT-OF-BAND: the relay does not serve generation 3 on STATUS (got '$(status_certificate)')"
+  [[ -z "$(status_signed_tip_height)" ]] ||
+    die "L-SMOKE-OUT-OF-BAND: the relay still serves a tip above the cutover (block $(status_signed_tip_height))"
+  [[ -f "${TEST_DIR}/relay/data/beacon-cert.dat" ]] || die "L-SMOKE-OUT-OF-BAND: the relay did not persist it"
+  echo -e "${GREEN}✓ The relay serves generation 3 and no tip past its cutover${NC}"
+
+  # The relay forwarded it: the beacon holds no key it names, so it stands down and nothing commits.
+  grep -a -q "Beacon generation 3 (seen out of band) certifies none of this beacon's keys" \
+    "${TEST_DIR}/beacon/beacon.log" || die "L-SMOKE-OUT-OF-BAND: the beacon did not stand down"
+  [[ -f "${TEST_DIR}/beacon/data/beacon-cert.dat" ]] || die "L-SMOKE-OUT-OF-BAND: the beacon did not persist it"
+  local held
+  held=$(get_next_block_id)
+  inject_transactions_for_block_production >/dev/null 2>&1 || true
+  sleep $((SLOT_DURATION * 4))
+  [[ "$(get_next_block_id)" == "$held" ]] || die "L-SMOKE-OUT-OF-BAND: the relay took blocks after the beacon stood down"
+  echo -e "${GREEN}✓ L-SMOKE-OUT-OF-BAND: the beacon stood down; the network takes nothing past the cutover${NC}"
 }
 
 # Restart miner $1 with no data — "anchored" pins genesis — and check it starts at a checkpoint at

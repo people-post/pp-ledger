@@ -160,9 +160,41 @@ public:
    */
   Roe<BeaconCertificate> verifyBeaconCertificateRecord(const Ledger::Record &record) const;
 
+  /** What offerCertificate did with a certificate (beacon-authority ba5c). */
+  enum class CertificateOffer {
+    Newer,    ///< the highest generation seen: kept
+    Same,     ///< already held
+    Older,    ///< not above the one held or the generation in force: ignored
+    Conflict, ///< another certificate of the generation held, also admin-signed: the held one stays
+  };
+  /**
+   * A T_BEACON_CERT record from outside the blocks (STATUS, a peer, an operator's file), verified
+   * like verifyBeaconCertificateRecord and kept if it is the highest generation seen. Until a block
+   * commits that generation, tips of older generations above its cutover are refused
+   * (authorityTrail()). Dropped once a block commits its generation (or a later one), or when an
+   * admin rotation leaves it unsigned. In memory only: the caller persists it.
+   */
+  Roe<CertificateOffer> offerCertificate(const Ledger::Record &record);
+  /** The certificate held out of band, above the generation in force; none if none is. */
+  const std::optional<Ledger::Record> &seenCertificateRecord() const { return seenCertRecord_; }
+  const std::optional<BeaconCertificate> &seenCertificate() const { return seenCert_; }
+  /**
+   * The current certificate, as STATUS serves it: the one held out of band, else the latest
+   * committed T_BEACON_CERT this node holds (none at generation 1, or from before a checkpoint
+   * start).
+   */
+  std::optional<Ledger::Record> currentCertificateRecord() const;
+  /**
+   * The beacon's commit rule while it holds a certificate out of band (ba5c): a block above its
+   * cutover must commit a beacon certificate. The generation in force may sign nothing above the
+   * cutover, and the certificate commits no later than the block after it.
+   */
+  Roe<void> checkSeenCutover(const Ledger::Block &block) const;
+
   /**
    * The beacon authority from the committed tip on (beacon-authority ba5): observe blocks not
-   * committed yet to follow generation and admin changes, then verify a tip against them.
+   * committed yet to follow generation and admin changes, then verify a tip against them — bound
+   * by the cutover of a certificate held out of band (ba5c).
    */
   Roe<AuthorityTrail> authorityTrail() const;
 
@@ -391,6 +423,11 @@ private:
   uint64_t authorityStepsFrom_{0};
   /** Index a committed block's authority-changing records. */
   void noteAuthoritySteps(const Ledger::ChainNode &block);
+  /** Highest certificate seen out of band and not committed yet (ba5c), with its record. */
+  std::optional<BeaconCertificate> seenCert_;
+  std::optional<Ledger::Record> seenCertRecord_;
+  /** After the authority changed: drop the seen certificate once committed or no longer signed. */
+  void refreshSeenCertificate();
 
   /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;

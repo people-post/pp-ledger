@@ -239,6 +239,7 @@ void RelayServer::initBlockSync() {
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));
   };
   hooks.onTipVerified = [this](const Client::SignedTip &tip) { noteSignedTip(tip); };
+  hooks.offerCertificate = [this](const Ledger::Record &record) { noteCertificate(record, "the beacon's STATUS"); };
   hooks.applyBlock = [this](const Ledger::ChainNode &fetched) -> pp::Roe<void> {
     Ledger::ChainNode block = fetched;
     block.hash = relay_.calculateHash(block.block);
@@ -285,6 +286,7 @@ void RelayServer::startBeaconStateRefresh() {
         if (!status.value().networkId.empty()) {
           networkId_ = status.value().networkId;
         }
+        noteCertificate(status.value().certificate, "the beacon's STATUS");
         noteSignedTip(status.value().signedTip);
       }));
 }
@@ -307,6 +309,30 @@ void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
   if (upstreamTip_.offer(*tip) == UpstreamSignedTip::Offer::Conflict) {
     log().warning << "Upstream sent a second signed tip for block " << tip->height << " (generation "
                   << tip->generation << "); keeping the first";
+  }
+}
+
+std::optional<Chain::CertificateOffer> RelayServer::noteCertificate(const std::optional<Ledger::Record> &record,
+                                                                    const std::string &from) {
+  if (!record) {
+    return std::nullopt;
+  }
+  auto offered = relay_.noteCertificate(*record, from);
+  if (offered == Chain::CertificateOffer::Newer) {
+    dropHeldTipIfInvalid();
+  }
+  return offered;
+}
+
+void RelayServer::dropHeldTipIfInvalid() {
+  const auto &tip = upstreamTip_.latest();
+  if (!tip) {
+    return;
+  }
+  if (auto verified = relay_.verifySignedTip(*tip); !verified) {
+    log().warning << "No longer serving the signed tip for block " << tip->height << ": "
+                  << verified.error().message;
+    upstreamTip_.reset();
   }
 }
 
@@ -391,6 +417,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.networkId = networkId_;
   state.registryVersion = registryVersion_;
   state.signedTip = upstreamTip_.latest();
+  state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;
@@ -694,13 +721,27 @@ void RelayServer::dTxAdd(const Client::Request &request, const RequestQueue::Rep
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
     return;
   }
-  if (!dialUpstreamFor(reply)) {
+  // A beacon certificate counts here too (ba5c): a relay cut off from an honest beacon still keeps it.
+  std::string kept;
+  if (record.value().type == Ledger::T_BEACON_CERT) {
+    if (const auto offered = noteCertificate(record.value(), "a TX_ADD");
+        offered == Chain::CertificateOffer::Newer || offered == Chain::CertificateOffer::Same) {
+      kept = "Beacon certificate kept";
+    }
+  }
+  if (auto dial = dialPeerMultiaddr(config_.network.beacon_multiaddr, "beacon"); !dial) {
+    replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, "Failed to dial upstream: " + dial.error().message))
+                                  : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
   // Up the tree to the beacon's pool; the slot leader pulls it from there.
-  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply](Client::Roe<void> result) {
-    replyWith(reply, result ? Roe<std::string>("Transaction submitted")
-                            : Roe<std::string>(Error(E_NETWORK, result.error().message)));
+  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply, kept](Client::Roe<void> result) {
+    if (result) {
+      replyWith(reply, Roe<std::string>("Transaction submitted"));
+    } else {
+      replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, result.error().message))
+                                    : Roe<std::string>(kept + "; the upstream refused it: " + result.error().message));
+    }
   }));
 }
 
