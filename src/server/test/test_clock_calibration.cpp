@@ -33,9 +33,13 @@ struct FakeUpstream {
       if (!delays.empty()) {
         delays.pop_front();
       }
-      std::this_thread::sleep_for(delay); // the round trip
+      // The round trip: a CI host may sleep longer than asked, so stamp half way through the time
+      // that actually passed.
+      const int64_t start = localNowMs();
+      std::this_thread::sleep_for(delay);
+      const int64_t now = localNowMs();
       Client::CalibrationResponse response;
-      response.msTimestamp = localNowMs() + skewMs - delay.count() / 2; // stamped half way
+      response.msTimestamp = now + skewMs - (now - start) / 2;
       done(Client::Roe<Client::CalibrationResponse>(response));
     };
   }
@@ -63,14 +67,15 @@ TEST(ClockCalibrationTest, SlowRoundTripsTakeMoreSamplesAndKeepTheShortest) {
   FakeUpstream upstream;
   upstream.skewMs = -700;
   const auto slow = kPreciseRtt + std::chrono::milliseconds(150);
-  upstream.delays = {slow, slow + std::chrono::milliseconds(100), slow + std::chrono::milliseconds(50), slow, slow};
+  // The other samples are far slower, so the shortest stands out however much a host oversleeps.
+  upstream.delays = {slow + std::chrono::milliseconds(400), slow + std::chrono::milliseconds(300), slow, slow, slow};
   std::optional<Client::Roe<Offset>> result;
   estimate(upstream.fetch(), [&](Client::Roe<Offset> offset) { result = std::move(offset); });
   ASSERT_TRUE(result.has_value() && result->isOk());
   EXPECT_EQ(upstream.asked, kMaxSamples);
   EXPECT_EQ(result->value().samples, kMaxSamples);
   EXPECT_GE(result->value().rttMs, slow.count());
-  EXPECT_LT(result->value().rttMs, slow.count() + 50) << "the shortest round trip";
+  EXPECT_LT(result->value().rttMs, slow.count() + 300) << "the shortest round trip";
   EXPECT_LE(std::abs(result->value().offsetMs - (-700)), 50);
 }
 
