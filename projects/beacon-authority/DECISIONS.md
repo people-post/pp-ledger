@@ -615,3 +615,45 @@ A follower may trail the best upstream by 2 blocks.
 **Alternatives:** Rotating on failure only (above); probing serially on the server thread (blocks
 requests for seconds); unsigned hints on `STATUS` (the old side would not serve them, B024); request
 direction by every candidate (above).
+
+## B028 — The leader carries the takeover certificate; a cutover certificate has no window
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Taking over](../../docs/contracts/BEACON_AUTHORITY.md#taking-over), [§ Later generations](../../docs/contracts/BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18), [WIRE_SCHEMA.md § Miner registration and liveness](../../docs/contracts/WIRE_SCHEMA.md#miner-registration-and-liveness) (normative; this entry keeps the why).
+**Decision:** Taking over (B024) works as follows:
+- **The certificate reaches block *C*+1 with its leader:** a slot leader whose chain ends at *C*, holding a certificate with
+  that cutover, adds it to its block itself (after its renewals) — not through the beacon's pool.
+- **No window for a cutover certificate:** a certificate with a cutover has no validity window or
+  idempotency key on chain.
+- **Taking over:** a beacon holding a certificate out of band that names its key, above one in force
+  that does not, takes over instead of standing down. `pp-beacon --promote` checks a relay's
+  directory before tip signing opens (which would sign with a key in force) and before it writes
+  anything, checks the clock against the relay's upstreams and the certificate's gateways (median,
+  bound: the delivery window; no answer: a warning), then rewrites the config.
+- **Clocks:** relays and miners recalibrate when the generation in force rises; offsets are kept in
+  milliseconds.
+- **A refused block re-ranks:** a refused block makes a relay or miner re-rank its upstreams (at most
+  every 5 s).
+**Rationale:**
+- **The leader, not the pool.** A pool record expires with its validity window and dies with a
+  restart, and the beacon is taking over with an empty pool; every node already holds the
+  certificate, so the leader is where it surely is.
+- **No window.** `mk-beacon-cert` gives a record an hour, and a takeover may come days after the
+  admins sign. A lapsed window cannot be renewed: a second record of the same generation is a
+  conflict nodes refuse. The window gives nothing here: the record binds nodes out of band without
+  one, its block is pinned by `cutoverHash`, and a generation commits once.
+- **Milliseconds.** Seal and delivery decisions are in milliseconds (the smoke's delivery window is
+  666 ms), so whole-second offsets — and local time read in seconds — could put a node a second off
+  its upstream.
+- **Re-ranking on a refusal.** In the drill, nodes followed the old side for up to a minute after
+  the new beacon signed, sealing stale heights meanwhile; a refused block is the signal that the
+  choice is stale.
+**Cons:**
+- A cutover certificate can still be committed any time later in its block *C*+1 — by design.
+- The clock check trusts the nodes it asks, and passes with a warning when none answers.
+- Promotion requires a cutover; a takeover without one (an old key lost but not stolen) uses a
+  cutover at the last block anyway.
+**Alternatives:**
+- Pooling the held certificate at the new beacon's start (expiry, ordering).
+- A longer window from `mk-beacon-cert` (still finite; still a conflict to renew).
+- A clock check at every start of a beacon taking over (it has no upstreams once promoted).

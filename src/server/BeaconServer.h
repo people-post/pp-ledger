@@ -56,6 +56,13 @@ public:
     return Server::run(workDir);
   }
 
+  /**
+   * pp-beacon --promote (beacon-authority bp3): this start turns a relay's work directory into the
+   * beacon taking over. It checks that the directory can (checkPromotion) and this host's clock,
+   * then keeps the relay's config.json as config.relay.json and writes the beacon's.
+   */
+  void setPromote(bool promote) { promote_ = promote; }
+
 protected:
   bool useSignatureFile() const override { return false; }
   std::string getSignatureFileName() const override { return FILE_SIGNATURE; }
@@ -84,6 +91,8 @@ protected:
 private:
   constexpr static const char* FILE_INIT_CONFIG = "init-config.json";
   constexpr static const char* FILE_CONFIG = "config.json";
+  /** --promote keeps the relay's config.json here. */
+  constexpr static const char* FILE_RELAY_CONFIG = "config.relay.json";
   constexpr static const char* FILE_LOG = "beacon.log";
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
@@ -177,6 +186,26 @@ private:
   };
 
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config);
+
+  /** --promote: the relay's config.json — its port and allowedPeers kept, its upstreams to check the clock against. */
+  struct Promotion {
+    RunFileConfig config;
+    std::vector<std::string> clockReferences;
+  };
+  Roe<Promotion> readRelayConfig() const;
+  /**
+   * --promote, before tip signing opens (it would sign with a key in force): no signed tip here; a
+   * certificate held, with a cutover, names one of `keys` and the one in force none; block C held as
+   * vouched.
+   */
+  Roe<void> checkPromotion(const std::vector<utl::MlDsaKeyPair> &keys) const;
+  /**
+   * --promote: this host's clock against what the relay's upstreams and the certificate's gateways
+   * answer to CALIBRATION (their median); refused beyond the delivery window. None answering: warned.
+   */
+  Roe<void> checkClockForTakeover(std::vector<std::string> references);
+  /** --promote: config.json becomes config.relay.json; the beacon's is written in its place. */
+  Roe<void> writeBeaconConfig(RunFileConfig config) const;
   void initHandlers();
 
   /**
@@ -220,7 +249,9 @@ private:
 
   Config config_;
   Beacon beacon_;
+  /** --promote's clock check (one dial key per node asked). */
   Client client_;
+  bool promote_{false};
 
   using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
   std::map<uint32_t, Handler> requestHandlers_;

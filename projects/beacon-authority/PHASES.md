@@ -122,8 +122,13 @@ every node (B022–B024).
         to every upstream. Relays take `beacons`. On the way: only the upstream followed is "own
         upstream" for request direction; one AMP dial key per upstream (the miner reused one key,
         so its probes could all reach the first upstream); a sync keeps its own client (B027)
-- [ ] **bp3** Taking over: `pp-beacon --promote` on a relay's directory, the taking-over state,
-      no liveness charges across the outage, clock check and recalibration on a new generation;
-      smoke drill of case 2 end to end (stolen key → certificate → rewind → takeover → resume)
+- [x] **bp3** Taking over: `pp-beacon --promote` on a relay's directory (checked before it writes;
+      the relay config kept), the taking-over state (a held certificate naming the beacon's key),
+      the slot leader of block *C*+1 adds the certificate itself, a certificate with a cutover has no
+      validity window on chain, no liveness charges in that block, the clock checked at promotion and
+      recalibrated on a new generation; smoke drill of case 2 end to end (`--suite takeover`). On the
+      way: clock offsets in milliseconds (they were whole seconds, and local time was read in
+      seconds), one asynchronous calibration for relays and miners, a refused block re-ranks the
+      upstreams, smoke checks no longer read logs of an earlier network (B028)
 - [ ] **bp4** Case 3 (move the server) runbook and smoke drill
 - [ ] **bp5** Case 1 (re-genesis): design note, then phases

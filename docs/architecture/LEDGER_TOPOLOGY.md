@@ -231,10 +231,11 @@ the leader's pool is final; out-of-order dependent transactions must be resubmit
 
 ## Time and slots
 
-`CALIBRATION` returns the terminal's time. Relays and miners calibrate once at startup to their
-upstream: up to 5 samples, the lowest-RTT one wins (or the first if its RTT ≤ 200 ms), applied as a
-whole-second offset. A relay answers `CALIBRATION` with its own clock plus that offset. Slot,
-epoch, the seal window and the delivery deadline all use the calibrated clock.
+`CALIBRATION` returns the terminal's time. Relays and miners calibrate at startup through the
+upstream they follow, and again when the beacon generation in force rises (a new beacon may run on
+another host; `clock_calibration`): up to 5 samples, the lowest-RTT one wins (or the first if its
+RTT ≤ 200 ms), kept in milliseconds. A relay answers `CALIBRATION` with its own clock plus that
+offset. Slot, epoch, the seal window and the delivery deadline all use the calibrated clock.
 
 ---
 

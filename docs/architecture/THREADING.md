@@ -92,7 +92,9 @@ A role's run loop makes no blocking network calls:
   While it is pending the leader does not produce, syncs wait, and an inbound
   `BLOCK_ADD` is told to retry.
 - **Startup** (`onStart`) still blocks — connect, register, calibrate, verify
-  the genesis anchor — before anything is served. Its initial sync uses
+  the genesis anchor — before anything is served. Calibration is asynchronous
+  (`clock_calibration::estimate`); startup waits for it through
+  `Server::calibrateBlocking`, and a recalibration at run time does not block. Its initial sync uses
   `BlockSync` driven by `Server::serveTasksUntil` (completions only; requests
   stay queued) and retries with backoff until `STARTUP_SYNC_TIMEOUT`.
 

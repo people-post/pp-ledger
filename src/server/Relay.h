@@ -38,7 +38,7 @@ public:
 
   struct InitConfig {
     std::string workDir;
-    int64_t timeOffset{0};
+    int64_t timeOffsetMs{0};
     uint64_t startingBlockId{0};
   };
 
@@ -119,6 +119,13 @@ public:
   std::optional<std::pair<uint64_t, std::string>> vouchedCutover() const { return chain_.vouchedCutover(); }
   /** The network id of the chain held (empty before it loads). */
   std::string getNetworkId() const { return chain_.getNetworkId(); }
+  /** Recalibrated to the beacon's clock (Chain::setTimeOffsetMs). */
+  void setTimeOffsetMs(int64_t offsetMs) { chain_.setTimeOffsetMs(offsetMs); }
+  /** The beacon generation in force (0 before the chain is loaded). */
+  uint64_t getGeneration() const {
+    const auto authority = chain_.getAuthority();
+    return authority ? authority->beacon.generation : 0;
+  }
   /** Whether an upstream serving `tip` is worth following (Chain::mayFollowTip). */
   bool mayFollowTip(const Client::SignedTip &tip) const { return chain_.mayFollowTip(tip); }
   /** Where to reach the beacon: the certificates' dial hints (Chain::dialHints). */
@@ -133,7 +140,7 @@ private:
 
   struct Config {
     std::string workDir;
-    int64_t timeOffset{0};
+    int64_t timeOffsetMs{0};
   };
 
   Chain chain_;

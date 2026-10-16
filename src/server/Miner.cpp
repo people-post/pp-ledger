@@ -162,9 +162,9 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
 
   log().info << "  Work directory: " << config.workDir;
 
-  // Initialize consensus(timeOffset only, full config from genesis block when loading)
+  // Initialize consensus(timeOffsetMs only, full config from genesis block when loading)
   consensus::SlotCommittee::Config consensusConfig;
-  consensusConfig.timeOffset = config.timeOffset;
+  consensusConfig.timeOffsetMs = config.timeOffsetMs;
   chain_.initConsensus(consensusConfig);
 
   // Initialize ledger
@@ -240,9 +240,9 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       slotCache_ = {};
       return Error(12, renewalsResult.error().message);
     }
-    slotCache_.txRenewals = renewalsResult.value();
+    auto renewals = renewalsResult.value();
     const std::string networkId = chain_.getNetworkId();
-    for (auto &rec : slotCache_.txRenewals) {
+    for (auto &rec : renewals) {
       const std::string message = rec.signingMessage(networkId);
       for (const auto &privateKey : config_.privateKeys) {
         auto result = utl::mlDsaSign(privateKey, message);
@@ -259,9 +259,22 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
         return Error(12, "Failed to add renewal transaction: " +
                              addResult.error().message);
       }
+      slotCache_.leaderRecords.push_back(std::move(rec));
     }
-    // Re-apply pending txes so buffer matches block order (renewals then
-    // pending). One that no longer applies (included elsewhere, balance
+    // The block after a cutover commits the certificate held (bp3): the beacon taking over commits
+    // nothing else there. After the renewals: a checkpoint block opens with its genesis renewal.
+    if (auto due = chain_.certificateDueAt(chain_.getNextBlockId())) {
+      if (auto added = chain_.addBufferTransaction(bufferBank_, *due, config_.minerId); !added) {
+        log().error << "The beacon certificate held does not apply to block " << chain_.getNextBlockId() << ": "
+                    << added.error().message;
+      } else {
+        log().info << "Leading slot " << slot << ": block " << chain_.getNextBlockId()
+                   << " commits the beacon certificate held (the new beacon's first)";
+        slotCache_.leaderRecords.push_back(*due);
+      }
+    }
+    // Re-apply pending txes so buffer matches block order (the leader's own
+    // records, then pending). One that no longer applies (included elsewhere, balance
     // spent, window ended) is dropped: aborting here would stall every slot.
     std::vector<Ledger::Record> stillValid;
     stillValid.reserve(pendingTxes_.size());
@@ -288,7 +301,7 @@ Miner::Roe<bool> Miner::shouldAttemptProduction(uint64_t slot,
     return false;
   }
   const bool hasWork =
-      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
+      !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
   if (!hasWork) {
     auto tipRoe = chain_.readLastBlock();
     if (!tipRoe) {
@@ -348,7 +361,7 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
   }
 
   const bool hasWork =
-      !slotCache_.txRenewals.empty() || !pendingTxes_.empty();
+      !slotCache_.leaderRecords.empty() || !pendingTxes_.empty();
   if (hasWork) {
     log().info << "Producing block for slot " << slot;
   } else {
@@ -377,14 +390,15 @@ void Miner::markBlockProduction(const Ledger::ChainNode &block) {
 
 void Miner::abandonBlock(const Ledger::ChainNode &block) {
   chain_.abandonSeal();
-  // Renewals lead the record list and are rebuilt per slot; keep the rest.
-  const size_t renewals =
-      std::min(slotCache_.txRenewals.size(), block.block.records.size());
+  // The leader's own records (renewals, a certificate due) lead the list and are rebuilt per slot; keep
+  // the rest.
+  const size_t leaderOwn =
+      std::min(slotCache_.leaderRecords.size(), block.block.records.size());
   pendingTxes_.insert(pendingTxes_.begin(),
                       block.block.records.begin() +
-                          static_cast<std::ptrdiff_t>(renewals),
+                          static_cast<std::ptrdiff_t>(leaderOwn),
                       block.block.records.end());
-  // Renewals and the buffer were built on the abandoned tip; rebuild next time.
+  // The leader's records and the buffer were built on the abandoned tip; rebuild next time.
   slotCache_ = {};
 }
 
@@ -455,16 +469,16 @@ std::optional<Chain::EquivocationOffer> Miner::noteEquivocation(const Client::Eq
 
 Miner::BlockTxSet Miner::getBlockTransactionSet() const {
   Miner::BlockTxSet out;
-  const size_t renewalsCount = slotCache_.txRenewals.size();
+  const size_t leaderCount = slotCache_.leaderRecords.size();
   const uint64_t maxTx = chain_.getMaxTransactionsPerBlock();
-  out.records = slotCache_.txRenewals;
+  out.records = slotCache_.leaderRecords;
   if (maxTx == 0) {
     out.nPendingIncluded = pendingTxes_.size();
     out.records.insert(out.records.end(), pendingTxes_.begin(),
                           pendingTxes_.end());
   } else {
     const size_t pendingCap =
-        (maxTx > renewalsCount) ? static_cast<size_t>(maxTx - renewalsCount)
+        (maxTx > leaderCount) ? static_cast<size_t>(maxTx - leaderCount)
                                : 0;
     out.nPendingIncluded = std::min(pendingTxes_.size(), pendingCap);
     out.records.insert(out.records.end(), pendingTxes_.begin(),

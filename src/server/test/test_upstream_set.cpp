@@ -251,3 +251,18 @@ TEST(UpstreamSetTest, AHintLearntMidRoundIsProbedInTheNextOne) {
   h.answer(2, stateAt(2, 4));
   EXPECT_EQ(h.set->active(), addr("gateway"));
 }
+
+TEST(UpstreamSetTest, ARefusedBlockRanksAgainButNotOverAndOver) {
+  Harness h({addr("old-side"), addr("gateway")});
+  h.set->suspect("the upstream refused block 7");
+  ASSERT_EQ(h.pending.size(), 2u) << "ranked at once, not at the next periodic round";
+  h.answer(0, stateAt(1, 5));
+  h.answer(1, stateAt(2, 8));
+  EXPECT_EQ(h.set->active(), addr("gateway"));
+  h.set->suspect("the upstream refused block 8");
+  EXPECT_TRUE(h.pending.empty()) << "a round just ran: refusals in a burst rank once";
+
+  Harness single({addr("only")});
+  single.set->suspect("refused");
+  EXPECT_TRUE(single.pending.empty()) << "nothing to choose from";
+}

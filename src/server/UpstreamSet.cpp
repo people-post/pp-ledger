@@ -184,6 +184,12 @@ void UpstreamSet::noteFailed() {
   rerank("the sync failed");
 }
 
+void UpstreamSet::suspect(const std::string &why) {
+  if (upstreams_.size() > 1 && !inFlight_ && Clock::now() - lastRanked_ >= kSuspectGap) {
+    rerank(why);
+  }
+}
+
 void UpstreamSet::maintain() {
   if (upstreams_.size() > 1 && !inFlight_ && Clock::now() - lastRanked_ >= kRerankInterval) {
     rerank("periodic");

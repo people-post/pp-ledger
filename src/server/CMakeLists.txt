@@ -16,6 +16,8 @@ add_library(pp_server STATIC
     TipSigner.cpp
     TipSigner.h
     UpstreamSignedTip.h
+    ClockCalibration.cpp
+    ClockCalibration.h
     UpstreamSet.cpp
     UpstreamSet.h
     UpstreamTipWatch.cpp

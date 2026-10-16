@@ -46,7 +46,7 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
-int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration) {
+int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote) {
   auto logger = pp::logging::getLogger("pp");
 
   logger.info << "Running beacon with work directory: " << workDir;
@@ -57,6 +57,8 @@ int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration) {
     pp::BeaconServer beacon;
     beacon.redirectLogger("pp.B");
     beacon.setApprovedRewindGeneration(approvedRewindGeneration);
+    beacon.setPromote(promote);
+    promote = false; // the first start promotes; a restart (a rewind) runs the beacon it became
     g_beaconServer = &beacon; // for the signal handler
 
     auto runResult = beacon.run(workDir);
@@ -94,6 +96,11 @@ int main(int argc, char *argv[]) {
   bool debugMode = false;
   app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
+  bool promote = false;
+  app.add_flag("--promote", promote,
+               "Turn this relay's work directory into the beacon taking over (beacon-authority case 2): the "
+               "admins' certificate held here must name keys/beacon-signing.pub and carry a cutover");
+
   uint64_t approvedRewindGeneration = 0;
   app.add_option("--approve-rewind", approvedRewindGeneration,
                  "Apply the rewind ordered by this beacon generation although it reaches back further "
@@ -107,6 +114,9 @@ int main(int argc, char *argv[]) {
     "\n"
     "Run:\n"
     "  pp-beacon -d <dir> [--debug]\n"
+    "\n"
+    "Take over (a relay's directory becomes the new beacon; once):\n"
+    "  pp-beacon -d <relay dir> --promote\n"
     "\n"
     "Every field: docs/ops/CONFIGURATION.md"
   );
@@ -123,9 +133,13 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
+  if (initMode && promote) {
+    std::cerr << "Error: --init and --promote do not go together\n";
+    return 1;
+  }
   if (initMode) {
     return initBeacon(workDir, genesisKeys);
   } else {
-    return runBeacon(workDir, approvedRewindGeneration);
+    return runBeacon(workDir, approvedRewindGeneration, promote);
   }
 }

@@ -99,6 +99,7 @@ public:
   static constexpr const char *DEFAULT_HOST = "localhost";
   static constexpr const uint16_t DEFAULT_BEACON_PORT = 8517;
   static constexpr const uint16_t DEFAULT_MINER_PORT = 8518;
+  static constexpr const uint16_t DEFAULT_RELAY_PORT = 8519;
 
 
   // Request types

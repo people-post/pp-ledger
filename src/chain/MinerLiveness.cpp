@@ -42,11 +42,11 @@ Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slo
 
 Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee &consensus,
                              const BlockChainConfig &config, uint64_t prevSlot, const Ledger::Block &block,
-                             bool strict) {
+                             bool strict, bool chargeSkipped) {
   // 1. Skipped slots of this block's epoch: its committee and seed elect their leaders.
   const uint64_t slotsPerEpoch = consensus.getConfig().slotsPerEpoch;
   const uint64_t epochFirstSlot = slotsPerEpoch > 0 ? block.epoch * slotsPerEpoch : block.slot;
-  if (config.minerDueAfterSlots > 0) {
+  if (chargeSkipped && config.minerDueAfterSlots > 0) {
     for (uint64_t slot = std::max(prevSlot + 1, epochFirstSlot); slot < block.slot; ++slot) {
       auto leader = consensus.getSlotLeader(slot);
       if (!leader) {

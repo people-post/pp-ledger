@@ -458,7 +458,7 @@ Service::Roe<void> MinerServer::onStart() {
   Miner::InitConfig minerConfig;
   minerConfig.minerId = config_.minerId;
   minerConfig.privateKeys = config_.privateKeys;
-  minerConfig.timeOffset = timeOffsetToBeaconMs_ / 1000;
+  minerConfig.timeOffsetMs = timeOffsetToBeaconMs_;
   minerConfig.workDir = minerDataDir.string();
   auto startingBlock = chooseStartingBlock(state);
   if (!startingBlock) {
@@ -473,6 +473,7 @@ Service::Roe<void> MinerServer::onStart() {
   }
 
   orderRewindIfDue(); // a certificate kept before the node went down
+  initClockFollower();
   if (upstreams_->addHints(miner_.getDialHints()) > 0) {
     upstreams_->rerank("the certificates' dial hints"); // the startup sync waits for it
   }
@@ -496,51 +497,30 @@ Service::Roe<void> MinerServer::onStart() {
 }
 
 MinerServer::Roe<int64_t> MinerServer::calibrateTimeToBeacon() {
-  if (config_.network.beacon_multiaddrs.empty()) {
-    return Error(E_CONFIG, "No beacon servers configured");
+  auto estimated = calibrateBlocking(
+      calibrationFetch(client_, UpstreamSet::dialKey(upstreams_->activeIndex()), upstreams_->active()));
+  if (!estimated) {
+    return Error(E_NETWORK, estimated.error().message);
   }
-  if (auto dial = dialActiveUpstream(); !dial) {
-    return Error(E_NETWORK, dial.error().message);
-  }
+  log().info << "Time calibrated through upstream [" << upstreams_->activeIndex() << "]: offset "
+             << estimated.value().offsetMs << " ms (round trip " << estimated.value().rttMs << " ms, "
+             << estimated.value().samples << " sample(s))";
+  return estimated.value().offsetMs;
+}
 
-  struct Sample {
-    int64_t offsetMs;
-    int64_t rttMs;
+void MinerServer::initClockFollower() {
+  clock_calibration::ClockFollower::Hooks hooks;
+  hooks.generation = [this]() { return miner_.getGeneration(); };
+  hooks.fetch = [this](Client::Done<Client::CalibrationResponse> done) {
+    calibrationFetch(client_, UpstreamSet::dialKey(upstreams_->activeIndex()), upstreams_->active())(std::move(done));
   };
-  std::vector<Sample> samples;
-  samples.reserve(static_cast<size_t>(CALIBRATION_SAMPLES));
-
-  for (int i = 0; i < CALIBRATION_SAMPLES; ++i) {
-    auto t0 = std::chrono::steady_clock::now();
-    auto result = client_.fetchCalibration();
-    auto t1 = std::chrono::steady_clock::now();
-    if (!result) {
-      return Error(E_NETWORK,
-                   "Failed to fetch beacon timestamp: " + result.error().message);
-    }
-    int64_t serverTimeMs = result.value().msTimestamp;
-    int64_t localTimeMs = utl::getCurrentTime() * 1000;
-    int64_t rttMs = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-    int64_t offsetMs = serverTimeMs - localTimeMs + (rttMs / 2);
-    samples.push_back({offsetMs, rttMs});
-
-    if (rttMs <= RTT_THRESHOLD_MS) {
-      log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, RTT=" << rttMs
-                 << " ms (single sample)";
-      return offsetMs;
-    }
-    if (i == 0) {
-      log().debug << "High RTT (" << rttMs << " ms), taking up to " << CALIBRATION_SAMPLES
-                  << " samples";
-    }
-  }
-
-  auto best = std::min_element(samples.begin(), samples.end(),
-                              [](const Sample &a, const Sample &b) { return a.rttMs < b.rttMs; });
-  int64_t offsetMs = best->offsetMs;
-  log().info << "Time calibrated to beacon: offset=" << offsetMs << " ms, samples=" << samples.size()
-             << ", min RTT=" << best->rttMs << " ms";
-  return offsetMs;
+  hooks.apply = [this](int64_t offsetMs) {
+    timeOffsetToBeaconMs_ = offsetMs;
+    miner_.setTimeOffsetMs(offsetMs);
+  };
+  clock_ = std::make_unique<clock_calibration::ClockFollower>(std::move(hooks));
+  clock_->redirectLogger(log().getFullName() + ".Clock");
+  clock_->calibratedFor(miner_.getGeneration());
 }
 
 void MinerServer::initBlockSync() {
@@ -699,6 +679,7 @@ void MinerServer::runLoop() {
       syncBlocksPeriodically();
       tipWatch_->maintain();
       upstreams_->maintain();
+      clock_->maintain();
       if (blockSyncRequested_) {
         blockSyncRequested_ = false;
         trySyncBlocksFromBeacon(true);
@@ -1068,7 +1049,10 @@ void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Clien
     // Release the uncommitted seal, or every later seal/addBlock is refused.
     miner_.abandonBlock(block);
     // Most often another leader's block won this height: take it now rather
-    // than re-sealing the same stale height until the next scheduled sync.
+    // than re-sealing the same stale height until the next scheduled sync —
+    // and ask again who to follow: the upstream followed may be behind a
+    // beacon that stood down (bp3).
+    upstreams_->suspect("no upstream took block " + std::to_string(block.block.index));
     trySyncBlocksFromBeacon(true);
     return;
   }

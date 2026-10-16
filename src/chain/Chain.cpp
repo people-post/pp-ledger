@@ -718,9 +718,13 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
     const uint64_t epochFirstSlot = block.block.epoch * txContext_.consensus.getConfig().slotsPerEpoch;
     prevSlot = epochFirstSlot > 0 ? epochFirstSlot - 1 : 0;
   }
+  // The first block after a beacon outage commits the new beacon's certificate: its skipped slots
+  // are the outage, not missed leaders (bp3).
+  const bool chargeSkipped = !BeaconCertTxHandler::commitsCutover(block.block);
   auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
                                                         txContext_.optChainConfig.value(), prevSlot,
-                                                        block.block, chain_block::admissionTxStrict(mode)));
+                                                        block.block, chain_block::admissionTxStrict(mode),
+                                                        chargeSkipped));
   if (!applied) {
     return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
   }
@@ -1651,6 +1655,18 @@ std::optional<std::pair<uint64_t, std::string>> Chain::vouchedCutover() const {
     return std::nullopt;
   }
   return std::make_pair(seenCert_->cutoverHeight, seenCert_->cutoverHash);
+}
+
+std::optional<Ledger::Record> Chain::certificateDueAt(uint64_t blockId) const {
+  const auto vouched = vouchedCutover();
+  if (!vouched || !seenCertRecord_ || blockId != vouched->first + 1 || blockId != getNextBlockId()) {
+    return std::nullopt;
+  }
+  auto cutoverBlock = readBlock(vouched->first);
+  if (!cutoverBlock || cutoverBlock.value().hash != vouched->second) {
+    return std::nullopt; // another block at the cutover: halted (cutoverForked), never sealed on
+  }
+  return seenCertRecord_;
 }
 
 std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &order) const {

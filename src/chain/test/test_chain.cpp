@@ -405,7 +405,7 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -437,7 +437,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -477,7 +477,7 @@ TEST(ChainTest,
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -577,7 +577,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsTransactionsInvolvingWallet) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -680,7 +680,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyForUnknownWallet) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -723,7 +723,7 @@ TEST(ChainTest, FindTransactionsByWalletId_ClampsBlockIdToNextBlockId) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -761,7 +761,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenNoBlocks) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -797,7 +797,7 @@ TEST(ChainTest, FindTransactionByIndex_ReturnsErrorWhenIndexOutOfRange) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -840,7 +840,7 @@ TEST(ChainTest,
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -945,7 +945,7 @@ TEST(ChainTest, AddBlock_RejectsDefaultTransferWithZeroIdempotentId) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1009,7 +1009,7 @@ TEST(ChainTest, Seal_RejectsNonIncreasingSlot) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1103,7 +1103,7 @@ TEST(ChainTest, Seal_RejectsFarFutureSlot) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1217,7 +1217,7 @@ TEST(ChainTest, LoadFromLedger_IgnoresFutureSlotBound) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1282,7 +1282,7 @@ TEST(ChainTest, Renewal_ZeroIdempotentIdAccepted) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   producer.initConsensus(consensusConfig);
@@ -1377,7 +1377,7 @@ TEST(ChainTest, SystemAccounts_RenewFeeFreeAndAreNeverTerminated) {
   chainConfig.checkpoint.minAgeSeconds = 0;
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   producer.initConsensus(consensusConfig);
@@ -1518,7 +1518,7 @@ TEST(ChainTest, AddBlock_RejectsReplayOfAlreadyCommittedIndex) {
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1607,7 +1607,7 @@ TEST(ChainTest,
 
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 0;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 5;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1653,7 +1653,7 @@ TEST(ChainTest,
 
   consensus::SlotCommittee::Config consensusConfig2;
   consensusConfig2.genesisTime = 0;
-  consensusConfig2.timeOffset = 0;
+  consensusConfig2.timeOffsetMs = 0;
   consensusConfig2.slotDuration = 5;
   consensusConfig2.slotsPerEpoch = 10;
   replayValidator.initConsensus(consensusConfig2);
@@ -1674,10 +1674,10 @@ TEST(ChainTest,
 TEST(ChainTest, LateJoiner_CollectRenewals_WhenConfigNotSet_ReturnsEmpty) {
   Chain validator;
 
-  // Minimal consensus: late joiner init with timeOffset only (no genesis processed)
+  // Minimal consensus: late joiner init with timeOffsetMs only (no genesis processed)
   consensus::SlotCommittee::Config consensusConfig;
   consensusConfig.genesisTime = 1000;
-  consensusConfig.timeOffset = 0;
+  consensusConfig.timeOffsetMs = 0;
   consensusConfig.slotDuration = 1;
   consensusConfig.slotsPerEpoch = 10;
   validator.initConsensus(consensusConfig);
@@ -1743,7 +1743,7 @@ struct ComposeHarness {
 
     consensus::SlotCommittee::Config consensusConfig;
     consensusConfig.genesisTime = 0;
-    consensusConfig.timeOffset = 0;
+    consensusConfig.timeOffsetMs = 0;
     consensusConfig.slotDuration = 5;
     consensusConfig.slotsPerEpoch = 10;
     producer.initConsensus(consensusConfig);
@@ -3615,6 +3615,52 @@ TEST_F(MinerLivenessTest, DueMinerEmptyBlockAccepted) {
   EXPECT_FALSE(producer.isMinerDue(kTestMinerId, 4));
 }
 
+// beacon-authority bp3: the block after a beacon outage commits the new beacon's certificate (with
+// a cutover). Its skipped slots are the outage, not missed leaders: nobody is charged. And the
+// certificate commits although its validity window ended long ago — it waited out of band for the
+// new beacon; a certificate without a cutover still needs its window.
+TEST_F(MinerLivenessTest, TheBlockAfterABeaconOutageChargesNoMisses) {
+  auto &producer = harness_.producer;
+  for (uint64_t slot = 1; slot < 40; ++slot) {
+    lead(slot, kTestMinerId);
+  }
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(1));
+  ASSERT_TRUE(harness_.peer.addBlock(user.block).isOk());
+  Ledger::ChainNode block = commit(user.block, 2, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 50)});
+  lead(4, user.id);
+  lead(5, user.id); // due by then: a miss, were it charged
+
+  const std::string net = producer.getNetworkId();
+  auto expiredCertificate = [&](uint64_t cutover, const std::string &hash, uint64_t idem) {
+    BeaconCertificate cert = nextCertificate(producer.getAuthority().value());
+    cert.cutoverHeight = cutover;
+    cert.cutoverHash = hash;
+    Ledger::Record record = makeBeaconCertRecord(cert, harness_.genesisKey, net, idem, 0);
+    auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data).value();
+    tx.validationTsMax = 10; // slots 0..2: over before slot 6
+    record.data = utl::binaryPack(tx);
+    record.signatures = {utl::mlDsaSign(harness_.genesisKey.privateKey, record.signingMessage(net)).value()};
+    return record;
+  };
+  producer.setClockOverride(producer.getSlotStartTime(6));
+  AccountBuffer scratch;
+  auto stale = producer.addBufferTransaction(
+      scratch, expiredCertificate(BeaconCertificate::kNoCutover, "", 51), kTestMinerId);
+  ASSERT_FALSE(stale.isOk()) << "no cutover: its window still applies";
+  EXPECT_NE(stale.error().message.find("outside validation window"), std::string::npos) << stale.error().message;
+
+  block = commit(block, 6, {expiredCertificate(block.block.index, block.hash, 52)});
+  EXPECT_EQ(harness_.peer.getAuthority()->beacon.generation, 2u) << "committed after its window";
+  EXPECT_EQ(minerOf(user.id).missedDue, 0u) << "the outage is not the leaders'";
+  EXPECT_TRUE(minerOf(user.id).registered);
+
+  // The next block charges as usual: slots 7..8 skipped, the user due and elected for 8.
+  lead(8, user.id);
+  block = commit(block, 9, {makeReserveTransfer(harness_, 5, 53)});
+  EXPECT_EQ(minerOf(user.id).missedDue, 1u);
+}
+
 // A skipped slot counts a miss only for a due elected leader; producing resets the count; the
 // limit deregisters and the cool-down then refuses re-registration until it has passed.
 TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
@@ -3963,7 +4009,7 @@ protected:
   std::unique_ptr<Chain> openJoiner(uint64_t startingBlockId, bool fresh) {
     auto joiner = std::make_unique<Chain>();
     consensus::SlotCommittee::Config consensusConfig;
-    consensusConfig.timeOffset = 0;
+    consensusConfig.timeOffsetMs = 0;
     joiner->initConsensus(consensusConfig);
     for (const auto &[slot, id] : forced_) {
       joiner->forceSlotLeader(slot, id);

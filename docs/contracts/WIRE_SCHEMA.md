@@ -377,7 +377,9 @@ After a block's records apply (fork-critical order, before `stateRoot`), every n
 2. if the producer is registered, sets its `lastProducedSlot` to the block's slot and
    `missedDue = 0`.
 
-Skipped slots of an earlier epoch are not charged. Code: `MinerTxHandler`, `MinerLiveness`
+Skipped slots of an earlier epoch are not charged, nor any skipped by a block that commits a beacon
+certificate with a cutover — the first block after a beacon outage
+([BEACON_AUTHORITY.md § Taking over](BEACON_AUTHORITY.md#taking-over)). Code: `MinerTxHandler`, `MinerLiveness`
 (`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
 warns when its account is not a registered miner.
 

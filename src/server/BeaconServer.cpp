@@ -5,14 +5,17 @@
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
+#include "lib/common/FileSync.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <set>
 #include "common/io/Json.h"
 
 namespace pp {
@@ -459,6 +462,10 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
 Object BeaconServer::RunFileConfig::ltsToJson() {
   Object j;
   j.setJsonUInt("port", port);
+  if (allowedPeers) {
+    std::vector<Value> peers(allowedPeers->begin(), allowedPeers->end());
+    j.set("allowedPeers", Object::array(std::move(peers)));
+  }
   return j;
 }
 
@@ -658,8 +665,16 @@ Service::Roe<void> BeaconServer::onStart() {
 
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
+  std::vector<std::string> clockReferences;
 
-  if (!std::filesystem::exists(configPath)) {
+  if (promote_) {
+    auto promotion = readRelayConfig();
+    if (!promotion) {
+      return Service::Error(E_CONFIG, promotion.error().message);
+    }
+    runFileConfig = promotion.value().config;
+    clockReferences = promotion.value().clockReferences;
+  } else if (!std::filesystem::exists(configPath)) {
     log().info << "No " << FILE_CONFIG
                << " found, creating with default values";
 
@@ -715,11 +730,19 @@ Service::Roe<void> BeaconServer::onStart() {
   if (!signingKeys) {
     return Service::Error(E_CONFIG, signingKeys.error().message);
   }
+  if (promote_) {
+    if (auto promotable = checkPromotion(signingKeys.value()); !promotable) {
+      return Service::Error(E_CONFIG, "Cannot promote: " + promotable.error().message);
+    }
+  }
   if (auto signing = beacon_.openTipSigning(signingKeys.value()); !signing) {
     return Service::Error(-4, "Failed to open tip signing: " + signing.error().message);
   }
   if (const auto by = beacon_.supersededBy()) {
     log().error << "Beacon generation " << *by << " certifies none of this beacon's keys: it serves reads only";
+  } else if (const auto generation = beacon_.takingOver()) {
+    log().warning << "Taking over as beacon generation " << *generation << " at block "
+                  << beacon_.getHeldCertificate()->cutoverHeight + 1;
   }
 
   auto keyResult = loadOrCreateIdentityKey();
@@ -738,7 +761,143 @@ Service::Roe<void> BeaconServer::onStart() {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }
 
+  if (promote_) {
+    client_.attachAmpTransport(*ampRuntime(), "clock:0");
+    auto references = clockReferences;
+    for (const auto &hint : beacon_.getDialHints()) {
+      references.push_back(hint);
+    }
+    if (auto clock = checkClockForTakeover(std::move(references)); !clock) {
+      return Service::Error(E_CONFIG, "Cannot promote: " + clock.error().message);
+    }
+    if (auto written = writeBeaconConfig(runFileConfig); !written) {
+      return Service::Error(E_CONFIG, "Cannot promote: " + written.error().message);
+    }
+    log().warning << "Promoted: this relay's work directory now runs the beacon (its relay config is kept in "
+                  << FILE_RELAY_CONFIG << ")";
+  }
+
   initHandlers();
+  return {};
+}
+
+BeaconServer::Roe<BeaconServer::Promotion> BeaconServer::readRelayConfig() const {
+  const std::string path = (std::filesystem::path(getWorkDir()) / FILE_CONFIG).string();
+  auto json = utl::loadJsonFile(path);
+  if (!json) {
+    return Error(E_CONFIG, "Failed to load " + path + ": " + json.error().message);
+  }
+  const Object &jd = json.value();
+  if (!jd.contains("beacon") && !jd.contains("beacons")) {
+    return Error(E_CONFIG, std::string(FILE_CONFIG) +
+                               " is not a relay's (no `beacon` or `beacons`): --promote turns a relay's work "
+                               "directory into the beacon");
+  }
+  Promotion promotion;
+  if (auto parsed = promotion.config.ltsFromJson(jd); !parsed) {
+    return parsed.error();
+  }
+  if (!jd.contains("port")) {
+    promotion.config.port = Client::DEFAULT_RELAY_PORT; // the port the relay listened on
+  }
+  if (auto beacon = jd.getString("beacon")) {
+    promotion.clockReferences.push_back(*beacon);
+  }
+  if (const Array *beacons = jd.getArray("beacons")) {
+    for (const auto &element : beacons->elements) {
+      if (auto value = asString(element)) {
+        promotion.clockReferences.push_back(*value);
+      }
+    }
+  }
+  return promotion;
+}
+
+BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDsaKeyPair> &keys) const {
+  if (std::filesystem::exists(std::filesystem::path(getWorkDir()) / DIR_DATA / Beacon::FILE_SIGNED_TIP)) {
+    return Error(E_CONFIG, std::string(DIR_DATA) + "/" + Beacon::FILE_SIGNED_TIP +
+                               " exists: this directory was a beacon's, and --promote takes a relay's");
+  }
+  const auto held = beacon_.getHeldCertificate();
+  if (!held) {
+    return Error(E_CONFIG, "no beacon certificate above generation " + std::to_string(beacon_.getGeneration()) +
+                               " is held here: hand this relay the admins' certificate (pp-client -b --host "
+                               "<relay> submit-tx <file>) and promote again");
+  }
+  const std::string generation = "the certificate held (beacon generation " + std::to_string(held->generation) + ")";
+  if (!beacon_.takeoverWith(keys)) {
+    const bool namesOurs = std::any_of(keys.begin(), keys.end(), [&held](const utl::MlDsaKeyPair &key) {
+      return key.publicKey == held->publicKey;
+    });
+    return Error(E_CONFIG, namesOurs ? std::string("this directory holds the key in force: it is a beacon's already")
+                                     : generation + " names another key than " + FILE_BEACON_SIGNING_PUB);
+  }
+  if (!held->hasCutover()) {
+    return Error(E_CONFIG, generation + " has no cutover: a beacon takes over at one (mk-beacon-cert --cutover)");
+  }
+  if (beacon_.cutoverForked()) {
+    return Error(E_CONFIG, "block " + std::to_string(held->cutoverHeight) +
+                               " here is not the one " + generation + " vouches for: promote another relay");
+  }
+  if (beacon_.getNextBlockId() <= held->cutoverHeight) {
+    return Error(E_CONFIG, "the chain here ends at block " + std::to_string(beacon_.getNextBlockId() - 1) +
+                               ", below the cutover (block " + std::to_string(held->cutoverHeight) +
+                               "): run it as a relay until it holds that block, then promote");
+  }
+  return {};
+}
+
+BeaconServer::Roe<void> BeaconServer::checkClockForTakeover(std::vector<std::string> references) {
+  std::vector<int64_t> offsets;
+  std::set<std::string> asked;
+  for (const auto &reference : references) {
+    if (isSelf(reference) || !asked.insert(reference).second) {
+      continue;
+    }
+    const std::string key = "clock:" + std::to_string(asked.size());
+    auto estimated = calibrateBlocking(calibrationFetch(client_, key, reference));
+    if (!estimated) {
+      log().warning << "Clock check: " << reference << " did not answer: " << estimated.error().message;
+      continue;
+    }
+    log().info << "Clock check: " << reference << " is " << estimated.value().offsetMs << " ms off this host";
+    offsets.push_back(estimated.value().offsetMs);
+  }
+  if (offsets.empty()) {
+    log().warning << "Clock check: no node answered; this host's clock is not checked against the network "
+                  << "(keep it on NTP)";
+    return {};
+  }
+  std::sort(offsets.begin(), offsets.end());
+  const int64_t median = offsets[offsets.size() / 2];
+  const int64_t bound = consensus::SlotCommittee::deliveryWindowMs(beacon_.getSlotDuration());
+  if (std::llabs(median) > bound) {
+    return Error(E_CONFIG, "this host's clock is " + std::to_string(median) + " ms off the network's (" +
+                               std::to_string(offsets.size()) + " node(s) asked), beyond the delivery window (" +
+                               std::to_string(bound) + " ms): set its time (NTP) and promote again");
+  }
+  log().info << "Clock check: " << median << " ms off the network (" << offsets.size() << " node(s); bound "
+             << bound << " ms)";
+  return {};
+}
+
+BeaconServer::Roe<void> BeaconServer::writeBeaconConfig(RunFileConfig config) const {
+  const auto dir = std::filesystem::path(getWorkDir());
+  std::ifstream in(dir / FILE_CONFIG, std::ios::binary);
+  const std::string relayConfig((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  if (!in.good() && !in.eof()) {
+    return Error(E_CONFIG, "Failed to read " + std::string(FILE_CONFIG));
+  }
+  if (auto kept = utl::replaceFile((dir / FILE_RELAY_CONFIG).string(), relayConfig); !kept) {
+    return Error(E_CONFIG, "Failed to keep the relay config: " + kept.error().message);
+  }
+  auto encoded = encodeObjectPretty(config.ltsToJson());
+  if (!encoded) {
+    return Error(E_CONFIG, "Failed to encode " + std::string(FILE_CONFIG) + ": " + encoded.error().message);
+  }
+  if (auto written = utl::replaceFile((dir / FILE_CONFIG).string(), encoded.value() + "\n"); !written) {
+    return Error(E_CONFIG, "Failed to write " + std::string(FILE_CONFIG) + ": " + written.error().message);
+  }
   return {};
 }
 
