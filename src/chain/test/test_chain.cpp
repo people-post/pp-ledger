@@ -1230,6 +1230,7 @@ TEST(ChainTest, LoadFromLedger_IgnoresFutureSlotBound) {
   ledgerConfig.workDir = tempDir.string();
   ledgerConfig.startingBlockId = 0;
   ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+  validator.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // replayed by a second chain below
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);
@@ -1622,6 +1623,7 @@ TEST(ChainTest,
   ledgerConfig.startingBlockId = 0;
   auto initResult = validator.initLedger(ledgerConfig);
   ASSERT_TRUE(initResult.isOk());
+  validator.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // replayed by a second chain below
 
   Ledger::ChainNode genesis = makeGenesisBlock(
       validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey);

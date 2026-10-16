@@ -3,6 +3,7 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
 #include "common/Logger.h"
+#include "lib/common/FileSync.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -18,8 +19,8 @@ FileDirStore::~FileDirStore() {
 }
 
 void FileDirStore::close() {
-  if (!config_.dirPath.empty() && std::filesystem::exists(config_.dirPath)) {
-    flush();
+  if (auto committed = commit(); !committed) {
+    log().error << "Failed to commit on close: " << committed.error().message;
   }
   fileInfoMap_.clear();
   fileIdOrder_.clear();
@@ -62,6 +63,11 @@ FileDirStore::Roe<void> FileDirStore::init(const InitConfig &config) {
   // Create empty index file to mark directory as initialized
   if (!saveIndex()) {
     return Error("Failed to create index file");
+  }
+  // The directory itself is a new entry in its parent.
+  const std::string parent = std::filesystem::path(config.dirPath).parent_path().string();
+  if (auto synced = utl::syncDirectory(parent.empty() ? std::string(".") : parent); !synced) {
+    return Error(synced.error().message);
   }
 
   log().info << "FileDirStore initialized at " << config_.dirPath
@@ -250,10 +256,20 @@ FileDirStore::Roe<uint64_t> FileDirStore::appendBlock(const std::string &block) 
               << currentFileId_ << " (size: " << block.size()
               << " bytes, total blocks: " << totalBlockCount_ << ")";
 
-  // Save index after each write (for durability)
-  saveIndex();
-
   return totalBlockCount_ - 1;
+}
+
+FileDirStore::Roe<void> FileDirStore::commit() {
+  for (uint32_t fileId : fileIdOrder_) {
+    auto it = fileInfoMap_.find(fileId);
+    if (it == fileInfoMap_.end() || !it->second.blockFile || !it->second.blockFile->hasUncommitted()) {
+      continue;
+    }
+    if (auto committed = it->second.blockFile->commit(); !committed) {
+      return Error("Failed to commit block file " + std::to_string(fileId) + ": " + committed.error().message);
+    }
+  }
+  return {};
 }
 
 FileDirStore::Roe<void> FileDirStore::rewindTo(uint64_t index) {
@@ -329,6 +345,15 @@ FileStore *FileDirStore::createBlockFile(uint32_t fileId, uint64_t startBlockId)
   fileInfo.startBlockId = startBlockId;
   fileInfoMap_[fileId] = std::move(fileInfo);
   fileIdOrder_.push_back(fileId);
+  // List the new file only once it exists on the device (FileStore::init synced it): an index
+  // naming a file a power loss took would not mount.
+  if (auto synced = utl::syncDirectory(config_.dirPath); !synced) {
+    log().error << synced.error().message;
+    return nullptr;
+  }
+  if (!saveIndex()) {
+    return nullptr;
+  }
   return pBlockFile;
 }
 
@@ -451,34 +476,25 @@ bool FileDirStore::loadIndex() {
 }
 
 bool FileDirStore::saveIndex() {
-  std::ofstream indexFile(indexFilePath_, std::ios::binary | std::ios::trunc);
-  if (!indexFile.is_open()) {
-    log().error << "Failed to open index file for writing: " << indexFilePath_;
-    return false;
-  }
-
-  // Write header first
-  if (!writeIndexHeader(indexFile)) {
+  std::ostringstream indexBytes(std::ios::binary);
+  if (!writeIndexHeader(indexBytes)) {
     log().error << "Failed to write index file header";
-    indexFile.close();
     return false;
   }
-
-  // Write index entries
   for (uint32_t fileId : fileIdOrder_) {
     auto it = fileInfoMap_.find(fileId);
     if (it == fileInfoMap_.end()) {
       continue;
     }
-
     FileIndexEntry entry(fileId, it->second.startBlockId);
-    std::string packed = utl::binaryPack(entry);
-    indexFile.write(packed.data(), static_cast<std::streamsize>(packed.size()));
+    indexBytes << utl::binaryPack(entry);
   }
-
-  indexFile.close();
+  // Replaced durably: written in place, a crash mid-write left an index that would not mount.
+  if (auto replaced = utl::replaceFile(indexFilePath_, indexBytes.str()); !replaced) {
+    log().error << "Failed to save index: " << replaced.error().message;
+    return false;
+  }
   log().debug << "Saved " << fileInfoMap_.size() << " file entries to index";
-
   return true;
 }
 
@@ -537,18 +553,12 @@ bool FileDirStore::readIndexHeader(std::istream &is) {
   return true;
 }
 
-void FileDirStore::flush() {
-  // Save index
-  if (!saveIndex()) {
-    log().error << "Failed to save index during flush";
-  }
-}
-
 FileDirStore::Roe<void> FileDirStore::openExistingBlockFiles() {
   for (auto &[fileId, fileInfo] : fileInfoMap_) {
     std::string filepath = getBlockFilePath(fileId);
     if (!std::filesystem::exists(filepath)) {
-      continue;
+      // Skipping it would shift every later block id.
+      return Error("Block file listed in the index is missing: " + filepath);
     }
 
     auto ukpBlockFile = std::make_unique<FileStore>();

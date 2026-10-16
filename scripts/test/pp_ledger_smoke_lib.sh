@@ -210,9 +210,9 @@ stop_network() {
       kill "$pid" 2>/dev/null || true
     fi
   done <"$PID_FILE"
-  # Give them up to 2 s to exit cleanly, then force.
+  # Give them up to 5 s to exit cleanly (committing their ledgers), then force.
   local i alive
-  for i in $(seq 1 20); do
+  for i in $(seq 1 50); do
     alive=0
     while IFS=: read -r name pid; do
       kill -0 "$pid" 2>/dev/null && alive=1
@@ -999,11 +999,13 @@ stop_miner_by_id() {
   if kill -0 "$pid" 2>/dev/null; then
     echo -e "${CYAN}Stopping miner${miner_id}...${NC}"
     kill "$pid" 2>/dev/null || true
+    # A clean stop commits the ledger; force it after 5 s so no two processes share the directory.
     local i
-    for i in $(seq 1 20); do
+    for i in $(seq 1 50); do
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1
     done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
   fi
   remove_pid_name "miner${miner_id}"
 }

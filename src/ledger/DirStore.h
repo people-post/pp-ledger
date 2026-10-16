@@ -32,6 +32,11 @@ public:
     virtual Roe<std::string> readBlock(uint64_t index) const = 0;
     virtual Roe<uint64_t> appendBlock(const std::string &block) = 0;
     virtual Roe<void> rewindTo(uint64_t index) = 0;
+    /**
+     * Make every block appended so far durable (it survives a power loss). Appends alone are not:
+     * after a crash, mount keeps only committed blocks.
+     */
+    virtual Roe<void> commit() = 0;
 
 protected:
     /** Format an ID as a zero-padded 6-digit string (e.g. 1 -> "000001"). */

@@ -11,7 +11,7 @@ namespace {
 pp::RelayServer *g_relayServer = nullptr;
 
 void signalHandler(int signal) {
-  if (signal == SIGINT && g_relayServer) {
+  if ((signal == SIGINT || signal == SIGTERM) && g_relayServer) {
     g_relayServer->setStop(true);
   }
 }
@@ -68,8 +68,10 @@ int main(int argc, char *argv[]) {
   logger.setLevel(logLevel);
   logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
 
-  // Set up signal handler for Ctrl+C
+  // Ctrl+C, and the SIGTERM a service manager (docker, systemd) stops with: stop cleanly, so the
+  // ledger commits what it appended.
   std::signal(SIGINT, signalHandler);
+  std::signal(SIGTERM, signalHandler);
 
   return runRelay(workDir);
 }

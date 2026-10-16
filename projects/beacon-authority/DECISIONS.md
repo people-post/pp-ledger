@@ -432,8 +432,37 @@ N+2 passed each certificate's own checks in turn, so validators accepted a gener
 contract forbids.
 **Cons:** A block holding two certificates was valid before and is not now (breaking; nothing is
 released, B008). The state files are not synced to the device: a power loss can tear one (the node
-then refuses to start) — durability is left open.
+then refuses to start) — durability is left open (closed by B021).
 **Alternatives:** Keep the authority in WIRE_SCHEMA with sub-headings (one long file mixing layout
 and protocol); fix the per-block rule by checking "exactly next generation" against the trail
 (already true per record — the gap is two records in one block).
+
+## B021 — Durable commits: the block-file header is the commit point; the beacon commits every block
+
+**Date:** 2026-10-16
+**Superseded by:** [LEDGER_STORAGE.md § Durability](../../docs/contracts/LEDGER_STORAGE.md#durability) (normative; this entry keeps the why).
+**Decision:** Nothing was synced to the device: streams were flushed to the OS only. Now a block
+file's header count is the commit point — appends write data; `FileStore::commit` syncs it, writes
+the count, syncs again — and mount keeps the committed blocks and truncates the rest. The beacon
+commits every block before it signs it (`Ledger::CommitPolicy::everyBlock`); relays and miners
+commit every 1000 blocks or 5 s, and on shutdown. The three indexes are written only when the
+structure they list changes, durably (aside, sync, rename, directory sync), each new block file or
+volume synced before an index names it; an index naming a missing block file is refused. The node
+state files are replaced the same way (`utl::replaceFile`).
+**Rationale:** "Never two tips at one height" (B009, B012) assumes the signed block and the stored
+tip survive whatever stops the beacon. After a power loss an unsynced tip file could come back
+older than a tip already served, and an unsynced block could be gone while its tip was served —
+the beacon would then sign a second block at a served height, which every node takes as
+equivocation. Syncing the block before signing and the tip before serving closes that. Making the
+header count the commit point gives mount a boundary to trust: before, the count was rewritten on
+every append in the page cache, and the FileDirStore index was rewritten in place on every append —
+a crash mid-write left an index that would not mount, and a block written without its count was
+read back at the wrong id after the next append.
+**Cons:** Each beacon block costs two data syncs plus the tip file's sync and rename (milliseconds on
+an SSD, per block, not per transaction). A relay or miner crash loses its uncommitted tail (it syncs
+it again). Two processes must not mount one ledger directory (a mount trims the other's tail).
+**Alternatives:** Sync every block on every node (a relay's catch-up of a long chain would pay one
+sync per block); checksums per block to find a torn tail (a format change, and the header count
+already bounds what was committed); trust a scan of the file (zero-filled pages parse as empty
+blocks).
 

@@ -29,6 +29,29 @@ volumes.
 
 Default Ledger caps: 64 files × 128 MiB per volume (~8 GiB), up to 10 000 volumes.
 
+## Durability
+
+"Durable" means synced to the device (`utl::syncFile` / `syncDirectory`: fsync; `F_FULLFSYNC` on
+macOS; `FlushFileBuffers` and write-through renames on Windows), so it survives a power loss, not
+only a process crash.
+
+- **Commit point.** A block file's header holds the count of its **committed** blocks. Appending a
+  block writes its bytes only; committing syncs the data, then writes the count and syncs again
+  (`FileStore::commit`), file by file in order. At mount each block file keeps its committed
+  blocks and truncates whatever follows (blocks never committed, or a torn write); a file holding
+  fewer complete blocks than its header commits is refused. A ledger directory belongs to one
+  process: a mount trims the tail another process has not committed.
+- **When blocks commit** (`Ledger::CommitPolicy`): the beacon commits every block before it signs
+  it, so a signed block always survives; relays and miners commit once 1000 blocks are
+  uncommitted or the oldest has waited 5 s, and on a clean stop (SIGINT, or the SIGTERM docker and
+  systemd stop with) — a crash or `kill -9` loses at most that tail,
+  which they sync again from upstream. Catch-up stays fast (one sync per batch, not per block).
+- **Indexes** (`ledger_index.dat`, `volumes_idx.dat`, each volume's `idx.dat`) list structure — the
+  starting block, checkpoints, volumes, block files — not blocks, so they change only when that
+  structure does. Each is replaced durably (written aside, synced, renamed, directory synced). A
+  new block file or volume is synced, with its directory entry, before an index lists it; an index
+  naming a missing block file is refused at mount (skipping it would shift every later block id).
+
 ## Ops
 
 Upgrade requires **re-init** of beacon/relay/miner work directories that still use
@@ -38,10 +61,10 @@ the old `workDir/data` tree.
 
 Small files a node keeps beside the ledger for the beacon authority
 ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md)). Paths are relative to the role's work directory.
-Each is replaced by writing it aside and renaming it over (`node_file::replace`): a process crash
-leaves the old content or the new, never part of one. Nothing is synced to the device, so a power
-loss may leave an empty or torn file (it then stops the node at start). `signed-tip.dat` is written
-before the tip is served; `beacon-cert.dat` and `equivocation.dat` right after the node takes their
+Each is replaced durably (`node_file::replace` → `utl::replaceFile`: written aside, synced, renamed,
+directory synced): after a crash or a power loss it holds the old content or the new, never part of
+either. `signed-tip.dat` is durable before the tip is served, and the block it signs was committed
+before it was signed; `beacon-cert.dat` and `equivocation.dat` right after the node takes their
 content (if that write fails, the node logs an error and holds it in memory only). At start a file
 that does not parse stops the node; one that parses but no longer applies (a certificate on chain
 now or no longer signed, superseded evidence) is removed with a log line. The beacon also refuses a

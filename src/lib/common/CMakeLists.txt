@@ -4,6 +4,8 @@
 add_library(pp_ledger_common STATIC
     Crypto.cpp
     Crypto.h
+    FileSync.cpp
+    FileSync.h
     Meta.h
     BinaryPack.hpp
     Service.cpp

@@ -1,4 +1,5 @@
 #include "BeaconServer.h"
+#include "Beacon.h"
 #include "Miner.h"
 #include "../../chain/AccountBuffer.h"
 #include "../../ledger/Ledger.h"
@@ -254,6 +255,29 @@ TEST_F(MinerPoolTest, AHeldCertificateLeavesTheDiskOnceCommitted) {
   ASSERT_TRUE(committed.isOk()) << committed.error().message;
   EXPECT_FALSE(miner_->getSeenCertificate().has_value()) << "generation 2 is on chain";
   EXPECT_FALSE(fs::exists(file)) << "and its file is gone";
+}
+
+// The beacon signs what it commits, so every block it adds is durable before it returns: a crash
+// right after keeps it (relays and miners commit in batches and sync what a crash loses).
+TEST_F(MinerPoolTest, EveryBlockTheBeaconAddsSurvivesACrash) {
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 11)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (root_ / "beacon" / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  auto added = beacon.addBlock(block);
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+
+  const fs::path crashed = root_ / "beacon-ledger-crashed";
+  fs::copy(root_ / "beacon" / "data" / "ledger", crashed, fs::copy_options::recursive);
+  Ledger restarted;
+  ASSERT_TRUE(restarted.mount(crashed.string()).isOk());
+  EXPECT_EQ(restarted.getNextBlockId(), 2u) << "genesis and the block just added";
 }
 
 } // namespace

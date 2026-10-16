@@ -1,4 +1,5 @@
 #include "Ledger.h"
+#include "lib/common/FileSync.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
@@ -489,12 +490,24 @@ Ledger::Roe<void> Ledger::addBlock(const Ledger::ChainNode& block) {
     return Error("Failed to append block: " + appendResult.error().message);
   }
 
-  // Save index after adding block
-  if (!saveIndex()) {
-    return Error("Failed to save index after adding block");
-  }
-
   latestBlockCache_ = block;
+  const auto now = std::chrono::steady_clock::now();
+  if (uncommittedBlocks_++ == 0) {
+    oldestUncommittedAt_ = now;
+  }
+  if (uncommittedBlocks_ >= commitPolicy_.maxUncommittedBlocks ||
+      now - oldestUncommittedAt_ >= commitPolicy_.maxUncommittedAge) {
+    // An I/O failure here leaves the block in the store but not durable; the caller must stop.
+    return commit();
+  }
+  return {};
+}
+
+Ledger::Roe<void> Ledger::commit() {
+  if (auto committed = store_.commit(); !committed) {
+    return Error("Failed to commit blocks: " + committed.error().message);
+  }
+  uncommittedBlocks_ = 0;
   return {};
 }
 
@@ -672,44 +685,22 @@ bool Ledger::loadIndex() {
 }
 
 bool Ledger::saveIndex() {
-  try {
-    // Write to temporary file first
-    std::string tempPath = indexFilePath_ + ".tmp";
-    std::ofstream file(tempPath, std::ios::binary);
-    if (!file) {
-      log().error << "Failed to open index file for writing: " << tempPath;
-      return false;
-    }
-
-    OutputArchive ar(file);
-    
-    // Write header
+  std::ostringstream bytes(std::ios::binary);
+  {
+    OutputArchive ar(bytes);
     IndexFileHeader header;
     ar & header;
-
-    // Write metadata body
     ar & meta_;
-
-    if (!file.good()) {
-      log().error << "Failed to write index file";
-      return false;
-    }
-
-    file.close();
-
-    // Atomic rename
-    std::error_code ec;
-    std::filesystem::rename(tempPath, indexFilePath_, ec);
-    if (ec) {
-      log().error << "Failed to rename index file: " << ec.message();
-      return false;
-    }
-
-    return true;
-  } catch (const std::exception& e) {
-    log().error << "Exception saving index: " << e.what();
+  }
+  if (!bytes.good()) {
+    log().error << "Failed to write index file";
     return false;
   }
+  if (auto replaced = utl::replaceFile(indexFilePath_, bytes.str()); !replaced) {
+    log().error << "Failed to save index: " << replaced.error().message;
+    return false;
+  }
+  return true;
 }
 
 uint64_t Ledger::countSizeFromBlockId(uint64_t blockId) const {
