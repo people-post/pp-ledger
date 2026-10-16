@@ -127,6 +127,12 @@ private:
    */
   std::optional<Chain::CertificateOffer> noteCertificate(const std::optional<Ledger::Record> &record,
                                                          const std::string &from);
+  /**
+   * Equivocation evidence (ba6: two upstream tips at one height, STATUS, EQUIVOCATION_ADD): offer it;
+   * once kept, stop serving a held tip above its height. None when refused.
+   */
+  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation &evidence,
+                                                           const std::string &from);
   /** Stop serving the held signed tip once it no longer verifies (a new certificate's cutover). */
   void dropHeldTipIfInvalid();
   /** True when `reply` carries a signed tip, valid here, for exactly `block`. */

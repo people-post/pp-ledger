@@ -283,7 +283,23 @@ std::vector<std::optional<Client::BeaconState>> MinerServer::fetchUpstreamStates
     }
     states[i] = std::move(status.value());
   }
+  noteConflictingUpstreamTips(states);
   return states;
+}
+
+void MinerServer::noteConflictingUpstreamTips(const std::vector<std::optional<Client::BeaconState>> &states) {
+  // Two upstreams serving tips of one generation and height for different blocks: if both verify,
+  // the beacon key signed twice (ba6) — two hosts running it, or a stolen key.
+  for (size_t i = 0; i < states.size(); ++i) {
+    for (size_t j = i + 1; j < states.size(); ++j) {
+      if (!states[i] || !states[j] || !states[i]->signedTip || !states[j]->signedTip) {
+        continue;
+      }
+      if (const auto evidence = Client::Equivocation::of(*states[i]->signedTip, *states[j]->signedTip)) {
+        miner_.noteEquivocation(*evidence, "upstreams [" + std::to_string(i) + "] and [" + std::to_string(j) + "]");
+      }
+    }
+  }
 }
 
 MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
@@ -293,6 +309,7 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
   // generation any of them serves is not chosen.
   const auto states = fetchUpstreamStates();
   const auto seen = miner_.getSeenCertificate();
+  const auto halted = miner_.getEquivocation();
   size_t best = config_.network.beacon_multiaddrs.size();
   uint64_t best_generation = 0;
   uint64_t best_height = 0;
@@ -304,6 +321,12 @@ MinerServer::Roe<size_t> MinerServer::selectBestUpstreamIndex() {
     if (tip && seen && tip->generation < seen->generation && tip->height > seen->cutoverHeight) {
       log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
                     << tip->generation << ") is past the cutover of beacon generation " << seen->generation;
+      continue;
+    }
+    if (tip && halted && tip->generation == halted->generation() && tip->height > halted->height()) {
+      log().warning << "Skipping upstream [" << i << "]: its signed tip (block " << tip->height << ", generation "
+                    << tip->generation << ") is past the equivocation of that generation at block "
+                    << halted->height();
       continue;
     }
     const uint64_t generation = tip ? tip->generation : 0;

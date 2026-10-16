@@ -6,6 +6,7 @@
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 #include "CertificateStore.h"
+#include "EquivocationStore.h"
 #include "Chain.h"
 
 #include <cstdint>
@@ -65,6 +66,8 @@ public:
   std::optional<std::string> getTipHash() const;
   /** The current certificate for STATUS (Chain::currentCertificateRecord). */
   std::optional<Ledger::Record> getCurrentCertificate() const;
+  /** Equivocation evidence this node halts on (beacon-authority ba6), for STATUS; none if none. */
+  std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
@@ -83,6 +86,13 @@ public:
    * is the highest seen (CertificateStore::note). None when refused (logged).
    */
   std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record &record, const std::string &from);
+  /**
+   * Equivocation evidence (ba6: found in tips, STATUS, EQUIVOCATION_ADD), kept and persisted when it
+   * verifies (EquivocationStore::note): the node then commits nothing of that generation above its
+   * height. None when refused (logged).
+   */
+  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation &evidence,
+                                                           const std::string &from);
   /** The certificate held out of band, above the generation in force (Chain::seenCertificate). */
   std::optional<BeaconCertificate> getSeenCertificate() const { return chain_.seenCertificate(); }
 
@@ -90,6 +100,8 @@ private:
   constexpr static const char *DIR_LEDGER = "ledger";
   /** The highest beacon certificate seen out of band, beside the ledger. */
   constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
+  /** Equivocation evidence this node halts on (ba6), beside the ledger. */
+  constexpr static const char *FILE_EQUIVOCATION = "equivocation.dat";
 
   struct Config {
     std::string workDir;
@@ -99,6 +111,7 @@ private:
   Chain chain_;
   Config config_;
   std::unique_ptr<CertificateStore> certificates_;
+  std::unique_ptr<EquivocationStore> equivocations_;
 };
 
 // Ostream operators for easy logging

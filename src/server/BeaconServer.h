@@ -188,6 +188,8 @@ private:
   std::optional<Client::SignedTip> latestSignedTip() const override { return beacon_.getSignedTip(); }
   /** BLOCK_ADD reply: next block id and the signed tip (which covers the block just added). */
   std::string tipReply() const;
+  /** Why a write is refused while halted on equivocation evidence above `above` (ba6). */
+  std::string haltedMessage(uint64_t above) const;
 
   Roe<std::string> hBlockGet(const Client::Request &request);
   Roe<std::string> hBlockAdd(const Client::Request &request);

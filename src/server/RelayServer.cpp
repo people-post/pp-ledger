@@ -307,9 +307,20 @@ void RelayServer::noteSignedTip(const std::optional<Client::SignedTip> &tip) {
     return;
   }
   if (upstreamTip_.offer(*tip) == UpstreamSignedTip::Offer::Conflict) {
-    log().warning << "Upstream sent a second signed tip for block " << tip->height << " (generation "
-                  << tip->generation << "); keeping the first";
+    // Both verified: the beacon key signed two blocks at one height (ba6).
+    if (const auto evidence = Client::Equivocation::of(*upstreamTip_.latest(), *tip)) {
+      noteEquivocation(*evidence, "the upstream's signed tips");
+    }
   }
+}
+
+std::optional<Chain::EquivocationOffer> RelayServer::noteEquivocation(const Client::Equivocation &evidence,
+                                                                      const std::string &from) {
+  auto offered = relay_.noteEquivocation(evidence, from);
+  if (offered == Chain::EquivocationOffer::Newer) {
+    dropHeldTipIfInvalid();
+  }
+  return offered;
 }
 
 std::optional<Chain::CertificateOffer> RelayServer::noteCertificate(const std::optional<Ledger::Record> &record,

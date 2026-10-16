@@ -7,6 +7,10 @@ add_library(pp_server STATIC
     TxPool.cpp
     CertificateStore.cpp
     CertificateStore.h
+    EquivocationStore.cpp
+    EquivocationStore.h
+    NodeFile.cpp
+    NodeFile.h
     TipSigner.cpp
     TipSigner.h
     UpstreamSignedTip.h

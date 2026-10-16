@@ -864,6 +864,9 @@ std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
     return Server::packResponse(1, "This beacon stood down: beacon generation " + std::to_string(*by) +
                                        " certifies another key");
   }
+  if (const auto above = isTerminalWrite(request.type) ? beacon_.haltedAbove() : std::nullopt) {
+    return Server::packResponse(1, haltedMessage(*above));
+  }
   auto it = requestHandlers_.find(request.type);
   Roe<std::string> result = (it != requestHandlers_.end())
                                 ? it->second(request)
@@ -950,6 +953,12 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
   return tipReply();
 }
 
+std::string BeaconServer::haltedMessage(uint64_t above) const {
+  return "This beacon is halted: beacon generation " + std::to_string(beacon_.getEquivocation()->generation()) +
+         " signed two blocks at height " + std::to_string(above) +
+         " (equivocation); nothing above it is committed until a later generation is certified";
+}
+
 std::string BeaconServer::tipReply() const {
   Client::TipReply reply;
   reply.nextBlockId = beacon_.getNextBlockId();
@@ -978,6 +987,10 @@ BeaconServer::hTxAdd(const Client::Request &request) {
       return {"Beacon certificate kept; this beacon stood down: " + why};
     }
     return Error(E_REQUEST, "This beacon stood down: " + why);
+  }
+  // Halted (ba6): only a certificate — the way out — is still taken.
+  if (const auto above = beacon_.haltedAbove(); above && !certificate) {
+    return Error(E_REQUEST, haltedMessage(*above));
   }
   const int64_t now = nowSeconds();
   txPool_.expire(now);

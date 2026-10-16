@@ -1,9 +1,7 @@
 #include "TipSigner.h"
+#include "NodeFile.h"
 
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 
 namespace pp {
 
@@ -14,14 +12,14 @@ TipSigner::TipSigner(std::string path, std::vector<utl::MlDsaKeyPair> keys)
 
 TipSigner::Roe<void> TipSigner::load() {
   latest_.reset();
-  if (!std::filesystem::exists(path_)) {
+  auto read = node_file::readIfExists(path_);
+  if (!read) {
+    return Error(E_IO, read.error().message);
+  }
+  if (!read.value()) {
     return {};
   }
-  std::ifstream in(path_, std::ios::binary);
-  if (!in) {
-    return Error(E_IO, "Failed to read " + path_);
-  }
-  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const std::string bytes = *read.value();
   Client::SignedTip tip;
   if (!tip.ltsFromString(bytes)) {
     return Error(E_IO, path_ + " is not a signed tip");
@@ -67,20 +65,9 @@ TipSigner::Roe<void> TipSigner::sign(const BeaconCertificate &cert, uint64_t hei
 }
 
 TipSigner::Roe<void> TipSigner::persist(const Client::SignedTip &tip) const {
-  // Write aside, then rename over: a crash leaves the old tip or the new one, never half of one.
-  const std::string temp = path_ + ".tmp";
-  {
-    std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-    out << tip.ltsToString();
-    out.flush();
-    if (!out) {
-      return Error(E_IO, "Failed to write " + temp);
-    }
-  }
-  std::error_code ec;
-  std::filesystem::rename(temp, path_, ec);
-  if (ec) {
-    return Error(E_IO, "Failed to replace " + path_ + ": " + ec.message());
+  // A crash leaves the old tip or the new one, never half of one.
+  if (auto written = node_file::replace(path_, tip.ltsToString()); !written) {
+    return Error(E_IO, written.error().message);
   }
   return {};
 }
