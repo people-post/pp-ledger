@@ -96,6 +96,7 @@ public:
   std::optional<std::string> getTipHash() const;
   /** Equivocation evidence this node halts on (beacon-authority ba6); none if none. */
   std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
+  std::string getNetworkId() const { return chain_.getNetworkId(); }
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;

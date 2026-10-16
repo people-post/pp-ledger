@@ -9,6 +9,8 @@ add_library(pp_server STATIC
     CertificateStore.h
     EnvConfig.cpp
     EnvConfig.h
+    HealthEndpoint.cpp
+    HealthEndpoint.h
     EquivocationStore.cpp
     EquivocationStore.h
     NodeFile.cpp
@@ -54,6 +56,7 @@ target_link_libraries(pp_server PUBLIC
     pp_consensus
     pp_network
     pp_ledger_amp
+    pp_http
 )
 
 message(STATUS "Server configured with AMP network support")

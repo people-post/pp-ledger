@@ -98,7 +98,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-NET-RPC** | Amp ledger RPC echo + Client framing | Integration (`test_amp_ledger_rpc`) | |
 | **L-NET-LOSS** | RPC fails clean under total datagram loss | Integration (`RoundTripFailsWhenDatagramsDropped`, `SuccessThenLossFailsSecondRoundTrip`) | Docker netem = `covered-above` later |
 | **L-NET-REORDER** | RPC survives reorder window | Integration (`RoundTripSurvivesReorderWindow`) | Amp `MemoryDatagramIo::SetReorderWindow` (random release) |
-| **L-SMOKE-L0** | Binaries boot; client status reaches beacon | Smoke (`scripts/test/pp_ledger_l0_smoke.sh`) | L0a/b/c fail-fast; green on localhost OsUdp |
+| **L-SMOKE-L0** | Binaries boot; client status reaches beacon; every node reports ready | Smoke (`scripts/test/pp_ledger_l0_smoke.sh`) | L0a/b/c fail-fast; L0d: each node's `/readyz` (health port = UDP port + 1000) answers 200 and `/metrics` reports up; green on localhost OsUdp |
 | **L-COMPOSE-TIP** | Forced-leader block accepted by peer tip | Integration (`ForcedLeader_ProducerAndPeerAcceptTip`) | In-process stand-in for L-SMOKE-L1 |
 | **L-SMOKE-L1** | Beacon→relay→miner produces tip | Smoke (`scripts/test/pp_ledger_l1_smoke.sh`) | Short slots + tx inject; green |
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; green |

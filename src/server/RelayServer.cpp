@@ -116,6 +116,11 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, allowed.error().message);
   }
   allowedPeers = std::move(allowed.value());
+  auto healthConfig = parseHealthConfig(jd);
+  if (!healthConfig) {
+    return Error(E_CONFIG, healthConfig.error().message);
+  }
+  health = healthConfig.value();
   genesisHash.reset();
   if (const Object *anchorObj = jd.getObject("networkAnchor")) {
     auto anchor = NetworkAnchor::fromJson(*anchorObj);
@@ -272,6 +277,9 @@ Service::Roe<void> RelayServer::onStart() {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
   setAllowedPeers(runFileConfig.allowedPeers);
+  if (auto health = startHealthEndpoint(runFileConfig.health); !health) {
+    return Service::Error(E_CONFIG, health.error().message);
+  }
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_NETWORK, "Failed to start AMP server: " +
@@ -986,6 +994,43 @@ RelayServer::Roe<std::string> RelayServer::hAuthorityProof(const Client::Request
     return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
   }
   return utl::binaryPack(proof.value());
+}
+
+namespace {
+/** A relay or miner this many blocks behind its upstream's signed tip is not ready. */
+constexpr uint64_t kReadyLagBlocks = 3;
+} // namespace
+
+void RelayServer::fillHealth(HealthSnapshot &snapshot) const {
+  Server::fillHealth(snapshot);
+  snapshot.role = "relay";
+  snapshot.networkId = networkId_;
+  snapshot.nextBlockId = relay_.getNextBlockId();
+  snapshot.generation = relay_.getGeneration();
+  snapshot.halted = relay_.getEquivocation().has_value();
+  snapshot.recoveryPending = relay_.getRecoveryStatus().has_value();
+  if (snapshot.signedTipHeight) {
+    snapshot.upstreamNextBlockId = *snapshot.signedTipHeight + 1;
+  }
+  if (lastSyncResult_ && lastSyncResult_->ok) {
+    snapshot.lastSyncAgeSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastBlockSyncTime_).count();
+  }
+  if (!isServing()) {
+    return;
+  }
+  const uint64_t lag = snapshot.upstreamNextBlockId && *snapshot.upstreamNextBlockId > snapshot.nextBlockId
+                           ? *snapshot.upstreamNextBlockId - snapshot.nextBlockId
+                           : 0;
+  if (snapshot.halted) {
+    snapshot.notReady = "halted on equivocation evidence";
+  } else if (!lastSyncResult_ || !lastSyncResult_->ok) {
+    snapshot.notReady = "not synced from the upstream";
+  } else if (lag > kReadyLagBlocks) {
+    snapshot.notReady = std::to_string(lag) + " blocks behind the upstream";
+  } else {
+    snapshot.ready = true;
+  }
 }
 
 } // namespace pp

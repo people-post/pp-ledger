@@ -29,6 +29,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_LEDGER_LOG_LEVEL` | all, pp-http | `--log-level`: `debug`, `info`, `warning` (nodes' default), `error`; pp-http defaults to `info` |
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
+| `PP_LEDGER_HEALTH_PORT`, `PP_LEDGER_HEALTH_BIND` | beacon, relay, miner | `healthPort`, `healthBind` ([Health and metrics](#health-and-metrics)) |
 | `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
 | `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId` |
 | `PP_MINER_ID` | miner | `minerId` |
@@ -47,6 +48,22 @@ or a key file), so upstream multiaddrs can be written ahead. For example, a rela
 PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id> \
   PP_LEDGER_LOG_LEVEL=info pp-relay
 ```
+
+## Health and metrics
+
+Any node serves probes and Prometheus metrics over HTTP when `healthPort` (or
+`PP_LEDGER_HEALTH_PORT`) is set; `healthBind` (`PP_LEDGER_HEALTH_BIND`, default `127.0.0.1`) is the
+address — `0.0.0.0` for Kubernetes probes or a scraper on another host. Off by default.
+
+| Path | Answers |
+|------|---------|
+| `GET /healthz` | `200` while the server thread reports (at least every 30 s), else `503` — a liveness probe |
+| `GET /readyz` | `200` when ready, else `503` with the reason (`starting`, `not synced from the upstream`, `N blocks behind the upstream`, `halted on equivocation evidence`, `stood down…`) — a readiness probe. Beacon: running, not stood down or halted. Relay: synced and at most 3 blocks behind its upstream's signed tip. Miner: synced |
+| `GET /metrics` | Prometheus text: `pp_ledger_info{role,peer_id,network}`, `pp_ledger_up`, `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth` |
+
+The endpoint starts with the config, before a relay or miner's startup sync, so a node that is
+still syncing is healthy but not ready. It reads a snapshot the server thread publishes once a
+second: probes never touch the chain.
 
 ## `init-config.json` (beacon, genesis)
 

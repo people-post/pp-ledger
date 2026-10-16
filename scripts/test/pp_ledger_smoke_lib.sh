@@ -376,7 +376,8 @@ initialize_beacon_with_test_config() {
 create_beacon_config() {
   local beacon_dir="${TEST_DIR}/beacon"
   render_fixture "beacon-config.json.tmpl" "$beacon_dir/config.json" \
-    "BEACON_PORT=${BEACON_PORT}"
+    "BEACON_PORT=${BEACON_PORT}" \
+    "HEALTH_PORT=$(health_port_for "${BEACON_PORT}")"
 }
 
 # Relay $1 (default "relay", in ${TEST_DIR}/$1) on UDP port $2 (default RELAY_PORT), following
@@ -400,6 +401,7 @@ create_relay_config() {
   fi
   render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
     "RELAY_PORT=${port}" \
+    "HEALTH_PORT=$(health_port_for "${port}")" \
     "BEACON_MULTIADDR=${beacon_ma}"
   # Optional: pin the genesis the relay syncs from (networkAnchor.genesisHash).
   if [[ "${PP_LEDGER_SMOKE_RELAY_PIN_GENESIS:-0}" == "1" ]]; then
@@ -460,6 +462,7 @@ create_miner_config() {
     "MINER_ID=$(miner_account_id "$miner_id")" \
     "KEYS_JSON=${keys_json}" \
     "MINER_PORT=${miner_port}" \
+    "HEALTH_PORT=$(health_port_for "${miner_port}")" \
     "RELAY_MULTIADDR=${relay_ma}"
 }
 
@@ -787,6 +790,36 @@ wait_for_miner_ready() {
 }
 
 # ---- L0 ready-gate layers (fail-fast) ----
+
+# A node's health endpoint (healthPort): its UDP port + 1000.
+health_port_for() {
+  echo $(($1 + 1000))
+}
+
+# L-SMOKE-L0d: every node's /readyz answers 200 (synced, not halted) within $1 seconds.
+assert_l0d_ready() {
+  local max_wait=${1:-60} name port deadline status
+  local nodes=("beacon:${BEACON_PORT}" "relay:${RELAY_PORT}")
+  local i
+  for i in $(seq 1 "$NUM_MINERS"); do
+    nodes+=("miner${i}:$((MINER_BASE_PORT + i - 1))")
+  done
+  for entry in "${nodes[@]}"; do
+    name=${entry%%:*}
+    port=$(health_port_for "${entry##*:}")
+    deadline=$((SECONDS + max_wait))
+    status=""
+    while ((SECONDS < deadline)); do
+      status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/readyz" || true)
+      [[ "$status" == "200" ]] && break
+      sleep 1
+    done
+    [[ "$status" == "200" ]] ||
+      die "L-SMOKE-L0d: ${name} not ready (/readyz ${status}: $(curl -s "http://127.0.0.1:${port}/readyz" || true))"
+    curl -s "http://127.0.0.1:${port}/metrics" | grep -q '^pp_ledger_up 1' || die "L-SMOKE-L0d: ${name} /metrics"
+  done
+  echo -e "${GREEN}✓ L-SMOKE-L0d: beacon, relay and ${NUM_MINERS} miner(s) ready (/readyz, /metrics)${NC}"
+}
 
 assert_l0a_pids_alive() {
   echo -e "${CYAN}L0a: process PIDs alive${NC}"

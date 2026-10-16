@@ -35,3 +35,7 @@ gtest_discover_tests(test_clock_calibration)
 add_executable(test_env_config test_env_config.cpp)
 target_link_libraries(test_env_config PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_env_config)
+
+add_executable(test_health_endpoint test_health_endpoint.cpp)
+target_link_libraries(test_health_endpoint PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_health_endpoint)

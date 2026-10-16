@@ -149,6 +149,11 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, allowed.error().message);
   }
   allowedPeers = std::move(allowed.value());
+  auto healthConfig = parseHealthConfig(jd);
+  if (!healthConfig) {
+    return Error(E_CONFIG, healthConfig.error().message);
+  }
+  health = healthConfig.value();
   return {};
 }
 
@@ -431,6 +436,9 @@ Service::Roe<void> MinerServer::onStart() {
     return Service::Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
   setAllowedPeers(runFileConfig.allowedPeers);
+  if (auto health = startHealthEndpoint(runFileConfig.health); !health) {
+    return Service::Error(E_CONFIG, health.error().message);
+  }
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(E_MINER, "Failed to start AMP server: " + serverStarted.error().message);
@@ -1202,6 +1210,29 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
   }
 
   return state;
+}
+
+void MinerServer::fillHealth(HealthSnapshot &snapshot) const {
+  Server::fillHealth(snapshot);
+  snapshot.role = "miner";
+  snapshot.networkId = miner_.getNetworkId();
+  snapshot.nextBlockId = miner_.getNextBlockId();
+  snapshot.generation = miner_.getGeneration();
+  snapshot.halted = miner_.getEquivocation().has_value();
+  if (lastSyncResult_ && lastSyncResult_->ok) {
+    snapshot.lastSyncAgeSeconds =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastBlockSyncTime_).count();
+  }
+  if (!isServing()) {
+    return;
+  }
+  if (snapshot.halted) {
+    snapshot.notReady = "halted on equivocation evidence";
+  } else if (!lastSyncResult_ || !lastSyncResult_->ok) {
+    snapshot.notReady = "not synced from the upstream";
+  } else {
+    snapshot.ready = true;
+  }
 }
 
 } // namespace pp

@@ -531,6 +531,11 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
     return Error(E_CONFIG, allowed.error().message);
   }
   allowedPeers = std::move(allowed.value());
+  auto healthConfig = parseHealthConfig(jd);
+  if (!healthConfig) {
+    return Error(E_CONFIG, healthConfig.error().message);
+  }
+  health = healthConfig.value();
   return {};
 }
 
@@ -795,6 +800,9 @@ Service::Roe<void> BeaconServer::onStart() {
   }
 
   setAllowedPeers(runFileConfig.allowedPeers);
+  if (auto health = startHealthEndpoint(runFileConfig.health); !health) {
+    return Service::Error(E_CONFIG, health.error().message);
+  }
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
@@ -1352,6 +1360,27 @@ BeaconServer::Roe<std::string> BeaconServer::hAuthorityProof(const Client::Reque
     return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
   }
   return utl::binaryPack(proof.value());
+}
+
+void BeaconServer::fillHealth(HealthSnapshot &snapshot) const {
+  Server::fillHealth(snapshot);
+  snapshot.role = "beacon";
+  snapshot.networkId = beacon_.getNetworkId();
+  snapshot.nextBlockId = beacon_.getNextBlockId();
+  snapshot.generation = beacon_.getGeneration();
+  snapshot.halted = beacon_.haltedAbove().has_value();
+  snapshot.standingDown = beacon_.isSuperseded();
+  snapshot.recoveryPending = beacon_.getRecoveryStatus().has_value();
+  if (!isServing()) {
+    return;
+  }
+  if (snapshot.standingDown) {
+    snapshot.notReady = "stood down: another beacon key is certified";
+  } else if (snapshot.halted) {
+    snapshot.notReady = "halted on equivocation evidence";
+  } else {
+    snapshot.ready = true;
+  }
 }
 
 } // namespace pp

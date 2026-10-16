@@ -125,7 +125,72 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
 }
 
 void Server::onStop() {
+  if (health_) {
+    health_->stop();
+  }
   stopAmpServer();
+}
+
+Service::Roe<Server::HealthConfig> Server::parseHealthConfig(const pp::common::Object& config) {
+  HealthConfig health;
+  if (config.contains("healthPort")) {
+    auto port = config.getNonNegInt("healthPort");
+    if (!port || *port > 65535) {
+      return Service::Error(-1, "Field 'healthPort' must be between 0 and 65535 (0: none)");
+    }
+    if (*port != 0) {
+      health.port = static_cast<uint16_t>(*port);
+    }
+  }
+  if (config.contains("healthBind")) {
+    auto bind = config.getString("healthBind");
+    if (!bind || bind->empty()) {
+      return Service::Error(-1, "Field 'healthBind' must be an address (e.g. 0.0.0.0)");
+    }
+    health.bind = *bind;
+  }
+  return health;
+}
+
+Service::Roe<void> Server::startHealthEndpoint(const HealthConfig& config) {
+  if (!config.port) {
+    return {};
+  }
+  health_ = std::make_unique<HealthEndpoint>();
+  health_->redirectLogger(log().getFullName() + ".Health");
+  if (auto started = health_->start(config.bind, *config.port); !started) {
+    health_.reset();
+    return Service::Error(-1, started.error().message);
+  }
+  publishHealth();
+  return {};
+}
+
+void Server::fillHealth(HealthSnapshot& snapshot) const {
+  const std::string listen = listenMultiaddr();
+  if (const auto at = listen.rfind("/p2p/"); at != std::string::npos) {
+    snapshot.peerId = listen.substr(at + 5);
+  }
+  snapshot.requestQueueDepth = requests_ ? requests_->size() : 0;
+  if (const auto tip = latestSignedTip()) {
+    snapshot.signedTipHeight = tip->height;
+  }
+  snapshot.ready = false;
+  snapshot.notReady = serving_ ? "not ready" : "starting";
+}
+
+void Server::publishHealth() {
+  if (!health_) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (now - healthPublishedAt_ < std::chrono::seconds(1)) {
+    return;
+  }
+  healthPublishedAt_ = now;
+  HealthSnapshot snapshot;
+  fillHealth(snapshot);
+  health_->publish(std::move(snapshot));
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
@@ -326,6 +391,8 @@ bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQue
 }
 
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
+  serving_ = true;
+  publishHealth();
   auto deadline = RequestQueue::Clock::now() + budget;
   if (restartRequested_) {
     if (RequestQueue::Clock::now() >= restartAt_) {
@@ -362,6 +429,7 @@ bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::mil
   constexpr auto kSlice = std::chrono::milliseconds(200);
   const auto deadline = RequestQueue::Clock::now() + timeout;
   while (!done() && !isStopSet()) {
+    publishHealth(); // probes see a node that is starting, not a dead one
     const auto now = RequestQueue::Clock::now();
     if (now >= deadline) {
       break;
