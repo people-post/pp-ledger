@@ -466,3 +466,43 @@ sync per block); checksums per block to find a torn tail (a format change, and t
 already bounds what was committed); trust a scan of the file (zero-filled pages parse as empty
 blocks).
 
+## B022 — A rewind is a restart
+
+**Date:** 2026-10-16
+**Decision:** A node rewinds by restarting, never in place: it writes a durable marker
+(`data/rewind.dat`: the target height and the certificate ordering it) and stops; the app's `main()`
+builds a fresh role server on the same work directory, which applies the marker before anything
+mounts the ledger — truncate to the cutover, or discard and join fresh when the cutover lies below
+the node's starting checkpoint — and then starts as from cold. One rewind per certificate
+generation; a marker that survives its restart stops the node with an error.
+**Rationale:** Part 2's events are rare — perhaps once in a network's life — so maintainability
+beats speed (the user's call: slow is fine, even a reboot). A restart rebuilds chain state,
+committee, idempotency, pools, sync and network from the ledger through paths every node runs
+daily; an in-place rewind needs undo for each of them, code that would run once a year and break
+unnoticed. Applying the marker before mount means no live object holds a file and no in-memory
+state is half-updated; the ledger's commit point (B021) makes each step safe to repeat after a
+crash.
+**Cons:** A rewind costs a full reload (the beacon and relays replay from genesis, as at every
+start). The node is unavailable for the restart.
+**Alternatives:** Undo records per block (fast, much new state); rewind in place and reload the chain
+object only (other objects keep stale state); exit and rely on a supervisor (third-party nodes may
+have none — B023).
+
+## B023 — Every node adopts a cutover on its own
+
+**Date:** 2026-10-16
+**Decision:** A node that keeps a certificate whose cutover is below its committed tip rewinds
+without an operator: the restart of B022 happens inside the process (a loop in `main()` around a
+fresh server), so no service supervisor is needed. Only an admin-signed certificate of a higher
+generation, verified against the node's own admin set, can order it. The node alerts and reports
+the rewind (log, `STATUS`).
+**Rationale:** Many miners and relays are not operated by the chain's maintainer; a case-2 recovery
+that waits for each of them to act would leave the network split for as long as the slowest
+operator. The authority to order a rewind already exists — the admin set signs the cutover (B017) —
+so the node needs no further trust to act on it, and a stolen beacon key or a lying upstream cannot
+trigger one.
+**Cons:** Clients see history above the cutover disappear and must resubmit; a mistaken cutover
+from the admins rewinds the whole network.
+**Alternatives:** Operator-driven rewind (slow, partial); exit for a supervisor to restart (not every
+node has one).
+
