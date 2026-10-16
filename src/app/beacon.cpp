@@ -4,6 +4,8 @@
 #include "lib/common/Utilities.h"
 #include "common/io/Json.h"
 
+#include "NodeOptions.h"
+
 #include <cli11.hpp>
 
 #include <atomic>
@@ -82,22 +84,21 @@ int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, boo
 int main(int argc, char *argv[]) {
   CLI::App app{"pp-beacon - Beacon server for pp-ledger"};
   
-  std::string workDir;
-  app.add_option("-d,--work-dir", workDir, "Work directory (required)")
-      ->required();
+  pp::app::NodeOptions options;
+  options.add(app);
 
   bool initMode = false;
   app.add_flag("--init", initMode, "Initialize a new beacon (genesis) from init-config.json");
 
   std::vector<std::string> genesisKeys;
   app.add_option("--genesis-key", genesisKeys,
-                 "Genesis private key file to sign the genesis block (repeat for M-of-N); --init only");
+                 "Genesis private key file to sign the genesis block (repeat for M-of-N); --init only")
+      ->envname("PP_GENESIS_KEY_FILES")
+      ->delimiter(',');
 
   bool forceInit = false;
   app.add_flag("--force", forceInit, "--init only: replace an existing chain (data/) — destroys it");
 
-  bool debugMode = false;
-  app.add_flag("--debug", debugMode, "Enable debug logging (default: warning level)");
 
   bool promote = false;
   app.add_flag("--promote", promote,
@@ -126,10 +127,7 @@ int main(int argc, char *argv[]) {
 
   CLI11_PARSE(app, argc, argv);
 
-  auto logger = pp::logging::getRootLogger();
-  pp::logging::Level logLevel = debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;
-  logger.setLevel(logLevel);
-  logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
+  options.applyLogLevel();
 
   // Ctrl+C, and the SIGTERM a service manager (docker, systemd) stops with: stop cleanly, so the
   // ledger commits what it appended.
@@ -141,8 +139,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   if (initMode) {
-    return initBeacon(workDir, genesisKeys, forceInit);
+    return initBeacon(options.workDir, genesisKeys, forceInit);
   } else {
-    return runBeacon(workDir, approvedRewindGeneration, promote);
+    return runBeacon(options.workDir, approvedRewindGeneration, promote);
   }
 }

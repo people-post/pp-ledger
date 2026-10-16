@@ -1011,19 +1011,34 @@ int main(int argc, char** argv) {
   std::string corsOrigin;
   std::string beaconMultiaddr;
   std::string minerMultiaddr;
-  app.add_option("--port", httpPort, "HTTP server port")->default_val(8080);
+  std::string logLevel = "info";
+  app.add_option("--port", httpPort, "HTTP server port")->default_val(8080)->envname("PP_HTTP_PORT");
   app.add_option("--bind", httpHost,
                 "HTTP bind address (default 127.0.0.1; use 0.0.0.0 to expose)")
-      ->default_val("127.0.0.1");
+      ->default_val("127.0.0.1")
+      ->envname("PP_HTTP_BIND");
   app.add_option("--cors-origin", corsOrigin,
-                "Value for Access-Control-Allow-Origin (default: CORS disabled)");
+                "Value for Access-Control-Allow-Origin (default: CORS disabled)")
+      ->envname("PP_HTTP_CORS_ORIGIN");
   app.add_option("--beacon", beaconMultiaddr,
                  "Beacon ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
-      ->required();
+      ->required()
+      ->envname("PP_HTTP_BEACON");
   app.add_option("--miner", minerMultiaddr,
                  "Miner ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
-      ->required();
+      ->required()
+      ->envname("PP_HTTP_MINER");
+  app.add_option("--log-level", logLevel, "Log level: debug, info, warning or error")
+      ->envname("PP_LEDGER_LOG_LEVEL")
+      ->check(CLI::IsMember({"debug", "info", "warning", "error"}, CLI::ignore_case));
   CLI11_PARSE(app, argc, argv);
+  {
+    const std::string level = CLI::detail::to_lower(logLevel);
+    pp::logging::getRootLogger().setLevel(level == "debug"     ? pp::logging::Level::DEBUG
+                                          : level == "warning" ? pp::logging::Level::WARNING
+                                          : level == "error"   ? pp::logging::kLevelError
+                                                               : pp::logging::Level::INFO);
+  }
 
   if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' ||
       minerMultiaddr.empty() || minerMultiaddr.front() != '/') {

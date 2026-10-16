@@ -686,36 +686,16 @@ Service::Roe<void> BeaconServer::onStart() {
     }
     runFileConfig = promotion.value().config;
     clockReferences = promotion.value().clockReferences;
-  } else if (!std::filesystem::exists(configPath)) {
-    log().info << "No " << FILE_CONFIG
-               << " found, creating with default values";
-
-    // Use default values from RunFileConfig struct
-    auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
-    if (!encoded) {
-      return Service::Error(-2, "Failed to encode " + std::string(FILE_CONFIG) +
-                                    ": " + encoded.error().message);
-    }
-
-    std::ofstream configFile(configPath);
-    if (!configFile) {
-      return Service::Error(-2, "Failed to create " + std::string(FILE_CONFIG));
-    }
-    configFile << encoded.value() << std::endl;
-    configFile.close();
-
-    log().info << "Created " << FILE_CONFIG << " at: " << configPathStr;
   } else {
-    // Load existing configuration
-    auto jsonResult = utl::loadJsonFile(configPathStr);
-    if (!jsonResult) {
-      return Service::Error(-3, "Failed to load config file: " +
-                                    jsonResult.error().message);
+    auto loaded = env_config::loadConfig(configPathStr, env_config::commonFields());
+    if (!loaded) {
+      return Service::Error(E_CONFIG, loaded.error().message);
     }
-
-    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
-    if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " +
+    if (!loaded.value()) {
+      // No file and no environment: the defaults (nothing is written; the directory may be read-only).
+      log().info << "No " << FILE_CONFIG << " and no PP_LEDGER_* settings: using defaults";
+    } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+      return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
                                           parseResult.error().message);
     }
   }

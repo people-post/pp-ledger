@@ -1,6 +1,8 @@
 #include "common/Logger.h"
 #include "../server/RelayServer.h"
 
+#include "NodeOptions.h"
+
 #include <cli11.hpp>
 
 #include <atomic>
@@ -58,13 +60,8 @@ int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration) {
 int main(int argc, char *argv[]) {
   CLI::App app{"pp-relay - Relay server for pp-ledger"};
 
-  std::string workDir;
-  app.add_option("-d,--work-dir", workDir, "Work directory (required)")
-      ->required();
-
-  bool debugMode = false;
-  app.add_flag("--debug", debugMode,
-               "Enable debug logging (default: warning level)");
+  pp::app::NodeOptions options;
+  options.add(app);
 
   uint64_t approvedRewindGeneration = 0;
   app.add_option("--approve-rewind", approvedRewindGeneration,
@@ -80,16 +77,12 @@ int main(int argc, char *argv[]) {
 
   CLI11_PARSE(app, argc, argv);
 
-  auto logger = pp::logging::getRootLogger();
-  pp::logging::Level logLevel =
-      debugMode ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING;
-  logger.setLevel(logLevel);
-  logger.info << "Logging level set to " << (debugMode ? "DEBUG" : "WARNING");
+  options.applyLogLevel();
 
   // Ctrl+C, and the SIGTERM a service manager (docker, systemd) stops with: stop cleanly, so the
   // ledger commits what it appended.
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runRelay(workDir, approvedRewindGeneration);
+  return runRelay(options.workDir, approvedRewindGeneration);
 }

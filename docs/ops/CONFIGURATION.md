@@ -2,12 +2,13 @@
 
 The one place that lists every config field. Each file is JSON in the role's
 work directory (`-d <dir>`). Omitted optional fields take the defaults below;
-anything not listed here is fixed in code.
+anything not listed here is fixed in code. Every `config.json` field a deployment sets, and the
+command-line options, can come from the environment instead ([Environment](#environment)).
 
 | File | Role | Read when |
 |------|------|-----------|
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
-| `config.json` | beacon, relay, miner | every start. If missing, the beacon creates `{"port": 8517}` and runs; the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
+| `config.json` | beacon, relay, miner | every start, optional when the environment sets what the role needs ([Environment](#environment)). With neither, the beacon runs on its defaults (nothing is written); the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
@@ -15,6 +16,32 @@ anything not listed here is fixed in code.
 | `data/rewind.dat`, `data/rewound.dat` | beacon, relay, miner | Not config: a rewind ordered before a restart (applied and removed at the next start) and the last one applied ([LEDGER_STORAGE.md § Node state files](../contracts/LEDGER_STORAGE.md#node-state-files)). Do not edit |
 | `data/beacon-cert.dat` | beacon, relay, miner | every start, when present. Not config: the highest beacon certificate seen out of band, not on chain yet ([BEACON_AUTHORITY.md § Certificates out of band](../contracts/BEACON_AUTHORITY.md#certificates-out-of-band)); removed once the chain commits it. Deleting it makes the node forget a cutover it enforces |
 | `data/equivocation.dat` | beacon, relay, miner | every start, when present. Not config: equivocation evidence the node halts on ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); removed once a later generation is certified. Deleting it makes the node forget evidence it halts on (its upstreams may serve it again) |
+
+## Environment
+
+Variables override the matching `config.json` field (the file may be absent) and pass the same
+checks. A secret marked `[_FILE]` can instead be given as a file path in `NAME_FILE` (Docker /
+Kubernetes secrets); setting both is an error. Lists take commas or newlines.
+
+| Variable | Role | Sets |
+|----------|------|------|
+| `PP_LEDGER_WORK_DIR` | beacon, relay, miner | `-d` |
+| `PP_LEDGER_LOG_LEVEL` | all, pp-http | `--log-level`: `debug`, `info`, `warning` (nodes' default), `error`; pp-http defaults to `info` |
+| `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
+| `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
+| `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
+| `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId` |
+| `PP_MINER_ID` | miner | `minerId` |
+| `PP_MINER_KEYS` `[_FILE]` | miner | `keys` (list: hex keys or key file paths) |
+| `PP_GENESIS_KEY_FILES` | beacon `--init` | `--genesis-key` (list of key files; keeps keys out of argv) |
+| `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
+
+A command-line option given explicitly wins over its variable. For example, a relay with no files:
+
+```bash
+PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id> \
+  PP_LEDGER_LOG_LEVEL=info pp-relay
+```
 
 ## `init-config.json` (beacon, genesis)
 

@@ -49,6 +49,18 @@ Object RelayServer::RunFileConfig::ltsToJson() {
   return j;
 }
 
+namespace {
+/** config.json fields a relay takes from the environment (CONFIGURATION.md § Environment). */
+std::vector<env_config::Field> relayEnvFields() {
+  auto fields = env_config::commonFields();
+  fields.push_back({"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false});
+  for (auto &field : env_config::anchorFields()) {
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+} // namespace
+
 RelayServer::Roe<void>
 RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (jd.contains("port")) {
@@ -201,7 +213,11 @@ Service::Roe<void> RelayServer::onStart() {
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
 
-  if (!std::filesystem::exists(configPath)) {
+  auto loaded = env_config::loadConfig(configPathStr, relayEnvFields());
+  if (!loaded) {
+    return Service::Error(E_CONFIG, loaded.error().message);
+  }
+  if (!loaded.value()) {
     log().info << "No " << FILE_CONFIG
                << " found, creating with default values";
 
@@ -221,20 +237,10 @@ Service::Roe<void> RelayServer::onStart() {
     // A relay without an upstream cannot do anything: stop until it is set.
     return Service::Error(E_CONFIG, "Created " + configPathStr +
                                         ": set `beacon` to the upstream's multiaddr (printed by the beacon at "
-                                        "start) and start again");
-  } else {
-    // Load existing configuration
-    auto jsonResult = utl::loadJsonFile(configPathStr);
-    if (!jsonResult) {
-      return Service::Error(E_CONFIG, "Failed to load config file: " +
-                                          jsonResult.error().message);
-    }
-
-    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
-    if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " +
-                                          parseResult.error().message);
-    }
+                                        "start) and start again — or set PP_LEDGER_UPSTREAMS instead");
+  } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+    return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
+                                        parseResult.error().message);
   }
 
   // Apply configuration from RunFileConfig

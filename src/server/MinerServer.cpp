@@ -58,6 +58,20 @@ Object MinerServer::RunFileConfig::ltsToJson() const {
   return j;
 }
 
+namespace {
+/** config.json fields a miner takes from the environment (CONFIGURATION.md § Environment). */
+std::vector<env_config::Field> minerEnvFields() {
+  auto fields = env_config::commonFields();
+  fields.push_back({"PP_MINER_ID", "minerId", env_config::Kind::UInt, "", false});
+  fields.push_back({"PP_MINER_KEYS", "keys", env_config::Kind::List, "", /*secret=*/true});
+  fields.push_back({"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false});
+  for (auto &field : env_config::anchorFields()) {
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+} // namespace
+
 MinerServer::Roe<void>
 MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   auto minerIdOpt = jd.getNonNegInt("minerId");
@@ -353,7 +367,11 @@ Service::Roe<void> MinerServer::onStart() {
   // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
 
-  if (!std::filesystem::exists(configPath)) {
+  auto loaded = env_config::loadConfig(configPathStr, minerEnvFields());
+  if (!loaded) {
+    return Service::Error(E_CONFIG, loaded.error().message);
+  }
+  if (!loaded.value()) {
     log().info << "No " << FILE_CONFIG
                << " found, creating with default values";
 
@@ -373,20 +391,11 @@ Service::Roe<void> MinerServer::onStart() {
 
     // Nothing here can be guessed (account id, keys, upstream): stop until set.
     return Service::Error(E_CONFIG, "Created " + configPathStr +
-                                        ": set minerId, keys and beacons (upstream multiaddrs), then start again");
-  } else {
-    // Load existing configuration
-    auto jsonResult = utl::loadJsonFile(configPathStr);
-    if (!jsonResult) {
-      return Service::Error(E_CONFIG, "Failed to load config file: " +
-                                          jsonResult.error().message);
-    }
-
-    auto parseResult = runFileConfig.ltsFromJson(jsonResult.value());
-    if (!parseResult) {
-      return Service::Error(E_CONFIG, "Failed to parse config file: " +
-                                          parseResult.error().message);
-    }
+                                        ": set minerId, keys and beacons (upstream multiaddrs), then start again — or "
+                                        "set PP_MINER_ID, PP_MINER_KEYS (or PP_MINER_KEYS_FILE) and PP_LEDGER_UPSTREAMS");
+  } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+    return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
+                                        parseResult.error().message);
   }
 
   // Apply configuration from RunFileConfig
