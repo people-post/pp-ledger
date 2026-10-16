@@ -269,3 +269,29 @@ producing wrong charges); a self-checking Full gate on a matching `stateRoot` (m
 slots are skipped); liveness charges listed in each block (works, but fixes a symptom and costs
 every block); the whole state in the checkpoint block (unbounded size).
 
+## B016 — Warm-up is exact, or it stops
+
+**Date:** 2026-10-15
+**Decision:** A node warming up from a checkpoint (CheckpointReplay) applies every effect a record
+has on the accounts it holds, whoever else the record touches: payer debit, payee credit and fee
+credit each land if that account is held (`chain_tx::applyTransferToHeldAccounts`); a new
+account is created whether or not its payer is held; a miner record's fee reaches a held fee
+account; the checkpoint block's liveness charges start at its epoch's first slot. `T_END_USER`
+carries the balances it writes off (Full checks them), so a node that does not hold the ended
+account still credits the recycle account. Renewals of held accounts keep their balance and
+miner-state checks while warming up, and the first Full block checks `stateRoot` and the stake
+snapshot: a diverged warm-up stops the node with an error. A node started at a checkpoint seals
+only once its blocks reach back over the transaction validity window (`Chain::sealReadiness`).
+**Rationale:** The rotation smoke showed the old soft paths skipping effects (fees of transfers
+between accounts not yet held never reached the held fee account); an audit of every handler found
+the rest. Recording what a warming node cannot derive (the written-off balances, like the epoch
+committee in B015) keeps the warm-up a pure replay of block data. Idempotency is checked against
+held blocks, so sealing before the history covers the validity window could include a repeated
+transaction — the smoke's freshly joined miner did, and every block it sealed was refused.
+**Cons:** With a chain younger than the validity window (one day by default) a joined miner
+validates but does not seal; with the defaults (checkpoints a year apart) it never waits.
+**Alternatives:** Renewals overwrite a held account without checking (self-heals a divergence but
+hides bugs); a rotation rule tied to the validity window (misses a later `T_CONFIG` raising it).
+Also fixed here: a transfer to the payer itself minted its amount (`transferBalance` read both
+balances before writing) — refused now.
+

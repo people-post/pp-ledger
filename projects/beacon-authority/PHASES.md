@@ -18,7 +18,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
       along the blocks (`AuthorityTrail`); older generations superseded; same-server rotation
       (`keys/beacon-signing.next`); a beacon whose key is no longer certified stands down (reads
       only); miners prefer the highest generation; an anchored miner pins its first block
-- [ ] **ba5b** Checkpoints a miner can start from, with a verifiable authority (B015). A checkpoint
+- [x] **ba5b** Checkpoints a miner can start from, with a verifiable authority (B015). A checkpoint
       is the first block of an epoch, opens with the genesis renewal, and every epoch's first block
       carries its committee. A miner starts at the previous checkpoint, warms up blindly, and works
       (checks everything, seals) from the current one. Steps:
@@ -36,8 +36,11 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         authenticated; the authority comes from the starting block's genesis record or renewal
   - [x] **ba5b.6** Anchors: a miner pinning genesis checks the starting block's authority and admin
         set against the replayed proof; relays can pin `networkAnchor.genesisHash` too
-  - [ ] **ba5b.7** Smoke: miners join at a checkpoint above 0, pinned and unpinned; docs (late
-        join, checkpoint rules), with the known limits
+  - [x] **ba5b.7** Smoke: miners join at a checkpoint above 0, pinned and unpinned; docs (late
+        join, checkpoint rules), with the known limits. On the way (B016): warm-up applies every
+        effect on held accounts (a soft-mode audit), `T_END_USER` carries its written-off balances,
+        a joined miner seals once its history covers the transaction validity window, and a
+        self-transfer (it minted) is refused
 - [ ] **ba5c** Certificates out of band: the current certificate on `STATUS` (B012), accepted from
       any peer or a file, the highest one seen persisted; `cutoverHeight` against a generation not
       yet on chain (needed by part 2's case 2)

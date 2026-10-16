@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# L-SMOKE-ROTATION (beacon-authority ba5): stage a next beacon key, certify it as generation 2
-# (mk-beacon-cert → sign-tx ×3 → submit-tx), assert the beacon signs with it and miners follow.
+# L-SMOKE-ROTATION (beacon-authority ba5, ba5b): stage a next beacon key, certify it as
+# generation 2 (mk-beacon-cert → sign-tx ×3 → submit-tx), assert the beacon signs with it and
+# miners follow. Then, once a checkpoint lies above the certificate, fresh miners start at it —
+# one pinning genesis (tied to it by the authority proof), one not — warm up and produce. The relay
+# pins genesis.
 #
 # Usage:
 #   ./scripts/test/pp_ledger_rotation_smoke.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Short epochs: checkpoints are epoch starts, so they come every few blocks and fresh miners start
+# above genesis.
+export PP_LEDGER_SMOKE_SLOTS_PER_EPOCH="${PP_LEDGER_SMOKE_SLOTS_PER_EPOCH:-3}"
+export PP_LEDGER_SMOKE_RELAY_PIN_GENESIS=1
 # shellcheck source=pp_ledger_smoke_lib.sh
 source "${ROOT}/scripts/test/pp_ledger_smoke_lib.sh"
 

@@ -69,6 +69,7 @@ End-to-end beacon authentication is in design:
 | `STATUS` | Any node | Its own head, checkpoint, epoch; `networkId`, `headHash`, `registryVersion`, the beacon's `signedTip` | Serve local state; the signed tip as heard from upstream |
 | `MINER_LIST` | Terminal registry | Ids at `registryVersion` | Forward |
 | `BLOCK_GET` | Any node | Block from local storage | Serve locally |
+| `AUTHORITY_PROOF` | Terminal or gateway (chain held from genesis) | The authority-changing records up to a block ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) | Serve locally |
 | `BLOCK_ADD` | Terminal | Block committed; the reply carries the beacon's signed tip covering it | Write-through; store locally only after the terminal accepts; pass the reply on unchanged |
 | `BLOCK_WAIT` | Gateway or terminal | Reply carries the answerer's `nextBlockId` and the latest signed tip it holds | Serve from own tip |
 | `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through |
@@ -118,7 +119,7 @@ or whose checkpoint is below `trustedCheckpointId`; when it connects it checks t
 
 | Mode | When | Behavior |
 |------|------|----------|
-| **Cold start** | New node | Anchor check → mount (miner: from the upstream's checkpoint; relay: from genesis) → sync to head |
+| **Cold start** | New node | Anchor check → mount (miner: from the upstream's checkpoint, checked against `AUTHORITY_PROOF` when genesis is pinned; relay: from genesis) → sync to head. A miner warms up until the next checkpoint and seals once its history covers the transaction validity window ([BLOCK_PIPELINE.md § Checkpoints and late join](BLOCK_PIPELINE.md#checkpoints-and-late-join)) |
 | **Catch-up** | Behind | `BlockSync` takes the upstream's beacon signed tip from `STATUS`, fetches the gap up to it with up to 4 `BLOCK_GET`s in flight, checks the hash chain up to the signed hash, then applies in order ([WIRE_SCHEMA.md § Signed tip](../contracts/WIRE_SCHEMA.md#signed-tip)) |
 | **Tip follow** | Near head | One `BLOCK_WAIT` held open to the upstream; its reply triggers a sync |
 

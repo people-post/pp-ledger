@@ -82,7 +82,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `maxCustomMetaSize` / `freeCustomMetaSize` | 1 MiB / 1024 | Account meta bytes allowed / free of fee |
 | `minFeeCoefficients` | `[1, 1, 1]` | Fee = a + b·x + c·x², x = non-free meta KiB (rounded up) |
 | `newAccountFee` | 0 | One-time fee every account creation after genesis pays on top of the above, to the fee account. `0` = none. Creation pays both up front: the meta-size fee (the same formula renewal charges) covers the account's first period, until renewal falls due about a year later; each renewal then pays for the next period |
-| `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) |
+| `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) and checkpoint spacing: a checkpoint is the first block of an epoch at least `checkpointMinBlocks` after the previous one, whose block is more than `checkpointMinAgeSeconds` old ([BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join)). Both read slot times, not a node's clock |
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
 | `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
 | `minerMinStake` | 0 | Native balance a miner needs to register (after its fee) and to be elected |
@@ -127,6 +127,7 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 | `beacon` | **required** | Upstream multiaddr (the beacon or another relay), ending in `/p2p/<peer id>` |
 | `port` | 8519 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served; typically the relay's miners and clients |
+| `networkAnchor.genesisHash` | none | Hex hash of the genesis this relay syncs from (as `pp-client block 0` prints it); without it the relay takes genesis from its upstream on trust |
 
 ## Miner `config.json`
 
@@ -144,7 +145,7 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 | `keys` | **required** | Files with the account's hex private keys; the first is also the miner's network identity |
 | `beacons` | **required** | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>` |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
-| `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId"}` |
+| `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId"}`. `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
 | `allowedPeers` | anyone | Peer ids served (a miner serves reads to local clients) |
 
 ## `allowedPeers` (any role)
