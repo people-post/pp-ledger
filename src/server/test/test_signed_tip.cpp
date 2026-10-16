@@ -168,6 +168,12 @@ TEST(SignedTipWireTest, TravelsInStatusAndTipReplies) {
   ASSERT_TRUE(parsed.ltsFromMeta(state.ltsToMeta()).isOk());
   EXPECT_EQ(parsed.equivocation, state.equivocation);
 
+  // beacon-authority ba7: a pending recovery rides STATUS too.
+  EXPECT_FALSE(parsed.recovery.has_value());
+  state.recovery = Client::RecoveryStatus{12, 40, {"key-a", "key-b", "key-c"}, 2};
+  ASSERT_TRUE(parsed.ltsFromMeta(state.ltsToMeta()).isOk());
+  EXPECT_EQ(parsed.recovery, state.recovery);
+
   Client::TipReply reply;
   reply.nextBlockId = 8;
   reply.setTip(tipAt(7));

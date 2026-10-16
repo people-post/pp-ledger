@@ -341,6 +341,26 @@ public:
     template <typename Archive> void serialize(Archive &ar) { ar & steps; }
   };
 
+  /**
+   * A recovery pending on chain (beacon-authority ba7), as STATUS shows it: the recovery set
+   * announced a new admin set at `announcedAt`; it replaces the admin set at the first block of
+   * `applyEpoch`, and until then the admin set is frozen.
+   */
+  struct RecoveryStatus {
+    uint64_t announcedAt{0};
+    uint64_t applyEpoch{0};
+    std::vector<std::string> adminPublicKeys;
+    uint8_t adminMinSignatures{0};
+
+    bool operator==(const RecoveryStatus &other) const {
+      return announcedAt == other.announcedAt && applyEpoch == other.applyEpoch &&
+             adminPublicKeys == other.adminPublicKeys && adminMinSignatures == other.adminMinSignatures;
+    }
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & announcedAt & applyEpoch & adminPublicKeys & adminMinSignatures;
+    }
+  };
+
   /** Beacon status: checkpoint, block, slot, epoch, timestamp and stakeholders (single round-trip). */
   struct BeaconState {
     int64_t currentTimestamp { 0 };  /**< Unix time in seconds (server's view of now) */
@@ -366,6 +386,8 @@ public:
      * check it against their own authority and halt with it.
      */
     std::optional<Equivocation> equivocation;
+    /** A recovery pending on this node's chain (beacon-authority ba7); absent if none. */
+    std::optional<RecoveryStatus> recovery;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);

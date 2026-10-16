@@ -101,6 +101,13 @@ Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement,
 /** The admin (genesis account) wallet once a recovery applies: its keys and threshold replaced. */
 Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnnouncement &announcement);
 
+/**
+ * The authority and admin wallet as a block of `epoch` holds them (ba7): a pending recovery due by
+ * then has replaced the admin set and is no longer pending. A no-op once the chain entered that
+ * epoch; what a block drafted ahead of it (renewals) must be built and checked against.
+ */
+void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, uint64_t epoch);
+
 /** `record` is signed by enough of the recovery set's keys (over its signing message for `networkId`). */
 Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
                                const std::string &networkId, const Crypto &crypto, logging::Logger &logger);

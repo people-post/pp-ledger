@@ -97,6 +97,8 @@ public:
   std::optional<Ledger::Record> getCurrentCertificate() const;
   /** Equivocation evidence this node halts on (beacon-authority ba6), for STATUS; none if none. */
   std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
+  /** A recovery pending on this chain (beacon-authority ba7), for STATUS; none if none. */
+  std::optional<Client::RecoveryStatus> getRecoveryStatus() const { return chain_.recoveryStatus(); }
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>>
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;

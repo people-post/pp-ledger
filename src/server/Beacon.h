@@ -175,6 +175,8 @@ public:
   std::optional<Ledger::Record> getCurrentCertificate() const;
   /** Equivocation evidence this node halts on (beacon-authority ba6), for STATUS; none if none. */
   std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
+  /** A recovery pending on this chain (beacon-authority ba7), for STATUS; none if none. */
+  std::optional<Client::RecoveryStatus> getRecoveryStatus() const { return chain_.recoveryStatus(); }
 
 private:
   constexpr static const char *DIR_LEDGER = "ledger";

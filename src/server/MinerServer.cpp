@@ -993,8 +993,11 @@ bool MinerServer::pullTransactionsForSlot(uint64_t slot) {
                   // the beacon keeps what no block included for the next leader.
                   size_t added = 0;
                   for (const auto &record : records.value()) {
-                    if (miner_.addTransaction(record)) {
+                    if (auto taken = miner_.addTransaction(record); taken) {
                       ++added;
+                    } else {
+                      log().debug << "Not taking a pulled record of type " << record.type
+                                  << " for slot " << slot << ": " << taken.error().message;
                     }
                   }
                   if (added > 0) {

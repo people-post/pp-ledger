@@ -475,6 +475,7 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   state.registryVersion = registryVersion_;
   state.signedTip = upstreamTip_.latest();
   state.equivocation = relay_.getEquivocation();
+  state.recovery = relay_.getRecoveryStatus();
   state.certificate = relay_.getCurrentCertificate();
   if (state.nextBlockId > 0) {
     if (auto tip = relay_.readBlock(state.nextBlockId - 1)) {

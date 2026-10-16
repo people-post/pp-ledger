@@ -160,16 +160,6 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the config in force and any pending update");
     }
-    if (ctx.optAuthority.has_value() && gm.authority != ctx.optAuthority.value()) {
-      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
-                               "Genesis renewal must carry the recovery set and beacon certificate in force");
-    }
-  }
-
-  // Fee-free like every system account: genesis issues the native token (its
-  // balance may go negative), so a fee would mint supply into the fee account.
-  if (tx.fee != 0) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal must be fee-free");
   }
 
   auto genesisAccountResult = bank.getAccount(AccountBuffer::ID_GENESIS);
@@ -181,22 +171,38 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     return {};
   }
 
-  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
-                          gm.genesis.wallet.mBalances)) {
-    return chain_tx::TxError(
-        chain_err::E_TX_VALIDATION,
-        "Genesis account balance mismatch in renewal");
-  }
-  // The slot leader signs renewals: it re-records the admin set in force, it never chooses it. (Only
-  // T_CONFIG, signed by the admin set, and a recovery change these.)
-  if (chain_block::admissionTxStrict(admissionMode)) {
-    const Client::Wallet &held = genesisAccountResult.value().wallet;
+  // The authority and admin set in force for this block: a recovery due at its epoch has replaced
+  // the admin set by the time the block applies, though not yet when its draft is checked (ba7).
+  if (chain_block::admissionTxStrict(admissionMode) && ctx.optAuthority.has_value()) {
+    ChainAuthority authority = ctx.optAuthority.value();
+    Client::Wallet held = genesisAccountResult.value().wallet;
+    chain_tx::advanceAuthorityToEpoch(authority, held, ctx.consensus.getEpochFromSlot(slot));
+    if (gm.authority != authority) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Genesis renewal must carry the recovery set and beacon certificate in force");
+    }
+    // The slot leader signs renewals: it re-records the admin set in force, it never chooses it.
+    // (Only T_CONFIG, signed by the admin set, and a recovery change these.)
     const Client::Wallet &carried = gm.genesis.wallet;
     if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
         carried.keyType != held.keyType) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the admin set in force (keys and threshold)");
     }
+  }
+
+  // Fee-free like every system account: genesis issues the native token (its
+  // balance may go negative), so a fee would mint supply into the fee account.
+  if (tx.fee != 0) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Genesis renewal must be fee-free");
+  }
+
+
+  if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, tx.fee,
+                          gm.genesis.wallet.mBalances)) {
+    return chain_tx::TxError(
+        chain_err::E_TX_VALIDATION,
+        "Genesis account balance mismatch in renewal");
   }
 
   return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet);

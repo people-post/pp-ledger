@@ -47,14 +47,7 @@ bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
          record.type == Ledger::T_RECOVERY;
 }
 
-void AuthorityTrail::enterEpoch(uint64_t epoch) {
-  if (!authority_.hasPendingRecovery || epoch < authority_.pendingRecovery.applyEpoch) {
-    return;
-  }
-  admin_ = chain_tx::adminWalletAfterRecovery(admin_, authority_.pendingRecovery.announcement);
-  authority_.hasPendingRecovery = false;
-  authority_.pendingRecovery = {};
-}
+void AuthorityTrail::enterEpoch(uint64_t epoch) { chain_tx::advanceAuthorityToEpoch(authority_, admin_, epoch); }
 
 chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
   enterEpoch(block.epoch);

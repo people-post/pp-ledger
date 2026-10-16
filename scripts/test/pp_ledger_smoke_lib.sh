@@ -1184,6 +1184,68 @@ check_equivocation_resumed() {
   echo -e "${GREEN}✓ L-SMOKE-EQUIVOCATION: generation 2 resumed the network; the evidence is gone${NC}"
 }
 
+# --- L-SMOKE-RECOVERY (beacon-authority ba7): the recovery set replaces the admin set ---
+
+# The pending recovery the relay serves on STATUS: its apply epoch (empty if none).
+status_recovery_epoch() {
+  fetch_beacon_state 2>/dev/null | sed -n 's/^Recovery: pending, applies at epoch \([0-9]*\) .*$/\1/p'
+}
+
+run_recovery_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-RECOVERY ═══${NC}"
+  # The admin keys are presumed lost: the recovery set announces three new ones (3-of-3, like the
+  # genesis set the suite signs with).
+  local key_dir="${TEST_DIR}/keys" announcement="${TEST_DIR}/recovery.tx" admin_args=() i reply epoch
+  for i in 1 2 3; do
+    rm -f "$key_dir/admin-next${i}.key" "$key_dir/admin-next${i}.pub"
+    "$BUILD_DIR/app/pp-client" keygen -o "$key_dir/admin-next${i}" >/dev/null || die "pp-client keygen failed"
+    admin_args+=(--admin-pubkey "$key_dir/admin-next${i}.pub")
+  done
+  rm -f "$announcement"
+  run_pp_client mk-recovery --network-id "$SMOKE_NETWORK_ID" "${admin_args[@]}" --min-signatures 3 \
+    -o "$announcement" >/dev/null || die "mk-recovery failed"
+  run_pp_client sign-tx -k "$key_dir/recovery1.key" --network-id "$SMOKE_NETWORK_ID" "$announcement" >/dev/null ||
+    die "sign-tx (recovery key) failed"
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$announcement" >/dev/null ||
+    die "L-SMOKE-RECOVERY: submit-tx failed"
+  echo -e "${CYAN}Submitted the recovery announcement${NC}"
+
+  local deadline=$((SECONDS + 90))
+  while ((SECONDS < deadline)); do
+    epoch=$(status_recovery_epoch)
+    [[ -n "$epoch" ]] && break
+    sleep 1
+  done
+  [[ -n "$epoch" ]] || die "L-SMOKE-RECOVERY: the relay never served a pending recovery"
+  grep -a -q "RECOVERY ANNOUNCED" "${TEST_DIR}/beacon/beacon.log" || die "L-SMOKE-RECOVERY: the beacon did not alert"
+  echo -e "${GREEN}✓ Recovery pending, applies at epoch ${epoch}${NC}"
+
+  # Frozen: the old admins' certificate is refused, by the relay and the beacon.
+  local cert
+  cert=$(make_beacon_cert 3 "${TEST_DIR}/beacon/keys/beacon-signing.pub")
+  if reply=$(run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" submit-tx "$cert" 2>&1); then
+    die "L-SMOKE-RECOVERY: a certificate was taken while the admin set is frozen: ${reply}"
+  fi
+  [[ -z "$(status_certificate)" || "$(status_certificate)" != 3* ]] ||
+    die "L-SMOKE-RECOVERY: the relay holds a certificate the frozen admin set signed"
+  echo -e "${GREEN}✓ The frozen admin set's certificate is refused${NC}"
+
+  # Applied at its epoch: STATUS no longer shows it. From here the new keys are the admin set the
+  # rest of the suite signs with.
+  deadline=$((SECONDS + 180))
+  while ((SECONDS < deadline)); do
+    [[ -z "$(status_recovery_epoch)" ]] && break
+    sleep 1
+  done
+  [[ -z "$(status_recovery_epoch)" ]] || die "L-SMOKE-RECOVERY: the recovery never applied"
+  grep -a -q "RECOVERY APPLIED" "${TEST_DIR}/beacon/beacon.log" || die "L-SMOKE-RECOVERY: the beacon did not apply it"
+  for i in 1 2 3; do
+    cp "$key_dir/admin-next${i}.key" "$key_dir/genesis${i}.key"
+    cp "$key_dir/admin-next${i}.pub" "$key_dir/genesis${i}.pub"
+  done
+  echo -e "${GREEN}✓ L-SMOKE-RECOVERY: the new admin set is in force${NC}"
+}
+
 # --- L-SMOKE-OUT-OF-BAND (beacon-authority ba5c): a certificate not on chain (a stolen beacon key) ---
 
 # The certificate the relay serves on STATUS: "<generation> <cutover>" (empty if none).

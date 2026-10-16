@@ -236,6 +236,15 @@ Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnno
   return admin;
 }
 
+void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, uint64_t epoch) {
+  if (!authority.hasPendingRecovery || epoch < authority.pendingRecovery.applyEpoch) {
+    return;
+  }
+  admin = adminWalletAfterRecovery(std::move(admin), authority.pendingRecovery.announcement);
+  authority.hasPendingRecovery = false;
+  authority.pendingRecovery = {};
+}
+
 Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
                                const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
   // The recovery set is no account: check its keys the way an account's are checked.

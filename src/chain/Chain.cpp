@@ -322,12 +322,7 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
         // As the block's epoch will hold it: a recovery due by then has replaced the admin set
         // before the records apply (applyDueRecovery).
         ChainAuthority authority = txContext_.optAuthority.value();
-        if (authority.hasPendingRecovery && epoch >= authority.pendingRecovery.applyEpoch) {
-          gm.genesis.wallet = chain_tx::adminWalletAfterRecovery(gm.genesis.wallet,
-                                                                 authority.pendingRecovery.announcement);
-          authority.hasPendingRecovery = false;
-          authority.pendingRecovery = {};
-        }
+        chain_tx::advanceAuthorityToEpoch(authority, gm.genesis.wallet, epoch);
         gm.authority = authority;
       }
       tx.meta = gm.ltsToString();
@@ -1280,9 +1275,33 @@ void Chain::enterBlockEpoch(uint64_t epoch) {
   }
 }
 
+std::optional<Client::RecoveryStatus> Chain::recoveryStatus() const {
+  if (!txContext_.optAuthority.has_value() || !txContext_.optAuthority->hasPendingRecovery) {
+    return std::nullopt;
+  }
+  const PendingRecovery &pending = txContext_.optAuthority->pendingRecovery;
+  Client::RecoveryStatus status;
+  status.announcedAt = pending.announcedAt;
+  status.applyEpoch = pending.applyEpoch;
+  status.adminPublicKeys = pending.announcement.adminPublicKeys;
+  status.adminMinSignatures = pending.announcement.adminMinSignatures;
+  return status;
+}
+
 void Chain::applyDueRecovery(uint64_t epoch) {
   auto &authority = txContext_.optAuthority;
-  if (!authority.has_value() || !authority->hasPendingRecovery || epoch < authority->pendingRecovery.applyEpoch) {
+  if (!authority.has_value() || !authority->hasPendingRecovery) {
+    return;
+  }
+  if (epoch < authority->pendingRecovery.applyEpoch) {
+    // Visible while it waits: one alert per epoch (B007).
+    if (recoveryNoticeEpoch_ != epoch) {
+      recoveryNoticeEpoch_ = epoch;
+      log().error << "RECOVERY PENDING: announced at block " << authority->pendingRecovery.announcedAt
+                  << ", it replaces the admin set at epoch " << authority->pendingRecovery.applyEpoch << " ("
+                  << authority->pendingRecovery.applyEpoch - epoch
+                  << " epochs from now); the admin set is frozen until then";
+    }
     return;
   }
   const PendingRecovery recovery = authority->pendingRecovery;

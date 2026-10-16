@@ -3074,6 +3074,9 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
   EXPECT_EQ(producer.getAuthority()->pendingRecovery.applyEpoch, 3u);
   EXPECT_EQ(producer.getAuthority()->pendingRecovery.announcedAt, 1u);
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys, oldKeys) << "not yet";
+  ASSERT_TRUE(producer.recoveryStatus().has_value()) << "STATUS shows it";
+  EXPECT_EQ(producer.recoveryStatus()->applyEpoch, 3u);
+  EXPECT_EQ(producer.recoveryStatus()->adminPublicKeys.size(), 3u);
 
   // Frozen: a second announcement, a config update, a certificate in a block or out of band.
   producer.setClockOverride(producer.getSlotStartTime(2));
@@ -3092,6 +3095,7 @@ TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
   block = makeNextBlockAtSlot(producer, block, 30, {makeReserveTransfer(harness_, 5, 7)});
   ASSERT_TRUE(producer.addBlock(block).isOk());
   EXPECT_FALSE(producer.getAuthority()->hasPendingRecovery);
+  EXPECT_FALSE(producer.recoveryStatus().has_value());
   const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value();
   ASSERT_EQ(admin.wallet.publicKeys.size(), 3u);
   EXPECT_EQ(admin.wallet.publicKeys[0], admins[0].publicKey);
@@ -4364,3 +4368,44 @@ TEST_F(ChainComposeTest, TransferToSelfIsRefused) {
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances, reserveBefore);
 }
 
+
+// ba7: the first block of a recovery's epoch carries the genesis renewal built for that epoch — the
+// new admin set, nothing pending — and the slot leader's draft takes it, though the committed chain
+// still holds the recovery as pending (found by L-SMOKE-RECOVERY: leaders could not produce).
+TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet) {
+  auto &producer = harness_.producer;
+  const std::string net = producer.getNetworkId();
+  const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  const uint64_t applyEpoch = producer.getAuthority()->pendingRecovery.applyEpoch;
+  const uint64_t slot = applyEpoch * harness_.chainConfig.slotsPerEpoch;
+
+  // The leader drafts once its slot has ended (its production slot is then this one).
+  producer.setClockOverride(producer.getSlotEndTime(slot));
+  auto due = producer.collectRenewals(slot);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records;
+  AccountBuffer draft;
+  bool sawGenesis = false;
+  for (const auto &r : due.value()) {
+    records.push_back(signedByLeader(r));
+    auto drafted = producer.addBufferTransaction(draft, records.back(), kTestMinerId);
+    ASSERT_TRUE(drafted.isOk()) << "the leader's draft refused a renewal: " << drafted.error().message;
+    if (isGenesisRenewal(r)) {
+      sawGenesis = true;
+      const auto gm = genesisMetaOf(r);
+      EXPECT_FALSE(gm.authority.hasPendingRecovery);
+      ASSERT_EQ(gm.genesis.wallet.publicKeys.size(), 3u);
+      EXPECT_EQ(gm.genesis.wallet.publicKeys[0], admins[0].publicKey);
+    }
+  }
+  ASSERT_TRUE(sawGenesis);
+  block = makeNextBlockAtSlot(producer, block, slot, records);
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  EXPECT_FALSE(producer.getAuthority()->hasPendingRecovery);
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys[0], admins[0].publicKey);
+}
