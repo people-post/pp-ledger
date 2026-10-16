@@ -39,10 +39,15 @@ public:
    */
   static chain_tx::Roe<AuthorityTrail> fromStartingBlock(const Ledger::Block &block);
 
-  /** Follow `block` (the next one after the last observed). */
+  /** Follow `block` (the next one after the last observed): a recovery due at its epoch first. */
   chain_tx::Roe<void> observe(const Ledger::Block &block);
-  /** Follow one record of block `blockId`; records that do not change the authority are ignored. */
-  chain_tx::Roe<void> observeRecord(const Ledger::Record &record, uint64_t blockId);
+  /**
+   * Follow one record of block `blockId` in `epoch`; records that do not change the authority are
+   * ignored. Call enterEpoch(epoch) first.
+   */
+  chain_tx::Roe<void> observeRecord(const Ledger::Record &record, uint64_t blockId, uint64_t epoch);
+  /** A pending recovery whose epoch has come replaces the admin set (ba7), as the chain does. */
+  void enterEpoch(uint64_t epoch);
   /** True for the records that change the authority (what an AuthorityProof carries). */
   static bool changesAuthority(const Ledger::Record &record);
 
@@ -52,7 +57,7 @@ public:
    * authority and admin set a checkpoint at that block must carry.
    */
   static chain_tx::Roe<AuthorityTrail> replayProof(const Ledger::Block &genesis, const Client::AuthorityProof &proof,
-                                                   uint64_t upToBlockId);
+                                                   uint64_t upToBlockId, uint64_t upToEpoch);
 
   /** Whether a starting block's authority and admin set are the ones this trail reached. */
   chain_tx::Roe<void> agrees(const ChainAuthority &authority, const Client::Wallet &admin) const;
@@ -82,9 +87,10 @@ public:
 
 private:
   chain_tx::Roe<void> verifyAdminSigned(const Ledger::Record &record) const;
-  chain_tx::Roe<void> observeConfig(const Ledger::Record &record);
+  chain_tx::Roe<void> observeConfig(const Ledger::Record &record, uint64_t epoch);
   chain_tx::Roe<void> observeGenesisRenewal(const Ledger::Record &record);
-  chain_tx::Roe<void> observeCertificate(const Ledger::Record &record, uint64_t blockId);
+  chain_tx::Roe<void> observeCertificate(const Ledger::Record &record, uint64_t blockId, uint64_t epoch);
+  chain_tx::Roe<void> observeRecovery(const Ledger::Record &record, uint64_t blockId, uint64_t epoch);
 
   std::string networkId_;
   ChainAuthority authority_;

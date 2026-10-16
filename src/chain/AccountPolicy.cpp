@@ -101,6 +101,9 @@ Roe<void> validateGenesisAuthority(const ChainAuthority &authority, const Client
     return std::find(adminWallet.publicKeys.begin(), adminWallet.publicKeys.end(), key) !=
            adminWallet.publicKeys.end();
   };
+  if (authority.hasPendingRecovery) {
+    return invalid("Genesis cannot carry a pending recovery");
+  }
   const RecoverySet &recovery = authority.recovery;
   if (recovery.publicKeys.empty()) {
     return invalid("Recovery set needs at least one public key");
@@ -179,6 +182,69 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
 BeaconCertificate certificateInForce(BeaconCertificate cert, uint64_t commitBlockId) {
   cert.cutoverHeight = commitBlockId - 1;
   return cert;
+}
+
+Roe<void> requireAdminSetNotFrozen(const ChainAuthority &authority, std::string_view what,
+                                   std::optional<uint64_t> epoch) {
+  if (!authority.hasPendingRecovery || (epoch && *epoch >= authority.pendingRecovery.applyEpoch)) {
+    return {};
+  }
+  return TxError(chain_err::E_TX_VALIDATION,
+                 std::string(what) + " refused: a recovery announced at block " +
+                     std::to_string(authority.pendingRecovery.announcedAt) +
+                     " freezes the admin set until it applies at epoch " +
+                     std::to_string(authority.pendingRecovery.applyEpoch));
+}
+
+Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement, const ChainAuthority &current,
+                                       const std::string &networkId) {
+  auto invalid = [](const std::string &what) { return TxError(chain_err::E_TX_VALIDATION, what); };
+  if (announcement.networkId != networkId) {
+    return invalid("Recovery announcement networkId does not match the chain");
+  }
+  if (current.hasPendingRecovery) {
+    return invalid("A recovery is already pending (applies at epoch " +
+                   std::to_string(current.pendingRecovery.applyEpoch) + ")");
+  }
+  const auto &keys = announcement.adminPublicKeys;
+  if (keys.size() < 3 || keys.size() > kMaxSignatureCount) {
+    return invalid("The new admin set must have between 3 and " + std::to_string(kMaxSignatureCount) + " keys");
+  }
+  if (announcement.adminMinSignatures < 2 || announcement.adminMinSignatures > keys.size()) {
+    return invalid("The new admin set's minSignatures must be between 2 and its key count");
+  }
+  const auto &recoveryKeys = current.recovery.publicKeys;
+  std::set<std::string> seen;
+  for (const auto &key : keys) {
+    if (key.size() != utl::kMlDsaPublicKeyBytes) {
+      return invalid("The new admin set has a malformed public key");
+    }
+    if (!seen.insert(key).second) {
+      return invalid("The new admin set lists the same key twice");
+    }
+    if (std::find(recoveryKeys.begin(), recoveryKeys.end(), key) != recoveryKeys.end() ||
+        key == current.beacon.publicKey) {
+      return invalid("A new admin key must not be a recovery key or the beacon key");
+    }
+  }
+  return {};
+}
+
+Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnnouncement &announcement) {
+  admin.publicKeys = announcement.adminPublicKeys;
+  admin.minSignatures = announcement.adminMinSignatures;
+  return admin;
+}
+
+Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
+                               const std::string &networkId, const Crypto &crypto, logging::Logger &logger) {
+  // The recovery set is no account: check its keys the way an account's are checked.
+  AccountBuffer::Account signer;
+  signer.id = AccountBuffer::ID_GENESIS;
+  signer.wallet.publicKeys = recovery.publicKeys;
+  signer.wallet.minSignatures = recovery.minSignatures;
+  signer.wallet.keyType = Crypto::TK_ML_DSA_65;
+  return verifySignaturesAgainstAccount(record.signingMessage(networkId), record.signatures, signer, crypto, logger);
 }
 
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,

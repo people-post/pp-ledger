@@ -70,6 +70,11 @@ chain_tx::Roe<BeaconCertificate> BeaconCertTxHandler::check(const Ledger::TxBeac
   if (!ctx.optAuthority.has_value() || !ctx.optChainConfig.has_value()) {
     return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain authority not initialized");
   }
+  if (auto frozen = chain_tx::requireAdminSetNotFrozen(ctx.optAuthority.value(), "Beacon certificate",
+                                                       ctx.consensus.getEpochFromSlot(slot));
+      !frozen) {
+    return frozen.error();
+  }
   if (auto seeded = chain_tx::seedCommittedAccount(bank, ctx.bank, AccountBuffer::ID_GENESIS); !seeded) {
     return seeded.error();
   }

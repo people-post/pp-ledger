@@ -59,6 +59,19 @@ AccountBuffer::Roe<void> AccountBuffer::setMinerState(uint64_t accountId, const 
   return {};
 }
 
+AccountBuffer::Roe<void> AccountBuffer::setWalletKeys(uint64_t accountId, const std::vector<std::string> &publicKeys,
+                                                     uint8_t minSignatures) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account &account = *accountRoe.value();
+  account.wallet.publicKeys = publicKeys;
+  account.wallet.minSignatures = minSignatures;
+  touchTree(account);
+  return {};
+}
+
 void AccountBuffer::recordUndo(uint64_t id) {
   if (journals_.empty()) {
     return;

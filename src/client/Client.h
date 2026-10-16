@@ -318,12 +318,16 @@ public:
     }
   };
 
-  /** A record that changed the beacon authority (T_CONFIG, T_BEACON_CERT) and its block. */
+  /**
+   * A record that changed the beacon authority (T_CONFIG, T_BEACON_CERT, T_RECOVERY), its block and
+   * that block's epoch (a recovery applies by epoch, ba7).
+   */
   struct AuthorityStep {
     uint64_t blockId{0};
+    uint64_t epoch{0};
     Ledger::Record record;
 
-    template <typename Archive> void serialize(Archive &ar) { ar & blockId & record; }
+    template <typename Archive> void serialize(Archive &ar) { ar & blockId & epoch & record; }
   };
 
   /**

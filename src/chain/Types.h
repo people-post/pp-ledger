@@ -157,19 +157,58 @@ struct BeaconCertificate {
   bool ltsFromString(const std::string &str);
 };
 
-/** Who holds authority over the chain: the recovery set and the current beacon certificate. */
+/**
+ * Recovery announcement (beacon-authority ba7, B004 / B007): the recovery set names a new admin set
+ * (the genesis account's keys and threshold). Signed by the recovery set through the T_RECOVERY
+ * record that carries it.
+ */
+struct RecoveryAnnouncement {
+  std::string networkId;
+  /** Raw ML-DSA-65 public keys of the new admin set. */
+  std::vector<std::string> adminPublicKeys;
+  uint8_t adminMinSignatures{0};
+
+  template <typename Archive> void serialize(Archive &ar) { ar &networkId &adminPublicKeys &adminMinSignatures; }
+
+  /** Versioned form carried in a T_RECOVERY record's `meta`. */
+  constexpr static const uint32_t VERSION = 1;
+  std::string ltsToString() const;
+  bool ltsFromString(const std::string &str);
+};
+
+/** A recovery announced on chain, waiting for its epoch; meanwhile the admin set is frozen. */
+struct PendingRecovery {
+  RecoveryAnnouncement announcement;
+  /** The block that committed the announcement. */
+  uint64_t announcedAt{0};
+  /** The first block of this epoch or later replaces the admin set, before its records. */
+  uint64_t applyEpoch{0};
+
+  template <typename Archive> void serialize(Archive &ar) { ar &announcement &announcedAt &applyEpoch; }
+};
+
+/** Who holds authority over the chain: the recovery set, the current beacon certificate, and any
+ *  recovery pending (ba7). */
 struct ChainAuthority {
   RecoverySet recovery;
   BeaconCertificate beacon;
+  bool hasPendingRecovery{false};
+  PendingRecovery pendingRecovery;
 
-  template <typename Archive> void serialize(Archive &ar) { ar &recovery &beacon; }
+  template <typename Archive> void serialize(Archive &ar) {
+    ar &recovery &beacon &hasPendingRecovery &pendingRecovery;
+  }
+  /** The pending recovery, if any. */
+  std::optional<PendingRecovery> pending() const {
+    return hasPendingRecovery ? std::optional<PendingRecovery>(pendingRecovery) : std::nullopt;
+  }
   /** Byte-wise equality of the serialized form. */
   bool operator==(const ChainAuthority &other) const;
   bool operator!=(const ChainAuthority &other) const { return !(*this == other); }
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 8;
+  constexpr static const uint32_t VERSION = 9;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

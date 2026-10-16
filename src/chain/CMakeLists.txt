@@ -38,6 +38,8 @@ add_library(pp_chain STATIC
     AuthorityTrail.h
     BeaconCertTxHandler.cpp
     BeaconCertTxHandler.h
+    RecoveryTxHandler.cpp
+    RecoveryTxHandler.h
     ConfigTxHandler.cpp
     ConfigTxHandler.h
     DefaultTxHandler.cpp

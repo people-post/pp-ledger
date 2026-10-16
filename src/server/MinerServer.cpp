@@ -229,13 +229,15 @@ MinerServer::Roe<AuthorityTrail> MinerServer::replayAuthorityTo(uint64_t checkpo
   if (!proof) {
     return Error(E_NETWORK, "Failed to fetch the authority proof: " + proof.error().message);
   }
-  auto replayed = AuthorityTrail::replayProof(anchoredGenesis_->block, proof.value(), checkpointId);
-  if (!replayed) {
-    return Error(E_NETWORK, "The authority proof does not replay: " + replayed.error().message);
-  }
   auto checkpoint = client_.fetchBlock(checkpointId);
   if (!checkpoint) {
     return Error(E_NETWORK, "Failed to fetch the checkpoint block: " + checkpoint.error().message);
+  }
+  // The checkpoint's epoch: a recovery due by then has replaced the admin set it carries (ba7).
+  auto replayed = AuthorityTrail::replayProof(anchoredGenesis_->block, proof.value(), checkpointId,
+                                              checkpoint.value().block.epoch);
+  if (!replayed) {
+    return Error(E_NETWORK, "The authority proof does not replay: " + replayed.error().message);
   }
   auto carried = AuthorityTrail::fromStartingBlock(checkpoint.value().block);
   if (!carried) {

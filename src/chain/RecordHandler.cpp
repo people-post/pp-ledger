@@ -2,6 +2,7 @@
 
 #include "ErrorCodes.h"
 #include "BeaconCertTxHandler.h"
+#include "RecoveryTxHandler.h"
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
 #include "EndUserTxHandler.h"
@@ -28,6 +29,7 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_MINER_REGISTER, std::make_unique<MinerTxHandler>(/*registering=*/true));
   install(Ledger::T_MINER_REVOKE, std::make_unique<MinerTxHandler>(/*registering=*/false));
   install(Ledger::T_BEACON_CERT, std::make_unique<BeaconCertTxHandler>());
+  install(Ledger::T_RECOVERY, std::make_unique<RecoveryTxHandler>());
 }
 
 ITxHandler *RecordHandler::get(std::size_t type) {

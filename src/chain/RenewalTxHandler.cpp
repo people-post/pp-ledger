@@ -187,6 +187,17 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
         chain_err::E_TX_VALIDATION,
         "Genesis account balance mismatch in renewal");
   }
+  // The slot leader signs renewals: it re-records the admin set in force, it never chooses it. (Only
+  // T_CONFIG, signed by the admin set, and a recovery change these.)
+  if (chain_block::admissionTxStrict(admissionMode)) {
+    const Client::Wallet &held = genesisAccountResult.value().wallet;
+    const Client::Wallet &carried = gm.genesis.wallet;
+    if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
+        carried.keyType != held.keyType) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "Genesis renewal must carry the admin set in force (keys and threshold)");
+    }
+  }
 
   return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet);
 }

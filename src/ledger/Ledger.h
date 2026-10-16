@@ -40,6 +40,7 @@ public:
   constexpr static uint16_t T_MINER_REGISTER = 16; // Account opts in as a miner (fee, min stake)
   constexpr static uint16_t T_MINER_REVOKE = 17;   // Account opts out
   constexpr static uint16_t T_BEACON_CERT = 18;    // Admin set certifies the next beacon generation
+  constexpr static uint16_t T_RECOVERY = 19;       // Recovery set announces a new admin set
 
   struct TxCommon {
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
@@ -160,12 +161,24 @@ public:
   };
 
   /**
+   * T_RECOVERY: a recovery announcement (beacon-authority ba7), signed by the recovery set in the
+   * chain authority — not by an account. `meta` is the serialized announcement (chain layer). Fee 0.
+   */
+  struct TxRecovery : TxCommon, TxIdempotencyWindow {
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
    * In-memory typed transaction payload for centralized dispatch. Variant order is not the
-   * record type id (16..18 follow 0..6; 7..15 are reserved): use typeOf().
+   * record type id (16..19 follow 0..6; 7..15 are reserved): use typeOf().
    */
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
                                TxUserUpdate, TxRenewal, TxEndUser,
-                               TxMinerRegister, TxMinerRevoke, TxBeaconCert>;
+                               TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery>;
   /** Record type id (T_*) of a typed transaction. */
   static uint16_t typeOf(const TypedTx &tx);
 

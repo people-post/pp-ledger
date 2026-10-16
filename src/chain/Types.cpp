@@ -40,8 +40,36 @@ std::ostream &operator<<(std::ostream &os, const ChainAuthority &authority) {
      << ", minSignatures: " << static_cast<int>(authority.recovery.minSignatures)
      << ", delayEpochs: " << authority.recovery.delayEpochs << "}, beacon: {networkId: "
      << authority.beacon.networkId << ", generation: " << authority.beacon.generation
-     << ", cutoverHeight: " << authority.beacon.cutoverHeight << "}}";
+     << ", cutoverHeight: " << authority.beacon.cutoverHeight << "}";
+  if (authority.hasPendingRecovery) {
+    os << ", pendingRecovery: {adminKeys: " << authority.pendingRecovery.announcement.adminPublicKeys.size()
+       << ", adminMinSignatures: " << static_cast<int>(authority.pendingRecovery.announcement.adminMinSignatures)
+       << ", announcedAt: " << authority.pendingRecovery.announcedAt
+       << ", applyEpoch: " << authority.pendingRecovery.applyEpoch << "}";
+  }
+  os << "}";
   return os;
+}
+
+std::string RecoveryAnnouncement::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  uint32_t version = VERSION;
+  RecoveryAnnouncement copy = *this;
+  ar &version &copy;
+  return oss.str();
+}
+
+bool RecoveryAnnouncement::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar &version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar &*this;
+  return !ar.failed();
 }
 
 std::string BeaconCertificate::ltsToString() const {

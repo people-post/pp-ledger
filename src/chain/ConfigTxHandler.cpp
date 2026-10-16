@@ -166,6 +166,12 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
   }
 
   if (chain_block::admissionTxStrict(admissionMode)) {
+    if (ctx.optAuthority.has_value()) {
+      if (auto frozen = chain_tx::requireAdminSetNotFrozen(ctx.optAuthority.value(), "Config update", epoch);
+          !frozen) {
+        return frozen.error();
+      }
+    }
     if (auto change = validateConfigChange(gm.config, ctx.optChainConfig); !change) {
       return change.error();
     }

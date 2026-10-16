@@ -390,6 +390,8 @@ private:
    * balance as the issuance baseline.
    */
   void enterBlockEpoch(uint64_t epoch);
+  /** A pending recovery whose epoch has come replaces the admin set, in place (ba7). */
+  void applyDueRecovery(uint64_t epoch);
   /** Stake set for leader election from the tip bank: registered miners with at least
    *  minerMinStake (WIRE_SCHEMA § Miner registration and liveness). */
   std::vector<consensus::Stakeholder> electionCandidates() const;
