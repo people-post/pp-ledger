@@ -3919,8 +3919,10 @@ TEST_F(CheckpointLivenessTest, CheckpointBlockChargesExactly) {
     tip = produceTracked(tip, slot, records);
   };
   const auto keyB = makeKeyPair();
-  produceLedByGenesisMiner(++slot_, {newUserAt(slot_, kMinerB, keyB, 2000000)});
-  produceLedByGenesisMiner(++slot_, {registerMinerAt(slot_, kMinerB, keyB)});
+  ++slot_;
+  produceLedByGenesisMiner(slot_, {newUserAt(slot_, kMinerB, keyB, 2000000)});
+  ++slot_;
+  produceLedByGenesisMiner(slot_, {registerMinerAt(slot_, kMinerB, keyB)});
   ASSERT_FALSE(HasFailure());
   // The block that last recorded B (its creation or a renewal): renewal falls due from it.
   auto lastRecordedB = [&]() -> uint64_t {
