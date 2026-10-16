@@ -17,6 +17,9 @@ pp::amp::PeerLinkConfig DefaultLedgerLinkConfig();
 /** ML-DSA identity + peer id from a raw ML-DSA-65 secret key (4032 bytes). */
 pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& private_key_raw, uint16_t udp_port);
 
+/** The raw ML-DSA-65 public key of a raw private key (mldsa-native derives it). */
+pp::Roe<std::string> PublicKeyFromPrivateKey(const std::string& private_key_raw);
+
 /** Parse beacon entry: ADP multiaddr string or legacy {host, port, peerId}. */
 pp::Roe<std::string> ParseBeaconMultiaddrString(const std::string& value);
 

@@ -510,6 +510,18 @@ pp::amp::PeerLinkManager* Server::peerLinks() {
 }
 
 Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
+  // From the environment (PP_LEDGER_IDENTITY_KEY or _FILE, hex): a stable peer id, nothing written.
+  auto fromEnv = env_config::secret("PP_LEDGER_IDENTITY_KEY");
+  if (!fromEnv) {
+    return Service::Error(-1, fromEnv.error().message);
+  }
+  if (fromEnv.value()) {
+    const std::string key = utl::hexDecode(*fromEnv.value());
+    if (key.size() != utl::kMlDsaPrivateKeyBytes) {
+      return Service::Error(-1, "PP_LEDGER_IDENTITY_KEY is not a hex ML-DSA-65 private key");
+    }
+    return key;
+  }
   const std::filesystem::path keysDir = std::filesystem::path(workDir_) / "keys";
   const std::filesystem::path keyPath = keysDir / "amp-identity.txt";
   if (!std::filesystem::exists(keyPath)) {

@@ -600,6 +600,13 @@ int main(int argc, char *argv[]) {
   keygen->add_option("-o,--out", keygenOut,
                      "Write <name>.key (private, hex, 0600) and <name>.pub (public, hex); never overwrites");
 
+  // Local command: peer-id
+  auto* peer_id_cmd = app.add_subcommand(
+      "peer-id", "Print the network peer id and public key of a private key (to write multiaddrs ahead of start)");
+  std::string peerIdKey;
+  peer_id_cmd->add_option("key", peerIdKey, "Private key: hex, or a key file (e.g. keys/amp-identity.txt)")
+      ->required();
+
   // Beacon commands
   auto* beacon_status = app.add_subcommand("status", "Get beacon/miner status");
 
@@ -787,6 +794,23 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(app, argc, argv);
 
   // Handle keygen command (no server connection needed)
+  if (peer_id_cmd->parsed()) {
+    auto key = pp::utl::readPrivateKey(peerIdKey, "");
+    if (!key) {
+      std::cerr << "Error: " << key.error().message << "\n";
+      return 1;
+    }
+    auto amp = pp::network::LedgerAmpConfigFromPrivateKey(key.value(), 0);
+    auto publicKey = pp::network::PublicKeyFromPrivateKey(key.value());
+    if (!amp || !publicKey) {
+      std::cerr << "Error: not an ML-DSA-65 private key\n";
+      return 1;
+    }
+    std::cout << "Peer id:          " << amp.value().local_peer_id << "\n";
+    std::cout << "Public key (hex): " << pp::utl::hexEncode(publicKey.value()) << "\n";
+    return 0;
+  }
+
   if (keygen->parsed()) {
     auto pair = pp::utl::mlDsaGenerate();
     if (!pair.isOk()) {

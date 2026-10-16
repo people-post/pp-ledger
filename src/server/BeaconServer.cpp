@@ -76,17 +76,56 @@ BeaconServer::Roe<utl::MlDsaKeyPair> loadBeaconSigningKey(const std::string &wor
 }
 
 /**
+ * A beacon signing key from the environment (`variable` or `variable`_FILE: the hex private key);
+ * its public key is derived. None when unset.
+ */
+BeaconServer::Roe<std::optional<utl::MlDsaKeyPair>> beaconSigningKeyFromEnv(const std::string &variable) {
+  auto secret = env_config::secret(variable);
+  if (!secret) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, secret.error().message);
+  }
+  if (!secret.value()) {
+    return std::optional<utl::MlDsaKeyPair>{};
+  }
+  utl::MlDsaKeyPair pair;
+  pair.privateKey = utl::hexDecode(*secret.value());
+  auto publicKey = network::PublicKeyFromPrivateKey(pair.privateKey);
+  if (!publicKey) {
+    return BeaconServer::Error(BeaconServer::E_CONFIG, variable + ": " + publicKey.error().message);
+  }
+  pair.publicKey = publicKey.value();
+  return std::optional<utl::MlDsaKeyPair>(std::move(pair));
+}
+
+/**
  * Every start: the beacon signing key, and the next one when an operator staged it for a rotation
- * (beacon-authority ba5). The beacon signs with whichever the certificate in force names.
+ * (beacon-authority ba5). The beacon signs with whichever the certificate in force names. Each
+ * comes from the environment (PP_BEACON_SIGNING_KEY, PP_BEACON_SIGNING_NEXT_KEY) or its files.
  */
 BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const std::string &workDir) {
   std::vector<utl::MlDsaKeyPair> keys;
-  auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
-                                      BeaconServer::FILE_BEACON_SIGNING_PUB);
-  if (!current) {
-    return current.error();
+  auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
+  if (!fromEnv) {
+    return fromEnv.error();
   }
-  keys.push_back(current.value());
+  if (fromEnv.value()) {
+    keys.push_back(*fromEnv.value());
+  } else {
+    auto current = loadBeaconSigningKey(workDir, BeaconServer::FILE_BEACON_SIGNING_KEY,
+                                        BeaconServer::FILE_BEACON_SIGNING_PUB);
+    if (!current) {
+      return current.error();
+    }
+    keys.push_back(current.value());
+  }
+  auto nextFromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_NEXT_KEY");
+  if (!nextFromEnv) {
+    return nextFromEnv.error();
+  }
+  if (nextFromEnv.value()) {
+    keys.push_back(*nextFromEnv.value());
+    return keys;
+  }
   const auto root = std::filesystem::path(workDir);
   if (std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_KEY) ||
       std::filesystem::exists(root / BeaconServer::FILE_BEACON_SIGNING_NEXT_PUB)) {
@@ -105,6 +144,14 @@ BeaconServer::Roe<std::vector<utl::MlDsaKeyPair>> loadBeaconSigningKeys(const st
  * pre-generate them with `pp-client keygen -o keys/beacon-signing`). Returns the raw public key.
  */
 BeaconServer::Roe<std::string> loadOrCreateBeaconSigningKey(const std::string &workDir) {
+  // Held outside the work directory (PP_BEACON_SIGNING_KEY): nothing is written.
+  auto fromEnv = beaconSigningKeyFromEnv("PP_BEACON_SIGNING_KEY");
+  if (!fromEnv) {
+    return fromEnv.error();
+  }
+  if (fromEnv.value()) {
+    return fromEnv.value()->publicKey;
+  }
   const std::filesystem::path keyPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_KEY;
   const std::filesystem::path pubPath = std::filesystem::path(workDir) / BeaconServer::FILE_BEACON_SIGNING_PUB;
   if (!std::filesystem::exists(keyPath) && !std::filesystem::exists(pubPath)) {

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -179,6 +180,29 @@ TEST(BeaconServerInitTest, InitWritesTheSigningKeyAndGenesisCarriesTheAuthority)
   EXPECT_EQ(authority.beacon.cutoverHeight, 0u);
   EXPECT_EQ(authority.beacon.networkId, "test-net");
   EXPECT_EQ(authority.beacon.publicKey, utl::hexDecode(pubHex));
+}
+
+// The signing key may be held outside the work directory (PP_BEACON_SIGNING_KEY or _FILE): genesis
+// certifies its public key (derived from it) and no key file is written.
+TEST(BeaconServerInitTest, InitTakesTheSigningKeyFromTheEnvironment) {
+  GenesisSetup setup("pp-ledger-beacon-signing-env-test");
+  setup.writeInitConfig();
+  const auto signing = utl::mlDsaGenerate().value();
+#ifdef _WIN32
+  _putenv_s("PP_BEACON_SIGNING_KEY", utl::hexEncode(signing.privateKey).c_str());
+#else
+  setenv("PP_BEACON_SIGNING_KEY", utl::hexEncode(signing.privateKey).c_str(), 1);
+#endif
+  auto init = setup.init({setup.keyFile(setup.genesis[0], "g0"), setup.keyFile(setup.genesis[1], "g1")});
+#ifdef _WIN32
+  _putenv_s("PP_BEACON_SIGNING_KEY", "");
+#else
+  unsetenv("PP_BEACON_SIGNING_KEY");
+#endif
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+  EXPECT_EQ(setup.genesisMeta().authority.beacon.publicKey, signing.publicKey);
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / BeaconServer::FILE_BEACON_SIGNING_KEY));
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / BeaconServer::FILE_BEACON_SIGNING_PUB));
 }
 
 // An operator may generate the signing key elsewhere first (pp-client keygen -o keys/beacon-signing).

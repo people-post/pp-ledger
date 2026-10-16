@@ -9,7 +9,7 @@ command-line options, can come from the environment instead ([Environment](#envi
 |------|------|-----------|
 | `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
 | `config.json` | beacon, relay, miner | every start, optional when the environment sets what the role needs ([Environment](#environment)). With neither, the beacon runs on its defaults (nothing is written); the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
-| `keys/amp-identity.txt` | beacon, relay | every start; created on first start |
+| `keys/amp-identity.txt` | beacon, relay | every start; created on first start — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
 | `keys/beacon-signing.next.key`, `.pub` | beacon | Optional, every start: a key staged for a rotation ([Identity keys](#identity-keys)) |
 | `data/signed-tip.dat` | beacon | every start; rewritten with each block. Not config: the latest signed tip ([BEACON_AUTHORITY.md § Signed tip](../contracts/BEACON_AUTHORITY.md#signed-tip)). Keep it with the ledger; do not delete or copy it between beacons |
@@ -34,9 +34,14 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_MINER_ID` | miner | `minerId` |
 | `PP_MINER_KEYS` `[_FILE]` | miner | `keys` (list: hex keys or key file paths) |
 | `PP_GENESIS_KEY_FILES` | beacon `--init` | `--genesis-key` (list of key files; keeps keys out of argv) |
+| `PP_LEDGER_IDENTITY_KEY` `[_FILE]` | beacon, relay | the network identity (hex private key) instead of `keys/amp-identity.txt`: a stable peer id, nothing written |
+| `PP_BEACON_SIGNING_KEY` `[_FILE]` | beacon (`--init` and every start) | the beacon signing key (hex private key) instead of `keys/beacon-signing.key` / `.pub`; its public key is derived. Nothing is written |
+| `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
 | `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
 
-A command-line option given explicitly wins over its variable. For example, a relay with no files:
+A command-line option given explicitly wins over its variable. Peer ids can be worked out before
+anything starts: `pp-client peer-id <key>` prints the peer id and public key of a private key (hex
+or a key file), so upstream multiaddrs can be written ahead. For example, a relay with no files:
 
 ```bash
 PP_LEDGER_WORK_DIR=/data PP_LEDGER_UPSTREAMS=/ip4/10.0.0.1/udp/8517/adp/1.0.0/p2p/<beacon peer id> \
