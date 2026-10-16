@@ -72,8 +72,16 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
         `add-equivocation`; status shows it
   - [x] **ba6.4** Tests (chain, store, beacon, sync, wire; mutation-checked), smoke
         (L-SMOKE-EQUIVOCATION in `--suite rotation`), docs
-- [ ] **ba7** Recovery action: announce, delay, apply (replace the admin set); admin set frozen while
-      pending; pending recovery on `STATUS` / logs / alert
+- [x] **ba7** Recovery action: announce, delay, apply (replace the admin set); admin set frozen while
+      pending; pending recovery on `STATUS` / logs / alert (B019). Steps:
+  - [x] **ba7.1** `T_RECOVERY` signed by the recovery set; pending in `ChainAuthority` (genesis meta
+        v9); freeze of `T_CONFIG` / `T_BEACON_CERT` (also out of band); apply in place at the first
+        block of `applyEpoch`; `AuthorityTrail` and proofs (steps carry epochs) follow it. A genesis
+        renewal must carry the admin set in force (closes a leader-signed key swap)
+  - [x] **ba7.2** `STATUS.recovery`, `pp-client status`, per-epoch alerts; `pp-client mk-recovery`;
+        renewals built and checked as the block's epoch holds the authority (found by the smoke)
+  - [x] **ba7.3** Tests (chain, renewal, proof replay, wire; mutation-checked), smoke
+        (L-SMOKE-RECOVERY in `--suite rotation`), docs
 - [ ] **ba8** Promote wire / disk changes into `docs/contracts/`
 
 ## Part 2 — promotion (design after part 1)

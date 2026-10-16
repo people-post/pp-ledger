@@ -134,6 +134,9 @@ Shipped in ba6 ([B018](DECISIONS.md#b018--equivocation-evidence-by-block-hash-ha
 - The admin set cannot cancel it ([B004](DECISIONS.md#b004--recovery-set-narrow-slow-visible)). If
   the recovery set itself is stolen, the month is for people to act out of band.
 
+Shipped in ba7 ([B019](DECISIONS.md#b019--recovery-a-record-of-its-own-pending-in-the-authority-applied-in-place-at-its-epoch)):
+the effect needs no record of its own — the first block of the apply epoch replaces the admin set.
+
 ### Wire and storage impact (to promote into `docs/contracts/` when it ships)
 
 - **Breaking, no migration** ([B008](DECISIONS.md#b008--breaking-genesis-change-no-migration)):

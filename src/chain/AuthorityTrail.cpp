@@ -2,6 +2,7 @@
 #include "AccountPolicy.h"
 #include "BlockValidation.h"
 #include "BeaconCertTxHandler.h"
+#include "RecoveryTxHandler.h"
 #include "ErrorCodes.h"
 #include "TxSignatures.h"
 #include "lib/common/BinaryPack.hpp"
@@ -42,24 +43,30 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::fromStartingBlock(const Ledger::Bl
 }
 
 bool AuthorityTrail::changesAuthority(const Ledger::Record &record) {
-  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT;
+  return record.type == Ledger::T_CONFIG || record.type == Ledger::T_BEACON_CERT ||
+         record.type == Ledger::T_RECOVERY;
 }
 
+void AuthorityTrail::enterEpoch(uint64_t epoch) { chain_tx::advanceAuthorityToEpoch(authority_, admin_, epoch); }
+
 chain_tx::Roe<void> AuthorityTrail::observe(const Ledger::Block &block) {
+  enterEpoch(block.epoch);
   for (const auto &record : block.records) {
-    if (auto observed = observeRecord(record, block.index); !observed) {
+    if (auto observed = observeRecord(record, block.index, block.epoch); !observed) {
       return observed;
     }
   }
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, uint64_t blockId) {
+chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, uint64_t blockId, uint64_t epoch) {
   chain_tx::Roe<void> observed;
   if (record.type == Ledger::T_CONFIG) {
-    observed = observeConfig(record);
+    observed = observeConfig(record, epoch);
   } else if (record.type == Ledger::T_BEACON_CERT) {
-    observed = observeCertificate(record, blockId);
+    observed = observeCertificate(record, blockId, epoch);
+  } else if (record.type == Ledger::T_RECOVERY) {
+    observed = observeRecovery(record, blockId, epoch);
   } else if (chain_block::isGenesisRenewal(record)) {
     observed = observeGenesisRenewal(record);
   }
@@ -72,14 +79,16 @@ chain_tx::Roe<void> AuthorityTrail::observeRecord(const Ledger::Record &record, 
 
 chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block &genesis,
                                                           const Client::AuthorityProof &proof,
-                                                          uint64_t upToBlockId) {
+                                                          uint64_t upToBlockId, uint64_t upToEpoch) {
   auto trail = fromGenesis(genesis);
   if (!trail) {
     return trail.error();
   }
   uint64_t lastBlockId = 0;
+  uint64_t lastEpoch = 0;
   for (const auto &step : proof.steps) {
-    if (step.blockId == 0 || step.blockId < lastBlockId || step.blockId > upToBlockId) {
+    if (step.blockId == 0 || step.blockId < lastBlockId || step.blockId > upToBlockId || step.epoch < lastEpoch ||
+        step.epoch > upToEpoch) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Authority proof step at block " + std::to_string(step.blockId) +
                                    " is out of order or beyond block " + std::to_string(upToBlockId));
@@ -87,11 +96,15 @@ chain_tx::Roe<AuthorityTrail> AuthorityTrail::replayProof(const Ledger::Block &g
     if (!changesAuthority(step.record)) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Authority proof carries an unrelated record");
     }
-    if (auto observed = trail.value().observeRecord(step.record, step.blockId); !observed) {
+    // A recovery applies at the first block of its epoch, before any record there.
+    trail.value().enterEpoch(step.epoch);
+    if (auto observed = trail.value().observeRecord(step.record, step.blockId, step.epoch); !observed) {
       return observed.error();
     }
     lastBlockId = step.blockId;
+    lastEpoch = step.epoch;
   }
+  trail.value().enterEpoch(upToEpoch);
   return trail.value();
 }
 
@@ -114,12 +127,15 @@ chain_tx::Roe<void> AuthorityTrail::verifyAdminSigned(const Ledger::Record &reco
                                                   crypto_, logger_);
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record) {
+chain_tx::Roe<void> AuthorityTrail::observeConfig(const Ledger::Record &record, uint64_t epoch) {
   // A config update replaces the admin set at once; only the admin set in force may sign it.
   auto tx = utl::binaryUnpack<Ledger::TxConfig>(record.data);
   GenesisAccountMeta gm;
   if (!tx || !gm.ltsFromString(tx.value().meta)) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable config update");
+  }
+  if (auto frozen = chain_tx::requireAdminSetNotFrozen(authority_, "Config update", epoch); !frozen) {
+    return frozen;
   }
   if (auto signed_ = verifyAdminSigned(record); !signed_) {
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
@@ -144,7 +160,11 @@ chain_tx::Roe<void> AuthorityTrail::observeGenesisRenewal(const Ledger::Record &
   return {};
 }
 
-chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &record, uint64_t blockId) {
+chain_tx::Roe<void> AuthorityTrail::observeCertificate(const Ledger::Record &record, uint64_t blockId,
+                                                       uint64_t epoch) {
+  if (auto frozen = chain_tx::requireAdminSetNotFrozen(authority_, "Beacon certificate", epoch); !frozen) {
+    return frozen;
+  }
   auto tx = utl::binaryUnpack<Ledger::TxBeaconCert>(record.data);
   if (!tx) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable beacon certificate");
@@ -201,6 +221,32 @@ chain_tx::Roe<void> AuthorityTrail::verifyTip(const Client::SignedTip &tip) cons
     return chain_tx::TxError(chain_err::E_TX_SIGNATURE, "Signed tip is not signed by the beacon of generation " +
                                                             std::to_string(beacon.generation));
   }
+  return {};
+}
+
+chain_tx::Roe<void> AuthorityTrail::observeRecovery(const Ledger::Record &record, uint64_t blockId,
+                                                    uint64_t epoch) {
+  // Only the recovery set in force may announce; the admin set it replaces cannot (B004).
+  auto tx = utl::binaryUnpack<Ledger::TxRecovery>(record.data);
+  if (!tx) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Unreadable recovery announcement");
+  }
+  auto announcement = RecoveryTxHandler::decodeAnnouncement(tx.value());
+  if (!announcement) {
+    return announcement.error();
+  }
+  if (auto signed_ = chain_tx::verifyRecoverySigned(record, authority_.recovery, networkId_, crypto_, logger_);
+      !signed_) {
+    return chain_tx::TxError(chain_err::E_TX_SIGNATURE,
+                             "Recovery announcement not signed by the recovery set: " + signed_.error().message);
+  }
+  if (auto valid = chain_tx::validateRecoveryAnnouncement(announcement.value(), authority_, networkId_); !valid) {
+    return valid;
+  }
+  authority_.hasPendingRecovery = true;
+  authority_.pendingRecovery.announcement = announcement.value();
+  authority_.pendingRecovery.announcedAt = blockId;
+  authority_.pendingRecovery.applyEpoch = epoch + authority_.recovery.delayEpochs;
   return {};
 }
 

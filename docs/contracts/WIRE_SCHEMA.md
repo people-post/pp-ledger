@@ -109,6 +109,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 16 | `T_MINER_REGISTER` | Account registers as a miner ([Miner registration and liveness](#miner-registration-and-liveness)) |
 | 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
 | 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([Chain authority](#chain-authority)) |
+| 19 | `T_RECOVERY` | Recovery set announces a new admin set, applied `delayEpochs` later ([Chain authority](#chain-authority)) |
 
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
@@ -135,12 +136,15 @@ not installed in `RecordHandler`.
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  8) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  9) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), and `authority` (below). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
   checkpoint reads — must carry the config in force for its block, if an update is still pending
-  (its epoch has not come) that update in the pending section, and the authority in force;
-  validators refuse anything else.
+  (its epoch has not come) that update in the pending section, the authority in force, and the
+  admin set in force (the genesis account's keys, threshold and key type) — all as the block's
+  epoch holds them, so a renewal in a recovery's apply epoch carries the new admin set. The slot
+  leader signs renewals: it re-records the admin set, it never chooses it. Validators refuse
+  anything else.
 - **A config update cannot change the authority:** a `T_CONFIG`'s `authority` must equal the one
   in force.
 
@@ -154,6 +158,7 @@ meta. Design: [projects/beacon-authority](../../projects/beacon-authority/DESIGN
 | `recovery.publicKeys` | Raw ML-DSA-65 keys of the recovery set: distinct, none an admin (genesis account) key |
 | `recovery.minSignatures` | 1 ≤ m ≤ key count |
 | `recovery.delayEpochs` | ≥ 1; epochs between announcing and applying a recovery |
+| `hasPendingRecovery`, `pendingRecovery` | A recovery announced and not applied yet (below); none at genesis |
 | `beacon.networkId` | The chain's `networkId` |
 | `beacon.generation` | 1 at genesis |
 | `beacon.publicKey` | Raw ML-DSA-65 beacon signing key: neither an admin nor a recovery key |
@@ -211,6 +216,41 @@ holder will never commit its successor. Every node keeps the highest one it sees
 A tip of the new generation still verifies only along blocks that commit its certificate: the
 certificate bounds the old generation, it does not let a node follow the new one before the chain
 does (the new beacon commits it right after the cutover — part 2 of beacon-authority).
+
+**Recovery — `T_RECOVERY` (record 19).** The recovery set replaces the admin set (B004 / B007),
+announced on chain and applied `delayEpochs` later. The record's `meta` is a
+`RecoveryAnnouncement` (version `1`, then `networkId`, `adminPublicKeys`, `adminMinSignatures`);
+fee `0`; idempotency key (genesis account, `idempotentId`, non-zero) with the usual validation
+window. It is **signed by the recovery set** in the authority — `recovery.minSignatures` of its
+keys — not by any account. Rules (`chain_tx::validateRecoveryAnnouncement`):
+
+- `networkId` is the chain's; no recovery is pending already; at most one per block; not in the
+  genesis block;
+- the new admin set has the genesis shape — 3 to 32 distinct well-formed ML-DSA-65 keys,
+  2 ≤ `adminMinSignatures` ≤ key count — and none of its keys is a recovery key or the beacon key.
+
+Committed in a block of epoch E, it is put in the authority as pending: `announcedAt` = that
+block, `applyEpoch` = E + `delayEpochs`. Genesis metas carry it from then on, so a node starting
+at a checkpoint sees it too.
+
+- **Freeze:** while it is pending, the admin set issues nothing that changes the authority or the
+  config — a `T_CONFIG` or a `T_BEACON_CERT` in a block of an epoch before `applyEpoch` is refused,
+  and out of band every certificate is refused (one already held is dropped when the announcement
+  commits). The admin set cannot cancel the recovery.
+- **Apply:** the first block whose epoch is at or after `applyEpoch` replaces the genesis account's
+  keys and threshold with the new set **before its records apply**, in place (the account's
+  `blockId`, where renewal reads its meta, does not move), and clears the pending recovery. A
+  certificate held out of band is checked again (the admins who signed it are gone).
+- **Visible:** `STATUS` carries `recovery` (`announcedAt`, `applyEpoch`, the new keys and threshold;
+  absent if none) and `pp-client status` prints it; every node logs an error-level alert when the
+  announcement commits, at each new epoch while it is pending, and when it applies.
+- **Following it** (`AuthorityTrail`): sync and `AUTHORITY_PROOF` replays verify the announcement
+  against the recovery set, apply the freeze, and replace the admin set at the apply epoch. Each
+  authority step carries its block's epoch (`AuthorityStep {blockId, epoch, record}`); a replay up
+  to a block takes that block's epoch too.
+
+Tooling: `pp-client mk-recovery --network-id … --admin-pubkey … ×N --min-signatures M -o file`,
+then `sign-tx` by each recovery key holder, then `submit-tx` to a relay or the beacon.
 
 ### Signed tip
 
@@ -279,8 +319,8 @@ Nor does a tip above the cutover of a later certificate the node holds out of ba
   Without a pin the first block is taken on trust.
 
 **Authority proof** (`AUTHORITY_PROOF`, request 1004, payload `uint64 upToBlockId`): the records
-that changed the authority (`T_CONFIG`, `T_BEACON_CERT`) from genesis up to that block, each with
-its block id, in chain order (`Client::AuthorityProof`). Served by nodes holding the chain from
+that changed the authority (`T_CONFIG`, `T_BEACON_CERT`, `T_RECOVERY`) from genesis up to that
+block, each with its block id and epoch, in chain order (`Client::AuthorityProof`). Served by nodes holding the chain from
 genesis (beacon, relays). A node replays it from a genesis block it trusts
 (`AuthorityTrail::replayProof`), taking each step only if the admin set in force there signed it:
 an upstream can withhold or reorder steps (the replay then misses the starting block's authority

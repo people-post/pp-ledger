@@ -11,6 +11,10 @@
 # below the tip, as for a stolen key: the relay serves it and no tip past it, the beacon (holding
 # no key it names) stands down, and nothing commits.
 #
+# L-SMOKE-RECOVERY (beacon-authority ba7): the recovery set announces a new admin set; STATUS shows
+# it pending, the old admins' certificate is refused, and at its epoch the new set takes over — the
+# out-of-band step below signs with it.
+#
 # Usage:
 #   ./scripts/test/pp_ledger_rotation_smoke.sh
 set -euo pipefail
@@ -36,6 +40,7 @@ start_http
 inject_transactions_for_block_production
 
 wait_for_beacon_rpc 60
+run_recovery_scenario
 run_equivocation_halt_scenario
 run_rotation_scenario
 check_equivocation_resumed

@@ -134,6 +134,8 @@ public:
       return std::get<Ledger::TxMinerRevoke>(tx).meta.size();
     case Ledger::T_BEACON_CERT:
       return std::get<Ledger::TxBeaconCert>(tx).meta.size();
+    case Ledger::T_RECOVERY:
+      return std::get<Ledger::TxRecovery>(tx).meta.size();
     default:
       return chain_tx::TxError(chain_err::E_INTERNAL,
                                "Unknown typed transaction variant");

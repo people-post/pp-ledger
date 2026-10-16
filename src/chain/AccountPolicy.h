@@ -3,8 +3,11 @@
 
 #include "AccountBuffer.h"
 #include "TxError.h"
+#include "TxSignatures.h"
 #include "Types.h"
 #include "../client/Client.h"
+#include "../ledger/Ledger.h"
+#include "common/Logger.h"
 #include "lib/common/Crypto.h"
 
 #include <cstdint>
@@ -77,6 +80,37 @@ Roe<void> validateNextBeaconCertificate(const BeaconCertificate &next, const Cha
  * last block the previous generation signed, `commitBlockId` − 1 — at or below the signed bound.
  */
 BeaconCertificate certificateInForce(BeaconCertificate cert, uint64_t commitBlockId);
+
+/**
+ * While a recovery is pending (beacon-authority ba7, B007) the admin set is frozen: it may issue no
+ * config update and no beacon generation. `epoch`: the epoch of the block the record would be in
+ * (from the apply epoch on, the recovery has replaced the admin set); none out of band (frozen
+ * while pending). `what` names the refused record for the error.
+ */
+Roe<void> requireAdminSetNotFrozen(const ChainAuthority &authority, std::string_view what,
+                                   std::optional<uint64_t> epoch = std::nullopt);
+
+/**
+ * A recovery announcement against the authority in force (ba7): the chain's `networkId`; no recovery
+ * pending already; a new admin set of the genesis shape (≥3 valid distinct keys, 2 ≤ minSignatures ≤
+ * keys) none of whose keys is a recovery key or the current beacon key.
+ */
+Roe<void> validateRecoveryAnnouncement(const RecoveryAnnouncement &announcement, const ChainAuthority &current,
+                                       const std::string &networkId);
+
+/** The admin (genesis account) wallet once a recovery applies: its keys and threshold replaced. */
+Client::Wallet adminWalletAfterRecovery(Client::Wallet admin, const RecoveryAnnouncement &announcement);
+
+/**
+ * The authority and admin wallet as a block of `epoch` holds them (ba7): a pending recovery due by
+ * then has replaced the admin set and is no longer pending. A no-op once the chain entered that
+ * epoch; what a block drafted ahead of it (renewals) must be built and checked against.
+ */
+void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, uint64_t epoch);
+
+/** `record` is signed by enough of the recovery set's keys (over its signing message for `networkId`). */
+Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
+                               const std::string &networkId, const Crypto &crypto, logging::Logger &logger);
 
 /** Remove + re-add an account with the given wallet at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,

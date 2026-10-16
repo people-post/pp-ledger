@@ -107,10 +107,16 @@ const utl::MlDsaKeyPair &testBeaconKey() {
   return key;
 }
 
-/** A valid genesis authority for `networkId`: a fresh 1-of-1 recovery set and testBeaconKey(). */
+/** The fixture's recovery set: one key (1-of-1). */
+const utl::MlDsaKeyPair &testRecoveryKey() {
+  static const utl::MlDsaKeyPair key = makeKeyPair();
+  return key;
+}
+
+/** A valid genesis authority for `networkId`: a 1-of-1 recovery set (testRecoveryKey()) and testBeaconKey(). */
 Chain::ChainAuthority makeTestAuthority(const std::string &networkId) {
   Chain::ChainAuthority authority;
-  authority.recovery.publicKeys = {makeKeyPair().publicKey};
+  authority.recovery.publicKeys = {testRecoveryKey().publicKey};
   authority.recovery.minSignatures = 1;
   authority.recovery.delayEpochs = 3;
   authority.beacon.networkId = networkId;
@@ -328,6 +334,7 @@ TEST(ChainTest, GenesisAuthority_RefusesEveryBadShape) {
       {"Beacon certificate has a malformed", [](auto &a) { a.beacon.publicKey = "short"; }},
       {"not be an admin or recovery key", [&](auto &a) { a.beacon.publicKey = admin.publicKey; }},
       {"not be an admin or recovery key", [](auto &a) { a.beacon.publicKey = a.recovery.publicKeys[0]; }},
+      {"cannot carry a pending recovery", [](auto &a) { a.hasPendingRecovery = true; }},
   };
   for (const auto &[why, change] : refused) {
     Chain::ChainAuthority authority = valid;
@@ -2738,7 +2745,7 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
   auto none = producer.authorityProof(0);
   ASSERT_TRUE(none.isOk()) << none.error().message;
   EXPECT_TRUE(none.value().steps.empty());
-  auto atGenesis = AuthorityTrail::replayProof(harness_.genesis.block, none.value(), 0);
+  auto atGenesis = AuthorityTrail::replayProof(harness_.genesis.block, none.value(), 0, 0);
   ASSERT_TRUE(atGenesis.isOk()) << atGenesis.error().message;
   EXPECT_TRUE(atGenesis.value().authority() == producer.getAuthority().value());
 
@@ -2755,16 +2762,16 @@ TEST_F(ChainComposeTest, AuthorityProof_ReplaysFromGenesisToTheAuthorityInForce)
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
   ASSERT_EQ(proof.value().steps.size(), 1u);
   EXPECT_EQ(proof.value().steps[0].blockId, 1u);
-  auto replayed = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 1);
+  auto replayed = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 1, 0);
   ASSERT_TRUE(replayed.isOk()) << replayed.error().message;
   EXPECT_TRUE(replayed.value().authority() == producer.getAuthority().value()) << "generation 2, as in force";
   EXPECT_TRUE(replayed.value().agrees(producer.getAuthority().value(),
                                       producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet));
 
-  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 0).isOk())
+  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 0, 0).isOk())
       << "a step beyond the block";
   EXPECT_FALSE(producer.authorityProof(producer.getNextBlockId()).isOk()) << "beyond the tip";
-  auto withheld = AuthorityTrail::replayProof(harness_.genesis.block, Client::AuthorityProof{}, 1);
+  auto withheld = AuthorityTrail::replayProof(harness_.genesis.block, Client::AuthorityProof{}, 1, 0);
   ASSERT_TRUE(withheld.isOk());
   EXPECT_FALSE(withheld.value().authority() == producer.getAuthority().value()) << "a withheld step reaches another authority";
   EXPECT_FALSE(withheld.value()
@@ -2800,8 +2807,8 @@ TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
   };
   auto replay = [&](const Ledger::Record &cert) {
     Client::AuthorityProof proof;
-    proof.steps = {{3, rotateAdmins}, {7, cert}};
-    return AuthorityTrail::replayProof(harness_.genesis.block, proof, 9);
+    proof.steps = {{3, 0, rotateAdmins}, {7, 0, cert}};
+    return AuthorityTrail::replayProof(harness_.genesis.block, proof, 9, 0);
   };
   auto rotated = replay(certBy({admins[0], admins[2]}));
   ASSERT_TRUE(rotated.isOk()) << rotated.error().message;
@@ -2813,8 +2820,8 @@ TEST_F(ChainComposeTest, AuthorityProof_FollowsAdminRotation) {
   EXPECT_FALSE(replay(certBy({makeKeyPair(), makeKeyPair()})).isOk()) << "not an admin set";
 
   Client::AuthorityProof outOfOrder;
-  outOfOrder.steps = {{7, certBy({admins[0], admins[1]})}, {3, rotateAdmins}};
-  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, outOfOrder, 9).isOk());
+  outOfOrder.steps = {{7, 0, certBy({admins[0], admins[1]})}, {3, 0, rotateAdmins}};
+  EXPECT_FALSE(AuthorityTrail::replayProof(harness_.genesis.block, outOfOrder, 9, 0).isOk());
 }
 
 TEST_F(ChainComposeTest, BeaconCert_VerifyRecordOutOfBand) {
@@ -3007,6 +3014,116 @@ TEST_F(ChainComposeTest, BeaconEquivocation_ResumesWhenALaterCertificateCommits)
   ASSERT_TRUE(producer.addBlock(block1).isOk());
   EXPECT_EQ(producer.getAuthority()->beacon.generation, 2u);
   EXPECT_FALSE(producer.equivocation().has_value());
+}
+
+namespace {
+
+/** A T_RECOVERY naming `admins` (threshold `minSignatures`), signed by `signer`. */
+Ledger::Record makeRecoveryRecord(const std::vector<utl::MlDsaKeyPair> &admins, uint8_t minSignatures,
+                                  const utl::MlDsaKeyPair &signer, const std::string &networkId, uint64_t idem,
+                                  int64_t genesisTime) {
+  RecoveryAnnouncement announcement;
+  announcement.networkId = networkId;
+  for (const auto &admin : admins) {
+    announcement.adminPublicKeys.push_back(admin.publicKey);
+  }
+  announcement.adminMinSignatures = minSignatures;
+  Ledger::TxRecovery tx;
+  tx.meta = announcement.ltsToString();
+  tx.idempotentId = idem;
+  tx.validationTsMin = genesisTime;
+  tx.validationTsMax = genesisTime + 3600;
+  return makeRecord(Ledger::T_RECOVERY, tx, signer, networkId);
+}
+
+} // namespace
+
+// beacon-authority ba7 (B004 / B007): the recovery set announces a new admin set. While pending the
+// admin set is frozen — no config update, no certificate, on chain or out of band — and the first
+// block of the epoch `delayEpochs` later replaces it in place; from then on only the new admins sign.
+TEST_F(ChainComposeTest, Recovery_FreezesTheAdminSetThenReplacesIt) {
+  auto &producer = harness_.producer;
+  const std::string net = producer.getNetworkId();
+  const auto genesisTime = harness_.chainConfig.genesisTime;
+  const auto oldKeys = producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys;
+  const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  ASSERT_EQ(producer.getAuthority()->recovery.delayEpochs, 3u);
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  auto tryAdd = [&](const Ledger::Record &record) {
+    AccountBuffer scratch;
+    return producer.addBufferTransaction(scratch, record, kTestMinerId);
+  };
+  auto refusedWith = [&](const Ledger::Record &record, const std::string &why) {
+    auto added = tryAdd(record);
+    ASSERT_FALSE(added.isOk()) << why;
+    EXPECT_NE(added.error().message.find(why), std::string::npos) << added.error().message;
+  };
+
+  // Only the recovery set announces; the new set must have the genesis shape.
+  EXPECT_FALSE(tryAdd(makeRecoveryRecord(admins, 2, harness_.genesisKey, net, 1, genesisTime)).isOk())
+      << "the admin set cannot announce";
+  refusedWith(makeRecoveryRecord({admins[0], admins[1]}, 2, testRecoveryKey(), net, 2, genesisTime),
+              "between 3 and");
+  refusedWith(makeRecoveryRecord(admins, 1, testRecoveryKey(), net, 3, genesisTime), "minSignatures");
+
+  // Announced in epoch 0: pending until epoch 3.
+  Ledger::ChainNode block =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 4, genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  ASSERT_TRUE(producer.getAuthority()->hasPendingRecovery);
+  EXPECT_EQ(producer.getAuthority()->pendingRecovery.applyEpoch, 3u);
+  EXPECT_EQ(producer.getAuthority()->pendingRecovery.announcedAt, 1u);
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys, oldKeys) << "not yet";
+  ASSERT_TRUE(producer.recoveryStatus().has_value()) << "STATUS shows it";
+  EXPECT_EQ(producer.recoveryStatus()->applyEpoch, 3u);
+  EXPECT_EQ(producer.recoveryStatus()->adminPublicKeys.size(), 3u);
+
+  // Frozen: a second announcement, a config update, a certificate in a block or out of band.
+  producer.setClockOverride(producer.getSlotStartTime(2));
+  refusedWith(makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 5, genesisTime), "already pending");
+  ConfigUpdateProbe probe(harness_);
+  auto config = probe.add([](auto &c) { c.maxTransactionsPerBlock += 1; });
+  ASSERT_FALSE(config.isOk());
+  EXPECT_NE(config.error().message.find("freezes the admin set"), std::string::npos) << config.error().message;
+  const auto cert = makeBeaconCertRecord(nextCertificate(producer.getAuthority().value()), harness_.genesisKey, net,
+                                         6, genesisTime);
+  refusedWith(cert, "freezes the admin set");
+  EXPECT_FALSE(producer.offerCertificate(cert).isOk()) << "out of band too";
+
+  // The first block of epoch 3 replaces the admin set before its records.
+  producer.setClockOverride(producer.getSlotStartTime(30));
+  block = makeNextBlockAtSlot(producer, block, 30, {makeReserveTransfer(harness_, 5, 7)});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  EXPECT_FALSE(producer.getAuthority()->hasPendingRecovery);
+  EXPECT_FALSE(producer.recoveryStatus().has_value());
+  const auto admin = producer.getAccount(AccountBuffer::ID_GENESIS).value();
+  ASSERT_EQ(admin.wallet.publicKeys.size(), 3u);
+  EXPECT_EQ(admin.wallet.publicKeys[0], admins[0].publicKey);
+  EXPECT_EQ(admin.wallet.minSignatures, 2u);
+
+  // The old admin key signs nothing now; two of the new ones do.
+  producer.setClockOverride(producer.getSlotStartTime(31));
+  BeaconCertificate rotation = nextCertificate(producer.getAuthority().value());
+  rotation.cutoverHeight = UINT64_MAX; // none
+  auto byOldAdmin = tryAdd(makeBeaconCertRecord(rotation, harness_.genesisKey, net, 8, genesisTime));
+  ASSERT_FALSE(byOldAdmin.isOk());
+  EXPECT_NE(byOldAdmin.error().message.find("signature"), std::string::npos) << byOldAdmin.error().message;
+  auto byNewAdmins = makeBeaconCertRecord(rotation, admins[0], net, 9, genesisTime);
+  byNewAdmins.signatures.push_back(signMessage(admins[2], byNewAdmins.signingMessage(net)));
+  auto accepted = tryAdd(byNewAdmins);
+  EXPECT_TRUE(accepted.isOk()) << accepted.error().message;
+
+  // A replay of the authority proof reaches the same: pending before epoch 3, replaced from it.
+  auto proof = producer.authorityProof(block.block.index);
+  ASSERT_TRUE(proof.isOk()) << proof.error().message;
+  ASSERT_EQ(proof.value().steps.size(), 1u);
+  auto before = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), 1, 2);
+  ASSERT_TRUE(before.isOk()) << before.error().message;
+  EXPECT_TRUE(before.value().authority().hasPendingRecovery);
+  EXPECT_EQ(before.value().admin().publicKeys, oldKeys);
+  auto after = AuthorityTrail::replayProof(harness_.genesis.block, proof.value(), block.block.index, 3);
+  ASSERT_TRUE(after.isOk()) << after.error().message;
+  EXPECT_TRUE(after.value().agrees(producer.getAuthority().value(), admin.wallet).isOk());
 }
 
 // beacon-authority ba1: the recovery set and beacon certificate are not config — a config update
@@ -3481,6 +3598,24 @@ TEST_F(GenesisRenewalConfigTest, CarriesConfigInForceAndPendingUpdate) {
       ASSERT_FALSE(authoritySeal.isOk());
       EXPECT_NE(authoritySeal.error().message.find("recovery set and beacon certificate in force"), std::string::npos)
           << authoritySeal.error().message;
+
+      // The slot leader signs renewals: it cannot slip its own keys in as the admin set (ba7).
+      auto seized = utl::binaryUnpack<Ledger::TxRenewal>(genesisRenewal->data).value();
+      Chain::GenesisAccountMeta seizedMeta = genesisMetaOf(*genesisRenewal);
+      seizedMeta.genesis.wallet.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey,
+                                              makeKeyPair().publicKey};
+      seized.meta = seizedMeta.ltsToString();
+      Ledger::Record badKeys = *genesisRenewal;
+      badKeys.data = utl::binaryPack(seized);
+      std::vector<Ledger::Record> badKeysRecords;
+      for (const auto &r : records) {
+        badKeysRecords.push_back(isGenesisRenewal(r) ? signedByLeader(badKeys) : r);
+      }
+      Ledger::ChainNode badKeysBlock =
+          producer.linkNextBlock(block, slot, kTestMinerId, producer.getSlotEndTime(slot), badKeysRecords);
+      auto keysSeal = producer.sealBlock(badKeysBlock);
+      ASSERT_FALSE(keysSeal.isOk()) << "a leader-signed renewal replaced the admin set";
+      EXPECT_NE(keysSeal.error().message.find("admin set in force"), std::string::npos) << keysSeal.error().message;
     }
     block = makeNextBlockAtSlot(producer, block, slot, records);
     ASSERT_TRUE(producer.addBlock(block).isOk()) << "slot " << slot;
@@ -4233,3 +4368,44 @@ TEST_F(ChainComposeTest, TransferToSelfIsRefused) {
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_RESERVE).value().wallet.mBalances, reserveBefore);
 }
 
+
+// ba7: the first block of a recovery's epoch carries the genesis renewal built for that epoch — the
+// new admin set, nothing pending — and the slot leader's draft takes it, though the committed chain
+// still holds the recovery as pending (found by L-SMOKE-RECOVERY: leaders could not produce).
+TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet) {
+  auto &producer = harness_.producer;
+  const std::string net = producer.getNetworkId();
+  const std::vector<utl::MlDsaKeyPair> admins = {makeKeyPair(), makeKeyPair(), makeKeyPair()};
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  Ledger::ChainNode block = makeNextBlockAtSlot(
+      producer, harness_.genesis, 1,
+      {makeRecoveryRecord(admins, 2, testRecoveryKey(), net, 1, harness_.chainConfig.genesisTime)});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  const uint64_t applyEpoch = producer.getAuthority()->pendingRecovery.applyEpoch;
+  const uint64_t slot = applyEpoch * harness_.chainConfig.slotsPerEpoch;
+
+  // The leader drafts once its slot has ended (its production slot is then this one).
+  producer.setClockOverride(producer.getSlotEndTime(slot));
+  auto due = producer.collectRenewals(slot);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::vector<Ledger::Record> records;
+  AccountBuffer draft;
+  bool sawGenesis = false;
+  for (const auto &r : due.value()) {
+    records.push_back(signedByLeader(r));
+    auto drafted = producer.addBufferTransaction(draft, records.back(), kTestMinerId);
+    ASSERT_TRUE(drafted.isOk()) << "the leader's draft refused a renewal: " << drafted.error().message;
+    if (isGenesisRenewal(r)) {
+      sawGenesis = true;
+      const auto gm = genesisMetaOf(r);
+      EXPECT_FALSE(gm.authority.hasPendingRecovery);
+      ASSERT_EQ(gm.genesis.wallet.publicKeys.size(), 3u);
+      EXPECT_EQ(gm.genesis.wallet.publicKeys[0], admins[0].publicKey);
+    }
+  }
+  ASSERT_TRUE(sawGenesis);
+  block = makeNextBlockAtSlot(producer, block, slot, records);
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+  EXPECT_FALSE(producer.getAuthority()->hasPendingRecovery);
+  EXPECT_EQ(producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys[0], admins[0].publicKey);
+}

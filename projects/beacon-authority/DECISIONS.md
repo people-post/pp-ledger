@@ -360,3 +360,35 @@ that key, so this adds no denial of service.
 **Alternatives:** Compare signatures (false positives from randomized signing); halt every write
 including certificates (no way out without an operator); keep every tip seen for detection
 (storage B009 avoided).
+
+## B019 — Recovery: a record of its own, pending in the authority, applied in place at its epoch
+
+**Date:** 2026-10-16
+**Decision:** The recovery set announces a new admin set with `T_RECOVERY` (record 19), signed by
+the recovery set in the chain authority rather than by an account. Committed, it sits in
+`ChainAuthority` as pending (`GenesisAccountMeta` v9), so genesis renewals and checkpoints carry it.
+`applyEpoch` is the announcing block's epoch plus `delayEpochs`. The first block at or after that
+epoch replaces the genesis account's keys and threshold in place, before its records. One recovery
+is pending at a time; the admin set cannot cancel it. While it is pending, `T_CONFIG` and
+`T_BEACON_CERT` are refused, in blocks of earlier epochs and out of band. A certificate held out of
+band is checked again when the announcement commits and when it applies. `AuthorityTrail` follows
+the same rules, and each `AuthorityStep` carries its block's epoch so proof replays apply the
+recovery where the chain did. Visibility: `STATUS.recovery`, `pp-client status`, and error-level
+alerts at the announcement, each epoch while pending, and the apply.
+On the way, two fixes:
+- A genesis renewal must carry the admin set in force. The slot leader signs renewals and could
+  otherwise slip its own keys in as the admin set.
+- Renewals are built and checked as the block's epoch holds the authority, so the apply epoch's
+  renewal carries the new set.
+**Rationale:** The recovery set is no account, so its signature check is the authority's own. In
+the authority, the pending recovery reaches checkpoint starters with no new sync path (B010).
+Applying at an epoch's first block makes every node apply it at the same block; in place keeps
+renewal's meta lookup where it was. The freeze is B007's: generations and config.
+**Cons:** Issuance by the admin set is not frozen (B007 names generations and config only), so
+stolen admin keys can still mint up to `maxIssuancePerEpoch` per epoch while a recovery waits. A
+lost beacon plus lost admin keys stalls the chain until the recovery applies. The recovery set
+cannot change itself yet. One recovery at a time: a mistaken announcement waits out its delay.
+**Alternatives:** An explicit "effect" record at the apply epoch (an extra record nobody needs to
+sign); keep the pending recovery outside the authority (checkpoint starters would miss it);
+replace the genesis account through `replaceGenesisAccount` (moves its blockId, breaking renewal
+when the apply block holds no genesis meta).

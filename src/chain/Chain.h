@@ -153,6 +153,8 @@ public:
   std::string getNetworkId() const;
   /** Recovery set + beacon certificate in force; nullopt before genesis is applied. */
   std::optional<ChainAuthority> getAuthority() const { return txContext_.optAuthority; }
+  /** The recovery pending on this chain (beacon-authority ba7), as STATUS shows it; none if none. */
+  std::optional<Client::RecoveryStatus> recoveryStatus() const;
   /**
    * A T_BEACON_CERT record received outside a block (a peer, a file): signed by the admin set in
    * force, for this chain, a higher generation than the one in force, with a new key. Returns the
@@ -390,6 +392,10 @@ private:
    * balance as the issuance baseline.
    */
   void enterBlockEpoch(uint64_t epoch);
+  /** A pending recovery whose epoch has come replaces the admin set, in place (ba7). */
+  void applyDueRecovery(uint64_t epoch);
+  /** The last epoch whose pending recovery was announced in the log (one alert per epoch). */
+  std::optional<uint64_t> recoveryNoticeEpoch_;
   /** Stake set for leader election from the tip bank: registered miners with at least
    *  minerMinStake (WIRE_SCHEMA § Miner registration and liveness). */
   std::vector<consensus::Stakeholder> electionCandidates() const;

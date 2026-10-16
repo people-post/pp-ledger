@@ -243,6 +243,9 @@ pp::common::Meta Client::BeaconState::ltsToMeta() const {
   if (equivocation) {
     m.set("equivocation", equivocation->ltsToString());
   }
+  if (recovery) {
+    m.set("recovery", utl::binaryPack(*recovery));
+  }
   return m;
 }
 
@@ -279,6 +282,14 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
       return Error(E_INVALID_RESPONSE, "Invalid equivocation evidence in beacon state");
     }
     equivocation = std::move(evidence);
+  }
+  recovery.reset();
+  if (auto packed = meta.getOrDefault("recovery", std::string{}); !packed.empty()) {
+    auto status = utl::binaryUnpack<RecoveryStatus>(packed);
+    if (!status) {
+      return Error(E_INVALID_RESPONSE, "Invalid recovery status in beacon state");
+    }
+    recovery = std::move(status.value());
   }
   return true;
 }

@@ -827,6 +827,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   state.signedTip = beacon_.getSignedTip();
   state.certificate = beacon_.getCurrentCertificate();
   state.equivocation = beacon_.getEquivocation();
+  state.recovery = beacon_.getRecoveryStatus();
   if (state.nextBlockId > 0) {
     if (auto tip = beacon_.readBlock(state.nextBlockId - 1)) {
       state.headHash = tip.value().hash;

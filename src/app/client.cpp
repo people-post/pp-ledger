@@ -88,6 +88,12 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
       std::cout << "Certificate: unreadable\n";
     }
   }
+  if (status.recovery) {
+    std::cout << "Recovery: pending, applies at epoch " << status.recovery->applyEpoch << " (announced at block "
+              << status.recovery->announcedAt << "; new admin set: " << status.recovery->adminPublicKeys.size()
+              << " keys, " << static_cast<int>(status.recovery->adminMinSignatures)
+              << " signatures; the admin set is frozen until then)\n";
+  }
   if (status.equivocation) {
     std::cout << "Equivocation: generation " << status.equivocation->generation() << " at block "
               << status.equivocation->height() << " (halted above it)\n";
@@ -242,29 +248,74 @@ static int runAddEquivocation(pp::Client &client, const std::string &filePath) {
   return 0;
 }
 
+/** An ML-DSA-65 public key given as hex or as a .pub file; empty if it is not one. */
+static std::string readPublicKeyArg(const std::string &arg) {
+  std::string hex = arg;
+  if (std::ifstream pubFile(arg); pubFile) {
+    std::ostringstream text;
+    text << pubFile.rdbuf();
+    hex = text.str();
+  }
+  hex.erase(std::remove_if(hex.begin(), hex.end(), [](unsigned char c) { return std::isspace(c); }), hex.end());
+  if (hex.rfind("0x", 0) == 0) {
+    hex = hex.substr(2);
+  }
+  std::string key = pp::utl::hexDecode(hex);
+  return key.size() == pp::utl::kMlDsaPublicKeyBytes ? key : std::string{};
+}
+
+/**
+ * mk-recovery (beacon-authority ba7): an unsigned T_RECOVERY announcing a new admin set. The
+ * recovery key holders add their signatures with sign-tx (--network-id) and submit with submit-tx;
+ * it applies `delayEpochs` after it commits, and freezes the admin set until then.
+ */
+static int runMkRecovery(const std::string &networkId, const std::vector<std::string> &adminKeyArgs,
+                         unsigned minSignatures, const std::string &outputPath) {
+  pp::RecoveryAnnouncement announcement;
+  announcement.networkId = networkId;
+  for (const auto &arg : adminKeyArgs) {
+    std::string key = readPublicKeyArg(arg);
+    if (key.empty()) {
+      std::cerr << "Error: --admin-pubkey " << arg << " is not an ML-DSA-65 public key (hex or a .pub file)\n";
+      return 1;
+    }
+    announcement.adminPublicKeys.push_back(std::move(key));
+  }
+  if (minSignatures < 2 || minSignatures > announcement.adminPublicKeys.size() || minSignatures > 255) {
+    std::cerr << "Error: --min-signatures must be between 2 and the number of admin keys\n";
+    return 1;
+  }
+  announcement.adminMinSignatures = static_cast<uint8_t>(minSignatures);
+  pp::Ledger::TxRecovery tx;
+  tx.fee = 0;
+  tx.meta = announcement.ltsToString();
+  setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  TxRecord rec;
+  rec.type = pp::Ledger::T_RECOVERY;
+  rec.data = pp::utl::binaryPack(tx);
+  auto result = pp::utl::writeToNewFile(outputPath, pp::utl::binaryPack(rec));
+  if (!result) {
+    std::cerr << "Error: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Recovery announcement (" << announcement.adminPublicKeys.size() << " admin keys, "
+            << minSignatures << " signatures) written to " << outputPath
+            << ": sign with the recovery keys (sign-tx), then submit-tx\n";
+  return 0;
+}
+
 /**
  * mk-beacon-cert (beacon-authority ba2): an unsigned T_BEACON_CERT record for the next beacon
  * generation. Admins add their signatures with sign-tx (--network-id) and submit with submit-tx.
  */
 static int runMkBeaconCert(const std::string &networkId, uint64_t generation, const std::string &pubkeyArg,
                            uint64_t cutoverHeight, const std::string &outputPath) {
-  std::string pubHex = pubkeyArg;
-  if (std::ifstream pubFile(pubkeyArg); pubFile) {
-    std::ostringstream text;
-    text << pubFile.rdbuf();
-    pubHex = text.str();
-  }
-  pubHex.erase(std::remove_if(pubHex.begin(), pubHex.end(), [](unsigned char c) { return std::isspace(c); }),
-               pubHex.end());
-  if (pubHex.rfind("0x", 0) == 0) {
-    pubHex = pubHex.substr(2);
-  }
   pp::BeaconCertificate cert;
   cert.networkId = networkId;
   cert.generation = generation;
-  cert.publicKey = pp::utl::hexDecode(pubHex);
+  cert.publicKey = readPublicKeyArg(pubkeyArg);
   cert.cutoverHeight = cutoverHeight;
-  if (cert.publicKey.size() != pp::utl::kMlDsaPublicKeyBytes) {
+  if (cert.publicKey.empty()) {
     std::cerr << "Error: --pubkey must be an ML-DSA-65 public key (hex or a .pub file)\n";
     return 1;
   }
@@ -585,6 +636,20 @@ int main(int argc, char *argv[]) {
                           "until the certificate commits; give one when its key is stolen)");
   mk_cert_cmd->add_option("-o,--output", mk_cert_output, "Output file (must not exist)")->required();
 
+  // mk-recovery (beacon-authority ba7)
+  auto* mk_recovery_cmd = app.add_subcommand(
+      "mk-recovery", "Create an unsigned recovery announcement (new admin set) for the recovery keys to sign");
+  std::string mk_recovery_network, mk_recovery_output;
+  std::vector<std::string> mk_recovery_admins;
+  unsigned mk_recovery_min_sig = 0;
+  mk_recovery_cmd->add_option("--network-id", mk_recovery_network, "The chain's networkId")->required();
+  mk_recovery_cmd->add_option("--admin-pubkey", mk_recovery_admins,
+                              "A new admin public key (hex or .pub file); repeat for each (at least 3)")
+      ->required();
+  mk_recovery_cmd->add_option("--min-signatures", mk_recovery_min_sig, "Signatures the new admin set requires")
+      ->required();
+  mk_recovery_cmd->add_option("-o,--output", mk_recovery_output, "Output file (must not exist)")->required();
+
   // mk-equivocation / add-equivocation (beacon-authority ba6)
   auto* mk_equiv_cmd = app.add_subcommand(
       "mk-equivocation", "Sign equivocation evidence with a beacon key (drills: it halts the nodes that take it)");
@@ -708,6 +773,10 @@ int main(int argc, char *argv[]) {
 
   if (mk_cert_cmd->parsed()) {
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, mk_cert_output);
+  }
+
+  if (mk_recovery_cmd->parsed()) {
+    return runMkRecovery(mk_recovery_network, mk_recovery_admins, mk_recovery_min_sig, mk_recovery_output);
   }
 
   if (mk_equiv_cmd->parsed()) {

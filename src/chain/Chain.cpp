@@ -316,10 +316,14 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
       if (!gm.ltsFromString(tx.meta)) {
         return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize genesis renewal meta");
       }
-      gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig,
-                          txContext_.consensus.getEpochFromSlot(slot));
+      const uint64_t epoch = txContext_.consensus.getEpochFromSlot(slot);
+      gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig, epoch);
       if (txContext_.optAuthority.has_value()) {
-        gm.authority = txContext_.optAuthority.value();
+        // As the block's epoch will hold it: a recovery due by then has replaced the admin set
+        // before the records apply (applyDueRecovery).
+        ChainAuthority authority = txContext_.optAuthority.value();
+        chain_tx::advanceAuthorityToEpoch(authority, gm.genesis.wallet, epoch);
+        gm.authority = authority;
       }
       tx.meta = gm.ltsToString();
     }
@@ -1257,6 +1261,7 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
 }
 
 void Chain::enterBlockEpoch(uint64_t epoch) {
+  applyDueRecovery(epoch);
   auto &pending = txContext_.pendingChainConfig;
   if (pending.has_value() && epoch >= pending->activationEpoch) {
     txContext_.optChainConfig = std::move(pending->config);
@@ -1268,6 +1273,55 @@ void Chain::enterBlockEpoch(uint64_t epoch) {
   if (!baseline.has_value() || baseline->epoch < epoch) {
     baseline = IssuanceBaseline{epoch, txContext_.bank.getBalance(AccountBuffer::ID_GENESIS, AccountBuffer::ID_GENESIS)};
   }
+}
+
+std::optional<Client::RecoveryStatus> Chain::recoveryStatus() const {
+  if (!txContext_.optAuthority.has_value() || !txContext_.optAuthority->hasPendingRecovery) {
+    return std::nullopt;
+  }
+  const PendingRecovery &pending = txContext_.optAuthority->pendingRecovery;
+  Client::RecoveryStatus status;
+  status.announcedAt = pending.announcedAt;
+  status.applyEpoch = pending.applyEpoch;
+  status.adminPublicKeys = pending.announcement.adminPublicKeys;
+  status.adminMinSignatures = pending.announcement.adminMinSignatures;
+  return status;
+}
+
+void Chain::applyDueRecovery(uint64_t epoch) {
+  auto &authority = txContext_.optAuthority;
+  if (!authority.has_value() || !authority->hasPendingRecovery) {
+    return;
+  }
+  if (epoch < authority->pendingRecovery.applyEpoch) {
+    // Visible while it waits: one alert per epoch (B007).
+    if (recoveryNoticeEpoch_ != epoch) {
+      recoveryNoticeEpoch_ = epoch;
+      log().error << "RECOVERY PENDING: announced at block " << authority->pendingRecovery.announcedAt
+                  << ", it replaces the admin set at epoch " << authority->pendingRecovery.applyEpoch << " ("
+                  << authority->pendingRecovery.applyEpoch - epoch
+                  << " epochs from now); the admin set is frozen until then";
+    }
+    return;
+  }
+  const PendingRecovery recovery = authority->pendingRecovery;
+  authority->hasPendingRecovery = false;
+  authority->pendingRecovery = {};
+  // In place: the genesis account's blockId (where renewal reads its meta) does not move.
+  if (auto replaced = txContext_.bank.setWalletKeys(AccountBuffer::ID_GENESIS,
+                                                    recovery.announcement.adminPublicKeys,
+                                                    recovery.announcement.adminMinSignatures);
+      !replaced) {
+    // Held by every node that applies blocks; one that does not (a warm-up before its start) has no
+    // genesis account to change.
+    log().warning << "Recovery: the genesis account is not held here: " << replaced.error().message;
+  }
+  log().error << "RECOVERY APPLIED at epoch " << epoch << ": the admin set is replaced ("
+              << recovery.announcement.adminPublicKeys.size() << " keys, "
+              << static_cast<int>(recovery.announcement.adminMinSignatures) << " signatures), announced at block "
+              << recovery.announcedAt;
+  // A certificate held out of band was signed by the replaced admin set: check it again.
+  refreshSeenCertificate();
 }
 
 Chain::Roe<void> Chain::processNormalBlock(
@@ -1408,6 +1462,10 @@ Chain::Roe<Chain::BeaconCertificate> Chain::verifyBeaconCertificateRecord(const 
   }
   if (!txContext_.optAuthority.has_value()) {
     return Error(E_TX_VALIDATION, "Chain authority not initialized");
+  }
+  if (auto frozen = chain_tx::requireAdminSetNotFrozen(txContext_.optAuthority.value(), "Beacon certificate");
+      !frozen) {
+    return Error(E_TX_VALIDATION, frozen.error().message);
   }
   const std::string networkId = getNetworkId();
   if (auto signed_ = verifyAccountSignatures(AccountBuffer::ID_GENESIS, record.signingMessage(networkId),
@@ -1596,7 +1654,7 @@ void Chain::noteAuthoritySteps(const Ledger::ChainNode &block) {
   bool changed = false;
   for (const auto &record : block.block.records) {
     if (AuthorityTrail::changesAuthority(record)) {
-      authoritySteps_.push_back(Client::AuthorityStep{block.block.index, record});
+      authoritySteps_.push_back(Client::AuthorityStep{block.block.index, block.block.epoch, record});
       changed = true;
     }
   }
@@ -1660,6 +1718,16 @@ Chain::Roe<void> Chain::validateTxSignatures(
                  "Transaction must have at least one signature");
   }
 
+  if (record.type == Ledger::T_RECOVERY) {
+    // Signed by the recovery set in the chain authority, not by an account (ba7).
+    if (!txContext_.optAuthority.has_value()) {
+      return chain_block::admissionTxStrict(admissionMode)
+                 ? Error(E_STATE_INIT, "Chain authority not initialized")
+                 : Roe<void>();
+    }
+    return mapTxVoid(chain_tx::verifyRecoverySigned(record, txContext_.optAuthority->recovery, getNetworkId(),
+                                                    txContext_.crypto, log()));
+  }
   auto signerAccountIdRoe =
       recordHandler_.getSignerAccountId(record, slotLeaderId);
   if (!signerAccountIdRoe) {

@@ -23,8 +23,9 @@ mkdir -p beacon
 
 This creates the genesis block (block 0) declaring the system accounts and any
 genesis miners by public key. The genesis keys are the chain's admin keys:
-keep them offline. The recovery keys can replace the admin keys (after a delay of about a month):
-keep them apart from the admin keys and from each other. `--init` also writes the beacon's signing
+keep them offline. The recovery keys can replace the admin keys (after a delay of about a month;
+procedure in [CONFIGURATION.md § Identity keys](CONFIGURATION.md#identity-keys)): keep them apart
+from the admin keys and from each other. `--init` also writes the beacon's signing
 key, `beacon/keys/beacon-signing.key`. Fields and rules: [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Mode 2: Mount an existing beacon
