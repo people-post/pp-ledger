@@ -311,8 +311,10 @@ any more — workable only if every node is at or above *C* when the certificate
 
 Plain operations (B003): stop writes, copy the data directory and the signing key, start on the new
 host, retire the old. Same generation, same key; running both at once is caught by the equivocation
-halt (B005). Relays reach the new host through their candidate lists. Deliverable: a runbook and a
-smoke drill.
+halt (B005). Relays reach the new host through their candidate lists. Shipped (bp4,
+[B029](DECISIONS.md#b029--a-beacon-with-no-signed-tip-does-not-sign-a-ledger-past-genesis-unasked)):
+the runbook [MOVING_THE_BEACON.md](../../docs/ops/MOVING_THE_BEACON.md), the drill `--suite move`,
+and one guard — a copy without `data/signed-tip.dat` does not sign its ledger unasked.
 
 ### Case 1 — re-genesis (bp5)
 

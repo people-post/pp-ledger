@@ -445,6 +445,9 @@ Service::Roe<void> MinerServer::onStart() {
 
   // Connect to beacon server and fetch initial state
   auto beaconResult = connectToBeacon();
+  if (!beaconResult && isStopSet()) {
+    return {}; // a stop request ended the wait: Service::run does not run
+  }
   if (!beaconResult) {
     return Service::Error(E_NETWORK, "Failed to connect to beacon: " +
                                          beaconResult.error().message);
@@ -1154,8 +1157,21 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
 
   // Follow the highest beacon generation, then the longest chain (ba5, bp2b). Claims are checked
   // when syncing: an upstream whose tip does not verify fails the sync and is avoided a while.
-  upstreams_->rerank("start");
-  serveTasksUntil([this]() { return !upstreams_->ranking(); }, networkTuning().startupSyncTimeout);
+  // Rounds until one answers, within the startup sync's time: an upstream may be restarting too (a
+  // rewind restarts every node at once), as a relay's startup sync retries.
+  const auto deadline = std::chrono::steady_clock::now() + networkTuning().startupSyncTimeout;
+  auto remaining = [&]() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+  };
+  while (true) {
+    upstreams_->rerank("start");
+    serveTasksUntil([this]() { return !upstreams_->ranking(); }, remaining());
+    if (upstreams_->chosen() || isStopSet() || remaining().count() <= 0) {
+      break;
+    }
+    log().warning << "No upstream answered yet: retrying";
+    serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(2000)));
+  }
   if (!upstreams_->chosen()) {
     return Error(E_NETWORK, "No healthy upstream available");
   }

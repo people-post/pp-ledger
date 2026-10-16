@@ -48,7 +48,7 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
-int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote,
+int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote, bool acceptLedgerTip,
               const std::string& logFile) {
   auto logger = pp::logging::getLogger("pp");
 
@@ -63,6 +63,8 @@ int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, boo
     beacon.setLogFile(logFile);
     beacon.setPromote(promote);
     promote = false; // the first start promotes; a restart (a rewind) runs the beacon it became
+    beacon.setAcceptLedgerTip(acceptLedgerTip);
+    acceptLedgerTip = false; // the first start signs the tip and persists it
     g_beaconServer = &beacon; // for the signal handler
 
     auto runResult = beacon.run(workDir);
@@ -107,6 +109,12 @@ int main(int argc, char *argv[]) {
                "Turn this relay's work directory into the beacon taking over (beacon-authority case 2): the "
                "admins' certificate held here must name keys/beacon-signing.pub and carry a cutover");
 
+  bool acceptLedgerTip = false;
+  app.add_flag("--accept-ledger-tip", acceptLedgerTip,
+               "No data/signed-tip.dat (a directory moved without it): sign the ledger's last block as the "
+               "tip anyway. Only when this ledger certainly holds every block this key signed "
+               "(docs/ops/MOVING_THE_BEACON.md)");
+
   uint64_t approvedRewindGeneration = 0;
   app.add_option("--approve-rewind", approvedRewindGeneration,
                  "Apply the rewind ordered by this beacon generation although it reaches back further "
@@ -123,6 +131,8 @@ int main(int argc, char *argv[]) {
     "\n"
     "Take over (a relay's directory becomes the new beacon; once):\n"
     "  pp-beacon -d <relay dir> --promote\n"
+    "\n"
+    "Move to another host: docs/ops/MOVING_THE_BEACON.md\n"
     "\n"
     "Every field: docs/ops/CONFIGURATION.md"
   );
@@ -143,6 +153,6 @@ int main(int argc, char *argv[]) {
   if (initMode) {
     return initBeacon(options.workDir, genesisKeys, forceInit);
   } else {
-    return runBeacon(options.workDir, approvedRewindGeneration, promote, options.logFile);
+    return runBeacon(options.workDir, approvedRewindGeneration, promote, acceptLedgerTip, options.logFile);
   }
 }

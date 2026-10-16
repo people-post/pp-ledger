@@ -789,6 +789,10 @@ TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
 
 #include "MinerServer.h"
 #include "RelayServer.h"
+#include "network/amp/AmpIdentity.h"
+
+#include <random>
+#include <thread>
 
 namespace {
 
@@ -823,6 +827,32 @@ TEST(RunConfigTest, MinerWithoutConfigWritesATemplateAndStops) {
   EXPECT_NE(first.find("minerId"), std::string::npos) << first;
   const std::string again = runOnce<MinerServer>(scratch.dir); // minerId 0 left as is
   EXPECT_NE(again.find("system accounts"), std::string::npos) << again;
+}
+
+// A miner waits at start for an upstream to answer — its relay may be restarting too (a rewind
+// restarts every node at once) — and a stop request during the wait ends the start cleanly, not as
+// a failure.
+TEST(RunConfigTest, AMinerWaitingForItsUpstreamStopsCleanlyOnRequest) {
+  GenesisSetup scratch("pp-ledger-miner-wait-upstream-test");
+  const auto key = utl::mlDsaGenerate().value();
+  std::ofstream(scratch.dir / "miner.key") << utl::hexEncode(key.privateKey) << "\n";
+  const auto silent = network::LedgerAmpConfigFromPrivateKey(utl::mlDsaGenerate().value().privateKey, 0);
+  ASSERT_TRUE(silent.isOk());
+  const std::string upstream = "/ip4/127.0.0.1/udp/9/adp/1.0.0/p2p/" + silent.value().local_peer_id; // nobody there
+  std::ofstream(scratch.dir / "config.json")
+      << R"({"minerId": 1048576, "keys": ["miner.key"], "port": )" << 41000 + std::random_device{}() % 2000
+      << R"(, "beacons": [")" << upstream << R"("]})";
+
+  MinerServer server;
+  std::thread stopper([&server]() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    server.setStop(true); // what SIGTERM does
+  });
+  const auto started = std::chrono::steady_clock::now();
+  auto run = server.run(scratch.dir.string());
+  stopper.join();
+  EXPECT_TRUE(run.isOk()) << run.error().message;
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(10)) << "the stop ends the wait";
 }
 
 // Liveness settings (WIRE_SCHEMA § Config updates): the miner due period defaults to one day
