@@ -4,6 +4,7 @@
 #include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "TxFees.h"
+#include "TxLedgerMeta.h"
 #include "../client/Client.h"
 
 #include <string>
@@ -13,28 +14,28 @@ namespace pp {
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBlockCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BlockApplyContext &c, bool requireNonZeroId, bool systemRenewal) const {
+    const BlockApplyContext &c, UpsertKind kind) const {
   // User-signed updates must carry a non-zero id (0 would skip replay
-  // protection). Chain-generated renewals pass false: their id is always 0
-  // and validateAccountRenewals bounds them per block instead.
+  // protection). Chain-generated renewals: their id is always 0 and
+  // validateAccountRenewals bounds them per block instead.
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
-          tx.validationTsMax, c.blockSlot, c.admissionMode, requireNonZeroId);
+          tx.validationTsMax, c.blockSlot, c.admissionMode, kind == UpsertKind::Update);
       !idem) {
     return idem;
   }
   return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, false,
-                                c.admissionMode, systemRenewal);
+                                c.admissionMode, kind);
 }
 
 chain_tx::Roe<void>
 UserAccountUpsertBase::applyUserUpdateBufferCommon(
     const Ledger::TxUserUpdate &tx, AccountBuffer &bank,
-    const BufferApplyContext &c, bool requireNonZeroId, bool systemRenewal) const {
+    const BufferApplyContext &c, UpsertKind kind) const {
   if (auto idem = validateIdempotencyUsingContext(
           c.ctx, tx.idempotentId, tx.walletId, tx.validationTsMin,
           tx.validationTsMax, c.effectiveSlot, c.admissionMode,
-          requireNonZeroId);
+          kind == UpsertKind::Update);
       !idem) {
     return idem;
   }
@@ -54,14 +55,14 @@ UserAccountUpsertBase::applyUserUpdateBufferCommon(
 
   // Preserve existing semantics: buffer-path user-update applies in Full mode.
   return applyUserAccountUpsert(tx, c.ctx, bank, c.blockId, true,
-                                chain_block::BlockAdmissionMode::Full, systemRenewal);
+                                chain_block::BlockAdmissionMode::Full, kind);
 }
 
 chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
     const Ledger::TxUserUpdate &tx, const TxContext &ctx, AccountBuffer &bank,
     uint64_t blockId, bool isBufferMode,
-    chain_block::BlockAdmissionMode admissionMode, bool systemRenewal) const {
-  if (systemRenewal) {
+    chain_block::BlockAdmissionMode admissionMode, UpsertKind kind) const {
+  if (kind == UpsertKind::SystemRenewal) {
     if (tx.fee != 0) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "System account renewal must be fee-free: " + std::to_string(tx.walletId));
@@ -109,6 +110,11 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Account update cannot change miner state: " + std::to_string(tx.walletId));
     }
+    if (kind != UpsertKind::Update && chain_block::admissionTxStrict(admissionMode)) {
+      if (auto kept = checkRenewalKeepsAccount(userAccount, bufferAccountResult.value(), ctx); !kept) {
+        return kept;
+      }
+    }
   }
 
   if (auto replaced = chain_tx::replaceAccount(
@@ -120,6 +126,36 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
 
   return chain_tx::creditFeeToFeeAccount(
       bank, tx.fee, "Failed to credit fee to fee account: ");
+}
+
+chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client::UserAccount &carried,
+                                                                    const AccountBuffer::Account &held,
+                                                                    const TxContext &ctx) const {
+  // The slot leader signs renewals: it may re-record an account, never choose its keys or meta.
+  const std::string who = std::to_string(held.id);
+  if (carried.wallet.publicKeys != held.wallet.publicKeys || carried.wallet.minSignatures != held.wallet.minSignatures ||
+      carried.wallet.keyType != held.wallet.keyType) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Renewal cannot change the keys of account " + who);
+  }
+  if (!ctx.fnAccountMetaForRecord.has_value()) {
+    return chain_tx::TxError(chain_err::E_INTERNAL, "Account meta extractors not configured on TxContext");
+  }
+  // The meta in force is the one the account's last write recorded (what renewal builds from).
+  auto block = ctx.ledger.readBlock(held.blockId);
+  if (!block) {
+    return chain_tx::TxError(chain_err::E_BLOCK_NOT_FOUND,
+                             "Block " + std::to_string(held.blockId) + " of account " + who + " not found");
+  }
+  auto recorded =
+      chain_tx::getUserAccountMetaFromBlock(block.value().block, held.id, ctx.fnAccountMetaForRecord->fnUser);
+  if (!recorded) {
+    return recorded.error();
+  }
+  if (carried.meta != recorded.value().meta) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Renewal cannot change the meta of account " + who);
+  }
+  return {};
 }
 
 } // namespace pp

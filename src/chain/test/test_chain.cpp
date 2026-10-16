@@ -4404,3 +4404,53 @@ TEST_F(GenesisRenewalConfigTest, RenewalInTheRecoveryEpochCarriesTheNewAdminSet)
   EXPECT_FALSE(producer.getAuthority()->hasPendingRecovery);
   EXPECT_EQ(producer.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys[0], admins[0].publicKey);
 }
+
+// The slot leader signs every renewal: it re-records an account as it is. A renewal that changes an
+// account's keys (taking it over) or its meta is refused; only the fee leaves its balance.
+TEST_F(GenesisRenewalConfigTest, RenewalCannotChangeAnAccountsKeysOrMeta) {
+  auto &producer = harness_.producer;
+  producer.setClockOverride(producer.getSlotStartTime(1));
+  Ledger::ChainNode block =
+      makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 5, 1)});
+  ASSERT_TRUE(producer.addBlock(block).isOk());
+
+  producer.setClockOverride(producer.getSlotEndTime(2));
+  auto due = producer.collectRenewals(2);
+  ASSERT_TRUE(due.isOk()) << due.error().message;
+  std::optional<Ledger::Record> minerRenewal;
+  for (const auto &r : due.value()) {
+    if (r.type == Ledger::T_RENEWAL && utl::binaryUnpack<Ledger::TxRenewal>(r.data).value().walletId == kTestMinerId) {
+      minerRenewal = r;
+    }
+  }
+  ASSERT_TRUE(minerRenewal.has_value()) << "the genesis miner is due";
+  auto tryRenewal = [&](const std::function<void(Client::UserAccount &)> &change) {
+    auto tx = utl::binaryUnpack<Ledger::TxRenewal>(minerRenewal->data).value();
+    Client::UserAccount account;
+    EXPECT_TRUE(account.ltsFromString(tx.meta));
+    change(account);
+    tx.meta = account.ltsToString();
+    Ledger::Record record = *minerRenewal;
+    record.data = utl::binaryPack(tx);
+    AccountBuffer draft;
+    return producer.addBufferTransaction(draft, signedByLeader(record), kTestMinerId);
+  };
+
+  auto honest = tryRenewal([](Client::UserAccount &) {});
+  EXPECT_TRUE(honest.isOk()) << honest.error().message;
+  auto seized = tryRenewal([](Client::UserAccount &a) { a.wallet.publicKeys = {makeKeyPair().publicKey}; });
+  ASSERT_FALSE(seized.isOk()) << "the leader took the account over";
+  EXPECT_NE(seized.error().message.find("cannot change the keys"), std::string::npos) << seized.error().message;
+  auto threshold = tryRenewal([](Client::UserAccount &a) { a.wallet.minSignatures += 1; });
+  EXPECT_FALSE(threshold.isOk());
+  auto meta = tryRenewal([](Client::UserAccount &a) {
+    AccountAttachment attachment;
+    AccountAttachment::ProfileSlot slot;
+    slot.data = "planted";
+    slot.seq = 1;
+    attachment.profiles[AccountBuffer::ID_RESERVE] = slot;
+    a.meta = attachment.ltsToString();
+  });
+  ASSERT_FALSE(meta.isOk());
+  EXPECT_NE(meta.error().message.find("cannot change the meta"), std::string::npos) << meta.error().message;
+}
