@@ -30,9 +30,11 @@ FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# curl: the HEALTHCHECK (and probes from `docker compose exec`).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder \
@@ -43,11 +45,25 @@ COPY --from=builder \
     /src/build/app/pp-http \
     /usr/local/bin/
 
-# Run as root by default so bind-mounted data dirs are writable without a
-# host-side chown. Tighten with --user / securityContext in production if needed.
+# A non-root user owns the data directory; a named volume mounted there takes its ownership.
+RUN useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin pp \
+    && mkdir -p /data && chown pp:pp /data
+USER pp
 WORKDIR /data
+VOLUME /data
 
-# Select a role at runtime, e.g.:
-#   docker run ... pp-beacon -d /data
-#   docker run ... pp-http --bind 0.0.0.0 --beacon '<beacon-adp-multiaddr>' --miner '<miner-adp-multiaddr>'
+# Container defaults (docs/ops/CONFIGURATION.md § Environment): the work directory is the volume,
+# logs go to stderr only (the log driver collects them), and the probe endpoint listens inside the
+# container (not published unless mapped).
+ENV PP_LEDGER_WORK_DIR=/data \
+    PP_LEDGER_LOG_FILE=none \
+    PP_LEDGER_HEALTH_PORT=9090 \
+    PP_LEDGER_HEALTH_BIND=0.0.0.0
+
+# The nodes stop cleanly on SIGTERM (what `docker stop` sends).
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PP_LEDGER_HEALTH_PORT}/healthz" >/dev/null || exit 1
+
+# Select a role at runtime: pp-beacon, pp-relay, pp-miner, pp-http (see deploy/README.md).
 CMD ["pp-client", "--help"]

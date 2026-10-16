@@ -32,7 +32,7 @@ Preferred entry point (mirrors pp-browser `pp_local_test.sh`):
 ./scripts/test/pp_ledger_local_test.sh run --suite l1
 ./scripts/test/pp_ledger_local_test.sh run --suite latejoin
 ./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # l0 + l1 + latejoin, one network
-./scripts/test/pp_ledger_local_test.sh run --suite image          # compose.smoke scaffold
+./scripts/test/pp_ledger_local_test.sh run --suite image          # image + compose stack (docker)
 ./scripts/test/pp_ledger_local_test.sh stop   # or clear | status
 ```
 
@@ -78,7 +78,7 @@ leaders: registered miners, the delivery window and heartbeats keep the tip movi
 | **PR** | `ctest` (unit + Amp RPC compose) | Wired today via `scripts/ci-build.sh --with-tests` |
 | **Nightly / manual** | `--suite l0` / `l1` / `latejoin` via `pp_ledger_local_test.sh` | L0 / L1 / LATEJOIN green locally (`--suite smoke`, 10/10); **not CI-gated** yet |
 | **Weekly / manual** | Chaos restart, soak, capacity curves | Planned (`cost/flake` until green) |
-| **Image (manual)** | `deploy/compose.smoke.yml` + `--suite image` | Scaffold only |
+| **Image** | `deploy/compose.yml` + `deploy/init.sh` via `--suite image` | Needs docker; builds the image unless `PP_LEDGER_IMAGE` is set |
 
 Do **not** PR-block on probabilistic empty-slot waits. Use clock/leader inject in
 unit/integration; keep multi-process smoke for process isolation and sync.
@@ -104,7 +104,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-SMOKE-LATEJOIN** | Late miner tip catches beacon tip | Smoke (`scripts/test/pp_ledger_latejoin_smoke.sh`) | Hard `nextBlockId` assert; green |
 | **L-SMOKE-ROTATION** | Beacon key rotation: generation 2 signs, miners follow; fresh miners join at a checkpoint above 0; the recovery set replaces the admin set; equivocation evidence halts the network until a later generation; a certificate out of band rewinds every node to its cutover | Smoke (`scripts/test/pp_ledger_rotation_smoke.sh`, `--suite rotation`) | Own network (3-slot epochs; next key staged before start; relay pins genesis); `mk-beacon-cert` (no cutover) → `sign-tx` ×3 → `submit-tx`; then a miner pinning genesis (checked by `AUTHORITY_PROOF`, which carries the certificate) and one not restart empty at a checkpoint and validate Full past the next one. Last (L-SMOKE-REWIND, ba5c / bp1): a generation-3 certificate for a key nobody holds, cutover two blocks below the tip, submitted to the relay — the relay, the beacon and the miners holding blocks past the cutover each rewind to it by restarting in-process (no process exits), and the miner that was down during the cut rewinds once back online, the relay reports the rewind and still serves the certificate, the beacon stands down, nothing commits. First (L-SMOKE-RECOVERY, ba7): `mk-recovery` for three new admin keys, signed by the recovery key and submitted to the relay — STATUS shows it pending, the old admins' certificate is refused, and at its epoch the new set takes over (the rest of the suite signs with it). Then (L-SMOKE-EQUIVOCATION, ba6): `mk-equivocation` with the generation-1 key at the tip, `add-equivocation` to the relay — relay, beacon and every miner keep it, STATUS serves it, nothing commits; the generation-2 certificate resumes the network and the evidence files go; green |
 | **L-SMOKE-TAKEOVER** | Case 2 end to end: a stolen beacon key is replaced by a relay promoted to be the new beacon, and the network resumes under the new generation | Smoke (`scripts/test/pp_ledger_takeover_smoke.sh`, `--suite takeover`) | Own network: beacon, relay1 → 3 miners, relay2 and relay3 (following relay2). A key generated on relay2 is certified as generation 2 with a cutover two blocks below the tip and relay3 as dial hint, submitted to relay1 and relay2 once every node holds the tip; every node rewinds, the old beacon stands down; relay2 is stopped and restarted with `pp-beacon --promote` (clock checked, `config.relay.json` kept); a leader commits the certificate in the block after the cutover, the new beacon signs it, relay1 and the miners move to relay3 and follow generation 2, and the miners recalibrate their clocks; green |
-| **L-SMOKE-IMAGE** | Packaged image compose boots / client probe | Smoke (`deploy/compose.smoke.yml`) | Scaffold; `--suite image` |
+| **L-SMOKE-IMAGE** | The image and sample stack run from the environment: healthy, ready, the chain grows, the HTTP API answers, a clean stop | Smoke (`--suite image`: `deploy/init.sh`, `docker compose up --wait`) | Own project, subnet (`172.29.7`) and host ports (285xx, 28080); green |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |

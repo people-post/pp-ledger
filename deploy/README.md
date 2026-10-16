@@ -1,48 +1,57 @@
 # Docker deployment
 
-Single image (`ubuntu:24.04`, same major OS as GitHub Actions CI) containing `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client`, and `pp-http`. Role is selected via the container command.
+One image (`ubuntu:24.04`, as CI) with `pp-beacon`, `pp-relay`, `pp-miner`, `pp-client` and
+`pp-http`; the container command selects the role. Published as
+`ghcr.io/people-post/pp-ledger:<version>` (also `:latest` on tagged releases).
 
-Published images: `ghcr.io/people-post/pp-ledger:<version>` (also `:latest` on tagged releases).
+Nodes are configured from the environment ([CONFIGURATION.md § Environment](../docs/ops/CONFIGURATION.md#environment)):
+no config file, and keys come from secret files (`PP_*_FILE`). The image runs as a non-root user
+(uid 10001) with its work directory on the `/data` volume, logs to stderr only, stops cleanly on
+`SIGTERM`, and reports health on port 9090 inside the container (`/healthz`, `/readyz`,
+`/metrics`; [CONFIGURATION.md § Health and metrics](../docs/ops/CONFIGURATION.md#health-and-metrics)),
+which the image's `HEALTHCHECK` uses.
 
-## Quick start (compose)
+## Sample stack (compose)
+
+Beacon → relay → miner, and the HTTP API, on one host:
 
 ```bash
 cd deploy
-mkdir -p data/beacon/keys data/relay/keys data/miner
-
-# Miner key (hex private key from pp-client keygen) + Amp-shaped role configs
-# Replace REPLACE_*_PEER_ID in configs/{relay,miner}/config.json after listeners publish.
-cp configs/relay/config.json data/relay/config.json
-cp configs/miner/config.json data/miner/config.json
-# Write relay Amp identity (hex) to data/relay/keys/amp-identity.txt before start.
-
-# Initialize beacon ledger once, then install listen config
-docker compose run --rm --no-deps beacon pp-beacon -d /data --init
-cp configs/beacon/config.json data/beacon/config.json
-
-# Start the stack; copy each `AMP ledger listener:` multiaddr into peer configs / http command
-docker compose up -d
-
+./init.sh            # once: keys, genesis config, peer ids (.env), then genesis
+docker compose up -d # waits on health: beacon, then relay, then miner, then http
 curl -s http://localhost:8080/api/beacon/state
-docker compose exec http pp-client --host '/ip4/relay/udp/8519/adp/1.0.0/p2p/<relay-peer-id>' -b status
+docker compose exec relay curl -s localhost:9090/metrics
 ```
 
-Override the image while developing:
+`init.sh` generates every key into `secrets/` (0700), writes `secrets/init-config.json` with one
+genesis miner, works out each node's peer id from its identity key (`pp-client peer-id`) into
+`.env`, and runs the one-shot `beacon-init` service. Nothing is copied by hand. Variables:
+`PP_LEDGER_IMAGE`, `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_SLOT_DURATION`, `PP_LEDGER_SLOTS_PER_EPOCH`,
+`MINER_ID`. To start over: `docker compose down -v && rm -rf secrets .env`.
+
+The nodes reach each other at fixed addresses on the stack's network (`PP_LEDGER_NET`, default
+`172.28.0`: beacon `.10`, relay `.11`, miner `.12`): multiaddrs take IP addresses, not hostnames.
+Host ports (UDP 8517 / 8519 / 8518, HTTP 8080) can be moved with `PP_LEDGER_*_HOST_PORT`.
+
+Develop against a local image:
 
 ```bash
-export PP_LEDGER_IMAGE=pp-ledger:local
-docker build -t "$PP_LEDGER_IMAGE" ..
+docker build -t pp-ledger:local ..
+PP_LEDGER_IMAGE=pp-ledger:local ./init.sh
 docker compose up -d
 ```
 
-## Smoke compose scaffold
+`../scripts/test/pp_ledger_local_test.sh run --suite image` runs exactly this flow (own project,
+subnet and ports) and checks readiness, chain growth, the HTTP API and a clean stop.
 
-Ports **8617+** and Amp multiaddr placeholders: [`compose.smoke.yml`](compose.smoke.yml) + [`configs/smoke/`](configs/smoke/). Local process harness is preferred (`../scripts/test/pp_ledger_local_test.sh`); `--suite image` validates the scaffold when `PP_LEDGER_SMOKE_IMAGE_RUN=1`.
+## Production notes
 
-## Important
-
-- Mount data directories as volumes; do not bake ledger state or private keys into the image.
-- Config `"host"` must be `0.0.0.0` for cross-container access (sample configs already do this).
-- Peer dialing uses **ADP multiaddrs** (`/ip4/<service>/udp/<port>/adp/1.0.0/p2p/<peer-id>`), not bare `host:port`.
-- Use Docker service names (`beacon`, `relay`, `miner`) in multiaddr host segments, not `localhost`.
-- Run beacon `--init` only once against a persistent volume, then replace `config.json` with the sample that listens on all interfaces.
+- `init.sh` is a sample. Genesis, recovery and admin keys are made and kept offline by their
+  holders (`pp-client keygen`); the beacon's `--init` needs only the genesis public keys in
+  `init-config.json` and two genesis key files for its signature (`PP_GENESIS_KEY_FILES`).
+- Node keys (`PP_BEACON_SIGNING_KEY_FILE`, `PP_LEDGER_IDENTITY_KEY_FILE`, `PP_MINER_KEYS_FILE`)
+  come from a secret manager; compose mounts secret files with their host permissions, so they
+  must be readable by uid 10001.
+- Keep each node's `/data` on a persistent volume; never copy a beacon's `data/` to a second
+  running beacon (equivocation halts the network).
+- `pp-beacon --init` refuses a volume that already holds a chain (`--force` replaces it).

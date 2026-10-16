@@ -1,5 +1,0 @@
-{
-  "port": 8519,
-  "keys": ["keys/amp-identity.txt"],
-  "beacon": "/ip4/beacon/udp/8517/adp/1.0.0/p2p/REPLACE_BEACON_PEER_ID"
-}
