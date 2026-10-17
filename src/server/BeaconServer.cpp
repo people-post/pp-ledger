@@ -884,7 +884,7 @@ Service::Roe<void> BeaconServer::onStart() {
     log().error << "Beacon generation " << *by << " certifies none of this beacon's keys: it serves reads only";
   } else if (const auto generation = beacon_.takingOver()) {
     log().warning << "Taking over as beacon generation " << *generation << " at block "
-                  << beacon_.getHeldCertificate()->cutoverHeight + 1;
+                  << beacon_.getSeenCertificate()->cutoverHeight + 1;
   }
 
   auto keyResult = loadOrCreateIdentityKey();
@@ -960,7 +960,7 @@ BeaconServer::Roe<void> BeaconServer::checkPromotion(const std::vector<utl::MlDs
     return Error(E_CONFIG, std::string(DIR_DATA) + "/" + Beacon::FILE_SIGNED_TIP +
                                " exists: this directory was a beacon's, and --promote takes a relay's");
   }
-  const auto held = beacon_.getHeldCertificate();
+  const auto held = beacon_.getSeenCertificate();
   if (!held) {
     return Error(E_CONFIG, "no beacon certificate above generation " + std::to_string(beacon_.getGeneration()) +
                                " is held here: hand this relay the admins' certificate (pp-client -b --host "

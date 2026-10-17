@@ -18,58 +18,36 @@ This document describes the server architecture for the pp-ledger blockchain sys
 
 ## Overview
 
-The pp-ledger server architecture consists of four main components:
+Each role has a core (its chain and what it does with it) and a server around it (the network,
+the request queue, the run loop):
 
-1. **Chain** - Base class providing common block validation and chain management
-2. **Beacon** - Network validator and data archiver (extends Chain)
-3. **Relay** - Trusted intermediary between beacons and miners (extends Chain)
-4. **Miner** - Block producer (extends Chain)
+| Role | Core | Server |
+|------|------|--------|
+| Beacon: signs the tips, archives the chain | `Beacon` | `BeaconServer` |
+| Relay: a full copy from genesis, served downstream | `Relay` | `RelayServer` |
+| Miner: produces blocks when it leads a slot | `Miner` | `MinerServer` |
 
-Each component has a corresponding server wrapper (*Server classes) that handles network communication over AMP.
-
-### Architecture Pattern
+### Cores
 
 ```
-┌──────────────────┐
-│   *Server        │  - Network communication (AMP)     
-│                  │  - Request routing and JSON handling
-│                  │  - Configuration loading
-└────────┬─────────┘
-         │ owns
-         ▼
-┌──────────────────┐
-│  Core Logic      │  - Consensus (Beacon/Miner)
-│  (Chain)         │  - Ledger management
-│                  │  - Block/Transaction processing
-└──────────────────┘
+NodeCore            the Chain, the certificate and equivocation stores, the reads, the rewind
+├── Beacon          genesis (--init), tip signing, offers of certificates and equivocations
+└── FollowerCore    opens its ledger at a starting block, adds synced blocks, checks signed tips,
+    │               notes certificates and equivocations from upstreams and peers
+    ├── Relay
+    └── Miner       slot leadership, the block it produces, its pending transactions
 ```
 
-**Benefits of this composition:**
-
-- **Separation of Concerns**: Network logic separated from business logic
-- **Testability**: Core logic can be tested independently
-- **Flexibility**: Multiple servers can use the same core
-- **Maintainability**: Clear boundaries between components
+- **`NodeCore`** owns the `Chain` (composition: `Chain` holds the ledger, consensus and
+  validation). It serves the reads every role answers (blocks, accounts, transactions, authority
+  proofs, the certificate and equivocation held) and the rewind a certificate may order: it writes
+  the order, and applies it at the next start before the ledger mounts. A role adds to what a
+  rewind does through `onRewound` (the beacon drops a tip signed above the kept blocks).
+- **`FollowerCore`** is what a node following an upstream needs: `openLedger` (rewind, mount or
+  create at the starting block, load, open the stores), `addBlock`, signed-tip checks, and the
+  `note*` calls for certificates and evidence, which keep them if they verify.
 
 ## Components
-
-### Chain (Base Class)
-
-The Chain class provides common functionality for both Beacon and Miner:
-
-**Responsibilities:**
-- Block validation
-- Chain management (in-memory BlockChain)
-- Consensus integration (SlotCommittee)
-- Ledger operations (persistent storage)
-- Base configuration
-
-**Key Methods:**
-- `getBlock(blockId)` - Retrieve a block by ID
-- `addBlockBase(block)` - Add a validated block to the chain
-- `getCurrentBlockId()` - Get the ID of the current block
-- `getCurrentSlot()` - Get the current consensus slot
-- `getCurrentEpoch()` - Get the current consensus epoch
 
 ### BeaconServer + Beacon
 
