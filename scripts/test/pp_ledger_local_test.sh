@@ -34,7 +34,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|upstream|scale|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|upstream|scale|topology|image
   --down                       stop network after run
 
 Examples:
@@ -141,6 +141,11 @@ run_scale() {
   }
   grep -a -E "^accounts|^chain|^sync|^restart|^wallet|^in 5" "${ROOT}/build/ledger-scale.log"
   echo -e "${GREEN}L-LOAD-SCALE PASSED${NC}"
+}
+
+run_topology() {
+  # Its own network: fan-out, load into slots, churn (projects/load-resilience lr10).
+  bash "${ROOT}/scripts/test/pp_ledger_topology_smoke.sh"
 }
 
 run_rotation() {
@@ -265,6 +270,7 @@ case "$CMD" in
       overload) run_overload ;;
       upstream) run_upstream ;;
       scale) run_scale ;;
+      topology) run_topology ;;
       regenesis) run_regenesis ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
