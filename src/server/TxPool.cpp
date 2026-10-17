@@ -35,6 +35,7 @@ std::string TxPool::keyOf(const Ledger::Record &record) { return utl::sha256Raw(
 TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec) {
   std::string key = keyOf(record);
   if (byKey_.contains(key)) {
+    ++counters_.duplicates;
     return Add::Duplicate;
   }
   size_t bytes = record.data.size();
@@ -42,14 +43,17 @@ TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec) {
     bytes += sig.size();
   }
   if (byOrder_.size() >= limits_.maxRecords || bytes_ + bytes > limits_.maxBytes) {
+    ++counters_.full;
     return Add::Full;
   }
   const int64_t windowEnd = validUntil(record);
   const int64_t ttlEnd = nowSec + limits_.ttlSeconds;
   const uint64_t seq = nextSeq_++;
   byKey_.emplace(key, seq);
-  byOrder_.emplace(seq, Entry{record, std::move(key), bytes, windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd});
+  byOrder_.emplace(seq, Entry{record, std::move(key), bytes, nowSec,
+                              windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd});
   bytes_ += bytes;
+  ++counters_.added;
   return Add::Added;
 }
 
@@ -81,6 +85,7 @@ void TxPool::removeIncluded(const std::vector<Ledger::Record> &records) {
   for (const auto &record : records) {
     if (auto it = byKey_.find(keyOf(record)); it != byKey_.end()) {
       erase(it->second);
+      ++counters_.included;
     }
   }
 }
@@ -95,7 +100,15 @@ size_t TxPool::expire(int64_t nowSec) {
   for (uint64_t seq : expired) {
     erase(seq);
   }
+  counters_.expired += expired.size();
   return expired.size();
+}
+
+std::optional<int64_t> TxPool::oldestAgeSeconds(int64_t nowSec) const {
+  if (byOrder_.empty()) {
+    return std::nullopt;
+  }
+  return std::max<int64_t>(0, nowSec - byOrder_.begin()->second.addedAt);
 }
 
 } // namespace pp

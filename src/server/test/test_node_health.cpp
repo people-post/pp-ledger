@@ -70,4 +70,45 @@ TEST(HealthMetricsTest, OneSeriesPerNodeAndANodeThatDidNotAnswerIsDown) {
   EXPECT_EQ(body.find("# TYPE pp_ledger_up gauge"), body.rfind("# TYPE pp_ledger_up gauge"));
 }
 
+// load-resilience lr1: the load counters travel and render as Prometheus counters, per request type.
+TEST(NodeHealthTest, LoadCountersRoundTripAndRender) {
+  Client::NodeHealth beacon;
+  beacon.role = "beacon";
+  beacon.requests = {{Client::T_REQ_TX_ADD, 12, 30, 1500}, {Client::T_REQ_STATUS, 3, 0, 4}};
+  beacon.requestsBusy = 7;
+  beacon.requestsRefused = 2;
+  beacon.requestsExpired = 1;
+  beacon.loopTurnsSlow = 4;
+  beacon.loopTurnMaxMs = 2500;
+  beacon.rssBytes = 1 << 20;
+  beacon.txPoolRecords = 9;
+  beacon.txPoolOldestAgeSeconds = 0;
+  beacon.txPoolFull = 5;
+  beacon.reportAgeMs = 10;
+  Client::NodeHealth got;
+  ASSERT_TRUE(got.ltsFromMeta(beacon.ltsToMeta()));
+  ASSERT_EQ(got.requests.size(), 2u);
+  EXPECT_EQ(got.requests[0].type, Client::T_REQ_TX_ADD);
+  EXPECT_EQ(got.requests[0].served, 12u);
+  EXPECT_EQ(got.requests[0].serviceMs, 1500u);
+  EXPECT_EQ(got.requestsBusy, 7u);
+  EXPECT_EQ(got.loopTurnMaxMs, 2500u);
+  EXPECT_EQ(got.rssBytes, beacon.rssBytes);
+  EXPECT_EQ(got.txPoolOldestAgeSeconds, 0);
+  EXPECT_EQ(got.txPoolFull, 5u);
+  EXPECT_FALSE(got.blocksSealed) << "a beacon seals nothing: absent stays absent";
+
+  const std::string body = renderHealthMetrics({{"beacon", got}, {"relay", relayHealth(true)}});
+  EXPECT_NE(body.find("# TYPE pp_ledger_requests_total counter\n"), std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_requests_total{node=\"beacon\",type=\"tx_add\"} 12\n"), std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_request_service_seconds_total{node=\"beacon\",type=\"tx_add\"} 1.500\n"),
+            std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_requests_busy_total{node=\"beacon\"} 7\n"), std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_requests_busy_total{node=\"relay\"} 0\n"), std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_loop_turn_max_seconds{node=\"beacon\"} 2.500\n"), std::string::npos);
+  EXPECT_NE(body.find("pp_ledger_tx_pool_full_total{node=\"beacon\"} 5\n"), std::string::npos);
+  EXPECT_EQ(body.find("pp_ledger_tx_pool_full_total{node=\"relay\"}"), std::string::npos) << "a relay has no pool";
+  EXPECT_EQ(Client::requestTypeName(70000), "type_70000");
+}
+
 } // namespace

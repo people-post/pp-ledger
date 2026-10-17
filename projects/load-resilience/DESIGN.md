@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** design (lr0); nothing shipped
+**Status:** lr0 (design) and lr1 (metrics) done
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 

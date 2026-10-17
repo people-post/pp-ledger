@@ -1292,6 +1292,15 @@ void BeaconServer::fillHealth(Client::NodeHealth &health) const {
   Server::fillHealth(health);
   health.role = "beacon";
   health.standingDown = beacon_.isSuperseded();
+  health.txPoolRecords = txPool_.size();
+  health.txPoolBytes = txPool_.bytes();
+  health.txPoolOldestAgeSeconds = txPool_.oldestAgeSeconds(nowSeconds());
+  const auto &pool = txPool_.counters();
+  health.txPoolAdded = pool.added;
+  health.txPoolDuplicates = pool.duplicates;
+  health.txPoolFull = pool.full;
+  health.txPoolExpired = pool.expired;
+  health.txPoolIncluded = pool.included;
   if (!isServing()) {
     return;
   }

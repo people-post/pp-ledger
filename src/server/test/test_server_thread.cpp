@@ -109,6 +109,12 @@ TEST(RequestQueueTest, OnePeerCannotTakeTheWholeLowLane) {
 class EchoServer : public Server {
 public:
   EchoServer() { echoTypes(); }
+  /** What HEALTH would report now (the base's part). */
+  Client::NodeHealth healthNow() const {
+    Client::NodeHealth health;
+    fillHealth(health);
+    return health;
+  }
   void handleNow(uint32_t type, Handler handler) { handle(type, std::move(handler)); }
 
   using Server::enqueueRequest;
@@ -461,6 +467,47 @@ TEST(ServerThreadTest, FollowerConfigReadsTheSameFieldsForEveryFollower) {
   EXPECT_FALSE(parse(R"({"port": 1})").isOk()) << "an upstream is required";
   EXPECT_FALSE(parse(R"({"beacons": ["not a multiaddr"]})").isOk());
   EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "port": 0})").isOk());
+}
+
+// load-resilience lr1: every request is counted once, by what became of it.
+TEST(ServerThreadTest, RequestsAreCountedByOutcome) {
+  Replies replies;
+  EchoServer server;
+  server.setRequestLimits(1, 8000ms); // one Normal, one Low
+  server.setAllowedPeers(std::set<std::string>{"a"});
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");
+  server.enqueueRequest(packRequest("x", Client::T_REQ_ACCOUNT_GET), replies.sink(), "a"); // Low; unsupported
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");      // busy: Normal full
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "b");      // peer not allowed
+  server.enqueueRequest(packRequest(std::string(ledger::rpc::kMaxSmallRequestBytes + 1, 'x'), Client::T_REQ_STATUS),
+                        replies.sink(), "a"); // too large
+  server.serveRequestsFor(50ms);
+  auto health = server.healthNow();
+  EXPECT_EQ(health.requestsBusy, 1u);
+  EXPECT_EQ(health.requestsRefused, 3u) << "peer, size, unsupported type";
+  ASSERT_EQ(health.requests.size(), 1u);
+  EXPECT_EQ(health.requests[0].type, Client::T_REQ_STATUS);
+  EXPECT_EQ(health.requests[0].served, 1u);
+
+  server.setRequestLimits(8, 1ms); // a client that has given up
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");
+  std::this_thread::sleep_for(5ms);
+  server.serveRequestsFor(20ms);
+  EXPECT_EQ(server.healthNow().requestsExpired, 1u);
+  EXPECT_EQ(server.healthNow().requests[0].served, 1u) << "an expired request is not served";
+}
+
+// load-resilience lr1: a run-loop turn longer than a second (a slow handler or duty) is counted.
+TEST(ServerThreadTest, SlowRunLoopTurnsAreCounted) {
+  EchoServer server;
+  server.serveRequestsFor(1ms);
+  server.serveRequestsFor(1ms);
+  EXPECT_EQ(server.healthNow().loopTurnsSlow, 0u);
+  std::this_thread::sleep_for(std::chrono::milliseconds(Client::NodeHealth::kSlowTurnMs + 100));
+  server.serveRequestsFor(1ms);
+  const auto health = server.healthNow();
+  EXPECT_EQ(health.loopTurnsSlow, 1u);
+  EXPECT_GE(health.loopTurnMaxMs, static_cast<uint64_t>(Client::NodeHealth::kSlowTurnMs + 100));
 }
 
 // The identity key is created on first start and reloaded after; with a
@@ -849,6 +896,31 @@ TEST(RequestQueueTest, RefusesPastTheQueuedBytes) {
   EXPECT_FALSE(queue.push("c", "y", [](std::string) {})) << "full by bytes";
   ASSERT_TRUE(queue.popUntil(RequestQueue::Clock::now() + 10ms));
   EXPECT_TRUE(queue.push("c", "y", [](std::string) {})) << "room again once one is served";
+}
+
+// load-resilience lr1: what happened to submitted records, and how long the oldest has waited.
+TEST(TxPoolTest, CountsWhatHappensToRecords) {
+  TxPool::Limits limits;
+  limits.maxRecords = 2;
+  TxPool pool(limits);
+  EXPECT_FALSE(pool.oldestAgeSeconds(1000));
+  auto a = transfer(1, 0), b = transfer(2, 0);
+  pool.add(a, 1000);
+  pool.add(a, 1001);
+  pool.add(b, 1005);
+  pool.add(transfer(3, 0), 1005); // full
+  EXPECT_EQ(pool.oldestAgeSeconds(1010), 10);
+  EXPECT_EQ(pool.bytes(), a.data.size() + a.signatures[0].size() + b.data.size() + b.signatures[0].size());
+  pool.removeIncluded({a});
+  pool.expire(1005 + limits.ttlSeconds + 1);
+  const auto &c = pool.counters();
+  EXPECT_EQ(c.added, 2u);
+  EXPECT_EQ(c.duplicates, 1u);
+  EXPECT_EQ(c.full, 1u);
+  EXPECT_EQ(c.included, 1u);
+  EXPECT_EQ(c.expired, 1u);
+  EXPECT_EQ(pool.size(), 0u);
+  EXPECT_EQ(pool.bytes(), 0u);
 }
 
 TEST(TxPoolTest, FullPoolRefuses) {

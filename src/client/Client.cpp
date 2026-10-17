@@ -324,6 +324,49 @@ Client::Roe<bool> Client::BeaconState::ltsFromMeta(const pp::common::Meta &meta)
   return true;
 }
 
+std::string Client::requestTypeName(uint32_t type) {
+  switch (type) {
+  case T_REQ_STATUS:
+    return "status";
+  case T_REQ_REGISTER:
+    return "register";
+  case T_REQ_MINER_LIST:
+    return "miner_list";
+  case T_REQ_CALIBRATION:
+    return "calibration";
+  case T_REQ_HEALTH:
+    return "health";
+  case T_REQ_BLOCK_GET:
+    return "block_get";
+  case T_REQ_BLOCK_ADD:
+    return "block_add";
+  case T_REQ_BLOCK_WAIT:
+    return "block_wait";
+  case T_REQ_AUTHORITY_PROOF:
+    return "authority_proof";
+  case T_REQ_EQUIVOCATION_ADD:
+    return "equivocation_add";
+  case T_REQ_ACCOUNT_GET:
+    return "account_get";
+  case T_REQ_DOMAIN_GET:
+    return "domain_get";
+  case T_REQ_NAME_GET:
+    return "name_get";
+  case T_REQ_NAME_GET_BY_WALLET:
+    return "name_get_by_wallet";
+  case T_REQ_TX_GET_BY_WALLET:
+    return "tx_get_by_wallet";
+  case T_REQ_TX_ADD:
+    return "tx_add";
+  case T_REQ_TX_GET_BY_INDEX:
+    return "tx_get_by_index";
+  case T_REQ_TX_PULL:
+    return "tx_pull";
+  default:
+    return "type_" + std::to_string(type);
+  }
+}
+
 pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   pp::common::Meta m;
   m.set("role", role);
@@ -349,6 +392,44 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   m.set("standingDown", standingDown);
   m.setUIntForJson("requestQueueDepth", requestQueueDepth);
   m.set("reportAgeMs", reportAgeMs);
+  std::vector<pp::common::Meta::Value> counts;
+  counts.reserve(requests.size());
+  for (const auto &count : requests) {
+    auto c = std::make_shared<pp::common::Meta>();
+    c->setUIntForJson("type", count.type);
+    c->setUIntForJson("served", count.served);
+    c->setUIntForJson("waitMs", count.waitMs);
+    c->setUIntForJson("serviceMs", count.serviceMs);
+    counts.push_back(std::move(c));
+  }
+  m.set("requests", pp::common::Meta::array(std::move(counts)));
+  m.setUIntForJson("requestsBusy", requestsBusy);
+  m.setUIntForJson("requestsRefused", requestsRefused);
+  m.setUIntForJson("requestsExpired", requestsExpired);
+  m.setUIntForJson("loopTurnsSlow", loopTurnsSlow);
+  m.setUIntForJson("loopTurnMaxMs", loopTurnMaxMs);
+  const auto setOptional = [&m](const char *key, const std::optional<uint64_t> &value) {
+    if (value) {
+      m.setUIntForJson(key, *value);
+    }
+  };
+  setOptional("rssBytes", rssBytes);
+  setOptional("blocksSealed", blocksSealed);
+  setOptional("blocksCommitted", blocksCommitted);
+  setOptional("blocksAbandoned", blocksAbandoned);
+  if (lastSealDelayMs) {
+    m.set("lastSealDelayMs", *lastSealDelayMs);
+  }
+  setOptional("txPoolRecords", txPoolRecords);
+  setOptional("txPoolBytes", txPoolBytes);
+  if (txPoolOldestAgeSeconds) {
+    m.set("txPoolOldestAgeSeconds", *txPoolOldestAgeSeconds);
+  }
+  setOptional("txPoolAdded", txPoolAdded);
+  setOptional("txPoolDuplicates", txPoolDuplicates);
+  setOptional("txPoolFull", txPoolFull);
+  setOptional("txPoolExpired", txPoolExpired);
+  setOptional("txPoolIncluded", txPoolIncluded);
   return m;
 }
 
@@ -371,6 +452,45 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
   standingDown = meta.getOrDefault("standingDown", false);
   requestQueueDepth = meta.getNonNegInt("requestQueueDepth").value_or(0);
   reportAgeMs = meta.getOrDefault("reportAgeMs", int64_t{-1});
+  requests.clear();
+  if (const auto *counts = meta.getArray("requests")) {
+    for (const auto &value : counts->elements) {
+      const auto *c = pp::common::asObject(value);
+      if (!c) {
+        continue;
+      }
+      RequestCount count;
+      count.type = static_cast<uint32_t>(c->getNonNegInt("type").value_or(0));
+      count.served = c->getNonNegInt("served").value_or(0);
+      count.waitMs = c->getNonNegInt("waitMs").value_or(0);
+      count.serviceMs = c->getNonNegInt("serviceMs").value_or(0);
+      requests.push_back(count);
+    }
+  }
+  requestsBusy = meta.getNonNegInt("requestsBusy").value_or(0);
+  requestsRefused = meta.getNonNegInt("requestsRefused").value_or(0);
+  requestsExpired = meta.getNonNegInt("requestsExpired").value_or(0);
+  loopTurnsSlow = meta.getNonNegInt("loopTurnsSlow").value_or(0);
+  loopTurnMaxMs = meta.getNonNegInt("loopTurnMaxMs").value_or(0);
+  rssBytes = meta.getNonNegInt("rssBytes");
+  blocksSealed = meta.getNonNegInt("blocksSealed");
+  blocksCommitted = meta.getNonNegInt("blocksCommitted");
+  blocksAbandoned = meta.getNonNegInt("blocksAbandoned");
+  lastSealDelayMs.reset();
+  if (meta.contains("lastSealDelayMs")) {
+    lastSealDelayMs = meta.getOrDefault("lastSealDelayMs", int64_t{0});
+  }
+  txPoolRecords = meta.getNonNegInt("txPoolRecords");
+  txPoolBytes = meta.getNonNegInt("txPoolBytes");
+  txPoolOldestAgeSeconds.reset();
+  if (meta.contains("txPoolOldestAgeSeconds")) {
+    txPoolOldestAgeSeconds = meta.getOrDefault("txPoolOldestAgeSeconds", int64_t{0});
+  }
+  txPoolAdded = meta.getNonNegInt("txPoolAdded");
+  txPoolDuplicates = meta.getNonNegInt("txPoolDuplicates");
+  txPoolFull = meta.getNonNegInt("txPoolFull");
+  txPoolExpired = meta.getNonNegInt("txPoolExpired");
+  txPoolIncluded = meta.getNonNegInt("txPoolIncluded");
   if (role.empty()) {
     return Error(E_INVALID_RESPONSE, "Health without a role");
   }

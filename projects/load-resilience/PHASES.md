@@ -4,8 +4,8 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 
 ## Measure
 
-- [ ] **lr0** Design: the two goals, their pass criteria, tiers (this folder)
-- [ ] **lr1** Metrics the checks read: request latency and queue wait per type, "busy" and expired
+- [x] **lr0** Design: the two goals, their pass criteria, tiers (this folder)
+- [x] **lr1** Metrics the checks read: request latency and queue wait per type, "busy" and expired
       counts, duty lateness (slot end → seal → commit), pool size and oldest age — on `HEALTH` and
       pp-http `/metrics`
 - [ ] **lr2** Load generator `pp-client load` (open loop, request mixes, many identities, signed

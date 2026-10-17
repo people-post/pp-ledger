@@ -152,6 +152,9 @@ public:
    */
   static constexpr const uint32_t T_REQ_TX_PULL = 3005;
 
+  /** A request type's name for logs and metric labels ("block_get"); "type_<n>" for one unknown. */
+  static std::string requestTypeName(uint32_t type);
+
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
   static constexpr const uint16_t E_INVALID_RESPONSE = 2;
@@ -447,6 +450,39 @@ public:
     bool standingDown{ false };    ///< beacon: another key is certified
     uint64_t requestQueueDepth{ 0 };
     int64_t reportAgeMs{ -1 };     ///< since the server thread published; -1: never
+
+    // Load (load-resilience lr1). Counters run from the node's start.
+    /** Requests of one type served (handled, whatever the answer). */
+    struct RequestCount {
+      uint32_t type{ 0 };
+      uint64_t served{ 0 };
+      uint64_t waitMs{ 0 };    ///< summed: time in the queue before the handler ran
+      uint64_t serviceMs{ 0 }; ///< summed: time in the handler (to its reply, or to handing it on)
+    };
+    std::vector<RequestCount> requests;
+    uint64_t requestsBusy{ 0 };    ///< answered "busy" before queueing: queue full, or stopping
+    uint64_t requestsRefused{ 0 }; ///< refused unserved: too large, peer not allowed, malformed, unsupported, wrong direction
+    uint64_t requestsExpired{ 0 }; ///< waited longer than its client would, and answered unserved
+    uint64_t loopTurnsSlow{ 0 };   ///< run-loop turns longer than kSlowTurnMs (a slow handler or duty)
+    uint64_t loopTurnMaxMs{ 0 };   ///< the longest run-loop turn in the last 10 to 20 s
+    std::optional<uint64_t> rssBytes; ///< resident memory (where the platform tells)
+    // Miner
+    std::optional<uint64_t> blocksSealed;    ///< blocks it produced and broadcast
+    std::optional<uint64_t> blocksCommitted; ///< of those, committed on the beacon's signed tip
+    std::optional<uint64_t> blocksAbandoned; ///< of those, taken by no upstream
+    std::optional<int64_t> lastSealDelayMs;  ///< the last seal, after its slot ended
+    // Beacon: its transaction pool
+    std::optional<uint64_t> txPoolRecords;
+    std::optional<uint64_t> txPoolBytes;
+    std::optional<int64_t> txPoolOldestAgeSeconds;
+    std::optional<uint64_t> txPoolAdded;      ///< counters, from the start
+    std::optional<uint64_t> txPoolDuplicates;
+    std::optional<uint64_t> txPoolFull;       ///< refused: the pool was full
+    std::optional<uint64_t> txPoolExpired;
+    std::optional<uint64_t> txPoolIncluded;   ///< left the pool in a committed block
+
+    /** A run-loop turn longer than this counts in loopTurnsSlow. */
+    static constexpr int64_t kSlowTurnMs = 1000;
 
     /** The server thread is reporting. */
     bool live() const { return reportAgeMs >= 0 && reportAgeMs < kStaleAfterMs; }

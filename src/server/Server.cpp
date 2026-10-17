@@ -14,6 +14,10 @@
 #include <fstream>
 #include <thread>
 
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
 namespace pp {
 
 // The transport carries the largest block any chain config may allow, with its envelope (B034).
@@ -32,6 +36,24 @@ bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry& entry) {
     return name.ends_with(".txt") || name.ends_with(".key");
   }
   return false;
+}
+
+/** Resident memory of this process, where the platform tells. */
+std::optional<uint64_t> residentBytes() {
+#if defined(__linux__)
+  std::ifstream statm("/proc/self/statm");
+  uint64_t pages = 0;
+  uint64_t resident = 0;
+  if (statm >> pages >> resident) {
+    return resident * static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
+  }
+#endif
+  return std::nullopt;
+}
+
+uint64_t elapsedMs(RequestQueue::Clock::time_point from, RequestQueue::Clock::time_point to) {
+  return to > from ? static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count())
+                   : 0;
 }
 
 } // namespace
@@ -154,6 +176,32 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   }
   health.ready = false;
   health.notReady = serving_ ? "not ready" : "starting";
+  for (const auto& [type, count] : requestCounts_) {
+    health.requests.push_back(count);
+  }
+  health.requestsBusy = requestsBusy_;
+  health.requestsRefused = requestsRefused_;
+  health.requestsExpired = requestsExpired_;
+  health.loopTurnsSlow = loopTurnsSlow_;
+  health.loopTurnMaxMs = std::max(turnMaxMs_, lastWindowTurnMaxMs_);
+  health.rssBytes = residentBytes();
+}
+
+void Server::noteLoopTurn(RequestQueue::Clock::time_point now) {
+  constexpr auto kWindow = std::chrono::seconds(10);
+  if (now - turnWindowStart_ >= kWindow) {
+    lastWindowTurnMaxMs_ = now - turnWindowStart_ < 2 * kWindow ? turnMaxMs_ : 0;
+    turnMaxMs_ = 0;
+    turnWindowStart_ = now;
+  }
+  if (lastTurnAt_) {
+    const uint64_t turnMs = elapsedMs(*lastTurnAt_, now);
+    turnMaxMs_ = std::max(turnMaxMs_, turnMs);
+    if (turnMs > static_cast<uint64_t>(Client::NodeHealth::kSlowTurnMs)) {
+      ++loopTurnsSlow_;
+    }
+  }
+  lastTurnAt_ = now;
 }
 
 void Server::publishHealth() {
@@ -219,6 +267,7 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
   // Only blocks and records come large (B034); anything else above the small cap is refused unread.
   const bool carriesRecord = type == Client::T_REQ_BLOCK_ADD || type == Client::T_REQ_TX_ADD;
   if (!carriesRecord && body.size() > ledger::rpc::kMaxSmallRequestBytes) {
+    ++requestsRefused_;
     reply(packResponse(1, "Request of " + std::to_string(body.size()) + " bytes is too large for its type"));
     return;
   }
@@ -227,11 +276,13 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
     return;
   }
   if (!isAllowedPeer(peerId)) {
+    ++requestsRefused_;
     reply(packResponse(1, "Peer not allowed by this node"));
     return;
   }
   const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
+    ++requestsBusy_;
     reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
   }
 }
@@ -519,6 +570,7 @@ void Server::orderRewindIfDue() {
 
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
   serving_ = true;
+  noteLoopTurn(RequestQueue::Clock::now());
   publishHealth();
   auto deadline = RequestQueue::Clock::now() + budget;
   if (restartRequested_) {
@@ -544,6 +596,7 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
       continue;
     }
     if (RequestQueue::Clock::now() - item->enqueuedAt > maxRequestWait_) {
+      ++requestsExpired_;
       item->reply(packResponse(Client::E_SERVER_ERROR, "Request expired in server queue"));
       continue;
     }
@@ -613,26 +666,39 @@ void Server::serveRequest(const RequestQueue::Item& item) {
   log().debug << "Received request (" << item.body.size() << " bytes)";
   auto request = utl::binaryUnpack<Client::Request>(item.body);
   if (!request) {
+    ++requestsRefused_;
     item.reply(packResponse(1, request.error().message));
     return;
   }
-  if (!isAllowedFrom(request.value().type, originOf(item.peerId))) {
-    log().warning << "Refused request type " << request.value().type << " from upstream " << item.peerId;
-    item.reply(packResponse(1, "Request type " + std::to_string(request.value().type) +
-                                   " is not accepted from this node's upstream"));
+  const uint32_t type = request.value().type;
+  if (!isAllowedFrom(type, originOf(item.peerId))) {
+    ++requestsRefused_;
+    log().warning << "Refused request type " << type << " from upstream " << item.peerId;
+    item.reply(packResponse(1, "Request type " + std::to_string(type) + " is not accepted from this node's upstream"));
     return;
   }
-  if (request.value().type == Client::T_REQ_BLOCK_WAIT) {
+  const auto started = RequestQueue::Clock::now();
+  auto count = [&]() {
+    auto& c = requestCounts_[type];
+    c.type = type;
+    ++c.served;
+    c.waitMs += elapsedMs(item.enqueuedAt, started);
+    c.serviceMs += elapsedMs(started, RequestQueue::Clock::now());
+  };
+  if (type == Client::T_REQ_BLOCK_WAIT) {
     serveBlockWait(request.value(), item);
+    count();
     return;
   }
-  const auto route = routes_.find(request.value().type);
+  const auto route = routes_.find(type);
   if (route == routes_.end()) {
-    item.reply(packResponse(1, "Unsupported request type: " + std::to_string(request.value().type)));
+    ++requestsRefused_;
+    item.reply(packResponse(1, "Unsupported request type: " + std::to_string(type)));
     return;
   }
   if (auto admitted = admit(request.value()); !admitted) {
     item.reply(packResponse(1, admitted.error().message));
+    count();
     return;
   }
   try {
@@ -645,6 +711,7 @@ void Server::serveRequest(const RequestQueue::Item& item) {
     log().error << "Request handler threw: " << e.what();
     item.reply(packResponse(Client::E_SERVER_ERROR, "Internal server error"));
   }
+  count();
 }
 
 void Server::serveBlockWait(const Client::Request& request, const RequestQueue::Item& item) {

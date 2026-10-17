@@ -325,6 +325,19 @@ private:
   /** `<work dir>/listen.multiaddr`: where a local `pp-client health` reaches this node. */
   void writeListenMultiaddrFile() const;
   std::unique_ptr<RequestQueue> requests_;
+  /** Load counters (NodeHealth, load-resilience lr1). Busy and refused are counted on the io lane too. */
+  std::atomic<uint64_t> requestsBusy_{0};
+  std::atomic<uint64_t> requestsRefused_{0};
+  uint64_t requestsExpired_{0};
+  std::map<uint32_t, Client::NodeHealth::RequestCount> requestCounts_;
+  /** Run-loop turns: one per serveRequestsFor; the longest kept per 10 s window (this one and the last). */
+  std::optional<RequestQueue::Clock::time_point> lastTurnAt_;
+  uint64_t loopTurnsSlow_{0};
+  RequestQueue::Clock::time_point turnWindowStart_{};
+  uint64_t turnMaxMs_{0};
+  uint64_t lastWindowTurnMaxMs_{0};
+  /** Server thread, at each run-loop turn. */
+  void noteLoopTurn(RequestQueue::Clock::time_point now);
   BlockWaitList blockWaits_{requestCapacity_};
   uint64_t lastPolledTip_{0};
   RequestQueue::Clock::time_point nextBlockWaitSweep_{};

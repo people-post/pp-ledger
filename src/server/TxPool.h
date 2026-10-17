@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -31,6 +32,15 @@ public:
 
   enum class Add { Added, Duplicate, Full };
 
+  /** What happened to submitted records, from the pool's start (NodeHealth). */
+  struct Counters {
+    uint64_t added{0};
+    uint64_t duplicates{0};
+    uint64_t full{0};
+    uint64_t expired{0};
+    uint64_t included{0};
+  };
+
   TxPool() : TxPool(Limits{}) {}
   explicit TxPool(Limits limits) : limits_(limits) {}
 
@@ -43,12 +53,17 @@ public:
   size_t expire(int64_t nowSec);
 
   size_t size() const { return byOrder_.size(); }
+  size_t bytes() const { return bytes_; }
+  /** Seconds the oldest record has waited; none when empty. */
+  std::optional<int64_t> oldestAgeSeconds(int64_t nowSec) const;
+  const Counters &counters() const { return counters_; }
 
 private:
   struct Entry {
     Ledger::Record record;
     std::string key;
     size_t bytes{0};
+    int64_t addedAt{0};
     int64_t expiresAt{0};
   };
   static std::string keyOf(const Ledger::Record &record);
@@ -57,6 +72,7 @@ private:
   Limits limits_;
   uint64_t nextSeq_{0};
   size_t bytes_{0};
+  Counters counters_;
   std::map<uint64_t, Entry> byOrder_;
   std::unordered_map<std::string, uint64_t> byKey_;
 };
