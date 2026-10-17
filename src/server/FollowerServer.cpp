@@ -350,7 +350,10 @@ std::optional<std::chrono::milliseconds> FollowerServer::forwardOrExpire(const C
 void FollowerServer::replyUpstreamError(const RequestQueue::Reply &reply, const Client::Error &error,
                                         const std::string &prefix) {
   if (Client::isOverloadCode(error.code)) {
-    reply(packError(static_cast<uint16_t>(error.code), prefix + error.message, error.retryAfterMs));
+    // A busy way up (this node's queue to the upstream is full) says no when: as a busy queue would.
+    const bool busy = error.code == Client::E_BUSY || error.code == Client::E_RATE_LIMITED;
+    reply(packError(static_cast<uint16_t>(error.code), prefix + error.message,
+                    error.retryAfterMs == 0 && busy ? kBusyRetryAfterMs : error.retryAfterMs));
   } else if (Client::isTransportError(error.code) && error.message.find("response timeout") != std::string::npos) {
     reply(packError(Client::E_UPSTREAM_TIMEOUT,
                     prefix + "The upstream did not answer in time: it may have taken the request; sending the same "

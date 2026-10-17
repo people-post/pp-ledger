@@ -29,6 +29,8 @@ enum class Kind {
   BlockGet,
   TxByWallet, ///< wallet history: scans the chain backwards on the server thread
   Big,        ///< a BLOCK_ADD of ~4 MiB that is no block: the node receives it whole, then refuses it
+  BlockWait,  ///< a BLOCK_WAIT at the tip: parked until the next block or the hold ends
+  Register,   ///< a miner registration for a funded account, badly signed: forwarded to the beacon, which refuses it
 };
 
 std::string kindName(Kind kind);
@@ -46,8 +48,8 @@ enum class Outcome {
   Served,    ///< a read answered
   Busy,      ///< a queue on the way was full
   Expired,   ///< waited past its client in a server queue
-  Timeout,   ///< no reply in time
-  Unsent,    ///< the transport did not carry it (e.g. the node refused one more channel from this peer)
+  Timeout,   ///< sent, and no reply in time
+  Unsent,    ///< never sent: no link (dial timed out or backing off), no channel, no free place to the peer
   Refused,   ///< any other error
 };
 

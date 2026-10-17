@@ -195,6 +195,8 @@ public:
     std::string payload;
     /** Milliseconds the client waits from sending (0: unknown). A node forwards with what remains. */
     uint32_t deadlineMs{ 0 };
+    /** Set by the receiving node, not on the wire: the sender's authenticated peer id ("" unknown). */
+    std::string from;
 
     template <typename Archive>
     void serialize(Archive &ar) {
@@ -209,6 +211,28 @@ public:
    * The `type` of a packed Request without unpacking its payload (it follows
    * `version`, both big-endian u32). nullopt when the body is too short.
    */
+  /**
+   * A node's own chain work rather than a client's request (load-resilience LR009): blocks up the
+   * tree, pulls for a slot leader, and the sync and state a follower keeps itself current with. On
+   * the way to a peer it goes before forwarded client requests and has places they cannot take.
+   */
+  static bool isChainDuty(uint32_t type) {
+    switch (type) {
+    case T_REQ_BLOCK_ADD:
+    case T_REQ_TX_PULL:
+    case T_REQ_BLOCK_GET:
+    case T_REQ_BLOCK_WAIT:
+    case T_REQ_STATUS:
+    case T_REQ_MINER_LIST:
+    case T_REQ_AUTHORITY_PROOF:
+    case T_REQ_EQUIVOCATION_ADD:
+    case T_REQ_CALIBRATION:
+      return true;
+    default:
+      return false;
+    }
+  }
+
   static std::optional<uint32_t> peekRequestType(const std::string &body) {
     if (body.size() < 8) {
       return std::nullopt;
@@ -255,6 +279,8 @@ public:
     int64_t tLastMessage{ 0 };
     /** Signer's clock (Unix seconds) when signed; the beacon refuses stale or replayed records. */
     int64_t issuedAt{ 0 };
+    /** issuedAt may differ from the receiving node's clock by at most this much. */
+    static constexpr std::chrono::minutes kMaxIssuedSkew{ 5 };
     /** Miner account's signatures over signingMessage() (as for its transactions). */
     std::vector<std::string> signatures;
 
@@ -505,6 +531,8 @@ public:
     std::optional<uint64_t> rssBytes; ///< resident memory (where the platform tells)
     std::optional<uint64_t> udpReceiveBufferBytes; ///< the socket's receive buffer, as the OS granted it
     std::optional<uint64_t> udpReceiveDrops;       ///< datagrams the OS dropped for want of room (Linux)
+    uint64_t minerPeers{ 0 }; ///< peers that registered a miner through this node lately: trusted (LR009)
+    std::optional<uint64_t> links;                 ///< peer links held (at most maxLinks)
     // Miner
     std::optional<uint64_t> blocksSealed;    ///< blocks it produced and broadcast
     std::optional<uint64_t> blocksCommitted; ///< of those, committed on the beacon's signed tip

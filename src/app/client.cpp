@@ -989,7 +989,8 @@ int main(int argc, char *argv[]) {
   uint64_t loadDuration = 10, loadBurstAt = 0, loadDrain = 60;
   load_cmd->add_option("--accounts", loadAccounts, "Accounts file from load-setup (needed for transfers)");
   load_cmd->add_option("--mix", loadMix,
-                       "Kinds and weights: tx_add, tx_junk, status, account_get, block_get, tx_get_by_wallet "
+                       "Kinds and weights: tx_add, tx_junk, status, account_get, block_get, tx_get_by_wallet, big, "
+                       "block_wait, register "
                        "(e.g. tx_add=9,tx_junk=1)")
       ->default_val("tx_add");
   load_cmd->add_option("-r,--rate", loadRun.rate, "Requests per second, all kinds")->default_val(10);
@@ -1000,6 +1001,9 @@ int main(int argc, char *argv[]) {
   load_cmd->add_option("--amount", loadRun.amount, "Amount of each transfer")->default_val(1);
   load_cmd->add_option("-f,--fee", loadRun.fee, "Fee of each transfer")->default_val(1);
   load_cmd->add_option("--drain", loadDrain, "Seconds to follow blocks after the last send")->default_val(60);
+  uint64_t loadQuiet = 15;
+  load_cmd->add_option("--quiet", loadQuiet, "Stop following once no transfer sent was included for this many seconds")
+      ->default_val(15);
   load_cmd->add_option("--json", loadJson, "Also write the report as JSON to this file");
 
   // sign-tx: add a signature to an existing tx file
@@ -1159,6 +1163,7 @@ int main(int argc, char *argv[]) {
     return runLoadSetup(multiaddr, loadSetup, loadSetupTimeout, loadSetupOut);
   }
   if (load_cmd->parsed()) {
+    loadRun.quiet = std::chrono::seconds(loadQuiet);
     return runLoad(multiaddr, loadRun, loadAccounts, loadMix, loadDuration, loadBurstAt, loadDrain, loadJson);
   }
 

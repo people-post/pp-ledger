@@ -420,6 +420,8 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   setOptional("rssBytes", rssBytes);
   setOptional("udpReceiveBufferBytes", udpReceiveBufferBytes);
   setOptional("udpReceiveDrops", udpReceiveDrops);
+  m.setUIntForJson("minerPeers", minerPeers);
+  setOptional("links", links);
   setOptional("blocksSealed", blocksSealed);
   setOptional("blocksCommitted", blocksCommitted);
   setOptional("blocksAbandoned", blocksAbandoned);
@@ -483,6 +485,8 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
   rssBytes = meta.getNonNegInt("rssBytes");
   udpReceiveBufferBytes = meta.getNonNegInt("udpReceiveBufferBytes");
   udpReceiveDrops = meta.getNonNegInt("udpReceiveDrops");
+  minerPeers = meta.getNonNegInt("minerPeers").value_or(0);
+  links = meta.getNonNegInt("links");
   blocksSealed = meta.getNonNegInt("blocksSealed");
   blocksCommitted = meta.getNonNegInt("blocksCommitted");
   blocksAbandoned = meta.getNonNegInt("blocksAbandoned");
@@ -585,6 +589,9 @@ std::string Client::packRequest(uint32_t type, const std::string &payload, std::
 
 Client::Roe<std::string> Client::parseResponse(const ILedgerTransport::Roe<std::string> &result) {
   if (!result.isOk()) {
+    if (isOverloadCode(result.error().code)) { // the way to the peer is full (InFlightLimit): busy, not failed
+      return Error(result.error().code, result.error().message);
+    }
     return Error(E_REQUEST_FAILED,
                  getErrorMessage(E_REQUEST_FAILED) + ": " + result.error().message);
   }

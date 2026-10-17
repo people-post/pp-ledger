@@ -9,27 +9,39 @@ RequestQueue::RequestQueue(size_t capacity) : capacity_(capacity), lowCapacity_(
 bool RequestQueue::push(std::string peerId, std::string body, Reply reply, Lane lane) {
   {
     std::lock_guard<std::mutex> lock(mu_);
-    if (closed_ || bytes_ + body.size() > kMaxQueuedBytes) {
+    if (closed_) {
       return false;
     }
-    bytes_ += body.size();
-    if (lane == Lane::Normal) {
-      if (normal_.size() >= capacity_) {
-        bytes_ -= body.size();
+    const size_t size = body.size();
+    Item item{std::move(peerId), std::move(body), std::move(reply), Clock::now(), {}, lane};
+    switch (lane) {
+    case Lane::Trusted:
+      if (trusted_.size() >= kTrustedCapacity || trustedBytes_ + size > kMaxQueuedBytes) {
         return false;
       }
-      normal_.push_back(Item{std::move(peerId), std::move(body), std::move(reply), Clock::now(), {}, lane});
-    } else {
-      size_t &queuedByPeer = lowByPeer_[peerId];
-      if (low_.size() >= lowCapacity_ || queuedByPeer >= kLowPerPeer) {
-        if (queuedByPeer == 0) {
-          lowByPeer_.erase(peerId);
-        }
-        bytes_ -= body.size();
+      trustedBytes_ += size;
+      trusted_.push_back(std::move(item));
+      break;
+    case Lane::Normal:
+      if (normal_.size() >= capacity_ || bytes_ + size > kMaxQueuedBytes) {
+        return false;
+      }
+      bytes_ += size;
+      normal_.push_back(std::move(item));
+      break;
+    case Lane::Low: {
+      if (low_.size() >= lowCapacity_ || bytes_ + size > kMaxQueuedBytes) {
+        return false;
+      }
+      auto &queuedByPeer = lowByPeer_[item.peerId];
+      if (queuedByPeer >= kLowPerPeer) {
         return false;
       }
       ++queuedByPeer;
-      low_.push_back(Item{std::move(peerId), std::move(body), std::move(reply), Clock::now(), {}, lane});
+      bytes_ += size;
+      low_.push_back(std::move(item));
+      break;
+    }
     }
   }
   cv_.notify_one();
@@ -51,10 +63,20 @@ bool RequestQueue::pushTask(std::function<void()> task) {
 
 std::optional<RequestQueue::Item> RequestQueue::popUntil(Clock::time_point deadline) {
   std::unique_lock<std::mutex> lock(mu_);
-  const bool ready = cv_.wait_until(lock, deadline, [this]() { return !normal_.empty() || !low_.empty() || closed_; });
-  if (!ready || (normal_.empty() && low_.empty())) {
+  const bool ready = cv_.wait_until(
+      lock, deadline, [this]() { return !trusted_.empty() || !normal_.empty() || !low_.empty() || closed_; });
+  if (!ready || (trusted_.empty() && normal_.empty() && low_.empty())) {
     return std::nullopt;
   }
+  const bool othersWait = !normal_.empty() || !low_.empty();
+  if (!trusted_.empty() && (!othersWait || trustedStreak_ < kTrustedPerOther)) {
+    ++trustedStreak_;
+    Item item = std::move(trusted_.front());
+    trusted_.pop_front();
+    taken(item);
+    return item;
+  }
+  trustedStreak_ = 0;
   const bool takeLow = !low_.empty() && (normal_.empty() || normalStreak_ >= kNormalPerLow);
   if (!takeLow) {
     ++normalStreak_;
@@ -99,15 +121,23 @@ std::deque<RequestQueue::Item> RequestQueue::close() {
     for (auto &item : low_) {
       pending.push_back(std::move(item));
     }
+    for (auto &item : trusted_) {
+      pending.push_back(std::move(item));
+    }
     low_.clear();
+    trusted_.clear();
     lowByPeer_.clear();
     bytes_ = 0;
+    trustedBytes_ = 0;
   }
   cv_.notify_all();
   return pending;
 }
 
-void RequestQueue::taken(const Item &item) { bytes_ -= std::min(bytes_, item.body.size()); }
+void RequestQueue::taken(const Item &item) {
+  size_t &bytes = item.lane == Lane::Trusted ? trustedBytes_ : bytes_;
+  bytes -= std::min(bytes, item.body.size());
+}
 
 bool RequestQueue::isClosed() const {
   std::lock_guard<std::mutex> lock(mu_);
@@ -116,7 +146,7 @@ bool RequestQueue::isClosed() const {
 
 size_t RequestQueue::size() const {
   std::lock_guard<std::mutex> lock(mu_);
-  return normal_.size() + low_.size();
+  return trusted_.size() + normal_.size() + low_.size();
 }
 
 } // namespace pp

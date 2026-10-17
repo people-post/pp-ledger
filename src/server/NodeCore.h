@@ -75,6 +75,9 @@ public:
   /** Max records per block (0 = no limit) and max bytes (0 = no limit), from the config in force. */
   uint64_t getMaxTransactionsPerBlock() const { return chain_.getMaxTransactionsPerBlock(); }
   uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
+  /** `signatures` over `message` by account `accountId`'s keys (Chain::E_ACCOUNT_NOT_FOUND: no such account). */
+  Roe<void> verifyAccountSignatures(uint64_t accountId, const std::string &message,
+                                    const std::vector<std::string> &signatures) const;
   /** What a pool checks before it holds `record` (Chain::checkAdmission). */
   Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
   /** (payer, idempotent id) of a record that has one. */

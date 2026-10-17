@@ -86,6 +86,8 @@ struct Lane {
   size_t maxRequestBytes;
   bool bulk;
   std::shared_ptr<Receiving> receiving;
+  /** Trusted peers' requests, outside the node's share (bulk only; else null). */
+  std::shared_ptr<Receiving> trustedReceiving;
 };
 
 pp::amp::ChannelPolicy InboundPolicy(const Lane& lane, const std::chrono::milliseconds read_timeout) {
@@ -144,8 +146,9 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const std::string& remote_pee
   // waiting in the server's queue count too and cannot fill the queue small ones share. Released then,
   // or when the channel closes first (its handlers, holding the token, are dropped).
   auto refused = Refusal::PeerBusy;
-  auto slot =
-      std::make_shared<std::shared_ptr<Receiving::Slot>>(Receiving::acquire(lane.receiving, remote_peer_id, refused));
+  const auto& receiving =
+      lane.trustedReceiving && options.trusted && options.trusted(remote_peer_id) ? lane.trustedReceiving : lane.receiving;
+  auto slot = std::make_shared<std::shared_ptr<Receiving::Slot>>(Receiving::acquire(receiving, remote_peer_id, refused));
   if (!*slot) {
     refuse(refused);
     return;
@@ -203,8 +206,9 @@ void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler ha
   const auto bound = std::make_shared<const AsyncHandler>(std::move(handler));
   const Lane lanes[] = {
       {kProtocolId, kMaxSmallRequestBytes, false,
-       std::make_shared<Receiving>(kMaxReceivingPerPeer, std::numeric_limits<size_t>::max())},
-      {kBulkProtocolId, kMaxMessageBytes, true, std::make_shared<Receiving>(shared->bulkPerPeer, shared->bulkTotal)},
+       std::make_shared<Receiving>(kMaxReceivingPerPeer, std::numeric_limits<size_t>::max()), nullptr},
+      {kBulkProtocolId, kMaxMessageBytes, true, std::make_shared<Receiving>(shared->bulkPerPeer, shared->bulkTotal),
+       std::make_shared<Receiving>(shared->bulkPerPeer, std::numeric_limits<size_t>::max())},
   };
   for (const auto& lane : lanes) {
     Advertise(links, lane.protocolId);

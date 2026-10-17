@@ -1311,7 +1311,7 @@ BeaconServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, "System account " + std::to_string(minerInfo.id) + " cannot register as a miner");
   }
   // Cheap checks first; signature verification (ML-DSA) last.
-  const int64_t skew = std::chrono::duration_cast<std::chrono::seconds>(REGISTER_MAX_SKEW).count();
+  const int64_t skew = std::chrono::duration_cast<std::chrono::seconds>(Client::MinerInfo::kMaxIssuedSkew).count();
   if (std::llabs(nowSeconds() - minerInfo.issuedAt) > skew) {
     return Error(E_REQUEST, "Registration timestamp is too far from the beacon's clock");
   }
@@ -1323,6 +1323,7 @@ BeaconServer::hRegister(const Client::Request &request) {
     return Error(E_REQUEST, verified.error().message);
   }
   registerServer(minerInfo);
+  noteMinerPeer(request.from); // its sync and blocks now go first (LR009)
   return utl::binaryPack(buildStateResponse().ltsToMeta());
 }
 

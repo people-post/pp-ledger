@@ -42,6 +42,15 @@ TEST(LoadGeneratorTest, ClassifiesReplies) {
   EXPECT_EQ(classify(Kind::TxAdd, Client::Roe<std::string>(Client::Error(
                                       Client::E_REQUEST_FAILED, "Request failed: amp link: dial in backoff"))),
             Outcome::Unsent);
+  auto transport = [](const char *message) {
+    return Client::Roe<std::string>(Client::Error(Client::E_REQUEST_FAILED, message));
+  };
+  EXPECT_EQ(classify(Kind::Status, transport("Request failed: AmpLedgerTransport: response timeout")), Outcome::Timeout)
+      << "sent, and not answered";
+  EXPECT_EQ(classify(Kind::Status, transport("Request failed: amp link manager: dial timeout")), Outcome::Unsent)
+      << "never sent: no link";
+  EXPECT_EQ(classify(Kind::Status, transport("Request failed: AmpLedgerTransport: channel open timeout")),
+            Outcome::Unsent);
   EXPECT_EQ(classify(Kind::TxAdd, serverError("Failed to deserialize transaction")), Outcome::Refused);
 }
 

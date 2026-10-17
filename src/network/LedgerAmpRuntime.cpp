@@ -8,6 +8,17 @@
 namespace pp {
 namespace network {
 
+std::shared_ptr<InFlightLimit> makeInFlightLimit() {
+  return std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer, pp::ledger::rpc::kReservedForDuties,
+                                         pp::ledger::rpc::kMaxWaitingPerPeer);
+}
+
+std::shared_ptr<InFlightLimit> makeBulkInFlightLimit() {
+  return std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer,
+                                         pp::ledger::rpc::kBulkReservedForDuties,
+                                         pp::ledger::rpc::kMaxBulkWaitingPerPeer);
+}
+
 LedgerAmpRuntime::~LedgerAmpRuntime() { Stop(); }
 
 pp::Roe<void> LedgerAmpRuntime::Start(LedgerAmpConfig config) {
@@ -32,8 +43,8 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   }
   io_ = std::move(io);
   clock_ = std::move(clock);
-  in_flight_ = std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer);
-  bulk_in_flight_ = std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer);
+  in_flight_ = makeInFlightLimit();
+  bulk_in_flight_ = makeBulkInFlightLimit();
 
   pp::amp::AmpStack::Config stack_config;
   stack_config.identity = std::move(config.identity);
