@@ -156,7 +156,9 @@ protected:
 
   /**
    * onStart: run `sync` to completion, retrying failed attempts (BlockSync's
-   * backoff) until one succeeds or `timeout` passes — or a restart is requested (a rewind: the
+   * backoff) until one succeeds or `timeout` passes with no block authenticated or applied
+   * (BlockSync::blocksProcessed): a long chain synced from genesis takes as long as it takes, a
+   * stuck one fails (load-resilience lr9) — or a restart is requested (a rewind: the
    * node's blocks past a cutover will not sync, and the restart removes them). `lastResult` is set by
    * the role's onFinished hook; `extraDone` lets the role also wait for
    * follow-up work. Returns the last result's error, or "" on success.

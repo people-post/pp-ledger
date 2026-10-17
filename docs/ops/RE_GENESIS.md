@@ -73,4 +73,7 @@ or pending.
   id; only the announcement moves people. Keep old nodes stopped (their directories are the
   predecessor check).
 - Renewals of the imported accounts fall due together a renewal period after the import; due
-  renewals that do not fit a block wait ([WIRE_SCHEMA.md § Config updates](../contracts/WIRE_SCHEMA.md#config-updates)).
+  renewals that do not fit a block wait ([WIRE_SCHEMA.md § Config updates](../contracts/WIRE_SCHEMA.md#config-updates)),
+  and while they wait blocks carry renewals only: ⌈accounts ÷ block capacity⌉ blocks with no user
+  transaction — a million accounts at 1,000 a block, about two hours of 7 s slots
+  (projects/load-resilience M27). Plan for it.

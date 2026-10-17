@@ -45,6 +45,8 @@ Single-server only (misses emergent behaviour across hops, and big ledgers).
 block that leaves one out holds renewals only. lr9 measures the echo — accounts written at block
 capacity for a while come due together a renewal period later and hold user transactions for about
 as long (longer when slots go empty) — and the load fixture uses a realistic renewal period.
+**Measured (lr9, M26–M27):** the echo of a burst written at block capacity is as long as the burst;
+after a re-genesis, ⌈accounts ÷ block capacity⌉ blocks (a million accounts: ~1,000 blocks).
 **Rationale:** With a one-year period, renewals per block follow the writes per block a year
 earlier, which a block could hold; only busy periods echo, and for about their own length. A share
 for user transactions while renewals wait is a consensus change, worth it only if the measured

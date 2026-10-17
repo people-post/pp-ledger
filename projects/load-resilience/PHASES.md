@@ -33,11 +33,11 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 
 ## Survive overload (goal 1)
 
-- [ ] **lr8** Requests axis — memory per link (sizes LR005's defaults); single-server overload per role, upstreams scripted (slow, refusing,
+- [x] **lr8** Requests axis — memory per link (sizes LR005's defaults); single-server overload per role, upstreams scripted (slow, refusing,
       absent): cheap and expensive reads, `TX_ADD` / `REGISTER` floods, parked `BLOCK_WAIT`s,
       oversized requests, new-identity (handshake) floods; goal 1's checks; fixes found on the way;
       small "fails cleanly" cases as PR-gating tests
-- [ ] **lr9** Data axis — generated large ledgers: request cost on long chains, startup and sync
+- [x] **lr9** Data axis — generated large ledgers: request cost on long chains, startup and sync
       from genesis within `startupSyncTimeout`, the renewal storm after a re-genesis, the renewal
       echo of a busy period (LR004)
 - [ ] **lr10** Topology axis — network scenarios (`--suite overload`): fan-out ladder, steady

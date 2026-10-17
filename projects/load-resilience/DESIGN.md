@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0–lr7 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) next (lr8–lr10); measurements in § Measured
+**Status:** lr0–lr9 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) met per role (`--suite overload`, `--suite upstream`); the data axis measured (`--suite scale`); network scenarios next (lr10); measurements in § Measured
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 
@@ -140,6 +140,20 @@ included. Memory per idle link is small (M11); what bounds memory is receiving (
 | M21 | The beacon and a miner flooded as the relay was (reads 8,000/s, forged registrations 6,000/s, forged transfers 4,000/s, 4 MiB bodies, valid transfers 2,000/s) | Both held: every request answered fast, `HEALTH` within 0.35 s, the transfers beside (through the relay) all taken and included, no block lost. One bug on the way: every transfer sent *to a miner* was refused — its `STATUS` carried no network id, so clients signing for the network the node reports (`pp-client add-tx`, pp-http's account creation, `pp-client load`) signed for an empty one |
 | M22 | A relay whose beacon is frozen (SIGSTOP, past the forward budget), then stopped; transfers through it with a 6 s deadline | Before: 13 of 120 got no answer before their deadline — they had waited their turn on the client (its in-flight limit) and still carried the full 6 s, so the relay forwarded with time its client no longer had. After (LR006: a request leaving late carries what is left): all answered "busy, upstream unreachable" within the deadline (p99 5.5 s); the relay's reads and `HEALTH` untouched; back within 5 s of the beacon returning |
 
+
+### Measured: the data axis (lr9)
+
+`test_ledger_scale` (`--suite scale`): a chain of real signed transfers built in-process on virtual
+time (one machine; 5 s slots, 10-slot epochs), then what grows with it.
+
+| # | Run | Result |
+|---|-----|--------|
+| M23 | 1,000 to 10,000 accounts; 2,000 blocks of 100, or 20,000 of 5 | A follower syncs (validates every block in full) at ~5,300 tx/s — ~1,000 blocks/s when they are small; a leader seals a block of 100 in ~20 ms; a wallet-history request costs ~2 ms whatever the chain's length (it scans at most 32 blocks) |
+| M24 | A restart: the node replays its ledger from genesis (the beacon always does; followers from their checkpoint) | Quadratic: each epoch's seed was derived by scanning back from the ledger's tip, the rest of the chain re-read for every epoch — 20,000 small blocks took 165 s to replay against 20 s to sync, 2,100 full ones 70 s against 40 s; a unit test counted 42,001 block reads for 201 blocks. With the production epochs (a week) and a year of 7 s slots, up to ~10^8 block reads at every start (a block every slot). Fixed (scans from the block being replayed): replay as fast as sync, 10 reads a block at most |
+| M26 | The renewal echo (LR004): 40 accounts written at block capacity (four blocks of ten), renewal period ten blocks, a transfer offered every slot (`RenewalEchoTest`, an in-process miner) | Ten blocks later the four blocks' worth fall due over four blocks that carry renewals only; the waiting transfer goes in right after — held five blocks. The echo is as long as the burst, no longer |
+| M27 | A re-genesis (by arithmetic from M26): import blocks write every account at once, so all come due together a renewal period later | ⌈accounts ÷ block capacity⌉ blocks of renewals only: a million accounts at 1,000 a block hold every user transaction for ~1,000 blocks — about two hours with 7 s slots, a renewal period after the import |
+| M25 | Startup sync against `startupSyncTimeout` (5 min) | At ~1,000 small blocks/s a node joining from genesis managed ~300,000 blocks — weeks of chain — before being given up on, and failing to start; restarted, it went on from where it was, and failed again. The timeout now counts from the last block authenticated or applied |
+
 After LR008 (M14, M15) the flood is confined to large requests: everyone else is served, slower only
 by the server thread's time on the large ones, and the large requests themselves are told to come
 back (`E_BUSY`) instead of timing out. What a large request costs the server thread (decoding a
@@ -198,6 +212,15 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
   may the leader report back so the pool drops a transaction?
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
+- The renewal storm after a re-genesis (M27): imported accounts could keep the renewal timing they had
+  on the old network (each due when it would have been), spreading the storm as the old network had
+  it; or a share of each block could stay with user transactions while renewals wait (LR004's
+  alternative). Either is a consensus change; worth it if a re-genesis with many accounts is
+  planned.
+- A restart replays the whole ledger (M24): linear now, but ~30 minutes at 10 million transactions on
+  this machine, at every start of a beacon. Persisting the state (`StateSnapshot`, as checkpoints
+  and re-genesis export it) and replaying only the blocks after it would bound a restart by the time
+  since the last snapshot — a change to how nodes start, for after lr9.
 - A relay whose upstream is down answers its forwards "busy" only after their budget (M22, ~5 s):
   answering at once while the upstream link is known down would serve clients better, but during a
   reconnect it would also turn away requests that would have gone through. Measure before changing.

@@ -872,11 +872,30 @@ class FlakyUpstream : public ILedgerTransport {
 public:
   std::vector<Ledger::ChainNode> chain;
   int failures = 0;
+  std::chrono::milliseconds perBlock{0}; ///< a slow upstream: each reply comes this late, from another thread
+  std::vector<std::thread> late;
+
+  ~FlakyUpstream() override {
+    for (auto &t : late) {
+      t.join();
+    }
+  }
 
   Roe<std::string> roundTrip(const std::string &, std::chrono::milliseconds) override {
     return LedgerTransportError(-1, "async only");
   }
-  void roundTripAsync(const std::string &body, std::chrono::milliseconds, Done done) override {
+  void roundTripAsync(const std::string &body, std::chrono::milliseconds timeout, Done done) override {
+    if (perBlock.count() > 0) {
+      late.emplace_back([this, body, timeout, done = std::move(done)]() mutable {
+        std::this_thread::sleep_for(perBlock);
+        answer(body, timeout, std::move(done));
+      });
+      return;
+    }
+    answer(body, timeout, std::move(done));
+  }
+
+  void answer(const std::string &body, std::chrono::milliseconds, Done done) {
     if (failures > 0) {
       --failures;
       done(LedgerTransportError(-1, "upstream unavailable"));
@@ -951,6 +970,20 @@ TEST_F(StartupSyncTest, AStopRequestEndsIt) {
   const auto started = std::chrono::steady_clock::now();
   EXPECT_EQ(server_.runStartupSync(*sync_, last_, std::chrono::seconds(30)), "");
   EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(5));
+}
+
+// lr9: a long sync that keeps making progress is not cut off — the timeout is for a stuck one. Here
+// the whole sync takes about three times the timeout (60 blocks, 200 ms each, four fetched at a
+// time); the first block comes at ~400 ms and the next every ~200 ms, well within it even on a slow
+// runner.
+TEST_F(StartupSyncTest, ALongSyncThatProgressesIsNotCutOff) {
+  upstream_->chain = makeChain(60);
+  upstream_->perBlock = std::chrono::milliseconds(200);
+  const auto timeout = std::chrono::milliseconds(1000);
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_EQ(server_.runStartupSync(*sync_, last_, timeout), "");
+  EXPECT_EQ(local_.size(), 60u);
+  EXPECT_GT(std::chrono::steady_clock::now() - started, 2 * timeout) << "the sync outlasted the timeout";
 }
 
 TEST_F(StartupSyncTest, GivesUpWithTheLastErrorAtTimeout) {

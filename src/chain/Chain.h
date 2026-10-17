@@ -351,8 +351,11 @@ public:
   void setClockOverride(std::optional<int64_t> unixSeconds);
   void forceSlotLeader(uint64_t slot, uint64_t stakeholderId);
   void clearForcedSlotLeaders();
-  /** Install or derive SlotCommittee epoch seed for `epoch` (no-op if already set). */
-  Roe<void> ensureEpochSeed(uint64_t epoch);
+  /**
+   * Install or derive SlotCommittee epoch seed for `epoch` (no-op if already set), from the blocks
+   * below `endBlockId` (default: all the ledger holds).
+   */
+  Roe<void> ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> endBlockId = std::nullopt);
   /**
    * Block path: seed for the block's epoch. At the first block of an epoch the
    * previous epoch is complete on this chain, so any cached seed (possibly
@@ -368,6 +371,8 @@ public:
   /** When added blocks become durable (Ledger::CommitPolicy); the beacon commits every block. */
   void setLedgerCommitPolicy(const Ledger::CommitPolicy &policy) { txContext_.ledger.setCommitPolicy(policy); }
   Roe<uint64_t> loadFromLedger(uint64_t startingBlockId);
+  /** Ledger::getBlockReadCount of this chain's ledger. */
+  uint64_t getLedgerBlockReadCount() const { return txContext_.ledger.getBlockReadCount(); }
   Roe<void> addBlock(const Ledger::ChainNode &block);
   /**
    * Live mode (wall-clock epoch): install the epoch's recorded stake snapshot,
@@ -383,16 +388,20 @@ public:
 
   /**
    * Collect up to kEpochSeedLookback block hashes from `prevEpoch`
-   * (oldest→newest) for epoch-seed tip material.
+   * (oldest→newest) for epoch-seed tip material, among the blocks below `endBlockId`.
+   *
+   * The scans run backwards from `endBlockId`: when the ledger holds blocks past the one being
+   * checked (a node replaying its ledger at start), they skip them without reading — from the
+   * ledger's tip, a replay read the rest of the chain for every epoch (load-resilience lr9).
    */
-  std::vector<std::string> collectPrevEpochLookbackHashes(uint64_t prevEpoch) const;
+  std::vector<std::string> collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const;
 
-  /** The newest stored block seed of an epoch ≤ `maxEpoch`: {epoch, seed}. */
-  Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch) const;
+  /** The newest stored block seed of an epoch ≤ `maxEpoch` below `endBlockId`: {epoch, seed}. */
+  Roe<std::pair<uint64_t, std::string>> readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const;
 
-  /** Seed of `epoch` from the seed of `epoch - 1` (WIRE_SCHEMA § Epoch seed). */
-  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed,
-                                  const std::string &stakeHash) const;
+  /** Seed of `epoch` from the seed of `epoch - 1` (WIRE_SCHEMA § Epoch seed), from the blocks below `endBlockId`. */
+  std::string deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
+                                  uint64_t endBlockId) const;
 
 protected:
   /** Block `index` of `epoch` may become the next checkpoint (chain_block::checkpointEligible). */

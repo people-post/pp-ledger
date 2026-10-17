@@ -381,7 +381,7 @@ Not configurable. Every request deadline derives from one RPC timeout T = 15 s
 | Server drops a request still queued after | T/2 |
 | RPC channel with nothing inbound is reset after | 2T on the server, the call's deadline on the client |
 | Upstream holds a `BLOCK_WAIT` for | T/2 |
-| Relay / miner startup sync (a miner's wait for an upstream to answer included) | 5 min |
+| Relay / miner startup sync (a miner's wait for an upstream to answer included): given up after this long with no block authenticated or applied — a long sync that keeps going is not cut off | 5 min |
 
 The request queue holds 1024 requests (reads get a further quarter in a
 low-priority lane, at most 16 per peer) and 64 MiB of request bodies. A peer may have 16 requests

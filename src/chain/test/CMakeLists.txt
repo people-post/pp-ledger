@@ -15,3 +15,8 @@ gtest_discover_tests(test_chain)
 add_executable(test_tx_idempotency test_tx_idempotency.cpp)
 target_link_libraries(test_tx_idempotency PRIVATE pp_chain GTest::gtest_main)
 gtest_discover_tests(test_tx_idempotency)
+
+# Ledger scale (load-resilience lr9): skipped unless PP_LEDGER_SCALE=1 (--suite scale).
+add_executable(test_ledger_scale test_ledger_scale.cpp)
+target_link_libraries(test_ledger_scale PRIVATE pp_chain pp_testing GTest::gtest_main)
+gtest_discover_tests(test_ledger_scale)
