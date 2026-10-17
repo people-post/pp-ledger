@@ -7,6 +7,8 @@ function(pp_ledger_define_aliases)
       pp_ledger:ledger
       pp_client:client
       pp_chain:chain
+      pp_chain_types:chain_types
+      pp_operation:operation
       pp_server:server)
   foreach(pair IN LISTS _pairs)
     string(REPLACE ":" ";" _parts "${pair}")
