@@ -15,6 +15,7 @@
 #include <future>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <random>
 #include <thread>
 
@@ -25,9 +26,26 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+/** An environment variable, if set and not empty (MSVC deprecates getenv, C4996: as env_config::get). */
+std::optional<std::string> env(const char *name) {
+#ifdef _WIN32
+  char *buffer = nullptr;
+  size_t length = 0;
+  if (_dupenv_s(&buffer, &length, name) != 0 || buffer == nullptr) {
+    return std::nullopt;
+  }
+  std::string value(buffer);
+  std::free(buffer);
+#else
+  const char *raw = std::getenv(name);
+  std::string value = raw ? raw : "";
+#endif
+  return value.empty() ? std::nullopt : std::optional<std::string>(value);
+}
+
 uint64_t envOr(const char *name, uint64_t fallback) {
-  const char *value = std::getenv(name);
-  return value && *value ? std::strtoull(value, nullptr, 10) : fallback;
+  const auto value = env(name);
+  return value ? std::strtoull(value->c_str(), nullptr, 10) : fallback;
 }
 
 double secondsSince(Clock::time_point t) { return std::chrono::duration<double>(Clock::now() - t).count(); }
@@ -58,7 +76,7 @@ struct UserKey {
 class LedgerScaleTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    if (std::getenv("PP_LEDGER_SCALE") == nullptr) {
+    if (!env("PP_LEDGER_SCALE")) {
       GTEST_SKIP() << "ledger scale runs with PP_LEDGER_SCALE=1 (--suite scale)";
     }
     accounts_ = envOr("PP_LEDGER_SCALE_ACCOUNTS", 1000);
@@ -248,10 +266,10 @@ TEST_F(LedgerScaleTest, SyncRestartAndRequestsOnALongChain) {
             << " transactions syncing, replays " << static_cast<uint64_t>(replayTxsPerSecond * startupSyncSeconds)
             << " restarting\n";
 
-  if (const char *path = std::getenv("PP_LEDGER_SCALE_JSON")) {
+  if (const auto path = env("PP_LEDGER_SCALE_JSON")) {
     auto json = pp::common::io::valueToJsonString(pp::common::Value(std::make_shared<pp::common::Object>(report)), 2);
     ASSERT_TRUE(json.isOk());
-    std::ofstream(path) << json.value() << "\n";
+    std::ofstream(*path) << json.value() << "\n";
   }
 }
 
