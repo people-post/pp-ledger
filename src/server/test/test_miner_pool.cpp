@@ -21,6 +21,7 @@
 #include <algorithm>
 
 #include <chrono>
+#include <iostream>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -248,6 +249,124 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
     }
   }
   EXPECT_GE(renewed.size(), 6u) << "every account written in genesis renewed";
+}
+
+/** Ten records a block; an account comes due for renewal ten blocks after it was written. */
+class RenewalEchoTest : public MinerPoolTest {
+protected:
+  RenewalEchoTest() {
+    maxTransactionsPerBlock_ = 10;
+    checkpointMinBlocks_ = 10;
+  }
+
+  /** A new account from the reserve, valid for two minutes from `slot`. */
+  Ledger::Record newAccount(uint64_t id, uint64_t slot, uint64_t idempotentId) {
+    auto keys = utl::mlDsaGenerate();
+    EXPECT_TRUE(keys.isOk());
+    Client::UserAccount account;
+    account.wallet.publicKeys = {keys.value().publicKey};
+    account.wallet.minSignatures = 1;
+    account.wallet.keyType = Crypto::TK_ML_DSA_65;
+    account.wallet.mBalances[AccountBuffer::ID_GENESIS] = 1000;
+    account.meta = AccountAttachment::emptySerialized();
+    Ledger::TxNewUser tx;
+    tx.fromWalletId = AccountBuffer::ID_RESERVE;
+    tx.toWalletId = id;
+    tx.amount = 1000;
+    tx.fee = 100000;
+    tx.meta = account.ltsToString();
+    tx.idempotentId = idempotentId;
+    tx.validationTsMin = miner_->getSlotStartTime(slot);
+    tx.validationTsMax = tx.validationTsMin + 120;
+    Ledger::Record rec;
+    rec.type = Ledger::T_NEW_USER;
+    rec.data = utl::binaryPack(tx);
+    for (const auto &k : reserveKeys_) {
+      rec.signatures.push_back(utl::mlDsaSign(k.privateKey, rec.signingMessage("test-net")).value());
+    }
+    return rec;
+  }
+};
+
+// LR004 (load-resilience lr9): accounts written at block capacity for a while come due together a
+// renewal period later, and — renewals keeping their priority (B035) — hold user transactions for
+// about as long: here 40 accounts written over four blocks of ten fall due over four blocks ten
+// blocks later, which carry renewals only while a transfer waits; then it goes in. The echo is the
+// length of the burst, not more.
+TEST_F(RenewalEchoTest, ABurstOfAccountsComesDueTogetherAndHoldsTransfersAsLong) {
+  constexpr size_t kBurst = 40;
+  std::vector<Ledger::Record> burst;
+  std::set<std::string> burstData;
+  uint64_t idempotentId = 1;
+  int64_t after = -1;
+  std::optional<Ledger::Record> waiting; // the transfer offered in every slot until it goes in
+  uint64_t waitingSince = 0;
+  uint64_t longestWait = 0;
+  size_t renewalOnlyRun = 0;
+  size_t longestRenewalOnlyRun = 0;
+  size_t burstWritten = 0;
+  uint64_t burstDoneAt = 0; // the block that wrote the last of the burst
+  // On past the echo: the burst's renewals fall due ten blocks after it, over as many blocks as it took.
+  for (int b = 0; b < 45 && (burstDoneAt == 0 || after < 0 ||
+                              miner_->getNextBlockId() <= burstDoneAt + checkpointMinBlocks_ + 8);
+       ++b) {
+    auto slot = waitForLeaderSlotAfter(after);
+    ASSERT_TRUE(slot.has_value());
+    if (burst.empty()) {
+      for (size_t i = 0; i < kBurst; ++i) {
+        burst.push_back(newAccount((1ULL << 30) + 500 + i, *slot, idempotentId++));
+        burstData.insert(burst.back().data);
+      }
+    }
+    // Offered again each slot, as a client would (this harness has no beacon pool keeping them).
+    for (const auto &record : burst) {
+      if (burstData.count(record.data) > 0) {
+        (void)miner_->addTransaction(record);
+      }
+    }
+    if (burstWritten == kBurst && !waiting) {
+      waiting = transferValidFrom(*slot, 120, idempotentId++);
+    }
+    if (waiting) {
+      (void)miner_->addTransaction(*waiting);
+    }
+    Ledger::ChainNode block;
+    ASSERT_TRUE(produceWhenSealTime(block));
+    auto committed = miner_->addBlock(block);
+    ASSERT_TRUE(committed.isOk()) << "block " << block.block.index << ": " << committed.error().message;
+    miner_->markBlockProduction(block);
+    after = static_cast<int64_t>(block.block.slot);
+    if (waiting && waitingSince == 0) {
+      waitingSince = block.block.index;
+    }
+    size_t renewals = 0;
+    bool waitingIn = false;
+    for (const auto &record : block.block.records) {
+      renewals += isRenewal(record) ? 1 : 0;
+      if (burstData.erase(record.data) > 0) {
+        ++burstWritten;
+      }
+      waitingIn = waitingIn || (waiting && record.data == waiting->data);
+    }
+    if (burstWritten == kBurst && burstDoneAt == 0) {
+      burstDoneAt = block.block.index;
+    }
+    renewalOnlyRun = renewals == block.block.records.size() && renewals > 0 ? renewalOnlyRun + 1 : 0;
+    longestRenewalOnlyRun = std::max(longestRenewalOnlyRun, renewalOnlyRun);
+    if (waitingIn) {
+      longestWait = std::max<uint64_t>(longestWait, block.block.index - waitingSince + 1);
+      waiting.reset();
+      waitingSince = 0;
+    }
+  }
+  ASSERT_EQ(burstWritten, kBurst);
+  std::cout << "renewal echo: " << longestRenewalOnlyRun << " blocks of renewals only; a transfer waited "
+            << longestWait << " blocks\n";
+  // Four blocks' worth fall due (and the genesis accounts' first renewals near them): a few blocks of
+  // renewals only, the transfer held about that long — no more than the burst and its neighbours.
+  EXPECT_GE(longestRenewalOnlyRun, 3u) << "the burst came due together";
+  EXPECT_LE(longestRenewalOnlyRun, 6u);
+  EXPECT_LE(longestWait, longestRenewalOnlyRun + 2) << "the transfer went in once the renewals drained";
 }
 
 // A pending transaction that stops applying (here: its validity window ended)

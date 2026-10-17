@@ -34,7 +34,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|upstream|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|upstream|scale|image
   --down                       stop network after run
 
 Examples:
@@ -127,6 +127,20 @@ run_overload() {
 run_upstream() {
   # Its own network: a relay whose upstream is frozen, then gone (projects/load-resilience lr8).
   bash "${ROOT}/scripts/test/pp_ledger_upstream_smoke.sh"
+}
+
+run_scale() {
+  # In-process (no network): a chain of real transfers built on virtual time, then sync, restart replay
+  # and wallet history on it (projects/load-resilience lr9). Sizes: PP_LEDGER_SCALE_ACCOUNTS / _BLOCKS / _TXS.
+  echo -e "${BLUE}═══ suite scale (L-LOAD-SCALE: the data axis) ═══${NC}"
+  local bin="${ROOT}/build/src/chain/test/test_ledger_scale"
+  [[ -x "$bin" ]] || die "build first: ${bin} missing"
+  PP_LEDGER_SCALE=1 PP_LEDGER_SCALE_JSON="${ROOT}/build/ledger-scale.json" "$bin" >"${ROOT}/build/ledger-scale.log" 2>&1 || {
+    grep -a -E "Failure|Expected|Which is|^chain|^sync|^restart|^wallet" "${ROOT}/build/ledger-scale.log" | head -20
+    die "L-LOAD-SCALE failed: see build/ledger-scale.log"
+  }
+  grep -a -E "^accounts|^chain|^sync|^restart|^wallet|^in 5" "${ROOT}/build/ledger-scale.log"
+  echo -e "${GREEN}L-LOAD-SCALE PASSED${NC}"
 }
 
 run_rotation() {
@@ -250,6 +264,7 @@ case "$CMD" in
       burst) run_burst ;;
       overload) run_overload ;;
       upstream) run_upstream ;;
+      scale) run_scale ;;
       regenesis) run_regenesis ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
