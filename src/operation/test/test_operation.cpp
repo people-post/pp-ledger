@@ -170,6 +170,27 @@ TEST(OperationTest, SummariesComeFromTheRecord) {
   EXPECT_EQ(r.value().lines.back().second.rfind("2 of 3:", 0), 0u);
 }
 
+TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
+  Keys keys(2);
+  auto op = transfer(common(keys, 1, AccountIds::ID_RESERVE), AccountIds::ID_REGISTRAR, 1, 0);
+  ASSERT_TRUE(op);
+  EXPECT_EQ(signerAccountOf(op.value().record), AccountIds::ID_RESERVE);
+
+  // A file naming other signers than the payer is refused: their signatures could never count.
+  Operation other = op.value();
+  other.signers.account = AccountIds::ID_REGISTRAR;
+  EXPECT_FALSE(fromJson(toJson(other)));
+
+  // A record from elsewhere wraps only with its own signers: a transfer's payer, a recovery's key set.
+  EXPECT_FALSE(wrap(common(keys, 1, AccountIds::ID_FEE), op.value().record));
+  EXPECT_TRUE(wrap(common(keys, 1, AccountIds::ID_RESERVE), op.value().record));
+  Ledger::TxRecovery recovery;
+  Ledger::Record record;
+  record.type = Ledger::T_RECOVERY;
+  record.data = utl::binaryPack(recovery);
+  EXPECT_FALSE(wrap(common(keys, 1, AccountIds::ID_GENESIS), record));
+}
+
 TEST(OperationTest, AmountsAreGroupedByThousands) {
   EXPECT_EQ(groupDigits(0), "0");
   EXPECT_EQ(groupDigits(999), "999");

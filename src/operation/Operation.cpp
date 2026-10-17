@@ -195,6 +195,25 @@ Kind kindOf(const Ledger::Record &record) {
   }
 }
 
+std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
+  switch (record.type) {
+  case Ledger::T_DEFAULT: {
+    auto tx = utl::binaryUnpack<Ledger::TxDefault>(record.data);
+    return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
+  }
+  case Ledger::T_NEW_USER: {
+    auto tx = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
+    return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
+  }
+  case Ledger::T_CONFIG:
+  case Ledger::T_BEACON_CERT:
+  case Ledger::T_GENESIS:
+    return AccountIds::ID_GENESIS;
+  default:
+    return std::nullopt;
+  }
+}
+
 std::string signingMessage(const Operation &op) { return op.record.signingMessage(op.networkId); }
 
 std::string toJson(const Operation &op) {
@@ -227,6 +246,22 @@ std::string toJson(const Operation &op) {
   root.set("notes", op.notes);
   root.set("createdAt", static_cast<int64_t>(op.createdAt));
   return pp::common::io::objectToJsonString(root, 2) + "\n";
+}
+
+/** The signers' account must be the one the chain checks the signatures against. */
+static pp::Roe<void> checkSignerAccount(const Ledger::Record &record, const std::optional<uint64_t> &account) {
+  const Kind kind = kindOf(record);
+  if (kind == Kind::Other) {
+    return {};
+  }
+  const auto expected = signerAccountOf(record);
+  if (account == expected) {
+    return {};
+  }
+  return pp::Error("a " + kindName(kind) + " is signed by " +
+                   (expected ? "account " + std::to_string(*expected) : std::string("a key set, not an account")) +
+                   ", the signers name " +
+                   (account ? "account " + std::to_string(*account) : std::string("no account")));
 }
 
 pp::Roe<Operation> fromJson(const std::string &json) {
@@ -297,6 +332,9 @@ pp::Roe<Operation> fromJson(const std::string &json) {
   }
   if (op.signers.minSignatures > op.signers.publicKeys.size()) {
     return pp::Error("Operation file needs more signatures than it has signers");
+  }
+  if (auto ok = checkSignerAccount(op.record, op.signers.account); !ok) {
+    return pp::Error("Operation file: " + ok.error().message);
   }
   if (const auto *signatures = root.getArray("signatures")) {
     for (const auto &value : signatures->elements) {
@@ -605,6 +643,9 @@ pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record) {
   }
   if (!record.decode()) {
     return pp::Error("The record does not decode as a type " + std::to_string(record.type) + " transaction");
+  }
+  if (auto ok = checkSignerAccount(record, common.signers.account); !ok) {
+    return pp::Error("Wrong signers: " + ok.error().message);
   }
   Operation op = start(common);
   op.record.type = record.type;

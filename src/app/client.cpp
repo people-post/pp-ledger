@@ -1,4 +1,5 @@
 #include "Client.h"
+#include "ClientOp.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "LoadGenerator.h"
@@ -1026,6 +1027,8 @@ int main(int argc, char *argv[]) {
   std::string submit_tx_file;
   submit_tx_cmd->add_option("file", submit_tx_file, "Signed transaction file")->required();
 
+  OpCommands op_cmds(app);
+
   CLI11_PARSE(app, argc, argv);
 
   // Handle keygen command (no server connection needed)
@@ -1112,6 +1115,15 @@ int main(int argc, char *argv[]) {
   // Handle sign-tx (no server connection needed)
   if (sign_tx_cmd->parsed()) {
     return runSignTx(sign_tx_file, sign_key, sign_network_id);
+  }
+
+  if (op_cmds.parsed() && !op_cmds.needsNode()) {
+    return op_cmds.run(nullptr);
+  }
+  if (op_cmds.parsed() && !connectToBeacon) {
+    std::cerr << "Error: this op command reads the chain: give -b --host <relay or beacon multiaddr>"
+              << (op_cmds.isSubmit() ? "" : " (or, to create offline, --network-id and --signer-key)") << ".\n";
+    return 1;
   }
 
   if (!hostFile.empty()) {
@@ -1205,6 +1217,10 @@ int main(int argc, char *argv[]) {
     }
     return runMkBeaconCert(mk_cert_network, mk_cert_generation, mk_cert_pubkey, mk_cert_cutover, hash.value(),
                            mk_cert_hints, mk_cert_output);
+  }
+
+  if (op_cmds.parsed()) {
+    return op_cmds.run(&client);
   }
 
   if (check_predecessor_cmd->parsed()) {

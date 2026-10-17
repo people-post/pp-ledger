@@ -25,6 +25,12 @@ std::string kindName(Kind kind);
 std::optional<Kind> kindFromName(const std::string &name);
 /** The kind of `record`, from its type and fields: a transfer from genesis to the reserve mints. */
 Kind kindOf(const Ledger::Record &record);
+/**
+ * The account whose keys sign `record`, as the chain resolves it: the payer of a transfer or new
+ * account, the genesis (admin) account of a config update, beacon certificate or genesis. None for a
+ * recovery (the recovery key set signs it) or a kind the operation file does not know (Other).
+ */
+std::optional<uint64_t> signerAccountOf(const Ledger::Record &record);
 
 /** Who must sign: `minSignatures` distinct keys of `publicKeys` (an account's, or a key set's). */
 struct SignerSet {

@@ -38,7 +38,9 @@ own `cmake/`; the two repos may sit on different tags.
 ## pp-ledger library shape
 
 **Targets** (`cmake/PpLedgerTargets.cmake`): `pp::ledger_common`, `pp::consensus`,
-`pp::network`, `pp::ledger`, `pp::client`, `pp::chain`, `pp::server`. `pp_ledger_amp` (static,
+`pp::network`, `pp::ledger`, `pp::client`, `pp::chain_types`, `pp::chain`, `pp::operation`,
+`pp::server`. `pp::operation` (operation files) needs only `pp::chain_types`, `pp::ledger` and
+`pp::ledger_common`: an app that must not reach the network links it alone. `pp_ledger_amp` (static,
 no alias) holds the Amp binding and is linked by `pp_client` and `pp_server`.
 
 **Options:** `PP_LEDGER_BUILD_APPS` (ON), `PP_LEDGER_BUILD_HTTP` (OFF), `PP_LEDGER_BUILD_TESTS`

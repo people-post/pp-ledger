@@ -114,6 +114,18 @@ Local commands (no node): `keygen`, `peer-id`, `mk-tx`, `mk-account`, `mk-beacon
 height, for a re-genesis: [BEACON_AUTHORITY.md § State export](../contracts/BEACON_AUTHORITY.md#state-export)).
 `./app/pp-client --help` lists them all.
 
+Multi-signature transactions (the system accounts') travel as operation files
+([OPERATION_FILE.md](../contracts/OPERATION_FILE.md)): one person creates, each signer signs a copy,
+any copies merge, and a complete one is submitted.
+
+```bash
+./app/pp-client --host "$R" -b op transfer --from 1 --to 2 --amount 5000000 -f 1 -o top-up.json
+./app/pp-client op show top-up.json                  # what it does, deadline, who signed
+./app/pp-client op sign copy1.json -k reserve1.key   # each holder, own copy, offline
+./app/pp-client op merge copy1.json copy2.json copy3.json -o signed.json
+./app/pp-client --host "$R" -b op submit signed.json # needs the quorum
+```
+
 ---
 
 ## HTTP API Server (pp-http)

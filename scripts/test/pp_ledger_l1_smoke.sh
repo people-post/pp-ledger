@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# L-SMOKE-L1: beacon→relay→miner tip advances after tx inject.
+# L-SMOKE-L1: beacon→relay→miner tip advances after tx inject; a miner registers; an operation
+# file (signed apart by the reserve holders, merged) creates an account.
 # Uses short slots + tx inject (see docs/ops/TEST_STRATEGY.md).
 #
 # Usage:
@@ -39,4 +40,7 @@ fi
 register_miner_account $((1 << 30)) "${TEST_DIR}/keys/alice.key" 120 ||
   die "L-SMOKE-L1: miner registration did not land"
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered)${NC}"
+# Operation files: a multi-signature transaction signed apart, merged and submitted.
+run_operation_file_scenario 120
+
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file)${NC}"
