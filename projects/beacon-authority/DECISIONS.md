@@ -722,6 +722,16 @@ the old chain can order it.
   nothing checks the list against the old chain).
 - Keep the old history in the new network (`startingBlockId` = *H* + 1): the new network would need
   the old blocks for attachments and renewals, under a network id that no longer verifies them.
+- **Re-anchor in place:** keep the old chain; at *H* + 1 a record signed by a new admin set takes
+  over, accepted because each operator configures its hash. No snapshot, history kept — but the
+  authority trail gets a permanent exception ("from *H* on, trust this instead"), every node joining
+  later needs the override to verify from genesis, and the network id must change at *H* (or the
+  thief's fork replays onto the honest one), so verifiers track ids by height. Special code that
+  runs once in a network's life (B022's principle), for no saving in operator work: every operator
+  acts by hand either way.
+- Not a rebuild: the import is the account table at *H* (one record per account, ~2–3 KB with one
+  key — about the size of one round of renewals, which the old chain already writes before every
+  checkpoint), not the old blocks.
 
 ## B031 — The state root commits to the whole account
 
