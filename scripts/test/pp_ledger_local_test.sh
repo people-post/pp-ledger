@@ -3,7 +3,7 @@
 #
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
-# Suites: unit | l0 | l1 | latejoin | smoke | rotation | takeover | move | regenesis | image
+# Suites: unit | l0 | l1 | latejoin | smoke | rotation | takeover | move | regenesis | burst | image
 #   smoke == l0 → l1 → latejoin on one network (brought up once).
 #   rotation brings up its own network (the next beacon key is staged before the beacon starts).
 #   takeover brings up its own network (case 2: a relay promoted to be the new beacon).
@@ -34,7 +34,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|image
   --down                       stop network after run
 
 Examples:
@@ -112,6 +112,11 @@ run_regenesis() {
 run_move() {
   # Its own network: the beacon moves to another port (case 3).
   bash "${ROOT}/scripts/test/pp_ledger_move_smoke.sh"
+}
+
+run_burst() {
+  # Its own network, renewals once in a long while: goal 2 of projects/load-resilience.
+  bash "${ROOT}/scripts/test/pp_ledger_burst_smoke.sh"
 }
 
 run_rotation() {
@@ -223,6 +228,7 @@ case "$CMD" in
       rotation) run_rotation ;;
       takeover) run_takeover ;;
       move) run_move ;;
+      burst) run_burst ;;
       regenesis) run_regenesis ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;

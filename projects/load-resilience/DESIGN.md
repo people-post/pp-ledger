@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0–lr6 done (design, metrics, load generator, pool, overload answers); measurements in § Measured
+**Status:** lr0–lr7 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) next (lr8–lr10); measurements in § Measured
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 
@@ -114,6 +114,7 @@ Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load th
 | M4 | Same, an earlier run | 374 replies timed out at the client's 30 s and 90 were refused, yet ~200 of them were pooled and included: the client is told it failed, the transfer goes through (a retry signed anew pays twice) |
 | M5 | Same burst from 64 identities | 364 "dial timeout" (8 s), 72 "dial in backoff" (30 s), 85 "channel not open": 65 new clients at once against a node that takes 48 links and 16 handshakes at a time (Amp `max_links`, `max_pending_inbound`) |
 | M7 | M3's burst after lr4–lr6 (clients queue past 16 in flight, deadlines forwarded, overload codes) | 700 of 700 taken and included, within 7 blocks (p50 4); replies p99 0.76 s |
+| M8 | M5's burst from 64 identities after lr6b (TCP-like links; `maxLinks` 1,024, `handshakeBacklog` 128) | 700 of 700 taken and included, within 7 blocks; replies p99 0.81 s |
 | M6 | Relay and beacon during all of these | Never busy, no request expired, no run-loop turn over 140 ms, ready throughout, back to normal at once |
 
 So: the servers survive (goal 1 held so far, M6), but bursts are not absorbed (goal 2): they are

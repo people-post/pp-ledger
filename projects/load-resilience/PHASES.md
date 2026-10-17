@@ -24,11 +24,11 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
       retry policy for transactions (same bytes); the request's deadline forwarded hop by hop (a
       relay's forward at half the client's timeout until then); `pp-client add-tx` resends instead
       of re-signing
-- [ ] **lr6b** Links like TCP (LR005), in pp-cpp-amp then the ledger: configurable `max_links` and
+- [x] **lr6b** Links like TCP (LR005), in pp-cpp-amp then the ledger: configurable `max_links` and
       handshake backlog, silent drop with handshake resends, fast refusal of a full table after
       evicting the longest-idle inbound link, growing jittered dial backoff; ledger `maxLinks`,
       `handshakeBacklog` per role
-- [ ] **lr7** Burst suite (`--suite burst`): goal 2's checks green, through relays; load fixture with
+- [x] **lr7** Burst suite (`--suite burst`): goal 2's checks green, through relays; load fixture with
       a realistic renewal period (LR004)
 
 ## Survive overload (goal 1)
