@@ -44,6 +44,15 @@ inline constexpr size_t kMaxBulkReceivingPerPeer = 2;
  * hold (8 × 4 MiB), well within the request queue's byte budget that small requests share.
  */
 inline constexpr size_t kMaxBulkReceivingTotal = 8;
+/**
+ * On the way to a peer (InFlightLimit, LR009): places a node keeps for its own chain work (blocks,
+ * pulls, sync) that requests it forwards for clients cannot take — of the 16 small and of the 2 large
+ * — and how many of those may wait before one more is answered "busy" at once.
+ */
+inline constexpr size_t kReservedForDuties = 4;
+inline constexpr size_t kBulkReservedForDuties = 1;
+inline constexpr size_t kMaxWaitingPerPeer = 256;
+inline constexpr size_t kMaxBulkWaitingPerPeer = 16;
 /** The protocol a request body of `bytes` travels on. */
 inline const char* ProtocolFor(size_t bytes) { return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId; }
 

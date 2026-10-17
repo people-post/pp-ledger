@@ -21,6 +21,10 @@
 namespace pp {
 namespace network {
 
+/** In-flight limits to each peer for small and large requests (LedgerRpcProtocol.h, LR007, LR009). */
+std::shared_ptr<InFlightLimit> makeInFlightLimit();
+std::shared_ptr<InFlightLimit> makeBulkInFlightLimit();
+
 /** Slim AMP runtime for standalone pp-ledger servers (no product L4). */
 struct LedgerAmpConfig {
   pp::amp::MshIdentity identity;

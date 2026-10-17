@@ -1852,3 +1852,34 @@ run_regenesis_scenario() {
   stopped=$(all_processes_alive) || die "L-SMOKE-REGENESIS: ${stopped} stopped"
   echo -e "${GREEN}✓ L-SMOKE-REGENESIS: the new network grows (block ${target}) with the old miners' keys${NC}"
 }
+
+# ── load (projects/load-resilience: --suite burst, --suite overload) ──
+
+# load_accounts <out.json> <count>: funded accounts for pp-client load, created through the relay.
+load_accounts() {
+  local out=$1 count=$2 keys="${TEST_DIR}/keys"
+  rm -f "$out"
+  timeout 600 "$BUILD_DIR/app/pp-client" -b --host "$(relay_multiaddr)" load-setup --from 1 \
+    -k "${keys}/reserve1.key" -k "${keys}/reserve2.key" -k "${keys}/reserve3.key" \
+    -n "$count" --amount 100000 -f 1 -o "$out" || die "load-setup failed"
+}
+
+# load_check <report.json> <python expression over r and k(kind, field)> <what it means>
+load_check() {
+  local report=$1 expr=$2 what=$3
+  python3 - "$report" "$expr" <<'PY' || die "$what (report: $report)"
+import json, sys
+r = json.load(open(sys.argv[1]))
+kinds = {k["kind"]: k for k in r["kinds"]}
+def k(name, field, default=0):
+    return kinds.get(name, {}).get(field, default)
+sys.exit(0 if eval(sys.argv[2]) else 1)
+PY
+  echo -e "${GREEN}  ✓ ${what}${NC}"
+}
+
+# health_field <multiaddr> <field>: one field of a node's HEALTH (empty when it does not answer).
+health_field() {
+  timeout 10 "$BUILD_DIR/app/pp-client" -b --host "$1" health 2>/dev/null |
+    python3 -c 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print("" if v is None else v)' "$2" 2>/dev/null || true
+}

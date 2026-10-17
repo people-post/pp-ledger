@@ -2,6 +2,7 @@
 #include "../chain/PredecessorCheck.h"
 #include "NetworkAnchor.h"
 #include "BlockAddPolicy.h"
+#include "../client/AccountIds.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
@@ -282,6 +283,29 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, parsed.error().message)));
     return;
   }
+  // Checked here before it costs the beacon anything, as transfers are (lr8): a flood of forged
+  // registrations stops at the relay. An account the relay does not hold yet (it may be a block behind)
+  // is the beacon's to judge.
+  if (AccountIds::isSystemAccount(minerInfo.id)) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "System account " + std::to_string(minerInfo.id) +
+                                                           " cannot register as a miner")));
+    return;
+  }
+  const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch()).count();
+  if (std::llabs(now - minerInfo.issuedAt) >
+      std::chrono::duration_cast<std::chrono::seconds>(Client::MinerInfo::kMaxIssuedSkew).count()) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Registration timestamp is too far from the relay's clock")));
+    return;
+  }
+  if (auto signed_ = relay_.verifyAccountSignatures(minerInfo.id, minerInfo.signingMessage(relay_.getNetworkId()),
+                                                    minerInfo.signatures);
+      !signed_ && signed_.error().code != Chain::E_ACCOUNT_NOT_FOUND) {
+    replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Registration not signed by miner " +
+                                                           std::to_string(minerInfo.id) + ": " +
+                                                           signed_.error().message)));
+    return;
+  }
   if (!dialUpstreamFor(reply)) {
     return;
   }
@@ -291,11 +315,12 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
   }
   client_.registerMinerServerAsync(
       minerInfo, completeOnServerThread<Client::BeaconState>(
-                     [this, reply](Client::Roe<Client::BeaconState> state) {
+                     [this, reply, from = request.from](Client::Roe<Client::BeaconState> state) {
                        if (!state) {
                          replyUpstreamError(reply, state.error(), "Upstream register failed: ");
                          return;
                        }
+                       noteMinerPeer(from); // the beacon took it: its sync and blocks go first (LR009)
                        registryVersion_ = state.value().registryVersion;
                        if (!state.value().networkId.empty()) {
                          networkId_ = state.value().networkId;

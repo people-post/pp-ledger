@@ -58,6 +58,15 @@ NodeCore::Roe<Ledger::Record> NodeCore::findTransactionByIndex(uint64_t txIndex)
   return result.value();
 }
 
+NodeCore::Roe<void> NodeCore::verifyAccountSignatures(uint64_t accountId, const std::string &message,
+                                                      const std::vector<std::string> &signatures) const {
+  auto verified = chain_.verifyAccountSignatures(accountId, message, signatures);
+  if (!verified) {
+    return Error(verified.error().code, verified.error().message);
+  }
+  return {};
+}
+
 NodeCore::Roe<void> NodeCore::checkAdmission(const Ledger::Record &record, int64_t nowSec,
                                              bool verifySignatures) const {
   auto checked = chain_.checkAdmission(record, nowSec, verifySignatures);

@@ -92,6 +92,34 @@ TEST(RequestQueueTest, ReadFloodGetsBusyWithoutCrowdingOutNormalWork) {
   EXPECT_EQ(queue.close().size(), 10u); // both lanes are handed back on close
 }
 
+// lr8 (LR009): a flood of strangers' reads fills the lanes it may; a miner's sync still gets in, and
+// goes first — but cannot hold up everyone else for good.
+TEST(RequestQueueTest, TrustedPeersHaveTheirOwnLaneServedFirst) {
+  const auto kTrusted = RequestQueue::Lane::Trusted;
+  RequestQueue queue(8); // Low lane holds 2
+  ASSERT_TRUE(queue.push("s1", "r", [](std::string) {}, kLow));
+  ASSERT_TRUE(queue.push("s2", "r", [](std::string) {}, kLow));
+  EXPECT_FALSE(queue.push("s3", "r", [](std::string) {}, kLow)) << "strangers' reads fill their lane";
+  for (int i = 0; i < 8; ++i) {
+    ASSERT_TRUE(queue.push("s", "n", [](std::string) {}));
+  }
+  for (size_t i = 0; i < RequestQueue::kTrustedPerOther + 1; ++i) {
+    ASSERT_TRUE(queue.push("miner", "t", [](std::string) {}, kTrusted)) << i;
+  }
+  EXPECT_EQ(popBodies(queue, RequestQueue::kTrustedPerOther + 2), std::string(RequestQueue::kTrustedPerOther, 't') + "nt")
+      << "trusted first, another lane's turn after a streak";
+}
+
+TEST(RequestQueueTest, TrustedLaneIsBounded) {
+  RequestQueue queue(8);
+  for (size_t i = 0; i < RequestQueue::kTrustedCapacity; ++i) {
+    ASSERT_TRUE(queue.push("miner", "t", [](std::string) {}, RequestQueue::Lane::Trusted));
+  }
+  EXPECT_FALSE(queue.push("miner", "t", [](std::string) {}, RequestQueue::Lane::Trusted));
+  EXPECT_TRUE(queue.push("s", "n", [](std::string) {})) << "the other lanes keep their own room";
+  EXPECT_EQ(queue.close().size(), RequestQueue::kTrustedCapacity + 1);
+}
+
 TEST(RequestQueueTest, OnePeerCannotTakeTheWholeLowLane) {
   RequestQueue queue(1024); // Low lane holds 256
   for (size_t i = 0; i < RequestQueue::kLowPerPeer; ++i) {
@@ -326,16 +354,17 @@ TEST(ServerThreadTest, UpwardWritesAreRefusedFromOwnUpstream) {
   server.enqueueRequest(packRequest("evidence-up", Client::T_REQ_EQUIVOCATION_ADD), replies.sink(), "upstream-peer");
   server.serveRequestsFor(50ms);
 
+  // The upstream is trusted (LR009): its requests are served first, the miner's after.
   ASSERT_EQ(replies.size(), 8u);
-  EXPECT_NE(replies.items[7].errorCode, 0); // evidence travels up; down it rides STATUS
-  EXPECT_NE(replies.items[5].errorCode, 0); // transactions only travel up
-  EXPECT_NE(replies.items[6].errorCode, 0); // the pool lives upstream
-  EXPECT_NE(replies.items[4].errorCode, 0); // the registry lives upstream
+  EXPECT_NE(replies.items[6].errorCode, 0); // evidence travels up; down it rides STATUS
+  EXPECT_NE(replies.items[4].errorCode, 0); // transactions only travel up
+  EXPECT_NE(replies.items[5].errorCode, 0); // the pool lives upstream
+  EXPECT_NE(replies.items[3].errorCode, 0); // the registry lives upstream
   EXPECT_NE(replies.items[0].errorCode, 0);
   EXPECT_NE(replies.items[0].payload.find("upstream"), std::string::npos);
   EXPECT_NE(replies.items[1].errorCode, 0);
-  EXPECT_EQ(replies.items[2].errorCode, 0); // a downstream may submit blocks
-  EXPECT_EQ(replies.items[3].errorCode, 0); // reads are fine either way
+  EXPECT_EQ(replies.items[7].errorCode, 0); // a downstream may submit blocks
+  EXPECT_EQ(replies.items[2].errorCode, 0); // reads are fine either way
   EXPECT_EQ(server.handled.load(), 2);     // refused ones never reached a handler
 }
 
@@ -492,13 +521,13 @@ TEST(ServerThreadTest, RequestsAreCountedByOutcome) {
   Replies replies;
   EchoServer server;
   server.setRequestLimits(1, 8000ms); // one Normal, one Low
-  server.setAllowedPeers(std::set<std::string>{"a"});
   server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");
   server.enqueueRequest(packRequest("x", Client::T_REQ_ACCOUNT_GET), replies.sink(), "a"); // Low; unsupported
   server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");      // busy: Normal full
-  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "b");      // peer not allowed
   server.enqueueRequest(packRequest(std::string(ledger::rpc::kMaxSmallRequestBytes + 1, 'x'), Client::T_REQ_STATUS),
                         replies.sink(), "a"); // too large
+  server.setAllowedPeers(std::set<std::string>{"c"});
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "b"); // peer not allowed
   server.serveRequestsFor(50ms);
   auto health = server.healthNow();
   EXPECT_EQ(health.requestsBusy, 1u);
@@ -508,7 +537,7 @@ TEST(ServerThreadTest, RequestsAreCountedByOutcome) {
   EXPECT_EQ(health.requests[0].served, 1u);
 
   server.setRequestLimits(8, 1ms); // a client that has given up
-  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "a");
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink(), "c");
   std::this_thread::sleep_for(5ms);
   server.serveRequestsFor(20ms);
   EXPECT_EQ(server.healthNow().requestsExpired, 1u);

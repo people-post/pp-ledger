@@ -194,6 +194,15 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   health.loopTurnsSlow = loopTurnsSlow_;
   health.loopTurnMaxMs = std::max(turnMaxMs_, lastWindowTurnMaxMs_);
   health.rssBytes = residentBytes();
+  {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(minerPeersMutex_);
+    health.minerPeers = static_cast<uint64_t>(
+        std::count_if(minerPeers_.begin(), minerPeers_.end(), [now](const auto& entry) { return entry.second > now; }));
+  }
+  if (ampSupport_ && ampSupport_->isRunning()) {
+    health.links = ampSupport_->links().CountLinks();
+  }
   if (const auto socket = ampSupport_ ? ampSupport_->runtime().socketStats() : std::nullopt) {
     health.udpReceiveBufferBytes = socket->receive_buffer_bytes;
     health.udpReceiveDrops = socket->receive_drops;
@@ -293,7 +302,10 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
     reply(packResponse(1, "Peer not allowed by this node"));
     return;
   }
-  const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
+  // Malformed: refused when served.
+  const auto lane = isTrustedPeer(peerId) ? RequestQueue::Lane::Trusted
+                    : type                ? laneFor(*type)
+                                          : RequestQueue::Lane::Normal;
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     ++requestsBusy_;
     reply(packError(Client::E_BUSY, "Server busy, please retry", kBusyRetryAfterMs));
@@ -315,6 +327,34 @@ std::string Server::refusalResponse(const network::AmpLedgerServer::Refusal why)
   }
   ++requestsBusy_;
   return packError(Client::E_BUSY, "Too many large requests in progress, please retry", kBusyRetryAfterMs);
+}
+
+bool Server::isTrustedPeer(const std::string& peerId) const {
+  if (peerId.empty()) {
+    return false;
+  }
+  if (allowedPeers_ && allowedPeers_->contains(peerId)) {
+    return true;
+  }
+  {
+    std::lock_guard<std::mutex> lock(upstreamMutex_);
+    if (upstreamPeerIds_.contains(peerId)) {
+      return true;
+    }
+  }
+  std::lock_guard<std::mutex> lock(minerPeersMutex_);
+  const auto it = minerPeers_.find(peerId);
+  return it != minerPeers_.end() && it->second > std::chrono::steady_clock::now();
+}
+
+void Server::noteMinerPeer(const std::string& peerId) {
+  if (peerId.empty()) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  std::lock_guard<std::mutex> lock(minerPeersMutex_);
+  std::erase_if(minerPeers_, [now](const auto& entry) { return entry.second <= now; });
+  minerPeers_[peerId] = now + kMinerPeerTtl;
 }
 
 bool Server::isAllowedPeer(const std::string& peerId) const {
@@ -711,6 +751,7 @@ void Server::serveRequest(const RequestQueue::Item& item) {
     }
     request.value().deadlineMs -= static_cast<uint32_t>(waited);
   }
+  request.value().from = item.peerId;
   const uint32_t type = request.value().type;
   if (!isAllowedFrom(type, originOf(item.peerId))) {
     ++requestsRefused_;
@@ -875,6 +916,7 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
   network::AmpLedgerServer::Options ingress;
   ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
+  ingress.trusted = [this](const std::string& peerId) { return isTrustedPeer(peerId); };
   ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
   auto started = ampSupport_->Start(

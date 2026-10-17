@@ -1,4 +1,5 @@
 #include "AmpLedgerTransport.h"
+#include "Client.h"
 
 #include "../network/LedgerAmpRuntime.h"
 #include "../network/LedgerRpcProtocol.h"
@@ -90,7 +91,10 @@ public:
     queued_at_ = Clock::now();
     timer_ = mesh_.PostAfter(timeout_, [self]() { self->expire(); });
     std::weak_ptr<RoundTripCall> weak = self;
-    limit_->run(peer_key_, network::InFlightLimit::Waiter{
+    const auto type = Client::peekRequestType(body_);
+    const auto cls = type && Client::isChainDuty(*type) ? network::InFlightLimit::Class::Duty
+                                                         : network::InFlightLimit::Class::Normal;
+    const bool queued = limit_->run(peer_key_, network::InFlightLimit::Waiter{
                                [weak]() {
                                  auto call = weak.lock();
                                  return call && !call->result_.isSet();
@@ -99,7 +103,11 @@ public:
                                  if (auto call = weak.lock()) {
                                    call->start();
                                  } // gone: InFlightLimit counted it in flight; nothing to release later
-                               }});
+                               }},
+                                    cls);
+    if (!queued) { // as many wait for this peer as may: busy now, not a timeout later
+      finish(LedgerTransportError(Client::E_BUSY, "AmpLedgerTransport: too many requests waiting for the peer"));
+    }
   }
 
   /** io lane: it holds one of the peer's places from here until cleanup(). */
@@ -322,8 +330,7 @@ AmpLedgerTransport::AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::
 
 AmpLedgerTransport::AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive)
     : mesh_(mesh), drive_(std::move(drive)), peer_key_(std::move(peer_key)),
-      own_limit_(std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer)),
-      own_bulk_limit_(std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer)) {}
+      own_limit_(network::makeInFlightLimit()), own_bulk_limit_(network::makeBulkInFlightLimit()) {}
 
 std::shared_ptr<network::InFlightLimit> AmpLedgerTransport::inFlightLimit(const size_t requestBytes) const {
   const bool bulk = requestBytes > pp::ledger::rpc::kMaxSmallRequestBytes;
@@ -335,8 +342,7 @@ std::shared_ptr<network::InFlightLimit> AmpLedgerTransport::inFlightLimit(const 
   if (auto limit = bulk ? own_bulk_limit_ : own_limit_) {
     return limit;
   }
-  return std::make_shared<network::InFlightLimit>(bulk ? pp::ledger::rpc::kMaxBulkReceivingPerPeer
-                                                       : pp::ledger::rpc::kMaxReceivingPerPeer);
+  return bulk ? network::makeBulkInFlightLimit() : network::makeInFlightLimit();
 }
 
 void AmpLedgerTransport::post(std::function<void()> task) {

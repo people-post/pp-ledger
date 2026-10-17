@@ -224,6 +224,17 @@ protected:
   bool isAllowedPeer(const std::string& peerId) const;
   /** io lane: the reply to a request refused when its channel opened (counted busy or refused). */
   std::string refusalResponse(network::AmpLedgerServer::Refusal why);
+  /**
+   * A peer this node's chain work depends on (load-resilience LR009): a miner registered through it
+   * (for a while after), an upstream, a peer listed in `allowedPeers`. Its requests have their own
+   * queue lane, served first, and large ones their own places: a flood from strangers cannot hold up
+   * a miner's sync or block. Any thread.
+   */
+  bool isTrustedPeer(const std::string& peerId) const;
+  /** Server thread: `peerId` registered a miner the beacon accepted; trusted until it lapses. */
+  void noteMinerPeer(const std::string& peerId);
+  /** A registered miner's peer stays trusted this long without registering again (miners renew sooner). */
+  static constexpr std::chrono::minutes kMinerPeerTtl{10};
 
   /**
    * onStart: `config.json` in the work directory merged with the PP_* variables `fields`
@@ -326,6 +337,9 @@ private:
   std::string followedPeerId_;
   /** Fixed before start; read on the io lane without locking. */
   std::optional<std::set<std::string>> allowedPeers_;
+  /** Peers that registered a miner through this node, and until when they are trusted. */
+  mutable std::mutex minerPeersMutex_;
+  std::map<std::string, std::chrono::steady_clock::time_point> minerPeers_;
   size_t requestCapacity_{tuning_.requestQueueCapacity};
   /** A request older than this was given up on by its client: reply without doing the work. */
   std::chrono::milliseconds maxRequestWait_{tuning_.serverQueueExpiry()};

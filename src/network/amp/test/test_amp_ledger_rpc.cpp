@@ -345,7 +345,12 @@ TEST_F(AmpLedgerRpcTest, ALargeRequestHoldsItsPlaceUntilAnswered) {
       },
       std::move(options));
   pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
-  const std::string large(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm');
+  // A block: chain work, so the client sends two at once (forwarded requests keep one place free).
+  pp::Client::Request block;
+  block.version = pp::Client::Request::VERSION;
+  block.type = pp::Client::T_REQ_BLOCK_ADD;
+  block.payload = std::string(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm');
+  const std::string large = pp::utl::binaryPack(block);
 
   std::optional<std::string> first;
   transport.roundTripAsync(large, std::chrono::seconds(30), [&first](pp::ILedgerTransport::Roe<std::string> r) {
@@ -374,6 +379,52 @@ TEST_F(AmpLedgerRpcTest, ALargeRequestHoldsItsPlaceUntilAnswered) {
   }
   EXPECT_EQ(pending.size(), 2u) << "answered, the place is free again";
   EXPECT_FALSE(third) << "not refused";
+}
+
+// lr8 (LR009): past the requests in flight and those allowed to wait, one more is answered busy at
+// once (E_BUSY) — a relay passes that on — instead of waiting out its deadline; chain work still waits.
+TEST_F(AmpLedgerRpcTest, PastTheWaitingLimitARequestIsBusyAtOnce) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::vector<pp::network::AmpLedgerServer::Reply> pending; // never answered
+  pp::network::AmpLedgerServer::BindAsync(
+      h->runtime_b->Links(),
+      [&pending](std::string, std::string, pp::network::AmpLedgerServer::Reply reply) {
+        pending.push_back(std::move(reply));
+      },
+      pp::network::AmpLedgerServer::Options{});
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+  auto request = [](uint32_t type) {
+    pp::Client::Request r;
+    r.version = pp::Client::Request::VERSION;
+    r.type = type;
+    return pp::utl::binaryPack(r);
+  };
+  const size_t normal = pp::ledger::rpc::kMaxReceivingPerPeer - pp::ledger::rpc::kReservedForDuties +
+                        pp::ledger::rpc::kMaxWaitingPerPeer;
+  size_t answered = 0;
+  for (size_t i = 0; i < normal; ++i) {
+    transport.roundTripAsync(request(pp::Client::T_REQ_ACCOUNT_GET), std::chrono::seconds(30),
+                             [&answered](pp::ILedgerTransport::Roe<std::string>) { ++answered; });
+  }
+  std::optional<pp::ILedgerTransport::Roe<std::string>> busy;
+  transport.roundTripAsync(request(pp::Client::T_REQ_ACCOUNT_GET), std::chrono::seconds(30),
+                           [&busy](pp::ILedgerTransport::Roe<std::string> r) { busy = std::move(r); });
+  std::optional<pp::ILedgerTransport::Roe<std::string>> duty;
+  transport.roundTripAsync(request(pp::Client::T_REQ_BLOCK_GET), std::chrono::seconds(30),
+                           [&duty](pp::ILedgerTransport::Roe<std::string> r) { duty = std::move(r); });
+  const size_t started = pp::ledger::rpc::kMaxReceivingPerPeer - pp::ledger::rpc::kReservedForDuties + 1;
+  for (size_t i = 0; i < 400 && (!busy || pending.size() < started); ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_TRUE(busy);
+  ASSERT_FALSE(busy->isOk());
+  EXPECT_EQ(busy->error().code, pp::Client::E_BUSY);
+  EXPECT_EQ(answered, 0u) << "the others wait their turn";
+  EXPECT_FALSE(duty) << "chain work is not refused: it has its own places";
+  EXPECT_EQ(pending.size(), started) << "the normal requests in flight, and the duty in a reserved place";
 }
 
 // lr8: a peer the node does not serve is refused when its large request's channel opens, not after
@@ -871,6 +922,45 @@ TEST(InFlightLimitTest, StartsInOrderAsPlacesFreeUp) {
   limit.release("p");
   EXPECT_EQ(limit.inFlight("p"), 0u);
   EXPECT_EQ(limit.waiting("p"), 0u);
+}
+
+// lr8 (LR009): a node's own chain work keeps places its forwards cannot take, and goes first.
+TEST(InFlightLimitTest, DutiesHaveReservedPlacesAndGoFirst) {
+  using Class = pp::network::InFlightLimit::Class;
+  pp::network::InFlightLimit limit(4, /*reserved=*/1);
+  std::vector<std::string> started;
+  auto waiter = [&started](std::string name) {
+    return pp::network::InFlightLimit::Waiter{[]() { return true; }, [&started, name]() { started.push_back(name); }};
+  };
+  for (int i = 0; i < 5; ++i) {
+    EXPECT_TRUE(limit.run("p", waiter("n" + std::to_string(i)), Class::Normal));
+  }
+  EXPECT_EQ(started, (std::vector<std::string>{"n0", "n1", "n2"})) << "normal requests leave one place";
+  EXPECT_TRUE(limit.run("p", waiter("d0"), Class::Duty));
+  EXPECT_EQ(started.back(), "d0") << "a duty takes the reserved place at once";
+  EXPECT_TRUE(limit.run("p", waiter("d1"), Class::Duty));
+  EXPECT_EQ(started.back(), "d0") << "full: the duty waits";
+  limit.release("p");
+  EXPECT_EQ(started.back(), "d1") << "a waiting duty goes before waiting normal requests";
+  limit.release("p");
+  EXPECT_EQ(started.back(), "d1") << "normal requests may not take the place duties keep";
+  limit.release("p");
+  EXPECT_EQ(started.back(), "n3");
+}
+
+// lr8 (LR009): past `maxWaiting`, a normal request is refused at once — its caller answers busy now
+// instead of letting it wait out its deadline; a duty always waits.
+TEST(InFlightLimitTest, NormalRequestsWaitBoundedDutiesAlways) {
+  using Class = pp::network::InFlightLimit::Class;
+  pp::network::InFlightLimit limit(1, /*reserved=*/0, /*maxWaiting=*/2);
+  auto waiter = []() { return pp::network::InFlightLimit::Waiter{[]() { return true; }, []() {}}; };
+  EXPECT_TRUE(limit.run("p", waiter()));
+  EXPECT_TRUE(limit.run("p", waiter()));
+  EXPECT_TRUE(limit.run("p", waiter()));
+  EXPECT_FALSE(limit.run("p", waiter())) << "two wait already";
+  EXPECT_TRUE(limit.run("p", waiter(), Class::Duty));
+  EXPECT_EQ(limit.waiting("p"), 3u);
+  EXPECT_TRUE(limit.run("q", waiter())) << "another peer has its own queue";
 }
 
 // load-resilience lr6: a client sending more at once than the server takes from one peer waits its

@@ -346,6 +346,11 @@ public:
   };
 
   uint64_t getNextBlockId() const;
+  /**
+   * Changes whenever blocks already held may differ from before (init, mount, rewindTo), so a cache
+   * of what blocks hold can tell it must start over. Appending does not change it.
+   */
+  uint64_t getRevision() const { return revision_; }
   /** First valid block ID (same as startingBlockId from init/mount). No blocks when getNextBlockId() <= getStartingBlockId(). */
   uint64_t getStartingBlockId() const;
 
@@ -426,6 +431,7 @@ private:
 
   /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
   mutable std::optional<ChainNode> latestBlockCache_;
+  uint64_t revision_{0};
 
   bool loadIndex();
   bool saveIndex();

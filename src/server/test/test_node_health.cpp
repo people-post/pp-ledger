@@ -83,6 +83,7 @@ TEST(NodeHealthTest, LoadCountersRoundTripAndRender) {
   beacon.rssBytes = 1 << 20;
   beacon.udpReceiveBufferBytes = 8 << 20;
   beacon.udpReceiveDrops = 0;
+  beacon.minerPeers = 3;
   beacon.txPoolRecords = 9;
   beacon.txPoolOldestAgeSeconds = 0;
   beacon.txPoolFull = 5;
@@ -98,6 +99,7 @@ TEST(NodeHealthTest, LoadCountersRoundTripAndRender) {
   EXPECT_EQ(got.rssBytes, beacon.rssBytes);
   EXPECT_EQ(got.udpReceiveBufferBytes, beacon.udpReceiveBufferBytes);
   EXPECT_EQ(got.udpReceiveDrops, 0u) << "no drop is a figure, not an absence";
+  EXPECT_EQ(got.minerPeers, 3u);
   EXPECT_EQ(got.txPoolOldestAgeSeconds, 0);
   EXPECT_EQ(got.txPoolFull, 5u);
   EXPECT_FALSE(got.blocksSealed) << "a beacon seals nothing: absent stays absent";

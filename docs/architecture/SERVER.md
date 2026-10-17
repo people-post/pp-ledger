@@ -192,7 +192,7 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
 | `TX_ADD` | pools what could apply (a beacon certificate is kept first; refused once it stood down, except a certificate) | checks, then forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
 | `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions, oldest first, up to a block's records and bytes (`maxTransactionsPerBlock`, `maxBlockBytes`) |
-| `REGISTER` | records | forwards up | — | Signed by the miner account's keys; renewed every 60 s |
+| `REGISTER` | records | checks the signature (an account it holds), then forwards up | — | Signed by the miner account's keys; renewed every 60 s. The node it was taken through trusts the sender's peer for 10 minutes (§ Request limits) |
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
 | `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
 
@@ -213,6 +213,15 @@ remains of the client's deadline and passes the upstream's answer on — `E_UPST
 upstream did not answer in time (it may have taken the request). `Client::submitTransaction` (used
 by pp-client) sends the same signed bytes again after any of these, never a re-signed transaction:
 the pool keeps one copy, the chain one transaction per payer and idempotent id.
+
+**A node's own chain work goes first** (load-resilience LR009). On the way up, what a node sends for
+itself — blocks, pulls for a slot leader, sync, `STATUS` — keeps 4 of its 16 places to the peer
+(1 of 2 for large requests) that requests forwarded for clients cannot take, and starts before them;
+at most 256 forwarded requests wait for a peer, and one more is answered `E_BUSY` at once
+(`InFlightLimit`). On the way in, the peers a node's chain depends on — miners registered through it,
+its upstreams, peers listed in `allowedPeers` — are trusted: their requests have their own queue lane,
+served first, and their large requests places outside the node's share. A flood of client requests,
+forged registrations or reads cannot make a relay's miners miss their slots.
 
 Which origins may send what (e.g. nothing travelling up is accepted from the
 upstream a node follows) is one table in `Server::isAllowedFrom`; see
@@ -411,7 +420,10 @@ See [THREADING.md](THREADING.md) for the model and its rollout.
 
 Requests wait in a bounded queue for the server thread (by count, and 64 MiB of bodies); when it
 is full a request gets an immediate "busy" reply, and one that waited past half the RPC timeout
-gets "expired". Messages are sized from the chain's block limit: a block or a record (`BLOCK_ADD`,
+gets "expired". Three lanes (`RequestQueue`): Trusted (the peers above: 256 requests, its own
+64 MiB, served first but giving another lane a turn after 8), Normal (writes, registration,
+completions: 1,024) and Low (reads: a quarter of that, 16 per peer, served at least every fifth
+pop). Messages are sized from the chain's block limit: a block or a record (`BLOCK_ADD`,
 `TX_ADD`) up to 4 MiB + 64 KiB, any other request 64 KiB; a reply too large to send is an error
 reply ([AMP_TRANSPORT.md § Protocol](../contracts/AMP_TRANSPORT.md#protocol)). These limits are fixed
 ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)).

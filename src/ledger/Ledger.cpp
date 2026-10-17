@@ -388,6 +388,7 @@ uint64_t Ledger::getStartingBlockId() const {
 }
 
 Ledger::Roe<void> Ledger::init(const InitConfig& config) {
+  ++revision_;
   workDir_ = config.workDir;
   volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
@@ -432,6 +433,7 @@ Ledger::Roe<void> Ledger::init(const InitConfig& config) {
 }
 
 Ledger::Roe<void> Ledger::mount(const std::string& workDir) {
+  ++revision_;
   workDir_ = workDir;
   volumesDir_ = workDir_ + "/volumes";
   indexFilePath_ = workDir_ + "/ledger_index.dat";
@@ -532,6 +534,7 @@ Ledger::Roe<void> Ledger::rewindTo(uint64_t nextBlockId) {
   if (auto committed = commit(); !committed) {
     return committed;
   }
+  ++revision_; // from here blocks may be gone, even if the rest fails
   if (auto rewound = store_.rewindTo(nextBlockId - meta_.startingBlockId); !rewound) {
     return Error("Failed to rewind the block store: " + rewound.error().message);
   }

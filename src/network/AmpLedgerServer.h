@@ -47,6 +47,11 @@ public:
     std::chrono::milliseconds read_timeout{kDefaultReadTimeout};
     /** Whether a peer is served large requests, asked when the channel opens; empty: every peer. */
     std::function<bool(const std::string& remotePeerId)> admit;
+    /**
+     * Whether a peer's large requests have places of their own (its share per peer, outside the node's
+     * share): the peers the node's chain work depends on (LR009). Empty: none.
+     */
+    std::function<bool(const std::string& remotePeerId)> trusted;
     /** The reply to a refused request, sent at once; empty: the channel is reset. */
     std::function<std::string(Refusal)> refusal;
     /** Large requests in progress at once (arriving, or waiting for their answer), from one peer and from all. */

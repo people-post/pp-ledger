@@ -186,6 +186,10 @@ std::string renderHealthMetrics(const std::vector<HealthMetricsTarget> &targets)
         optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.rssBytes; }));
   gauge(out, targets, "pp_ledger_udp_receive_buffer_bytes", "The UDP socket's receive buffer, as granted",
         optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.udpReceiveBufferBytes; }));
+  gauge(out, targets, "pp_ledger_links", "Peer links the node holds (at most maxLinks)",
+        optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.links; }));
+  gauge(out, targets, "pp_ledger_miner_peers", "Peers that registered a miner through the node lately (trusted)",
+        answered([](const H &h) -> std::optional<double> { return static_cast<double>(h.minerPeers); }));
   counter(out, targets, "pp_ledger_udp_receive_drops_total", "Datagrams the OS dropped for want of receive buffer",
           optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.udpReceiveDrops; }));
   counter(out, targets, "pp_ledger_blocks_sealed_total", "Miner: blocks produced and broadcast",

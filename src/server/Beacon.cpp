@@ -54,8 +54,7 @@ bool Beacon::isBeforeDeliveryDeadline(uint64_t slot) const { return chain_.isBef
 
 Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
                                                  const std::string &networkId) const {
-  auto signed_ = chain_.verifyAccountSignatures(miner.id, miner.signingMessage(networkId),
-                                                miner.signatures);
+  auto signed_ = verifyAccountSignatures(miner.id, miner.signingMessage(networkId), miner.signatures);
   if (!signed_) {
     return Error(signed_.error().code, "Registration not signed by miner " + std::to_string(miner.id) + ": " +
                                            signed_.error().message);

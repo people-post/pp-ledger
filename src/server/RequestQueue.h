@@ -23,25 +23,33 @@ namespace pp {
  * (results of a role's outbound calls) back to the server thread. See
  * docs/architecture/THREADING.md.
  *
- * Two lanes: Normal (the node's own work: writes, registration, timing, and
+ * Three lanes: Normal (the node's own work: writes, registration, timing, and
  * completion tasks) and Low (reads such as block sync). Low has its own,
  * smaller capacity and a per-peer cap, so a flood of reads gets "busy"
  * without crowding out normal work; it is served at least once every
- * kNormalPerLow + 1 pops so reads never starve.
+ * kNormalPerLow + 1 pops so reads never starve. Trusted (load-resilience
+ * LR009): everything from the nodes this one serves as upstream — its miners —
+ * and from its upstreams and listed peers, so a flood from strangers cannot
+ * hold up their sync or blocks. Its own capacity and byte budget; served
+ * first, but every kTrustedPerOther + 1 pops another lane gets a turn.
  */
 class RequestQueue {
 public:
   using Clock = std::chrono::steady_clock;
   using Reply = network::AmpLedgerServer::Reply;
 
-  enum class Lane { Normal, Low };
+  enum class Lane { Normal, Low, Trusted };
 
   /** While both lanes have work, serve this many Normal items per Low one. */
   static constexpr size_t kNormalPerLow = 4;
   /** Low-lane requests one peer may have queued at once. */
   static constexpr size_t kLowPerPeer = 16;
-  /** Request bodies queued at once, both lanes (B034: a body may be a 4 MiB block). */
+  /** Request bodies queued at once, Normal and Low together, and Trusted apart (B034: a body may be a 4 MiB block). */
   static constexpr size_t kMaxQueuedBytes = 64 * 1024 * 1024;
+  /** Trusted-lane requests queued at once (all trusted peers). */
+  static constexpr size_t kTrustedCapacity = 256;
+  /** While other lanes have work, serve this many Trusted items per other one. */
+  static constexpr size_t kTrustedPerOther = 8;
 
   /** A request (sender, body, reply), or a completion task when `task` is set. */
   struct Item {
@@ -82,10 +90,13 @@ private:
   std::condition_variable cv_;
   std::deque<Item> normal_;
   std::deque<Item> low_;
+  std::deque<Item> trusted_;
   std::unordered_map<std::string, size_t> lowByPeer_;
   size_t normalStreak_{0};
-  /** Bytes of the request bodies queued. */
+  size_t trustedStreak_{0};
+  /** Bytes of the request bodies queued: Normal and Low, Trusted. */
   size_t bytes_{0};
+  size_t trustedBytes_{0};
   /** Under mu_: an item leaves the queue. */
   void taken(const Item &item);
   bool closed_{false};

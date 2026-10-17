@@ -37,7 +37,7 @@ const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
       {Kind::TxAdd, "tx_add"},           {Kind::TxJunk, "tx_junk"},       {Kind::Status, "status"},
       {Kind::AccountGet, "account_get"}, {Kind::BlockGet, "block_get"}, {Kind::TxByWallet, "tx_get_by_wallet"},
-      {Kind::Big, "big"}};
+      {Kind::Big, "big"},           {Kind::BlockWait, "block_wait"}, {Kind::Register, "register"}};
   return names;
 }
 
@@ -64,6 +64,10 @@ uint32_t requestType(Kind kind) {
     return Client::T_REQ_TX_GET_BY_WALLET;
   case Kind::Big:
     return Client::T_REQ_BLOCK_ADD;
+  case Kind::BlockWait:
+    return Client::T_REQ_BLOCK_WAIT;
+  case Kind::Register:
+    return Client::T_REQ_REGISTER;
   }
   return 0;
 }
@@ -189,11 +193,13 @@ Outcome classify(Kind kind, const Client::Roe<std::string> &reply) {
     break;
   }
   const std::string &message = reply.error().message;
+  if (Client::isTransportError(reply.error().code)) {
+    // Sent and not answered in time, or never sent: no link (a dial that timed out or backs off), no
+    // channel, no free place to the peer.
+    return contains(message, "response timeout") ? Outcome::Timeout : Outcome::Unsent;
+  }
   if (contains(message, "timeout") || contains(message, "timed out")) {
     return Outcome::Timeout;
-  }
-  if (Client::isTransportError(reply.error().code)) {
-    return Outcome::Unsent;
   }
   if (contains(message, "pool full")) {
     return Outcome::PoolFull;
@@ -528,6 +534,17 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     case Kind::Big: {
       static const std::string big(4 * 1024 * 1024 - 4096, 'b'); // under the RPC's limit, no block
       payload = big;
+      break;
+    }
+    case Kind::BlockWait:
+      payload = utl::binaryPack(tip);
+      break;
+    case Kind::Register: {
+      Client::MinerInfo info; // a signature of the right size, so the beacon verifies it
+      info.id = pickAccount().id;
+      info.issuedAt = nowSeconds();
+      info.signatures = {std::string(utl::kMlDsaSignatureBytes, 'r')};
+      payload = utl::binaryPack(info.ltsToMeta());
       break;
     }
     default:
