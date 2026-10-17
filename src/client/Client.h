@@ -233,6 +233,14 @@ public:
     }
   }
 
+  /**
+   * A packed Request with its deadline cut to `remainingMs` (load-resilience LR006): a request that
+   * waited before it was sent (its client's in-flight limit) tells the node what is left, not what
+   * it started with — else a relay forwards with time its client no longer has. Bytes that are not
+   * exactly a packed Request, a version 1 one, or one with no deadline are returned unchanged.
+   */
+  static std::string withRemainingDeadline(const std::string &body, uint32_t remainingMs);
+
   static std::optional<uint32_t> peekRequestType(const std::string &body) {
     if (body.size() < 8) {
       return std::nullopt;
@@ -300,6 +308,8 @@ public:
     uint64_t pendingTransactions{ 0 };
     uint64_t nStakeholders{ 0 };
     bool isSlotLeader{ false };
+    /** The chain's network id (what transactions are signed for); the field BeaconState has too. */
+    std::string networkId;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
@@ -627,6 +637,11 @@ public:
   const ILedgerTransport *transport() const { return transport_.get(); }
 
   Roe<BeaconState> fetchBeaconState();
+  /**
+   * The network id the node's chain has (from STATUS, any role): what a transaction must be signed
+   * for. An error when the node does not say — signed for an empty id, every node would refuse it.
+   */
+  Roe<std::string> fetchNetworkId();
   /** HEALTH of the node this client talks to (any role). */
   Roe<NodeHealth> fetchHealth();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */

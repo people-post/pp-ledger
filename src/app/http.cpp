@@ -618,12 +618,13 @@ static void handleAccountCreate(const httplib::Request& req, httplib::Response& 
   pp::Ledger::Record rec;
   rec.type = pp::Ledger::T_NEW_USER;
   rec.data = std::move(payload);
-  std::string networkId;
-  if (auto st = minerClient.fetchBeaconState()) {
-    networkId = st->networkId;
+  auto networkId = minerClient.fetchNetworkId();
+  if (!networkId) {
+    setJsonError(res, 502, networkId.error().message);
+    return;
   }
   auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     setJsonError(res, 500, std::string("Sign failed: ") + sigResult.error().message);
     return;

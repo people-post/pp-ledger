@@ -225,6 +225,7 @@ pp::common::Meta Client::MinerStatus::ltsToMeta() const {
   m.setUIntForJson("pendingTransactions", pendingTransactions);
   m.setUIntForJson("nStakeholders", nStakeholders);
   m.set("isSlotLeader", isSlotLeader);
+  m.set("networkId", networkId);
   return m;
 }
 
@@ -237,6 +238,7 @@ Client::Roe<bool> Client::MinerStatus::ltsFromMeta(const pp::common::Meta &meta)
   pendingTransactions = meta.getNonNegInt("pendingTransactions").value_or(0);
   nStakeholders = meta.getNonNegInt("nStakeholders").value_or(0);
   isSlotLeader = meta.getOrDefault("isSlotLeader", false);
+  networkId = meta.getOrDefault("networkId", std::string{});
   return true;
 }
 
@@ -765,6 +767,27 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
     return Error(result.error().code, result.error().message);
   }
   return parseBeaconState(result.value());
+}
+
+std::string Client::withRemainingDeadline(const std::string &body, uint32_t remainingMs) {
+  auto request = utl::binaryUnpack<Request>(body);
+  if (!request || request.value().version < 2 || request.value().deadlineMs == 0 ||
+      request.value().deadlineMs <= remainingMs || utl::binaryPack(request.value()) != body) {
+    return body;
+  }
+  request.value().deadlineMs = remainingMs;
+  return utl::binaryPack(request.value());
+}
+
+Client::Roe<std::string> Client::fetchNetworkId() {
+  auto state = fetchBeaconState();
+  if (!state) {
+    return Error(state.error().code, "Cannot read the node's network id: " + state.error().message);
+  }
+  if (state.value().networkId.empty()) {
+    return Error(E_INVALID_RESPONSE, "The node did not say which network it is on (no networkId in its STATUS)");
+  }
+  return state.value().networkId;
 }
 
 void Client::fetchBeaconStateAsync(Done<BeaconState> done) {

@@ -118,3 +118,22 @@ TEST(NodeHealthTest, LoadCountersRoundTripAndRender) {
 }
 
 } // namespace
+
+namespace {
+
+// lr8: a miner's STATUS says which network it is on, under the name a beacon's state uses, so a client
+// that signs for the network a node reports (pp-client add-tx, pp-http, pp-client load) gets it from
+// any role — signed for an empty id, every node refused the transaction.
+TEST(MinerStatusTest, SaysWhichNetworkItIsOn) {
+  Client::MinerStatus miner;
+  miner.minerId = 1048576;
+  miner.networkId = "pp-smoke";
+  Client::MinerStatus back;
+  ASSERT_TRUE(back.ltsFromMeta(miner.ltsToMeta()));
+  EXPECT_EQ(back.networkId, "pp-smoke");
+  Client::BeaconState read; // what fetchBeaconState / fetchNetworkId make of it
+  ASSERT_TRUE(read.ltsFromMeta(miner.ltsToMeta()));
+  EXPECT_EQ(read.networkId, "pp-smoke");
+}
+
+} // namespace

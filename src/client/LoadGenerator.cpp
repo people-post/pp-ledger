@@ -405,6 +405,9 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
     return pp::Error("Cannot reach " + cfg.host + ": " + state.error().message);
   }
   const std::string networkId = state.value().networkId;
+  if (networkId.empty()) {
+    return pp::Error(cfg.host + " did not say which network it is on: cannot sign transfers for it");
+  }
   std::atomic<uint64_t> tip{state.value().nextBlockId};
 
   // Plan every request.
@@ -578,7 +581,8 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
                                if (--shared->outstanding == 0) {
                                  shared->repliesDone.notify_all();
                                }
-                             });
+                             },
+                             cfg.timeout);
   }
   report.seconds = std::chrono::duration<double>(Clock::now() - start).count();
 
@@ -716,6 +720,9 @@ pp::Roe<std::vector<Account>> setup(const SetupConfig &cfg, std::string &network
     return pp::Error("Cannot reach " + cfg.host + ": " + state.error().message);
   }
   networkId = state.value().networkId;
+  if (networkId.empty()) {
+    return pp::Error(cfg.host + " did not say which network it is on: cannot sign for it");
+  }
 
   std::mt19937_64 rng{std::random_device{}()};
   std::vector<Account> wanted;
