@@ -156,6 +156,15 @@ std::string Server::packResponse(uint16_t errorCode, const std::string& message)
   return utl::binaryPack(resp);
 }
 
+std::string Server::packError(uint16_t code, const std::string& message, uint32_t retryAfterMs) {
+  Client::Response resp;
+  resp.version = Client::Response::VERSION;
+  resp.errorCode = code;
+  resp.payload = message;
+  resp.retryAfterMs = retryAfterMs;
+  return utl::binaryPack(resp);
+}
+
 void Server::onStop() { stopAmpServer(); }
 
 void Server::fillHealth(Client::NodeHealth& health) const {
@@ -283,7 +292,7 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
   const auto lane = type ? laneFor(*type) : RequestQueue::Lane::Normal; // malformed: refused when served
   if (!requests_->push(std::move(peerId), std::move(body), reply, lane)) {
     ++requestsBusy_;
-    reply(packResponse(Client::E_SERVER_ERROR, "Server busy, please retry"));
+    reply(packError(Client::E_BUSY, "Server busy, please retry", kBusyRetryAfterMs));
   }
 }
 
@@ -597,7 +606,7 @@ void Server::serveRequestsFor(std::chrono::milliseconds budget) {
     }
     if (RequestQueue::Clock::now() - item->enqueuedAt > maxRequestWait_) {
       ++requestsExpired_;
-      item->reply(packResponse(Client::E_SERVER_ERROR, "Request expired in server queue"));
+      item->reply(packError(Client::E_EXPIRED, "Request expired in server queue"));
       continue;
     }
     serveRequest(*item);
@@ -669,6 +678,17 @@ void Server::serveRequest(const RequestQueue::Item& item) {
     ++requestsRefused_;
     item.reply(packResponse(1, request.error().message));
     return;
+  }
+  // The client's deadline (LR006): a request it gave up on is not served; a handler that forwards
+  // it gets what remains.
+  if (request.value().deadlineMs > 0) {
+    const uint64_t waited = elapsedMs(item.enqueuedAt, RequestQueue::Clock::now());
+    if (waited >= request.value().deadlineMs) {
+      ++requestsExpired_;
+      item.reply(packError(Client::E_EXPIRED, "Request expired in server queue"));
+      return;
+    }
+    request.value().deadlineMs -= static_cast<uint32_t>(waited);
   }
   const uint32_t type = request.value().type;
   if (!isAllowedFrom(type, originOf(item.peerId))) {
@@ -761,11 +781,11 @@ void Server::answerBlockWaits(std::vector<RequestQueue::Reply> replies, uint64_t
 
 void Server::closeRequestQueue() {
   for (auto& reply : blockWaits_.takeAll()) {
-    reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+    reply(packError(Client::E_BUSY, "Server stopping", kBusyRetryAfterMs));
   }
   for (auto& item : requests_->close()) {
     if (item.reply) {
-      item.reply(packResponse(Client::E_SERVER_ERROR, "Server stopping"));
+      item.reply(packError(Client::E_BUSY, "Server stopping", kBusyRetryAfterMs));
     }
   }
 }

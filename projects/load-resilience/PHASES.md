@@ -19,7 +19,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 - [x] **lr4** Pool: cheap admission checks; transactions a leader finds permanently invalid leave
       the pool; a share per sender; drain order and limits as unit tests
 - [x] **lr5** The pull limit from the chain's config (records and bytes), not a constant
-- [ ] **lr6** Overload answers and retries (LR006, LR007): `E_BUSY` / `E_RATE_LIMITED` /
+- [x] **lr6** Overload answers and retries (LR006, LR007): `E_BUSY` / `E_RATE_LIMITED` /
       `E_POOL_FULL` with retry-after; per-peer limit announced and queued for in `pp::Client`; one
       retry policy for transactions (same bytes); the request's deadline forwarded hop by hop (a
       relay's forward at half the client's timeout until then); `pp-client add-tx` resends instead

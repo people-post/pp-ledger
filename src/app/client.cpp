@@ -136,7 +136,7 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
     return 1;
   }
   rec.signatures = {*sigResult};
-  auto result = client.addTransaction(rec);
+  auto result = client.submitTransaction(rec); // the same bytes again on overload (never re-signed)
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -146,13 +146,18 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    uint64_t amount, uint64_t fee, const std::string& key) {
+                    uint64_t amount, uint64_t fee, const std::string& key, uint64_t idempotentId) {
   pp::Ledger::TxDefault tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;
   tx.fee = fee;
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  if (idempotentId != 0) {
+    tx.idempotentId = idempotentId; // run again with the same id, the chain takes it once
+  }
+  std::cout << "Idempotent id: " << tx.idempotentId
+            << " (to run this again safely, pass --idempotent-id " << tx.idempotentId << ")\n";
   return signAndSubmit(client, pp::Ledger::T_DEFAULT, pp::utl::binaryPack(tx), key);
 }
 
@@ -498,7 +503,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
     return 1;
   }
   rec.signatures = {*sigResult};
-  auto result = client.addTransaction(rec);
+  auto result = client.submitTransaction(rec); // the same bytes again on overload (never re-signed)
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -647,7 +652,7 @@ static int runSubmitTx(pp::Client& client, const std::string& filePath) {
     std::cerr << "Error: Invalid tx record file: " << recResult.error().message << "\n";
     return 1;
   }
-  auto result = client.addTransaction(*recResult);
+  auto result = client.submitTransaction(*recResult);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -829,6 +834,9 @@ int main(int argc, char *argv[]) {
       ->default_val(0);
   add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
       ->required();
+  uint64_t addTxIdempotentId = 0;
+  add_tx_cmd->add_option("--idempotent-id", addTxIdempotentId,
+                         "Idempotent id (default: random). The same id again is taken once: a safe re-run");
 
   // miner-register / miner-revoke: the account opts in or out of mining (from the next epoch)
   auto* miner_register_cmd = app.add_subcommand(
@@ -1271,7 +1279,7 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: add-tx submits to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
-      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key);
+      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key, addTxIdempotentId);
     }
   }
   // Handle miner-register / miner-revoke (relay / beacon)

@@ -172,6 +172,19 @@ Outcome classify(Kind kind, const Client::Roe<std::string> &reply) {
     }
     return contains(reply.value(), "already submitted") ? Outcome::Duplicate : Outcome::Taken;
   }
+  switch (reply.error().code) { // the node's own word first (LR007)
+  case Client::E_BUSY:
+  case Client::E_RATE_LIMITED:
+    return Outcome::Busy;
+  case Client::E_POOL_FULL:
+    return Outcome::PoolFull;
+  case Client::E_UPSTREAM_TIMEOUT:
+    return Outcome::Timeout;
+  case Client::E_EXPIRED:
+    return Outcome::Expired;
+  default:
+    break;
+  }
   const std::string &message = reply.error().message;
   if (contains(message, "timeout") || contains(message, "timed out")) {
     return Outcome::Timeout;

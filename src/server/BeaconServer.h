@@ -222,8 +222,10 @@ private:
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
-  /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader. */
-  Roe<std::string> hTxAdd(const Client::Request &request);
+  /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader (E_POOL_FULL when it cannot). */
+  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** When a full pool asks a client to try again (LR007): the blocks it takes to drain, in slots. */
+  uint32_t poolRetryAfterMs() const;
   /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies; the beacon halts on it. */
   Roe<std::string> hEquivocationAdd(const Client::Request &request);
   /** A T_BEACON_CERT in a TX_ADD (ba5c): kept if it is the highest seen; refused if it is not above. */

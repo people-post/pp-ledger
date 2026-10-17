@@ -39,6 +39,8 @@ public:
   static constexpr int32_t E_NETWORK = -2;
   static constexpr int32_t E_ROLE = -3;
   static constexpr int32_t E_REQUEST = -4;
+  /** When a busy node asks a client to try again (Client::E_BUSY). */
+  static constexpr uint32_t kBusyRetryAfterMs = 1000;
 
   Server();
   ~Server() override;
@@ -83,6 +85,9 @@ protected:
 
   static std::string packResponse(const std::string& payload);
   static std::string packResponse(uint16_t errorCode, const std::string& message);
+  /** An overload or deadline answer (Client::E_BUSY …, load-resilience LR007), with when to try again. */
+  static std::string packError(uint16_t code, const std::string& message, uint32_t retryAfterMs = 0);
+
 
   /**
    * In the role's constructor: the core this server serves. The base then answers the chain reads

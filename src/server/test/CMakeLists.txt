@@ -43,3 +43,7 @@ gtest_discover_tests(test_node_health)
 add_executable(test_load_generator test_load_generator.cpp)
 target_link_libraries(test_load_generator PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_load_generator)
+
+add_executable(test_overload test_overload.cpp)
+target_link_libraries(test_overload PRIVATE pp_server GTest::gtest_main)
+gtest_discover_tests(test_overload)

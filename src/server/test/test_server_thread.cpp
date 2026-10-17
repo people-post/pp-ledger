@@ -267,7 +267,8 @@ TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   server.enqueueRequest(packRequest("c"), replies.sink());
 
   ASSERT_EQ(replies.size(), 1u);  // refused at once, not queued
-  EXPECT_NE(replies.items[0].errorCode, 0);
+  EXPECT_EQ(replies.items[0].errorCode, Client::E_BUSY);
+  EXPECT_EQ(replies.items[0].retryAfterMs, EchoServer::kBusyRetryAfterMs);
   EXPECT_NE(replies.items[0].payload.find("busy"), std::string::npos);
 
   server.serveRequestsFor(50ms);
@@ -495,6 +496,27 @@ TEST(ServerThreadTest, RequestsAreCountedByOutcome) {
   server.serveRequestsFor(20ms);
   EXPECT_EQ(server.healthNow().requestsExpired, 1u);
   EXPECT_EQ(server.healthNow().requests[0].served, 1u) << "an expired request is not served";
+}
+
+// LR006: a request its client has stopped waiting for is answered E_EXPIRED, not served.
+TEST(ServerThreadTest, ARequestPastItsDeadlineIsNotServed) {
+  Replies replies;
+  EchoServer server;
+  Client::Request request;
+  request.type = Client::T_REQ_STATUS;
+  request.payload = "late";
+  request.deadlineMs = 1;
+  server.enqueueRequest(utl::binaryPack(request), replies.sink(), "a");
+  request.payload = "in time";
+  request.deadlineMs = 60000;
+  server.enqueueRequest(utl::binaryPack(request), replies.sink(), "a");
+  std::this_thread::sleep_for(5ms);
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_EQ(replies.items[0].errorCode, Client::E_EXPIRED);
+  EXPECT_EQ(replies.items[1].errorCode, 0);
+  EXPECT_EQ(server.handled.load(), 1);
+  EXPECT_EQ(server.healthNow().requestsExpired, 1u);
 }
 
 // load-resilience lr1: a run-loop turn longer than a second (a slow handler or duty) is counted.

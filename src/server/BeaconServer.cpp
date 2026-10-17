@@ -1018,7 +1018,8 @@ void BeaconServer::initHandlers() {
   handle(Client::T_REQ_BLOCK_ADD, [this](const Client::Request &request) { return hBlockAdd(request); });
   handle(Client::T_REQ_REGISTER, [this](const Client::Request &request) { return hRegister(request); });
   handle(Client::T_REQ_MINER_LIST, [this](const Client::Request &request) { return hMinerList(request); });
-  handle(Client::T_REQ_TX_ADD, [this](const Client::Request &request) { return hTxAdd(request); });
+  handleLater(Client::T_REQ_TX_ADD,
+              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dTxAdd(request, reply); });
   handle(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request) { return hEquivocationAdd(request); });
   handle(Client::T_REQ_TX_PULL, [this](const Client::Request &request) { return hTxPull(request); });
 }
@@ -1177,52 +1178,72 @@ std::string BeaconServer::tipReply() const {
   return utl::binaryPack(reply);
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hTxAdd(const Client::Request &request) {
+void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+  auto refuse = [&reply](const std::string &message) { replyWith(reply, Roe<std::string>(Error(E_REQUEST, message))); };
   auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
   if (!record) {
-    return Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message);
+    refuse("Failed to deserialize transaction: " + record.error().message);
+    return;
   }
   if (!record.value().decode()) {
-    return Error(E_REQUEST, "Unknown or malformed transaction payload");
+    refuse("Unknown or malformed transaction payload");
+    return;
   }
   const bool certificate = record.value().type == Ledger::T_BEACON_CERT;
   if (certificate) {
     if (auto kept = offerCertificate(record.value()); !kept) {
-      return kept.error();
+      refuse(kept.error().message);
+      return;
     }
   }
   if (const auto by = beacon_.supersededBy()) {
     const std::string why = "beacon generation " + std::to_string(*by) + " certifies another key";
     if (certificate) {
-      return {"Beacon certificate kept; this beacon stood down: " + why};
+      reply(packResponse("Beacon certificate kept; this beacon stood down: " + why));
+    } else {
+      refuse("This beacon stood down: " + why);
     }
-    return Error(E_REQUEST, "This beacon stood down: " + why);
+    return;
   }
   // Halted (ba6): only a certificate — the way out — is still taken.
   if (const auto above = beacon_.haltedAbove(); above && !certificate) {
-    return Error(E_REQUEST, haltedMessage(*above));
+    refuse(haltedMessage(*above));
+    return;
   }
   const int64_t now = nowSeconds();
   // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
   // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
   if (auto admitted = beacon_.checkAdmission(record.value(), now, /*verifySignatures=*/true); !admitted) {
-    return Error(E_REQUEST, "Transaction refused: " + admitted.error().message);
+    refuse("Transaction refused: " + admitted.error().message);
+    return;
   }
   txPool_.expire(now);
   const auto key = beacon_.idempotencyKeyOf(record.value());
   switch (txPool_.add(record.value(), now, key ? std::optional<uint64_t>(key->first) : std::nullopt)) {
   case TxPool::Add::Added:
-    return {"Transaction submitted"};
+    reply(packResponse("Transaction submitted"));
+    return;
   case TxPool::Add::Duplicate:
-    return {"Transaction already submitted"};
+    reply(packResponse("Transaction already submitted"));
+    return;
   case TxPool::Add::Full:
-    return Error(E_REQUEST, "Transaction pool full, please retry later");
+    reply(packError(Client::E_POOL_FULL, "Transaction pool full, please retry later", poolRetryAfterMs()));
+    return;
   case TxPool::Add::SenderFull:
-    return Error(E_REQUEST, "Too many transactions of account " + std::to_string(key->first) +
-                                " pooled, please retry later");
+    reply(packError(Client::E_POOL_FULL,
+                    "Too many transactions of account " + std::to_string(key->first) + " pooled, please retry later",
+                    poolRetryAfterMs()));
+    return;
   }
-  return Error(E_REQUEST, "Transaction not accepted");
+  refuse("Transaction not accepted");
+}
+
+uint32_t BeaconServer::poolRetryAfterMs() const {
+  // About when the blocks ahead will have taken what is pooled now: a slot per block's worth.
+  const uint64_t slotMs = std::max<uint64_t>(beacon_.getSlotDuration(), 1) * 1000;
+  const uint64_t perBlock = std::max<uint64_t>(beacon_.getMaxTransactionsPerBlock(), 1);
+  const uint64_t blocks = (txPool_.size() + perBlock - 1) / perBlock;
+  return static_cast<uint32_t>(std::clamp<uint64_t>(blocks * slotMs, slotMs, 60000));
 }
 
 BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request &request) {

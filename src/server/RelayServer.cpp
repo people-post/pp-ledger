@@ -248,12 +248,16 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_NETWORK, "Failed to dial beacon: " + dial.error().message)));
     return;
   }
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
+    return;
+  }
   client_.addBlockAsync(block, completeOnServerThread<Client::TipReply>([this, block, reply](
                                                                             Client::Roe<Client::TipReply> result) {
     if (!result) {
       // The upstream followed refused a block: it may stand behind a beacon that stood down (bp3).
       upstreams_->suspect("the upstream refused block " + std::to_string(block.block.index));
-      replyWith(reply, Roe<std::string>(Error(E_NETWORK, result.error().message)));
+      replyUpstreamError(reply, result.error());
       return;
     }
     // Store it now only if the beacon's signed tip vouches for it; otherwise sync brings it.
@@ -262,7 +266,7 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
     }
     noteSignedTip(result.value().tip()); // after the block: it may certify the tip's generation
     reply(packResponse(utl::binaryPack(result.value()))); // the beacon's reply, unchanged
-  }));
+  }), *budget);
 }
 
 void RelayServer::dRegister(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -281,12 +285,15 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
   if (!dialUpstreamFor(reply)) {
     return;
   }
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
+    return;
+  }
   client_.registerMinerServerAsync(
       minerInfo, completeOnServerThread<Client::BeaconState>(
                      [this, reply](Client::Roe<Client::BeaconState> state) {
                        if (!state) {
-                         replyWith(reply, Roe<std::string>(Error(
-                                              E_NETWORK, "Upstream register failed: " + state.error().message)));
+                         replyUpstreamError(reply, state.error(), "Upstream register failed: ");
                          return;
                        }
                        registryVersion_ = state.value().registryVersion;
@@ -295,7 +302,8 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
                        }
                        noteSignedTip(state.value().signedTip);
                        reply(packResponse(utl::binaryPack(state.value().ltsToMeta())));
-                     }));
+                     }),
+      *budget);
 }
 
 RelayServer::Roe<std::string>
@@ -312,23 +320,34 @@ void RelayServer::dTxPull(const Client::Request &request, const RequestQueue::Re
   if (!dialUpstreamFor(reply)) {
     return;
   }
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
+    return;
+  }
   client_.pullTransactionsAsync(
-      slot.value(), completeOnServerThread<std::vector<Ledger::Record>>(
-                        [reply](Client::Roe<std::vector<Ledger::Record>> records) {
-                          replyWith(reply, records ? Roe<std::string>(utl::binaryPack(records.value()))
-                                                   : Roe<std::string>(Error(E_NETWORK, records.error().message)));
-                        }));
+      slot.value(),
+      completeOnServerThread<std::vector<Ledger::Record>>([reply](Client::Roe<std::vector<Ledger::Record>> records) {
+        if (records) {
+          reply(packResponse(utl::binaryPack(records.value())));
+        } else {
+          replyUpstreamError(reply, records.error());
+        }
+      }),
+      *budget);
 }
 
-void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQueue::Reply &reply) {
+void RelayServer::dMinerList(const Client::Request &request, const RequestQueue::Reply &reply) {
   if (!dialUpstreamFor(reply)) {
+    return;
+  }
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
     return;
   }
   client_.fetchMinerListAsync(completeOnServerThread<std::vector<Client::MinerInfo>>(
       [reply](Client::Roe<std::vector<Client::MinerInfo>> miners) {
         if (!miners) {
-          replyWith(reply, Roe<std::string>(Error(
-                               E_NETWORK, "Failed to fetch miner list from upstream: " + miners.error().message)));
+          replyUpstreamError(reply, miners.error(), "Failed to fetch miner list from upstream: ");
           return;
         }
         std::vector<pp::common::Meta> list;
@@ -337,7 +356,7 @@ void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQ
           list.push_back(miner.ltsToMeta());
         }
         reply(packResponse(utl::binaryPack(list)));
-      }));
+      }), *budget);
 }
 
 } // namespace pp

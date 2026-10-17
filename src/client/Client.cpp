@@ -1,5 +1,9 @@
 #include "AmpLedgerTransport.h"
 #include "Client.h"
+#include <algorithm>
+#include <variant>
+#include <thread>
+#include <random>
 #include "common/Logger.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
@@ -565,11 +569,12 @@ std::string Client::getErrorMessage(uint16_t errorCode) {
   }
 }
 
-std::string Client::packRequest(uint32_t type, const std::string &payload) {
+std::string Client::packRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout) {
   Request req;
   req.version = Request::VERSION;
   req.type = type;
   req.payload = payload;
+  req.deadlineMs = static_cast<uint32_t>(std::clamp<int64_t>(timeout.count(), 0, UINT32_MAX));
   log().debug << "Sending binary request: " << req;
   return utl::binaryPack(req);
 }
@@ -585,7 +590,9 @@ Client::Roe<std::string> Client::parseResponse(const ILedgerTransport::Roe<std::
   }
   const Response &resp = respResult.value();
   if (resp.isError()) {
-    return Error(E_SERVER_ERROR, resp.payload);
+    Error error(isOverloadCode(resp.errorCode) ? resp.errorCode : E_SERVER_ERROR, resp.payload);
+    error.retryAfterMs = resp.retryAfterMs;
+    return error;
   }
   return resp.payload;
 }
@@ -595,7 +602,7 @@ Client::Roe<std::string> Client::sendRequest(uint32_t type, const std::string &p
   if (!transport_) {
     return Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED));
   }
-  return parseResponse(transport_->roundTrip(packRequest(type, payload), timeout));
+  return parseResponse(transport_->roundTrip(packRequest(type, payload, timeout), timeout));
 }
 
 void Client::sendRequestAsync(uint32_t type, const std::string &payload,
@@ -604,16 +611,17 @@ void Client::sendRequestAsync(uint32_t type, const std::string &payload,
     done(Error(E_NOT_CONNECTED, getErrorMessage(E_NOT_CONNECTED)));
     return;
   }
-  transport_->roundTripAsync(packRequest(type, payload), timeout,
+  transport_->roundTripAsync(packRequest(type, payload, timeout), timeout,
                              [done = std::move(done)](ILedgerTransport::Roe<std::string> result) {
                                done(parseResponse(result));
                              });
 }
 
-void Client::requestAsync(uint32_t type, const std::string &payload, Done<std::string> done) {
+void Client::requestAsync(uint32_t type, const std::string &payload, Done<std::string> done,
+                          std::chrono::milliseconds timeout) {
   const bool carriesData = type == T_REQ_TX_ADD || type == T_REQ_BLOCK_ADD || type == T_REQ_BLOCK_GET ||
                            type == T_REQ_TX_GET_BY_WALLET;
-  sendRequestAsync(type, payload, carriesData ? dataTimeout() : fastTimeout(), std::move(done));
+  sendRequestAsync(type, payload, orDefault(timeout, carriesData ? dataTimeout() : fastTimeout()), std::move(done));
 }
 
 // BeaconServer API - Block operations (binary T_REQ_BLOCK_GET)
@@ -730,11 +738,11 @@ Client::Roe<Client::BeaconState> Client::registerMinerServer(const MinerInfo &mi
   return parseBeaconState(result.value());
 }
 
-void Client::registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done) {
-  sendRequestAsync(T_REQ_REGISTER, utl::binaryPack(minerInfo.ltsToMeta()), fastTimeout(),
+void Client::registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done,
+                                      std::chrono::milliseconds timeout) {
+  sendRequestAsync(T_REQ_REGISTER, utl::binaryPack(minerInfo.ltsToMeta()), orDefault(timeout, fastTimeout()),
                    [done = std::move(done)](Roe<std::string> result) {
-                     done(result ? parseBeaconState(result.value())
-                                 : Roe<BeaconState>(Error(result.error().code, result.error().message)));
+                     done(result ? parseBeaconState(result.value()) : Roe<BeaconState>(result.error()));
                    });
 }
 
@@ -809,10 +817,9 @@ Client::Roe<std::vector<Client::MinerInfo>> Client::fetchMinerList() {
   return parseMinerList(result.value());
 }
 
-void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done) {
-  sendRequestAsync(T_REQ_MINER_LIST, "", fastTimeout(), [done = std::move(done)](Roe<std::string> result) {
-    done(result ? parseMinerList(result.value())
-                : Roe<std::vector<MinerInfo>>(Error(result.error().code, result.error().message)));
+void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono::milliseconds timeout) {
+  sendRequestAsync(T_REQ_MINER_LIST, "", orDefault(timeout, fastTimeout()), [done = std::move(done)](Roe<std::string> result) {
+    done(result ? parseMinerList(result.value()) : Roe<std::vector<MinerInfo>>(result.error()));
   });
 }
 
@@ -862,15 +869,55 @@ Client::Roe<Client::TipReply> Client::addBlock(const Ledger::ChainNode& block) {
   return parseTipReply(result.value());
 }
 
-void Client::addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done) {
+void Client::addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done, std::chrono::milliseconds timeout) {
   log().debug << "Adding block " << block.block.index;
-  sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), dataTimeout(),
+  sendRequestAsync(T_REQ_BLOCK_ADD, block.ltsToString(), orDefault(timeout, dataTimeout()),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? parseTipReply(result.value()) : Roe<TipReply>(result.error()));
                    });
 }
 
 // MinerServer API - Transaction operations
+
+Client::Roe<std::string> Client::submitTransaction(const Ledger::Record &record, std::chrono::milliseconds maxWait) {
+  using Clock = std::chrono::steady_clock;
+  auto deadline = Clock::now() + maxWait;
+  // The transaction's own window bounds it too: past it, no node would take it.
+  if (auto typed = record.decode()) {
+    std::visit(
+        [&](const auto &tx) {
+          using T = std::decay_t<decltype(tx)>;
+          if constexpr (std::is_base_of_v<Ledger::TxIdempotencyWindow, T>) {
+            if (tx.validationTsMax > 0) {
+              const auto left = std::chrono::seconds(tx.validationTsMax) -
+                                std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::system_clock::now().time_since_epoch());
+              deadline = std::min(deadline, Clock::now() + std::max(left, std::chrono::seconds(0)));
+            }
+          }
+        },
+        typed.value());
+  }
+  const std::string body = utl::binaryPack(record);
+  std::mt19937 rng{std::random_device{}()};
+  auto backoff = std::chrono::milliseconds(500);
+  for (;;) {
+    auto result = sendRequest(T_REQ_TX_ADD, body, dataTimeout());
+    if (result || !isRetryable(result.error())) {
+      return result;
+    }
+    auto wait = result.error().retryAfterMs > 0 ? std::chrono::milliseconds(result.error().retryAfterMs) : backoff;
+    backoff = std::min(backoff * 2, std::chrono::milliseconds(10000));
+    wait = std::chrono::milliseconds(
+        static_cast<int64_t>(static_cast<double>(wait.count()) * std::uniform_real_distribution<double>(0.8, 1.2)(rng)));
+    if (Clock::now() + wait >= deadline) {
+      return result;
+    }
+    log().info << "Transaction not taken yet (" << result.error().message << "): sending it again in " << wait.count()
+               << " ms";
+    std::this_thread::sleep_for(wait);
+  }
+}
 
 Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   log().debug << "Adding transaction";
@@ -884,10 +931,12 @@ Client::Roe<void> Client::addTransaction(const Ledger::Record &record) {
   return {};
 }
 
-void Client::pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done) {
-  sendRequestAsync(T_REQ_TX_PULL, utl::binaryPack(slot), dataTimeout(), [done = std::move(done)](Roe<std::string> result) {
+void Client::pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done,
+                                   std::chrono::milliseconds timeout) {
+  sendRequestAsync(T_REQ_TX_PULL, utl::binaryPack(slot), orDefault(timeout, dataTimeout()),
+                   [done = std::move(done)](Roe<std::string> result) {
     if (!result) {
-      done(Roe<std::vector<Ledger::Record>>(Error(result.error().code, result.error().message)));
+      done(Roe<std::vector<Ledger::Record>>(result.error()));
       return;
     }
     auto records = utl::binaryUnpack<std::vector<Ledger::Record>>(result.value());
@@ -900,12 +949,13 @@ Client::Roe<std::string> Client::addEquivocation(const Equivocation &evidence) {
   return sendRequest(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), dataTimeout());
 }
 
-void Client::addEquivocationAsync(const Equivocation &evidence, Done<std::string> done) {
-  sendRequestAsync(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), dataTimeout(), std::move(done));
+void Client::addEquivocationAsync(const Equivocation &evidence, Done<std::string> done,
+                                  std::chrono::milliseconds timeout) {
+  sendRequestAsync(T_REQ_EQUIVOCATION_ADD, evidence.ltsToString(), orDefault(timeout, dataTimeout()), std::move(done));
 }
 
-void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done) {
-  sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), dataTimeout(),
+void Client::addTransactionAsync(const Ledger::Record &record, Done<void> done, std::chrono::milliseconds timeout) {
+  sendRequestAsync(T_REQ_TX_ADD, utl::binaryPack(record), orDefault(timeout, dataTimeout()),
                    [done = std::move(done)](Roe<std::string> result) {
                      done(result ? Roe<void>() : Roe<void>(result.error()));
                    });

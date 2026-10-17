@@ -4,6 +4,8 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 
+#include <algorithm>
+
 namespace pp {
 
 FollowerServer::FollowerServer(const std::string &name) {
@@ -325,6 +327,40 @@ bool FollowerServer::dialUpstreamFor(const RequestQueue::Reply &reply) {
   return true;
 }
 
+std::chrono::milliseconds FollowerServer::forwardBudget(const Client::Request &request) {
+  if (request.deadlineMs == 0) {
+    return network::NetworkTuning::dataTimeoutFor(network::NetworkTuning::kDefaultRpcTimeout) / 2;
+  }
+  const auto deadline = std::chrono::milliseconds(request.deadlineMs);
+  const auto margin = std::clamp(deadline / 10, std::chrono::milliseconds(250), std::chrono::milliseconds(2000));
+  return deadline > margin ? deadline - margin : std::chrono::milliseconds(0);
+}
+
+std::optional<std::chrono::milliseconds> FollowerServer::forwardOrExpire(const Client::Request &request,
+                                                                         const RequestQueue::Reply &reply) {
+  const auto budget = forwardBudget(request);
+  if (budget < kMinForward) {
+    reply(packError(Client::E_EXPIRED, "No time left to forward the request within its deadline"));
+    return std::nullopt;
+  }
+  return budget;
+}
+
+void FollowerServer::replyUpstreamError(const RequestQueue::Reply &reply, const Client::Error &error,
+                                        const std::string &prefix) {
+  if (Client::isOverloadCode(error.code)) {
+    reply(packError(static_cast<uint16_t>(error.code), prefix + error.message, error.retryAfterMs));
+  } else if (Client::isTransportError(error.code) && error.message.find("response timeout") != std::string::npos) {
+    reply(packError(Client::E_UPSTREAM_TIMEOUT,
+                    prefix + "The upstream did not answer in time: it may have taken the request; sending the same "
+                             "bytes again is safe"));
+  } else if (Client::isTransportError(error.code)) {
+    reply(packError(Client::E_BUSY, prefix + "Upstream unreachable: " + error.message, kBusyRetryAfterMs));
+  } else {
+    reply(packResponse(1, prefix + error.message));
+  }
+}
+
 std::optional<Chain::CertificateOffer> FollowerServer::noteCertificate(const Ledger::Record &record,
                                                                        const std::string &from) {
   auto offered = follower().noteCertificate(record, from);
@@ -446,16 +482,22 @@ void FollowerServer::dTxAdd(const Client::Request &request, const RequestQueue::
                                   : Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
+    return;
+  }
   // Up the tree to the beacon's pool, where the slot leader pulls it: miners never need each other's
-  // addresses.
-  client_.addTransactionAsync(record.value(), completeOnServerThread<void>([reply, kept](Client::Roe<void> result) {
-    if (result) {
-      replyWith(reply, Roe<std::string>("Transaction submitted"));
-    } else {
-      replyWith(reply, kept.empty() ? Roe<std::string>(Error(E_NETWORK, result.error().message))
-                                    : Roe<std::string>(kept + "; the upstream refused it: " + result.error().message));
-    }
-  }));
+  // addresses. The reply text is the beacon's (submitted, or already submitted).
+  client_.requestAsync(
+      Client::T_REQ_TX_ADD, request.payload,
+      completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+        if (result) {
+          reply(packResponse(result.value()));
+        } else {
+          replyUpstreamError(reply, result.error(), kept.empty() ? "" : kept + "; the upstream: ");
+        }
+      }),
+      *budget);
 }
 
 void FollowerServer::dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -473,9 +515,16 @@ void FollowerServer::dEquivocationAdd(const Client::Request &request, const Requ
     replyWith(reply, Roe<std::string>(kept + "; not forwarded: " + dial.error().message));
     return;
   }
-  client_.addEquivocationAsync(evidence, completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
-    replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
-  }));
+  const auto budget = forwardOrExpire(request, reply);
+  if (!budget) {
+    return;
+  }
+  client_.addEquivocationAsync(
+      evidence,
+      completeOnServerThread<std::string>([reply, kept](Client::Roe<std::string> result) {
+        replyWith(reply, Roe<std::string>(kept + "; upstream: " + (result ? result.value() : result.error().message)));
+      }),
+      *budget);
 }
 
 } // namespace pp
