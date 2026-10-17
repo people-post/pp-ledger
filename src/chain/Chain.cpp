@@ -2,6 +2,7 @@
 #include "AccountPolicy.h"
 #include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
+#include "ConfigPolicy.h"
 #include "EndUserTxHandler.h"
 #include "MinerLiveness.h"
 #include "RecordHandler.h"
@@ -457,6 +458,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   }
 
   size_t nBlocksScanned = 0;
+  size_t outBytes = 0;
   uint64_t currentBlockId = ioBlockId;
   while (currentBlockId > 0 &&
          nBlocksScanned < MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
@@ -467,11 +469,22 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
                    "Block not found: " + std::to_string(currentBlockId));
     }
     auto const &recs = blockRoe.value().block.records;
+    std::vector<Ledger::Record> matches;
+    size_t matchBytes = 0;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
       if (recordHandler_.matchesWalletForIndex(*it, walletId)) {
-        out.push_back(*it);
+        matchBytes += utl::binaryPack(*it).size();
+        matches.push_back(*it);
       }
     }
+    // A reply stays within what one block may take (B034): a block's matches always fit, whole
+    // blocks per page; the next page starts at the block left out.
+    if (!out.empty() && outBytes + matchBytes > chain_tx::kMaxBlockBytesCeiling) {
+      ioBlockId = currentBlockId + 1;
+      return out;
+    }
+    outBytes += matchBytes;
+    out.insert(out.end(), std::make_move_iterator(matches.begin()), std::make_move_iterator(matches.end()));
     ++nBlocksScanned;
     if (out.size() >= THRESHOLD_TXES_FOR_WALLET_TX) {
       break;

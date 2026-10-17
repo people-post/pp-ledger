@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -34,8 +35,8 @@ public:
   explicit TxPool(Limits limits) : limits_(limits) {}
 
   Add add(const Ledger::Record &record, int64_t nowSec);
-  /** Oldest first, at most `max`. */
-  std::vector<Ledger::Record> pending(size_t max) const;
+  /** Oldest first, at most `max` records and `maxBytes` packed (stops at the first that would pass). */
+  std::vector<Ledger::Record> pending(size_t max, size_t maxBytes = SIZE_MAX) const;
   /** Drop records a committed block included. */
   void removeIncluded(const std::vector<Ledger::Record> &records);
   /** Drop records past their validity window (or TTL); returns how many. */

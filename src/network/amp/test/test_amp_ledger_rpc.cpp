@@ -194,6 +194,55 @@ TEST_F(AmpLedgerRpcTest, ServerDropsChannelThatNeverSends) {
   EXPECT_EQ(state(), pp::amp::ChannelState::Closed);
 }
 
+// B034: a record of a mebibyte (the largest account meta by default) travels, as blocks up to
+// maxBlockBytes do; the RPC no longer stops at 512 KiB.
+TEST_F(AmpLedgerRpcTest, AMebibyteTravels) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; });
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+  const std::string payload(1024 * 1024, 'm');
+  auto response = transport.roundTrip(payload, std::chrono::seconds(30));
+  ASSERT_TRUE(response.isOk()) << response.error().message;
+  EXPECT_EQ(response.value().size(), payload.size());
+}
+
+// B034: a peer has at most kMaxReceivingPerPeer requests arriving at once; one more channel is
+// reset, so a peer cannot make the node buffer more than that many messages.
+TEST_F(AmpLedgerRpcTest, APeerHasAFewRequestsArrivingAtOnce) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
+                                     std::chrono::milliseconds(60000));
+  std::vector<uint32_t> channels;
+  for (size_t i = 0; i <= pp::ledger::rpc::kMaxReceivingPerPeer; ++i) {
+    h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
+                                      pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
+                                      [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
+                                        if (ch) {
+                                          channels.push_back(ch.value());
+                                        }
+                                      });
+  }
+  auto state = [&](uint32_t id) {
+    auto* link = h->runtime_a->Links().FindLink("b");
+    return link && link->Mux() ? link->Mux()->State(id) : pp::amp::ChannelState::Closed;
+  };
+  for (size_t i = 0; i < 400; ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_EQ(channels.size(), pp::ledger::rpc::kMaxReceivingPerPeer + 1);
+  size_t open = 0;
+  for (uint32_t id : channels) {
+    open += state(id) == pp::amp::ChannelState::Open ? 1 : 0;
+  }
+  EXPECT_EQ(open, pp::ledger::rpc::kMaxReceivingPerPeer) << "one past the limit is reset";
+}
+
 TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   auto created = RpcHarness::Create();
   ASSERT_TRUE(created.isOk());
@@ -326,8 +375,8 @@ TEST_F(AmpLedgerRpcTest, ClientRejectsOversizeRequest) {
     return body;
   });
 
-  // L-ADV-INGRESS: AmpLedgerTransport refuses bodies above kMaxPayloadBytes.
-  const std::string huge(pp::ledger::rpc::kMaxPayloadBytes + 1, 'x');
+  // L-ADV-INGRESS: AmpLedgerTransport refuses bodies above kMaxMessageBytes.
+  const std::string huge(pp::ledger::rpc::kMaxMessageBytes + 1, 'x');
   pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
   auto response = transport.roundTrip(huge, std::chrono::seconds(2));
   EXPECT_TRUE(response.isError());
@@ -709,7 +758,7 @@ TEST_F(AmpLedgerRpcTest, ThreadedMessageLargerThanTransportWindow) {
   pp::AmpLedgerTransport transport(pair.a, "b");
   ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
   ExpectEchoes(transport, {200 * 1024});
-  ExpectEchoes(transport, {pp::ledger::rpc::kMaxPayloadBytes - 64});
+  ExpectEchoes(transport, {pp::ledger::rpc::kMaxMessageBytes - 64});
 }
 
 // Regression for pp-cpp-amp < v2.13.2: over real UDP a burst loses a packet;

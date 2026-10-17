@@ -137,7 +137,7 @@ not installed in `RecordHandler`.
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  10) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  11) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), and `authority` (below). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
   checkpoint reads — must carry the config in force for its block, if an update is still pending
@@ -190,7 +190,7 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
 
 - Renewal re-records an account's state in a recent block so old blocks can be
   dropped after a checkpoint; every account, system ones included, must renew
-  when due: an account last written before block `maxBlockIdForRenewal(x)` renews in block *x*,
+  when due: an account last written before block `maxBlockIdForRenewal(x)` is due in block *x*,
   where the cut-off is the newer limit of `x - checkpoint.minBlocks + 1` and the first block at or
   after `slotStart(x.slot) - checkpoint.minAgeSeconds` (`calculateMaxBlockIdForRenewal`; the
   block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
@@ -200,20 +200,34 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
   (packed `map<tokenId, int64>`; Full checks them against the account), so a node that does not
   hold the account still credits the recycle account.
+- **Due renewals may wait** when they do not fit the block's limits (beacon-authority B035): a
+  block that leaves a due renewal out holds renewals (`T_RENEWAL`, `T_END_USER`) only — at least
+  one — and at most a `T_BEACON_CERT`; every other block renews every account due. Leaders take
+  them genesis and system accounts first, then by id, while they fit.
 - Live state is an in-memory `AccountBuffer`; durable history is the block log.
 - **Checkpoints** are where a miner can start (BLOCK_PIPELINE § Checkpoints and late join): block
-  *C* becomes the next checkpoint when it is the first block of its epoch, at least
-  `checkpoint.minBlocks` after the current one, and the current one's block is more than
-  `checkpoint.minAgeSeconds` older than the slot of block *C−1* — so every account last written
-  before the current checkpoint renewed by then. A checkpoint block opens with the genesis
-  renewal (due or not): config, pending update, admin set and authority. The newest two are kept;
+  *C* is **eligible** when it is the first block of its epoch, at least `checkpoint.minBlocks`
+  after the current one, and the current one's block is more than `checkpoint.minAgeSeconds` older
+  than the slot of block *C−1* — so every account last written before the current checkpoint was
+  due by then. An eligible block **is** the next checkpoint when it opens with the genesis renewal
+  (due or not): config, pending update, admin set and authority. It may only when no account last
+  written before the current checkpoint still waits for its renewal (Full validation, state before
+  the block); otherwise the genesis renewal waits (it may not appear elsewhere in an eligible
+  block), and the checkpoint with it, to a later epoch start (B035). The newest two are kept;
   `STATUS.checkpointId` is the older, where a joining miner starts.
+- <a id="block-size"></a>**Block size** (B034): a block's packed bytes (`Block::ltsToString`, as
+  stored and sent) may not pass `maxBlockBytes`, nor its records `maxTransactionsPerBlock` —
+  renewals included. `maxBlockBytes` is at most 4 MiB (what the RPC carries in one message,
+  [AMP_TRANSPORT.md](AMP_TRANSPORT.md#protocol)) and leaves room for the largest record:
+  `maxCustomMetaSize` + 256 KiB (keys, signatures, fields) + 64 KiB (header) ≤ `maxBlockBytes`
+  (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **8**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **11**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
-(empty-seal lag; `0` disables), issuance and account fees, and the miner settings
-([Miner registration and liveness](#miner-registration-and-liveness)).
+(empty-seal lag; `0` disables), issuance and account fees, the miner settings
+([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`
+([Block size](#block-size); last, version 11).
 
 ## Epoch seed
 

@@ -143,7 +143,8 @@ budgets rather than signing onboarding with reserve or genesis.
 | `slotDuration` | 7 | Seconds per slot |
 | `slotsPerEpoch` | 86400 | Slots per epoch |
 | `heartbeatSlots` | `slotsPerEpoch` | Empty block when the tip lags this many slots (0 = off; at most `slotsPerEpoch`) |
-| `maxTransactionsPerBlock` | 10240 | |
+| `maxTransactionsPerBlock` | 10240 | Records a block may hold, renewals included (due renewals that do not fit wait) |
+| `maxBlockBytes` | 4 MiB | Bytes a block may take, as stored and sent; at most 4 MiB (what the RPC carries) and room for the largest record: `maxCustomMetaSize` + 320 KiB ([WIRE_SCHEMA.md § Block size](../contracts/WIRE_SCHEMA.md#block-size)) |
 | `maxCustomMetaSize` / `freeCustomMetaSize` | 1 MiB / 1024 | Account meta bytes allowed / free of fee |
 | `minFeeCoefficients` | `[1, 1, 1]` | Fee = a + b·x + c·x², x = non-free meta KiB (rounded up) |
 | `newAccountFee` | 0 | One-time fee every account creation after genesis pays on top of the above, to the fee account. `0` = none. Creation pays both up front: the meta-size fee (the same formula renewal charges) covers the account's first period, until renewal falls due about a year later; each renewal then pays for the next period |
@@ -328,4 +329,6 @@ Not configurable. Every request deadline derives from one RPC timeout T = 15 s
 | Relay / miner startup sync (a miner's wait for an upstream to answer included) | 5 min |
 
 The request queue holds 1024 requests (reads get a further quarter in a
-low-priority lane, at most 16 per peer).
+low-priority lane, at most 16 per peer) and 64 MiB of request bodies. A peer may have 16 requests
+arriving at once; requests other than `BLOCK_ADD` and `TX_ADD` are at most 64 KiB, those two up to
+a block (4 MiB) plus 64 KiB ([AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md#protocol)).

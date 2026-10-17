@@ -4,6 +4,7 @@
 #include "RequestQueue.h"
 #include "BlockSync.h"
 #include "Server.h"
+#include "../network/LedgerRpcProtocol.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/io/Json.h"
 
@@ -763,6 +764,31 @@ TEST(TxPoolTest, ExpiresAtValidityWindowOrTtl) {
   EXPECT_EQ(pool.size(), 0u);
 }
 
+// B034: a pull hands out no more than a block can take, oldest first, in order.
+TEST(TxPoolTest, PendingStopsAtTheByteBudget) {
+  TxPool pool;
+  auto a = transfer(1, 2000), b = transfer(2, 2000), c = transfer(3, 2000);
+  pool.add(a, 1000);
+  pool.add(b, 1000);
+  pool.add(c, 1000);
+  const size_t one = utl::binaryPack(a).size();
+  const auto two = pool.pending(10, 2 * one + one / 2);
+  ASSERT_EQ(two.size(), 2u);
+  EXPECT_EQ(two.back().data, b.data);
+  EXPECT_TRUE(pool.pending(10, one - 1).empty());
+}
+
+// B034: the queue bounds the bytes of the request bodies it holds, not only their count.
+TEST(RequestQueueTest, RefusesPastTheQueuedBytes) {
+  RequestQueue queue(1024);
+  const std::string big(RequestQueue::kMaxQueuedBytes / 2, 'x');
+  EXPECT_TRUE(queue.push("a", big, [](std::string) {}));
+  EXPECT_TRUE(queue.push("b", big, [](std::string) {}));
+  EXPECT_FALSE(queue.push("c", "y", [](std::string) {})) << "full by bytes";
+  ASSERT_TRUE(queue.popUntil(RequestQueue::Clock::now() + 10ms));
+  EXPECT_TRUE(queue.push("c", "y", [](std::string) {})) << "room again once one is served";
+}
+
 TEST(TxPoolTest, FullPoolRefuses) {
   TxPool::Limits limits;
   limits.maxRecords = 1;
@@ -774,6 +800,27 @@ TEST(TxPoolTest, FullPoolRefuses) {
 } // namespace
 
 namespace {
+
+// B034: only BLOCK_ADD and TX_ADD carry a block or a record; any other request above the small cap
+// is refused before it is queued. A reply the RPC cannot carry reaches the client as an error.
+TEST(ServerThreadTest, RequestsAreCappedByTypeAndOversizedRepliesBecomeErrors) {
+  Replies replies;
+  EchoServer server;
+  const std::string large(ledger::rpc::kMaxSmallRequestBytes, 'x');
+  server.enqueueRequest(packRequest(large, Client::T_REQ_STATUS), replies.sink(), "peer");
+  ASSERT_EQ(replies.size(), 1u) << "refused at once, never queued";
+  EXPECT_NE(replies.items[0].payload.find("too large for its type"), std::string::npos);
+  server.enqueueRequest(packRequest(large, Client::T_REQ_BLOCK_ADD), replies.sink(), "peer");
+  // The echo answers with the body: a reply the RPC cannot carry.
+  server.enqueueRequest(packRequest(std::string(ledger::rpc::kMaxMessageBytes, 'r'), Client::T_REQ_BLOCK_ADD),
+                        replies.sink(), "peer");
+  server.serveRequestsFor(200ms);
+  ASSERT_EQ(replies.size(), 3u);
+  EXPECT_EQ(replies.items[1].errorCode, 0) << "a block-sized BLOCK_ADD is served";
+  EXPECT_NE(replies.items[2].errorCode, 0);
+  EXPECT_NE(replies.items[2].payload.find("larger than the RPC carries"), std::string::npos)
+      << replies.items[2].payload;
+}
 
 TEST(ServerThreadTest, ServeTasksUntilRunsCompletionsAndLeavesRequestsQueued) {
   EchoServer server;

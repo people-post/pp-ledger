@@ -1272,7 +1272,10 @@ BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &rec
 BeaconServer::Roe<std::string>
 BeaconServer::hTxPull(const Client::Request & /*request*/) {
   txPool_.expire(nowSeconds());
-  return utl::binaryPack(txPool_.pending(TX_PULL_MAX_RECORDS));
+  // No more than a leader can put in a block (B034): the reply always travels.
+  const uint64_t maxBytes = beacon_.getMaxBlockBytes();
+  return utl::binaryPack(
+      txPool_.pending(TX_PULL_MAX_RECORDS, maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
 }
 
 BeaconServer::Roe<std::string>

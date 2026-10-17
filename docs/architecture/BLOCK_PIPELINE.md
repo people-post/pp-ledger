@@ -40,8 +40,8 @@ handlers call `admissionTxStrict(mode)` instead of a parallel bool.
 
 ## Checkpoints and late join
 
-A **checkpoint** is where a miner can start (beacon-authority B015). Block *C* becomes the next
-checkpoint when (`chain_block::rotatesCheckpoint`, from stored blocks and slot times only):
+A **checkpoint** is where a miner can start (beacon-authority B015). Block *C* is **eligible**
+(`chain_block::checkpointEligible`, from stored blocks and slot times only) when:
 
 - it is the **first block of its epoch**;
 - `C ≥ currentId + checkpoint.minBlocks`;
@@ -49,9 +49,13 @@ checkpoint when (`chain_block::rotatesCheckpoint`, from stored blocks and slot t
   of block *C−1*.
 
 Then every account last written before `currentId` was due for renewal by block *C−1*
-(`calculateMaxBlockIdForRenewal` uses the block's slot time, never a node's clock). The checkpoint
-block **opens with the genesis renewal** (due or not): config, pending update, admin set and
-authority. And **every epoch's first block carries its committee** (`Block::committee`, the
+(`calculateMaxBlockIdForRenewal` uses the block's slot time, never a node's clock). An eligible
+block **is** the checkpoint when it **opens with the genesis renewal** (due or not): config,
+pending update, admin set and authority (`chain_block::rotatesCheckpoint` — read from the block,
+so a node holding only some accounts agrees). Due renewals may wait in renewals-only blocks when
+they do not fit (B035), so a block may open with it only once no account last written before
+`currentId` still waits (`renewalsWaitBelow`, Full validation); until then the genesis renewal
+waits and the checkpoint moves to a later epoch start. And **every epoch's first block carries its committee** (`Block::committee`, the
 preimage of `stakeSnapshotHash`, checked structurally in every mode). The newest two checkpoints
 are kept: `lastId` (where a miner starts) and `currentId`.
 
@@ -90,8 +94,9 @@ re-validated as Full (open discussion A).
 1. **Structural** — `txRoot`, header hash, sequence / `previousHash` / `txIndex`
 2. **Consensus** — epoch, `stakeSnapshotHash`, `epochSeed`, slot leader, slot timing  
    (`validateBlockTiming`: timestamp in `[slotStart, slotStart + slotDuration)`)
-3. **Body policy** — renewals, `maxTransactionsPerBlock`, empty heartbeat,
-   intra-block idempotency
+3. **Body policy** — renewals (due ones may wait in a renewals-only block), the checkpoint's
+   readiness, `maxTransactionsPerBlock` and `maxBlockBytes` (every record counts), empty
+   heartbeat, intra-block idempotency
 
 `checkBlock(mode)` runs structural always; consensus + body only for **Full**.
 

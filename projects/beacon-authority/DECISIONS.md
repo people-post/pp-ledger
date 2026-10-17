@@ -811,6 +811,7 @@ predecessor (a thief could announce one too: the check proves the state, not who
 ## B034 — Blocks have a byte limit; the RPC carries what consensus allows
 
 **Date:** 2026-10-16
+**Superseded by:** [WIRE_SCHEMA.md § Block size](../../docs/contracts/WIRE_SCHEMA.md#block-size), [AMP_TRANSPORT.md § Protocol](../../docs/contracts/AMP_TRANSPORT.md#protocol) (normative; this entry keeps the why).
 **Decision:**
 - **`maxBlockBytes`** joins `BlockChainConfig` (set in genesis, changed by `T_CONFIG`; default
   4 MiB): the packed block a node stores and sends. The slot leader stops adding records before the
@@ -825,8 +826,8 @@ predecessor (a thief could announce one too: the check proves the state, not who
   `maxBlockBytes` may not exceed what the transport carries. Every other request keeps a small cap.
   Replies listing many items (`TX_PULL`, `TX_GET_BY_WALLET`) stop at the cap and page as they do now.
 - **Memory stays bounded:** a request is checked against its type's cap as it arrives; a peer has
-  at most a few large messages in flight (if Amp has no per-protocol knob for it, it gets one in
-  pp-cpp-amp); the request queue bounds bytes as well as count.
+  at most 16 requests arriving at once — the ledger's server counts them per peer from channel open
+  to complete body, no Amp change needed; the request queue bounds bytes (64 MiB) as well as count.
 **Rationale:**
 - **The two limits disagreed.** The RPC capped every message at 512 KiB, a constant of the Amp
   channel profile chosen, while consensus bounded only the transaction count (10240 a block): about
@@ -845,6 +846,7 @@ the transport (blocks made that cannot travel); chunked block transfer now (not 
 ## B035 — Due renewals may wait; a checkpoint waits for them
 
 **Date:** 2026-10-16
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md) (renewals, checkpoints), [BLOCK_PIPELINE.md § Checkpoints and late join](../../docs/architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join) (normative; this entry keeps the why).
 **Decision:**
 - **A renewal backlog is allowed.** Every due renewal still goes into the next block that has room,
   but a block may leave due renewals out when they do not fit. A block that leaves any out holds

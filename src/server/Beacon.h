@@ -197,6 +197,7 @@ public:
   /** Where the beacon is reached: the certificates' dial hints (Chain::dialHints). */
   std::vector<std::string> getDialHints() const { return chain_.dialHints(); }
   uint64_t getSlotDuration() const { return chain_.getSlotDuration(); }
+  uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
   /**
    * Equivocation evidence held (beacon-authority ba6): its height. The beacon then commits no block
    * above it and takes no producer writes until a later generation is certified (resume).

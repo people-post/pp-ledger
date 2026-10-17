@@ -40,6 +40,8 @@ public:
   static constexpr size_t kNormalPerLow = 4;
   /** Low-lane requests one peer may have queued at once. */
   static constexpr size_t kLowPerPeer = 16;
+  /** Request bodies queued at once, both lanes (B034: a body may be a 4 MiB block). */
+  static constexpr size_t kMaxQueuedBytes = 64 * 1024 * 1024;
 
   /** A request (sender, body, reply), or a completion task when `task` is set. */
   struct Item {
@@ -82,6 +84,10 @@ private:
   std::deque<Item> low_;
   std::unordered_map<std::string, size_t> lowByPeer_;
   size_t normalStreak_{0};
+  /** Bytes of the request bodies queued. */
+  size_t bytes_{0};
+  /** Under mu_: an item leaves the queue. */
+  void taken(const Item &item);
   bool closed_{false};
 };
 

@@ -142,7 +142,7 @@ every node (B022–B024).
       chosen height, checked against block *H*'s state root (B030); the state root covers the whole
       account (B031); the import in `T_IMPORT` blocks after genesis (B032); export, init and check
       tools, roles (B033); block byte limit first (B034) — [DESIGN.md § Case 1](DESIGN.md#case-1--re-genesis-bp5)
-- [ ] **bp6** Block byte limit (B034): `maxBlockBytes` in `BlockChainConfig` (default 4 MiB, at
+- [x] **bp6** Block byte limit (B034): `maxBlockBytes` in `BlockChainConfig` (default 4 MiB, at
       most what the transport carries), enforced when the leader assembles and when nodes validate;
       due renewals may wait in a backlog, a checkpoint waits for it (B035); config checks that the
       largest record fits; the RPC sized from it —
