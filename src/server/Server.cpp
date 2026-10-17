@@ -6,6 +6,7 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "../network/LedgerRpcProtocol.h"
 #include "../chain/ConfigPolicy.h"
+#include "common/io/Json.h"
 
 #include <set>
 #include <mutex>
@@ -243,23 +244,29 @@ bool Server::isAllowedPeer(const std::string& peerId) const {
   return !peerId.empty() && upstreamPeerIds_.contains(peerId);
 }
 
-Service::Roe<std::optional<std::set<std::string>>> Server::parseAllowedPeers(const pp::common::Object& config) {
-  if (!config.contains("allowedPeers")) {
-    return std::optional<std::set<std::string>>{};
+Service::Roe<pp::common::Object> Server::loadRunConfig(const std::vector<env_config::Field>& fields,
+                                                     const pp::common::Object& templateJson,
+                                                     const std::string& whatToSet) {
+  const std::string path = (std::filesystem::path(workDir_) / "config.json").string();
+  auto loaded = env_config::loadConfig(path, fields);
+  if (!loaded) {
+    return Error(E_CONFIG, loaded.error().message);
   }
-  const pp::common::Array* list = config.getArray("allowedPeers");
-  if (!list) {
-    return Service::Error(-1, "Field 'allowedPeers' must be an array of peer ids");
+  if (loaded.value()) {
+    return std::move(*loaded.value());
   }
-  std::set<std::string> peers;
-  for (const auto& value : list->elements) {
-    auto id = pp::common::asString(value);
-    if (!id || id->empty()) {
-      return Service::Error(-1, "Field 'allowedPeers' entries must be peer id strings");
-    }
-    peers.insert(*id);
+  log().info << "No config.json found, writing a template";
+  auto encoded = pp::common::io::valueToJsonString(
+      pp::common::Value(std::make_shared<pp::common::Object>(templateJson)), 2);
+  if (!encoded.isOk()) {
+    return Error(E_CONFIG, "Failed to encode config.json: " + encoded.error().message);
   }
-  return std::optional<std::set<std::string>>(std::move(peers));
+  std::ofstream out(path);
+  out << encoded.value() << std::endl;
+  if (!out) {
+    return Error(E_CONFIG, "Failed to create " + path);
+  }
+  return Error(E_CONFIG, "Created " + path + ": " + whatToSet);
 }
 
 bool Server::isAllowedFrom(const uint32_t type, const Origin origin) {

@@ -2,6 +2,8 @@
 add_library(pp_server STATIC
     Server.cpp
     Server.h
+    NodeConfig.cpp
+    NodeConfig.h
     NodeCore.cpp
     NodeCore.h
     FollowerCore.cpp

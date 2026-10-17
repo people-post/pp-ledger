@@ -16,31 +16,29 @@ FollowerServer::FollowerServer(const std::string &name) {
 void FollowerServer::bindFollower(FollowerCore &core) {
   follower_ = &core;
   bindCore(core);
-  auto later = [this](void (FollowerServer::*handler)(const Client::Request &, const RequestQueue::Reply &)) {
-    return [this, handler](const Client::Request &request, const RequestQueue::Reply &reply) {
-      (this->*handler)(request, reply);
-    };
-  };
-  handleLater(Client::T_REQ_BLOCK_GET, later(&FollowerServer::dBlockGet));
-  handleLater(Client::T_REQ_TX_ADD, later(&FollowerServer::dTxAdd));
-  handleLater(Client::T_REQ_EQUIVOCATION_ADD, later(&FollowerServer::dEquivocationAdd));
+  handleLater(Client::T_REQ_BLOCK_GET,
+              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dBlockGet(request, reply); });
+  handleLater(Client::T_REQ_TX_ADD,
+              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dTxAdd(request, reply); });
+  handleLater(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request, const RequestQueue::Reply &reply) {
+    dEquivocationAdd(request, reply);
+  });
 }
 
 // ============ start ============
 
-Service::Roe<void> FollowerServer::startFollowing(const std::vector<std::string> &upstreams,
-                                                  const std::string &identityKey, uint16_t port,
-                                                  std::optional<std::set<std::string>> allowedPeers) {
-  if (auto set = setUpstreams(upstreams); !set) {
+Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, const std::string &identityKey) {
+  config_ = config;
+  if (auto set = setUpstreams(config_.upstreams); !set) {
     return Error(E_CONFIG, set.error().message);
   }
-  initUpstreams(upstreams);
+  initUpstreams();
 
-  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(identityKey, port);
+  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(identityKey, config_.port);
   if (!ampCfg) {
     return Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
-  setAllowedPeers(std::move(allowedPeers));
+  setAllowedPeers(config_.allowedPeers);
   if (auto started = startAmpServer(*ampCfg); !started) {
     return Error(E_NETWORK, "Failed to start AMP server: " + started.error().message);
   }
@@ -53,7 +51,22 @@ Service::Roe<void> FollowerServer::startFollowing(const std::vector<std::string>
   return {};
 }
 
-void FollowerServer::initUpstreams(const std::vector<std::string> &multiaddrs) {
+Service::Roe<void> FollowerServer::admitUpstream(const Client::BeaconState &state) const {
+  if (auto anchored = NetworkAnchor::verifyStatus<Error>(config_.anchor, state); !anchored) {
+    return anchored;
+  }
+  const std::string networkId = follower().getNetworkId();
+  if (!networkId.empty() && state.networkId != networkId) {
+    return Error(E_CONFIG, "it serves network '" + state.networkId + "', not this chain's '" + networkId + "'");
+  }
+  return {};
+}
+
+std::optional<std::string> FollowerServer::firstBlockHash() const {
+  return config_.anchor.genesis_hash.empty() ? std::nullopt : std::optional<std::string>(config_.anchor.genesis_hash);
+}
+
+void FollowerServer::initUpstreams() {
   UpstreamSet::Hooks hooks = upstreamHooks(fanoutClient_);
   hooks.admit = [this](size_t index, const Client::BeaconState &state) {
     if (auto admitted = admitUpstream(state); !admitted) {
@@ -75,7 +88,7 @@ void FollowerServer::initUpstreams(const std::vector<std::string> &multiaddrs) {
     noteEquivocation(evidence, from, /*pushUp=*/true);
   };
   hooks.mayFollow = [this](const Client::SignedTip &tip) { return follower().mayFollowTip(tip); };
-  upstreams_ = std::make_unique<UpstreamSet>(multiaddrs, std::move(hooks));
+  upstreams_ = std::make_unique<UpstreamSet>(config_.upstreams, std::move(hooks));
   upstreams_->redirectLogger(log().getFullName() + ".Upstreams");
 }
 
@@ -133,7 +146,7 @@ void FollowerServer::initBlockSync() {
   hooks.nextBlockId = [this]() { return follower().getNextBlockId(); };
   hooks.tipHash = [this]() { return follower().getTipHash(); };
   hooks.firstBlockHash = [this]() { return firstBlockHash(); };
-  if (const std::string dir = predecessorDir(); !dir.empty()) {
+  if (const std::string dir = config_.anchor.predecessor_dir; !dir.empty()) {
     hooks.checkGenesis = [this, dir](const Ledger::ChainNode &genesis) {
       auto checked = predecessor_check::check(genesis, dir);
       if (checked) {

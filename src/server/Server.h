@@ -12,6 +12,7 @@
 #include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
 #include "EnvConfig.h"
+#include "NodeConfig.h"
 
 #include <atomic>
 #include <chrono>
@@ -211,12 +212,18 @@ protected:
   /**
    * Before start: serve only these peers (and this node's upstreams). Unset =
    * anyone. Refused before queueing, so a peer outside the list never takes
-   * queue space. Config: `allowedPeers` (parseAllowedPeers).
+   * queue space. Config: `allowedPeers` (NodeConfig).
    */
   void setAllowedPeers(std::optional<std::set<std::string>> peerIds) { allowedPeers_ = std::move(peerIds); }
   bool isAllowedPeer(const std::string& peerId) const;
-  /** Optional `allowedPeers` array of peer ids in a role's config.json; absent = nullopt. */
-  static Service::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& config);
+
+  /**
+   * onStart: `config.json` in the work directory merged with the PP_* variables `fields`
+   * (env_config::loadConfig). With neither, `templateJson` is written there for the operator to fill
+   * in and the start stops, telling them `whatToSet`.
+   */
+  Roe<pp::common::Object> loadRunConfig(const std::vector<env_config::Field>& fields,
+                                        const pp::common::Object& templateJson, const std::string& whatToSet);
 
   /**
    * Server thread: what HEALTH answers (Client::NodeHealth). The base fills identity, the queue and

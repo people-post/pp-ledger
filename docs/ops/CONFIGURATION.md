@@ -221,6 +221,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 | `beacons` | none | More upstream multiaddrs, after `beacon`; the relay follows the best of them (below) |
 | `port` | 8519 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served; typically the relay's miners and clients |
+| `networkAnchor.networkId`, `.trustedCheckpointId` | none | An upstream serving another network, or a checkpoint below this one, is not followed (as for a miner) |
 | `networkAnchor.genesisHash` | none | Hex hash of the genesis this relay syncs from (as `pp-client block 0` prints it); without it the relay takes genesis from its upstream on trust |
 | `networkAnchor.predecessorDir` | none | After a re-genesis: this node's work directory on the old network (stopped). The new genesis must name block *H* of that ledger — same network, block hash and state root — or the node refuses to follow it, and refuses when that ledger does not hold *H* ([BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)). Checked when syncing block 0 and at every start |
 
@@ -238,12 +239,14 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 |-------|---------|---------|
 | `minerId` | **required** | The miner's account id (e.g. a genesis miner) |
 | `keys` | **required** | Files with the account's hex private keys; the first is also the miner's network identity |
-| `beacons` | **required** | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>` |
+| `beacons` | **required** (or `beacon`) | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>`; `beacon` (one) is read as for a relay |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
 | `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId", "predecessorDir"}` (`predecessorDir`: as for a relay above; a miner fetches block 0 to check it, even when starting at a checkpoint). `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
 | `allowedPeers` | anyone | Peer ids served (a miner serves reads to local clients) |
 
-Relays and miners follow the upstream whose signed tip has the highest beacon generation they could
+Relays and miners read the same fields the same way: `beacon` and/or `beacons` (in order, a
+repeat dropped), `port`, `allowedPeers` and `networkAnchor`. A node also refuses an upstream that
+serves another network than the chain it holds. Relays and miners follow the upstream whose signed tip has the highest beacon generation they could
 verify, then the longest chain, and re-rank every minute, on a failed sync and on a new beacon
 certificate. A beacon certificate's dial hints (`mk-beacon-cert --dial-hint`) are added as upstreams
 once the node has loaded its chain — configure at least one upstream reachable at start

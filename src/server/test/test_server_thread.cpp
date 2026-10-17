@@ -3,6 +3,7 @@
 #include "MinerRegistry.h"
 #include "RequestQueue.h"
 #include "BlockSync.h"
+#include "NodeConfig.h"
 #include "Server.h"
 #include "../network/LedgerRpcProtocol.h"
 #include "lib/common/BinaryPack.hpp"
@@ -120,7 +121,6 @@ public:
   using Server::addUpstream;
   using Server::followUpstream;
   using Server::setAllowedPeers;
-  using Server::parseAllowedPeers;
   using Server::loadOrCreateIdentityKey;
   using Server::laneFor;
   using Server::setRequestLimits;
@@ -422,13 +422,45 @@ TEST(ServerThreadTest, WithoutAllowedPeersAnyoneIsServed) {
 TEST(ServerThreadTest, ParseAllowedPeers) {
   auto parse = [](const std::string& json) {
     auto value = pp::common::io::valueFromJsonString(json);
-    return EchoServer::parseAllowedPeers(*pp::common::asObject(value.value()));
+    return NodeConfig::parseAllowedPeers(*pp::common::asObject(value.value()));
   };
   EXPECT_FALSE(parse(R"({"port": 1})").value().has_value()); // absent: anyone
   EXPECT_EQ(parse(R"({"allowedPeers": ["a", "b"]})").value()->size(), 2u);
   EXPECT_TRUE(parse(R"({"allowedPeers": []})").value()->empty()); // only upstreams
   EXPECT_FALSE(parse(R"({"allowedPeers": "a"})").isOk());
   EXPECT_FALSE(parse(R"({"allowedPeers": [""]})").isOk());
+}
+
+// One parser for every follower (relay, miner): `beacon` and/or `beacons`, in order and without
+// repeats; the whole network anchor; the common fields.
+TEST(ServerThreadTest, FollowerConfigReadsTheSameFieldsForEveryFollower) {
+  const std::string a = "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/QmQxy7idP1HWWrhX6rzSxBp4Q94mKBzGGFjW3oCFgi69LZ";
+  const std::string b = "/dns4/relay/udp/8519/adp/1.0.0/p2p/QmQxy7idP1HWWrhX6rzSxBp4Q94mKBzGGFjW3oCFgi69LZ";
+  auto parse = [](const std::string& json) {
+    FollowerConfig config(8519);
+    auto value = pp::common::io::valueFromJsonString(json);
+    auto parsed = config.fromJson(*pp::common::asObject(value.value()));
+    return parsed ? pp::Roe<FollowerConfig>(config) : pp::Roe<FollowerConfig>(parsed.error());
+  };
+  auto one = parse(R"({"beacon": ")" + a + R"("})");
+  ASSERT_TRUE(one) << one.error().message;
+  EXPECT_EQ(one.value().upstreams, std::vector<std::string>{a});
+  EXPECT_EQ(one.value().port, 8519u) << "no port: the role's default";
+
+  auto both = parse(R"({"port": 9000, "beacon": ")" + a + R"(", "beacons": [")" + b + R"(", ")" + a + R"("],
+                        "allowedPeers": ["p"], "networkAnchor": {"networkId": "net-1", "trustedCheckpointId": 7,
+                        "predecessorDir": "old"}})");
+  ASSERT_TRUE(both) << both.error().message;
+  EXPECT_EQ(both.value().upstreams, (std::vector<std::string>{a, b}));
+  EXPECT_EQ(both.value().port, 9000u);
+  EXPECT_EQ(both.value().allowedPeers->size(), 1u);
+  EXPECT_EQ(both.value().anchor.network_id, "net-1");
+  EXPECT_TRUE(both.value().anchor.trusted_checkpoint_set);
+  EXPECT_EQ(both.value().anchor.predecessor_dir, "old");
+
+  EXPECT_FALSE(parse(R"({"port": 1})").isOk()) << "an upstream is required";
+  EXPECT_FALSE(parse(R"({"beacons": ["not a multiaddr"]})").isOk());
+  EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "port": 0})").isOk());
 }
 
 // The identity key is created on first start and reloaded after; with a

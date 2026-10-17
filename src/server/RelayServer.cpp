@@ -4,133 +4,17 @@
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
-#include "../network/amp/AmpIdentity.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <fstream>
-#include "common/io/Json.h"
 #include <vector>
 
 namespace pp {
-namespace {
-using pp::common::Array;
+
 using pp::common::Object;
-using pp::common::ObjectPtr;
-using pp::common::Value;
-using pp::common::asNonNegInt;
-using pp::common::asObject;
-using pp::common::asString;
-using pp::common::io::valueToJsonString;
-
-pp::Roe<std::string> encodeObjectPretty(const Object &o) {
-  auto r = valueToJsonString(Value(std::make_shared<Object>(o)), 2);
-  if (!r.isOk()) {
-    return pp::Error(r.error().message);
-  }
-  return r.value();
-}
-} // namespace
-
-// ============ RunFileConfig methods ============
-
-Object RelayServer::RunFileConfig::ltsToJson() {
-  Object j;
-  j.setJsonUInt("port", port);
-  if (beacons.size() > 1) {
-    std::vector<Value> values(beacons.begin(), beacons.end());
-    j.set("beacons", Object::array(std::move(values)));
-  } else {
-    j.set("beacon", beacons.empty() ? std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>")
-                                    : beacons.front());
-  }
-  return j;
-}
-
-namespace {
-/** config.json fields a relay takes from the environment (CONFIGURATION.md § Environment). */
-std::vector<env_config::Field> relayEnvFields() {
-  auto fields = env_config::commonFields();
-  fields.push_back({"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false});
-  for (auto &field : env_config::anchorFields()) {
-    fields.push_back(std::move(field));
-  }
-  return fields;
-}
-} // namespace
-
-RelayServer::Roe<void>
-RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
-  if (jd.contains("port")) {
-    auto portValue = jd.getNonNegInt("port");
-    if (!portValue || *portValue == 0 || *portValue > 65535) {
-      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-    }
-    port = static_cast<uint16_t>(*portValue);
-  } else {
-    port = DEFAULT_RELAY_PORT;
-  }
-
-  beacons.clear();
-  auto addBeacon = [this](const std::string &value, const std::string &field) -> Roe<void> {
-    auto ma = network::ParseBeaconMultiaddrString(value);
-    if (!ma) {
-      return Error(E_CONFIG, "Field '" + field + "': " + ma.error().message);
-    }
-    if (std::find(beacons.begin(), beacons.end(), *ma) == beacons.end()) {
-      beacons.push_back(std::move(*ma));
-    }
-    return {};
-  };
-  if (jd.contains("beacon")) {
-    auto beaconStr = jd.getString("beacon");
-    if (!beaconStr) {
-      return Error(E_CONFIG, "Field 'beacon' must be an upstream multiaddr string");
-    }
-    if (auto added = addBeacon(*beaconStr, "beacon"); !added) {
-      return added;
-    }
-  }
-  if (jd.contains("beacons")) {
-    const Array *beaconsArr = jd.getArray("beacons");
-    if (!beaconsArr) {
-      return Error(E_CONFIG, "Field 'beacons' must be an array of upstream multiaddrs");
-    }
-    for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
-      auto value = asString(beaconsArr->elements[i]);
-      if (!value) {
-        return Error(E_CONFIG, "beacons[" + std::to_string(i) + "] must be an upstream multiaddr string");
-      }
-      if (auto added = addBeacon(*value, "beacons[" + std::to_string(i) + "]"); !added) {
-        return added;
-      }
-    }
-  }
-  if (beacons.empty()) {
-    return Error(E_CONFIG, "Field 'beacon' (or 'beacons'), the upstream multiaddr, is required");
-  }
-  auto allowed = parseAllowedPeers(jd);
-  if (!allowed) {
-    return Error(E_CONFIG, allowed.error().message);
-  }
-  allowedPeers = std::move(allowed.value());
-  genesisHash.reset();
-  predecessorDir.clear();
-  if (const Object *anchorObj = jd.getObject("networkAnchor")) {
-    auto anchor = NetworkAnchor::fromJson(*anchorObj);
-    if (!anchor) {
-      return Error(E_CONFIG, anchor.error().message);
-    }
-    if (!anchor.value().genesis_hash.empty()) {
-      genesisHash = anchor.value().genesis_hash;
-    }
-    predecessorDir = anchor.value().predecessor_dir;
-  }
-  return {};
-}
 
 // ============ RelayServer methods ============
 
@@ -138,14 +22,6 @@ RelayServer::RelayServer() : FollowerServer("RelayServer") {
   relay_.redirectLogger(log().getFullName() + ".Relay");
   bindFollower(relay_);
   initHandlers();
-}
-
-Service::Roe<void> RelayServer::admitUpstream(const Client::BeaconState &state) const {
-  const std::string networkId = relay_.getNetworkId();
-  if (!networkId.empty() && state.networkId != networkId) {
-    return Error(E_CONFIG, "it serves network '" + state.networkId + "'");
-  }
-  return {};
 }
 
 void RelayServer::fillHealth(Client::NodeHealth &health) const {
@@ -164,66 +40,39 @@ void RelayServer::rankUpstreamsAtStart() {
 }
 
 Service::Roe<void> RelayServer::onStart() {
-  // Construct config file path
-  std::filesystem::path configPath =
-      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
-  std::string configPathStr = configPath.string();
-
-  // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
-  RunFileConfig runFileConfig;
-
-  auto loaded = env_config::loadConfig(configPathStr, relayEnvFields());
+  FollowerConfig config(Client::DEFAULT_RELAY_PORT);
+  Object configTemplate;
+  config.toJson(configTemplate, "<upstream multiaddr: /ip4/A.B.C.D/udp/8517/adp/1.0.0/p2p/PEER_ID>");
+  auto fields = env_config::commonFields();
+  for (auto &field : FollowerConfig::envFields()) {
+    fields.push_back(std::move(field));
+  }
+  // A relay without an upstream cannot do anything: stop until it is set.
+  auto loaded = loadRunConfig(fields, configTemplate,
+                              "set `beacons` to the upstream's multiaddr (printed by the beacon at start) and start "
+                              "again — or set PP_LEDGER_UPSTREAMS instead");
   if (!loaded) {
-    return Service::Error(E_CONFIG, loaded.error().message);
+    return loaded.error();
   }
-  if (!loaded.value()) {
-    log().info << "No " << FILE_CONFIG
-               << " found, creating with default values";
-
-    auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
-    if (!encoded) {
-      return Service::Error(E_CONFIG, "Failed to encode " + std::string(FILE_CONFIG) +
-                                          ": " + encoded.error().message);
-    }
-    std::ofstream configFile(configPath);
-    if (!configFile) {
-      return Service::Error(E_CONFIG,
-                            "Failed to create " + std::string(FILE_CONFIG));
-    }
-    configFile << encoded.value() << std::endl;
-    configFile.close();
-
-    // A relay without an upstream cannot do anything: stop until it is set.
-    return Service::Error(E_CONFIG, "Created " + configPathStr +
-                                        ": set `beacon` to the upstream's multiaddr (printed by the beacon at "
-                                        "start) and start again — or set PP_LEDGER_UPSTREAMS instead");
-  } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
-    return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
-                                        parseResult.error().message);
+  if (auto parsed = config.fromJson(loaded.value()); !parsed) {
+    return Service::Error(E_CONFIG, "Failed to parse config (config.json and PP_LEDGER_* variables): " +
+                                        parsed.error().message);
   }
-
-  // Apply configuration from RunFileConfig
-  config_.network.udp_port = runFileConfig.port;
-  config_.network.beacon_multiaddrs = runFileConfig.beacons;
-  config_.network.genesisHash = runFileConfig.genesisHash;
-  config_.network.predecessorDir = runFileConfig.predecessorDir;
   auto identityKey = loadOrCreateIdentityKey();
   if (!identityKey) {
     return Service::Error(E_CONFIG, identityKey.error().message);
   }
 
   log().info << "Configuration loaded";
-  log().info << "  UDP port: " << config_.network.udp_port;
-  for (const auto &upstream : config_.network.beacon_multiaddrs) {
+  log().info << "  UDP port: " << config.port;
+  for (const auto &upstream : config.upstreams) {
     log().info << "  Upstream: " << upstream;
   }
-  if (config_.network.genesisHash) {
+  if (!config.anchor.genesis_hash.empty()) {
     log().info << "  Genesis pinned (networkAnchor.genesisHash)";
   }
 
-  if (auto started = startFollowing(config_.network.beacon_multiaddrs, identityKey.value(), config_.network.udp_port,
-                                    runFileConfig.allowedPeers);
-      !started) {
+  if (auto started = startFollowing(config, identityKey.value()); !started) {
     return started;
   }
 
@@ -244,15 +93,15 @@ Service::Roe<void> RelayServer::onStart() {
 
   orderRewindIfDue(); // a certificate kept before the node went down
   // A relay that already holds the genesis checks it again: predecessorDir may be new (B037).
-  if (!config_.network.predecessorDir.empty() && relay_.getNextBlockId() > 0) {
+  if (const std::string &dir = followerConfig().anchor.predecessor_dir; !dir.empty() && relay_.getNextBlockId() > 0) {
     auto genesis = relay_.readBlock(0);
     if (!genesis) {
       return Service::Error(E_CONFIG, "Cannot read the genesis to check its predecessor: " + genesis.error().message);
     }
-    if (auto checked = predecessor_check::check(genesis.value(), config_.network.predecessorDir); !checked) {
+    if (auto checked = predecessor_check::check(genesis.value(), dir); !checked) {
       return Service::Error(E_CONFIG, "Genesis refused: " + checked.error().message);
     }
-    log().info << "Re-genesis checked against the old ledger in " << config_.network.predecessorDir;
+    log().info << "Re-genesis checked against the old ledger in " << dir;
   }
   rankUpstreamsAtStart();
   if (auto offset = calibrateTimeToBeacon(); offset) {

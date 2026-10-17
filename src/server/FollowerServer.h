@@ -4,6 +4,7 @@
 #include "BlockSync.h"
 #include "ClockCalibration.h"
 #include "FollowerCore.h"
+#include "NodeConfig.h"
 #include "Server.h"
 #include "UpstreamSet.h"
 #include "UpstreamTipWatch.h"
@@ -44,11 +45,11 @@ protected:
 
   // ----------------- start (onStart) -------------------------------------
   /**
-   * The upstreams this node may follow (setUpstreams, UpstreamSet), then the AMP server with
-   * `identityKey` on `port`, serving `allowedPeers` (and the upstreams).
+   * The upstreams `config` names (setUpstreams, UpstreamSet), then the AMP server with `identityKey`
+   * on its port, serving its allowedPeers (and the upstreams). Keeps `config` (followerConfig).
    */
-  Roe<void> startFollowing(const std::vector<std::string> &upstreams, const std::string &identityKey, uint16_t port,
-                           std::optional<std::set<std::string>> allowedPeers);
+  Roe<void> startFollowing(const FollowerConfig &config, const std::string &identityKey);
+  const FollowerConfig &followerConfig() const { return config_; }
   /** The offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed, else another. */
   Roe<int64_t> calibrateTimeToBeacon();
   /** Use a new offset to the beacon's clock: the slot clock, and CALIBRATION replies. */
@@ -73,12 +74,11 @@ protected:
   int64_t clockOffsetMs() const override { return timeOffsetToBeaconMs_; }
 
   // ----------------- role hooks -------------------------------------
-  /** Whether an upstream serving `state` may be followed (UpstreamSet::Hooks::admit). */
-  virtual Roe<void> admitUpstream(const Client::BeaconState &state) const = 0;
-  /** The hash the first block synced must have (BlockSync::Hooks::firstBlockHash); none: taken on trust. */
-  virtual std::optional<std::string> firstBlockHash() const = 0;
-  /** This node's ledger on the old network, which a re-genesis must name (B037); empty: none. */
-  virtual std::string predecessorDir() const = 0;
+  /**
+   * The hash the first block synced must have (BlockSync::Hooks::firstBlockHash); none: taken on
+   * trust. Default: networkAnchor.genesisHash (a node that starts at genesis).
+   */
+  virtual std::optional<std::string> firstBlockHash() const;
   /** The block a sync starts from carries the authority the node expects (BlockSync::Hooks::checkStartingAuthority). */
   virtual pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
                                                const Client::Wallet &admin) const;
@@ -94,6 +94,11 @@ protected:
   virtual bool syncDue() const { return false; }
 
   // ----------------- shared -------------------------------------
+  /**
+   * Whether an upstream serving `state` may be followed: the network anchor (network id, trusted
+   * checkpoint) and the network of the chain held.
+   */
+  Roe<void> admitUpstream(const Client::BeaconState &state) const;
   /** Point `client` at upstream `index` (UpstreamSet::dialKey). */
   Client::Roe<void> dialUpstream(Client &client, size_t index);
   /** Point client_ at the upstream followed now. */
@@ -127,7 +132,7 @@ private:
   /** A relay or miner this many blocks behind its upstream's signed tip is not ready. */
   static constexpr uint64_t kReadyLagBlocks = 3;
 
-  void initUpstreams(const std::vector<std::string> &multiaddrs);
+  void initUpstreams();
   void initClockFollower();
   void initBlockSync();
   void onBlockSyncFinished(const BlockSync::Result &result);
@@ -148,6 +153,7 @@ private:
   void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
 
   FollowerCore *follower_{nullptr};
+  FollowerConfig config_;
   /** beacon ms = local ms + offset; 0 until calibrated. */
   int64_t timeOffsetToBeaconMs_{0};
   std::unique_ptr<clock_calibration::ClockFollower> clock_;

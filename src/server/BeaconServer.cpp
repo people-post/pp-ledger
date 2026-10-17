@@ -512,36 +512,6 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseGenesisMiners(const O
   return {};
 }
 
-// ============ RunFileConfig methods ============
-
-Object BeaconServer::RunFileConfig::ltsToJson() {
-  Object j;
-  j.setJsonUInt("port", port);
-  if (allowedPeers) {
-    std::vector<Value> peers(allowedPeers->begin(), allowedPeers->end());
-    j.set("allowedPeers", Object::array(std::move(peers)));
-  }
-  return j;
-}
-
-BeaconServer::Roe<void>
-BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
-  if (jd.contains("port")) {
-    auto portValue = jd.getNonNegInt("port");
-    if (!portValue || *portValue == 0 || *portValue > 65535) {
-      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-    }
-    port = static_cast<uint16_t>(*portValue);
-  }
-
-  auto allowed = parseAllowedPeers(jd);
-  if (!allowed) {
-    return Error(E_CONFIG, allowed.error().message);
-  }
-  allowedPeers = std::move(allowed.value());
-  return {};
-}
-
 // ============ BeaconServer methods ============
 
 BeaconServer::BeaconServer() {
@@ -845,7 +815,7 @@ Service::Roe<void> BeaconServer::onStart() {
     if (!loaded.value()) {
       // No file and no environment: the defaults (nothing is written; the directory may be read-only).
       log().info << "No " << FILE_CONFIG << " and no PP_LEDGER_* settings: using defaults";
-    } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
+    } else if (auto parseResult = runFileConfig.fromJson(*loaded.value()); !parseResult) {
       return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
                                           parseResult.error().message);
     }
@@ -936,23 +906,14 @@ BeaconServer::Roe<BeaconServer::Promotion> BeaconServer::readRelayConfig() const
                                " is not a relay's (no `beacon` or `beacons`): --promote turns a relay's work "
                                "directory into the beacon");
   }
+  FollowerConfig relay(Client::DEFAULT_RELAY_PORT); // the port the relay listened on, unless it set one
+  if (auto parsed = relay.fromJson(jd); !parsed) {
+    return Error(E_CONFIG, path + ": " + parsed.error().message);
+  }
   Promotion promotion;
-  if (auto parsed = promotion.config.ltsFromJson(jd); !parsed) {
-    return parsed.error();
-  }
-  if (!jd.contains("port")) {
-    promotion.config.port = Client::DEFAULT_RELAY_PORT; // the port the relay listened on
-  }
-  if (auto beacon = jd.getString("beacon")) {
-    promotion.clockReferences.push_back(*beacon);
-  }
-  if (const Array *beacons = jd.getArray("beacons")) {
-    for (const auto &element : beacons->elements) {
-      if (auto value = asString(element)) {
-        promotion.clockReferences.push_back(*value);
-      }
-    }
-  }
+  promotion.config.port = relay.port;
+  promotion.config.allowedPeers = relay.allowedPeers;
+  promotion.clockReferences = relay.upstreams;
   return promotion;
 }
 
@@ -1034,7 +995,9 @@ BeaconServer::Roe<void> BeaconServer::writeBeaconConfig(RunFileConfig config) co
   if (auto kept = utl::replaceFile((dir / FILE_RELAY_CONFIG).string(), relayConfig); !kept) {
     return Error(E_CONFIG, "Failed to keep the relay config: " + kept.error().message);
   }
-  auto encoded = encodeObjectPretty(config.ltsToJson());
+  Object json;
+  config.toJson(json);
+  auto encoded = encodeObjectPretty(json);
   if (!encoded) {
     return Error(E_CONFIG, "Failed to encode " + std::string(FILE_CONFIG) + ": " + encoded.error().message);
   }

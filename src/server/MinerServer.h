@@ -31,11 +31,8 @@ protected:
 
   /** Renews the registration; leads its slots. */
   void roleDuties() override;
-  /** An upstream must serve the anchored network (networkAnchor). */
-  Roe<void> admitUpstream(const Client::BeaconState &state) const override;
   /** The anchored genesis, when the miner starts there (chooseStartingBlock). */
   std::optional<std::string> firstBlockHash() const override;
-  std::string predecessorDir() const override;
   /** The synced starting block agrees with the replayed proof (an anchored checkpoint start). */
   pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
                                        const Client::Wallet &admin) const override;
@@ -46,35 +43,24 @@ protected:
   bool syncDue() const override;
 
 private:
-  constexpr static const char* FILE_CONFIG = "config.json";
   constexpr static const char* FILE_LOG = "miner.log";
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
-  struct RunFileConfig {
-    uint64_t minerId{ 0 };
+  /** config.json: the follower's fields (FollowerConfig), `minerId` and `keys` (key files). */
+  struct RunFileConfig : FollowerConfig {
+    uint64_t minerId{0};
     std::vector<std::string> keys;
-    uint16_t port{ Client::DEFAULT_MINER_PORT };
-    std::vector<std::string> beacons;
-    NetworkAnchor network_anchor;
 
-    /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
-    std::optional<std::set<std::string>> allowedPeers;
-
-    pp::common::Object ltsToJson() const;
-    Roe<void> ltsFromJson(const pp::common::Object& jd);
-  };
-
-  struct NetworkConfig {
-    uint16_t udp_port{ Client::DEFAULT_MINER_PORT };
-    std::vector<std::string> beacon_multiaddrs;
-    NetworkAnchor network_anchor;
+    RunFileConfig() : FollowerConfig(Client::DEFAULT_MINER_PORT) {}
+    Roe<void> fromJson(const pp::common::Object &jd);
+    /** A template: what is unknown stands as a placeholder. */
+    pp::common::Object toJson() const;
   };
 
   struct Config {
-    uint64_t minerId{ 0 };
+    uint64_t minerId{0};
     std::vector<std::string> privateKeys;
-    NetworkConfig network;
   };
 
   /**
@@ -100,7 +86,6 @@ private:
   bool signedTipCovers(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
   /** First upstream accepted it: commit our seal. */
   void commitProducedBlock(const Ledger::ChainNode& block);
-  Roe<void> verifyUpstreamState(const Client::BeaconState &state) const;
   Roe<void> verifyGenesisAnchor();
   /**
    * First block of a fresh miner: the upstream's checkpoint. With an anchored genesis, the

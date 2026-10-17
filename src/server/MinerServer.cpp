@@ -11,70 +11,16 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <fstream>
-#include "common/io/Json.h"
 #include <vector>
 
 namespace pp {
-namespace {
+
 using pp::common::Array;
 using pp::common::Object;
-using pp::common::ObjectPtr;
 using pp::common::Value;
-using pp::common::asNonNegInt;
-using pp::common::asObject;
 using pp::common::asString;
-using pp::common::io::valueToJsonString;
 
-pp::Roe<std::string> encodeObjectPretty(const Object &o) {
-  auto r = valueToJsonString(Value(std::make_shared<Object>(o)), 2);
-  if (!r.isOk()) {
-    return pp::Error(r.error().message);
-  }
-  return r.value();
-}
-} // namespace
-
-
-Object MinerServer::RunFileConfig::ltsToJson() const {
-  Object j;
-  j.setUIntForJson("minerId", minerId);
-  std::vector<Value> keyVals;
-  for (const auto &k : keys) {
-    keyVals.push_back(k);
-  }
-  if (keyVals.empty()) {
-    keyVals.push_back(std::string("<private key file: pp-client keygen -o key>"));
-  }
-  j.set("keys", Object::array(std::move(keyVals)));
-  j.setJsonUInt("port", port);
-  std::vector<Value> beaconVals;
-  for (const auto &b : beacons) {
-    beaconVals.push_back(b);
-  }
-  if (beaconVals.empty()) {
-    beaconVals.push_back(std::string("<upstream multiaddr: /ip4/A.B.C.D/udp/8519/adp/1.0.0/p2p/PEER_ID>"));
-  }
-  j.set("beacons", Object::array(std::move(beaconVals)));
-  return j;
-}
-
-namespace {
-/** config.json fields a miner takes from the environment (CONFIGURATION.md § Environment). */
-std::vector<env_config::Field> minerEnvFields() {
-  auto fields = env_config::commonFields();
-  fields.push_back({"PP_MINER_ID", "minerId", env_config::Kind::UInt, "", false});
-  fields.push_back({"PP_MINER_KEYS", "keys", env_config::Kind::List, "", /*secret=*/true});
-  fields.push_back({"PP_LEDGER_UPSTREAMS", "beacons", env_config::Kind::List, "", false});
-  for (auto &field : env_config::anchorFields()) {
-    fields.push_back(std::move(field));
-  }
-  return fields;
-}
-} // namespace
-
-MinerServer::Roe<void>
-MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
+MinerServer::Roe<void> MinerServer::RunFileConfig::fromJson(const Object &jd) {
   auto minerIdOpt = jd.getNonNegInt("minerId");
   if (!minerIdOpt) {
     return Error(E_CONFIG, jd.contains("minerId")
@@ -109,48 +55,22 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
   if (keys.empty()) {
     return Error(E_CONFIG, "Field 'keys' array must contain at least one key file");
   }
-
-  if (jd.contains("port")) {
-    auto portValue = jd.getNonNegInt("port");
-    if (!portValue || *portValue == 0 || *portValue > 65535) {
-      return Error(E_CONFIG, "Field 'port' must be between 1 and 65535");
-    }
-    port = static_cast<uint16_t>(*portValue);
+  if (auto follower = FollowerConfig::fromJson(jd); !follower) {
+    return Error(E_CONFIG, follower.error().message);
   }
-
-  const Array *beaconsArr = jd.getArray("beacons");
-  if (!beaconsArr) {
-    return Error(E_CONFIG, jd.contains("beacons") ? "Field 'beacons' must be an array"
-                                                  : "Field 'beacons' is required");
-  }
-  if (beaconsArr->elements.empty()) {
-    return Error(E_CONFIG, "Field 'beacons' array must contain at least one beacon entry");
-  }
-  beacons.clear();
-  for (size_t i = 0; i < beaconsArr->elements.size(); ++i) {
-    auto s = asString(beaconsArr->elements[i]);
-    if (!s) {
-      return Error(E_CONFIG, "beacons[" + std::to_string(i) + "] must be an upstream multiaddr string");
-    }
-    auto ma = network::ParseBeaconMultiaddrString(*s);
-    if (!ma) {
-      return Error(E_CONFIG, "beacons[" + std::to_string(i) + "]: " + ma.error().message);
-    }
-    beacons.push_back(std::move(*ma));
-  }
-  if (const Object* anchorObj = jd.getObject("networkAnchor")) {
-    auto anchor = NetworkAnchor::fromJson(*anchorObj);
-    if (!anchor) {
-      return Error(E_CONFIG, anchor.error().message);
-    }
-    network_anchor = anchor.value();
-  }
-  auto allowed = parseAllowedPeers(jd);
-  if (!allowed) {
-    return Error(E_CONFIG, allowed.error().message);
-  }
-  allowedPeers = std::move(allowed.value());
   return {};
+}
+
+Object MinerServer::RunFileConfig::toJson() const {
+  Object j;
+  j.setUIntForJson("minerId", minerId);
+  std::vector<Value> keyValues(keys.begin(), keys.end());
+  if (keyValues.empty()) {
+    keyValues.push_back(std::string("<private key file: pp-client keygen -o key>"));
+  }
+  j.set("keys", Object::array(std::move(keyValues)));
+  FollowerConfig::toJson(j, "<upstream multiaddr: /ip4/A.B.C.D/udp/8519/adp/1.0.0/p2p/PEER_ID>");
+  return j;
 }
 
 // ============ MinerServer methods ============
@@ -161,15 +81,7 @@ MinerServer::MinerServer() : FollowerServer("MinerServer") {
   initHandlers();
 }
 
-Service::Roe<void> MinerServer::admitUpstream(const Client::BeaconState &state) const { return verifyUpstreamState(state); }
-
-MinerServer::Roe<void> MinerServer::verifyUpstreamState(const Client::BeaconState &state) const {
-  return NetworkAnchor::verifyStatus<Error>(config_.network.network_anchor, state);
-}
-
 std::optional<std::string> MinerServer::firstBlockHash() const { return pinnedFirstBlockHash_; }
-
-std::string MinerServer::predecessorDir() const { return config_.network.network_anchor.predecessor_dir; }
 
 bool MinerServer::syncHeld() const {
   return broadcast_.has_value(); // our seal is pending: applying a synced block now would be refused
@@ -197,7 +109,7 @@ void MinerServer::fillHealth(Client::NodeHealth &health) const {
 }
 
 MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
-  const auto &anchor = config_.network.network_anchor;
+  const auto &anchor = followerConfig().anchor;
   if (anchor.genesis_hash.empty() && anchor.predecessor_dir.empty()) {
     return {};
   }
@@ -223,7 +135,7 @@ MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
   if (anchor.genesis_hash.empty()) {
     return {}; // checked, but not pinned: the first block is still taken as the upstream serves it
   }
-  if (auto pinned = NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor, calculatedHash);
+  if (auto pinned = NetworkAnchor::verifyGenesisHash<Error>(anchor, calculatedHash);
       !pinned) {
     return pinned;
   }
@@ -296,43 +208,23 @@ pp::Roe<void> MinerServer::checkStartingAuthority(uint64_t blockId, const ChainA
 }
 
 Service::Roe<void> MinerServer::onStart() {
-  // Construct config file path
-  std::filesystem::path configPath =
-      std::filesystem::path(getWorkDir()) / FILE_CONFIG;
-  std::string configPathStr = configPath.string();
-
-  // Create default FILE_CONFIG if it doesn't exist using RunFileConfig
   RunFileConfig runFileConfig;
-
-  auto loaded = env_config::loadConfig(configPathStr, minerEnvFields());
-  if (!loaded) {
-    return Service::Error(E_CONFIG, loaded.error().message);
+  auto fields = env_config::commonFields();
+  fields.push_back({"PP_MINER_ID", "minerId", env_config::Kind::UInt, "", false});
+  fields.push_back({"PP_MINER_KEYS", "keys", env_config::Kind::List, "", /*secret=*/true});
+  for (auto &field : FollowerConfig::envFields()) {
+    fields.push_back(std::move(field));
   }
-  if (!loaded.value()) {
-    log().info << "No " << FILE_CONFIG
-               << " found, creating with default values";
-
-    // Use default values from RunFileConfig struct
-    auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
-    if (!encoded) {
-      return Service::Error(E_ROLE, "Failed to encode " + std::string(FILE_CONFIG) +
-                                         ": " + encoded.error().message);
-    }
-    std::ofstream configFile(configPath);
-    if (!configFile) {
-      return Service::Error(E_ROLE,
-                            "Failed to create " + std::string(FILE_CONFIG));
-    }
-    configFile << encoded.value() << std::endl;
-    configFile.close();
-
-    // Nothing here can be guessed (account id, keys, upstream): stop until set.
-    return Service::Error(E_CONFIG, "Created " + configPathStr +
-                                        ": set minerId, keys and beacons (upstream multiaddrs), then start again — or "
-                                        "set PP_MINER_ID, PP_MINER_KEYS (or PP_MINER_KEYS_FILE) and PP_LEDGER_UPSTREAMS");
-  } else if (auto parseResult = runFileConfig.ltsFromJson(*loaded.value()); !parseResult) {
-    return Service::Error(E_CONFIG, "Failed to parse config (" + configPathStr + " and PP_LEDGER_* variables): " +
-                                        parseResult.error().message);
+  // Nothing here can be guessed (account id, keys, upstream): stop until set.
+  auto loaded = loadRunConfig(fields, runFileConfig.toJson(),
+                              "set minerId, keys and beacons (upstream multiaddrs), then start again — or set "
+                              "PP_MINER_ID, PP_MINER_KEYS (or PP_MINER_KEYS_FILE) and PP_LEDGER_UPSTREAMS");
+  if (!loaded) {
+    return loaded.error();
+  }
+  if (auto parsed = runFileConfig.fromJson(loaded.value()); !parsed) {
+    return Service::Error(E_CONFIG, "Failed to parse config (config.json and PP_LEDGER_* variables): " +
+                                        parsed.error().message);
   }
 
   // Apply configuration from RunFileConfig
@@ -349,18 +241,13 @@ Service::Roe<void> MinerServer::onStart() {
     }
     config_.privateKeys.push_back(keyResult.value());
   }
-  config_.network.udp_port = runFileConfig.port;
-  config_.network.beacon_multiaddrs = runFileConfig.beacons;
-  config_.network.network_anchor = runFileConfig.network_anchor;
 
   log().info << "Configuration loaded";
   log().info << "  Miner ID: " << config_.minerId;
-  log().info << "  UDP port: " << config_.network.udp_port;
-  log().info << "  Beacons: " << config_.network.beacon_multiaddrs.size();
+  log().info << "  UDP port: " << runFileConfig.port;
+  log().info << "  Beacons: " << runFileConfig.upstreams.size();
 
-  if (auto started = startFollowing(config_.network.beacon_multiaddrs, config_.privateKeys.front(),
-                                    config_.network.udp_port, runFileConfig.allowedPeers);
-      !started) {
+  if (auto started = startFollowing(runFileConfig, config_.privateKeys.front()); !started) {
     return started;
   }
 
@@ -696,10 +583,6 @@ void MinerServer::renewRegistrationPeriodically() {
 }
 
 MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
-  if (config_.network.beacon_multiaddrs.empty()) {
-    return Error(E_CONFIG, "No beacon servers configured");
-  }
-
   // Follow the highest beacon generation, then the longest chain (ba5, bp2b). Claims are checked
   // when syncing: an upstream whose tip does not verify fails the sync and is avoided a while.
   // Rounds until one answers, within the startup sync's time: an upstream may be restarting too (a
@@ -746,7 +629,7 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
                   << " s): " << stateResult.error().message;
   }
   const Client::BeaconState state = stateResult ? stateResult.value() : status.value();
-  if (auto verified = verifyUpstreamState(state); !verified) {
+  if (auto verified = admitUpstream(state); !verified) {
     return Error(E_NETWORK, verified.error().message);
   }
   if (auto genesis = verifyGenesisAnchor(); !genesis) {
