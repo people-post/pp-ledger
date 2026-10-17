@@ -848,6 +848,8 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   }
   network::LedgerAmpConfig tuned = config;
   tuning_.applyTo(tuned.link_config);
+  tuned.link_config.max_links = maxLinks_;
+  tuned.link_config.max_pending_inbound = handshakeBacklog_;
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
   auto started = ampSupport_->Start(tuned, [this](std::string peerId, std::string body, RequestQueue::Reply reply) {

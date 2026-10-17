@@ -63,7 +63,8 @@ its `/data` volume and keeps the same secrets.
 5. **Start the new beacon**: `pp-beacon -d <dir>`. Its log shows `Signed tip: block M, generation G`
    with M ≥ N. `pp-client --host-file <dir>/listen.multiaddr health --ready` answers ready.
 6. **Watch the relays move.** Each logs `Following upstream [i] <new multiaddr>` within about a
-   minute and a half (a dial that failed before the new host was up waits 30 s; relays re-rank every
+   minute and a half (a dial that failed before the new host was up waits 1 s, then longer with each
+   failure in a row, up to 30 s; relays re-rank every
    minute and at once when a sync fails), and `pp-client -b --host <relay> status` shows the chain
    growing under the same generation G. Clients resubmit transactions that were pending in the old
    beacon's pool; miners re-register within a minute on their own.

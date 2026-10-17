@@ -468,6 +468,16 @@ TEST(ServerThreadTest, FollowerConfigReadsTheSameFieldsForEveryFollower) {
   EXPECT_FALSE(parse(R"({"port": 1})").isOk()) << "an upstream is required";
   EXPECT_FALSE(parse(R"({"beacons": ["not a multiaddr"]})").isOk());
   EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "port": 0})").isOk());
+
+  // LR005: the link table and the handshake backlog, like TCP's connections and listen backlog.
+  EXPECT_EQ(one.value().maxLinks, NodeConfig::kDefaultMaxLinks);
+  EXPECT_EQ(one.value().handshakeBacklog, NodeConfig::kDefaultHandshakeBacklog);
+  auto sized = parse(R"({"beacon": ")" + a + R"(", "maxLinks": 4000, "handshakeBacklog": 500})");
+  ASSERT_TRUE(sized) << sized.error().message;
+  EXPECT_EQ(sized.value().maxLinks, 4000u);
+  EXPECT_EQ(sized.value().handshakeBacklog, 500u);
+  EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "maxLinks": 0})").isOk());
+  EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "maxLinks": 10, "handshakeBacklog": 20})").isOk());
 }
 
 // load-resilience lr1: every request is counted once, by what became of it.

@@ -23,6 +23,23 @@ pp::Roe<void> NodeConfig::fromJson(const Object &jd) {
     return allowed.error();
   }
   allowedPeers = std::move(allowed.value());
+  if (jd.contains("maxLinks")) {
+    auto value = jd.getNonNegInt("maxLinks");
+    if (!value || *value == 0 || *value > 65535) {
+      return pp::Error("Field 'maxLinks' must be between 1 and 65535");
+    }
+    maxLinks = static_cast<uint32_t>(*value);
+  }
+  if (jd.contains("handshakeBacklog")) {
+    auto value = jd.getNonNegInt("handshakeBacklog");
+    if (!value || *value == 0 || *value > 65535) {
+      return pp::Error("Field 'handshakeBacklog' must be between 1 and 65535");
+    }
+    handshakeBacklog = static_cast<uint32_t>(*value);
+  }
+  if (handshakeBacklog > maxLinks) {
+    return pp::Error("Field 'handshakeBacklog' may not exceed 'maxLinks'");
+  }
   return {};
 }
 
@@ -31,6 +48,12 @@ void NodeConfig::toJson(Object &j) const {
   if (allowedPeers) {
     std::vector<Value> peers(allowedPeers->begin(), allowedPeers->end());
     j.set("allowedPeers", Object::array(std::move(peers)));
+  }
+  if (maxLinks != kDefaultMaxLinks) {
+    j.setJsonUInt("maxLinks", maxLinks);
+  }
+  if (handshakeBacklog != kDefaultHandshakeBacklog) {
+    j.setJsonUInt("handshakeBacklog", handshakeBacklog);
   }
 }
 

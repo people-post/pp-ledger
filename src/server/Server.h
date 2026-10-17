@@ -257,6 +257,11 @@ protected:
    */
   Service::Roe<std::string> loadOrCreateIdentityKey();
 
+  /** Before startAmpServer: the link table and handshake backlog from the role's config (LR005). */
+  void setLinkLimits(const NodeConfig& config) {
+    maxLinks_ = config.maxLinks;
+    handshakeBacklog_ = config.handshakeBacklog;
+  }
   Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
   void stopAmpServer();
   bool isAmpServerRunning() const { return ampSupport_ && ampSupport_->isRunning(); }
@@ -307,6 +312,8 @@ private:
   };
   std::map<uint32_t, Route> routes_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
+  uint32_t maxLinks_{NodeConfig::kDefaultMaxLinks};
+  uint32_t handshakeBacklog_{NodeConfig::kDefaultHandshakeBacklog};
   network::NetworkTuning tuning_;
   /** Change while running (addUpstream, followUpstream); read on the io lane and the server thread. */
   mutable std::mutex upstreamMutex_;

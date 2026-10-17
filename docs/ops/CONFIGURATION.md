@@ -30,6 +30,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_LEDGER_LOG_FILE` | beacon, relay, miner | `--log-file`: also log to this file (relative: to the work directory); `none`: stderr only, for a container's log driver. Default `<role>.log` in the work directory |
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
+| `PP_LEDGER_MAX_LINKS`, `PP_LEDGER_HANDSHAKE_BACKLOG` | beacon, relay, miner | `maxLinks`, `handshakeBacklog` |
 | `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
 | `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT`, `PP_LEDGER_PREDECESSOR_DIR` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId`, `.predecessorDir` |
 | `PP_MINER_ID` | miner | `minerId` |
@@ -263,6 +264,18 @@ the node serves only those peers and its own upstreams; any other sender gets
 "Peer not allowed" before its request is queued. Absent = anyone; `[]` = only
 upstreams. Typical: the beacon lists its relays, so only relays reach the
 terminal; a relay lists its miners and trusted clients.
+
+## `maxLinks`, `handshakeBacklog` (any role)
+
+How many peers a node holds, like a TCP server's connections and listen backlog (load-resilience
+LR005). `maxLinks` (default 1,024): peers linked at once; when full, the node closes its
+longest-idle inbound link (no request open, silent for a second; that peer simply redials later),
+else refuses the newcomer at once — the client sees "refused by the peer" and backs off.
+`handshakeBacklog` (default 128, at most `maxLinks`): handshakes in progress; when full, a new
+client's hello is dropped and its resend (on a doubling interval, about six seconds in all) gets in
+once the handshakes ahead finish. A failed dial backs off from one second, doubling to 30 s,
+jittered. The defaults are provisional until memory per link is measured
+([projects/load-resilience](../../projects/load-resilience/PHASES.md), lr8).
 
 ## Identity keys
 

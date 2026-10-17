@@ -155,7 +155,10 @@ Roe<std::optional<common::Object>> loadConfig(const std::string &path, const std
 }
 
 std::vector<Field> commonFields() {
-  return {{"PP_LEDGER_PORT", "port", Kind::UInt, ""}, {"PP_LEDGER_ALLOWED_PEERS", "allowedPeers", Kind::List, ""}};
+  return {{"PP_LEDGER_PORT", "port", Kind::UInt, ""},
+          {"PP_LEDGER_ALLOWED_PEERS", "allowedPeers", Kind::List, ""},
+          {"PP_LEDGER_MAX_LINKS", "maxLinks", Kind::UInt, ""},
+          {"PP_LEDGER_HANDSHAKE_BACKLOG", "handshakeBacklog", Kind::UInt, ""}};
 }
 
 std::vector<Field> anchorFields() {

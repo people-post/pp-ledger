@@ -41,6 +41,7 @@ Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, 
     return Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
   }
   setAllowedPeers(config_.allowedPeers);
+  setLinkLimits(config_);
   if (auto started = startAmpServer(*ampCfg); !started) {
     return Error(E_NETWORK, "Failed to start AMP server: " + started.error().message);
   }

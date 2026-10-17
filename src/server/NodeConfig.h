@@ -14,11 +14,22 @@
 
 namespace pp {
 
-/** config.json fields every node reads (CONFIGURATION.md § config.json): `port`, `allowedPeers`. */
+/**
+ * config.json fields every node reads (CONFIGURATION.md § config.json): `port`, `allowedPeers`,
+ * `maxLinks`, `handshakeBacklog`.
+ */
 struct NodeConfig {
+  /** Links a node holds at once, and handshakes in progress (load-resilience LR005; until lr8 sizes them). */
+  static constexpr uint32_t kDefaultMaxLinks = 1024;
+  static constexpr uint32_t kDefaultHandshakeBacklog = 128;
+
   uint16_t port{0};
   /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
   std::optional<std::set<std::string>> allowedPeers;
+  /** `maxLinks`: peers held at once (TCP: connections); full, the longest-idle inbound link makes room. */
+  uint32_t maxLinks{kDefaultMaxLinks};
+  /** `handshakeBacklog`: inbound handshakes in progress (TCP: the listen backlog); full, a hello waits for its resend. */
+  uint32_t handshakeBacklog{kDefaultHandshakeBacklog};
 
   explicit NodeConfig(uint16_t defaultPort = 0) : port(defaultPort) {}
 
