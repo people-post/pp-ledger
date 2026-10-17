@@ -1062,11 +1062,11 @@ int main(int argc, char** argv) {
                 "Value for Access-Control-Allow-Origin (default: CORS disabled)")
       ->envname("PP_HTTP_CORS_ORIGIN");
   app.add_option("--beacon", beaconMultiaddr,
-                 "Beacon ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
+                 "Beacon ADP multiaddr (/ip4|dns4/.../udp/.../adp/1.0.0/p2p/...)")
       ->required()
       ->envname("PP_HTTP_BEACON");
   app.add_option("--miner", minerMultiaddr,
-                 "Miner ADP multiaddr (/ip4/.../udp/.../adp/1.0.0/p2p/...)")
+                 "Miner ADP multiaddr (/ip4|dns4/.../udp/.../adp/1.0.0/p2p/...)")
       ->required()
       ->envname("PP_HTTP_MINER");
   app.add_option("--metrics-target", metricsTargets,
@@ -1088,7 +1088,7 @@ int main(int argc, char** argv) {
   if (beaconMultiaddr.empty() || beaconMultiaddr.front() != '/' ||
       minerMultiaddr.empty() || minerMultiaddr.front() != '/') {
     std::cerr << "Error: --beacon and --miner must be ADP multiaddrs "
-                 "(/ip4/.../udp/.../adp/1.0.0/p2p/...).\n";
+                 "(/ip4|dns4/.../udp/.../adp/1.0.0/p2p/...).\n";
     return 1;
   }
 

@@ -261,8 +261,10 @@ wait_for_listen_multiaddr() {
       # || true: grep miss must not abort under set -e / pipefail
       line=$(grep -aoE 'AMP ledger listener: /[^[:space:]]+' "$log_file" 2>/dev/null | tail -1 | sed 's/^AMP ledger listener: //' || true)
       if [[ -n "$line" && "$line" == /* ]]; then
-        # Bind-any is not dialable from the client host.
-        line=${line//\/ip4\/0.0.0.0\//\/ip4\/127.0.0.1\/}
+        # Bind-any is not dialable: every node and client dials the host by name (a hostname
+        # multiaddr, resolved by Amp), as a deployment naming its hosts does.
+        line=${line//\/ip4\/0.0.0.0\//\/dns4\/localhost\/}
+        line=${line//\/ip4\/127.0.0.1\//\/dns4\/localhost\/}
         mkdir -p "$(dirname "$out_file")"
         printf '%s\n' "$line" >"$out_file"
         echo -e "${GREEN}✓ Listen multiaddr: $line${NC}"

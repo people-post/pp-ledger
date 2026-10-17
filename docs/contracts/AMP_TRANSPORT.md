@@ -120,6 +120,21 @@ Relay `beacon` is a single **upstream** endpoint (terminal beacon or another rel
 On startup, each server logs its listen multiaddr. Copy that multiaddr into downstream
 `beacons[]` / relay `beacon` configs as needed.
 
+A multiaddr names the host by address or by name:
+
+```text
+/ip4/<ipv4>/udp/<port>/adp/1.0.0/p2p/<peer id>
+/ip6/<ipv6>/udp/<port>/adp/1.0.0/p2p/<peer id>
+/dns4/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>     an IPv4 address of <host>
+/dns6/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>     an IPv6 address
+/dns/<host>/udp/<port>/adp/1.0.0/p2p/<peer id>      either
+```
+
+A name is resolved when it is dialed (Amp, off the network thread), kept for a minute, and looked
+up again after a failed dial, so a node that moves to another address under the same name is
+followed without a config change. The peer id still authenticates the node: whoever answers at the
+name must hold its identity key.
+
 ## Client (`pp-client`)
 
 Pass the target ADP multiaddr as `-H` / `--host`:

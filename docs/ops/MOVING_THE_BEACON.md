@@ -41,7 +41,9 @@ its `/data` volume and keeps the same secrets.
 2. **Its address.** The peer id moves with `keys/amp-identity.txt`, so the new multiaddr is the old
    one with the new IP and port: `/ip4/<new ip>/udp/<port>/adp/1.0.0/p2p/<same peer id>`
    (`pp-client peer-id <dir>/keys/amp-identity.txt` prints the peer id). If the beacon keeps its
-   address (the IP moves with it), skip step 3.
+   address (the IP moves with it), or relays name it by host (`/dns4/<host>/…`) and the name is
+   pointed at the new host, skip step 3: relays look the name up again when a dial fails (lower the
+   record's DNS TTL beforehand, so the change is seen at once).
 3. **Relays.** Add the new multiaddr to every relay that follows the beacon as a second candidate
    — `beacons` in `config.json` (beside `beacon`) or `PP_LEDGER_UPSTREAMS` — and restart them one at a
    time. A relay with a single candidate never fails over: it would keep dialling the old address.

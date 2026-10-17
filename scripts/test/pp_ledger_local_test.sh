@@ -122,7 +122,7 @@ run_rotation() {
 run_image() {
   # The image and the sample stack (deploy/compose.yml) as an operator runs them: build the image,
   # deploy/init.sh (keys, genesis, peer ids from the environment), `docker compose up --wait`, then
-  # readiness, chain growth, the HTTP API and a clean stop. Own project, subnet and host ports.
+  # readiness, chain growth, the HTTP API and a clean stop. Own project and host ports.
   echo -e "${BLUE}═══ suite image (L-SMOKE-IMAGE: compose stack from the environment) ═══${NC}"
   command -v docker >/dev/null 2>&1 || die "docker required for --suite image"
   local image="${PP_LEDGER_IMAGE:-}"
@@ -138,7 +138,7 @@ run_image() {
   (
     cd "$stack"
     export COMPOSE_PROJECT_NAME=pp-ledger-image-smoke PP_LEDGER_IMAGE="$image" \
-      PP_LEDGER_SLOT_DURATION=2 PP_LEDGER_SLOTS_PER_EPOCH=10 PP_LEDGER_NET="${PP_LEDGER_SMOKE_IMAGE_NET:-172.29.7}" \
+      PP_LEDGER_SLOT_DURATION=2 PP_LEDGER_SLOTS_PER_EPOCH=10 \
       PP_LEDGER_BEACON_HOST_PORT=28517 PP_LEDGER_RELAY_HOST_PORT=28519 PP_LEDGER_MINER_HOST_PORT=28518 \
       PP_LEDGER_HTTP_HOST_PORT=28080
     cleanup() { docker compose down -v >/dev/null 2>&1 || true; }

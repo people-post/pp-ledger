@@ -5,8 +5,9 @@
 #   docker compose up -d
 # See deploy/README.md.
 #
-# Nodes find each other by fixed addresses on the `ledger` network: multiaddrs take IP addresses
-# (not hostnames), and peer ids come from .env (written by init.sh from the identity keys).
+# Nodes find each other by service name (/dns4/<service>/...: compose's DNS on the project network,
+# resolved again when a container comes back at another address), and peer ids come from .env
+# (written by init.sh from the identity keys).
 
 name: pp-ledger
 
@@ -38,9 +39,6 @@ services:
     secrets: [beacon_signing, beacon_identity]
     volumes:
       - beacon-data:/data
-    networks:
-      ledger:
-        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.10
     ports:
       - "${PP_LEDGER_BEACON_HOST_PORT:-8517}:8517/udp"
     restart: unless-stopped
@@ -50,14 +48,11 @@ services:
     command: ["pp-relay"]
     environment:
       PP_LEDGER_PORT: "8519"
-      PP_LEDGER_UPSTREAMS: /ip4/${PP_LEDGER_NET:-172.28.0}.10/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
+      PP_LEDGER_UPSTREAMS: /dns4/beacon/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
       PP_LEDGER_IDENTITY_KEY_FILE: /run/secrets/relay_identity
     secrets: [relay_identity]
     volumes:
       - relay-data:/data
-    networks:
-      ledger:
-        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.11
     ports:
       - "${PP_LEDGER_RELAY_HOST_PORT:-8519}:8519/udp"
     depends_on:
@@ -72,13 +67,10 @@ services:
       PP_LEDGER_PORT: "8518"
       PP_MINER_ID: ${MINER_ID:-1048576}
       PP_MINER_KEYS_FILE: /run/secrets/miner_key
-      PP_LEDGER_UPSTREAMS: /ip4/${PP_LEDGER_NET:-172.28.0}.11/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+      PP_LEDGER_UPSTREAMS: /dns4/relay/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
     secrets: [miner_key]
     volumes:
       - miner-data:/data
-    networks:
-      ledger:
-        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.12
     ports:
       - "${PP_LEDGER_MINER_HOST_PORT:-8518}:8518/udp"
     depends_on:
@@ -92,13 +84,10 @@ services:
     environment:
       PP_HTTP_BIND: 0.0.0.0
       PP_HTTP_PORT: "8080"
-      PP_HTTP_BEACON: /ip4/${PP_LEDGER_NET:-172.28.0}.11/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
-      PP_HTTP_MINER: /ip4/${PP_LEDGER_NET:-172.28.0}.12/udp/8518/adp/1.0.0/p2p/${MINER_PEER_ID:?run ./init.sh first}
+      PP_HTTP_BEACON: /dns4/relay/udp/8519/adp/1.0.0/p2p/${RELAY_PEER_ID:?run ./init.sh first}
+      PP_HTTP_MINER: /dns4/miner/udp/8518/adp/1.0.0/p2p/${MINER_PEER_ID:?run ./init.sh first}
       # /metrics covers its beacon (here the relay) and miner; the beacon behind the relay too.
-      PP_HTTP_METRICS_TARGETS: core-beacon=/ip4/${PP_LEDGER_NET:-172.28.0}.10/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
-    networks:
-      ledger:
-        ipv4_address: ${PP_LEDGER_NET:-172.28.0}.20
+      PP_HTTP_METRICS_TARGETS: core-beacon=/dns4/beacon/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
     ports:
       - "${PP_LEDGER_HTTP_HOST_PORT:-8080}:8080"
     healthcheck: # pp-http has no node RPC of its own: probe its API
@@ -110,12 +99,6 @@ services:
       miner:
         condition: service_healthy
     restart: unless-stopped
-
-networks:
-  ledger:
-    ipam:
-      config:
-        - subnet: ${PP_LEDGER_NET:-172.28.0}.0/24
 
 volumes:
   beacon-data:
