@@ -695,6 +695,7 @@ taking over, and a start whose rewind just dropped the tip.
 ## B030 — Re-genesis: a new network that imports the old state, checked against its state root
 
 **Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis), [RE_GENESIS.md](../../docs/ops/RE_GENESIS.md) (normative; this entry keeps the why).
 **Decision:** Case 1 (no authority left the protocol could follow) is a new network: new
 `networkId`, new genesis, admin, recovery and beacon keys. Its genesis imports the old network's
 account state at a chosen height *H* verbatim and names its predecessor `{networkId, height,
@@ -756,6 +757,7 @@ them against old blocks (needs the old chain at every node).
 ## B032 — The import rides in import blocks after genesis
 
 **Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis), [WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md) (record 20) (normative; this entry keeps the why).
 **Decision:**
 - **`T_IMPORT` (20)** carries one account: id, wallet, its full attachment (profiles), old
   `blockId`. Unsigned.
@@ -789,6 +791,7 @@ band with only its hash in genesis (a second transport for nodes).
 ## B033 — Re-genesis tooling and roles
 
 **Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § State export](../../docs/contracts/BEACON_AUTHORITY.md#state-export), [RE_GENESIS.md](../../docs/ops/RE_GENESIS.md) (normative; this entry keeps the why).
 **Decision:**
 - **Export** offline from a copy of a full node's directory (a relay holds the chain from genesis):
   `pp-client export-state -d <copy> --height H -o state.snap` cuts the copy after *H*, loads it, and

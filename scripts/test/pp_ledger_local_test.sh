@@ -3,11 +3,12 @@
 #
 # Owns smoke network up/stop/clear. Individual asserts live in pp_ledger_*_smoke.sh.
 #
-# Suites: unit | l0 | l1 | latejoin | smoke | rotation | takeover | move | image
+# Suites: unit | l0 | l1 | latejoin | smoke | rotation | takeover | move | regenesis | image
 #   smoke == l0 → l1 → latejoin on one network (brought up once).
 #   rotation brings up its own network (the next beacon key is staged before the beacon starts).
 #   takeover brings up its own network (case 2: a relay promoted to be the new beacon).
 #   move brings up its own network (case 3: the beacon moved to another host — here, port).
+#   regenesis brings up its own networks (case 1: a new network imports the old one's state).
 # See docs/ops/TEST_STRATEGY.md
 set -euo pipefail
 
@@ -33,7 +34,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|image
   --down                       stop network after run
 
 Examples:
@@ -101,6 +102,11 @@ run_smoke() {
 run_takeover() {
   # Its own network: relay2 becomes the beacon.
   bash "${ROOT}/scripts/test/pp_ledger_takeover_smoke.sh"
+}
+
+run_regenesis() {
+  # Its own networks: the old one ends, a new one imports its state (case 1).
+  bash "${ROOT}/scripts/test/pp_ledger_regenesis_smoke.sh"
 }
 
 run_move() {
@@ -217,6 +223,7 @@ case "$CMD" in
       rotation) run_rotation ;;
       takeover) run_takeover ;;
       move) run_move ;;
+      regenesis) run_regenesis ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;
     esac

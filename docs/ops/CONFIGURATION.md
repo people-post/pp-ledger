@@ -171,8 +171,8 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 - `stake` — optional initial balance taken from reserve; default an equal share
   of 10% of the supply among miners without an explicit stake
 
-**Re-genesis** (`pp-beacon --init --import-state state.snap`, case 1:
-[BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)):
+**Re-genesis** (`pp-beacon --init --import-state state.snap`, case 1; runbook
+[RE_GENESIS.md](RE_GENESIS.md), rules [BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)):
 `networkId` (new, not the snapshot's), `systemAccounts` (the new keys) and `recovery` are required
 as above; `genesisMiners` is refused (miners come with the import). Every other field is the old
 network's, from the snapshot, unless set here.

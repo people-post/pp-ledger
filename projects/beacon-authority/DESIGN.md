@@ -1,6 +1,6 @@
 # Beacon authority — design
 
-**Status:** part 1 shipped (B001–B021; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2: cases 2 and 3 shipped (bp1–bp4), case 1 (re-genesis) designed (bp5)
+**Status:** part 1 shipped (B001–B021; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2 shipped: cases 2 and 3 (bp1–bp4), case 1, re-genesis (bp5–bp10)
 **Open item:** [SLOT_COMMITTEE_OPEN_ITEMS.md § E](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md)
 
@@ -318,7 +318,10 @@ and one guard — a copy without `data/signed-tip.dat` does not sign its ledger 
 
 ### Case 1 — re-genesis (bp5)
 
-**Status:** bp5 design note, decided: [B030](DECISIONS.md#b030--re-genesis-a-new-network-that-imports-the-old-state-checked-against-its-state-root),
+**Status:** shipped (bp6–bp10; runbook [RE_GENESIS.md](../../docs/ops/RE_GENESIS.md), rules
+[BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis)); the
+predecessor is also checked by the nodes that ran the old network
+([B037](DECISIONS.md#b037--a-re-genesiss-predecessor-is-checked-by-the-nodes-that-ran-the-old-network)). Design note, decided: [B030](DECISIONS.md#b030--re-genesis-a-new-network-that-imports-the-old-state-checked-against-its-state-root),
 [B031](DECISIONS.md#b031--the-state-root-commits-to-the-whole-account),
 [B032](DECISIONS.md#b032--the-import-rides-in-import-blocks-after-genesis),
 [B033](DECISIONS.md#b033--re-genesis-tooling-and-roles); prerequisite

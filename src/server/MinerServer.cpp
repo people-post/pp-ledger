@@ -1,5 +1,5 @@
 #include "MinerServer.h"
-#include "PredecessorCheck.h"
+#include "../chain/PredecessorCheck.h"
 #include "../chain/BlockValidation.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -557,8 +557,13 @@ void MinerServer::initBlockSync() {
   hooks.tipHash = [this]() { return miner_.getTipHash(); };
   hooks.firstBlockHash = [this]() { return pinnedFirstBlockHash_; };
   if (!config_.network.network_anchor.predecessor_dir.empty()) {
-    hooks.checkGenesis = [dir = config_.network.network_anchor.predecessor_dir](const Ledger::ChainNode &genesis) {
-      return predecessor_check::check(genesis, dir);
+    hooks.checkGenesis = [this, dir = config_.network.network_anchor.predecessor_dir](
+                             const Ledger::ChainNode &genesis) {
+      auto checked = predecessor_check::check(genesis, dir);
+      if (checked) {
+        log().info << "Re-genesis checked against the old ledger in " << dir;
+      }
+      return checked;
     };
   }
   hooks.checkStartingAuthority = [this](uint64_t blockId, const ChainAuthority &authority,

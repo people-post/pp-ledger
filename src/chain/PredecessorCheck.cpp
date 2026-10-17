@@ -1,7 +1,7 @@
 #include "PredecessorCheck.h"
 
-#include "../chain/BlockValidation.h"
-#include "../chain/Types.h"
+#include "BlockValidation.h"
+#include "Types.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 

@@ -9,6 +9,8 @@ Not this runbook:
 
 - **The key may be stolen** — case 2: the admins certify a new key on one of the maintainer's relays
   ([CONFIGURATION.md § Promoting a relay](CONFIGURATION.md#promoting-a-relay-case-2-the-beacon-key-was-stolen)).
+- **Every key lost** (beacon, admin, and a recovery set that cannot act) — case 1, a new network from
+  the old one's state ([RE_GENESIS.md](RE_GENESIS.md)).
 - **A new key on the same chain, at the operator's choice** — a rotation: stage
   `keys/beacon-signing.next.*`, the admins certify it as the next generation (no cutover), and the
   beacon switches when the certificate commits. It may be combined with a move, but need not be.

@@ -291,7 +291,10 @@ miner_multiaddr() {
 
 # ---- Beacon init / configs ----
 
+# Optional $1: a state snapshot to import (a re-genesis, beacon-authority case 1): no genesis miners,
+# `--init --import-state`.
 initialize_beacon_with_test_config() {
+  local import_state=${1:-}
   local beacon_dir="${TEST_DIR}/beacon"
   rm -rf "$beacon_dir"
   # A new genesis is a new chain: every node's ledger from an earlier run belongs to another
@@ -348,7 +351,9 @@ initialize_beacon_with_test_config() {
   # system accounts never lead slots.
   local genesis_miners=""
   sep=""
-  for i in $(seq 1 "$NUM_MINERS"); do
+  local genesis_miner_count=$NUM_MINERS
+  [[ -z "$import_state" ]] || genesis_miner_count=0 # a re-genesis imports its miners
+  for i in $(seq 1 "$genesis_miner_count"); do
     generate_miner_key "$i" >/dev/null
     genesis_miners+="${sep}{\"id\": $(miner_account_id "$i"), \"publicKeys\": [\"$(cat "${TEST_DIR}/keys/miner${i}.pub")\"]}"
     sep=", "
@@ -366,7 +371,9 @@ initialize_beacon_with_test_config() {
   echo -e "${CYAN}Created init-config.json (slot=${SLOT_DURATION}s, epoch=${SLOTS_PER_EPOCH})${NC}"
 
   local init_output
-  init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init "${genesis_args[@]}" 2>&1) || {
+  local import_args=()
+  [[ -z "$import_state" ]] || import_args=(--import-state "$import_state")
+  init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init "${genesis_args[@]}" "${import_args[@]}" 2>&1) || {
     echo "$init_output" >&2
     die "beacon --init failed"
   }
@@ -403,6 +410,8 @@ create_relay_config() {
   render_fixture "relay-config.json.tmpl" "$relay_dir/config.json" \
     "RELAY_PORT=${port}" \
     "BEACON_MULTIADDR=${beacon_ma}"
+  # After a re-genesis: the relay checks it against its ledger on the old network (PREDECESSOR_ROOT).
+  [[ -z "${PREDECESSOR_ROOT:-}" ]] || set_predecessor_dir "$relay_dir/config.json" "${PREDECESSOR_ROOT}/${name}"
   # More upstream candidates ($4, comma-separated): the relay's `beacons` list after `beacon`.
   if [[ -n "$more_upstreams" ]]; then
     python3 - "$relay_dir/config.json" "$more_upstreams" <<'PY' || die "failed to add upstreams to ${name}"
@@ -473,6 +482,18 @@ create_miner_config() {
     "KEYS_JSON=${keys_json}" \
     "MINER_PORT=${miner_port}" \
     "RELAY_MULTIADDR=${relay_ma}"
+  [[ -z "${PREDECESSOR_ROOT:-}" ]] || set_predecessor_dir "$miner_dir/config.json" "${PREDECESSOR_ROOT}/miner${miner_id}"
+}
+
+# networkAnchor.predecessorDir = $2 in config $1 (beacon-authority B037).
+set_predecessor_dir() {
+  python3 - "$1" "$2" <<'PY' || die "failed to set predecessorDir in $1"
+import json, sys
+path, old = sys.argv[1], sys.argv[2]
+config = json.load(open(path))
+config.setdefault("networkAnchor", {})["predecessorDir"] = old
+json.dump(config, open(path, "w"), indent=2)
+PY
 }
 
 pid_for_name() {
@@ -1752,4 +1773,81 @@ run_move_scenario() {
   local stopped
   stopped=$(all_processes_alive) || die "L-SMOKE-MOVE: ${stopped} stopped"
   echo -e "${GREEN}✓ L-SMOKE-MOVE: the relay and ${NUM_MINERS} miner(s) follow the moved beacon (generation 1, block ${served% *} from ${before% *}); no rewind, no equivocation${NC}"
+}
+
+# Case 1 end to end (beacon-authority B030–B037, docs/ops/RE_GENESIS.md): no key of the old network
+# can sign again. Its state is exported at its last block H; a new network (new id, new keys) imports
+# it; relays and miners join it fresh, each checking the new genesis against its own ledger on the old
+# network (networkAnchor.predecessorDir). Accounts come over unchanged, miners produce with their old
+# keys, and the chain goes on under the new network id.
+run_regenesis_scenario() {
+  echo -e "${BLUE}═══ L-SMOKE-REGENESIS (case 1) ═══${NC}"
+  wait_for_blocks 4 90 || die "L-SMOKE-REGENESIS: the old network did not get going"
+  local old_dir="$TEST_DIR" user=1073741825 i
+  # 1. The old network ends: its beacon goes (no block commits any more); every node holds its last
+  # block H, then they stop.
+  stop_node beacon
+  sleep 2
+  local height old_account
+  height=$(( $(get_next_block_id) - 1 ))
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$((height + 1))" 60 || die "L-SMOKE-REGENESIS: miner${i} does not hold block ${height}"
+  done
+  old_account=$(run_pp_client -b --host "$(relay_multiaddr)" account "$user" 2>/dev/null) ||
+    die "L-SMOKE-REGENESIS: account ${user} not on the old network"
+  stop_network
+  echo -e "${GREEN}✓ Old network stopped at block ${height}${NC}"
+
+  # 2. Export its state at H from the relay (a full node).
+  rm -f "$old_dir/state.snap"
+  "$BUILD_DIR/app/pp-client" export-state -d "$old_dir/relay" --height "$height" -o "$old_dir/state.snap" >/dev/null ||
+    die "L-SMOKE-REGENESIS: export-state failed"
+  echo -e "${GREEN}✓ State exported at block ${height}${NC}"
+
+  # 3. The new network, in its own directory: new id, new keys; nodes check it against the old one.
+  TEST_DIR="$old_dir/regenesis"
+  PID_FILE="${TEST_DIR}/network.pids"
+  MULTIADDR_DIR="${TEST_DIR}/multiaddrs"
+  ARTIFACTS_DIR="${TEST_DIR}/artifacts"
+  SMOKE_NETWORK_ID="pp-smoke-regenesis"
+  PREDECESSOR_ROOT="$old_dir"
+  rm -rf "$TEST_DIR"
+  mkdir -p "$TEST_DIR" "$MULTIADDR_DIR"
+  initialize_beacon_with_test_config "$old_dir/state.snap"
+  create_beacon_config
+  start_beacon
+  start_relay
+  start_all_miners
+  wait_for_log "$(node_log relay)" "Re-genesis checked against the old ledger in ${old_dir}/relay" 60 ||
+    die "L-SMOKE-REGENESIS: the relay did not check the predecessor"
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_log "${TEST_DIR}/miner${i}/miner.log" "Re-genesis checked against the old ledger in ${old_dir}/miner${i}" 60 ||
+      die "L-SMOKE-REGENESIS: miner${i} did not check the predecessor"
+  done
+  echo -e "${GREEN}✓ New network '${SMOKE_NETWORK_ID}' up; the relay and ${NUM_MINERS} miner(s) checked it against their old ledgers${NC}"
+
+  # 4. Accounts came over; anyone holding the old chain can check it by hand too.
+  local new_account
+  new_account=$(run_pp_client -b --host "$(relay_multiaddr)" account "$user" 2>/dev/null) ||
+    die "L-SMOKE-REGENESIS: account ${user} not on the new network"
+  [[ "$new_account" == "$old_account" ]] ||
+    die "L-SMOKE-REGENESIS: account ${user} differs: ${old_account} vs ${new_account}"
+  "$BUILD_DIR/app/pp-client" --host "$(relay_multiaddr)" check-predecessor -d "$old_dir/miner1" >/dev/null ||
+    die "L-SMOKE-REGENESIS: check-predecessor refused the old miner's own ledger"
+  if "$BUILD_DIR/app/pp-client" --host "$(relay_multiaddr)" check-predecessor -d "$TEST_DIR/beacon" >/dev/null 2>&1; then
+    die "L-SMOKE-REGENESIS: check-predecessor took a ledger of another network"
+  fi
+  echo -e "${GREEN}✓ Account ${user} unchanged; check-predecessor agrees (and refuses another network's ledger)${NC}"
+
+  # 5. The network goes on: miners produce with their old keys.
+  local start target
+  start=$(get_next_block_id)
+  target=$((start + 2))
+  wait_for_blocks "$target" 120 || die "L-SMOKE-REGENESIS: the new network does not grow past block ${start}"
+  for i in $(seq 1 "$NUM_MINERS"); do
+    wait_for_miner_tip "$i" "$target" 90 || die "L-SMOKE-REGENESIS: miner${i} did not follow"
+  done
+  local stopped
+  stopped=$(all_processes_alive) || die "L-SMOKE-REGENESIS: ${stopped} stopped"
+  echo -e "${GREEN}✓ L-SMOKE-REGENESIS: the new network grows (block ${target}) with the old miners' keys${NC}"
 }
