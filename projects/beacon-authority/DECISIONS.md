@@ -736,6 +736,7 @@ the old chain can order it.
 ## B031 — The state root commits to the whole account
 
 **Date:** 2026-10-16
+**Superseded by:** [WIRE_SCHEMA.md § Commitments](../../docs/contracts/WIRE_SCHEMA.md#commitments) (normative; this entry keeps the why).
 **Decision:** The account leaf becomes `SHA-256("pp-ledger/account-leaf/v2" || pack(id, wallet,
 blockId, attachmentHash))`, where `attachmentHash` is the SHA-256 of the account's packed
 `AccountAttachment` (empty attachment: the hash of an empty one). `AccountBuffer` keeps the hash per

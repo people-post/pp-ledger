@@ -25,11 +25,15 @@ bool safeAddI64(int64_t a, int64_t b, int64_t &out) {
 
 AccountBuffer::AccountBuffer() = default;
 
+std::string AccountBuffer::attachmentHashOf(const std::string &attachment) {
+  return utl::sha256Raw(std::string("pp-ledger/attachment/v1") + attachment);
+}
+
 std::string AccountBuffer::accountLeafHash(const Account &account) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
-  ar & account.id & account.wallet & account.blockId;
-  return utl::sha256Raw(std::string("pp-ledger/account-leaf/v1") + oss.str());
+  ar & account.id & account.wallet & account.blockId & account.attachmentHash;
+  return utl::sha256Raw(std::string("pp-ledger/account-leaf/v2") + oss.str());
 }
 
 void AccountBuffer::touchTree(const Account &account) {

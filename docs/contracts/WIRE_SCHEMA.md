@@ -23,7 +23,8 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **7** (since state roots
+commit to account attachments, account leaf v2). A block of another version is not read.
 
 ### Header (hashed)
 
@@ -60,7 +61,7 @@ version **6**; other versions are refused). Hash does **not** include the body b
 | Root | Domain / rule |
 |------|----------------|
 | `txRoot` | `SHA-256("pp-ledger/txroot/v1" \|\| pack(each binaryPack(record)))` |
-| `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v1" \|\| pack(id, wallet, blockId))`. Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
+| `stateRoot` | O(1) root of the **account sparse Merkle tree** (depth 64 over `accountId`). Leaves are `SHA-256("pp-ledger/account-leaf/v2" \|\| pack(id, wallet, blockId, attachmentHash))`, where `attachmentHash` = `SHA-256("pp-ledger/attachment/v1" \|\| meta)` over the account's attachment (`UserAccount.meta`, canonical bytes) as its last write recorded it — so the root covers the whole account, profiles included (beacon-authority B031). The attachment itself stays in that record, in the block log; a renewal must carry it unchanged (checked against the hash). Updates are path-copied O(depth) per touched account — never a full-account scan, including at checkpoints. |
 | `stakeSnapshotHash` | `SHA-256("pp-ledger/stake/v1" \|\| pack(id, stake)…)` stakeholders sorted by id |
 | `epochSeed` | See [Epoch seed](#epoch-seed) |
 

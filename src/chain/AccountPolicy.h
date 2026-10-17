@@ -121,14 +121,14 @@ void advanceAuthorityToEpoch(ChainAuthority &authority, Client::Wallet &admin, u
 Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &recovery,
                                const std::string &networkId, const Crypto &crypto, logging::Logger &logger);
 
-/** Remove + re-add an account with the given wallet at `blockId`. */
+/** Remove + re-add an account with the given wallet and attachment (its bytes as recorded) at `blockId`. */
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,
-                         std::string_view addFailurePrefix);
+                         const std::string &attachment, std::string_view addFailurePrefix);
 
-/** Remove + re-add genesis account with the given wallet at `blockId`. */
+/** Remove + re-add genesis account with the given wallet and attachment at `blockId`. */
 Roe<void> replaceGenesisAccount(AccountBuffer &bank, uint64_t blockId,
-                                const Client::Wallet &wallet);
+                                const Client::Wallet &wallet, const std::string &attachment);
 
 /**
  * Credit `fee` to ID_FEE (no-op when fee==0 or fee account absent).

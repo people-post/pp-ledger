@@ -205,7 +205,7 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
   gm.genesis.meta = attachmentRoe.value();
 
   if (auto replaced = chain_tx::replaceGenesisAccount(bank, blockId,
-                                                      gm.genesis.wallet);
+                                                      gm.genesis.wallet, gm.genesis.meta);
       !replaced) {
     return replaced.error();
   }

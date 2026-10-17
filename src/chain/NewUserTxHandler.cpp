@@ -244,6 +244,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   account.blockId = blockId;
   account.wallet = userAccount.wallet;
   account.wallet.mBalances.clear();
+  account.attachmentHash = AccountBuffer::attachmentHashOf(userAccount.meta);
 
   auto addResult = bank.add(account);
   if (!addResult) {

@@ -51,7 +51,16 @@ public:
     Client::Wallet wallet;
     uint64_t blockId{
         0}; // blockId of the last registration/renewal of the account
+    /**
+     * attachmentHashOf the account's attachment (`UserAccount.meta`) as its last write recorded it
+     * (beacon-authority B031). The attachment itself stays in that record, in the block log; the
+     * hash puts it under the state root.
+     */
+    std::string attachmentHash;
   };
+
+  /** Raw SHA-256 committing to an attachment's bytes as recorded (B031). */
+  static std::string attachmentHashOf(const std::string &attachment);
 
   AccountBuffer();
   ~AccountBuffer() = default;
