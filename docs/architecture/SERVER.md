@@ -208,7 +208,8 @@ funds, the window ended), so no leader keeps pulling and refusing them.
 
 **Overload is answered, not left to time out** (load-resilience LR006, LR007): a full queue
 answers `E_BUSY`, a full pool (or payer's share) `E_POOL_FULL`, each with when to try again; a request
-whose client's deadline passed in the queue is not served (`E_EXPIRED`); a relay forwards with what
+whose client's deadline passed in the queue is not served (`E_EXPIRED`); a request that waited its
+turn on its client leaves with what is left of its deadline; a relay forwards with what
 remains of the client's deadline and passes the upstream's answer on — `E_UPSTREAM_TIMEOUT` when the
 upstream did not answer in time (it may have taken the request). `Client::submitTransaction` (used
 by pp-client) sends the same signed bytes again after any of these, never a re-signed transaction:

@@ -127,6 +127,10 @@ public:
       finish(TransportError(timeoutMessage()));
       return;
     }
+    // It waited its turn here: the node is told what is left of the client's deadline.
+    if (timeout_ - remaining >= std::chrono::milliseconds(50)) {
+      body_ = Client::withRemainingDeadline(body_, static_cast<uint32_t>(remaining.count()));
+    }
     stage_ = Stage::Association;
     auto self = shared_from_this();
     deadline_ms_ = mesh_.GetEndpoint().GetClock().NowMs() + remaining.count();
@@ -306,7 +310,7 @@ private:
 
   pp::amp::MeshRuntime& mesh_;
   const std::string peer_key_;
-  const std::string body_;
+  std::string body_; ///< io lane after construction
   const std::chrono::milliseconds timeout_;
   const std::shared_ptr<network::InFlightLimit> limit_;
   const Done done_;

@@ -34,7 +34,8 @@ Preferred entry point (mirrors pp-browser `pp_local_test.sh`):
 ./scripts/test/pp_ledger_local_test.sh run --suite smoke --down   # l0 + l1 + latejoin, one network
 ./scripts/test/pp_ledger_local_test.sh run --suite image          # image + compose stack (docker)
 ./scripts/test/pp_ledger_local_test.sh run --suite burst          # goal 2 of projects/load-resilience
-./scripts/test/pp_ledger_local_test.sh run --suite overload       # goal 1: floods on the relay (~7 min)
+./scripts/test/pp_ledger_local_test.sh run --suite overload       # goal 1: floods on each role (~11 min)
+./scripts/test/pp_ledger_local_test.sh run --suite upstream       # a relay whose beacon is frozen, then gone
 ./scripts/test/pp_ledger_local_test.sh stop   # or clear | status
 ```
 
@@ -111,7 +112,8 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-SMOKE-IMAGE** | The image and sample stack run from the environment: healthy (`pp-client health`), ready, pp-http `/metrics` reports every node ready, the chain grows, the HTTP API answers, every node got its 8 MiB UDP buffers past the host's cap (`CAP_NET_ADMIN`), a clean stop | Smoke (`--suite image`: `deploy/init.sh`, `docker compose up --wait`) | Own project, subnet (`172.29.7`) and host ports (285xx, 28080); green |
 | **L-LOAD-JUNK** | Badly signed transfers never take a place in the pool; valid ones beside them are taken and included | Smoke (`scripts/test/pp_ledger_burst_smoke.sh`, `--suite burst`) | 20/s for 15 s, one in ten junk, through the relay (`pp-client load`); junk refused at the relay, none in a block, every valid transfer within three blocks; green |
 | **L-LOAD-BURST** | A burst several blocks deep from many new clients is absorbed: taken whole, included within about the blocks it fills, no client told a failure for a transfer that went through | Smoke (`--suite burst`) | Own network, renewals once in a long while (projects/load-resilience LR004); 500 transfers at once from 64 new client identities on 10/s for 20 s; checks `taken == sent == included`, `includedNotTaken == 0`, drained within ⌈700 ÷ 100⌉ + 3 blocks; green |
-| **L-LOAD-OVERLOAD** | Goal 1 (survive overload): floods on the relay leave it alive and bounded, its duties going on, the excess answered fast, everyone else served | Smoke (`scripts/test/pp_ledger_overload_smoke.sh`, `--suite overload`) | Own network; eight floods of 8 s, each with 10 transfers/s beside and `HEALTH` probed every 0.5 s: `STATUS` 8,000/s, a herd of 400 new clients, wallet-history scans 2,000/s, forged transfers 4,000/s, forged registrations 6,000/s, parked `BLOCK_WAIT`s from 400 clients, 4 MiB bodies 64/s, valid transfers 2,000/s past the pool. Each: no request sent left unanswered, flood replies p99 within a bound (2 s; parked waits 8 s, large bodies 15 s), a herd's dials at most 2 % failed, `HEALTH` within 2 s every time, the transfers beside taken (or told the pool is full) and included with replies p99 ≤ 2 s, the chain grew and no miner's block was lost, the relay ready and under 512 MiB after. `PP_LEDGER_OVERLOAD_ONLY="herd wait"` runs some floods; about 7 minutes; green |
+| **L-LOAD-OVERLOAD** | Goal 1 (survive overload): floods on the relay, the beacon and a miner leave each alive and bounded, the chain's duties going on, the excess answered fast, everyone else served | Smoke (`scripts/test/pp_ledger_overload_smoke.sh`, `--suite overload`) | Own network; fifteen floods of 8 s, each with 10 transfers/s beside (through the relay) and the flooded node's `HEALTH` probed every 0.5 s. On the relay: `STATUS` 8,000/s, a herd of 400 new clients, wallet-history scans 2,000/s, forged transfers 4,000/s, forged registrations 6,000/s, parked `BLOCK_WAIT`s from 400 clients, 4 MiB bodies 64/s, valid transfers 2,000/s past the pool; on the beacon reads, forged registrations, 4 MiB bodies; on a miner reads, forged transfers, 4 MiB bodies, valid transfers it forwards up. Each: no request sent left unanswered, flood replies p99 within a bound (2 s; parked waits 8 s, large bodies 15 s), a herd's dials at most 2 % failed, `HEALTH` within 2 s every time, the transfers beside taken (or told the pool is full) and included with replies p99 ≤ 2 s, the chain grew and no miner's block was lost, the flooded node ready and under 512 MiB after. `PP_LEDGER_OVERLOAD_ONLY="herd wait"` runs some floods; about 11 minutes; green |
+| **L-LOAD-UPSTREAM** | A relay whose upstream is slow or gone answers for it and recovers | Smoke (`scripts/test/pp_ledger_upstream_smoke.sh`, `--suite upstream`) | Own network; the beacon frozen (SIGSTOP) 10 s, then stopped and restarted; transfers through the relay with a 6 s deadline (`load --timeout`) and reads beside: every transfer answered before its deadline ("busy" / "the upstream did not answer in time"), none taken, the relay's reads and `HEALTH` served, then the relay syncs again and transfers are taken and included; about 2 minutes; green |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
@@ -136,6 +138,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | `scripts/test/pp_ledger_regenesis_smoke.sh` | L-SMOKE-REGENESIS |
 | `scripts/test/pp_ledger_burst_smoke.sh` | L-LOAD-JUNK, L-LOAD-BURST |
 | `scripts/test/pp_ledger_overload_smoke.sh` | L-LOAD-OVERLOAD |
+| `scripts/test/pp_ledger_upstream_smoke.sh` | L-LOAD-UPSTREAM |
 | `test-network.sh` / `test-checkpoint-cycles.sh` | Thin root wrappers |
 | `deploy/compose.yml`, `deploy/init.sh` | Sample stack; the image smoke (`--suite image`) runs it |
 
@@ -149,8 +152,8 @@ it stays manual.
 `busy`, `expired`, `timeout` — sent and not answered —, `unsent` — never sent: no link, no channel, no
 place to the peer —, `refused`, with the commonest error messages), transfers followed into blocks
 (inclusion seconds and blocks; transfers included although their reply was an error; junk that must
-never be included) for `--drain` seconds at most, or until none was for `--quiet`. `--json` writes
-the report for scripts.
+never be included) for `--drain` seconds at most, or until none was for `--quiet`. `--timeout` sets
+each request's deadline (milliseconds). `--json` writes the report for scripts.
 
 ```bash
 R=$(cat build/test-smoke/multiaddrs/relay); K=build/test-smoke/keys

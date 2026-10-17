@@ -233,6 +233,14 @@ public:
     }
   }
 
+  /**
+   * A packed Request with its deadline cut to `remainingMs` (load-resilience LR006): a request that
+   * waited before it was sent (its client's in-flight limit) tells the node what is left, not what
+   * it started with — else a relay forwards with time its client no longer has. Bytes that are not
+   * exactly a packed Request, a version 1 one, or one with no deadline are returned unchanged.
+   */
+  static std::string withRemainingDeadline(const std::string &body, uint32_t remainingMs);
+
   static std::optional<uint32_t> peekRequestType(const std::string &body) {
     if (body.size() < 8) {
       return std::nullopt;

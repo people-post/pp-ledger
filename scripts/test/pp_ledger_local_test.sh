@@ -34,7 +34,7 @@ Commands:
   status    Process + best-effort RPC status
 
 Options (run):
-  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|image
+  --suite unit|l0|l1|latejoin|smoke|rotation|takeover|move|regenesis|burst|overload|upstream|image
   --down                       stop network after run
 
 Examples:
@@ -122,6 +122,11 @@ run_burst() {
 run_overload() {
   # Its own network: goal 1 of projects/load-resilience (floods on the relay).
   bash "${ROOT}/scripts/test/pp_ledger_overload_smoke.sh"
+}
+
+run_upstream() {
+  # Its own network: a relay whose upstream is frozen, then gone (projects/load-resilience lr8).
+  bash "${ROOT}/scripts/test/pp_ledger_upstream_smoke.sh"
 }
 
 run_rotation() {
@@ -244,6 +249,7 @@ case "$CMD" in
       move) run_move ;;
       burst) run_burst ;;
       overload) run_overload ;;
+      upstream) run_upstream ;;
       regenesis) run_regenesis ;;
       image) run_image ;;
       *) die_usage "unknown suite: $SUITE" ;;

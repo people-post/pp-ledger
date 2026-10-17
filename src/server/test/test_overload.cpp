@@ -140,6 +140,7 @@ TEST(OverloadTest, SubmitStopsAtARefusalOrWhenItsTimeIsUp) {
 struct Peek : FollowerServer {
   using FollowerServer::forwardBudget;
   using FollowerServer::kMinForward;
+  using FollowerServer::replyUpstreamError;
 };
 
 // LR006: a relay forwards with the client's remaining deadline, less a margin to answer in.
@@ -153,6 +154,65 @@ TEST(OverloadTest, ARelayForwardsWithWhatRemainsOfTheDeadline) {
   EXPECT_LT(Peek::forwardBudget(request), Peek::kMinForward) << "no time left: not forwarded";
   request.deadlineMs = 0; // an old client: half the default
   EXPECT_EQ(Peek::forwardBudget(request), 15000ms);
+}
+
+// LR006 (lr8): a request that waited its turn on the client tells the node what is left of its
+// deadline, so a relay never forwards with time its client no longer has.
+TEST(OverloadTest, ARequestThatWaitedCarriesWhatIsLeftOfItsDeadline) {
+  Client::Request request;
+  request.type = Client::T_REQ_TX_ADD;
+  request.payload = std::string(100, 'p');
+  request.deadlineMs = 6000;
+  const std::string packed = utl::binaryPack(request);
+  auto cut = utl::binaryUnpack<Client::Request>(Client::withRemainingDeadline(packed, 2500));
+  ASSERT_TRUE(cut);
+  EXPECT_EQ(cut.value().deadlineMs, 2500u);
+  EXPECT_EQ(cut.value().payload, request.payload);
+  EXPECT_EQ(cut.value().type, request.type);
+  EXPECT_EQ(Client::withRemainingDeadline(packed, 9000), packed) << "never lengthened";
+  request.deadlineMs = 0;
+  EXPECT_EQ(Client::withRemainingDeadline(utl::binaryPack(request), 10), utl::binaryPack(request))
+      << "no deadline stays none";
+  Client::Request old = request;
+  old.version = 1;
+  EXPECT_EQ(Client::withRemainingDeadline(utl::binaryPack(old), 10), utl::binaryPack(old)) << "version 1 has none";
+}
+
+// lr8: whatever went wrong upstream, a relay's client gets an answer it can act on — a code to retry
+// on, with when — not a bare failure it would take as final.
+TEST(OverloadTest, ARelayAnswersForItsUpstreamInCodes) {
+  auto answer = [](const Client::Error &upstream) {
+    Client::Response out;
+    Peek::replyUpstreamError(
+        [&out](std::string packed) { out = utl::binaryUnpack<Client::Response>(packed).value(); }, upstream, "");
+    return out;
+  };
+  auto error = [](int32_t code, const char *message, uint32_t retryAfterMs = 0) {
+    Client::Error e(code, message);
+    e.retryAfterMs = retryAfterMs;
+    return e;
+  };
+  // Slow: sent, no answer in time — it may have been taken; the same bytes may go again.
+  auto slow = answer(error(Client::E_REQUEST_FAILED, "Request failed: AmpLedgerTransport: response timeout"));
+  EXPECT_EQ(slow.errorCode, Client::E_UPSTREAM_TIMEOUT);
+  // Absent: no link to it.
+  auto absent = answer(error(Client::E_REQUEST_FAILED, "Request failed: amp link manager: dial timeout"));
+  EXPECT_EQ(absent.errorCode, Client::E_BUSY);
+  EXPECT_GT(absent.retryAfterMs, 0u);
+  // Busy upstream, or this relay's way up full: busy, with when (its own when if it said one).
+  auto busy = answer(error(Client::E_BUSY, "Server busy, please retry", 700));
+  EXPECT_EQ(busy.errorCode, Client::E_BUSY);
+  EXPECT_EQ(busy.retryAfterMs, 700u);
+  auto full = answer(error(Client::E_BUSY, "AmpLedgerTransport: too many requests waiting for the peer"));
+  EXPECT_EQ(full.errorCode, Client::E_BUSY);
+  EXPECT_GT(full.retryAfterMs, 0u) << "a busy way up says when, as a busy queue does";
+  auto pool = answer(error(Client::E_POOL_FULL, "Transaction pool full", 4000));
+  EXPECT_EQ(pool.errorCode, Client::E_POOL_FULL);
+  EXPECT_EQ(pool.retryAfterMs, 4000u);
+  // Refusing: the upstream's own refusal is passed on as such (final).
+  auto refused = answer(error(Client::E_SERVER_ERROR, "Transaction refused: Invalid or duplicate signature"));
+  EXPECT_FALSE(Client::isOverloadCode(refused.errorCode));
+  EXPECT_NE(refused.payload.find("Invalid or duplicate signature"), std::string::npos);
 }
 
 } // namespace

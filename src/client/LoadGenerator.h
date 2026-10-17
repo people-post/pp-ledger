@@ -99,6 +99,8 @@ struct RunConfig {
    */
   std::chrono::seconds drain{60};
   std::chrono::seconds quiet{15};
+  /** How long each request waits for its reply (and tells the node, LR006); 0: the client's default. */
+  std::chrono::milliseconds timeout{0};
 };
 
 struct KindReport {

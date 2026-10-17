@@ -1003,7 +1003,9 @@ int main(int argc, char *argv[]) {
   load_cmd->add_option("--amount", loadRun.amount, "Amount of each transfer")->default_val(1);
   load_cmd->add_option("-f,--fee", loadRun.fee, "Fee of each transfer")->default_val(1);
   load_cmd->add_option("--drain", loadDrain, "Seconds to follow blocks after the last send")->default_val(60);
-  uint64_t loadQuiet = 15;
+  uint64_t loadQuiet = 15, loadTimeoutMs = 0;
+  load_cmd->add_option("--timeout", loadTimeoutMs, "Milliseconds each request waits for its reply (0: the default)")
+      ->default_val(0);
   load_cmd->add_option("--quiet", loadQuiet, "Stop following once no transfer sent was included for this many seconds")
       ->default_val(15);
   load_cmd->add_option("--json", loadJson, "Also write the report as JSON to this file");
@@ -1166,6 +1168,7 @@ int main(int argc, char *argv[]) {
   }
   if (load_cmd->parsed()) {
     loadRun.quiet = std::chrono::seconds(loadQuiet);
+    loadRun.timeout = std::chrono::milliseconds(loadTimeoutMs);
     return runLoad(multiaddr, loadRun, loadAccounts, loadMix, loadDuration, loadBurstAt, loadDrain, loadJson);
   }
 

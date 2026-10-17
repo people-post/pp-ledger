@@ -769,6 +769,16 @@ Client::Roe<Client::BeaconState> Client::fetchBeaconState() {
   return parseBeaconState(result.value());
 }
 
+std::string Client::withRemainingDeadline(const std::string &body, uint32_t remainingMs) {
+  auto request = utl::binaryUnpack<Request>(body);
+  if (!request || request.value().version < 2 || request.value().deadlineMs == 0 ||
+      request.value().deadlineMs <= remainingMs || utl::binaryPack(request.value()) != body) {
+    return body;
+  }
+  request.value().deadlineMs = remainingMs;
+  return utl::binaryPack(request.value());
+}
+
 Client::Roe<std::string> Client::fetchNetworkId() {
   auto state = fetchBeaconState();
   if (!state) {

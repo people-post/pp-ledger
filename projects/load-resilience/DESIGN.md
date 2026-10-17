@@ -137,6 +137,9 @@ included. Memory per idle link is small (M11); what bounds memory is receiving (
 | M19 | A herd of 400 new clients right after other floods (one host: the relay, beacon, miners and 400 client runtimes) | ~0.5 % of the dials gave up after 8 s (the handshake backlog drops hellos, TCP-like, and a few exhaust their resends); alone, none. `pp-client load` now counts such requests `unsent`, not `timeout` |
 | M20 | Full blocks (100 transfers of ~3.4 KB) during M17 | A leader sealed past its slot's delivery deadline: each transaction's idempotency check re-read and decoded every block of its validity window (here 60 s: ~30 full blocks), so validating a block of 100 took 140–290 ms on a short chain and grew with it. With the blocks' keys kept (LR010): 33–37 ms |
 
+| M21 | The beacon and a miner flooded as the relay was (reads 8,000/s, forged registrations 6,000/s, forged transfers 4,000/s, 4 MiB bodies, valid transfers 2,000/s) | Both held: every request answered fast, `HEALTH` within 0.35 s, the transfers beside (through the relay) all taken and included, no block lost. One bug on the way: every transfer sent *to a miner* was refused — its `STATUS` carried no network id, so clients signing for the network the node reports (`pp-client add-tx`, pp-http's account creation, `pp-client load`) signed for an empty one |
+| M22 | A relay whose beacon is frozen (SIGSTOP, past the forward budget), then stopped; transfers through it with a 6 s deadline | Before: 13 of 120 got no answer before their deadline — they had waited their turn on the client (its in-flight limit) and still carried the full 6 s, so the relay forwarded with time its client no longer had. After (LR006: a request leaving late carries what is left): all answered "busy, upstream unreachable" within the deadline (p99 5.5 s); the relay's reads and `HEALTH` untouched; back within 5 s of the beacon returning |
+
 After LR008 (M14, M15) the flood is confined to large requests: everyone else is served, slower only
 by the server thread's time on the large ones, and the large requests themselves are told to come
 back (`E_BUSY`) instead of timing out. What a large request costs the server thread (decoding a
@@ -195,6 +198,9 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
   may the leader report back so the pool drops a transaction?
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
+- A relay whose upstream is down answers its forwards "busy" only after their budget (M22, ~5 s):
+  answering at once while the upstream link is known down would serve clients better, but during a
+  reconnect it would also turn away requests that would have gone through. Measure before changing.
 - Decided: blocks under a flood of large requests — miners registered through a relay are trusted,
   with large-request places of their own (LR009).
 - Decided: renewals keep B035, the echo is measured ([LR004](DECISIONS.md#lr004--due-renewals-keep-their-priority-b035-the-echo-is-measured-not-changed));

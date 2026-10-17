@@ -581,7 +581,8 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
                                if (--shared->outstanding == 0) {
                                  shared->repliesDone.notify_all();
                                }
-                             });
+                             },
+                             cfg.timeout);
   }
   report.seconds = std::chrono::duration<double>(Clock::now() - start).count();
 
