@@ -157,7 +157,7 @@ pp-client -b --host "$R" load --accounts accounts.json -r 10 -d 20 --burst 500 -
 ```
 
 Mix kinds: `tx_add`, `tx_junk` (decodes, badly signed), `status`, `account_get`, `block_get`,
-`tx_get_by_wallet`. The smoke fixture renews every account every two blocks
+`tx_get_by_wallet`, `big` (a ~4 MiB `BLOCK_ADD` that is no block: received whole, then refused). The smoke fixture renews every account every two blocks
 (`checkpointMinBlocks` 2) with 100 records a block: more than a block's worth of accounts makes
 every block renewals-only. Start a load network with `PP_LEDGER_SMOKE_CHECKPOINT_MIN_BLOCKS=1000`.
 

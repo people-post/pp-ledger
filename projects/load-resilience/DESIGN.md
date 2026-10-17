@@ -117,6 +117,18 @@ Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load th
 | M8 | M5's burst from 64 identities after lr6b (TCP-like links; `maxLinks` 1,024, `handshakeBacklog` 128) | 700 of 700 taken and included, within 7 blocks; replies p99 0.81 s |
 | M6 | Relay and beacon during all of these | Never busy, no request expired, no run-loop turn over 140 ms, ready throughout, back to normal at once |
 
+| M9 | Relay: 2,000 then 8,000 `STATUS`/s from 64 identities, 10 tx/s beside (lr8) | All served (p99 15 ms, then 200 ms); never busy; no run-loop turn over 101 ms; the transfers included within 2 blocks, no block abandoned |
+| M10 | Relay: 4,000 junk transfers/s (each signature checked on the server thread), 10 tx/s beside | All refused (p99 560 ms); never busy; the transfers unaffected |
+| M11 | Relay: 400 new identities at once, 800 `STATUS`/s, 10 tx/s beside | All served (p99 46 ms); resident memory 21 → 24 MB: ~7 KB per idle link |
+| M12 | Relay: 64 identities sending ~4 MiB `BLOCK_ADD` bodies at 64/s (256 MiB/s), 10 tx/s beside | Memory bounded (64 MB); run loop never slow; but the bodies mostly never arrived (channel not open, timeouts, dial timeouts), a `HEALTH` probe went unanswered for 5 s, and every other peer suffered — the transfers beside: replies p50 0.94 s (from 20 ms), p99 at the 30 s timeout, 11 `E_BUSY` because the relay's own channel to the beacon could not open, inclusion 12 s instead of 2 s |
+| M13 | Start-up, no load | The first blocks after the network starts (slots 2–7) were refused by the beacon as late ("after its delivery deadline") — every miner in turn; from then on none. To look at in lr10 |
+
+From M9–M12: a node takes a flood of requests well — one server thread, queues and lanes hold — but
+not a flood of **bytes**: one network thread carries every peer's packets, and a few peers sending
+large bodies starve everyone else, handshakes, health probes and the node's own upstream link
+included. Memory per idle link is small (M11); what bounds memory is receiving (16 requests of up to
+4 MiB per peer, no node-wide cap).
+
 So: the servers survive (goal 1 held so far, M6), but bursts are not absorbed (goal 2): they are
 bounced at the first hop (M3, M5), half-delivered with wrong answers (M4), or starved by renewals
 (M2). Added to the table above:

@@ -36,7 +36,8 @@ namespace {
 const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
       {Kind::TxAdd, "tx_add"},           {Kind::TxJunk, "tx_junk"},       {Kind::Status, "status"},
-      {Kind::AccountGet, "account_get"}, {Kind::BlockGet, "block_get"}, {Kind::TxByWallet, "tx_get_by_wallet"}};
+      {Kind::AccountGet, "account_get"}, {Kind::BlockGet, "block_get"}, {Kind::TxByWallet, "tx_get_by_wallet"},
+      {Kind::Big, "big"}};
   return names;
 }
 
@@ -61,6 +62,8 @@ uint32_t requestType(Kind kind) {
     return Client::T_REQ_BLOCK_GET;
   case Kind::TxByWallet:
     return Client::T_REQ_TX_GET_BY_WALLET;
+  case Kind::Big:
+    return Client::T_REQ_BLOCK_ADD;
   }
   return 0;
 }
@@ -520,6 +523,11 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
       Client::TxGetByWalletRequest request;
       request.walletId = pickAccount().id;
       payload = utl::binaryPack(request);
+      break;
+    }
+    case Kind::Big: {
+      static const std::string big(4 * 1024 * 1024 - 4096, 'b'); // under the RPC's limit, no block
+      payload = big;
       break;
     }
     default:
