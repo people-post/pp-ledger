@@ -271,6 +271,7 @@ bool BlockSync::process(Ledger::ChainNode block) {
                       std::to_string(nextToProcess_));
     return false;
   }
+  ++processed_;
   switch (phase_) {
   case Phase::Authenticate:
     return authenticate(std::move(block));

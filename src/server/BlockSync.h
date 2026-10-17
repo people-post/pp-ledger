@@ -109,6 +109,8 @@ public:
   /** Begin a sync unless one is running or a recent failure is backing off. */
   Start start();
   bool inFlight() const { return inFlight_; }
+  /** Blocks authenticated or applied so far, every attempt together: a sync is moving while it grows. */
+  uint64_t blocksProcessed() const { return processed_; }
 
 private:
   enum class Phase {
@@ -152,6 +154,7 @@ private:
   /** Lets late network callbacks detect that this object is gone. */
   std::shared_ptr<int> alive_{std::make_shared<int>(0)};
 
+  uint64_t processed_{0};
   bool inFlight_{false};
   /** Counts syncs, so results of a finished one are dropped (not a beacon generation). */
   uint64_t attempt_{0};

@@ -702,9 +702,17 @@ bool Server::serveTasksUntil(const std::function<bool()>& done, std::chrono::mil
 
 std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSync::Result>& lastResult,
                                    std::chrono::milliseconds timeout, const std::function<bool()>& extraDone) {
-  const auto deadline = RequestQueue::Clock::now() + timeout;
+  auto deadline = RequestQueue::Clock::now() + timeout;
   auto remaining = [&]() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(deadline - RequestQueue::Clock::now());
+  };
+  // Blocks coming in keep it going: the deadline is `timeout` past the last one processed.
+  uint64_t seen = sync.blocksProcessed();
+  auto noteProgress = [&]() {
+    if (const uint64_t now = sync.blocksProcessed(); now != seen) {
+      seen = now;
+      deadline = RequestQueue::Clock::now() + timeout;
+    }
   };
   while (remaining().count() > 0) {
     if (restartRequested_) {
@@ -716,9 +724,13 @@ std::string Server::runStartupSync(BlockSync& sync, const std::optional<BlockSyn
     }
     if (sync.start() == BlockSync::Start::BackingOff) {
       serveTasksUntil([]() { return false; }, std::min(remaining(), std::chrono::milliseconds(100)));
+      noteProgress();
       continue;
     }
-    serveTasksUntil([&]() { return !sync.inFlight(); }, remaining());
+    do {
+      serveTasksUntil([&]() { return !sync.inFlight(); }, std::min(remaining(), std::chrono::milliseconds(1000)));
+      noteProgress();
+    } while (sync.inFlight() && remaining().count() > 0);
     if (lastResult && lastResult->ok) {
       if (extraDone) {
         serveTasksUntil(extraDone, remaining());
