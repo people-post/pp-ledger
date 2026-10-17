@@ -49,7 +49,7 @@ protected:
 private:
   /** A renewal re-records the committed account: same keys, threshold, key type and meta. */
   chain_tx::Roe<void> checkRenewalKeepsAccount(const Client::UserAccount &carried,
-                                               const AccountBuffer::Account &held, const TxContext &ctx) const;
+                                               const AccountBuffer::Account &held) const;
 };
 } // namespace pp
 

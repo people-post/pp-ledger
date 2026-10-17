@@ -111,14 +111,14 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
                                "Account update cannot change miner state: " + std::to_string(tx.walletId));
     }
     if (kind != UpsertKind::Update && chain_block::admissionTxStrict(admissionMode)) {
-      if (auto kept = checkRenewalKeepsAccount(userAccount, bufferAccountResult.value(), ctx); !kept) {
+      if (auto kept = checkRenewalKeepsAccount(userAccount, bufferAccountResult.value()); !kept) {
         return kept;
       }
     }
   }
 
   if (auto replaced = chain_tx::replaceAccount(
-          bank, tx.walletId, blockId, userAccount.wallet,
+          bank, tx.walletId, blockId, userAccount.wallet, userAccount.meta,
           "Failed to add user account to buffer: ");
       !replaced) {
     return replaced;
@@ -129,8 +129,7 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
 }
 
 chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client::UserAccount &carried,
-                                                                    const AccountBuffer::Account &held,
-                                                                    const TxContext &ctx) const {
+                                                                    const AccountBuffer::Account &held) const {
   // The slot leader signs renewals: it may re-record an account, never choose its keys or meta.
   const std::string who = std::to_string(held.id);
   if (carried.wallet.publicKeys != held.wallet.publicKeys || carried.wallet.minSignatures != held.wallet.minSignatures ||
@@ -138,21 +137,9 @@ chain_tx::Roe<void> UserAccountUpsertBase::checkRenewalKeepsAccount(const Client
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "Renewal cannot change the keys of account " + who);
   }
-  if (!ctx.fnAccountMetaForRecord.has_value()) {
-    return chain_tx::TxError(chain_err::E_INTERNAL, "Account meta extractors not configured on TxContext");
-  }
-  // The meta in force is the one the account's last write recorded (what renewal builds from).
-  auto block = ctx.ledger.readBlock(held.blockId);
-  if (!block) {
-    return chain_tx::TxError(chain_err::E_BLOCK_NOT_FOUND,
-                             "Block " + std::to_string(held.blockId) + " of account " + who + " not found");
-  }
-  auto recorded =
-      chain_tx::getUserAccountMetaFromBlock(block.value().block, held.id, ctx.fnAccountMetaForRecord->fnUser);
-  if (!recorded) {
-    return recorded.error();
-  }
-  if (carried.meta != recorded.value().meta) {
+  // The meta in force is the one the account's last write recorded (what renewal builds from); the
+  // account holds its hash (B031), so no block read is needed.
+  if (AccountBuffer::attachmentHashOf(carried.meta) != held.attachmentHash) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Renewal cannot change the meta of account " + who);
   }
   return {};

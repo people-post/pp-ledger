@@ -113,6 +113,7 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
   genesisAccount.id = AccountBuffer::ID_GENESIS;
   genesisAccount.blockId = 0;
   genesisAccount.wallet = gm.genesis.wallet;
+  genesisAccount.attachmentHash = AccountBuffer::attachmentHashOf(gm.genesis.meta);
   auto roeAddGenesis = ctx.bank.add(genesisAccount);
   if (!roeAddGenesis) {
     return chain_tx::TxError(

@@ -1,5 +1,6 @@
 #include "lib/common/Crypto.h"
 #include "AccountBuffer.h"
+#include "AccountAttachment.h"
 #include <gtest/gtest.h>
 #include <cstdint>
 
@@ -966,4 +967,28 @@ TEST_F(AccountBufferTest, Overlay_CommitKeepsChanges) {
     buf.commitOverlay();
     EXPECT_EQ(buf.getBalance(1, AccountBuffer::ID_GENESIS), 70);
     EXPECT_EQ(buf.calculateStateRoot(), rootAfter);
+}
+
+// beacon-authority B031: the state root commits to each account's attachment (its hash in the
+// leaf), so two states that differ only in an account's profile have different roots — and the
+// same attachment gives the same root, whatever else an account went through.
+TEST(AccountStateRootTest, CommitsToTheAttachment) {
+    auto rootWith = [](const std::string &attachment) {
+        AccountBuffer bank;
+        AccountBuffer::Account account;
+        account.id = AccountBuffer::ID_FIRST_USER;
+        account.wallet.mBalances[AccountBuffer::ID_GENESIS] = 100;
+        account.blockId = 7;
+        account.attachmentHash = AccountBuffer::attachmentHashOf(attachment);
+        EXPECT_TRUE(bank.add(account).isOk());
+        return bank.calculateStateRoot();
+    };
+    AccountAttachment profile;
+    profile.profiles[AccountBuffer::ID_FIRST_USER].data = "hello";
+    AccountAttachment edited = profile;
+    edited.profiles[AccountBuffer::ID_FIRST_USER].data = "hellp";
+    EXPECT_EQ(rootWith(profile.ltsToString()), rootWith(profile.ltsToString()));
+    EXPECT_NE(rootWith(profile.ltsToString()), rootWith(edited.ltsToString())) << "one byte of a profile";
+    EXPECT_NE(rootWith(profile.ltsToString()), rootWith(AccountAttachment::emptySerialized()));
+    EXPECT_EQ(AccountBuffer::attachmentHashOf("x").size(), 32u);
 }

@@ -231,7 +231,8 @@ public:
    * Body: `records` committed via `txRoot`, `committee` via `stakeSnapshotHash`.
    */
   struct Block {
-    static constexpr uint16_t CURRENT_VERSION = 6;
+    // 7: state roots commit to account attachments (account leaf v2, beacon-authority B031).
+    static constexpr uint16_t CURRENT_VERSION = 7;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };

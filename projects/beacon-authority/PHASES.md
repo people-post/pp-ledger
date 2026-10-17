@@ -150,7 +150,7 @@ every node (B022–B024).
       replies paged at the cap, large messages per peer and queued bytes bounded (an Amp knob in
       pp-cpp-amp if needed); tests: an oversized block is neither sealed nor accepted, a 1 MiB
       account meta can be submitted and fetched, a small request type refuses a large body
-- [ ] **bp7** State leaf v2: `attachmentHash` in the account leaf, kept per account in
+- [x] **bp7** State leaf v2: `attachmentHash` in the account leaf, kept per account in
       `AccountBuffer`, updated where attachments change (B031); WIRE_SCHEMA's commitments; tests that
       the root changes with an attachment and not otherwise. Breaking (new genesis)
 - [ ] **bp8** State export: `StateSnapshot` (versioned: predecessor header + accounts with their old

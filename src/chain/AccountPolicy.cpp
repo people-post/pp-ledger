@@ -305,13 +305,14 @@ Roe<void> verifyRecoverySigned(const Ledger::Record &record, const RecoverySet &
 
 Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
                          uint64_t blockId, const Client::Wallet &wallet,
-                         std::string_view addFailurePrefix) {
+                         const std::string &attachment, std::string_view addFailurePrefix) {
   bank.remove(accountId);
 
   AccountBuffer::Account account;
   account.id = accountId;
   account.blockId = blockId;
   account.wallet = wallet;
+  account.attachmentHash = AccountBuffer::attachmentHashOf(attachment);
   auto addResult = bank.add(account);
   if (!addResult) {
     return TxError(chain_err::E_INTERNAL_BUFFER,
@@ -321,8 +322,8 @@ Roe<void> replaceAccount(AccountBuffer &bank, uint64_t accountId,
 }
 
 Roe<void> replaceGenesisAccount(AccountBuffer &bank, uint64_t blockId,
-                                const Client::Wallet &wallet) {
-  return replaceAccount(bank, AccountBuffer::ID_GENESIS, blockId, wallet,
+                                const Client::Wallet &wallet, const std::string &attachment) {
+  return replaceAccount(bank, AccountBuffer::ID_GENESIS, blockId, wallet, attachment,
                         "Failed to add updated genesis account: ");
 }
 

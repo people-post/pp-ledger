@@ -1250,7 +1250,8 @@ Chain::Roe<void> Chain::installCheckpointState(const Ledger::ChainNode &block) {
   epochStakeSnapshots_.clear();
   // The renewal records genesis as the previous epoch left it (it renews first): in place before
   // the block, so this epoch's issuance baseline is right too.
-  if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet));
+  if (auto placed = mapTxVoid(chain_tx::replaceGenesisAccount(txContext_.bank, block.block.index, gm.genesis.wallet,
+                                                                  gm.genesis.meta));
       !placed) {
     return placed;
   }

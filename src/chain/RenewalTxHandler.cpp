@@ -205,7 +205,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
         "Genesis account balance mismatch in renewal");
   }
 
-  return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet);
+  return chain_tx::replaceGenesisAccount(bank, blockId, gm.genesis.wallet, gm.genesis.meta);
 }
 
 std::optional<std::string>
