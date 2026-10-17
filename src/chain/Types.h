@@ -74,13 +74,19 @@ struct BlockChainConfig {
   /** Epochs after a liveness deregistration before the account may register again. */
   uint64_t minerReregisterCooldownEpochs{0};
 
+  /**
+   * Most bytes a block may take, packed as stored and sent (`Block::ltsToString`); the ledger RPC
+   * is sized from it (B034). `0` = no limit (tests); a genesis sets one (default 4 MiB).
+   */
+  uint64_t maxBlockBytes{0};
+
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
             &checkpoint &maxValidationTimespanSeconds &networkId
                 &heartbeatSlots &maxIssuancePerEpoch &newAccountFee &minerMinStake
                     &minerRegistrationFee &minerDueAfterSlots &minerMaxMissedSlots
-                        &minerReregisterCooldownEpochs;
+                        &minerReregisterCooldownEpochs &maxBlockBytes;
   }
 };
 
@@ -225,7 +231,7 @@ struct ChainAuthority {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 10;
+  constexpr static const uint32_t VERSION = 11;
 
   BlockChainConfig config;
   Client::UserAccount genesis;

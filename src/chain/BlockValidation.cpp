@@ -468,8 +468,19 @@ bool isGenesisRenewal(const Ledger::Record &record) {
 }
 
 bool rotatesCheckpoint(const Ledger &ledger, const consensus::SlotCommittee &consensus,
-                       const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
-                       uint64_t epoch) {
+                       const BlockChainConfig &config, const Checkpoint &checkpoint,
+                       const Ledger::ChainNode &block) {
+  return !block.block.records.empty() && isGenesisRenewal(block.block.records.front()) &&
+         checkpointEligible(ledger, consensus, config, checkpoint, block.block.index, block.block.epoch);
+}
+
+bool renewalsWaitBelow(const AccountBuffer &bank, uint64_t blockId) {
+  return blockId > 0 && !bank.getAccountIdsBeforeBlockId(blockId).empty();
+}
+
+bool checkpointEligible(const Ledger &ledger, const consensus::SlotCommittee &consensus,
+                        const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
+                        uint64_t epoch) {
   if (index == 0 || index <= checkpoint.currentId || index < checkpoint.currentId + config.checkpoint.minBlocks) {
     return false;
   }
@@ -540,15 +551,26 @@ chain_tx::Roe<void> validateAccountRenewals(
   }
   const uint64_t maxBlockIdForRenewal = maxBlockIdResult.value();
 
-  // A checkpoint block opens with the genesis renewal, due or not: a node starting there reads
-  // config and authority from it (beacon-authority ba5b).
-  const bool checkpointBlock =
+  // A checkpoint is an eligible block that opens with the genesis renewal, due or not: a node
+  // starting there reads config and authority from it (beacon-authority ba5b). It must be ready:
+  // every account last written before the current checkpoint renewed (B035). At an eligible block
+  // that is not one, the genesis renewal waits (it may not appear elsewhere in the block).
+  const bool eligible =
       optChainConfig.has_value() &&
-      rotatesCheckpoint(ledger, consensus, optChainConfig.value(), checkpoint, block.block.index, block.block.epoch);
-  if (checkpointBlock && (block.block.records.empty() || !isGenesisRenewal(block.block.records.front()))) {
+      checkpointEligible(ledger, consensus, optChainConfig.value(), checkpoint, block.block.index, block.block.epoch);
+  const bool checkpointBlock =
+      eligible && !block.block.records.empty() && isGenesisRenewal(block.block.records.front());
+  if (checkpointBlock && renewalsWaitBelow(bank, checkpoint.currentId)) {
     return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
                              "Checkpoint block " + std::to_string(block.block.index) +
-                                 " must open with the genesis renewal");
+                                 ": accounts last written before checkpoint " +
+                                 std::to_string(checkpoint.currentId) + " still wait for their renewal");
+  }
+  if (eligible && !checkpointBlock &&
+      std::any_of(block.block.records.begin(), block.block.records.end(), isGenesisRenewal)) {
+    return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                             "Block " + std::to_string(block.block.index) +
+                                 " may be a checkpoint: the genesis renewal opens it or waits");
   }
 
   std::set<uint64_t> accountsNeedingRenewal;
@@ -608,15 +630,28 @@ chain_tx::Roe<void> validateAccountRenewals(
     accountsRenewedInBlock.insert(accountId);
   }
 
+  // Due renewals may wait when they do not fit (B035): a block leaving any out holds renewals only
+  // (and at most a beacon certificate, which a takeover's block needs), at least one.
   for (uint64_t accountId : accountsNeedingRenewal) {
-    if (accountsRenewedInBlock.find(accountId) ==
-        accountsRenewedInBlock.end()) {
-      return chain_tx::TxError(
-          chain_err::E_ACCOUNT_RENEWAL,
-          "Missing required account renewal: account " +
-              std::to_string(accountId) +
-              " meets renewal deadline but is not included in block");
+    if (accountsRenewedInBlock.find(accountId) != accountsRenewedInBlock.end()) {
+      continue;
     }
+    for (const auto &rec : block.block.records) {
+      const ITxHandler *handler = rec.type < RecordHandler::kNumTxTypes ? recordHandler.get(rec.type) : nullptr;
+      const bool renewal = handler != nullptr && handler->participatesInAccountRenewalValidation();
+      if (!renewal && rec.type != Ledger::T_BEACON_CERT) {
+        return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                                 "Missing required account renewal: account " + std::to_string(accountId) +
+                                     " meets renewal deadline, and a block leaving due renewals out holds "
+                                     "renewals only");
+      }
+    }
+    if (accountsRenewedInBlock.empty()) {
+      return chain_tx::TxError(chain_err::E_ACCOUNT_RENEWAL,
+                               "Missing required account renewal: account " + std::to_string(accountId) +
+                                   " meets renewal deadline, and the block renews none");
+    }
+    break; // the block is renewals only: the rest waits too
   }
 
   return {};
@@ -781,20 +816,20 @@ chain_tx::Roe<void> checkBlockBodyPolicy(
         chain_err::E_INTERNAL,
         "Chain config not initialized; expected config for body policy");
   }
+  // Both limits bind every record, renewals included: due renewals that do not fit wait (B035).
   const uint64_t maxTx = optChainConfig.value().maxTransactionsPerBlock;
   if (maxTx > 0 && block.block.records.size() > maxTx) {
-    for (const auto &rec : block.block.records) {
-      const ITxHandler *h =
-          rec.type < RecordHandler::kNumTxTypes ? recordHandler.get(rec.type)
-                                                : nullptr;
-      if (h == nullptr || !h->isRenewalTx()) {
-        return chain_tx::TxError(
-            chain_err::E_BLOCK_VALIDATION,
-            "Block has more than max transactions per block (" +
-                std::to_string(block.block.records.size()) + " > " +
-                std::to_string(maxTx) +
-                ") but contains non-renewal transaction");
-      }
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Block has more than max transactions per block (" +
+                                 std::to_string(block.block.records.size()) + " > " + std::to_string(maxTx) + ")");
+  }
+  const uint64_t maxBytes = optChainConfig.value().maxBlockBytes;
+  if (maxBytes > 0) {
+    const uint64_t bytes = block.block.ltsToString().size();
+    if (bytes > maxBytes) {
+      return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION, "Block takes " + std::to_string(bytes) +
+                                                                  " bytes, more than maxBlockBytes (" +
+                                                                  std::to_string(maxBytes) + ")");
     }
   }
   if (block.block.records.empty()) {

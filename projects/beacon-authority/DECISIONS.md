@@ -814,8 +814,8 @@ predecessor (a thief could announce one too: the check proves the state, not who
 **Decision:**
 - **`maxBlockBytes`** joins `BlockChainConfig` (set in genesis, changed by `T_CONFIG`; default
   4 MiB): the packed block a node stores and sends. The slot leader stops adding records before the
-  next would pass it; every node refuses a larger block. How renewals — today allowed past
-  `maxTransactionsPerBlock` when due — share the limit is settled with the phase.
+  next would pass it; every node refuses a larger block. Renewals share both limits
+  ([B035](#b035--due-renewals-may-wait-a-checkpoint-waits-for-them)).
 - **One record always fits:** config checks (init and `T_CONFIG`) keep the largest record —
   `maxCustomMetaSize` plus the most keys and signatures an account may have — well under
   `maxBlockBytes`.
@@ -841,3 +841,34 @@ predecessor (a thief could announce one too: the check proves the state, not who
 config change of `maxBlockBytes` above the transport's ceiling needs a transport change first.
 **Alternatives:** Raise the RPC constant alone (the two limits still disagree); a byte limit only in
 the transport (blocks made that cannot travel); chunked block transfer now (not needed at 4 MiB).
+
+## B035 — Due renewals may wait; a checkpoint waits for them
+
+**Date:** 2026-10-16
+**Decision:**
+- **A renewal backlog is allowed.** Every due renewal still goes into the next block that has room,
+  but a block may leave due renewals out when they do not fit. A block that leaves any out holds
+  only renewals — at least one — and at most a beacon certificate (a takeover's block *C*+1 must not
+  wait). It replaces the renewal-only overflow past `maxTransactionsPerBlock`: renewals count
+  toward both limits. Honest leaders fill such a block to the limits, genesis and system accounts
+  first, then by account id.
+- **A checkpoint waits for the backlog.** A block rotates the checkpoint only when, besides today's
+  rules, no account last written before the current checkpoint is still waiting for its renewal
+  (state before the block, the same for every node); otherwise the next epoch start is tried. The
+  checkpoint block still opens with the genesis renewal.
+**Rationale:**
+- **The due set has no size bound.** The deadline slides with the block's slot time: after a quiet
+  period, one block inherits the renewals of every block written in the matching stretch a period
+  ago, each carrying the account's full meta. "All due renewals in this block" cannot hold under a
+  byte limit — and was already a liveness risk past the RPC cap.
+- **Order, not completeness, is what renewals need.** Fees and terminations apply a little later;
+  nothing reads an account's renewal before it lands. What must hold is B015's invariant — at a
+  checkpoint every account has a record after the previous one — so a miner warming up from it
+  meets every account; the checkpoint condition keeps it.
+- **No new trust.** Validators check that a short block holds only renewals; a lazy leader slows
+  the backlog, it cannot stop it (every next leader adds more) or skip an account.
+**Cons:** Ordinary transactions wait while a backlog drains; a checkpoint may slip an epoch.
+**Alternatives:** Exempt renewals from the byte limit (blocks that cannot travel); renew everything
+at the checkpoint (unbounded checkpoint block, B015's rejected option); validators recompute the
+first renewal left out and check it would not fit (exact, but heavy for a liveness property).
+

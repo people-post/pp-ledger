@@ -60,15 +60,31 @@ chain_tx::Roe<void> validateBlockCommittee(const Ledger &ledger, const Ledger::B
 bool isGenesisRenewal(const Ledger::Record &record);
 
 /**
- * True when block `index` (of `epoch`) becomes the next checkpoint (beacon-authority ba5b): the
+ * True when block `index` (of `epoch`) may become the next checkpoint (beacon-authority ba5b): the
  * first block of an epoch, at least `checkpoint.minBlocks` after the current checkpoint, whose
  * previous block's slot starts more than `checkpoint.minAgeSeconds` after the current checkpoint's
- * block. Then every account last written before the current checkpoint renewed by the previous
+ * block — so every account last written before the current checkpoint was due by the previous
  * block. Depends only on stored blocks and slot times, so every node agrees.
  */
+bool checkpointEligible(const Ledger &ledger, const consensus::SlotCommittee &consensus,
+                        const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
+                        uint64_t epoch);
+
+/**
+ * True when `block` becomes the next checkpoint: it is eligible (checkpointEligible) and opens with
+ * the genesis renewal. Every node reads it from the block — one warming up from a checkpoint holds
+ * only some accounts. Full validation checks it was ready (validateAccountRenewals, B035).
+ */
 bool rotatesCheckpoint(const Ledger &ledger, const consensus::SlotCommittee &consensus,
-                       const BlockChainConfig &config, const Checkpoint &checkpoint, uint64_t index,
-                       uint64_t epoch);
+                       const BlockChainConfig &config, const Checkpoint &checkpoint,
+                       const Ledger::ChainNode &block);
+
+/**
+ * True while an account last written before block `blockId` still waits for its renewal: a block
+ * may not become a checkpoint before every account last written before the current one renewed
+ * (B035), so a node starting at it meets every account.
+ */
+bool renewalsWaitBelow(const AccountBuffer &bank, uint64_t blockId);
 
 /**
  * The renewal cut-off for block `atBlockId` at `atSlot`: accounts last written before the returned

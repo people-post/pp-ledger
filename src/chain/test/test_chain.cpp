@@ -58,6 +58,7 @@ Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   cfg.checkpoint.minAgeSeconds = 20;
   cfg.maxValidationTimespanSeconds = 86400;
   cfg.heartbeatSlots = 10; // == slotsPerEpoch default policy
+  cfg.maxBlockBytes = 4 * 1024 * 1024;
   return cfg;
 }
 
@@ -3971,6 +3972,36 @@ protected:
     return rec;
   }
 
+  /** `renewals` as the leader signs them. */
+  std::vector<Ledger::Record> signedRenewals(const std::vector<Ledger::Record> &renewals) {
+    std::vector<Ledger::Record> out;
+    for (const auto &r : renewals) {
+      Ledger::Record signed_ = r;
+      signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(harness_.producer.getNetworkId()))};
+      out.push_back(signed_);
+    }
+    return out;
+  }
+
+  /** The account a renewal record renews. */
+  static uint64_t renewedAccount(const Ledger::Record &renewal) {
+    auto tx = utl::binaryUnpack<Ledger::TxRenewal>(renewal.data);
+    return tx ? tx.value().walletId : 0;
+  }
+
+  /** Blocks until the next slot is an eligible checkpoint (an epoch start minBlocks on). */
+  Ledger::ChainNode advanceToEligibleSlot(Ledger::ChainNode tip) {
+    auto &producer = harness_.producer;
+    while (!((slot_ + 1) % harness_.chainConfig.slotsPerEpoch == 0 &&
+             producer.getNextBlockId() >= producer.getCheckpoint().currentId + harness_.chainConfig.checkpoint.minBlocks)) {
+      tip = next(tip);
+      if (HasFailure()) {
+        break;
+      }
+    }
+    return tip;
+  }
+
   /** The next block, one slot on, with a reserve transfer (empty blocks wait for heartbeats). */
   Ledger::ChainNode next(const Ledger::ChainNode &tip) {
     ++slot_;
@@ -4111,35 +4142,174 @@ TEST_F(CheckpointJoinTest, CheckpointsAreEpochStartsOpeningWithTheGenesisRenewal
     EXPECT_TRUE(chain_block::isGenesisRenewal(tip.block.records.front()));
   }
 
-  // At the next rotation point, a block without the genesis renewal is refused.
-  while (true) {
-    const uint64_t candidateSlot = slot_ + 1;
-    if (candidateSlot % slotsPerEpoch == 0 &&
-        producer.getNextBlockId() >= producer.getCheckpoint().currentId + harness_.chainConfig.checkpoint.minBlocks) {
-      break;
-    }
-    tip = next(tip);
-    ASSERT_FALSE(HasFailure());
-  }
+  // At the next rotation point the genesis renewal opens the block or waits (B035): elsewhere in
+  // the block it is refused; without it the block is an ordinary one, and the checkpoint waits
+  // for the next epoch start.
+  tip = advanceToEligibleSlot(tip);
+  ASSERT_FALSE(HasFailure());
   ++slot_;
   producer.setClockOverride(producer.getSlotEndTime(slot_));
   auto due = producer.collectRenewals(slot_);
   ASSERT_TRUE(due.isOk());
-  std::vector<Ledger::Record> withoutGenesis;
-  for (const auto &r : due.value()) {
-    if (!chain_block::isGenesisRenewal(r)) {
-      Ledger::Record signed_ = r;
-      signed_.signatures = {signMessage(harness_.reserveKey, r.signingMessage(producer.getNetworkId()))};
-      withoutGenesis.push_back(signed_);
+  ASSERT_TRUE(!due.value().empty() && chain_block::isGenesisRenewal(due.value().front()));
+  std::vector<Ledger::Record> genesisLast = signedRenewals(due.value());
+  std::rotate(genesisLast.begin(), genesisLast.begin() + 1, genesisLast.end());
+  genesisLast.push_back(transferAt(slot_));
+  Ledger::ChainNode misplaced =
+      producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), genesisLast);
+  auto refused = producer.sealBlock(misplaced);
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("the genesis renewal opens it or waits"), std::string::npos)
+      << refused.error().message;
+
+  std::vector<Ledger::Record> withoutGenesis = signedRenewals(due.value());
+  withoutGenesis.erase(withoutGenesis.begin());
+  withoutGenesis.push_back(transferAt(slot_));
+  const auto before = producer.getCheckpoint();
+  tip = makeNextBlockAtSlot(producer, tip, slot_, withoutGenesis);
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(producer.addBlock(tip).isOk());
+  EXPECT_EQ(producer.getCheckpoint().currentId, before.currentId) << "not a checkpoint without the genesis renewal";
+  tip = advanceToEligibleSlot(tip);
+  tip = next(tip);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getCheckpoint().currentId, tip.block.index) << "the next epoch start is";
+}
+
+// B035: due renewals may wait when they do not fit. A block that leaves any out holds renewals only,
+// at least one; the rest go into later blocks.
+TEST_F(CheckpointJoinTest, DueRenewalsMayWaitInABlockOfRenewalsOnly) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  std::vector<Ledger::Record> due;
+  while (true) { // a slot with two renewals due, outside a checkpoint
+    producer.setClockOverride(producer.getSlotEndTime(slot_ + 1));
+    auto collected = producer.collectRenewals(slot_ + 1);
+    ASSERT_TRUE(collected.isOk());
+    due = signedRenewals(collected.value());
+    if (due.size() >= 2 && !chain_block::isGenesisRenewal(due.front())) {
+      break;
     }
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u);
   }
-  withoutGenesis.push_back(makeReserveTransfer(harness_, 3, idem_++));
-  Ledger::ChainNode bad =
-      producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), withoutGenesis);
-  auto sealed = producer.sealBlock(bad);
+  ++slot_;
+  auto refusedWith = [&](std::vector<Ledger::Record> records, const std::string &why) {
+    Ledger::ChainNode block = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), records);
+    auto sealed = producer.sealBlock(block);
+    ASSERT_FALSE(sealed.isOk()) << why;
+    EXPECT_NE(sealed.error().message.find(why), std::string::npos) << sealed.error().message;
+  };
+  refusedWith({due.front(), transferAt(slot_)}, "holds renewals only");
+  refusedWith({transferAt(slot_)}, "holds renewals only");
+
+  tip = makeNextBlockAtSlot(producer, tip, slot_, {due.front()}); // the rest wait
+  ASSERT_FALSE(HasFailure());
+  ASSERT_TRUE(producer.addBlock(tip).isOk());
+  tip = next(tip); // the waiting ones go into the next block, with anything else
+  ASSERT_FALSE(HasFailure());
+}
+
+// B035: a block becomes a checkpoint only once every account last written before the current one
+// renewed, so a node starting at it meets every account. While one waits, the leader leaves the
+// genesis renewal out and a block opening with it is refused; once it renews, the next epoch start
+// rotates.
+TEST_F(CheckpointJoinTest, ACheckpointWaitsForRenewalsOfAccountsWrittenBeforeTheCurrentOne) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  // Two users written in each of three consecutive blocks: with minBlocks 3, two renewals are due
+  // in every block, so one can be held back and the block still renews the other.
+  for (uint64_t i = 0; i < 3; ++i) {
+    ++slot_;
+    tip = produce(tip, slot_,
+                  {newUserAt(slot_, AccountBuffer::ID_FIRST_USER + 10 + 2 * i, makeKeyPair(), 100),
+                   newUserAt(slot_, AccountBuffer::ID_FIRST_USER + 11 + 2 * i, makeKeyPair(), 100)});
+    ASSERT_FALSE(HasFailure());
+  }
+  const uint64_t startCheckpoint = producer.getCheckpoint().currentId;
+  while (producer.getCheckpoint().currentId == startCheckpoint) {
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+    ASSERT_LT(slot_, 200u);
+  }
+  const uint64_t current = producer.getCheckpoint().currentId;
+
+  // Hold back the first account due after the rotation (last written before it) until the next
+  // eligible block, renewing everything else.
+  std::optional<uint64_t> heldBack;
+  while (!(producer.getNextBlockId() >= current + harness_.chainConfig.checkpoint.minBlocks &&
+           (slot_ + 1) % harness_.chainConfig.slotsPerEpoch == 0)) {
+    ++slot_;
+    producer.setClockOverride(producer.getSlotEndTime(slot_));
+    auto collected = producer.collectRenewals(slot_);
+    ASSERT_TRUE(collected.isOk());
+    std::vector<Ledger::Record> records;
+    for (const auto &r : signedRenewals(collected.value())) {
+      const uint64_t id = renewedAccount(r);
+      if (!heldBack && id != AccountBuffer::ID_GENESIS) {
+        heldBack = id;
+      }
+      if (id != heldBack) {
+        records.push_back(r);
+      }
+    }
+    ASSERT_FALSE(records.empty()) << "slot " << slot_ << ": nothing but the held-back account due";
+    tip = makeNextBlockAtSlot(producer, tip, slot_, records); // renewals only: one waits
+    ASSERT_FALSE(HasFailure());
+    ASSERT_TRUE(producer.addBlock(tip).isOk());
+  }
+  ASSERT_TRUE(heldBack.has_value());
+
+  ++slot_;
+  producer.setClockOverride(producer.getSlotEndTime(slot_));
+  auto collected = producer.collectRenewals(slot_);
+  ASSERT_TRUE(collected.isOk());
+  std::vector<Ledger::Record> due = signedRenewals(collected.value());
+  for (const auto &r : due) {
+    EXPECT_FALSE(chain_block::isGenesisRenewal(r)) << "the genesis renewal waits with the checkpoint";
+  }
+  // A block opening with a genesis renewal anyway (the current checkpoint's), as a checkpoint
+  // would: refused before its records are looked at.
+  auto checkpointBlock = producer.readBlock(current);
+  ASSERT_TRUE(checkpointBlock.isOk());
+  std::vector<Ledger::Record> early = {checkpointBlock.value().block.records.front()};
+  ASSERT_TRUE(chain_block::isGenesisRenewal(early.front()));
+  early.insert(early.end(), due.begin(), due.end());
+  Ledger::ChainNode premature = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), early);
+  auto refused = producer.sealBlock(premature);
+  ASSERT_FALSE(refused.isOk());
+  EXPECT_NE(refused.error().message.find("still wait for their renewal"), std::string::npos) << refused.error().message;
+
+  const auto before = producer.getCheckpoint();
+  tip = produce(tip, slot_, {transferAt(slot_)}); // renews the held-back account too
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getCheckpoint().currentId, before.currentId) << "the checkpoint waited";
+  tip = advanceToEligibleSlot(tip);
+  tip = next(tip);
+  ASSERT_FALSE(HasFailure());
+  EXPECT_EQ(producer.getCheckpoint().currentId, tip.block.index) << "and came at the next epoch start";
+}
+
+// B034: a block larger than maxBlockBytes is refused, whatever it holds.
+TEST_F(CheckpointJoinTest, ABlockLargerThanMaxBlockBytesIsRefused) {
+  auto &producer = harness_.producer;
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  ++slot_;
+  producer.setClockOverride(producer.getSlotEndTime(slot_));
+  auto collected = producer.collectRenewals(slot_);
+  ASSERT_TRUE(collected.isOk());
+  std::vector<Ledger::Record> records = signedRenewals(collected.value());
+  Ledger::Record padded = transferAt(slot_);
+  padded.signatures.push_back(std::string(harness_.chainConfig.maxBlockBytes, 's'));
+  records.push_back(padded);
+  Ledger::ChainNode block = producer.linkNextBlock(tip, slot_, kTestMinerId, producer.getSlotEndTime(slot_), records);
+  auto sealed = producer.sealBlock(block);
   ASSERT_FALSE(sealed.isOk());
-  EXPECT_NE(sealed.error().message.find("must open with the genesis renewal"), std::string::npos)
-      << sealed.error().message;
+  EXPECT_NE(sealed.error().message.find("more than maxBlockBytes"), std::string::npos) << sealed.error().message;
 }
 
 TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeTheProducer) {

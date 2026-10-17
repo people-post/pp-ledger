@@ -112,6 +112,7 @@ private:
   constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = static_cast<uint64_t>(24) * 3600; // 7 days per epoch
   constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = static_cast<uint64_t>(1) * 1024 * 1024; // 1MB
   constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = static_cast<uint64_t>(10) * 1024; // 10K
+  constexpr static const uint64_t DEFAULT_MAX_BLOCK_BYTES = static_cast<uint64_t>(4) * 1024 * 1024; // 4 MiB (B034)
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = 1;  // Base fee per transaction
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = 1;  // Fee per custom meta KiB
   constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = 1;  // Fee per custom meta KiB^2
@@ -132,6 +133,7 @@ private:
     uint64_t slotsPerEpoch{ DEFAULT_SLOTS_PER_EPOCH };
     uint64_t maxCustomMetaSize{ DEFAULT_MAX_CUSTOM_META_SIZE };
     uint64_t maxTransactionsPerBlock{ DEFAULT_MAX_TRANSACTIONS_PER_BLOCK };
+    uint64_t maxBlockBytes{ DEFAULT_MAX_BLOCK_BYTES };
     std::vector<uint16_t> minFeeCoefficients{ DEFAULT_MIN_FEE_COEFF_A,
                                               DEFAULT_MIN_FEE_COEFF_B,
                                               DEFAULT_MIN_FEE_COEFF_C };

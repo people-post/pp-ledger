@@ -21,6 +21,20 @@ inline constexpr uint64_t kMinMinerDueSeconds = 12 * 3600;
  */
 Roe<void> validateLivenessSettings(const BlockChainConfig &config);
 
+/** The most `maxBlockBytes` may be: what the ledger RPC carries in one message (B034). */
+inline constexpr uint64_t kMaxBlockBytesCeiling = 4 * 1024 * 1024;
+/** Room a record takes beyond its meta: the most keys and signatures an account may have, fields. */
+inline constexpr uint64_t kRecordOverheadBytes = 256 * 1024;
+/** Room a block takes beyond its records: header, committee. */
+inline constexpr uint64_t kBlockOverheadBytes = 64 * 1024;
+
+/**
+ * Block size settings, at genesis init and in every T_CONFIG (B034): `maxBlockBytes` set, at most
+ * `kMaxBlockBytesCeiling`, and room for the largest record (`maxCustomMetaSize` plus
+ * `kRecordOverheadBytes`) in a block (plus `kBlockOverheadBytes`).
+ */
+Roe<void> validateBlockLimits(const BlockChainConfig &config);
+
 } // namespace pp::chain_tx
 
 #endif

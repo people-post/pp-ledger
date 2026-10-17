@@ -23,4 +23,19 @@ Roe<void> validateLivenessSettings(const BlockChainConfig &config) {
   return {};
 }
 
+Roe<void> validateBlockLimits(const BlockChainConfig &config) {
+  if (config.maxBlockBytes == 0 || config.maxBlockBytes > kMaxBlockBytesCeiling) {
+    return TxError(chain_err::E_TX_VALIDATION, "maxBlockBytes must be between 1 and " +
+                                                   std::to_string(kMaxBlockBytesCeiling) + ": " +
+                                                   std::to_string(config.maxBlockBytes));
+  }
+  if (config.maxCustomMetaSize + kRecordOverheadBytes + kBlockOverheadBytes > config.maxBlockBytes) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "maxBlockBytes (" + std::to_string(config.maxBlockBytes) + ") must hold the largest record: " +
+                       "maxCustomMetaSize (" + std::to_string(config.maxCustomMetaSize) + ") + " +
+                       std::to_string(kRecordOverheadBytes + kBlockOverheadBytes) + " bytes of keys, signatures and header");
+  }
+  return {};
+}
+
 } // namespace pp::chain_tx

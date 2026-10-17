@@ -70,7 +70,10 @@ chain_tx::Roe<void> validateConfigChange(const BlockChainConfig &next,
   if (next.slotsPerEpoch != current->slotsPerEpoch) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Slots per epoch is fixed at genesis");
   }
-  return chain_tx::validateLivenessSettings(next);
+  if (auto liveness = chain_tx::validateLivenessSettings(next); !liveness) {
+    return liveness;
+  }
+  return chain_tx::validateBlockLimits(next);
 }
 
 } // namespace

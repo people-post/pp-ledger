@@ -182,13 +182,28 @@ private:
   };
 
   /** Per-slot leader state built from the tip; reset whenever the tip moves. */
+  /** What a block may still take (B034, B035): records and bytes. */
+  struct BlockBudget {
+    uint64_t recordsLeft{0};
+    uint64_t bytesLeft{0};
+
+    /** Takes `record` if it fits. */
+    bool take(const Ledger::Record &record);
+  };
+
   struct SlotCache {
     bool ready{false};
     uint64_t slot{0};
     bool isLeader{false};
     /** Records the leader adds itself, rebuilt every slot: renewals, then a certificate due (bp3). */
     std::vector<Ledger::Record> leaderRecords;
+    /** What the block may still take after the leader's records. */
+    BlockBudget budget;
+    /** Due renewals did not all fit: the block holds renewals only (and a certificate due). */
+    bool renewalsWait{false};
   };
+  /** The seal found the block larger than maxBlockBytes (the leader's estimate was short). */
+  constexpr static const int32_t E_BLOCK_TOO_LARGE = 31;
 
   /** Transactions for the next block and count of pending included (for trimmed). */
   struct BlockTxSet {
