@@ -37,6 +37,13 @@ pp::Roe<void> NodeConfig::fromJson(const Object &jd) {
     }
     handshakeBacklog = static_cast<uint32_t>(*value);
   }
+  if (jd.contains("udpBufferBytes")) {
+    auto value = jd.getNonNegInt("udpBufferBytes");
+    if (!value || *value > kMaxUdpBufferBytes) {
+      return pp::Error("Field 'udpBufferBytes' must be between 0 and " + std::to_string(kMaxUdpBufferBytes));
+    }
+    udpBufferBytes = static_cast<uint32_t>(*value);
+  }
   if (handshakeBacklog > maxLinks) {
     return pp::Error("Field 'handshakeBacklog' may not exceed 'maxLinks'");
   }
@@ -54,6 +61,9 @@ void NodeConfig::toJson(Object &j) const {
   }
   if (handshakeBacklog != kDefaultHandshakeBacklog) {
     j.setJsonUInt("handshakeBacklog", handshakeBacklog);
+  }
+  if (udpBufferBytes != kDefaultUdpBufferBytes) {
+    j.setJsonUInt("udpBufferBytes", udpBufferBytes);
   }
 }
 

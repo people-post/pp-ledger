@@ -869,7 +869,7 @@ Service::Roe<void> BeaconServer::onStart() {
   }
 
   setAllowedPeers(runFileConfig.allowedPeers);
-  setLinkLimits(runFileConfig);
+  setTransportLimits(runFileConfig);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);

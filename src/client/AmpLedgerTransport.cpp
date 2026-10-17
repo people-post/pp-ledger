@@ -14,8 +14,8 @@
 namespace pp {
 namespace {
 
-using pp::ledger::rpc::kProtocolId;
 using pp::ledger::rpc::LedgerRpcChannelPolicy;
+using pp::ledger::rpc::ProtocolFor;
 using Clock = std::chrono::steady_clock;
 using TransportRoe = ILedgerTransport::Roe<std::string>;
 
@@ -63,7 +63,9 @@ private:
 
 /**
  * One ledger RPC round trip, run entirely on the io lane:
- * EnsureAssociation → OpenChannel → WhenChannelOpen → BindChannel + send → first frame.
+ * EnsureAssociation → OpenChannel + BindChannel → WhenChannelOpen → send → first frame.
+ * The channel is bound as soon as it is opened: a server refusing the request (busy, not allowed)
+ * answers right after it acknowledges the open, before the body is sent.
  * Callbacks hold a shared_ptr, so late ones after a timeout are harmless no-ops.
  */
 class RoundTripCall : public std::enable_shared_from_this<RoundTripCall> {
@@ -171,7 +173,7 @@ private:
     }
     stage_ = Stage::ChannelOpen;
     auto self = shared_from_this();
-    mesh_.OpenChannel(peer_key_, kProtocolId, LedgerRpcChannelPolicy(timeout_),
+    mesh_.OpenChannel(peer_key_, ProtocolFor(body_.size()), LedgerRpcChannelPolicy(timeout_),
                       [self](pp::amp::PeerLinkManager::ChannelRoe ch) { self->onChannel(ch); });
   }
 
@@ -187,26 +189,27 @@ private:
     channel_id_ = ch.value();
     stage_ = Stage::ChannelReady;
     auto self = shared_from_this();
-    mesh_.WhenChannelOpen(peer_key_, channel_id_, deadline_ms_, [self](bool ok) { self->onChannelOpen(ok); });
-  }
-
-  void onChannelOpen(const bool ok) {
-    if (result_.isSet()) {
-      return;
-    }
-    if (!ok) {
-      finish(TransportError("AmpLedgerTransport: channel not open"));
-      return;
-    }
-    stage_ = Stage::Response;
-    auto self = shared_from_this();
-    session_ = mesh_.BindChannel(peer_key_, channel_id_, LedgerRpcChannelPolicy(timeout_),
-                                 [self](pp::Roe<std::vector<uint8_t>> body) { return self->onFrame(std::move(body)); });
+    session_ = mesh_.BindChannel(
+        peer_key_, channel_id_, LedgerRpcChannelPolicy(timeout_),
+        [self](pp::Roe<std::vector<uint8_t>> body) { return self->onFrame(std::move(body)); },
+        [self](const char* reason) { self->onClosed(reason); });
     if (!session_) {
       finish(TransportError("AmpLedgerTransport: link unavailable"));
       return;
     }
     bound_mux_ = session_->Mux();
+    mesh_.WhenChannelOpen(peer_key_, channel_id_, deadline_ms_, [self](bool ok) { self->onChannelOpen(ok); });
+  }
+
+  void onChannelOpen(const bool ok) {
+    if (result_.isSet()) {
+      return; // answered already (a refusal), or gave up
+    }
+    if (!ok || session_->IsClosed()) {
+      finish(TransportError("AmpLedgerTransport: channel not open"));
+      return;
+    }
+    stage_ = Stage::Response;
     std::vector<uint8_t> request(body_.begin(), body_.end());
     if (!session_->EnqueueOutbound(std::move(request))) {
       finish(TransportError("AmpLedgerTransport: failed to enqueue request"));
@@ -224,6 +227,15 @@ private:
     }
     finish(std::string(body->begin(), body->end()));
     return true;
+  }
+
+  /** The channel closed before a reply: the server reset it (e.g. the request was too large). */
+  void onClosed(const char* reason) {
+    if (result_.isSet()) {
+      return;
+    }
+    finish(TransportError(std::string("AmpLedgerTransport: channel closed before the reply (") +
+                          (reason ? reason : "closed") + ")"));
   }
 
   /** First result wins: store it for a waiter and hand it to `done_`. */
@@ -310,13 +322,21 @@ AmpLedgerTransport::AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::
 
 AmpLedgerTransport::AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive)
     : mesh_(mesh), drive_(std::move(drive)), peer_key_(std::move(peer_key)),
-      own_limit_(std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer)) {}
+      own_limit_(std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer)),
+      own_bulk_limit_(std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer)) {}
 
-std::shared_ptr<network::InFlightLimit> AmpLedgerTransport::inFlightLimit() const {
-  if (runtime_ && runtime_->inFlightLimit()) {
-    return runtime_->inFlightLimit();
+std::shared_ptr<network::InFlightLimit> AmpLedgerTransport::inFlightLimit(const size_t requestBytes) const {
+  const bool bulk = requestBytes > pp::ledger::rpc::kMaxSmallRequestBytes;
+  if (runtime_) {
+    if (auto limit = bulk ? runtime_->bulkInFlightLimit() : runtime_->inFlightLimit()) {
+      return limit;
+    }
   }
-  return own_limit_ ? own_limit_ : std::make_shared<network::InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer);
+  if (auto limit = bulk ? own_bulk_limit_ : own_limit_) {
+    return limit;
+  }
+  return std::make_shared<network::InFlightLimit>(bulk ? pp::ledger::rpc::kMaxBulkReceivingPerPeer
+                                                       : pp::ledger::rpc::kMaxReceivingPerPeer);
 }
 
 void AmpLedgerTransport::post(std::function<void()> task) {
@@ -366,7 +386,7 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
     return TransportError("AmpLedgerTransport: roundTrip on the AMP pump thread would deadlock");
   }
 
-  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit());
+  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()));
   post([call]() { call->enqueue(); });
 
   const auto postTask = [this](std::function<void()> task) { post(std::move(task)); };
@@ -403,7 +423,7 @@ void AmpLedgerTransport::roundTripAsync(const std::string& requestBody, const st
     return;
   }
   // The io-lane amp timer bounds the call; no thread waits on it.
-  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(), std::move(done));
+  auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()), std::move(done));
   post([call]() { call->enqueue(); });
 }
 

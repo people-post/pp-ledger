@@ -32,6 +32,7 @@ services:
   beacon:
     image: *image
     command: ["pp-beacon"]
+    cap_add: [NET_ADMIN] # sizes its UDP socket past the host's cap (CONFIGURATION.md § udpBufferBytes)
     environment:
       PP_LEDGER_PORT: "8517"
       PP_BEACON_SIGNING_KEY_FILE: /run/secrets/beacon_signing
@@ -46,6 +47,7 @@ services:
   relay:
     image: *image
     command: ["pp-relay"]
+    cap_add: [NET_ADMIN] # sizes its UDP socket past the host's cap (CONFIGURATION.md § udpBufferBytes)
     environment:
       PP_LEDGER_PORT: "8519"
       PP_LEDGER_UPSTREAMS: /dns4/beacon/udp/8517/adp/1.0.0/p2p/${BEACON_PEER_ID:?run ./init.sh first}
@@ -63,6 +65,7 @@ services:
   miner:
     image: *image
     command: ["pp-miner"]
+    cap_add: [NET_ADMIN] # sizes its UDP socket past the host's cap (CONFIGURATION.md § udpBufferBytes)
     environment:
       PP_LEDGER_PORT: "8518"
       PP_MINER_ID: ${MINER_ID:-1048576}

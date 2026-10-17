@@ -28,6 +28,7 @@ enum class Kind {
   AccountGet,
   BlockGet,
   TxByWallet, ///< wallet history: scans the chain backwards on the server thread
+  Big,        ///< a BLOCK_ADD of ~4 MiB that is no block: the node receives it whole, then refuses it
 };
 
 std::string kindName(Kind kind);

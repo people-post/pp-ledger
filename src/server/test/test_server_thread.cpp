@@ -478,6 +478,13 @@ TEST(ServerThreadTest, FollowerConfigReadsTheSameFieldsForEveryFollower) {
   EXPECT_EQ(sized.value().handshakeBacklog, 500u);
   EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "maxLinks": 0})").isOk());
   EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "maxLinks": 10, "handshakeBacklog": 20})").isOk());
+
+  // lr8 (M12): the socket's buffers; 0 leaves the OS default.
+  EXPECT_EQ(one.value().udpBufferBytes, NodeConfig::kDefaultUdpBufferBytes);
+  auto buffers = parse(R"({"beacon": ")" + a + R"(", "udpBufferBytes": 0})");
+  ASSERT_TRUE(buffers) << buffers.error().message;
+  EXPECT_EQ(buffers.value().udpBufferBytes, 0u);
+  EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "udpBufferBytes": 2147483648})").isOk());
 }
 
 // load-resilience lr1: every request is counted once, by what became of it.

@@ -179,6 +179,15 @@ run_image() {
     [[ "$after" -gt "$before" ]] || die "L-SMOKE-IMAGE: the chain did not grow (nextBlockId ${before})"
     curl -fsS localhost:28080/api/beacon/state >/dev/null || die "L-SMOKE-IMAGE: HTTP API"
     echo -e "${GREEN}✓ ready (pp-client health, pp-http /metrics); chain grows (nextBlockId ${before} → ${after}); HTTP API answers${NC}"
+    # The nodes size their UDP socket past the host's cap: CAP_NET_ADMIN (setcap +p, cap_add).
+    # In /metrics the beacon is core-beacon and the relay is pp-http's beacon.
+    local node granted
+    for node in core-beacon beacon miner; do
+      granted=$(sed -n "s/^pp_ledger_udp_receive_buffer_bytes{node=\"${node}\"} \([0-9]*\).*/\1/p" <<<"$metrics")
+      [[ -n "$granted" && "$granted" -ge 8388608 ]] ||
+        die "L-SMOKE-IMAGE: ${node}'s UDP receive buffer is ${granted:-unknown} B, not the 8 MiB asked for"
+    done
+    echo -e "${GREEN}✓ UDP socket buffers of 8 MiB on every node, past the host's cap${NC}"
     docker compose stop -t 20 >/dev/null 2>&1
     local bad
     bad=$(docker compose ps -a --format '{{.Service}} {{.ExitCode}}' | awk '$2 != 0' || true)

@@ -2,6 +2,7 @@
 #include "LedgerRpcProtocol.h"
 
 #include "amp/L1/OsUdpDatagramIo.h"
+#include "amp/L1/Types.h"
 #include "amp/link/AdpMultiaddr.h"
 
 namespace pp {
@@ -12,11 +13,15 @@ LedgerAmpRuntime::~LedgerAmpRuntime() { Stop(); }
 pp::Roe<void> LedgerAmpRuntime::Start(LedgerAmpConfig config) {
   auto clock = std::make_shared<pp::adp::WallClock>();
   const auto local = pp::adp::IpEndpoint::V4(0, 0, 0, 0, config.udp_port);
-  auto bound = pp::adp::OsUdpDatagramIo::Bind(local);
+  const pp::adp::UdpSocketOptions options{config.udp_buffer_bytes, config.udp_buffer_bytes};
+  auto bound = pp::adp::OsUdpDatagramIo::Bind(local, options);
   if (!bound) {
     return bound.error();
   }
   std::shared_ptr<pp::adp::DatagramIo> io(std::move(*bound));
+  const auto stats = io->Stats();
+  buffers_capped_ = stats && (stats->receive_buffer_bytes < options.receive_buffer_bytes ||
+                              stats->send_buffer_bytes < options.send_buffer_bytes);
   return StartForTest(std::move(io), std::move(clock), std::move(config));
 }
 
@@ -28,6 +33,7 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   io_ = std::move(io);
   clock_ = std::move(clock);
   in_flight_ = std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer);
+  bulk_in_flight_ = std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer);
 
   pp::amp::AmpStack::Config stack_config;
   stack_config.identity = std::move(config.identity);
@@ -43,6 +49,9 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   // Amp UDP accept is required for inbound dials (beacon/relay/miner peers and client RPC).
   // PeerLinkManager installs accept key + handler but leaves accept_enabled_ false by default.
   stack_->GetEndpoint().SetAcceptEnabled(true);
+  // A channel for a protocol this node does not serve is refused at the open, not left to time out
+  // (e.g. a newer client's protocol on an older node).
+  stack_->Links().SetRefuseUnhandledOpens(true);
 
   auto ma = pp::amp::FormatAdpMultiaddr(io_->LocalEndpoint(), stack_->LocalPeerId());
   if (!ma) {
@@ -83,6 +92,18 @@ void LedgerAmpRuntime::Stop() {
   listen_multiaddr_.clear();
 }
 
+std::optional<pp::adp::DatagramIoStats> LedgerAmpRuntime::socketStats() const {
+  std::shared_ptr<pp::adp::DatagramIo> io;
+  {
+    std::lock_guard<std::mutex> lock(post_mu_); // Stop() drops io_ after running_ goes false under it
+    if (!running_) {
+      return std::nullopt;
+    }
+    io = io_;
+  }
+  return io ? io->Stats() : std::nullopt;
+}
+
 pp::amp::PeerLinkManager& LedgerAmpRuntime::links() { return stack_->Links(); }
 
 pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
@@ -120,8 +141,16 @@ void LedgerAmpRuntime::Wake() {
 
 void LedgerAmpRuntime::PumpLoop() {
   pump_thread_id_ = std::this_thread::get_id();
+  auto& endpoint = stack_->GetEndpoint();
   while (!stop_.load()) {
+    const uint64_t received = endpoint.Stats().rx_datagrams;
     stack_->Runtime().Drive();
+    // A turn reads at most a budget of datagrams; one that read a whole budget left more waiting, so
+    // go again at once. Waiting here capped a node at a budget per 5 ms whatever its CPU, and under a
+    // burst of large requests its socket overflowed and dropped every peer's datagrams (lr8, M14).
+    if (endpoint.Stats().rx_datagrams - received >= pp::adp::kDefaultPumpBudget) {
+      continue;
+    }
     // Idle cadence for timers/retransmits; post() wakes us early for new work.
     std::unique_lock<std::mutex> lock(wake_mu_);
     wake_cv_.wait_for(lock, std::chrono::milliseconds(5), [this]() { return wake_ || stop_.load(); });

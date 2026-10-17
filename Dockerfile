@@ -10,6 +10,7 @@ RUN apt-get update \
         ca-certificates \
         git \
         cmake \
+        libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -24,7 +25,10 @@ RUN cmake -S . -B build \
         build/app/pp-relay \
         build/app/pp-miner \
         build/app/pp-client \
-        build/app/pp-http
+        build/app/pp-http \
+    && setcap cap_net_admin+p build/app/pp-beacon \
+    && setcap cap_net_admin+p build/app/pp-relay \
+    && setcap cap_net_admin+p build/app/pp-miner
 
 FROM ubuntu:24.04 AS runtime
 
@@ -37,6 +41,10 @@ RUN apt-get update \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
+# The nodes carry CAP_NET_ADMIN as permitted only (setcap above): a container cannot raise the host's
+# UDP buffer cap (net.core.rmem_max lives in the host's network namespace), so a node granted the
+# capability (compose: cap_add NET_ADMIN) makes it effective for sizing its socket alone; without
+# it, the node starts all the same and gets what the host allows (CONFIGURATION.md § udpBufferBytes).
 COPY --from=builder \
     /src/build/app/pp-beacon \
     /src/build/app/pp-relay \

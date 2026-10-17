@@ -8,7 +8,7 @@ Cross-repo context: [platform-integration.md](../architecture/PLATFORM_INTEGRATI
 
 | Plane | Role |
 |-------|------|
-| **AMP (UDP)** | Sole fleet transport for `/pp-ledger/rpc/1.0.0` |
+| **AMP (UDP)** | Sole fleet transport for `/pp-ledger/rpc/1.0.0` and `/pp-ledger/rpc-bulk/1.0.0` |
 | **HTTP** | Degraded client path via org relay (pp-browser; not in this module) |
 
 There is no other transport (no TCP, no DHT).
@@ -17,12 +17,13 @@ There is no other transport (no TCP, no DHT).
 
 | Field | Value |
 |-------|-------|
-| `protocol_id` | `/pp-ledger/rpc/1.0.0` |
+| `protocol_id` | `/pp-ledger/rpc/1.0.0` for requests up to 64 KiB (`kMaxSmallRequestBytes`); `/pp-ledger/rpc-bulk/1.0.0` for larger ones (`kBulkProtocolId`: a block, a large record). The client picks by size; a larger body on the small protocol has its channel reset at its first fragment |
 | L3 policy | Bulk (`MakeBulkChannelPolicy`), `read_once=true`; `read_timeout` = the call's deadline on the client, 2T on the server ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)) |
 | Payload | Unframed `binaryPack(Client::Request/Response)` — no length prefix |
 | Max size | 4 MiB + 64 KiB (`ledger::rpc::kMaxMessageBytes`, Amp's Bulk message): a block of the largest `maxBlockBytes` a chain may set (4 MiB) plus its envelope. The chain sets block sizes; the transport carries them ([WIRE_SCHEMA.md § Block size](WIRE_SCHEMA.md#block-size)) |
 | Requests | `BLOCK_ADD` and `TX_ADD` (a block, a record) up to the max size; every other type at most 64 KiB (`kMaxSmallRequestBytes`), refused before it is queued |
-| Per peer | At most 16 requests arriving at once (channel opened, body not complete; `kMaxReceivingPerPeer`): one more is reset, so a peer cannot make a node buffer more than that many messages. Clients keep to it: every client on a runtime shares a limit of 16 in flight per peer, the rest waiting their turn (`InFlightLimit`, load-resilience LR007) |
+| Per peer | At most 16 small requests arriving at once (channel opened, body not complete; `kMaxReceivingPerPeer`) and 2 large ones in progress (arriving, or waiting for their answer; `kMaxBulkReceivingPerPeer`): one more is answered `E_RATE_LIMITED` at once, so a peer cannot make a node buffer more than that. Clients keep to it: every client on a runtime shares limits of 16 and 2 in flight per peer, the rest waiting their turn (`InFlightLimit`, load-resilience LR007) |
+| Per node | At most 8 large requests in progress from all peers (`kMaxBulkReceivingTotal`): one more is answered `E_BUSY` at once — the client reads the refusal before it sends its body, so a flood of large bodies cannot fill the node's socket or its request queue and starve every other peer (load-resilience LR008). A peer outside `allowedPeers` is refused when its large request's channel opens, before its body arrives |
 | Envelope | `Request` version 2: `version`, `type`, `payload`, `deadlineMs` (how long the client waits; 0 unknown). `Response` version 2: `version`, `errorCode`, `payload` (the reply, or the error message), `retryAfterMs`. Version 1 (without the last field) is still read |
 | Deadline | A node does not serve a request whose `deadlineMs` passed while it waited (`E_EXPIRED`); a relay forwards with what remains less a margin (a tenth, 250 ms to 2 s), half the default timeout when the client sent none (LR006) |
 | Error codes | `1`, `3`: an error (the message says which). Overload and deadline (LR007) — the request was not done, or (13) may have been; the same bytes may be sent again, after `retryAfterMs` when given: `10` `E_BUSY` (queue full, stopping, upstream unreachable), `11` `E_RATE_LIMITED`, `12` `E_POOL_FULL` (the pool, or the payer's share; `retryAfterMs` ≈ the slots to drain it), `13` `E_UPSTREAM_TIMEOUT` (a relay's upstream did not answer in time: it may have taken it), `14` `E_EXPIRED` |

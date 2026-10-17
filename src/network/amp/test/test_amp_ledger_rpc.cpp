@@ -246,6 +246,197 @@ TEST_F(AmpLedgerRpcTest, APeerHasAFewRequestsArrivingAtOnce) {
   EXPECT_EQ(open, pp::ledger::rpc::kMaxReceivingPerPeer) << "one past the limit is reset";
 }
 
+// lr8: large requests travel on their own protocol, a few at once per peer (M12: a flood of them
+// filled the node's socket and starved every peer).
+TEST_F(AmpLedgerRpcTest, APeerHasFewerLargeRequestsArrivingAtOnce) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  pp::network::AmpLedgerServer::Bind(h->runtime_b->Links(), [](const std::string& body) { return body; }, {}, {},
+                                     std::chrono::milliseconds(60000));
+  std::vector<uint32_t> channels;
+  for (size_t i = 0; i <= pp::ledger::rpc::kMaxBulkReceivingPerPeer; ++i) {
+    h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kBulkProtocolId,
+                                      pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
+                                      [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
+                                        if (ch) {
+                                          channels.push_back(ch.value());
+                                        }
+                                      });
+  }
+  for (size_t i = 0; i < 400; ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_EQ(channels.size(), pp::ledger::rpc::kMaxBulkReceivingPerPeer + 1);
+  size_t open = 0;
+  for (uint32_t id : channels) {
+    auto* link = h->runtime_a->Links().FindLink("b");
+    open += link && link->Mux() && link->Mux()->State(id) == pp::amp::ChannelState::Open ? 1 : 0;
+  }
+  EXPECT_EQ(open, pp::ledger::rpc::kMaxBulkReceivingPerPeer) << "one past the limit is reset";
+}
+
+namespace {
+
+std::string RefusalName(const pp::network::AmpLedgerServer::Refusal why) {
+  switch (why) {
+  case pp::network::AmpLedgerServer::Refusal::NotAllowed:
+    return "not allowed";
+  case pp::network::AmpLedgerServer::Refusal::PeerBusy:
+    return "peer busy";
+  case pp::network::AmpLedgerServer::Refusal::NodeBusy:
+    return "node busy";
+  }
+  return "";
+}
+
+/** Echo server with `options`; counts the requests it was handed. */
+void BindEcho(pp::amp::PeerLinkManager& links, pp::network::AmpLedgerServer::Options options, std::atomic<int>& handled) {
+  options.refusal = RefusalName;
+  pp::network::AmpLedgerServer::BindAsync(
+      links,
+      [&handled](std::string, std::string body, pp::network::AmpLedgerServer::Reply reply) {
+        ++handled;
+        reply(std::move(body));
+      },
+      std::move(options));
+}
+
+} // namespace
+
+// lr8: a refused large request is answered at once, before its body is sent — the client reads the
+// server's reply (in pp-ledger, E_BUSY with a retry-after) instead of timing out.
+TEST_F(AmpLedgerRpcTest, ALargeRequestPastTheNodesShareIsAnsweredAtOnce) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::atomic<int> handled{0};
+  pp::network::AmpLedgerServer::Options options;
+  options.bulkTotal = 0;
+  BindEcho(h->runtime_b->Links(), std::move(options), handled);
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+
+  auto refused = transport.roundTrip(std::string(1024 * 1024, 'm'), std::chrono::seconds(30));
+  ASSERT_TRUE(refused.isOk()) << refused.error().message;
+  EXPECT_EQ(refused.value(), "node busy");
+  auto small = transport.roundTrip(std::string(1000, 's'), std::chrono::seconds(30));
+  ASSERT_TRUE(small.isOk()) << small.error().message;
+  EXPECT_EQ(small.value().size(), 1000u) << "small requests are not held up";
+  EXPECT_EQ(handled.load(), 1);
+}
+
+// lr8 (M14): a large request holds its place until it is answered, so large requests waiting in the
+// server's queue count too — they cannot fill the queue that small requests share.
+TEST_F(AmpLedgerRpcTest, ALargeRequestHoldsItsPlaceUntilAnswered) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::vector<pp::network::AmpLedgerServer::Reply> pending;
+  pp::network::AmpLedgerServer::Options options;
+  options.bulkTotal = 1;
+  options.refusal = RefusalName;
+  pp::network::AmpLedgerServer::BindAsync(
+      h->runtime_b->Links(),
+      [&pending](std::string, std::string, pp::network::AmpLedgerServer::Reply reply) {
+        pending.push_back(std::move(reply)); // answered later
+      },
+      std::move(options));
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+  const std::string large(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm');
+
+  std::optional<std::string> first;
+  transport.roundTripAsync(large, std::chrono::seconds(30), [&first](pp::ILedgerTransport::Roe<std::string> r) {
+    first = r ? r.value() : "error: " + r.error().message;
+  });
+  for (size_t i = 0; i < 2000 && pending.empty(); ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_EQ(pending.size(), 1u) << "the first is received and waits for its answer";
+
+  auto second = transport.roundTrip(large, std::chrono::seconds(30));
+  ASSERT_TRUE(second.isOk()) << second.error().message;
+  EXPECT_EQ(second.value(), "node busy") << "its body has arrived, but it still holds the node's place";
+
+  pending.front()("done");
+  for (size_t i = 0; i < 400 && !first; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(first, "done");
+  std::optional<std::string> third;
+  transport.roundTripAsync(large, std::chrono::seconds(30), [&third](pp::ILedgerTransport::Roe<std::string> r) {
+    third = r ? r.value() : "error: " + r.error().message;
+  });
+  for (size_t i = 0; i < 2000 && pending.size() < 2; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(pending.size(), 2u) << "answered, the place is free again";
+  EXPECT_FALSE(third) << "not refused";
+}
+
+// lr8: a peer the node does not serve is refused when its large request's channel opens, not after
+// the body has arrived; a small request (HEALTH) still reaches the server, which checks it there.
+TEST_F(AmpLedgerRpcTest, AStrangersLargeRequestIsRefusedWhenItsChannelOpens) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::atomic<int> handled{0};
+  std::string asked;
+  pp::network::AmpLedgerServer::Options options;
+  options.admit = [&asked](const std::string& peer) {
+    asked = peer;
+    return false;
+  };
+  BindEcho(h->runtime_b->Links(), std::move(options), handled);
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+
+  auto refused = transport.roundTrip(std::string(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm'),
+                                     std::chrono::seconds(30));
+  ASSERT_TRUE(refused.isOk()) << refused.error().message;
+  EXPECT_EQ(refused.value(), "not allowed");
+  EXPECT_EQ(asked, h->peer_id_a);
+  auto small = transport.roundTrip(std::string(pp::ledger::rpc::kMaxSmallRequestBytes, 's'), std::chrono::seconds(30));
+  ASSERT_TRUE(small.isOk()) << small.error().message;
+  EXPECT_EQ(handled.load(), 1);
+}
+
+// lr8: the small protocol takes no request over kMaxSmallRequestBytes: its channel is reset at the
+// first fragment, so a large body cannot bypass the large requests' limits.
+TEST_F(AmpLedgerRpcTest, ALargeBodyOnTheSmallProtocolIsReset) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::atomic<int> handled{0};
+  BindEcho(h->runtime_b->Links(), {}, handled);
+  std::optional<uint32_t> channel;
+  h->runtime_a->Links().OpenChannel("b", pp::ledger::rpc::kProtocolId,
+                                    pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
+                                    [&](const pp::amp::PeerLinkManager::ChannelRoe& ch) {
+                                      if (ch) {
+                                        channel = ch.value();
+                                      }
+                                    });
+  for (size_t i = 0; i < 100; ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_TRUE(channel);
+  std::string closed;
+  auto session = h->runtime_a->Links().BindChannel(
+      "b", *channel, pp::ledger::rpc::LedgerRpcChannelPolicy(std::chrono::milliseconds(0)),
+      [](pp::Roe<std::vector<uint8_t>>) { return false; }, [&](const char* reason) { closed = reason ? reason : ""; });
+  ASSERT_TRUE(session);
+  ASSERT_TRUE(session->EnqueueOutbound(std::vector<uint8_t>(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'x')));
+  for (size_t i = 0; i < 400 && closed.empty(); ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(closed, "peer_reset");
+  EXPECT_EQ(handled.load(), 0);
+}
+
 TEST_F(AmpLedgerRpcTest, ClientRequestRoundTrip) {
   auto created = RpcHarness::Create();
   ASSERT_TRUE(created.isOk());
