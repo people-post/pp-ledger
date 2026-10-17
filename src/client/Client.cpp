@@ -606,6 +606,12 @@ void Client::sendRequestAsync(uint32_t type, const std::string &payload,
                              });
 }
 
+void Client::requestAsync(uint32_t type, const std::string &payload, Done<std::string> done) {
+  const bool carriesData = type == T_REQ_TX_ADD || type == T_REQ_BLOCK_ADD || type == T_REQ_BLOCK_GET ||
+                           type == T_REQ_TX_GET_BY_WALLET;
+  sendRequestAsync(type, payload, carriesData ? dataTimeout() : fastTimeout(), std::move(done));
+}
+
 // BeaconServer API - Block operations (binary T_REQ_BLOCK_GET)
 
 Client::Roe<Ledger::ChainNode> Client::fetchBlock(uint64_t blockId) {

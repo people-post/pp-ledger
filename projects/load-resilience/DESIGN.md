@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0 (design) and lr1 (metrics) done
+**Status:** lr0–lr2 done (design, metrics, load generator); first measurements in § Measured
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 
@@ -101,6 +101,31 @@ From the code today (develop after #133). These are the expected findings; lr3 m
 | One server thread serves requests between the node's duties | A slow handler (a long wallet scan) delays commits, seals and syncs |
 | RPC timeout 15 s on every hop; a queued request expires after half of it | Forwarded requests can time out on two hops at once |
 
+### Measured: first runs (lr2)
+
+Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load through the relay with
+`pp-client load` ([TEST_STRATEGY.md § Load generator](../../docs/ops/TEST_STRATEGY.md#load-generator)).
+
+| # | Run | Result |
+|---|-----|--------|
+| M1 | 20/s for 15 s, 10 % junk, 4 identities | Every valid transfer included within 2 blocks (p99 3.1 s); replies p50 20 ms; junk pooled, never included |
+| M2 | 200 accounts created with the fixture's renewal every 2 blocks | 8 never created: once more accounts are due than a block holds, every block is renewals-only (B035) and user transactions wait for good |
+| M3 | Burst of 500 at 2 s + 10/s, 4 identities (~125 at once each) | 446 refused at once by the relay's transport ("channel not open": 16 requests in flight per peer); 254 taken and included |
+| M4 | Same, an earlier run | 374 replies timed out at the client's 30 s and 90 were refused, yet ~200 of them were pooled and included: the client is told it failed, the transfer goes through (a retry signed anew pays twice) |
+| M5 | Same burst from 64 identities | 364 "dial timeout" (8 s), 72 "dial in backoff" (30 s), 85 "channel not open": 65 new clients at once against a node that takes 48 links and 16 handshakes at a time (Amp `max_links`, `max_pending_inbound`) |
+| M6 | Relay and beacon during all of these | Never busy, no request expired, no run-loop turn over 140 ms, ready throughout, back to normal at once |
+
+So: the servers survive (goal 1 held so far, M6), but bursts are not absorbed (goal 2): they are
+bounced at the first hop (M3, M5), half-delivered with wrong answers (M4), or starved by renewals
+(M2). Added to the table above:
+
+| Today | Consequence |
+|-------|-------------|
+| A node takes 48 links, 16 handshaking (Amp defaults; the ledger sets none) | Clients past ~45 per relay are refused slowly (an 8 s dial timeout, then 30 s of backoff) |
+| Over the per-peer limit, a request is refused by the transport | The client sees "channel not open", not "busy, retry" |
+| Due renewals take a block before any user transaction (B035), and come due together (all accounts written in one burst renew one period later, together) | A burst of account creation comes back as a renewal burst that holds every user transaction for ⌈burst ÷ block capacity⌉ blocks; with more accounts due per period than blocks can renew, for good |
+| The client's timeout (30 s for TX_ADD) equals the relay's forward timeout | Both expire together; whether the beacon pooled it is unknown to the client |
+
 What already holds: bounded request queue with lanes (reads cannot crowd out writes), per-peer
 caps, "busy" before queueing, expiry of requests their client gave up on, `HEALTH` answered off the
 queue, block and request byte limits (B034).
@@ -143,3 +168,9 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
 - Relay forwarding: batch (a new request type) or a relay-side queue drained at a bounded rate.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
+- Renewals (M2): may user transactions take a share of a block while due renewals wait (a
+  consensus rule, B035), and may renewals spread over the period instead of all coming due at once?
+- Links (M5): how many clients a relay should hold (`max_links`, `max_pending_inbound` for the
+  ledger), and whether a full table should refuse at once instead of letting the dial time out.
+- Answers under overload (M3, M4): "busy, retry" instead of a transport error past the per-peer
+  limit; a forward timeout shorter than the client's, so the relay can say what happened.

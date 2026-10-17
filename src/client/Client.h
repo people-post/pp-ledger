@@ -597,6 +597,12 @@ public:
   /** BLOCK_WAIT: `done` gets the upstream's next block id once it passes `knownNextBlockId` (or unchanged after a hold). */
   void waitForBlockAsync(uint64_t knownNextBlockId, Done<TipReply> done);
 
+  /**
+   * Any request, async: `done` gets the reply payload, or the server's error message (E_SERVER_ERROR)
+   * or the transport's (E_REQUEST_FAILED). For tools that look at every reply (pp-client load).
+   */
+  void requestAsync(uint32_t type, const std::string &payload, Done<std::string> done);
+
   /** True when the call failed before a server answered (worth retrying later). */
   static bool isTransportError(int32_t code) {
     return code == E_NOT_CONNECTED || code == E_REQUEST_FAILED;

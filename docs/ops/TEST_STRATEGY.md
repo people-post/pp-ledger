@@ -135,6 +135,29 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 When adding a scenario: give it a purpose ID, a hard assert, and a skip reason if
 it stays manual.
 
+## Load generator
+
+`pp-client load` (projects/load-resilience): requests at a fixed rate whatever the replies, from
+`--peers` client identities, every reply classified (`taken`, `duplicate`, `pool_full`, `served`,
+`busy`, `expired`, `timeout`, `unsent`, `refused`, with the commonest error messages), transfers
+followed into blocks (inclusion seconds and blocks; transfers included although their reply was an
+error; junk that must never be included). `--json` writes the report for scripts.
+
+```bash
+R=$(cat build/test-smoke/multiaddrs/relay); K=build/test-smoke/keys
+# Funded accounts, once per network (the reserve signs: three keys in the smoke fixture)
+pp-client -b --host "$R" load-setup --from 1 -k $K/reserve1.key -k $K/reserve2.key -k $K/reserve3.key \
+  -n 200 --amount 100000 -o accounts.json
+# 20/s for 15 s, 10 % junk; then a burst of 500 transfers two seconds in
+pp-client -b --host "$R" load --accounts accounts.json --mix tx_add=9,tx_junk=1 -r 20 -d 15
+pp-client -b --host "$R" load --accounts accounts.json -r 10 -d 20 --burst 500 --burst-at 2 --peers 64
+```
+
+Mix kinds: `tx_add`, `tx_junk` (decodes, badly signed), `status`, `account_get`, `block_get`,
+`tx_get_by_wallet`. The smoke fixture renews every account every two blocks
+(`checkpointMinBlocks` 2) with 100 records a block: more than a block's worth of accounts makes
+every block renewals-only. Start a load network with `PP_LEDGER_SMOKE_CHECKPOINT_MIN_BLOCKS=1000`.
+
 ---
 
 ## Fixture conventions

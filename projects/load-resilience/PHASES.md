@@ -8,7 +8,7 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 - [x] **lr1** Metrics the checks read: request latency and queue wait per type, "busy" and expired
       counts, duty lateness (slot end → seal → commit), pool size and oldest age — on `HEALTH` and
       pp-http `/metrics`
-- [ ] **lr2** Load generator `pp-client load` (open loop, request mixes, many identities, signed
+- [x] **lr2** Load generator `pp-client load` (open loop, request mixes, many identities, signed
       transactions, outcome and inclusion reporting) and a funded-accounts genesis fixture
 - [ ] **lr3** Burst baseline on the smoke network (short slots): goal 2's checks with valid
       transactions, then with invalid ones mixed in; record what fails (expected: DESIGN § Where we
