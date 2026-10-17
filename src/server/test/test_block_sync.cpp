@@ -973,14 +973,16 @@ TEST_F(StartupSyncTest, AStopRequestEndsIt) {
 }
 
 // lr9: a long sync that keeps making progress is not cut off — the timeout is for a stuck one. Here
-// the whole sync takes about twice the timeout, a block arriving well within it each time.
+// the whole sync takes about three times the timeout (60 blocks, 200 ms each, four fetched at a
+// time); the first block comes at ~400 ms and the next every ~200 ms, well within it even on a slow
+// runner.
 TEST_F(StartupSyncTest, ALongSyncThatProgressesIsNotCutOff) {
-  upstream_->chain = makeChain(40);
-  upstream_->perBlock = std::chrono::milliseconds(60);
-  const auto timeout = std::chrono::milliseconds(300);
+  upstream_->chain = makeChain(60);
+  upstream_->perBlock = std::chrono::milliseconds(200);
+  const auto timeout = std::chrono::milliseconds(1000);
   const auto started = std::chrono::steady_clock::now();
   EXPECT_EQ(server_.runStartupSync(*sync_, last_, timeout), "");
-  EXPECT_EQ(local_.size(), 40u);
+  EXPECT_EQ(local_.size(), 60u);
   EXPECT_GT(std::chrono::steady_clock::now() - started, 2 * timeout) << "the sync outlasted the timeout";
 }
 
