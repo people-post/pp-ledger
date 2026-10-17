@@ -3,6 +3,9 @@
 #include "Miner.h"
 #include "Rewind.h"
 #include "../../chain/AccountBuffer.h"
+#include "../../chain/StateSnapshot.h"
+#include "AccountAttachment.h"
+#include <map>
 #include "../../ledger/Ledger.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
@@ -44,6 +47,7 @@ protected:
     fs::create_directories(root_ / "beacon");
     auto minerKey = utl::mlDsaGenerate();
     ASSERT_TRUE(minerKey.isOk());
+    minerKey_ = minerKey.value();
     // Each system account's holder makes its own key; genesis signs genesis.
     // The genesis (admin) account is 2-of-3; two of its keys sign genesis.
     genesisKeys_ = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value()};
@@ -174,6 +178,7 @@ protected:
   uint64_t maxTransactionsPerBlock_ = 100;
   uint64_t checkpointMinBlocks_ = 1000;
 
+  utl::MlDsaKeyPair minerKey_;
   fs::path root_;
   /** The admin set: 2-of-3. */
   std::vector<utl::MlDsaKeyPair> genesisKeys_;
@@ -604,3 +609,198 @@ TEST_F(MinerPoolTest, APromotedRelayTakesOverAtTheCutover) {
 }
 
 } // namespace
+
+namespace {
+
+/** A user account the reserve creates, with a self-published profile, valid from `slot`. */
+Ledger::Record newUserWithProfile(Miner &miner, const utl::MlDsaKeyPair &reserve, uint64_t slot, uint64_t id,
+                                  const utl::MlDsaKeyPair &userKey, uint64_t amount, const std::string &profile) {
+  Client::UserAccount account;
+  account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(amount);
+  account.wallet.publicKeys = {userKey.publicKey};
+  account.wallet.minSignatures = 1;
+  account.wallet.keyType = Crypto::TK_ML_DSA_65;
+  AccountAttachment attachment;
+  attachment.profiles[id].data = profile;
+  account.meta = attachment.ltsToString();
+  Ledger::TxNewUser tx;
+  tx.fromWalletId = AccountBuffer::ID_RESERVE;
+  tx.toWalletId = id;
+  tx.amount = amount;
+  tx.fee = 100000;
+  tx.meta = account.ltsToString();
+  tx.idempotentId = 900;
+  tx.validationTsMin = miner.getSlotStartTime(slot);
+  tx.validationTsMax = tx.validationTsMin + 60;
+  Ledger::Record rec;
+  rec.type = Ledger::T_NEW_USER;
+  rec.data = utl::binaryPack(tx);
+  rec.signatures = {utl::mlDsaSign(reserve.privateKey, rec.signingMessage("test-net")).value()};
+  return rec;
+}
+
+std::string pubJson(const utl::MlDsaKeyPair &k) {
+  return R"({"publicKeys": [")" + utl::hexEncode(k.publicKey) + R"("]})";
+}
+
+} // namespace
+
+// beacon-authority bp9 (case 1, re-genesis; B030, B032): a network's state, exported at its tip, is
+// imported by a new network — new id, new genesis, admin, system and beacon keys. Every account comes
+// over as it was (balances, keys, profile), but for the system accounts' keys; miners stay registered
+// with fresh slot counters; the old config is carried but for what init-config.json sets. A miner of
+// the old network syncs the import blocks — checking them against the old state root — and produces
+// the next block with its old key.
+TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
+  // The old network: a user with a profile, and a transfer.
+  auto slot = waitForLeaderSlotAfter(-1);
+  ASSERT_TRUE(slot.has_value());
+  const uint64_t user = AccountBuffer::ID_FIRST_USER + 7;
+  const auto userKey = utl::mlDsaGenerate().value();
+  ASSERT_TRUE(miner_->addTransaction(newUserWithProfile(*miner_, reserveKeys_[0], *slot, user, userKey, 5000,
+                                                        std::string(300, 'p')))
+                  .isOk());
+  ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 12)).isOk());
+  Ledger::ChainNode block;
+  ASSERT_TRUE(produceWhenSealTime(block));
+  ASSERT_EQ(block.block.records.size(), 2u);
+  ASSERT_TRUE(miner_->addBlock(block).isOk());
+  {
+    Beacon beacon; // the old beacon commits it
+    Beacon::MountConfig mount;
+    mount.workDir = (root_ / "beacon" / "data").string();
+    ASSERT_TRUE(beacon.mount(mount).isOk());
+    ASSERT_TRUE(beacon.addBlock(block).isOk());
+  }
+  std::map<uint64_t, Client::UserAccount> before;
+  for (uint64_t id : {AccountBuffer::ID_GENESIS, AccountBuffer::ID_RESERVE, AccountBuffer::ID_FEE, kMinerId, user}) {
+    before[id] = miner_->getAccount(id).value();
+  }
+  ASSERT_GT(before[kMinerId].wallet.miner.lastProducedSlot, 0u) << "the miner produced on the old network";
+
+  // Export at the tip; a new network imports it.
+  auto snapshot = state_export::exportState((root_ / "beacon" / "data" / "ledger").string(), block.block.index,
+                                            (root_ / "export-scratch").string());
+  ASSERT_TRUE(snapshot.isOk()) << snapshot.error().message;
+  const fs::path snapshotFile = root_ / "state.snap";
+  std::ofstream(snapshotFile, std::ios::binary) << snapshot.value().ltsToString();
+
+  const fs::path next = root_ / "beacon2";
+  fs::create_directories(next);
+  const std::vector<utl::MlDsaKeyPair> admins = {utl::mlDsaGenerate().value(), utl::mlDsaGenerate().value(),
+                                                 utl::mlDsaGenerate().value()};
+  const auto newReserve = utl::mlDsaGenerate().value();
+  std::vector<std::string> adminKeyFiles;
+  for (size_t i = 0; i < 2; ++i) {
+    adminKeyFiles.push_back((root_ / ("admin" + std::to_string(i) + ".key")).string());
+    std::ofstream(adminKeyFiles.back()) << utl::hexEncode(admins[i].privateKey) << "\n";
+  }
+  std::ofstream(next / "init-config.json")
+      << R"({"networkId": "test-net-2", "systemAccounts": {"genesis": {"publicKeys": [")"
+      << utl::hexEncode(admins[0].publicKey) << R"(", ")" << utl::hexEncode(admins[1].publicKey) << R"(", ")"
+      << utl::hexEncode(admins[2].publicKey) << R"("], "minSignatures": 2})"
+      << R"(, "fee": )" << pubJson(utl::mlDsaGenerate().value()) << R"(, "reserve": )" << pubJson(newReserve)
+      << R"(, "registrar": )" << pubJson(utl::mlDsaGenerate().value())
+      << R"(, "recycle": )" << pubJson(utl::mlDsaGenerate().value()) << "},"
+      << R"( "recovery": )" << pubJson(utl::mlDsaGenerate().value()) << ","
+      << R"( "heartbeatSlots": 500})"; // one override; everything else is the old network's
+  // An import the chain refuses, past the server's own check of the file: an account changed (the
+  // old state root no longer matches), or two accounts swapped (imports go by ascending id).
+  auto refusedImport = [&](StateSnapshot tampered, const std::string &why) {
+    Beacon::InitConfig bad;
+    bad.workDir = (root_ / ("refused-" + std::to_string(std::hash<std::string>{}(why)))).string();
+    bad.chain = tampered.config;
+    bad.chain.networkId = "test-net-3";
+    bad.key.genesis = {{admins[0].publicKey, admins[1].publicKey, admins[2].publicKey}, 2};
+    for (auto *keys : {&bad.key.reserve, &bad.key.registrar, &bad.key.fee, &bad.key.recycle}) {
+      *keys = {{newReserve.publicKey}, 1};
+    }
+    bad.key.genesisSigners = {admins[0].privateKey, admins[1].privateKey};
+    bad.authority.recovery = {{utl::mlDsaGenerate().value().publicKey}, 1, 1};
+    bad.authority.beacon.generation = 1;
+    bad.authority.beacon.publicKey = utl::mlDsaGenerate().value().publicKey;
+    bad.import = std::move(tampered);
+    Beacon beacon;
+    auto init = beacon.init(bad);
+    ASSERT_FALSE(init.isOk()) << why;
+    EXPECT_NE(init.error().message.find(why), std::string::npos) << init.error().message;
+  };
+  StateSnapshot richer = snapshot.value();
+  richer.accounts.back().wallet.mBalances[AccountBuffer::ID_GENESIS] += 1;
+  refusedImport(richer, "do not hash to the state root");
+  StateSnapshot swapped = snapshot.value();
+  std::swap(swapped.accounts[1], swapped.accounts[2]);
+  refusedImport(swapped, "ascending account id");
+
+  {
+    BeaconServer server;
+    auto init = server.init(next.string(), adminKeyFiles, false, snapshotFile.string());
+    ASSERT_TRUE(init.isOk()) << init.error().message;
+  }
+  EXPECT_TRUE(fs::exists(next / "data" / "signed-tip.dat")) << "the tip at the last import block is signed";
+
+  Beacon beacon2;
+  Beacon::MountConfig mount2;
+  mount2.workDir = (next / "data").string();
+  auto mounted = beacon2.mount(mount2); // replays the import, checking the old state root
+  ASSERT_TRUE(mounted.isOk()) << mounted.error().message;
+  EXPECT_EQ(beacon2.getNetworkId(), "test-net-2");
+  const uint64_t lastImport = beacon2.getNextBlockId() - 1;
+  ASSERT_GE(lastImport, 1u);
+  for (const auto &[id, old] : before) {
+    auto now = beacon2.getAccount(id);
+    ASSERT_TRUE(now.isOk()) << "account " << id;
+    EXPECT_EQ(now.value().wallet.mBalances, old.wallet.mBalances) << "account " << id;
+    if (id == user || id == kMinerId) {
+      EXPECT_EQ(now.value().wallet.publicKeys, old.wallet.publicKeys) << "account " << id << " keeps its keys";
+    }
+  }
+  EXPECT_EQ(beacon2.getAccount(user).value().meta, before[user].meta) << "the profile, in full";
+  EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_RESERVE).value().wallet.publicKeys,
+            std::vector<std::string>{newReserve.publicKey}) << "system accounts take the new keys";
+  EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys.size(), 3u);
+  EXPECT_EQ(beacon2.getAccount(AccountBuffer::ID_GENESIS).value().wallet.publicKeys.front(), admins[0].publicKey);
+  const auto miner = beacon2.getAccount(kMinerId).value().wallet.miner;
+  EXPECT_TRUE(miner.registered);
+  EXPECT_EQ(miner.lastProducedSlot, 0u) << "slot counters of the old network are reset";
+  auto genesis2 = beacon2.readBlock(0);
+  ASSERT_TRUE(genesis2.isOk());
+
+  // A miner of the old network, with its old key, follows the new one and produces.
+  miner_ = std::make_unique<Miner>();
+  Miner::InitConfig config;
+  config.workDir = (root_ / "miner2").string();
+  config.minerId = kMinerId;
+  config.privateKeys.push_back(minerKey_.privateKey);
+  ASSERT_TRUE(miner_->init(config).isOk());
+  for (uint64_t id = 0; id <= lastImport; ++id) {
+    auto added = miner_->addBlock(beacon2.readBlock(id).value());
+    ASSERT_TRUE(added.isOk()) << "block " << id << ": " << added.error().message;
+  }
+  miner_->refresh();
+  auto leads = waitForLeaderSlotAfter(0);
+  ASSERT_TRUE(leads.has_value());
+  Ledger::TxDefault transfer; // signed by the new reserve key, for the new network
+  transfer.tokenId = AccountBuffer::ID_GENESIS;
+  transfer.fromWalletId = AccountBuffer::ID_RESERVE;
+  transfer.toWalletId = user;
+  transfer.amount = 10;
+  transfer.fee = 100000;
+  transfer.idempotentId = 1;
+  transfer.validationTsMin = miner_->getSlotStartTime(*leads);
+  transfer.validationTsMax = transfer.validationTsMin + 60;
+  Ledger::Record rec;
+  rec.type = Ledger::T_DEFAULT;
+  rec.data = utl::binaryPack(transfer);
+  Ledger::Record oldNetwork = rec;
+  oldNetwork.signatures = {utl::mlDsaSign(newReserve.privateKey, rec.signingMessage("test-net")).value()};
+  EXPECT_FALSE(miner_->addTransaction(oldNetwork).isOk()) << "a signature for the old network is no good here";
+  rec.signatures = {utl::mlDsaSign(newReserve.privateKey, rec.signingMessage("test-net-2")).value()};
+  auto pooled = miner_->addTransaction(rec);
+  ASSERT_TRUE(pooled.isOk()) << pooled.error().message;
+  Ledger::ChainNode produced;
+  ASSERT_TRUE(produceWhenSealTime(produced));
+  EXPECT_EQ(produced.block.index, lastImport + 1);
+  auto committed = beacon2.addBlock(produced);
+  EXPECT_TRUE(committed.isOk()) << committed.error().message;
+}

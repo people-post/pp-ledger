@@ -22,15 +22,7 @@ struct StateSnapshot {
   constexpr static const uint32_t VERSION = 1;
 
   /** Where the state comes from: the old network and its block at `height`. */
-  struct Predecessor {
-    std::string networkId;
-    uint64_t height{0};
-    std::string blockHash; ///< raw 32 bytes
-    std::string stateRoot; ///< raw 32 bytes: block `height`'s header
-
-    bool operator==(const Predecessor &other) const = default;
-    template <typename Archive> void serialize(Archive &ar) { ar & networkId & height & blockHash & stateRoot; }
-  };
+  using Predecessor = ChainPredecessor;
 
   /** One account as the old chain held it: its leaf fields, and its attachment's bytes. */
   struct Account {

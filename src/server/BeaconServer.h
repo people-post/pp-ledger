@@ -54,7 +54,8 @@ public:
    * --init: write genesis into `workDir`/data. Refuses when data/ already holds a chain (a second
    * --init would destroy it) unless `force`.
    */
-  Roe<void> init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles, bool force = false);
+  Roe<void> init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles, bool force = false,
+                 const std::string& importStatePath = "");
 
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);
@@ -197,7 +198,9 @@ private:
     Chain::CheckpointConfig checkpoint;
   };
 
-  Roe<void> initFromWorkDir(const Beacon::InitConfig& config, bool force);
+  /** `tipKeys`: sign the tip the init wrote (a re-genesis's last import block, B032); none: unsigned. */
+  Roe<void> initFromWorkDir(const Beacon::InitConfig& config, bool force,
+                            const std::vector<utl::MlDsaKeyPair>* tipKeys = nullptr);
 
   /** --promote: the relay's config.json — its port and allowedPeers kept, its upstreams to check the clock against. */
   struct Promotion {

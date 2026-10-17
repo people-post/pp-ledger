@@ -18,8 +18,8 @@ namespace pp {
 /** RecordHandler owns the per-record-type tx handlers. */
 class RecordHandler final {
 public:
-  /** Handler table size: record type ids 0..T_RECOVERY (7..15 reserved, no handler). */
-  static constexpr std::size_t kNumTxTypes = Ledger::T_RECOVERY + 1;
+  /** Handler table size: record type ids 0..T_IMPORT (7..15 reserved, no handler). */
+  static constexpr std::size_t kNumTxTypes = Ledger::T_IMPORT + 1;
 
   RecordHandler();
   ~RecordHandler() = default;
@@ -29,7 +29,7 @@ public:
   RecordHandler(RecordHandler &&) = delete;
   RecordHandler &operator=(RecordHandler &&) = delete;
 
-  /** Get handler for a ledger record type id (0..6). */
+  /** Get handler for a ledger record type id (below kNumTxTypes). */
   ITxHandler *get(std::size_t type);
   const ITxHandler *get(std::size_t type) const;
 

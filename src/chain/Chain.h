@@ -429,6 +429,7 @@ private:
     std::optional<IssuanceBaseline> issuanceBaseline;
     Checkpoint checkpoint;
     std::optional<ChainAuthority> optAuthority;
+    std::optional<ImportProgress> importProgress;
   };
   /** Open a bank overlay and snapshot the rest of the tip state. */
   TipSnapshot beginTipUpdate();
@@ -467,6 +468,13 @@ private:
   Roe<void> processBlock(const Ledger::ChainNode &block,
                          chain_block::BlockAdmissionMode mode);
   Roe<void> processGenesisBlock(const Ledger::ChainNode &block);
+  /** True for a block in an importing genesis's span (B032): after block 0, until the last import. */
+  bool isImportBlock(const Ledger::ChainNode &block) const;
+  /** An import block: its own rules (no slot, leader or body policy), its imports, its state root. */
+  Roe<void> processImportBlock(const Ledger::ChainNode &block);
+  /** After an import block applied: once every account is in, the old leaves must hash to the
+   *  predecessor's state root; then the span ends. */
+  Roe<void> finishImportBlock();
   Roe<void> processNormalBlock(const Ledger::ChainNode &block,
                                chain_block::BlockAdmissionMode mode);
   /**

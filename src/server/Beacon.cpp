@@ -1,4 +1,5 @@
 #include "Beacon.h"
+#include "../chain/ImportTxHandler.h"
 #include "NodeFile.h"
 #include "../chain/AccountPolicy.h"
 #include "../chain/TxFees.h"
@@ -163,7 +164,12 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   // Create and add genesis block
   auto authority = config.authority;
   authority.beacon.networkId = chainConfig.networkId;
-  auto genesisBlockResult = createGenesisBlock(chainConfig, config.key, config.miners, authority);
+  if (config.import.has_value() && !config.miners.empty()) {
+    return Error(2, "A re-genesis imports its miners: give no genesis miners");
+  }
+  auto genesisBlockResult = config.import.has_value()
+                                ? createImportingGenesisBlock(chainConfig, config.key, authority, *config.import)
+                                : createGenesisBlock(chainConfig, config.key, config.miners, authority);
   if (!genesisBlockResult) {
     return Error(2, "Failed to create genesis block: " +
                         genesisBlockResult.error().message);
@@ -177,6 +183,12 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
 
   log().info << "Genesis block created with checkpoint transaction (version "
              << Chain::GenesisAccountMeta::VERSION << ")";
+  if (config.import.has_value()) {
+    if (auto imported = addImportBlocks(*config.import, chainConfig.genesisTime, chainConfig.maxBlockBytes);
+        !imported) {
+      return imported;
+    }
+  }
 
   log().info << "Beacon initialized successfully";
   log().info << "  Genesis time: " << consensusConfig.genesisTime;
@@ -626,6 +638,101 @@ Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const I
     records.push_back(std::move(rec));
   }
   return std::make_pair(std::move(records), total);
+}
+
+Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::BlockChainConfig &config,
+                                                                  const InitKeyConfig &key,
+                                                                  const Chain::ChainAuthority &authority,
+                                                                  const StateSnapshot &snapshot) {
+  log().info << "Creating an importing genesis block: " << snapshot.accounts.size() << " accounts of network '"
+             << snapshot.predecessor.networkId << "' at block " << snapshot.predecessor.height;
+  if (auto keysOk = checkInitKeys(key); !keysOk) {
+    return keysOk.error();
+  }
+  Ledger::ChainNode genesisBlock;
+  genesisBlock.block.index = 0;
+  genesisBlock.block.timestamp = config.genesisTime;
+  genesisBlock.block.previousHash = utl::zeroHash();
+
+  Chain::GenesisAccountMeta gm;
+  gm.config = config;
+  gm.genesis = makeUserAccountFromKeys(key.genesis, 0, AccountAttachment::emptySerialized());
+  gm.genesis.wallet.mBalances.clear(); // they come with the import
+  gm.authority = authority;
+  if (auto valid = chain_tx::validateGenesisAuthority(gm.authority, gm.genesis.wallet, config.networkId); !valid) {
+    return Error(2, valid.error().message);
+  }
+  gm.hasImport = true;
+  gm.import.predecessor = snapshot.predecessor;
+  gm.import.accountCount = snapshot.accounts.size();
+  for (const auto &[id, keys] : {std::pair<uint64_t, const AccountKeys *>{AccountBuffer::ID_RESERVE, &key.reserve},
+                                 {AccountBuffer::ID_REGISTRAR, &key.registrar},
+                                 {AccountBuffer::ID_FEE, &key.fee},
+                                 {AccountBuffer::ID_RECYCLE, &key.recycle}}) {
+    const auto wallet = makeUserAccountFromKeys(*keys, 0, "").wallet;
+    gm.import.systemKeys.push_back(SystemAccountKeys{id, wallet.publicKeys, wallet.minSignatures});
+  }
+
+  Ledger::TxGenesis txGenesis;
+  txGenesis.fee = 0;
+  txGenesis.meta = gm.ltsToString();
+  Ledger::Record rec;
+  rec.type = Ledger::T_GENESIS;
+  rec.data = utl::binaryPack(txGenesis);
+  if (auto signedRec = signWithGenesisKeys(rec, key.genesisSigners, config.networkId, "checkpoint transaction");
+      !signedRec) {
+    return signedRec.error();
+  }
+  genesisBlock.block.records.push_back(rec);
+  auto sealed = chain_.sealBlock(genesisBlock);
+  if (!sealed) {
+    return Error(2, "Failed to seal the importing genesis block: " + sealed.error().message);
+  }
+  return genesisBlock;
+}
+
+Beacon::Roe<void> Beacon::addImportBlocks(const StateSnapshot &snapshot, int64_t genesisTime, uint64_t maxBlockBytes) {
+  // Room for the records: the block's header fields around them (a few hundred bytes).
+  constexpr uint64_t kHeaderRoom = 4096;
+  const uint64_t budget = maxBlockBytes > kHeaderRoom ? maxBlockBytes - kHeaderRoom : 0;
+  std::vector<Ledger::Record> records;
+  uint64_t bytes = 0;
+  auto seal = [&]() -> Roe<void> {
+    auto last = chain_.readLastBlock();
+    if (!last) {
+      return Error(2, "Failed to read the last block: " + last.error().message);
+    }
+    auto block = chain_.linkNextBlock(last.value(), 0, 0, genesisTime, std::move(records));
+    records.clear();
+    bytes = 0;
+    if (auto sealed = chain_.sealBlock(block); !sealed) {
+      return Error(2, "Failed to seal import block " + std::to_string(block.block.index) + ": " +
+                          sealed.error().message);
+    }
+    return addBlock(block);
+  };
+  for (const auto &account : snapshot.accounts) {
+    Ledger::Record record = ImportTxHandler::makeRecord(account);
+    const uint64_t size = utl::binaryPack(record).size();
+    if (size > budget) {
+      return Error(2, "Account " + std::to_string(account.id) + " (" + std::to_string(size) +
+                          " bytes) does not fit a block: raise maxBlockBytes");
+    }
+    if (bytes + size > budget) {
+      if (auto added = seal(); !added) {
+        return added;
+      }
+    }
+    bytes += size;
+    records.push_back(std::move(record));
+  }
+  if (!records.empty()) {
+    if (auto added = seal(); !added) {
+      return added;
+    }
+  }
+  log().info << "Imported " << snapshot.accounts.size() << " accounts in blocks 1 to " << chain_.getNextBlockId() - 1;
+  return {};
 }
 
 Beacon::Roe<Ledger::ChainNode>

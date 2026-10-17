@@ -211,6 +211,40 @@ std::string calculateGenesisConfigDigest(const BlockChainConfig &config) {
                         oss.str());
 }
 
+chain_tx::Roe<void> validateImportBlockBody(const Ledger::ChainNode &block, const Ledger &ledger,
+                                            const BlockChainConfig &config, uint64_t remaining) {
+  const auto refused = [&](const std::string &why) {
+    return chain_tx::TxError(chain_err::E_BLOCK_VALIDATION,
+                             "Import block " + std::to_string(block.block.index) + ": " + why);
+  };
+  const auto &b = block.block;
+  if (b.slot != 0 || b.slotLeader != 0 || b.epoch != 0) {
+    return refused("must be at slot 0, epoch 0, with no leader");
+  }
+  if (b.timestamp != config.genesisTime) {
+    return refused("must be stamped at genesis time");
+  }
+  if (b.stakeSnapshotHash != calculateStakeSnapshotHash({}) || !b.committee.empty()) {
+    return refused("elects no committee (the empty stake snapshot)");
+  }
+  auto genesis = ledger.readBlock(0);
+  if (!genesis || b.epochSeed != genesis.value().block.epochSeed) {
+    return refused("must carry the genesis epoch seed");
+  }
+  if (b.records.empty() || b.records.size() > remaining) {
+    return refused("holds from 1 to the " + std::to_string(remaining) + " accounts still to import");
+  }
+  for (const auto &record : b.records) {
+    if (record.type != Ledger::T_IMPORT) {
+      return refused("holds imports only");
+    }
+  }
+  if (config.maxBlockBytes > 0 && b.ltsToString().size() > config.maxBlockBytes) {
+    return refused("more than maxBlockBytes");
+  }
+  return {};
+}
+
 chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
                                         const RecordHandler &recordHandler) {
   if (block.block.index != 0) {
@@ -248,12 +282,8 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
                              "Genesis block must commit 32-byte epochSeed");
   }
-  // Config, then the system accounts in kGenesisSystemRecords order, then any
-  // genesis miner accounts.
-  if (block.block.records.size() < 1 + std::size(kGenesisSystemRecords)) {
-    return chain_tx::TxError(
-        chain_err::E_BLOCK_GENESIS,
-        "Genesis block must have the config and system account transactions");
+  if (block.block.records.empty()) {
+    return chain_tx::TxError(chain_err::E_BLOCK_GENESIS, "Genesis block must have the genesis transaction");
   }
 
   const std::string expectedTxRoot =
@@ -294,6 +324,25 @@ chain_tx::Roe<void> validateGenesisBlock(const Ledger::ChainNode &block,
     }
   }
 
+  if (gm.hasImport) {
+    // An importing genesis (B032): the accounts come in the import blocks after it.
+    if (block.block.records.size() != 1) {
+      return chain_tx::TxError(chain_err::E_BLOCK_GENESIS,
+                               "An importing genesis block holds the genesis transaction only");
+    }
+    std::string calculatedHash = calculateBlockHash(block.block);
+    if (calculatedHash != block.hash) {
+      return chain_tx::TxError(chain_err::E_BLOCK_HASH, "Genesis block hash validation failed");
+    }
+    return {};
+  }
+  // Config, then the system accounts in kGenesisSystemRecords order, then any
+  // genesis miner accounts.
+  if (block.block.records.size() < 1 + std::size(kGenesisSystemRecords)) {
+    return chain_tx::TxError(
+        chain_err::E_BLOCK_GENESIS,
+        "Genesis block must have the config and system account transactions");
+  }
   auto supplyRoe = validateGenesisAccountRecords(block, gm.config, recordHandler);
   if (!supplyRoe) {
     return supplyRoe.error();

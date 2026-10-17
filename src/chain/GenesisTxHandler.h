@@ -26,6 +26,8 @@ public:
                              const Ledger::Block &block) const override;
 
 private:
+  /** An importing genesis (B032): check its import section and open the span (ImportProgress). */
+  chain_tx::Roe<void> openImportSpan(const GenesisAccountMeta &gm, TxContext &ctx) const;
   chain_tx::Roe<void> applyGenesisInit(const Ledger::TxGenesis &tx,
                                       TxContext &ctx) const;
 };

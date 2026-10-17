@@ -28,7 +28,7 @@ no migration (networks start from a new genesis on a change).
 
 | Form | Version | Fields, in order | Carried in |
 |------|---------|------------------|-----------|
-| `ChainAuthority` | — (genesis meta v11) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
+| `ChainAuthority` | — (genesis meta v12) | `recovery {publicKeys, minSignatures, delayEpochs}`, `beacon` (a `BeaconCertificate`, unversioned), `hasPendingRecovery`, `pendingRecovery {announcement, announcedAt, applyEpoch}` | `GenesisAccountMeta.authority` ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates)) |
 | `BeaconCertificate` | 2 | `networkId`, `generation`, `publicKey`, `cutoverHeight`, `cutoverHash`, `dialHints` | `T_BEACON_CERT` `meta` |
 | `RecoveryAnnouncement` | 1 | `networkId`, `adminPublicKeys`, `adminMinSignatures` (`uint8`) | `T_RECOVERY` `meta` |
 | `SignedTip` | 1 | `networkId`, `generation`, `height`, `blockHash` (raw), `signature` | `STATUS.signedTip`, `data/signed-tip.dat` |
@@ -37,6 +37,8 @@ no migration (networks start from a new genesis on a change).
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
 | `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
+| `GenesisImport` | — (genesis meta v12) | `predecessor {networkId, height, blockHash, stateRoot}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
+| `T_IMPORT` meta | — | a `StateSnapshot` account: `id`, `wallet`, `blockId` (the old chain's), `attachment` | `T_IMPORT` (20) |
 | `StateSnapshot` | 1 | `predecessor {networkId, height, blockHash, stateRoot}` (raw hashes), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
 Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
@@ -407,8 +409,8 @@ conflicting tip below a node's latest goes unnoticed.
 
 ## State export
 
-The first step of a re-genesis (case 1, beacon-authority B030–B033; the import itself is still to
-come): the account state of a network at a height *H*, checkable against block *H*.
+The first step of a re-genesis (case 1, beacon-authority B030–B033; the import: [§ Importing
+genesis](#importing-genesis)): the account state of a network at a height *H*, checkable against block *H*.
 
 - `pp-client export-state -d <full node's directory> --height H -o state.snap` works on a copy of
   the node's ledger (a relay's: it starts from genesis; a ledger starting at a checkpoint is
@@ -422,6 +424,37 @@ come): the account state of a network at a height *H*, checkable against block *
 - What it vouches for is block *H* itself: anyone holding the old chain compares the snapshot's
   `predecessor` (network id, *H*, block hash) with their own block *H*; the accounts then follow
   from the root.
+
+## Importing genesis
+
+The new network of a re-genesis (case 1, B030, B032): its genesis imports a `StateSnapshot`.
+
+- **`pp-beacon -d <dir> --init --import-state state.snap`** with an `init-config.json` naming a new
+  `networkId` (it must differ from the snapshot's), the new genesis (admin), system and recovery
+  keys, and no `genesisMiners` (miners come with the import). The config is the snapshot's — the
+  old network's — but for the fields `init-config.json` sets. The snapshot's accounts must hash to
+  the state root it names before anything is written.
+- **Block 0** holds `T_GENESIS` only. Its meta's `import` (`GenesisImport`) names the predecessor,
+  the number of accounts to import, and the keys reserve, registrar, fee and recycle take; the
+  genesis account takes the meta's `genesis` keys, with no balances yet. The admin keys that sign
+  it vouch for all of it.
+- **Blocks 1 … *k*** (the import span) hold `T_IMPORT` records only, unsigned, fee 0, by strictly
+  ascending account id, at slot 0, stamped at genesis time, each within `maxBlockBytes`. Every node
+  folds each account's leaf **as the old chain hashed it** into a tree; the block that imports the
+  last account must make it hash to the predecessor's `stateRoot`, or it is refused — so the import
+  is exactly the old state at *H*. The span ends there; block *k* + 1 is produced as usual.
+- **Applied:** each account enters at its import block (its `blockId`; renewals are due from
+  there) with its balances, keys, threshold, profile (stored in full in its `T_IMPORT`) and miner
+  registration; its `lastProducedSlot`, `missedDue` and `autoDeregisteredEpoch` are reset (they
+  counted the old network's slots). System accounts take the genesis's keys; the genesis account
+  takes only the imported balances (its keys, profile and block 0 stay the genesis record's). Epoch
+  0's committee is the registered miners after the import. The issuance baseline starts at the
+  first produced block.
+- **The tip.** `--init` signs block *k* with the generation-1 key (the ledger is past genesis, so a
+  beacon starting without it would refuse, B029).
+- Relays and miners join fresh, pinning the new genesis (`networkAnchor.genesisHash`); syncing the
+  span checks it as above. Miners keep their keys and account ids. A signature for the old network
+  is no good on the new one (every signature binds the network id).
 
 ## Authority proof
 

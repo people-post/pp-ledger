@@ -91,6 +91,11 @@ public:
     std::vector<GenesisMiner> miners;
     /** Recovery set + generation-1 beacon certificate (its networkId is set from `chain`). */
     Chain::ChainAuthority authority;
+    /**
+     * A re-genesis (beacon-authority B032): the predecessor's accounts, imported in blocks 1..k
+     * after a genesis that carries only the config, keys and authority (no `miners`).
+     */
+    std::optional<StateSnapshot> import;
   };
 
   struct MountConfig {
@@ -232,6 +237,13 @@ private:
   struct Config {
     std::string workDir;
   };
+
+  /** Block 0 of a re-genesis: T_GENESIS only, naming the predecessor and the system keys (B032). */
+  Roe<Ledger::ChainNode> createImportingGenesisBlock(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
+                                                     const Chain::ChainAuthority &authority,
+                                                     const StateSnapshot &snapshot);
+  /** Blocks 1..k of a re-genesis: the snapshot's accounts, in order, each block within maxBlockBytes. */
+  Roe<void> addImportBlocks(const StateSnapshot &snapshot, int64_t genesisTime, uint64_t maxBlockBytes);
 
   Roe<Ledger::ChainNode>
   createGenesisBlock(const Chain::BlockChainConfig &config,

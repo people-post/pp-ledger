@@ -77,6 +77,13 @@ into it; only reserve is funded), and any **genesis miners** — `T_NEW_USER` fr
 genesis into the issued range with a positive stake and the exact fee. Reserve
 amount + all stakes + all fees equal the initial supply. Genesis miners are the stake at start: system accounts never count.
 
+An **importing genesis** (a re-genesis, [BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis))
+holds `T_GENESIS` only, its meta carrying `hasImport` and the import; no supply rule. Blocks 1 … *k*
+— the import span — hold `T_IMPORT` records only, at slot 0, no leader, epoch 0, stamped at genesis
+time, with the empty stake snapshot, the genesis seed and no committee, each within `maxBlockBytes`;
+no slot, leader, timing or body-policy checks apply to them, and they take no stake snapshot, so the
+first produced block takes epoch 0's from the imported accounts.
+
 ## Transaction record
 
 ```text
@@ -112,6 +119,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
 | 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18)) |
 | 19 | `T_RECOVERY` | Recovery set announces a new admin set, applied `delayEpochs` later ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
+| 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
 
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
@@ -138,8 +146,9 @@ not installed in `RecordHandler`.
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  11) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
-  config), and `authority` (below). `T_GENESIS` and `T_CONFIG` carry no pending section (a
+  12) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  config), `authority` (below), and an import section (`hasImport`, `import` — a re-genesis's
+  `T_GENESIS` only; `T_CONFIG` and renewals carrying one are refused). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
   checkpoint reads — must carry the config in force for its block, if an update is still pending
   (its epoch has not come) that update in the pending section, the authority in force, and the
@@ -224,7 +233,7 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **11**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **12**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
 ([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`

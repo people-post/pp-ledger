@@ -875,3 +875,33 @@ the transport (blocks made that cannot travel); chunked block transfer now (not 
 at the checkpoint (unbounded checkpoint block, B015's rejected option); validators recompute the
 first renewal left out and check it would not fit (exact, but heavy for a liveness property).
 
+## B036 — Importing genesis: how it is built (bp9)
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis), [WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md) (record 20, the importing genesis) (normative; this entry keeps the why).
+**Decision:** B032 as built, with these choices:
+- **Genesis meta v12** (v11 went to `maxBlockBytes`): `hasImport` + `GenesisImport {predecessor,
+  accountCount, systemKeys}`. Only an importing `T_GENESIS` carries it; a `T_CONFIG` or renewal
+  carrying one is refused, and a genesis renewal built from block 0 drops it.
+- **The span ends by count**, not by a marker: the block that imports the `accountCount`-th account
+  checks the root and closes the span.
+- **System keys travel in the genesis meta**, signed by the new admin keys. The `T_IMPORT` records
+  stay the old accounts verbatim, so their old leaves still hash to the predecessor's root.
+- **The genesis account** is created by `T_GENESIS` with the new admin keys and no balances; its
+  `T_IMPORT` adds only the imported balances, its `blockId` stays 0 — so genesis renewals and
+  checkpoints read its meta from block 0 as on any chain.
+- **Import blocks have their own path** in `Chain` (`isImportBlock`): no arrival, slot, leader,
+  timing or body-policy checks, no stake snapshot and no issuance baseline; their own header rules
+  (`validateImportBlockBody`). The first produced block then takes epoch 0's stake snapshot from the
+  imported registered miners, and the issuance baseline from the imported genesis balance.
+- **`maxTransactionsPerBlock` does not bind import blocks**; `maxBlockBytes` does (the transport).
+- **The tip at *k* is signed by `--init`** (a beacon would otherwise start on a ledger past genesis
+  with no signed tip, refused by B029).
+- **Config:** the snapshot's, overridden only by the fields `init-config.json` sets (presence, not
+  defaults).
+**Rationale:** Each choice keeps the import's check and the chain's daily paths apart: the old
+leaves are checked as they were; the new state is built so that every later rule (renewals,
+checkpoints, committees, issuance) sees an ordinary chain from block *k* + 1.
+**Cons:** Imported miners may be charged skipped slots between genesis and the first produced block
+if already due — none are, their counters having just been reset.
+

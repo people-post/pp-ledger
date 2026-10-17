@@ -230,8 +230,41 @@ struct ChainAuthority {
   bool operator!=(const ChainAuthority &other) const { return !(*this == other); }
 };
 
+/** The network a re-genesis comes from, at its block `height` (beacon-authority B030). */
+struct ChainPredecessor {
+  std::string networkId;
+  uint64_t height{0};
+  std::string blockHash; ///< raw 32 bytes
+  std::string stateRoot; ///< raw 32 bytes: block `height`'s header
+
+  bool operator==(const ChainPredecessor &other) const = default;
+  template <typename Archive> void serialize(Archive &ar) { ar & networkId & height & blockHash & stateRoot; }
+};
+
+/** A system account's keys (reserve, registrar, fee, recycle) an importing genesis sets. */
+struct SystemAccountKeys {
+  uint64_t id{0};
+  std::vector<std::string> publicKeys;
+  uint8_t minSignatures{1};
+
+  template <typename Archive> void serialize(Archive &ar) { ar & id & publicKeys & minSignatures; }
+};
+
+/**
+ * An importing genesis (B030, B032): `accountCount` accounts of `predecessor` follow in import
+ * blocks — the predecessor's state root checks them — and the system accounts take `systemKeys`
+ * (the genesis account takes the meta's `genesis` keys).
+ */
+struct GenesisImport {
+  ChainPredecessor predecessor;
+  uint64_t accountCount{0};
+  std::vector<SystemAccountKeys> systemKeys;
+
+  template <typename Archive> void serialize(Archive &ar) { ar & predecessor & accountCount & systemKeys; }
+};
+
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 11;
+  constexpr static const uint32_t VERSION = 12;
 
   BlockChainConfig config;
   Client::UserAccount genesis;
@@ -241,9 +274,12 @@ struct GenesisAccountMeta {
   PendingChainConfig pending;
   /** Set at genesis; every later genesis meta (T_CONFIG, genesis renewal) carries it unchanged. */
   ChainAuthority authority;
+  /** T_GENESIS of a re-genesis only (B032): the accounts it imports. Later metas carry none. */
+  bool hasImport{false};
+  GenesisImport import;
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar &config &genesis &hasPending &pending &authority;
+    ar &config &genesis &hasPending &pending &authority &hasImport &import;
   }
 
   /** Set config + pending to the state in force for a block of `epoch` (a pending update whose

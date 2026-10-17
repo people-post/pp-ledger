@@ -157,7 +157,7 @@ every node (B022–B024).
       leaf fields and attachments), `pp-client export-state -d <copy> --height H` (cut a copy after
       *H*, load, dump, check the root against block *H*); tests: a snapshot's root equals the
       block's, an altered account fails
-- [ ] **bp9** Importing genesis: genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
+- [x] **bp9** Importing genesis: genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
       (ordering, slot 0, the end marker, the root check at *k*), applied fields (blockId, miner
       resets, system keys), genesis rules for an importing genesis (supply, committee, config), and
       `pp-beacon --init --import-state`; sync, adoption and checkpoints over the span; tests

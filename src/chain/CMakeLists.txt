@@ -34,6 +34,7 @@ add_library(pp_chain STATIC
     GenesisTxHandler.h
     ConfigPolicy.cpp
     StateSnapshot.cpp
+    ImportTxHandler.cpp
     ConfigPolicy.h
     AuthorityTrail.cpp
     AuthorityTrail.h

@@ -85,6 +85,9 @@ Roe<std::string> getUpdatedAccountMetadataForRenewal(
     }
     auto gm = metaResult.value();
     gm.genesis.wallet = account.wallet;
+    // Recorded at block 0 of a re-genesis, the import is done: a renewal carries none.
+    gm.hasImport = false;
+    gm.import = {};
 
     auto it = gm.genesis.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
     if (it != gm.genesis.wallet.mBalances.end()) {
