@@ -26,6 +26,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | [architecture/LEDGER_TOPOLOGY.md](architecture/LEDGER_TOPOLOGY.md) | Beacon / relay / miner topology, RPC, sync, STATUS |
 | [architecture/PLATFORM_INTEGRATION.md](architecture/PLATFORM_INTEGRATION.md) | Cross-repo dependencies, library shape, relation to pp-browser / pp-node |
 | [architecture/SERVER.md](architecture/SERVER.md) | Server components, APIs, usage |
+| [architecture/LOAD_RESILIENCE.md](architecture/LOAD_RESILIENCE.md) | Behaviour under load: every limit on a request's path, overload answers and retries, deadlines, chain work first, restart and startup sync |
 | [architecture/FOLDER_DEPENDENCY.md](architecture/FOLDER_DEPENDENCY.md) | Source folder dependency graph |
 | [architecture/TESTING.md](architecture/TESTING.md) | Testing doctrine (tiers, push-down, skip taxonomy) |
 | [architecture/SLOT_COMMITTEE_OPEN_ITEMS.md](architecture/SLOT_COMMITTEE_OPEN_ITEMS.md) | Unsettled SlotCommittee / beacon decisions |

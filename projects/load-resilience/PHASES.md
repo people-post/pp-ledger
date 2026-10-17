@@ -40,13 +40,13 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 - [x] **lr9** Data axis — generated large ledgers: request cost on long chains, startup and sync
       from genesis within `startupSyncTimeout`, the renewal storm after a re-genesis, the renewal
       echo of a busy period (LR004)
-- [ ] **lr10** Topology axis — network scenarios (`--suite overload`): fan-out ladder, steady
+- [x] **lr10** Topology axis — network scenarios (`--suite topology`; `upstream`, `rotation`, `takeover`): fan-out ladder, steady
       transactions through relays, timeouts across hops, load into missed slots, churn (rolling
       restarts, a relay down while its miners lead, a rewind or certificate across the fleet),
       optional netem; nightly / manual
 
 ## Ship
 
-- [ ] **lr11** Promote: limits and behaviour under load into [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md)
+- [x] **lr11** Promote: limits and behaviour under load into [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md)
       and [SERVER.md](../../docs/architecture/SERVER.md); purposes (`L-LOAD-*`) and suites into
       [TEST_STRATEGY.md](../../docs/ops/TEST_STRATEGY.md)

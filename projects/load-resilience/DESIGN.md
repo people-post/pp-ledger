@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0–lr9 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) met per role (`--suite overload`, `--suite upstream`); the data axis measured (`--suite scale`); network scenarios next (lr10); measurements in § Measured
+**Status:** lr0–lr9 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) met per role (`--suite overload`, `--suite upstream`); the data axis measured (`--suite scale`); network scenarios measured (`--suite topology`); promoted to [LOAD_RESILIENCE.md](../../docs/architecture/LOAD_RESILIENCE.md) (lr11) — done; measurements in § Measured, open questions below
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 
@@ -121,7 +121,7 @@ Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load th
 | M10 | Relay: 4,000 junk transfers/s (each signature checked on the server thread), 10 tx/s beside | All refused (p99 560 ms); never busy; the transfers unaffected |
 | M11 | Relay: 400 new identities at once, 800 `STATUS`/s, 10 tx/s beside | All served (p99 46 ms); resident memory 21 → 24 MB: ~7 KB per idle link |
 | M12 | Relay: 64 identities sending ~4 MiB `BLOCK_ADD` bodies at 64/s (256 MiB/s), 10 tx/s beside | Memory bounded (64 MB); run loop never slow; but the bodies mostly never arrived (channel not open, timeouts, dial timeouts), a `HEALTH` probe went unanswered for 5 s, and every other peer suffered — the transfers beside: replies p50 0.94 s (from 20 ms), p99 at the 30 s timeout, 11 `E_BUSY` because the relay's own channel to the beacon could not open, inclusion 12 s instead of 2 s |
-| M13 | Start-up, no load | The first blocks after the network starts (slots 2–7) were refused by the beacon as late ("after its delivery deadline") — every miner in turn; from then on none. To look at in lr10 |
+| M13 | Start-up, no load | The first blocks after the network starts (slots 2–7) were refused by the beacon as late ("after its delivery deadline") — every miner in turn; from then on none. No longer seen (lr10: three fresh starts with transfers from the first slots, none late; `--suite topology` checks it) — likely gone with the network thread's fix (M15) |
 | M14 | M12 again after LR008 (large requests on their own protocol, 2 per peer and 8 per node in progress, refused at once), on this host's 208 KiB buffer cap | The flood: 31 bodies received, 481 answered `E_BUSY` at once (p50 6 ms). `HEALTH` answered every time (20 probes, max 0.5 s). The transfers beside: 200 of 200 taken and included, replies p50 25 ms, p99 0.31 s, none busy. Kernel drops at the relay 1.09 M → 126 k: eight 4 MiB bodies at once still overrun 208 KiB |
 | M15 | M14 with the 8 MiB buffers granted (`CAP_NET_ADMIN`, in a container) | First try worse than M14 (transfers p50 0.88 s, probes up to 1.3 s, 172 k drops): a bigger buffer only queued more. Two causes: frames a refused client had queued were still sent after the relay closed the channel (Amp); and the relay's network thread, at 20–40 % CPU, slept 5 ms after each turn of 256 datagrams — a ceiling of ~50 k datagrams/s whatever its CPU. Fixed both; then the request queue (64 MiB) filled with received bodies and small requests got `E_BUSY` (58 of 200), so a large request now holds its place until answered. Final: **no drop**; probes max 69 ms; 107 bodies taken (~50 MB/s, 4× M14), the rest refused in 11 ms; transfers 200 of 200, p50 35 ms, p99 1.07 s — the relay's server thread decoding 107 junk blocks of 4 MiB |
 
@@ -140,6 +140,16 @@ included. Memory per idle link is small (M11); what bounds memory is receiving (
 | M21 | The beacon and a miner flooded as the relay was (reads 8,000/s, forged registrations 6,000/s, forged transfers 4,000/s, 4 MiB bodies, valid transfers 2,000/s) | Both held: every request answered fast, `HEALTH` within 0.35 s, the transfers beside (through the relay) all taken and included, no block lost. One bug on the way: every transfer sent *to a miner* was refused — its `STATUS` carried no network id, so clients signing for the network the node reports (`pp-client add-tx`, pp-http's account creation, `pp-client load`) signed for an empty one |
 | M22 | A relay whose beacon is frozen (SIGSTOP, past the forward budget), then stopped; transfers through it with a 6 s deadline | Before: 13 of 120 got no answer before their deadline — they had waited their turn on the client (its in-flight limit) and still carried the full 6 s, so the relay forwarded with time its client no longer had. After (LR006: a request leaving late carries what is left): all answered "busy, upstream unreachable" within the deadline (p99 5.5 s); the relay's reads and `HEALTH` untouched; back within 5 s of the beacon returning |
 
+
+### Measured: the topology axis (lr10)
+
+`--suite topology` on the smoke network (beacon, relay → three miners, 2 s slots).
+
+| # | Run | Result |
+|---|-----|--------|
+| M28 | Fan-out: relays added behind the beacon (1, 5, 9), 20 transfers/s through the first | The beacon's longest run-loop turn 120–140 ms throughout; every relay within 3 blocks of it; transfers included within 3 blocks; ~0.9 of the slots had their block at each step (one slot at a run's edge) |
+| M29 | Near the designed rate (40 of 50 tx/s) with 4,000 reads/s on the relay | Transfers included within 3 blocks; ~0.9 of the slots had their block; no block lost |
+| M30 | Churn: the relay all miners use stopped 10 s; then each miner down 8 s in turn, 10 transfers/s throughout | The chain stalled while the relay was down (no path to the beacon) and resumed after: the three miners registered again within 6 s. With a miner down the chain went on (its slots empty); every transfer taken and included. A short outage deregisters no one: only a miner due (idle about a day of slots) is charged for missed slots (`minerMaxMissedSlots`) |
 
 ### Measured: the data axis (lr9)
 

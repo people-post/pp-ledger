@@ -206,6 +206,10 @@ or 16 MiB, each for its validity window or 10 minutes. After each block it commi
 pooled records whose idempotent id the block used or that no longer apply (the payer spent the
 funds, the window ended), so no leader keeps pulling and refusing them.
 
+Behaviour under load — every limit on a request's path, the answers and how clients retry,
+deadlines, a node's own chain work going first — is in [LOAD_RESILIENCE.md](LOAD_RESILIENCE.md); in
+short:
+
 **Overload is answered, not left to time out** (load-resilience LR006, LR007): a full queue
 answers `E_BUSY`, a full pool (or payer's share) `E_POOL_FULL`, each with when to try again; a request
 whose client's deadline passed in the queue is not served (`E_EXPIRED`); a request that waited its
