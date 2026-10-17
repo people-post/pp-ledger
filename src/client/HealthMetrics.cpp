@@ -184,6 +184,10 @@ std::string renderHealthMetrics(const std::vector<HealthMetricsTarget> &targets)
         answered([](const H &h) -> std::optional<double> { return static_cast<double>(h.loopTurnMaxMs) / 1000.0; }));
   gauge(out, targets, "pp_ledger_resident_memory_bytes", "Resident memory of the node",
         optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.rssBytes; }));
+  gauge(out, targets, "pp_ledger_udp_receive_buffer_bytes", "The UDP socket's receive buffer, as granted",
+        optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.udpReceiveBufferBytes; }));
+  counter(out, targets, "pp_ledger_udp_receive_drops_total", "Datagrams the OS dropped for want of receive buffer",
+          optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.udpReceiveDrops; }));
   counter(out, targets, "pp_ledger_blocks_sealed_total", "Miner: blocks produced and broadcast",
           optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.blocksSealed; }));
   counter(out, targets, "pp_ledger_blocks_committed_total", "Miner: own blocks committed on the beacon's signed tip",

@@ -58,3 +58,7 @@ subnet and ports) and checks readiness, chain growth, the HTTP API and a clean s
 - Keep each node's `/data` on a persistent volume; never copy a beacon's `data/` to a second
   running beacon (equivocation halts the network).
 - `pp-beacon --init` refuses a volume that already holds a chain (`--force` replaces it).
+- Raise the host's UDP buffer cap so nodes get the 8 MiB they ask for
+  (`sysctl -w net.core.rmem_max=8388608 net.core.wmem_max=8388608`, persisted in
+  `/etc/sysctl.d/`); a container cannot set it. A node logs a warning when it got less
+  ([CONFIGURATION.md § udpBufferBytes](../docs/ops/CONFIGURATION.md#udpbufferbytes-any-role)).

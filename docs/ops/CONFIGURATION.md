@@ -31,6 +31,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
 | `PP_LEDGER_MAX_LINKS`, `PP_LEDGER_HANDSHAKE_BACKLOG` | beacon, relay, miner | `maxLinks`, `handshakeBacklog` |
+| `PP_LEDGER_UDP_BUFFER_BYTES` | beacon, relay, miner | `udpBufferBytes` |
 | `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
 | `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT`, `PP_LEDGER_PREDECESSOR_DIR` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId`, `.predecessorDir` |
 | `PP_MINER_ID` | miner | `minerId` |
@@ -66,6 +67,7 @@ to `allowedPeers` (it tells a caller only what `STATUS` does, plus readiness). H
 | `nextBlockId`, `upstreamNextBlockId`, `lastSyncAgeSeconds`, `signedTipHeight`, `generation`, `halted`, `recoveryPending`, `standingDown`, `requestQueueDepth` | Chain and node state, for metrics |
 | `requests` (per type: `served`, `waitMs`, `serviceMs`), `requestsBusy`, `requestsRefused`, `requestsExpired` | Load, counted from the node's start: each request once — served (queue wait and handler time summed), busy (queue full), refused unserved (too large, peer not allowed, malformed, unsupported, wrong direction) or expired (its client had given up) |
 | `loopTurnsSlow`, `loopTurnMaxMs`, `rssBytes` | Run-loop turns over a second (a slow handler or duty delays the node's own work), the longest turn of the last 10–20 s, resident memory (Linux) |
+| `udpReceiveBufferBytes`, `udpReceiveDrops` | The UDP socket's receive buffer as the OS granted it ([`udpBufferBytes`](#udpbufferbytes-any-role)), and the datagrams the OS dropped for want of room since the start (Linux): any growth under load means the buffer is too small |
 | `blocksSealed`, `blocksCommitted`, `blocksAbandoned`, `lastSealDelayMs` | Miner: blocks it produced, committed on the beacon's signed tip, taken by no upstream; how long after its slot ended it sealed the last |
 | `txPoolRecords`, `txPoolBytes`, `txPoolOldestAgeSeconds`, `txPoolAdded`, `txPoolDuplicates`, `txPoolFull`, `txPoolSenderFull`, `txPoolExpired`, `txPoolIncluded`, `txPoolDropped` | Beacon: its transaction pool now, and what became of submitted transactions (`SenderFull`: its payer had its share pooled; `Dropped`: could no longer apply after a block) |
 
@@ -78,7 +80,7 @@ address:
 |------|-----|
 | `pp-client --host-file <work dir>/listen.multiaddr health` | Prints the JSON; exit 0 when live. `--ready`: exit 0 only when also ready. The image's `HEALTHCHECK`; a Kubernetes `exec` liveness / readiness probe |
 | pp-http `GET /api/beacon/health`, `GET /api/miner/health` | The JSON of its `--beacon` / `--miner`: `200` when the node answered (see `ready`), `502` when not |
-| pp-http `GET /metrics` | Prometheus text for its `--beacon` (`node="beacon"`), `--miner` (`node="miner"`) and each `--metrics-target NAME=MULTIADDR` (`node="NAME"`), asked in parallel: `pp_ledger_info{node,role,peer_id,network}`, `pp_ledger_up` (0 when the node did not answer or is not live), `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth`, `pp_ledger_report_age_seconds`; load counters `pp_ledger_requests_total`, `pp_ledger_request_wait_seconds_total`, `pp_ledger_request_service_seconds_total` (label `type`, e.g. `tx_add`), `pp_ledger_requests_busy_total`, `_refused_total`, `_expired_total`, `pp_ledger_loop_turns_slow_total`, `pp_ledger_loop_turn_max_seconds`, `pp_ledger_resident_memory_bytes`; miner `pp_ledger_blocks_sealed_total`, `_committed_total`, `_abandoned_total`, `pp_ledger_last_seal_delay_seconds`; beacon `pp_ledger_tx_pool_records`, `_bytes`, `_oldest_age_seconds`, `pp_ledger_tx_pool_added_total`, `_duplicates_total`, `_full_total`, `_sender_full_total`, `_expired_total`, `_included_total`, `_dropped_total` |
+| pp-http `GET /metrics` | Prometheus text for its `--beacon` (`node="beacon"`), `--miner` (`node="miner"`) and each `--metrics-target NAME=MULTIADDR` (`node="NAME"`), asked in parallel: `pp_ledger_info{node,role,peer_id,network}`, `pp_ledger_up` (0 when the node did not answer or is not live), `pp_ledger_ready`, `pp_ledger_next_block_id`, `pp_ledger_upstream_next_block_id`, `pp_ledger_sync_lag_blocks`, `pp_ledger_last_sync_age_seconds`, `pp_ledger_signed_tip_height`, `pp_ledger_beacon_generation`, `pp_ledger_halted`, `pp_ledger_recovery_pending`, `pp_ledger_standing_down`, `pp_ledger_request_queue_depth`, `pp_ledger_report_age_seconds`; load counters `pp_ledger_requests_total`, `pp_ledger_request_wait_seconds_total`, `pp_ledger_request_service_seconds_total` (label `type`, e.g. `tx_add`), `pp_ledger_requests_busy_total`, `_refused_total`, `_expired_total`, `pp_ledger_loop_turns_slow_total`, `pp_ledger_loop_turn_max_seconds`, `pp_ledger_resident_memory_bytes`, `pp_ledger_udp_receive_buffer_bytes`, `pp_ledger_udp_receive_drops_total`; miner `pp_ledger_blocks_sealed_total`, `_committed_total`, `_abandoned_total`, `pp_ledger_last_seal_delay_seconds`; beacon `pp_ledger_tx_pool_records`, `_bytes`, `_oldest_age_seconds`, `pp_ledger_tx_pool_added_total`, `_duplicates_total`, `_full_total`, `_sender_full_total`, `_expired_total`, `_included_total`, `_dropped_total` |
 
 Prometheus scrapes pp-http, not the nodes; one pp-http can watch a whole deployment with
 `--metrics-target` (it needs no `allowedPeers` entry for `HEALTH`).
@@ -261,7 +263,8 @@ once the node has loaded its chain — configure at least one upstream reachable
 
 An array of peer ids (the `/p2p/` part of a node's multiaddr). When present,
 the node serves only those peers and its own upstreams; any other sender gets
-"Peer not allowed" before its request is queued. Absent = anyone; `[]` = only
+"Peer not allowed" before its request is queued — a large one (a block) when its channel opens,
+before its body arrives. `HEALTH` is answered to anyone. Absent = anyone; `[]` = only
 upstreams. Typical: the beacon lists its relays, so only relays reach the
 terminal; a relay lists its miners and trusted clients.
 
@@ -276,6 +279,23 @@ client's hello is dropped and its resend (on a doubling interval, about six seco
 once the handshakes ahead finish. A failed dial backs off from one second, doubling to 30 s,
 jittered. The defaults are provisional until memory per link is measured
 ([projects/load-resilience](../../projects/load-resilience/PHASES.md), lr8).
+
+## `udpBufferBytes` (any role)
+
+The receive and send buffers a node asks for its UDP socket (default 8 MiB; 0 = the OS default).
+One socket carries every peer: on Linux's default of 208 KiB, a few peers sending large requests at
+once made the kernel drop datagrams of every peer alike — handshakes, health probes, the node's own
+upstream link (load-resilience M12). The OS grants at most its cap; the node logs the sizes granted
+at start and warns when they are smaller than asked. Raise the cap on the host (on Docker too: the
+setting is the host's):
+
+```bash
+sysctl -w net.core.rmem_max=8388608 net.core.wmem_max=8388608
+# persist: /etc/sysctl.d/90-pp-ledger.conf with the same two lines (key = value)
+```
+
+A process with `CAP_NET_ADMIN` gets its size past the cap without it. `HEALTH`'s
+`udpReceiveDrops` shows whether the buffer is large enough.
 
 ## Identity keys
 

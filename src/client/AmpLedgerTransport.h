@@ -46,14 +46,18 @@ public:
 private:
   /** Run `task` on the io lane (posts; wakes the pump thread in threaded mode). */
   void post(std::function<void()> task);
-  /** The runtime's in-flight limit (shared by its clients), or this transport's own. */
-  std::shared_ptr<network::InFlightLimit> inFlightLimit() const;
+  /**
+   * The runtime's in-flight limit for requests of `requestBytes` (small and large ones are counted
+   * apart, as the server does; shared by the runtime's clients), or this transport's own.
+   */
+  std::shared_ptr<network::InFlightLimit> inFlightLimit(size_t requestBytes) const;
 
   pp::amp::MeshRuntime& mesh_;
   network::LedgerAmpRuntime* runtime_{nullptr};
   DriveFn drive_;
   std::string peer_key_;
   std::shared_ptr<network::InFlightLimit> own_limit_;
+  std::shared_ptr<network::InFlightLimit> own_bulk_limit_;
 };
 
 } // namespace pp

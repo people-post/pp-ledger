@@ -194,6 +194,10 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   health.loopTurnsSlow = loopTurnsSlow_;
   health.loopTurnMaxMs = std::max(turnMaxMs_, lastWindowTurnMaxMs_);
   health.rssBytes = residentBytes();
+  if (const auto socket = ampSupport_ ? ampSupport_->runtime().socketStats() : std::nullopt) {
+    health.udpReceiveBufferBytes = socket->receive_buffer_bytes;
+    health.udpReceiveDrops = socket->receive_drops;
+  }
 }
 
 void Server::noteLoopTurn(RequestQueue::Clock::time_point now) {
@@ -294,6 +298,23 @@ void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::st
     ++requestsBusy_;
     reply(packError(Client::E_BUSY, "Server busy, please retry", kBusyRetryAfterMs));
   }
+}
+
+std::string Server::refusalResponse(const network::AmpLedgerServer::Refusal why) {
+  using Refusal = network::AmpLedgerServer::Refusal;
+  switch (why) {
+  case Refusal::NotAllowed:
+    ++requestsRefused_;
+    return packResponse(1, "Peer not allowed by this node");
+  case Refusal::PeerBusy:
+    ++requestsBusy_;
+    return packError(Client::E_RATE_LIMITED, "Too many requests arriving from this peer, please retry",
+                     kBusyRetryAfterMs);
+  case Refusal::NodeBusy:
+    break;
+  }
+  ++requestsBusy_;
+  return packError(Client::E_BUSY, "Too many large requests arriving, please retry", kBusyRetryAfterMs);
 }
 
 bool Server::isAllowedPeer(const std::string& peerId) const {
@@ -850,16 +871,33 @@ Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config
   tuning_.applyTo(tuned.link_config);
   tuned.link_config.max_links = maxLinks_;
   tuned.link_config.max_pending_inbound = handshakeBacklog_;
+  tuned.udp_buffer_bytes = udpBufferBytes_;
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
+  network::AmpLedgerServer::Options ingress;
+  ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
+  ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
   ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  auto started = ampSupport_->Start(tuned, [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
-    enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
-  });
+  auto started = ampSupport_->Start(
+      tuned,
+      [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
+        enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
+      },
+      std::move(ingress));
   if (!started) {
     ampSupport_.reset();
     return started;
   }
   log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
+  if (const auto socket = ampSupport_->runtime().socketStats()) {
+    log().info << "UDP socket buffers: receive " << socket->receive_buffer_bytes << " B, send "
+               << socket->send_buffer_bytes << " B";
+  }
+  if (ampSupport_->runtime().socketBuffersCapped()) {
+    log().warning << "UDP socket buffers are smaller than the " << udpBufferBytes_
+                  << " B asked for (udpBufferBytes): the OS caps them. Raise the cap, e.g. sysctl -w "
+                     "net.core.rmem_max=" << udpBufferBytes_ << " net.core.wmem_max=" << udpBufferBytes_
+                  << " — a burst of large requests may otherwise make it drop every peer's datagrams";
+  }
   writeListenMultiaddrFile();
   publishHealth(); // HEALTH answers "starting" from now on
   return {};

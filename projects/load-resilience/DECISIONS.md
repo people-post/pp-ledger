@@ -97,3 +97,26 @@ until the transaction's validity window ends.
 act on them. A retry is safe only with the same bytes: a re-signed transfer carries a new idempotent
 id and pays twice — what `pp-client add-tx` does when run again after a timeout (M4).
 **Alternatives:** Texts and transport errors as today. Retries left to each client.
+
+## LR008 — Large requests have their own protocol and a node-wide share; the socket is sized for them
+
+**Date:** 2026-10-17
+**Decision:** Requests over 64 KiB (blocks, large records) travel on `/pp-ledger/rpc-bulk/1.0.0`;
+the small protocol takes nothing larger (Amp resets a channel at the first fragment of a message
+over its limit). A node has at most 2 large requests arriving per peer and 8 in all; one more is
+answered at once — `E_RATE_LIMITED` / `E_BUSY` with a retry-after — and the client, which binds its
+channel when it opens it, reads that before sending its body. A peer outside `allowedPeers` is
+refused when its large request's channel opens. Nodes ask for 8 MiB UDP socket buffers
+(`udpBufferBytes`), log what the OS granted, warn when it capped them, and report the kernel's drops
+on `HEALTH`; hosts raise `net.core.rmem_max` / `wmem_max`.
+**Rationale:** A node has one socket and one network thread for every peer. M12: 64 peers sending
+4 MiB bodies overflowed the 208 KiB socket buffer (a million datagrams dropped in 8 s), and every
+peer lost packets alike — handshakes, health probes, the node's own upstream. The server's queues
+were never the bottleneck; bytes arriving were. Bounding the large bodies arriving at once bounds
+those bytes (8 × the senders' windows) whatever the number of peers; a buffer of a few MiB holds
+them. Refusing at the open costs a round trip, not 4 MiB. M14: the flood no longer touches anyone
+else.
+**Alternatives:** Only a larger buffer (any buffer is overrun by enough peers). A node-wide cap on
+all requests (small requests are cheap, M9: no need to queue them behind blocks). Refusing the
+channel open itself (the client sees a transport error, not `E_BUSY` with a retry-after). Reserved
+large slots for miners (DESIGN § Open questions).

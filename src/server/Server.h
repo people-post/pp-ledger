@@ -217,10 +217,13 @@ protected:
   /**
    * Before start: serve only these peers (and this node's upstreams). Unset =
    * anyone. Refused before queueing, so a peer outside the list never takes
-   * queue space. Config: `allowedPeers` (NodeConfig).
+   * queue space; a large request when its channel opens, before its body
+   * arrives. Config: `allowedPeers` (NodeConfig).
    */
   void setAllowedPeers(std::optional<std::set<std::string>> peerIds) { allowedPeers_ = std::move(peerIds); }
   bool isAllowedPeer(const std::string& peerId) const;
+  /** io lane: the reply to a request refused when its channel opened (counted busy or refused). */
+  std::string refusalResponse(network::AmpLedgerServer::Refusal why);
 
   /**
    * onStart: `config.json` in the work directory merged with the PP_* variables `fields`
@@ -257,10 +260,11 @@ protected:
    */
   Service::Roe<std::string> loadOrCreateIdentityKey();
 
-  /** Before startAmpServer: the link table and handshake backlog from the role's config (LR005). */
-  void setLinkLimits(const NodeConfig& config) {
+  /** Before startAmpServer: the link table, handshake backlog (LR005) and socket buffers from the role's config. */
+  void setTransportLimits(const NodeConfig& config) {
     maxLinks_ = config.maxLinks;
     handshakeBacklog_ = config.handshakeBacklog;
+    udpBufferBytes_ = config.udpBufferBytes;
   }
   Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
   void stopAmpServer();
@@ -314,6 +318,7 @@ private:
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   uint32_t maxLinks_{NodeConfig::kDefaultMaxLinks};
   uint32_t handshakeBacklog_{NodeConfig::kDefaultHandshakeBacklog};
+  uint32_t udpBufferBytes_{NodeConfig::kDefaultUdpBufferBytes};
   network::NetworkTuning tuning_;
   /** Change while running (addUpstream, followUpstream); read on the io lane and the server thread. */
   mutable std::mutex upstreamMutex_;

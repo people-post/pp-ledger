@@ -12,6 +12,12 @@ namespace rpc {
 
 /** L4 protocol id for blockchain RPC over AMP (see docs/contracts/AMP_TRANSPORT.md). */
 inline constexpr const char* kProtocolId = "/pp-ledger/rpc/1.0.0";
+/**
+ * A request larger than kMaxSmallRequestBytes (a block, a large record) travels on its own protocol
+ * (load-resilience lr8): a node takes few of them at once, from each peer and in all, so a flood of
+ * large bodies cannot fill its socket and starve everyone else; small requests are not held up.
+ */
+inline constexpr const char* kBulkProtocolId = "/pp-ledger/rpc-bulk/1.0.0";
 
 /**
  * Max request/response body: what Amp's Bulk profile carries in one message — a block of the
@@ -28,6 +34,12 @@ inline constexpr size_t kMaxSmallRequestBytes = 64 * 1024;
  * what one peer makes a node buffer to this many × kMaxMessageBytes.
  */
 inline constexpr size_t kMaxReceivingPerPeer = 16;
+/** Large requests (kBulkProtocolId) one peer may have arriving at once. */
+inline constexpr size_t kMaxBulkReceivingPerPeer = 2;
+/** Large requests arriving at once from all peers together: bounds what they make a node receive. */
+inline constexpr size_t kMaxBulkReceivingTotal = 8;
+/** The protocol a request body of `bytes` travels on. */
+inline const char* ProtocolFor(size_t bytes) { return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId; }
 
 /**
  * Bulk channel: one request/response per open (read_once). amp resets it when nothing arrives for

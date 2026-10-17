@@ -418,6 +418,8 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
     }
   };
   setOptional("rssBytes", rssBytes);
+  setOptional("udpReceiveBufferBytes", udpReceiveBufferBytes);
+  setOptional("udpReceiveDrops", udpReceiveDrops);
   setOptional("blocksSealed", blocksSealed);
   setOptional("blocksCommitted", blocksCommitted);
   setOptional("blocksAbandoned", blocksAbandoned);
@@ -479,6 +481,8 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
   loopTurnsSlow = meta.getNonNegInt("loopTurnsSlow").value_or(0);
   loopTurnMaxMs = meta.getNonNegInt("loopTurnMaxMs").value_or(0);
   rssBytes = meta.getNonNegInt("rssBytes");
+  udpReceiveBufferBytes = meta.getNonNegInt("udpReceiveBufferBytes");
+  udpReceiveDrops = meta.getNonNegInt("udpReceiveDrops");
   blocksSealed = meta.getNonNegInt("blocksSealed");
   blocksCommitted = meta.getNonNegInt("blocksCommitted");
   blocksAbandoned = meta.getNonNegInt("blocksAbandoned");

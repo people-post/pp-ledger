@@ -23,7 +23,9 @@ public:
   ServerAmpSupport() = default;
   ~ServerAmpSupport();
 
-  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch);
+  /** `ingress`: who may send large requests, and the replies to refused ones (its io lane and read
+   *  timeout are this runtime's). */
+  pp::Service::Roe<void> Start(LedgerAmpConfig config, DispatchFn dispatch, AmpLedgerServer::Options ingress = {});
   void Stop();
 
   bool isRunning() const { return runtime_.isRunning(); }

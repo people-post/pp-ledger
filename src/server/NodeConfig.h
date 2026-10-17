@@ -16,12 +16,19 @@ namespace pp {
 
 /**
  * config.json fields every node reads (CONFIGURATION.md § config.json): `port`, `allowedPeers`,
- * `maxLinks`, `handshakeBacklog`.
+ * `maxLinks`, `handshakeBacklog`, `udpBufferBytes`.
  */
 struct NodeConfig {
   /** Links a node holds at once, and handshakes in progress (load-resilience LR005; until lr8 sizes them). */
   static constexpr uint32_t kDefaultMaxLinks = 1024;
   static constexpr uint32_t kDefaultHandshakeBacklog = 128;
+  /**
+   * The socket's receive and send buffers asked for: one socket carries every peer, and the OS
+   * default (Linux: 208 KiB) drops datagrams of all peers alike under a burst of large requests
+   * (load-resilience M12). The OS grants at most its cap (`net.core.rmem_max` / `wmem_max`).
+   */
+  static constexpr uint32_t kDefaultUdpBufferBytes = 8 * 1024 * 1024;
+  static constexpr uint32_t kMaxUdpBufferBytes = 1024 * 1024 * 1024;
 
   uint16_t port{0};
   /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
@@ -30,6 +37,8 @@ struct NodeConfig {
   uint32_t maxLinks{kDefaultMaxLinks};
   /** `handshakeBacklog`: inbound handshakes in progress (TCP: the listen backlog); full, a hello waits for its resend. */
   uint32_t handshakeBacklog{kDefaultHandshakeBacklog};
+  /** `udpBufferBytes`: the UDP socket's receive and send buffers; 0 = the OS default. */
+  uint32_t udpBufferBytes{kDefaultUdpBufferBytes};
 
   explicit NodeConfig(uint16_t defaultPort = 0) : port(defaultPort) {}
 

@@ -158,7 +158,8 @@ std::vector<Field> commonFields() {
   return {{"PP_LEDGER_PORT", "port", Kind::UInt, ""},
           {"PP_LEDGER_ALLOWED_PEERS", "allowedPeers", Kind::List, ""},
           {"PP_LEDGER_MAX_LINKS", "maxLinks", Kind::UInt, ""},
-          {"PP_LEDGER_HANDSHAKE_BACKLOG", "handshakeBacklog", Kind::UInt, ""}};
+          {"PP_LEDGER_HANDSHAKE_BACKLOG", "handshakeBacklog", Kind::UInt, ""},
+          {"PP_LEDGER_UDP_BUFFER_BYTES", "udpBufferBytes", Kind::UInt, ""}};
 }
 
 std::vector<Field> anchorFields() {

@@ -503,6 +503,8 @@ public:
     uint64_t loopTurnsSlow{ 0 };   ///< run-loop turns longer than kSlowTurnMs (a slow handler or duty)
     uint64_t loopTurnMaxMs{ 0 };   ///< the longest run-loop turn in the last 10 to 20 s
     std::optional<uint64_t> rssBytes; ///< resident memory (where the platform tells)
+    std::optional<uint64_t> udpReceiveBufferBytes; ///< the socket's receive buffer, as the OS granted it
+    std::optional<uint64_t> udpReceiveDrops;       ///< datagrams the OS dropped for want of room (Linux)
     // Miner
     std::optional<uint64_t> blocksSealed;    ///< blocks it produced and broadcast
     std::optional<uint64_t> blocksCommitted; ///< of those, committed on the beacon's signed tip

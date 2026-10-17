@@ -122,12 +122,16 @@ Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load th
 | M11 | Relay: 400 new identities at once, 800 `STATUS`/s, 10 tx/s beside | All served (p99 46 ms); resident memory 21 → 24 MB: ~7 KB per idle link |
 | M12 | Relay: 64 identities sending ~4 MiB `BLOCK_ADD` bodies at 64/s (256 MiB/s), 10 tx/s beside | Memory bounded (64 MB); run loop never slow; but the bodies mostly never arrived (channel not open, timeouts, dial timeouts), a `HEALTH` probe went unanswered for 5 s, and every other peer suffered — the transfers beside: replies p50 0.94 s (from 20 ms), p99 at the 30 s timeout, 11 `E_BUSY` because the relay's own channel to the beacon could not open, inclusion 12 s instead of 2 s |
 | M13 | Start-up, no load | The first blocks after the network starts (slots 2–7) were refused by the beacon as late ("after its delivery deadline") — every miner in turn; from then on none. To look at in lr10 |
+| M14 | M12 again after LR008 (large requests on their own protocol, 2 per peer and 8 per node arriving at once, refused at once; 8 MiB socket buffers asked for, this host capping them at 208 KiB) | The flood: 25 bodies received, 487 answered `E_BUSY` at once (p50 11 ms). `HEALTH` answered every time (20 probes, max 0.7 s). The transfers beside: 200 of 200 taken and included, replies p50 30 ms, p99 0.32 s, none busy. Kernel drops 1.09 M → 168 k (157 k at the relay): eight 4 MiB bodies at once still overrun a 208 KiB buffer (~150 KiB in flight per link) — what the 8 MiB buffer is for, once the host's cap allows it |
 
 From M9–M12: a node takes a flood of requests well — one server thread, queues and lanes hold — but
 not a flood of **bytes**: one network thread carries every peer's packets, and a few peers sending
 large bodies starve everyone else, handshakes, health probes and the node's own upstream link
 included. Memory per idle link is small (M11); what bounds memory is receiving (16 requests of up to
 4 MiB per peer, no node-wide cap).
+
+After LR008 (M14) the flood is confined to large requests: everyone else is served as if it were
+not there, and the large requests themselves are told to come back (`E_BUSY`) instead of timing out.
 
 So: the servers survive (goal 1 held so far, M6), but bursts are not absorbed (goal 2): they are
 bounced at the first hop (M3, M5), half-delivered with wrong answers (M4), or starved by renewals
@@ -182,7 +186,12 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
   may the leader report back so the pool drops a transaction?
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
+- Blocks under a flood of large requests (LR008): strangers can hold a public relay's 8 large slots
+  (a few identities, bodies sent slowly), so a miner's `BLOCK_ADD` there is answered `E_BUSY` and its
+  slot may be missed. With `allowedPeers` set strangers are refused at the open; without it, a share
+  for known miners (or upstream-registered peers) would close the gap — measure in lr10 first.
 - Decided: renewals keep B035, the echo is measured ([LR004](DECISIONS.md#lr004--due-renewals-keep-their-priority-b035-the-echo-is-measured-not-changed));
   links like TCP ([LR005](DECISIONS.md#lr005--links-behave-like-tcp-many-connections-a-handshake-backlog-silent-drop-fast-refusal));
   deadlines carried hop by hop ([LR006](DECISIONS.md#lr006--requests-carry-the-clients-deadline-each-hop-forwards-what-remains));
-  overload answered in codes, clients retry the same bytes ([LR007](DECISIONS.md#lr007--overload-is-answered-in-codes-with-a-retry-after-clients-retry-the-same-bytes)).
+  overload answered in codes, clients retry the same bytes ([LR007](DECISIONS.md#lr007--overload-is-answered-in-codes-with-a-retry-after-clients-retry-the-same-bytes));
+  large requests have their own share of a node ([LR008](DECISIONS.md#lr008--large-requests-have-their-own-protocol-and-a-node-wide-share-the-socket-is-sized-for-them)).
