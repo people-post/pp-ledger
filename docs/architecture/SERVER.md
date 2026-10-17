@@ -47,6 +47,26 @@ NodeCore            the Chain, the certificate and equivocation stores, the read
   create at the starting block, load, open the stores), `addBlock`, signed-tip checks, and the
   `note*` calls for certificates and evidence, which keep them if they verify.
 
+### Servers
+
+```
+Server              the AMP listener, the request queue and its server thread, HEALTH, BLOCK_WAIT,
+│                   one handler table; from the core: the chain reads, CALIBRATION, the rewind order
+├── BeaconServer    --init and --promote, tip signing, the miner registry and the transaction pool
+└── FollowerServer  upstreams (UpstreamSet), BlockSync and the tip watch, the clock follower,
+    │               certificates and evidence up the tree, TX_ADD / EQUIVOCATION_ADD forwarded,
+    │               BLOCK_GET past the tip answered after the next sync
+    ├── RelayServer serves the chain downstream, forwards writes, re-serves the signed tip
+    └── MinerServer registration, slot leadership, the broadcast of the block it produces
+```
+
+A role server binds its core (`bindCore`, or `bindFollower` for a follower), registers its own
+handlers, and fills in the hooks where roles differ: for a follower, which upstream it may follow
+(`admitUpstream`), what its first block must be (`firstBlockHash`, `predecessorDir`,
+`checkStartingAuthority`), what it does with a signed tip (`onSignedTip`), after a sync
+(`onSynced`) or when trust changed (`onTrustChanged`), when a sync must wait or is due
+(`syncHeld`, `syncDue`), and its own work each turn of the run loop (`roleDuties`).
+
 ## Components
 
 ### BeaconServer + Beacon

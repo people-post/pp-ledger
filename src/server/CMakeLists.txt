@@ -6,6 +6,8 @@ add_library(pp_server STATIC
     NodeCore.h
     FollowerCore.cpp
     FollowerCore.h
+    FollowerServer.cpp
+    FollowerServer.h
     RequestQueue.cpp
     BlockWaitList.cpp
     TxPool.cpp

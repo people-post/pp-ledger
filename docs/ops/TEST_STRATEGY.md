@@ -59,7 +59,7 @@ Listen multiaddrs are scraped from `AMP ledger listener:` lines (`0.0.0.0` rewri
 
 **Startup waits:** nodes are started without fixed grace sleeps. The driver
 polls each node's console log until its run loop is up (`READY_MARKER`:
-"…handler loop/thread started", logged after `onStart` — relay sync, miner
+"Run loop started", logged after `onStart` — relay sync, miner
 dial / register / startup sync) and fails at once if the process exits. The
 three miners start in parallel. RPC / tip waits poll every 0.5 s.
 

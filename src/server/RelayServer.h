@@ -2,31 +2,18 @@
 #define PP_LEDGER_RELAY_SERVER_H
 
 #include "../client/Client.h"
-#include "../network/amp/AmpIdentity.h"
-#include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
-#include "BlockSync.h"
-#include "UpstreamSignedTip.h"
-#include "UpstreamSet.h"
-#include "UpstreamTipWatch.h"
+#include "FollowerServer.h"
 #include "Relay.h"
-#include "Server.h"
-#include <atomic>
-#include <chrono>
-#include <map>
-#include <vector>
-#include <memory>
-#include <mutex>
+#include "UpstreamSignedTip.h"
 #include <optional>
+#include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace pp {
 
-class RelayServer : public Server {
+class RelayServer : public FollowerServer {
 public:
-
   RelayServer();
   ~RelayServer() override = default;
 
@@ -39,22 +26,21 @@ protected:
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "RelayServer"; }
   void fillHealth(Client::NodeHealth &health) const override;
-  int64_t clockOffsetMs() const override { return timeOffsetToBeaconMs_; }
-
-  /**
-   * Service thread main loop - processes queued requests
-   */
-  void runLoop() override;
 
   /**
    * Called before service thread starts - initializes beacon and network
    */
   Service::Roe<void> onStart() override;
 
-  /**
-   * Called after service thread stops - cleans up resources
-   */
-  void onStop() override;
+  /** An upstream serving another network than the chain held is not followed. */
+  Roe<void> admitUpstream(const Client::BeaconState &state) const override;
+  /** A relay starts at genesis: pinned by networkAnchor.genesisHash when set. */
+  std::optional<std::string> firstBlockHash() const override { return config_.network.genesisHash; }
+  std::string predecessorDir() const override { return config_.network.predecessorDir; }
+  void onSignedTip(const Client::SignedTip &tip) override { noteSignedTip(tip); }
+  /** The held signed tip may no longer verify (a new certificate's cutover, equivocation evidence). */
+  void onTrustChanged() override { dropHeldTipIfInvalid(); }
+  void onSynced() override { startBeaconStateRefresh(); }
 
 private:
   constexpr static const char *FILE_CONFIG = "config.json";
@@ -94,108 +80,34 @@ private:
   };
 
   void initHandlers();
-  /** Point client_ at the upstream for a forwarded request; replies with the error if it cannot. */
-  bool dialUpstreamFor(const RequestQueue::Reply &reply);
-  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up to the beacon. */
-  void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
   void dTxPull(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** BlockSync wiring and completion (server thread). */
-  void initBlockSync();
-  void onBlockSyncFinished(const BlockSync::Result &result);
   /** Refresh registry version / network id from the beacon, without blocking. */
   void startBeaconStateRefresh();
-  /** Smart sync: when needed (epoch start, on-demand) and rate-limited. No block production. */
-  void syncBlocksPeriodically();
-  /** Perform sync from beacon (updates lastBlockSyncTime_ and lastSyncedEpoch_ on success). */
-  void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
 
   Client::BeaconState buildStateResponse() const;
-  /** Point `client` at upstream `index` (UpstreamSet::dialKey). */
-  Client::Roe<void> dialUpstream(Client &client, size_t index);
-  /** Point client_ at the upstream followed now. */
-  Client::Roe<void> dialUpstream();
-  /** UpstreamSet wiring (bp2b). */
-  void initUpstreams();
   /** At start, once the relay has loaded: add the certificates' dial hints, rank and wait for it. */
   void rankUpstreamsAtStart();
-  /** The certificates' dial hints become upstreams too. */
-  void learnUpstreamHints();
-  /** A new certificate, to every upstream (TX_ADD): one behind a stood-down beacon learns it here. */
-  void pushCertificateUp(const Ledger::Record &record);
 
   /** Serves BLOCK_WAIT: downstreams learn of each block once this relay has synced it. */
   std::optional<uint64_t> blockWaitTip() const override { return relay_.getNextBlockId(); }
   std::optional<Client::SignedTip> latestSignedTip() const override { return upstreamTip_.latest(); }
   /** Keep a signed tip heard from upstream (STATUS, BLOCK_WAIT, BLOCK_ADD and REGISTER replies). */
   void noteSignedTip(const std::optional<Client::SignedTip> &tip);
-  /**
-   * A beacon certificate from STATUS or a TX_ADD (ba5c): offer it; when it is a new one, recheck
-   * the held tip against its cutover. None when there is none or it is refused.
-   */
-  std::optional<Chain::CertificateOffer> noteCertificate(const std::optional<Ledger::Record> &record,
-                                                         const std::string &from);
-  /**
-   * Equivocation evidence (ba6: two upstream tips at one height, STATUS, EQUIVOCATION_ADD): offer it;
-   * once kept, stop serving a held tip above its height. None when refused.
-   */
-  std::optional<Chain::EquivocationOffer> noteEquivocation(const Client::Equivocation &evidence,
-                                                           const std::string &from, bool pushUp);
-  /** Send kept evidence to every upstream (fire and forget). */
-  void pushEquivocationUp(const Client::Equivocation &evidence);
   /** Stop serving the held signed tip once it no longer verifies (a new certificate's cutover). */
   void dropHeldTipIfInvalid();
   /** True when `reply` carries a signed tip, valid here, for exactly `block`. */
   bool coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
 
-  /** At start: the offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed (else another). */
-  Roe<int64_t> calibrateTimeToBeacon();
-  /** Recalibration when a new beacon generation is in force (bp3); after the relay has loaded. */
-  void initClockFollower();
-  /** Use a new offset to the beacon's clock: the slot clock, and CALIBRATION replies. */
-  void applyTimeOffset(int64_t offsetMs);
-
-  // Deferred: reply after an outbound call or the next sync, off the server thread's back
-  void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
+  // Deferred: reply after the upstream's, off the server thread's back
   void dBlockAdd(const Client::Request &request, const RequestQueue::Reply &reply);
   void dRegister(const Client::Request &request, const RequestQueue::Reply &reply);
   void dMinerList(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** After a sync: answer block gets that were waiting for it. */
-  void resolvePendingBlockGets();
 
   // Getters
   Roe<std::string> hStatus(const Client::Request &request);
 
   Config config_;
   Relay relay_;
-  /** The upstreams this relay may follow, and the one it follows (bp2b). */
-  std::unique_ptr<UpstreamSet> upstreams_;
-  /** Calls to the upstream followed now (forwarding, STATUS refresh, tip watch). */
-  Client client_;
-  /** BlockSync's: pointed at an upstream when a sync starts, so a re-rank cannot move a sync midway. */
-  Client syncClient_;
-  /** Calls to each upstream in turn (STATUS probes, pushes up): each captures the dial key set just before it. */
-  Client fanoutClient_;
-
-  /** Cached time offset to beacon in ms (beacon_time_ms = local_time_ms + offset). Set by calibrateTimeToBeacon; 0 if no beacon or calibration skipped. */
-  int64_t timeOffsetToBeaconMs_{0};
-  std::unique_ptr<clock_calibration::ClockFollower> clock_;
-
-  std::chrono::steady_clock::time_point lastBlockSyncTime_{};
-  uint64_t lastSyncedEpoch_{0};
-
-
-  struct PendingBlockGet {
-    uint64_t blockId;
-    RequestQueue::Reply reply;
-  };
-  /** Block gets beyond our tip, answered after the next sync. */
-  std::vector<PendingBlockGet> pendingBlockGets_;
-  bool blockSyncRequested_{false};
-  std::unique_ptr<BlockSync> blockSync_;
-  /** BLOCK_WAIT on the upstream: requests a sync as soon as it has a new block. */
-  std::unique_ptr<UpstreamTipWatch> tipWatch_;
-  std::optional<BlockSync::Result> lastSyncResult_;
   bool beaconStateRefreshInFlight_{false};
 
   uint64_t registryVersion_{0};

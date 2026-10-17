@@ -1111,7 +1111,7 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
 }
 
 void BeaconServer::runLoop() {
-  log().info << "Request handler thread started";
+  log().info << "Run loop started";
 
   while (!isStopSet()) {
     try {
@@ -1119,12 +1119,12 @@ void BeaconServer::runLoop() {
       beacon_.refresh();
       serveRequestsFor(std::chrono::milliseconds(100));
     } catch (const std::exception& e) {
-      log().error << "Exception in request handler loop: " << e.what();
+      log().error << "Exception in the run loop: " << e.what();
       serveRequestsFor(std::chrono::seconds(1));
     }
   }
 
-  log().info << "Request handler thread stopped";
+  log().info << "Run loop stopped";
 }
 
 namespace {

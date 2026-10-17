@@ -504,9 +504,8 @@ pid_for_name() {
 }
 
 # A node logs this once onStart is done (relay sync, miner dial/register) and
-# its run loop is serving: BeaconServer "Request handler thread started",
-# RelayServer / MinerServer "... handler loop started".
-READY_MARKER='handler (loop|thread) started'
+# its run loop is serving (every role).
+READY_MARKER='Run loop started'
 
 # Poll until the node is ready instead of sleeping a fixed grace; fail fast
 # if it exits during startup.
