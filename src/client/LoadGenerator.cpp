@@ -42,7 +42,7 @@ const std::vector<std::pair<Kind, std::string>> &kindNames() {
 
 bool contains(const std::string &text, const char *part) {
   std::string lower = text;
-  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return lower.find(part) != std::string::npos;
 }
 
