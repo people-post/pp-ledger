@@ -2,7 +2,7 @@
 #include "Beacon.h"
 #include "Miner.h"
 #include "Rewind.h"
-#include "PredecessorCheck.h"
+#include "../../chain/PredecessorCheck.h"
 #include "../../chain/AccountBuffer.h"
 #include "../../chain/StateSnapshot.h"
 #include "AccountAttachment.h"

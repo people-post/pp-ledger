@@ -35,6 +35,7 @@ add_library(pp_chain STATIC
     ConfigPolicy.cpp
     StateSnapshot.cpp
     ImportTxHandler.cpp
+    PredecessorCheck.cpp
     ConfigPolicy.h
     AuthorityTrail.cpp
     AuthorityTrail.h

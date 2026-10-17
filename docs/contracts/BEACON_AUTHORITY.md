@@ -427,7 +427,9 @@ genesis](#importing-genesis)): the account state of a network at a height *H*, c
 
 ## Importing genesis
 
-The new network of a re-genesis (case 1, B030, B032): its genesis imports a `StateSnapshot`.
+The new network of a re-genesis (case 1, B030, B032; runbook [RE_GENESIS.md](../ops/RE_GENESIS.md)): its
+genesis imports a `StateSnapshot`. Anyone holding the old chain checks it by hand with
+`pp-client --host <node> check-predecessor -d <old work dir>` (the check below).
 
 - **`pp-beacon -d <dir> --init --import-state state.snap`** with an `init-config.json` naming a new
   `networkId` (it must differ from the snapshot's), the new genesis (admin), system and recovery

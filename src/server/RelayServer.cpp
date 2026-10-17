@@ -1,5 +1,5 @@
 #include "RelayServer.h"
-#include "PredecessorCheck.h"
+#include "../chain/PredecessorCheck.h"
 #include "NetworkAnchor.h"
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
@@ -352,8 +352,12 @@ void RelayServer::initBlockSync() {
   hooks.tipHash = [this]() { return relay_.getTipHash(); };
   hooks.firstBlockHash = [this]() { return config_.network.genesisHash; }; // a relay starts at genesis
   if (!config_.network.predecessorDir.empty()) {
-    hooks.checkGenesis = [dir = config_.network.predecessorDir](const Ledger::ChainNode &genesis) {
-      return predecessor_check::check(genesis, dir);
+    hooks.checkGenesis = [this, dir = config_.network.predecessorDir](const Ledger::ChainNode &genesis) {
+      auto checked = predecessor_check::check(genesis, dir);
+      if (checked) {
+        log().info << "Re-genesis checked against the old ledger in " << dir;
+      }
+      return checked;
     };
   }
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {

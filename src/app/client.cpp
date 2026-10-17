@@ -3,6 +3,7 @@
 #include "AccountIds.h"
 #include "../ledger/Ledger.h"
 #include "../chain/BlockValidation.h"
+#include "../chain/PredecessorCheck.h"
 #include "../chain/StateSnapshot.h"
 #include "../chain/Types.h"
 #include "../consensus/Types.hpp"
@@ -555,6 +556,39 @@ static int runSignTx(const std::string& filePath, const std::string& key,
 }
 
 /** `health`: the node's HEALTH as JSON; exit 0 when live (and ready, with --ready). */
+/**
+ * check-predecessor: block 0 of the network `client` talks to must be a re-genesis naming block H of
+ * the old ledger in `oldDir` (beacon-authority B037) — the check relays and miners run with
+ * networkAnchor.predecessorDir, by hand.
+ */
+static int runCheckPredecessor(pp::Client& client, const std::string& oldDir) {
+  auto genesis = client.fetchBlock(0);
+  if (!genesis) {
+    std::cerr << "Error: cannot fetch block 0 of the new network: " << genesis.error().message << "\n";
+    return 1;
+  }
+  // The block as served, its hash computed here: not the node's word for it.
+  const std::string genesisHash = pp::chain_block::calculateBlockHash(genesis.value().block);
+  if (auto checked = pp::predecessor_check::check(genesis.value(), oldDir); !checked) {
+    std::cerr << "Refused: " << checked.error().message << "\n";
+    return 1;
+  }
+  auto tx = pp::utl::binaryUnpack<pp::Ledger::TxGenesis>(genesis.value().block.records.front().data);
+  pp::GenesisAccountMeta gm;
+  if (!tx || !gm.ltsFromString(tx.value().meta)) {
+    std::cerr << "Error: cannot read the genesis meta\n";
+    return 1;
+  }
+  const auto& p = gm.import.predecessor;
+  std::cout << "Network '" << gm.config.networkId << "', genesis " << pp::utl::hexEncode(genesisHash) << "\n"
+            << "  imports " << gm.import.accountCount << " accounts of network '" << p.networkId << "' at block "
+            << p.height << "\n"
+            << "  block hash " << pp::utl::hexEncode(p.blockHash) << "\n"
+            << "Matches block " << p.height << " of the old ledger in " << oldDir << ".\n"
+            << "Compare the genesis hash with the announcement, then pin it (networkAnchor.genesisHash).\n";
+  return 0;
+}
+
 static int runHealth(pp::Client& client, bool requireReady) {
   auto result = client.fetchHealth();
   if (!result) {
@@ -675,6 +709,14 @@ int main(int argc, char *argv[]) {
       ->required();
 
   // Any node: health (a container health check: exit 0 when live, with --ready when ready)
+  // Any node of a new network: check its re-genesis against an old ledger (beacon-authority B037)
+  auto* check_predecessor_cmd = app.add_subcommand(
+      "check-predecessor",
+      "Check that the network --host belongs to is a re-genesis of block H of an old ledger; exit 1 if not");
+  std::string predecessorDir;
+  check_predecessor_cmd->add_option("-d,--dir", predecessorDir, "Your node's work directory on the old network")
+      ->required();
+
   auto* health_cmd = app.add_subcommand("health", "Print a node's health (any role); exit 1 when not live");
   bool healthReady = false;
   health_cmd->add_flag("--ready", healthReady, "Exit 1 unless the node is also ready (synced, not halted)");
@@ -964,7 +1006,7 @@ int main(int argc, char *argv[]) {
   }
 
   // For server commands, validate beacon/miner flag (health speaks to any role)
-  if (!connectToBeacon && !connectToMiner && !health_cmd->parsed()) {
+  if (!connectToBeacon && !connectToMiner && !health_cmd->parsed() && !check_predecessor_cmd->parsed()) {
     std::cerr << "Error: Must specify -b/--beacon or -m/--miner for server commands.\n";
     std::cerr << "Run '" << argv[0] << " --help' for more information.\n";
     return 1;
@@ -1035,6 +1077,9 @@ int main(int argc, char *argv[]) {
                            mk_cert_hints, mk_cert_output);
   }
 
+  if (check_predecessor_cmd->parsed()) {
+    return runCheckPredecessor(client, predecessorDir);
+  }
   if (health_cmd->parsed()) {
     return runHealth(client, healthReady);
   }
