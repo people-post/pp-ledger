@@ -1,5 +1,6 @@
 #include "AmpLedgerServer.h"
 #include "AmpLedgerTransport.h"
+#include "InFlightLimit.h"
 #include "LedgerAmpRuntime.h"
 #include "LedgerRpcProtocol.h"
 #include "amp/L1/Clock.h"
@@ -17,6 +18,8 @@
 #include <sodium.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <future>
 #include <optional>
 #include <thread>
@@ -652,6 +655,61 @@ TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripCompletesOnIoLane) {
   auto [body, onIoLane] = f.get();
   EXPECT_EQ(body, "async-payload");
   EXPECT_TRUE(onIoLane);
+}
+
+// load-resilience lr6: at most `limit` started per peer; the rest start in order as places free up,
+// and one that gave up while waiting is skipped.
+TEST(InFlightLimitTest, StartsInOrderAsPlacesFreeUp) {
+  pp::network::InFlightLimit limit(2);
+  std::vector<int> started;
+  std::vector<bool> live(5, true);
+  for (int i = 0; i < 5; ++i) {
+    limit.run("p", {[&live, i]() { return static_cast<bool>(live[i]); }, [&started, i]() { started.push_back(i); }});
+  }
+  EXPECT_EQ(started, (std::vector<int>{0, 1}));
+  EXPECT_EQ(limit.waiting("p"), 3u);
+  limit.run("q", {[]() { return true; }, [&started]() { started.push_back(99); }});
+  EXPECT_EQ(started.back(), 99) << "another peer has its own places";
+  live[2] = false; // gave up waiting
+  limit.release("p");
+  EXPECT_EQ(started.back(), 3);
+  limit.release("p");
+  limit.release("p");
+  EXPECT_EQ(started.back(), 4);
+  EXPECT_EQ(limit.inFlight("p"), 1u);
+  limit.release("p");
+  EXPECT_EQ(limit.inFlight("p"), 0u);
+  EXPECT_EQ(limit.waiting("p"), 0u);
+}
+
+// load-resilience lr6: a client sending more at once than the server takes from one peer waits its
+// turn instead of meeting the server's refusal of one more channel.
+TEST_F(AmpLedgerRpcTest, ThreadedBurstPastThePerPeerLimitWaitsItsTurn) {
+  ThreadedPair pair;
+  ASSERT_TRUE(pair.Start().isOk());
+  pp::AmpLedgerTransport transport(pair.a, "b");
+  ASSERT_TRUE(transport.registerEndpoint("b", pair.b.listenMultiaddr()));
+  ASSERT_TRUE(transport.roundTrip("warm-up", std::chrono::seconds(5)).isOk());
+
+  constexpr size_t kCalls = 3 * pp::ledger::rpc::kMaxReceivingPerPeer;
+  std::mutex mu;
+  std::condition_variable cv;
+  size_t answered = 0;
+  std::vector<std::string> errors;
+  for (size_t i = 0; i < kCalls; ++i) {
+    transport.roundTripAsync("burst-" + std::to_string(i), std::chrono::seconds(10),
+                             [&](pp::ILedgerTransport::Roe<std::string> r) {
+                               std::lock_guard<std::mutex> lock(mu);
+                               if (!r) {
+                                 errors.push_back(r.error().message);
+                               }
+                               ++answered;
+                               cv.notify_all();
+                             });
+  }
+  std::unique_lock<std::mutex> lock(mu);
+  ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(20), [&]() { return answered == kCalls; }));
+  EXPECT_TRUE(errors.empty()) << errors.size() << " failed, e.g. " << errors.front();
 }
 
 // Unlike the blocking call, the async one may start from the pump thread.

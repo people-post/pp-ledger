@@ -17,6 +17,7 @@ target_link_libraries(pp_network
 
 add_library(pp_ledger_amp STATIC
     AmpLedgerServer.cpp
+    InFlightLimit.cpp
     LedgerAmpRuntime.cpp
     ServerAmpSupport.cpp
     amp/LedgerPeerId.cpp
