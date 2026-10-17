@@ -69,6 +69,9 @@ struct TxContext {
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
   std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{
       std::nullopt};
+  /** What the idempotency scan keeps of each block (read and decoded once; lr8). */
+  std::shared_ptr<chain_tx::IdempotencyScanCache> idempotencyScanCache{
+      std::make_shared<chain_tx::IdempotencyScanCache>()};
   std::optional<chain_tx::FnBillableCustomMetaSizeForFee>
       fnBillableCustomMetaSizeForFee{std::nullopt};
 };

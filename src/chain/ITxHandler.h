@@ -187,7 +187,8 @@ protected:
     return chain_tx::validateIdempotencyRules(
         ctx.ledger, ctx.consensus, ctx.optChainConfig, idempotentId,
         walletIdForIdempotency, validationTsMin, validationTsMax, effectiveSlot,
-        admissionMode, *ctx.fnIdempotencyKeyForRecord, requireNonZeroId);
+        admissionMode, *ctx.fnIdempotencyKeyForRecord, requireNonZeroId,
+        ctx.idempotencyScanCache.get());
   }
 };
 } // namespace pp

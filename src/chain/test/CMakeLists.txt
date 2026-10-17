@@ -11,3 +11,7 @@ gtest_discover_tests(test_account_state_tree)
 add_executable(test_chain test_chain.cpp)
 target_link_libraries(test_chain PRIVATE pp_chain pp_testing GTest::gtest_main)
 gtest_discover_tests(test_chain)
+
+add_executable(test_tx_idempotency test_tx_idempotency.cpp)
+target_link_libraries(test_tx_idempotency PRIVATE pp_chain GTest::gtest_main)
+gtest_discover_tests(test_tx_idempotency)
