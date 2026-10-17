@@ -1,11 +1,13 @@
 # Load resilience — decisions
 
 Rationale for [DESIGN.md](DESIGN.md). Outcomes move to `docs/` when they ship; mark the entry
-**superseded by** that doc then.
+**superseded by** that doc then. Shipped (lr11): every entry names the section of
+[LOAD_RESILIENCE.md](../../docs/architecture/LOAD_RESILIENCE.md) that is now normative.
 
 ## LR001 — Two goals: survive overload, absorb bursts
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md (the goals)](../../docs/architecture/LOAD_RESILIENCE.md) (normative; this entry keeps the why).
 **Decision:** Load work serves two goals. Overload: an overwhelming number of requests degrades
 service but takes no node down and does not stop the chain. Bursts: with the average below the
 designed rate, a burst larger than one block is included over the next blocks, not lost or bounced.
@@ -17,6 +19,7 @@ behaviour past it).
 ## LR002 — Targets are derived from the chain's config
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § Capacity comes from the chain's config](../../docs/architecture/LOAD_RESILIENCE.md#capacity-comes-from-the-chains-config) (normative; this entry keeps the why).
 **Decision:** Block capacity, the designed rate and pool capacity come from the config in force
 (DESIGN § Capacity); tests state their loads as multiples of them.
 **Rationale:** The same tests then hold for any network and any config change; a config change
@@ -26,6 +29,7 @@ that lowers capacity shows up as a different load, not a broken test.
 ## LR003 — Three axes; single-server tests carry most of the work, the network only what needs it
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § How it is tested](../../docs/architecture/LOAD_RESILIENCE.md#how-it-is-tested) (normative; this entry keeps the why).
 **Decision:** Load is tested along three axes: requests, data and topology (DESIGN § Three axes).
 Each role is loaded alone, followers against a scripted upstream; that tier owns the requests axis,
 capacity and overload behaviour. Generated large ledgers own the data axis. Network scenarios own
@@ -41,6 +45,7 @@ Single-server only (misses emergent behaviour across hops, and big ledgers).
 ## LR004 — Due renewals keep their priority (B035); the echo is measured, not changed
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § The chain under load](../../docs/architecture/LOAD_RESILIENCE.md#the-chain-under-load) (normative; this entry keeps the why).
 **Decision:** No change to B035 now: due renewals that do not fit wait for the next block, and a
 block that leaves one out holds renewals only. lr9 measures the echo — accounts written at block
 capacity for a while come due together a renewal period later and hold user transactions for about
@@ -58,6 +63,7 @@ change; postponed). Spreading renewals over the period (changes when accounts ar
 ## LR005 — Links behave like TCP: many connections, a handshake backlog, silent drop, fast refusal
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § The path of a request (links)](../../docs/architecture/LOAD_RESILIENCE.md#the-path-of-a-request-and-where-it-stops) (normative; this entry keeps the why).
 **Decision:** Amp's link table and handshake quota become configurable and the ledger sets them per
 role (`maxLinks`, `handshakeBacklog`), with defaults sized from measured memory per link (lr8),
 large enough for thousands of clients on a relay or beacon. Like a full listen backlog, a
@@ -75,6 +81,7 @@ out). Refuse every overflow at once (a herd retries in step; a forged-source flo
 ## LR006 — Requests carry the client's deadline; each hop forwards what remains
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § Deadlines](../../docs/architecture/LOAD_RESILIENCE.md#deadlines) (normative; this entry keeps the why).
 **Decision:** A request carries the time its client will wait. Each hop forwards with what remains
 less a margin, a queued request whose deadline passed is dropped unserved, and a relay whose
 upstream did not answer in time says so — the beacon may have pooled the transaction; resending the
@@ -88,6 +95,7 @@ timeouts change).
 ## LR007 — Overload is answered in codes with a retry-after; clients retry the same bytes
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § Answers and retries](../../docs/architecture/LOAD_RESILIENCE.md#answers-and-retries) (normative; this entry keeps the why).
 **Decision:** Overload has three answers, as codes, each with a retry-after: the node's queue is
 full (`E_BUSY`, like HTTP 503), this peer is over its share (`E_RATE_LIMITED`, like 429 — and the
 node announces its per-peer limit so `pp::Client` queues past it locally, like HTTP/2's maximum
@@ -103,6 +111,7 @@ id and pays twice — what `pp-client add-tx` does when run again after a timeou
 ## LR008 — Large requests have their own protocol and a node-wide share; the socket is sized for them
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § The path of a request (socket, requests arriving)](../../docs/architecture/LOAD_RESILIENCE.md#the-path-of-a-request-and-where-it-stops) (normative; this entry keeps the why).
 **Decision:** Requests over 64 KiB (blocks, large records) travel on `/pp-ledger/rpc-bulk/1.0.0`;
 the small protocol takes nothing larger (Amp resets a channel at the first fragment of a message
 over its limit). A node has at most 2 large requests arriving per peer and 8 in all; one more is
@@ -132,6 +141,7 @@ large slots for miners (DESIGN § Open questions).
 ## LR009 — A node's own chain work goes first, on the way up and on the way in
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § A node's own chain work goes first](../../docs/architecture/LOAD_RESILIENCE.md#a-nodes-own-chain-work-goes-first) (normative; this entry keeps the why).
 **Decision:** Requests a node sends for its own chain work (`Client::isChainDuty`: blocks, pulls for a
 slot leader, sync, `STATUS`) keep places to each peer that requests it forwards for clients cannot
 take (4 of 16, 1 of 2 large), and start first; at most 256 forwarded requests (16 large) wait per
@@ -154,6 +164,7 @@ trusted peers (another list for operators to keep; registration already tells).
 ## LR010 — Idempotency checks read each block once
 
 **Date:** 2026-10-17
+**Superseded by:** [LOAD_RESILIENCE.md § The chain under load](../../docs/architecture/LOAD_RESILIENCE.md#the-chain-under-load) (normative; this entry keeps the why).
 **Decision:** The cross-block idempotency check takes each block's timestamp, slot and records'
 (payer, idempotent id) from a cache (`IdempotencyScanCache`, the newest 2,048 blocks) filled the first
 time a block is read; it starts over whenever the ledger's blocks may have changed (`Ledger::getRevision`:

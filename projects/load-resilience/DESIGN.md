@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0–lr9 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) met per role (`--suite overload`, `--suite upstream`); the data axis measured (`--suite scale`); network scenarios measured (`--suite topology`); promotion to docs next (lr11); measurements in § Measured
+**Status:** lr0–lr9 done: goal 2 (bursts) met on the smoke network (`--suite burst`); goal 1 (overload) met per role (`--suite overload`, `--suite upstream`); the data axis measured (`--suite scale`); network scenarios measured (`--suite topology`); promoted to [LOAD_RESILIENCE.md](../../docs/architecture/LOAD_RESILIENCE.md) (lr11) — done; measurements in § Measured, open questions below
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 

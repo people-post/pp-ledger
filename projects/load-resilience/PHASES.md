@@ -47,6 +47,6 @@ Ordering only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DE
 
 ## Ship
 
-- [ ] **lr11** Promote: limits and behaviour under load into [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md)
+- [x] **lr11** Promote: limits and behaviour under load into [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md)
       and [SERVER.md](../../docs/architecture/SERVER.md); purposes (`L-LOAD-*`) and suites into
       [TEST_STRATEGY.md](../../docs/ops/TEST_STRATEGY.md)
