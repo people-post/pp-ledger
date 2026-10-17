@@ -153,7 +153,7 @@ every node (B022–B024).
 - [x] **bp7** State leaf v2: `attachmentHash` in the account leaf, kept per account in
       `AccountBuffer`, updated where attachments change (B031); WIRE_SCHEMA's commitments; tests that
       the root changes with an attachment and not otherwise. Breaking (new genesis)
-- [ ] **bp8** State export: `StateSnapshot` (versioned: predecessor header + accounts with their old
+- [x] **bp8** State export: `StateSnapshot` (versioned: predecessor header + accounts with their old
       leaf fields and attachments), `pp-client export-state -d <copy> --height H` (cut a copy after
       *H*, load, dump, check the root against block *H*); tests: a snapshot's root equals the
       block's, an altered account fails

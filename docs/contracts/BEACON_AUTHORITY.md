@@ -37,6 +37,7 @@ no migration (networks start from a new genesis on a change).
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
 | `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
+| `StateSnapshot` | 1 | `predecessor {networkId, height, blockHash, stateRoot}` (raw hashes), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
 Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
 evidence, replies).
@@ -403,6 +404,24 @@ for one block (ML-DSA signs with fresh randomness): only the block hash counts.
 
 Only the latest tip is kept, so evidence is found when two tips of one height meet at a node; a
 conflicting tip below a node's latest goes unnoticed.
+
+## State export
+
+The first step of a re-genesis (case 1, beacon-authority B030–B033; the import itself is still to
+come): the account state of a network at a height *H*, checkable against block *H*.
+
+- `pp-client export-state -d <full node's directory> --height H -o state.snap` works on a copy of
+  the node's ledger (a relay's: it starts from genesis; a ledger starting at a checkpoint is
+  refused), in a scratch directory that must not exist (`--scratch`, default `<out>.scratch`;
+  removed after). It cuts the copy after *H*, replays it from genesis in Full mode, and writes every
+  account with the fields its state-root leaf hashes and its attachment in full. The node's own
+  directory is left as it is; export from a stopped node (only committed blocks are copied).
+- Before writing, it checks the accounts' root — `StateSnapshot::accountsRoot()`, account leaf v2 —
+  against block *H*'s `stateRoot`, and each attachment against the hash its account holds. The file
+  is never overwritten.
+- What it vouches for is block *H* itself: anyone holding the old chain compares the snapshot's
+  `predecessor` (network id, *H*, block hash) with their own block *H*; the accounts then follow
+  from the root.
 
 ## Authority proof
 

@@ -13,6 +13,7 @@
 #include "lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
+#include <limits>
 #include "../consensus/EpochSeed.h"
 #include <algorithm>
 #include <chrono>
@@ -233,6 +234,29 @@ Chain::Roe<Ledger::ChainNode> Chain::readBlock(uint64_t blockId) const {
                  "Block not found: " + std::to_string(blockId));
   }
   return result.value();
+}
+
+Chain::Roe<std::vector<StateSnapshot::Account>> Chain::exportAccounts() const {
+  std::vector<StateSnapshot::Account> out;
+  // Every account (all were last written before the end of time), by ascending id.
+  for (uint64_t id : txContext_.bank.getAccountIdsBeforeBlockId(std::numeric_limits<uint64_t>::max())) {
+    auto held = txContext_.bank.getAccount(id);
+    auto full = getAccount(id);
+    if (!held || !full) {
+      return Error(E_ACCOUNT_NOT_FOUND, "Account " + std::to_string(id) + " cannot be read: " +
+                                            (held ? full.error().message : held.error().message));
+    }
+    if (AccountBuffer::attachmentHashOf(full.value().meta) != held.value().attachmentHash) {
+      return Error(E_INTERNAL, "Account " + std::to_string(id) + ": its recorded attachment does not match its hash");
+    }
+    StateSnapshot::Account account;
+    account.id = id;
+    account.wallet = held.value().wallet;
+    account.blockId = held.value().blockId;
+    account.attachment = full.value().meta;
+    out.push_back(std::move(account));
+  }
+  return out;
 }
 
 Chain::Roe<Client::UserAccount> Chain::getAccount(uint64_t accountId) const {

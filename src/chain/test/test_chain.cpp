@@ -3,6 +3,7 @@
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "Chain.h"
+#include "StateSnapshot.h"
 #include "BlockValidation.h"
 #include "AccountPolicy.h"
 #include "../consensus/EpochSeed.h"
@@ -4310,6 +4311,71 @@ TEST_F(CheckpointJoinTest, ABlockLargerThanMaxBlockBytesIsRefused) {
   auto sealed = producer.sealBlock(block);
   ASSERT_FALSE(sealed.isOk());
   EXPECT_NE(sealed.error().message.find("more than maxBlockBytes"), std::string::npos) << sealed.error().message;
+}
+
+// beacon-authority bp8 (re-genesis, B033): a state export is the account state after block H —
+// every account with its leaf fields and full attachment — checked against block H's state root.
+// It works on a copy: the node's ledger is left as it is.
+TEST_F(CheckpointJoinTest, AStateExportIsTheStateAtItsHeightCheckedAgainstItsRoot) {
+  auto &producer = harness_.producer;
+  producer.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock()); // on disk, as a stopped node's
+  Ledger::ChainNode tip = startChain();
+  ASSERT_FALSE(HasFailure());
+  const uint64_t profiled = AccountBuffer::ID_FIRST_USER + 40;
+  ++slot_;
+  tip = produce(tip, slot_, {newUserAt(slot_, profiled, makeKeyPair(), 900, /*profileBytes=*/300)});
+  ASSERT_FALSE(HasFailure());
+  const uint64_t height = tip.block.index;
+  for (int i = 0; i < 3; ++i) { // the state moves on past H
+    tip = next(tip);
+    ASSERT_FALSE(HasFailure());
+  }
+  const uint64_t nextBefore = producer.getNextBlockId();
+  const auto scratch = pp::test::uniqueTempPath("pp-ledger-state-export-scratch");
+
+  auto exported = state_export::exportState(harness_.producerDir.string(), height, scratch.string());
+  ASSERT_TRUE(exported.isOk()) << exported.error().message;
+  const StateSnapshot &snapshot = exported.value();
+  const auto atHeight = producer.readBlock(height);
+  ASSERT_TRUE(atHeight.isOk());
+  EXPECT_EQ(snapshot.predecessor.networkId, producer.getNetworkId());
+  EXPECT_EQ(snapshot.predecessor.height, height);
+  EXPECT_EQ(snapshot.predecessor.blockHash, atHeight.value().hash);
+  EXPECT_EQ(snapshot.predecessor.stateRoot, atHeight.value().block.stateRoot);
+  EXPECT_EQ(snapshot.accountsRoot(), snapshot.predecessor.stateRoot);
+  EXPECT_NE(snapshot.predecessor.stateRoot, tip.block.stateRoot) << "the state at H, not at the tip";
+  EXPECT_EQ(snapshot.config.networkId, producer.getNetworkId());
+
+  const auto found = std::find_if(snapshot.accounts.begin(), snapshot.accounts.end(),
+                                  [&](const StateSnapshot::Account &a) { return a.id == profiled; });
+  ASSERT_NE(found, snapshot.accounts.end());
+  EXPECT_EQ(found->attachment, producer.getAccount(profiled).value().meta) << "the profile, in full";
+  EXPECT_TRUE(std::is_sorted(snapshot.accounts.begin(), snapshot.accounts.end(),
+                             [](const auto &a, const auto &b) { return a.id < b.id; }));
+
+  StateSnapshot read;
+  ASSERT_TRUE(read.ltsFromString(snapshot.ltsToString()));
+  EXPECT_EQ(read.predecessor, snapshot.predecessor);
+  EXPECT_EQ(read.accountsRoot(), snapshot.predecessor.stateRoot);
+
+  StateSnapshot balance = snapshot; // any change to an account breaks the root
+  balance.accounts.front().wallet.mBalances[AccountBuffer::ID_GENESIS] += 1;
+  EXPECT_NE(balance.accountsRoot(), snapshot.predecessor.stateRoot);
+  StateSnapshot profile = snapshot;
+  auto &attachment = std::find_if(profile.accounts.begin(), profile.accounts.end(),
+                                  [&](const StateSnapshot::Account &a) { return a.id == profiled; })->attachment;
+  attachment.back() ^= 1;
+  EXPECT_NE(profile.accountsRoot(), snapshot.predecessor.stateRoot);
+
+  EXPECT_FALSE(std::filesystem::exists(scratch)) << "the scratch copy is removed";
+  EXPECT_EQ(producer.getNextBlockId(), nextBefore);
+  tip = next(tip); // the node's own ledger goes on
+  ASSERT_FALSE(HasFailure());
+  auto beyond = state_export::exportState(harness_.producerDir.string(), producer.getNextBlockId(), scratch.string());
+  ASSERT_FALSE(beyond.isOk());
+  EXPECT_NE(beyond.error().message.find("below height"), std::string::npos) << beyond.error().message;
+  std::error_code ec;
+  std::filesystem::remove_all(scratch, ec);
 }
 
 TEST_F(CheckpointJoinTest, JoinerAtThePreviousCheckpointValidatesFullBlocksLikeTheProducer) {
