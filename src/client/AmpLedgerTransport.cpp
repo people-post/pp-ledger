@@ -179,7 +179,7 @@ private:
       finish(TransportError(body.error().message));
       return false;
     }
-    if (body->size() > pp::ledger::rpc::kMaxPayloadBytes) {
+    if (body->size() > pp::ledger::rpc::kMaxMessageBytes) {
       finish(TransportError("AmpLedgerTransport: response too large"));
       return false;
     }
@@ -301,7 +301,7 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
   if (peer_key_.empty()) {
     return TransportError("AmpLedgerTransport: peer_key not set");
   }
-  if (requestBody.size() > pp::ledger::rpc::kMaxPayloadBytes) {
+  if (requestBody.size() > pp::ledger::rpc::kMaxMessageBytes) {
     return TransportError("AmpLedgerTransport: request too large");
   }
   if (runtime_ && !runtime_->isRunning()) {
@@ -339,7 +339,7 @@ void AmpLedgerTransport::roundTripAsync(const std::string& requestBody, const st
     done(TransportError("AmpLedgerTransport: peer_key not set"));
     return;
   }
-  if (requestBody.size() > pp::ledger::rpc::kMaxPayloadBytes) {
+  if (requestBody.size() > pp::ledger::rpc::kMaxMessageBytes) {
     done(TransportError("AmpLedgerTransport: request too large"));
     return;
   }

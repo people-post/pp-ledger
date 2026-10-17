@@ -142,9 +142,16 @@ public:
   /** Slot duration in seconds. */
   uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
-  /** Max transactions per block (0 = no limit). Renewals are not counted toward
-   * this cap. */
+  /** Max transactions per block (0 = no limit), renewals included (B035). */
   uint64_t getMaxTransactionsPerBlock() const;
+  /** Max bytes per block (0 = no limit; B034). */
+  uint64_t getMaxBlockBytes() const;
+  /**
+   * Bytes the next block at `slot` takes before its records: the header, and the committee when it
+   * opens an epoch (estimated from today's stakeholders, with room for 64 more). For a leader's
+   * budget; the seal checks the real size.
+   */
+  uint64_t estimateBlockShellBytes(uint64_t slot) const;
   /**
    * Empty heartbeat lag in slots from genesis config (`0` = empty seals off).
    */
@@ -370,8 +377,8 @@ public:
                                   const std::string &stakeHash) const;
 
 protected:
-  /** Block `index` of `epoch` becomes the next checkpoint (chain_block::rotatesCheckpoint). */
-  bool rotatesCheckpointAt(uint64_t index, uint64_t epoch) const;
+  /** Block `index` of `epoch` may become the next checkpoint (chain_block::checkpointEligible). */
+  bool checkpointEligibleAt(uint64_t index, uint64_t epoch) const;
 
 private:
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.

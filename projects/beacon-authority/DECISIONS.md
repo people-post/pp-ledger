@@ -691,3 +691,186 @@ taking over, and a start whose rewind just dropped the tip.
   a relay would still keep theirs).
 - Always rotate to a new key on a move (B003's rejected alternative: an admin-key session for every
   routine move).
+
+## B030 — Re-genesis: a new network that imports the old state, checked against its state root
+
+**Date:** 2026-10-16
+**Decision:** Case 1 (no authority left the protocol could follow) is a new network: new
+`networkId`, new genesis, admin, recovery and beacon keys. Its genesis imports the old network's
+account state at a chosen height *H* verbatim and names its predecessor `{networkId, height,
+blockHash, stateRoot}` (genesis meta v11). Every node checks the import against
+`predecessor.stateRoot`; the chain does not start otherwise. It is ordered out of band; nothing on
+the old chain can order it.
+**Rationale:**
+- **No protocol path.** With the admin and recovery sets gone, anything that could hand the chain to
+  a new authority would hand it to a thief too (part 2's "no new authority").
+- **The state root already exists.** Block headers commit to the account tree; checking the import
+  against block *H*'s root takes nothing from the old chain but one header, so a node of the new
+  network verifies the whole import alone. The people running the re-genesis choose *H*, keys and
+  config — they cannot move a balance, change a key or add an account.
+- **A new network id is the clean break.** Every signature binds it (records, tips, certificates,
+  registrations), so nothing crosses between the networks, whoever keeps the old one running.
+- **Accounts survive.** Users and miners keep ids, keys and balances; only signatures after *H* are
+  redone.
+**Cons:**
+- Transactions after *H* are lost unless signed again; clients and operators must switch by hand.
+- Two networks may run side by side (a thief keeps the old one); only the announcement decides.
+- History is split at *H*: explorers join the two through the predecessor link.
+**Alternatives:**
+- Continue the old network under a hard-coded or social authority (would serve a thief).
+- A fresh network funded by `T_NEW_USER` from a list (one balance per account, no miner state,
+  nothing checks the list against the old chain).
+- Keep the old history in the new network (`startingBlockId` = *H* + 1): the new network would need
+  the old blocks for attachments and renewals, under a network id that no longer verifies them.
+- **Re-anchor in place:** keep the old chain; at *H* + 1 a record signed by a new admin set takes
+  over, accepted because each operator configures its hash. No snapshot, history kept — but the
+  authority trail gets a permanent exception ("from *H* on, trust this instead"), every node joining
+  later needs the override to verify from genesis, and the network id must change at *H* (or the
+  thief's fork replays onto the honest one), so verifiers track ids by height. Special code that
+  runs once in a network's life (B022's principle), for no saving in operator work: every operator
+  acts by hand either way.
+- Not a rebuild: the import is the account table at *H* (one record per account, ~2–3 KB with one
+  key — about the size of one round of renewals, which the old chain already writes before every
+  checkpoint), not the old blocks.
+
+## B031 — The state root commits to the whole account
+
+**Date:** 2026-10-16
+**Decision:** The account leaf becomes `SHA-256("pp-ledger/account-leaf/v2" || pack(id, wallet,
+blockId, attachmentHash))`, where `attachmentHash` is the SHA-256 of the account's packed
+`AccountAttachment` (empty attachment: the hash of an empty one). `AccountBuffer` keeps the hash per
+account; it changes only where the attachment does (`T_NEW_USER`, `T_USER_UPDATE`, renewals).
+Breaking ([B008](#b008--breaking-genesis-change-no-migration)).
+The attachment itself — the account's profiles: per publisher a slot with its data, sequence and
+optional attestation — is stored as before, in full, in the block log (the record that last wrote
+the account), and read from there; the hash is added beside it, not in place of it.
+**Rationale:** Leaf v1 covers the attachment only through `blockId` — the block that holds it. A
+re-genesis importing an attachment could not be checked without the old blocks, so profile data and
+attestations could be changed unnoticed. With the hash in the leaf, the state root is a complete
+commitment, which is what an import (B030) and any future state proof need.
+**Cons:** 32 bytes per account in memory; every account write hashes its attachment (already in hand).
+**Alternatives:** Leave attachments unchecked in an import; drop attachments in a re-genesis; check
+them against old blocks (needs the old chain at every node).
+
+## B032 — The import rides in import blocks after genesis
+
+**Date:** 2026-10-16
+**Decision:**
+- **`T_IMPORT` (20)** carries one account: id, wallet, its full attachment (profiles), old
+  `blockId`. Unsigned.
+- **Import span.** Block 0 holds `T_GENESIS` only (with the predecessor; no system records); blocks 1
+  … *k* hold only `T_IMPORT`, ids strictly ascending across the span, at slot 0, each within
+  `maxBlockBytes` (B034); the last one is marked as the end. Nodes fold the old leaves into a tree as the span
+  arrives and require its root at *k* to equal `predecessor.stateRoot`.
+- **Applied:** an account's `blockId` becomes its import block; slot- and epoch-valued miner fields
+  are reset (`lastProducedSlot` 0, `missedDue` 0, `autoDeregisteredEpoch` never; `registered` kept);
+  system accounts keep balances and take their keys from the new `init-config.json`.
+- **Genesis rules for an importing genesis:** no initial-supply rule (the supply is what was
+  imported); epoch 0's committee is the registered miners after block *k*; the old
+  `BlockChainConfig` is carried except `networkId` (must differ) and `genesisTime`, and
+  `init-config.json` may override fields.
+**Rationale:**
+- **Size.** A block is bounded by `maxBlockBytes` (B034; 4 MiB, a few thousand one-key accounts). A
+  span of ordinary blocks scales to any state and reuses sync, adoption up to a signed tip, storage
+  and checkpoints unchanged.
+- **Full attachments.** Each record carries the account's whole profile, stored in the new block
+  log as any account's is; B031's hash only checks it.
+- **Unsigned records.** The predecessor's state root authenticates every record; signatures would
+  only add ~3.3 KB each and a key that must exist at import time.
+- **Resetting slot fields.** They count slots of the old genesis time; carried as numbers they would
+  make miners due or deregistered at once. They are checked as imported, then reset by one rule
+  every node applies.
+**Cons:** Import blocks are a special case in validation (slot 0, no leader, no fees); a large state
+takes a long first sync (as a chain from genesis does).
+**Alternatives:** Everything in block 0 (bounded by `maxBlockBytes`); a snapshot file fetched out of
+band with only its hash in genesis (a second transport for nodes).
+
+## B033 — Re-genesis tooling and roles
+
+**Date:** 2026-10-16
+**Decision:**
+- **Export** offline from a copy of a full node's directory (a relay holds the chain from genesis):
+  `pp-client export-state -d <copy> --height H -o state.snap` cuts the copy after *H*, loads it, and
+  writes a versioned `StateSnapshot` — header = the predecessor; accounts by id with their old leaf
+  fields — after checking its root against block *H*'s `stateRoot`.
+- **New genesis:** `pp-beacon --init --import-state state.snap` with a new `init-config.json`
+  (refuses the old network id), writes blocks 0 … *k* and signs the tip at *k*.
+- **Check:** `pp-client check-predecessor -d <old ledger> --host <node of the new network>` compares
+  the new genesis's predecessor with block *H* of a ledger the operator already trusts.
+- **Join:** relays and miners start fresh for the new network, pinning its genesis hash
+  (`networkAnchor.genesisHash`); miners keep their keys and ids. A runbook
+  (`docs/ops/RE_GENESIS.md`) and a smoke drill (`--suite regenesis`) cover it.
+**Rationale:** Every step reuses what operators already run (`--init`, anchors, fresh joins); the
+only new trust input — "block *H* is the old network's" — is one hash anyone with the old chain can
+check, offline.
+**Cons:** Fully manual; every operator acts. That is the point of "out of band", and case 1 is the
+case nobody should reach.
+**Alternatives:** Nodes switch on their own when they see a new genesis naming their network as
+predecessor (a thief could announce one too: the check proves the state, not who should run it).
+
+## B034 — Blocks have a byte limit; the RPC carries what consensus allows
+
+**Date:** 2026-10-16
+**Superseded by:** [WIRE_SCHEMA.md § Block size](../../docs/contracts/WIRE_SCHEMA.md#block-size), [AMP_TRANSPORT.md § Protocol](../../docs/contracts/AMP_TRANSPORT.md#protocol) (normative; this entry keeps the why).
+**Decision:**
+- **`maxBlockBytes`** joins `BlockChainConfig` (set in genesis, changed by `T_CONFIG`; default
+  4 MiB): the packed block a node stores and sends. The slot leader stops adding records before the
+  next would pass it; every node refuses a larger block. Renewals share both limits
+  ([B035](#b035--due-renewals-may-wait-a-checkpoint-waits-for-them)).
+- **One record always fits:** config checks (init and `T_CONFIG`) keep the largest record —
+  `maxCustomMetaSize` plus the most keys and signatures an account may have — well under
+  `maxBlockBytes`.
+- **The transport follows the chain.** Messages that carry blocks or records — `BLOCK_GET` and
+  `ACCOUNT_GET` replies, `BLOCK_ADD` and `TX_ADD` requests, `TX_PULL` and `TX_GET_*` replies — may be
+  `maxBlockBytes` plus a 64 KiB envelope, over Amp's Bulk profile (messages up to 4 MiB + 64 KiB);
+  `maxBlockBytes` may not exceed what the transport carries. Every other request keeps a small cap.
+  Replies listing many items (`TX_PULL`, `TX_GET_BY_WALLET`) stop at the cap and page as they do now.
+- **Memory stays bounded:** a request is checked against its type's cap as it arrives; a peer has
+  at most 16 requests arriving at once — the ledger's server counts them per peer from channel open
+  to complete body, no Amp change needed; the request queue bounds bytes (64 MiB) as well as count.
+**Rationale:**
+- **The two limits disagreed.** The RPC capped every message at 512 KiB, a constant of the Amp
+  channel profile chosen, while consensus bounded only the transaction count (10240 a block): about
+  150 ML-DSA-signed transfers already pass 512 KiB. A leader could seal a block it cannot send up
+  and no node can fetch — with a busy pool, every leader in turn, and the chain stalls. A 1 MiB
+  account meta (`maxCustomMetaSize`) was legal yet could not even be submitted.
+- **A limit in consensus is the honest one.** Every node agrees on it, it is checked where blocks
+  are made and accepted, and the transport is sized from it instead of the other way round.
+- **4 MiB** is what Amp's Bulk profile carries in one message today: no chunking needed. Larger
+  blocks later mean fetching a block in pieces, not a smaller chain.
+**Cons:** Large messages cost memory per peer, hence the per-type caps and the in-flight bound; a
+config change of `maxBlockBytes` above the transport's ceiling needs a transport change first.
+**Alternatives:** Raise the RPC constant alone (the two limits still disagree); a byte limit only in
+the transport (blocks made that cannot travel); chunked block transfer now (not needed at 4 MiB).
+
+## B035 — Due renewals may wait; a checkpoint waits for them
+
+**Date:** 2026-10-16
+**Superseded by:** [WIRE_SCHEMA.md § Config updates](../../docs/contracts/WIRE_SCHEMA.md) (renewals, checkpoints), [BLOCK_PIPELINE.md § Checkpoints and late join](../../docs/architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join) (normative; this entry keeps the why).
+**Decision:**
+- **A renewal backlog is allowed.** Every due renewal still goes into the next block that has room,
+  but a block may leave due renewals out when they do not fit. A block that leaves any out holds
+  only renewals — at least one — and at most a beacon certificate (a takeover's block *C*+1 must not
+  wait). It replaces the renewal-only overflow past `maxTransactionsPerBlock`: renewals count
+  toward both limits. Honest leaders fill such a block to the limits, genesis and system accounts
+  first, then by account id.
+- **A checkpoint waits for the backlog.** A block rotates the checkpoint only when, besides today's
+  rules, no account last written before the current checkpoint is still waiting for its renewal
+  (state before the block, the same for every node); otherwise the next epoch start is tried. The
+  checkpoint block still opens with the genesis renewal.
+**Rationale:**
+- **The due set has no size bound.** The deadline slides with the block's slot time: after a quiet
+  period, one block inherits the renewals of every block written in the matching stretch a period
+  ago, each carrying the account's full meta. "All due renewals in this block" cannot hold under a
+  byte limit — and was already a liveness risk past the RPC cap.
+- **Order, not completeness, is what renewals need.** Fees and terminations apply a little later;
+  nothing reads an account's renewal before it lands. What must hold is B015's invariant — at a
+  checkpoint every account has a record after the previous one — so a miner warming up from it
+  meets every account; the checkpoint condition keeps it.
+- **No new trust.** Validators check that a short block holds only renewals; a lazy leader slows
+  the backlog, it cannot stop it (every next leader adds more) or skip an account.
+**Cons:** Ordinary transactions wait while a backlog drains; a checkpoint may slip an epoch.
+**Alternatives:** Exempt renewals from the byte limit (blocks that cannot travel); renew everything
+at the checkpoint (unbounded checkpoint block, B015's rejected option); validators recompute the
+first renewal left out and check it would not fit (exact, but heavy for a liveness property).
+

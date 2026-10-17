@@ -31,7 +31,8 @@ std::ostream &operator<<(std::ostream &os, const BlockChainConfig &config) {
      << "minerRegistrationFee: " << config.minerRegistrationFee << ", "
      << "minerDueAfterSlots: " << config.minerDueAfterSlots << ", "
      << "minerMaxMissedSlots: " << config.minerMaxMissedSlots << ", "
-     << "minerReregisterCooldownEpochs: " << config.minerReregisterCooldownEpochs << "}";
+     << "minerReregisterCooldownEpochs: " << config.minerReregisterCooldownEpochs << ", "
+     << "maxBlockBytes: " << config.maxBlockBytes << "}";
   return os;
 }
 

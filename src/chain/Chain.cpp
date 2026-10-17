@@ -2,6 +2,7 @@
 #include "AccountPolicy.h"
 #include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
+#include "ConfigPolicy.h"
 #include "EndUserTxHandler.h"
 #include "MinerLiveness.h"
 #include "RecordHandler.h"
@@ -123,10 +124,10 @@ Chain::Roe<void> Chain::sealReadiness(uint64_t slot) const {
   return {};
 }
 
-bool Chain::rotatesCheckpointAt(uint64_t index, uint64_t epoch) const {
+bool Chain::checkpointEligibleAt(uint64_t index, uint64_t epoch) const {
   return txContext_.optChainConfig.has_value() &&
-         chain_block::rotatesCheckpoint(txContext_.ledger, txContext_.consensus, txContext_.optChainConfig.value(),
-                                        txContext_.checkpoint, index, epoch);
+         chain_block::checkpointEligible(txContext_.ledger, txContext_.consensus, txContext_.optChainConfig.value(),
+                                         txContext_.checkpoint, index, epoch);
 }
 
 Chain::Checkpoint Chain::getCheckpoint() const { return txContext_.checkpoint; }
@@ -177,6 +178,27 @@ uint64_t Chain::getMaxTransactionsPerBlock() const {
   return txContext_.optChainConfig.has_value()
              ? txContext_.optChainConfig.value().maxTransactionsPerBlock
              : 0;
+}
+
+uint64_t Chain::getMaxBlockBytes() const {
+  return txContext_.optChainConfig.has_value() ? txContext_.optChainConfig.value().maxBlockBytes : 0;
+}
+
+uint64_t Chain::estimateBlockShellBytes(uint64_t slot) const {
+  auto last = readLastBlock();
+  if (!last) {
+    return 0;
+  }
+  Ledger::ChainNode shell = linkNextBlock(last.value(), slot, 0, 0, {});
+  shell.block.epoch = txContext_.consensus.getEpochFromSlot(slot);
+  for (std::string *root : {&shell.block.txRoot, &shell.block.stateRoot, &shell.block.stakeSnapshotHash,
+                            &shell.block.epochSeed}) {
+    root->assign(32, '\0');
+  }
+  if (chain_block::opensEpoch(txContext_.ledger, shell.block)) {
+    shell.block.committee.resize(txContext_.consensus.getStakeholderCount() + 64);
+  }
+  return shell.block.ltsToString().size();
 }
 
 uint64_t Chain::getHeartbeatSlots() const {
@@ -365,11 +387,18 @@ Chain::collectRenewals(uint64_t slot) const {
   if (maxBlockIdForRenewal > 0) {
     due = txContext_.bank.getAccountIdsBeforeBlockId(maxBlockIdForRenewal);
   }
-  // A checkpoint block opens with the genesis renewal, due or not (beacon-authority ba5b).
-  if (txContext_.optChainConfig.has_value() &&
-      rotatesCheckpointAt(nextBlockId, txContext_.consensus.getEpochFromSlot(slot)) &&
-      std::find(due.begin(), due.end(), AccountBuffer::ID_GENESIS) == due.end()) {
-    due.push_back(AccountBuffer::ID_GENESIS);
+  // A checkpoint block opens with the genesis renewal, due or not (beacon-authority ba5b) — once
+  // every account last written before the current checkpoint renewed (B035); until then the
+  // genesis renewal waits, and the checkpoint with it.
+  if (checkpointEligibleAt(nextBlockId, txContext_.consensus.getEpochFromSlot(slot))) {
+    const auto genesis = std::find(due.begin(), due.end(), AccountBuffer::ID_GENESIS);
+    if (chain_block::renewalsWaitBelow(txContext_.bank, txContext_.checkpoint.currentId)) {
+      if (genesis != due.end()) {
+        due.erase(genesis);
+      }
+    } else if (genesis == due.end()) {
+      due.push_back(AccountBuffer::ID_GENESIS);
+    }
   }
   if (due.empty()) {
     return renewals;
@@ -429,6 +458,7 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   }
 
   size_t nBlocksScanned = 0;
+  size_t outBytes = 0;
   uint64_t currentBlockId = ioBlockId;
   while (currentBlockId > 0 &&
          nBlocksScanned < MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX) {
@@ -439,11 +469,22 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
                    "Block not found: " + std::to_string(currentBlockId));
     }
     auto const &recs = blockRoe.value().block.records;
+    std::vector<Ledger::Record> matches;
+    size_t matchBytes = 0;
     for (auto it = recs.rbegin(); it != recs.rend(); ++it) {
       if (recordHandler_.matchesWalletForIndex(*it, walletId)) {
-        out.push_back(*it);
+        matchBytes += utl::binaryPack(*it).size();
+        matches.push_back(*it);
       }
     }
+    // A reply stays within what one block may take (B034): a block's matches always fit, whole
+    // blocks per page; the next page starts at the block left out.
+    if (!out.empty() && outBytes + matchBytes > chain_tx::kMaxBlockBytesCeiling) {
+      ioBlockId = currentBlockId + 1;
+      return out;
+    }
+    outBytes += matchBytes;
+    out.insert(out.end(), std::make_move_iterator(matches.begin()), std::make_move_iterator(matches.end()));
     ++nBlocksScanned;
     if (out.size() >= THRESHOLD_TXES_FOR_WALLET_TX) {
       break;
@@ -1223,7 +1264,9 @@ void Chain::maybeRotateCheckpoint(const Ledger::ChainNode &block) {
   if (block.block.index == 0) {
     return;
   }
-  if (rotatesCheckpointAt(block.block.index, block.block.epoch)) {
+  if (txContext_.optChainConfig.has_value() &&
+      chain_block::rotatesCheckpoint(txContext_.ledger, txContext_.consensus, txContext_.optChainConfig.value(),
+                                     txContext_.checkpoint, block)) {
     txContext_.checkpoint.lastId = txContext_.checkpoint.currentId;
     txContext_.checkpoint.currentId = block.block.index;
     log().info << "Checkpoint rotated: last=" << txContext_.checkpoint.lastId

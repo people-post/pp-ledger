@@ -1,7 +1,9 @@
 #include "Miner.h"
 #include "common/Logger.h"
+#include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 #include <algorithm>
+#include <limits>
 #include <chrono>
 #include <filesystem>
 #include <sstream>
@@ -227,6 +229,16 @@ void Miner::refresh() {
   chain_.refreshStakeholders();
 }
 
+bool Miner::BlockBudget::take(const Ledger::Record &record) {
+  const uint64_t bytes = utl::binaryPack(record).size();
+  if (recordsLeft == 0 || bytes > bytesLeft) {
+    return false;
+  }
+  --recordsLeft;
+  bytesLeft -= bytes;
+  return true;
+}
+
 Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
   slotCache_ = {};
   slotCache_.slot = slot;
@@ -241,6 +253,17 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
       return Error(12, renewalsResult.error().message);
     }
     auto renewals = renewalsResult.value();
+    // Both block limits bind every record (B034, B035): a certificate due first (a takeover's
+    // block needs it), then the due renewals while they fit; the rest wait for the next block.
+    const uint64_t maxTx = chain_.getMaxTransactionsPerBlock();
+    const uint64_t maxBytes = chain_.getMaxBlockBytes();
+    const uint64_t shell = maxBytes > 0 ? chain_.estimateBlockShellBytes(slot) : 0;
+    slotCache_.budget.recordsLeft = maxTx > 0 ? maxTx : std::numeric_limits<uint64_t>::max();
+    slotCache_.budget.bytesLeft = maxBytes == 0 ? std::numeric_limits<uint64_t>::max() : maxBytes > shell ? maxBytes - shell : 0;
+    const auto certificate = chain_.certificateDueAt(chain_.getNextBlockId());
+    if (certificate && !slotCache_.budget.take(*certificate)) {
+      log().error << "The beacon certificate due does not fit block " << chain_.getNextBlockId();
+    }
     const std::string networkId = chain_.getNetworkId();
     for (auto &rec : renewals) {
       const std::string message = rec.signingMessage(networkId);
@@ -251,6 +274,12 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
           return Error(12, result.error().message);
         }
         rec.signatures.push_back(*result);
+      }
+      if (!slotCache_.budget.take(rec)) {
+        slotCache_.renewalsWait = true;
+        log().warning << "Leading slot " << slot << ": " << renewals.size() - slotCache_.leaderRecords.size()
+                      << " due renewal(s) wait for the next block (block limits)";
+        break;
       }
       auto addResult =
           chain_.addBufferTransaction(bufferBank_, rec, config_.minerId);
@@ -263,7 +292,7 @@ Miner::Roe<void> Miner::initSlotCache(uint64_t slot) {
     }
     // The block after a cutover commits the certificate held (bp3): the beacon taking over commits
     // nothing else there. After the renewals: a checkpoint block opens with its genesis renewal.
-    if (auto due = chain_.certificateDueAt(chain_.getNextBlockId())) {
+    if (const auto &due = certificate) {
       if (auto added = chain_.addBufferTransaction(bufferBank_, *due, config_.minerId); !added) {
         log().error << "The beacon certificate held does not apply to block " << chain_.getNextBlockId() << ": "
                     << added.error().message;
@@ -371,6 +400,11 @@ Miner::Roe<bool> Miner::produceBlock(Ledger::ChainNode &block) {
 
   Miner::BlockTxSet txSet = getBlockTransactionSet();
   auto createResult = createBlock(slot, txSet.records);
+  // The committee estimate fell short: drop the last record until the block fits (B034).
+  while (!createResult && createResult.error().code == E_BLOCK_TOO_LARGE && txSet.records.size() > 1) {
+    txSet.records.pop_back();
+    createResult = createBlock(slot, txSet.records);
+  }
   if (!createResult) {
     return Error(7, "Failed to create block: " + createResult.error().message);
   }
@@ -469,20 +503,18 @@ std::optional<Chain::EquivocationOffer> Miner::noteEquivocation(const Client::Eq
 
 Miner::BlockTxSet Miner::getBlockTransactionSet() const {
   Miner::BlockTxSet out;
-  const size_t leaderCount = slotCache_.leaderRecords.size();
-  const uint64_t maxTx = chain_.getMaxTransactionsPerBlock();
   out.records = slotCache_.leaderRecords;
-  if (maxTx == 0) {
-    out.nPendingIncluded = pendingTxes_.size();
-    out.records.insert(out.records.end(), pendingTxes_.begin(),
-                          pendingTxes_.end());
-  } else {
-    const size_t pendingCap =
-        (maxTx > leaderCount) ? static_cast<size_t>(maxTx - leaderCount)
-                               : 0;
-    out.nPendingIncluded = std::min(pendingTxes_.size(), pendingCap);
-    out.records.insert(out.records.end(), pendingTxes_.begin(),
-                       pendingTxes_.begin() + static_cast<std::ptrdiff_t>(out.nPendingIncluded));
+  if (slotCache_.renewalsWait) {
+    return out; // renewals only while some wait (B035)
+  }
+  // Pending transactions in order while they fit what the leader's records left (B034).
+  BlockBudget budget = slotCache_.budget;
+  for (const auto &rec : pendingTxes_) {
+    if (!budget.take(rec)) {
+      break;
+    }
+    out.records.push_back(rec);
+    ++out.nPendingIncluded;
   }
   return out;
 }
@@ -502,6 +534,11 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
                                     timestamp, records);
   auto sealResult = chain_.sealBlock(block);
   if (!sealResult) {
+    // The seal assembled the header in place: its size is the block's.
+    const uint64_t maxBytes = chain_.getMaxBlockBytes();
+    if (maxBytes > 0 && block.block.ltsToString().size() > maxBytes) {
+      return Error(E_BLOCK_TOO_LARGE, "Failed to seal block: " + sealResult.error().message);
+    }
     return Error(12, "Failed to seal block: " + sealResult.error().message);
   }
 

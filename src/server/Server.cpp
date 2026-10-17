@@ -4,6 +4,8 @@
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include "amp/link/AdpMultiaddr.h"
+#include "../network/LedgerRpcProtocol.h"
+#include "../chain/ConfigPolicy.h"
 
 #include <set>
 #include <mutex>
@@ -12,6 +14,9 @@
 #include <thread>
 
 namespace pp {
+
+// The transport carries the largest block any chain config may allow, with its envelope (B034).
+static_assert(ledger::rpc::kMaxMessageBytes >= chain_tx::kMaxBlockBytesCeiling + ledger::rpc::kEnvelopeBytes);
 namespace {
 
 bool isBootstrapWorkDirEntry(const std::filesystem::directory_entry& entry) {
@@ -194,7 +199,21 @@ void Server::writeListenMultiaddrFile() const {
 }
 
 void Server::enqueueRequest(std::string body, RequestQueue::Reply reply, std::string peerId) {
+  // A reply the transport cannot carry is an error to the client, not a silent timeout (B034).
+  reply = [reply = std::move(reply)](std::string response) {
+    if (response.size() > ledger::rpc::kMaxMessageBytes) {
+      response = packResponse(Client::E_SERVER_ERROR, "Reply of " + std::to_string(response.size()) +
+                                                          " bytes is larger than the RPC carries");
+    }
+    reply(std::move(response));
+  };
   const auto type = Client::peekRequestType(body);
+  // Only blocks and records come large (B034); anything else above the small cap is refused unread.
+  const bool carriesRecord = type == Client::T_REQ_BLOCK_ADD || type == Client::T_REQ_TX_ADD;
+  if (!carriesRecord && body.size() > ledger::rpc::kMaxSmallRequestBytes) {
+    reply(packResponse(1, "Request of " + std::to_string(body.size()) + " bytes is too large for its type"));
+    return;
+  }
   if (type == Client::T_REQ_HEALTH) {
     reply(healthResponse()); // a probe: any peer, never queued
     return;

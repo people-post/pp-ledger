@@ -232,6 +232,7 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
   j.setJsonUInt("slotsPerEpoch", slotsPerEpoch);
   j.setJsonUInt("maxCustomMetaSize", maxCustomMetaSize);
   j.setJsonUInt("maxTransactionsPerBlock", maxTransactionsPerBlock);
+  j.setJsonUInt("maxBlockBytes", maxBlockBytes);
   {
     std::vector<Value> coeffs;
     for (uint16_t c : minFeeCoefficients) {
@@ -306,6 +307,13 @@ BeaconServer::InitFileConfig::ltsFromJson(const Object &jd) {
       return r;
   } else {
     maxTransactionsPerBlock = DEFAULT_MAX_TRANSACTIONS_PER_BLOCK;
+  }
+
+  if (jd.contains("maxBlockBytes")) {
+    if (auto r = readU64("maxBlockBytes", maxBlockBytes, true, false); !r)
+      return r;
+  } else {
+    maxBlockBytes = DEFAULT_MAX_BLOCK_BYTES;
   }
 
   if (jd.contains("minFeeCoefficients")) {
@@ -619,6 +627,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.maxCustomMetaSize = initFileConfig.maxCustomMetaSize;
   initConfig.chain.maxTransactionsPerBlock =
       initFileConfig.maxTransactionsPerBlock;
+  initConfig.chain.maxBlockBytes = initFileConfig.maxBlockBytes;
   initConfig.chain.minFeeCoefficients = initFileConfig.minFeeCoefficients;
   if (initFileConfig.freeCustomMetaSize >
       std::numeric_limits<uint32_t>::max()) {
@@ -642,6 +651,9 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.networkId = initFileConfig.networkId;
   if (auto liveness = chain_tx::validateLivenessSettings(initConfig.chain); !liveness) {
     return Error("Invalid init config: " + liveness.error().message);
+  }
+  if (auto limits = chain_tx::validateBlockLimits(initConfig.chain); !limits) {
+    return Error("Invalid init config: " + limits.error().message);
   }
   initConfig.miners = initFileConfig.genesisMiners;
   log().info << "  Genesis miners: " << initConfig.miners.size();
@@ -1260,7 +1272,10 @@ BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &rec
 BeaconServer::Roe<std::string>
 BeaconServer::hTxPull(const Client::Request & /*request*/) {
   txPool_.expire(nowSeconds());
-  return utl::binaryPack(txPool_.pending(TX_PULL_MAX_RECORDS));
+  // No more than a leader can put in a block (B034): the reply always travels.
+  const uint64_t maxBytes = beacon_.getMaxBlockBytes();
+  return utl::binaryPack(
+      txPool_.pending(TX_PULL_MAX_RECORDS, maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
 }
 
 BeaconServer::Roe<std::string>

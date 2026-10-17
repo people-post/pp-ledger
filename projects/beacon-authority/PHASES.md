@@ -138,4 +138,31 @@ every node (B022–B024).
       ledger past genesis unless `--accept-ledger-tip` (B029); a miner waits at start for an upstream to
       answer, within the startup sync's 5 minutes (it gave up after one round, so a miner restarting
       for a rewind while its relay restarted too exited — the takeover drill's flake)
-- [ ] **bp5** Case 1 (re-genesis): design note, then phases
+- [x] **bp5** Case 1 (re-genesis) design note: a new network importing the old account state at a
+      chosen height, checked against block *H*'s state root (B030); the state root covers the whole
+      account (B031); the import in `T_IMPORT` blocks after genesis (B032); export, init and check
+      tools, roles (B033); block byte limit first (B034) — [DESIGN.md § Case 1](DESIGN.md#case-1--re-genesis-bp5)
+- [x] **bp6** Block byte limit (B034): `maxBlockBytes` in `BlockChainConfig` (default 4 MiB, at
+      most what the transport carries), enforced when the leader assembles and when nodes validate;
+      due renewals may wait in a backlog, a checkpoint waits for it (B035); config checks that the
+      largest record fits; the RPC sized from it —
+      block- and record-carrying messages over Amp's Bulk profile, small caps for the rest, list
+      replies paged at the cap, large messages per peer and queued bytes bounded (an Amp knob in
+      pp-cpp-amp if needed); tests: an oversized block is neither sealed nor accepted, a 1 MiB
+      account meta can be submitted and fetched, a small request type refuses a large body
+- [ ] **bp7** State leaf v2: `attachmentHash` in the account leaf, kept per account in
+      `AccountBuffer`, updated where attachments change (B031); WIRE_SCHEMA's commitments; tests that
+      the root changes with an attachment and not otherwise. Breaking (new genesis)
+- [ ] **bp8** State export: `StateSnapshot` (versioned: predecessor header + accounts with their old
+      leaf fields and attachments), `pp-client export-state -d <copy> --height H` (cut a copy after
+      *H*, load, dump, check the root against block *H*); tests: a snapshot's root equals the
+      block's, an altered account fails
+- [ ] **bp9** Importing genesis: genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
+      (ordering, slot 0, the end marker, the root check at *k*), applied fields (blockId, miner
+      resets, system keys), genesis rules for an importing genesis (supply, committee, config), and
+      `pp-beacon --init --import-state`; sync, adoption and checkpoints over the span; tests
+- [ ] **bp10** Tooling, runbook and drill: `pp-client check-predecessor`, `docs/ops/RE_GENESIS.md`,
+      `--suite regenesis` (an old network with users, a token and miners → export at *H* → a new
+      network: same ids, keys, balances and attachments; miners produce with their old keys; a
+      transaction signed for the new network commits, one signed for the old is refused); contracts
+      promoted (BEACON_AUTHORITY, WIRE_SCHEMA, LEDGER_STORAGE)

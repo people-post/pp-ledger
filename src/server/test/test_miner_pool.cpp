@@ -9,6 +9,9 @@
 #include "TestTempPath.h"
 
 #include <gtest/gtest.h>
+
+#include <algorithm>
+#include <set>
 #include <iterator>
 #include <cctype>
 #include <algorithm>
@@ -64,8 +67,8 @@ protected:
         << R"(, "recycle": )" << pub(utl::mlDsaGenerate().value()) << "},"
         << R"( "recovery": )" << pub(utl::mlDsaGenerate().value()) << ","
         << R"( "slotDuration": 1, "slotsPerEpoch": 1000, "maxCustomMetaSize": 10000,)"
-        << R"( "maxTransactionsPerBlock": 100, "minFeeCoefficients": [1, 1, 0],)"
-        << R"( "freeCustomMetaSize": 1024, "checkpointMinBlocks": 1000,)"
+        << R"( "maxTransactionsPerBlock": )" << maxTransactionsPerBlock_ << R"(, "minFeeCoefficients": [1, 1, 0],)"
+        << R"( "freeCustomMetaSize": 1024, "checkpointMinBlocks": )" << checkpointMinBlocks_ << ","
         << R"( "checkpointMinAgeSeconds": 0, "heartbeatSlots": 1000,)"
         << R"( "genesisMiners": [{"id": )" << kMinerId << R"(, "publicKeys": [")"
         << utl::hexEncode(minerKey.value().publicKey) << R"("]}]})";
@@ -167,12 +170,79 @@ protected:
     return std::nullopt;
   }
 
+  /** Genesis settings a derived fixture may change before SetUp. */
+  uint64_t maxTransactionsPerBlock_ = 100;
+  uint64_t checkpointMinBlocks_ = 1000;
+
   fs::path root_;
   /** The admin set: 2-of-3. */
   std::vector<utl::MlDsaKeyPair> genesisKeys_;
   std::vector<utl::MlDsaKeyPair> reserveKeys_;
   std::unique_ptr<Miner> miner_;
 };
+
+/** Accounts fall due for renewal three blocks after they are written, three records a block. */
+class LeaderBudgetTest : public MinerPoolTest {
+protected:
+  LeaderBudgetTest() {
+    maxTransactionsPerBlock_ = 3;
+    checkpointMinBlocks_ = 3;
+  }
+};
+
+bool isRenewal(const Ledger::Record &record) {
+  return record.type == Ledger::T_RENEWAL || record.type == Ledger::T_END_USER;
+}
+
+// B035: the leader packs every block to the limits. The six accounts written in genesis fall due
+// together in block 3, twice what a block may hold: the leader renews three, leaves the rest for the
+// next block, and keeps its pending transfer out while renewals wait; once they are drained the
+// transfer goes in. Every block it makes is one the chain accepts.
+TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) {
+  std::vector<Ledger::ChainNode> blocks;
+  uint64_t idempotentId = 1;
+  int64_t after = -1;
+  bool transferAfterRenewals = false;
+  while (!transferAfterRenewals && blocks.size() < 12) {
+    auto slot = waitForLeaderSlotAfter(after);
+    ASSERT_TRUE(slot.has_value());
+    auto added = miner_->addTransaction(transferValidFrom(*slot, 60, idempotentId++));
+    ASSERT_TRUE(added.isOk()) << added.error().message;
+    Ledger::ChainNode block;
+    ASSERT_TRUE(produceWhenSealTime(block));
+    auto committed = miner_->addBlock(block);
+    ASSERT_TRUE(committed.isOk()) << "block " << block.block.index << ": " << committed.error().message;
+    miner_->markBlockProduction(block);
+    after = static_cast<int64_t>(block.block.slot);
+    ASSERT_LE(block.block.records.size(), 3u) << "block " << block.block.index;
+    const bool renewsAny = std::any_of(block.block.records.begin(), block.block.records.end(), isRenewal);
+    const bool renewalsSeen = std::any_of(blocks.begin(), blocks.end(), [](const Ledger::ChainNode &b) {
+      return std::any_of(b.block.records.begin(), b.block.records.end(), isRenewal);
+    });
+    transferAfterRenewals = renewalsSeen && !std::all_of(block.block.records.begin(), block.block.records.end(), isRenewal);
+    if (renewsAny || transferAfterRenewals) {
+      blocks.push_back(block);
+    } else {
+      blocks.clear(); // before the renewals fall due
+      blocks.push_back(block);
+    }
+  }
+  ASSERT_TRUE(transferAfterRenewals) << "the transfer never got in after the renewals";
+  // blocks: the last block before renewals, the renewals-only blocks, then the one with the transfer.
+  ASSERT_GE(blocks.size(), 4u);
+  std::set<uint64_t> renewed;
+  for (size_t i = 1; i + 1 < blocks.size(); ++i) {
+    const auto &records = blocks[i].block.records;
+    EXPECT_EQ(records.size(), 3u) << "block " << blocks[i].block.index << " is filled to the limit";
+    for (const auto &record : records) {
+      ASSERT_TRUE(isRenewal(record)) << "block " << blocks[i].block.index << ": renewals only while some wait";
+      auto tx = utl::binaryUnpack<Ledger::TxRenewal>(record.data);
+      ASSERT_TRUE(tx.isOk());
+      renewed.insert(tx.value().walletId);
+    }
+  }
+  EXPECT_GE(renewed.size(), 6u) << "every account written in genesis renewed";
+}
 
 // A pending transaction that stops applying (here: its validity window ended)
 // must be dropped when the next slot rebuilds the pool — not abort the slot

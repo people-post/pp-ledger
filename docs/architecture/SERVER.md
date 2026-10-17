@@ -385,9 +385,11 @@ See [THREADING.md](THREADING.md) for the model and its rollout.
 
 ### Request limits
 
-Requests wait in a bounded queue for the server thread; when it is full a request gets
-an immediate "busy" reply, and one that waited past half the RPC timeout gets "expired".
-Payloads are capped at 512 KiB. These limits are fixed
+Requests wait in a bounded queue for the server thread (by count, and 64 MiB of bodies); when it
+is full a request gets an immediate "busy" reply, and one that waited past half the RPC timeout
+gets "expired". Messages are sized from the chain's block limit: a block or a record (`BLOCK_ADD`,
+`TX_ADD`) up to 4 MiB + 64 KiB, any other request 64 KiB; a reply too large to send is an error
+reply ([AMP_TRANSPORT.md § Protocol](../contracts/AMP_TRANSPORT.md#protocol)). These limits are fixed
 ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)).
 
 ## Usage Examples

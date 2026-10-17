@@ -1,6 +1,6 @@
 # Beacon authority — design
 
-**Status:** part 1 shipped (B001–B021; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2 in design (bp0)
+**Status:** part 1 shipped (B001–B021; normative in [BEACON_AUTHORITY.md](../../docs/contracts/BEACON_AUTHORITY.md)); part 2: cases 2 and 3 shipped (bp1–bp4), case 1 (re-genesis) designed (bp5)
 **Open item:** [SLOT_COMMITTEE_OPEN_ITEMS.md § E](../../docs/architecture/SLOT_COMMITTEE_OPEN_ITEMS.md)
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md)
 
@@ -318,8 +318,99 @@ and one guard — a copy without `data/signed-tip.dat` does not sign its ledger 
 
 ### Case 1 — re-genesis (bp5)
 
-Everything lost: a new genesis committing to the last good state (block hash and state root at a
-chosen height). It needs state import into a genesis — a design of its own, after bp1–bp4.
+**Status:** bp5 design note, decided: [B030](DECISIONS.md#b030--re-genesis-a-new-network-that-imports-the-old-state-checked-against-its-state-root),
+[B031](DECISIONS.md#b031--the-state-root-commits-to-the-whole-account),
+[B032](DECISIONS.md#b032--the-import-rides-in-import-blocks-after-genesis),
+[B033](DECISIONS.md#b033--re-genesis-tooling-and-roles); prerequisite
+[B034](DECISIONS.md#b034--blocks-have-a-byte-limit-the-rpc-carries-what-consensus-allows).
+
+**When.** No authority is left that the protocol could follow: the beacon key and the admin keys
+are lost or stolen, and the recovery set cannot act (lost too, or the admin set it would replace is
+not the problem). If the recovery set can act, it replaces the admin set and case 2 follows; that is
+always preferable — it keeps the network, its history and every signature. Re-genesis is the last
+resort, and deliberately **out of band**: no record on the old chain can order it, because one that
+could would serve a thief as well ([§ Principles](#principles): no new authority).
+
+**What it is.** A **new network** — a new `networkId`, new genesis, admin, recovery and beacon keys —
+whose genesis **imports the old network's account state at a chosen height *H***, verbatim, and
+names where it came from:
+
+```
+predecessor { networkId, height H, blockHash, stateRoot }   // in the genesis meta (v11)
+```
+
+Every node of the new network checks the import against `predecessor.stateRoot` — the root the old
+chain committed in block *H*'s header. The state root covers every account (id, balances, keys,
+threshold, miner state and — from [B031](DECISIONS.md#b031--the-state-root-commits-to-the-whole-account)
+— its attachment), so the import is exactly the old state at *H* or the new chain does not start.
+What the people running the re-genesis choose is only *H*, the new keys and the new config: they
+cannot move a balance, change a key or add an account. Whether block *H* is the old network's block
+is checked by anyone holding the old chain (one header), and announced with the new genesis.
+
+#### Choosing *H*
+
+- **Keys lost, chain halted** (no beacon can sign): *H* is the last signed tip — every node has it.
+- **Keys stolen:** as for a case 2 cutover, the last block everyone trusts — below anything the thief
+  signed. Blocks above *H* are not carried; their transactions must be signed again for the new
+  network (below).
+
+#### The import
+
+- **Records.** A new record type, `T_IMPORT` (20), carries one account as the old chain held it: its
+  id, wallet (every balance, keys, threshold, miner state), its **full attachment** — every profile
+  slot with its data, sequence and attestation — and the old `blockId` its leaf was hashed with.
+  Unsigned: the state root authenticates it. `T_NEW_USER` cannot carry an account (one native
+  balance only, no miner state, fees, the genesis supply rule).
+- **Import blocks.** Block 0 is the genesis (`T_GENESIS` with the predecessor, no system records);
+  blocks 1 … *k* — the **import span** — hold only `T_IMPORT` records, by ascending account id, at
+  slot 0, each filled up to `maxBlockBytes` (B034: 4 MiB, a few thousand one-key accounts; one
+  account with the largest profile always fits). They reuse every path
+  a node already has: sync, adoption up to a signed tip, storage. `pp-beacon --init --import-state`
+  writes blocks 0 … *k* and signs the tip at *k*; the first produced block is *k* + 1.
+- **The check.** Nodes fold each imported leaf, `(id, wallet, old blockId, attachment hash)`, into a
+  tree as the span arrives; at block *k* its root must equal `predecessor.stateRoot`, and the span
+  must end there (the last block says so). A node refuses an import block out of order, an id twice
+  or out of order, or a span whose root does not match.
+- **Applied as.** Each account enters the new state at its import block (that is its `blockId` now:
+  renewals are due from there). Its profile is stored in full, as every account's is today: in the
+  block log, in the record that last wrote the account — here the `T_IMPORT` record — and read from
+  there on demand; the hash in its leaf (B031) only lets nodes check it. Its old leaf
+  is checked as imported; then fields that count slots or epochs of the old network are reset, since
+  the new `genesisTime` gives them no meaning: a miner's `lastProducedSlot` = 0 (a fresh due period),
+  `missedDue` = 0, `autoDeregisteredEpoch` = never; `registered` is kept.
+- **System accounts** (genesis, reserve, registrar, fee, recycle) keep their balances; their keys
+  come from the new `init-config.json` — the old ones are the lost ones. The new admin set is the
+  genesis account's new keys; the recovery set and the beacon certificate (generation 1) are new.
+- **Supply** is what was imported: the genesis rule "spend exactly the initial supply" does not apply
+  to an importing genesis; balances move unchanged, so every token's total is the old one.
+- **Committee.** Epoch 0's committee is the registered miners after the import (stake ≥
+  `minerMinStake`), as a new chain's is its genesis miners. Miners keep their accounts and keys.
+- **Config.** The old network's `BlockChainConfig` is carried except `networkId` (new, required to
+  differ) and `genesisTime` (the new genesis); `init-config.json` may override any field.
+- **Not carried:** the transaction history (the old chain stays the archive; the predecessor link
+  joins them), the pool, out-of-band certificates and evidence, a pending recovery or config update,
+  the issuance baseline (it restarts from the imported genesis balance).
+
+#### Who does what
+
+1. **The maintainer** (holder of the new keys) stops trusting the old network, picks *H*, and on a
+   copy of a full node's directory (a relay holds the chain from genesis) runs
+   `pp-client export-state -d <copy> --height H -o state.snap`: a versioned snapshot whose header is
+   the predecessor and whose root it checks against block *H* before writing.
+2. It writes a new `init-config.json` (new `networkId`, new system, recovery and beacon keys) and runs
+   `pp-beacon --init --import-state state.snap`; then starts the beacon and its relays.
+3. It **announces out of band** the new network id, genesis hash and gateways, with the predecessor
+   (old network id, *H*, block hash). Anyone holding the old chain runs
+   `pp-client check-predecessor -d <old ledger> --host <new relay>` to see that block *H* is theirs.
+4. **Operators** of relays and miners start fresh nodes for the new network: new work directory, the
+   new genesis pinned (`networkAnchor.genesisHash`), the new upstreams. Miners keep their keys and
+   account ids; their registration and stake came across.
+5. **Users and clients** switch network id and endpoints. Account ids, balances and keys are
+   unchanged. Every signature binds the network id, so nothing signed for the old network is valid on
+   the new one — no replay either way — and transactions after *H*, or pending, are signed again.
+
+The old network may go on (a thief holding its keys can keep producing): it is a different network
+id from here on. Nothing in the protocol can stop it; the announcement is what moves people.
 
 **Not covered:** admin keys stolen. The thief can issue itself a generation, indistinguishable from
 a legitimate one; the recovery set replaces the admin set, and the delay gives people time to

@@ -18,9 +18,12 @@ There is no other transport (no TCP, no DHT).
 | Field | Value |
 |-------|-------|
 | `protocol_id` | `/pp-ledger/rpc/1.0.0` |
-| L3 policy | Control, `read_once=true`; `read_timeout` = the call's deadline on the client, 2T on the server ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)) |
+| L3 policy | Bulk (`MakeBulkChannelPolicy`), `read_once=true`; `read_timeout` = the call's deadline on the client, 2T on the server ([CONFIGURATION.md](../ops/CONFIGURATION.md#network-timing-fixed)) |
 | Payload | Unframed `binaryPack(Client::Request/Response)` — no length prefix |
-| Max size | 512 KiB (`ledger::rpc::kMaxPayloadBytes`) |
+| Max size | 4 MiB + 64 KiB (`ledger::rpc::kMaxMessageBytes`, Amp's Bulk message): a block of the largest `maxBlockBytes` a chain may set (4 MiB) plus its envelope. The chain sets block sizes; the transport carries them ([WIRE_SCHEMA.md § Block size](WIRE_SCHEMA.md#block-size)) |
+| Requests | `BLOCK_ADD` and `TX_ADD` (a block, a record) up to the max size; every other type at most 64 KiB (`kMaxSmallRequestBytes`), refused before it is queued |
+| Per peer | At most 16 requests arriving at once (channel opened, body not complete; `kMaxReceivingPerPeer`): one more is reset, so a peer cannot make a node buffer more than that many messages |
+| Replies | One the max size cannot carry is replaced by an error reply (not a silent timeout). `TX_PULL` returns at most a block's worth of bytes (`maxBlockBytes`), `TX_GET_BY_WALLET` pages whole blocks within it |
 
 ## Topology (uniform upstream)
 

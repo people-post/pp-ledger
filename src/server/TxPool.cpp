@@ -53,9 +53,15 @@ TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec) {
   return Add::Added;
 }
 
-std::vector<Ledger::Record> TxPool::pending(size_t max) const {
+std::vector<Ledger::Record> TxPool::pending(size_t max, size_t maxBytes) const {
   std::vector<Ledger::Record> out;
+  size_t bytes = 0;
   for (auto it = byOrder_.begin(); it != byOrder_.end() && out.size() < max; ++it) {
+    const size_t recordBytes = utl::binaryPack(it->second.record).size();
+    if (bytes + recordBytes > maxBytes) {
+      break; // oldest first, in order: the rest wait for the next pull
+    }
+    bytes += recordBytes;
     out.push_back(it->second.record);
   }
   return out;
