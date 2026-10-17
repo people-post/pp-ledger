@@ -20,13 +20,17 @@ any network.
 
 | Term | Meaning |
 |------|---------|
-| **Block capacity** | Transactions one block takes: `min(maxTransactionsPerBlock, what fits maxBlockBytes, TX_PULL_MAX_RECORDS)` |
+| **Block capacity** | Transactions one block takes: `min(maxTransactionsPerBlock, what fits maxBlockBytes)` (the pull's own limit, 1,000, is gone: lr5) |
 | **Designed rate** | Block capacity ÷ `slotDuration` |
 | **Burst** | More transactions submitted at once than one block's capacity |
 | **Pool capacity** | What the beacon's `TxPool` holds (`Limits`: records, bytes) |
 
-With the defaults (10,000 records, 4 MiB, a pull of 1,000, 7 s slots) the pull is the binding
-limit: about 1,000 per block, ~140 tx/s.
+With the defaults (`maxTransactionsPerBlock` 10,240, `maxBlockBytes` 4 MiB, 7 s slots) bytes bind, not
+records: a transfer takes ~3.4 KB of a block (its ML-DSA-65 signature is 3,309 bytes; a block of 100
+measured 341 KB), so about 1,200 fit — **~170 tx/s**. The smoke network's fixture (100 a block,
+2 s slots) is 50 tx/s, small on purpose so tests fill blocks quickly. Raising the production rate is
+a parameter choice: shorter slots (if a full block is sealed, relayed and committed within one),
+larger blocks (4 MiB is what the RPC carries in one message), or a smaller signature scheme.
 
 ---
 

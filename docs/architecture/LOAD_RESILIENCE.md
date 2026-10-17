@@ -17,6 +17,13 @@ Related: [SERVER.md](SERVER.md) (roles, request handling), [AMP_TRANSPORT.md](..
 | **Designed rate** | Block capacity ÷ `slotDuration` |
 | **Pool capacity** | What the beacon's `TxPool` holds: 10,000 records, 16 MiB |
 
+With the defaults (`maxTransactionsPerBlock` 10,240, `maxBlockBytes` 4 MiB, 7 s slots) bytes bind, not
+records: a transfer takes ~3.4 KB of a block (its ML-DSA-65 signature is 3,309 bytes; a block of 100
+measured 341 KB), so about 1,200 fit — **~170 tx/s**. The smoke network's fixture (100 a block,
+2 s slots) is 50 tx/s, small on purpose so tests fill blocks quickly. Raising the production rate is
+a parameter choice: shorter slots (if a full block is sealed, relayed and committed within one),
+larger blocks (4 MiB is what the RPC carries in one message), or a smaller signature scheme.
+
 ## The path of a request, and where it stops
 
 Every layer is bounded, and refuses what it cannot hold **at once, with a code** — never by
