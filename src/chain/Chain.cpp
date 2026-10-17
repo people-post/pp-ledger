@@ -885,9 +885,9 @@ void Chain::refreshStakeholders(uint64_t blockSlot) {
 }
 
 std::vector<std::string>
-Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch) const {
+Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch, uint64_t endBlockId) const {
   std::vector<std::string> newestFirst;
-  const uint64_t nextId = txContext_.ledger.getNextBlockId();
+  const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
   if (nextId == 0) {
     return {};
   }
@@ -911,8 +911,8 @@ Chain::collectPrevEpochLookbackHashes(uint64_t prevEpoch) const {
   return newestFirst;
 }
 
-Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch) const {
-  const uint64_t nextId = txContext_.ledger.getNextBlockId();
+Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t maxEpoch, uint64_t endBlockId) const {
+  const uint64_t nextId = std::min(endBlockId, txContext_.ledger.getNextBlockId());
   for (uint64_t id = nextId; id > 0; --id) {
     auto blockRoe = txContext_.ledger.readBlock(id - 1);
     if (!blockRoe) {
@@ -926,20 +926,21 @@ Chain::Roe<std::pair<uint64_t, std::string>> Chain::readLatestEpochSeed(uint64_t
   return Error(E_STATE_INIT, "No stored epochSeed at or before epoch " + std::to_string(maxEpoch));
 }
 
-std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed,
-                                       const std::string &stakeHash) const {
+std::string Chain::deriveNextEpochSeed(uint64_t epoch, const std::string &prevSeed, const std::string &stakeHash,
+                                       uint64_t endBlockId) const {
   const std::string networkId =
       txContext_.optChainConfig.has_value() ? txContext_.optChainConfig->networkId : std::string{};
   // No blocks in epoch - 1 → no lookback hashes → empty-prev tip material.
-  auto lookback = collectPrevEpochLookbackHashes(epoch - 1);
+  auto lookback = collectPrevEpochLookbackHashes(epoch - 1, endBlockId);
   const std::string tipMaterial = consensus::lookbackTipMaterial(epoch - 1, prevSeed, lookback);
   return consensus::deriveEpochSeed(epoch, networkId, prevSeed, tipMaterial, stakeHash);
 }
 
-Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
+Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch, std::optional<uint64_t> endBlockId) {
   if (txContext_.consensus.hasEpochSeedFor(epoch)) {
     return {};
   }
+  const uint64_t end = endBlockId.value_or(txContext_.ledger.getNextBlockId());
 
   if (epoch == 0) {
     if (!txContext_.optChainConfig.has_value()) {
@@ -956,7 +957,7 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
 
   // Start from the newest stored seed before this epoch. Epochs after it had no blocks: each
   // seed follows from the one before (empty-prev tip material), so a chain survives idle epochs.
-  auto base = readLatestEpochSeed(epoch - 1);
+  auto base = readLatestEpochSeed(epoch - 1, end);
   if (!base) {
     return Error(base.error().code, base.error().message);
   }
@@ -981,7 +982,7 @@ Chain::Roe<void> Chain::ensureEpochSeed(uint64_t epoch) {
       }
       stakeHash = *provisionalStakeHash;
     }
-    seed = deriveNextEpochSeed(next, seed, stakeHash);
+    seed = deriveNextEpochSeed(next, seed, stakeHash, end);
   }
   txContext_.consensus.setEpochSeed(epoch, seed);
   return {};
@@ -997,7 +998,7 @@ Chain::Roe<void> Chain::ensureBlockEpochSeed(const Ledger::ChainNode &block) {
   if (firstOfEpoch && txContext_.consensus.hasEpochSeedFor(epoch)) {
     txContext_.consensus.clearEpochSeed();
   }
-  return ensureEpochSeed(epoch);
+  return ensureEpochSeed(epoch, block.block.index); // from the blocks before it, not the ledger's tip
 }
 
 void Chain::initConsensus(const consensus::SlotCommittee::Config &config) {

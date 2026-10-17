@@ -6,6 +6,7 @@
 #include "common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
 
+#include <atomic>
 #include <vector>
 #include <chrono>
 #include <cstdint>
@@ -351,6 +352,8 @@ public:
    * of what blocks hold can tell it must start over. Appending does not change it.
    */
   uint64_t getRevision() const { return revision_; }
+  /** readBlock calls so far (what a scan costs; tests hold replay to a linear count). */
+  uint64_t getBlockReadCount() const { return blockReads_; }
   /** First valid block ID (same as startingBlockId from init/mount). No blocks when getNextBlockId() <= getStartingBlockId(). */
   uint64_t getStartingBlockId() const;
 
@@ -432,6 +435,7 @@ private:
   /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
   mutable std::optional<ChainNode> latestBlockCache_;
   uint64_t revision_{0};
+  mutable std::atomic<uint64_t> blockReads_{0};
 
   bool loadIndex();
   bool saveIndex();

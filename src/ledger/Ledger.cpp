@@ -606,6 +606,7 @@ Ledger::Roe<void> Ledger::updateCheckpoints(const std::vector<uint64_t>& blockId
 }
 
 Ledger::Roe<Ledger::ChainNode> Ledger::readBlock(uint64_t blockId) const {
+  blockReads_.fetch_add(1, std::memory_order_relaxed);
   // Check if block ID is within valid range
   uint64_t nextBlockId = getNextBlockId();
   uint64_t blockCount = store_.getBlockCount();
