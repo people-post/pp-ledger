@@ -166,11 +166,8 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
 - Permanently invalid vs. invalid for now (a balance that a pending transaction will fund): what
   may the leader report back so the pool drops a transaction?
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
-- Relay forwarding: batch (a new request type) or a relay-side queue drained at a bounded rate.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
-- Renewals (M2): may user transactions take a share of a block while due renewals wait (a
-  consensus rule, B035), and may renewals spread over the period instead of all coming due at once?
-- Links (M5): how many clients a relay should hold (`max_links`, `max_pending_inbound` for the
-  ledger), and whether a full table should refuse at once instead of letting the dial time out.
-- Answers under overload (M3, M4): "busy, retry" instead of a transport error past the per-peer
-  limit; a forward timeout shorter than the client's, so the relay can say what happened.
+- Decided: renewals keep B035, the echo is measured ([LR004](DECISIONS.md#lr004--due-renewals-keep-their-priority-b035-the-echo-is-measured-not-changed));
+  links like TCP ([LR005](DECISIONS.md#lr005--links-behave-like-tcp-many-connections-a-handshake-backlog-silent-drop-fast-refusal));
+  deadlines carried hop by hop ([LR006](DECISIONS.md#lr006--requests-carry-the-clients-deadline-each-hop-forwards-what-remains));
+  overload answered in codes, clients retry the same bytes ([LR007](DECISIONS.md#lr007--overload-is-answered-in-codes-with-a-retry-after-clients-retry-the-same-bytes)).
