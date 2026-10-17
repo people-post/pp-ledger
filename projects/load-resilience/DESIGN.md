@@ -131,6 +131,12 @@ large bodies starve everyone else, handshakes, health probes and the node's own 
 included. Memory per idle link is small (M11); what bounds memory is receiving (16 requests of up to
 4 MiB per peer, no node-wide cap).
 
+| M16 | Relay: forged miner registrations (a funded account's id, a signature of the right size) at 2,000/s, then 6,000/s, 10 tx/s beside | At 2,000/s all forwarded, refused by the beacon; nothing else touched. At 6,000/s 7,027 got no answer before the client's 15 s timeout, and a miner's block reached the beacon after its delivery deadline: the relay's 16 places to the beacon were full of forwarded registrations. After LR009: all 48,000 refused at the relay (p99 0.31 s), nothing reached the beacon, the transfers beside p99 0.11 s, no block lost |
+| M17 | Relay: valid transfers at 2,000/s (past the pool) | Every one answered fast (p99 0.46 s): 5,317 taken, 9,652 "pool full", 1,031 "busy" (the relay's queue to the beacon full, LR009); no block lost; the pool's backlog took ~54 blocks to drain |
+| M18 | Relay: wallet-history scans at 2,000/s | The low lane answered "busy" at once (p99 0.24 s), the transfers beside untouched — but a miner's own sync (`BLOCK_GET`, `BLOCK_WAIT`, in the same lane) got "busy" too: it fell behind and sealed block 24 nine times over a stale tip ("conflicts with the stored block"). After LR009 (its own trusted lane): no block lost |
+| M19 | A herd of 400 new clients right after other floods (one host: the relay, beacon, miners and 400 client runtimes) | ~0.5 % of the dials gave up after 8 s (the handshake backlog drops hellos, TCP-like, and a few exhaust their resends); alone, none. `pp-client load` now counts such requests `unsent`, not `timeout` |
+| M20 | Full blocks (100 transfers of ~3.4 KB) during M17 | A leader sealed past its slot's delivery deadline: each transaction's idempotency check re-read and decoded every block of its validity window (here 60 s: ~30 full blocks), so validating a block of 100 took 140–290 ms on a short chain and grew with it. With the blocks' keys kept (LR010): 33–37 ms |
+
 After LR008 (M14, M15) the flood is confined to large requests: everyone else is served, slower only
 by the server thread's time on the large ones, and the large requests themselves are told to come
 back (`E_BUSY`) instead of timing out. What a large request costs the server thread (decoding a
@@ -189,12 +195,12 @@ Small "fails cleanly" cases gate PRs; capacity curves and network scenarios run 
   may the leader report back so the pool drops a transaction?
 - Per-sender share: by account, by submitting peer, or both; what happens to a sender over its share.
 - The pull limit: derive it from the config (records and bytes) instead of a constant.
-- Blocks under a flood of large requests (LR008): strangers can hold a public relay's 8 large slots
-  (a few identities, bodies sent slowly), so a miner's `BLOCK_ADD` there is answered `E_BUSY` and its
-  slot may be missed. With `allowedPeers` set strangers are refused at the open; without it, a share
-  for known miners (or upstream-registered peers) would close the gap — measure in lr10 first.
+- Decided: blocks under a flood of large requests — miners registered through a relay are trusted,
+  with large-request places of their own (LR009).
 - Decided: renewals keep B035, the echo is measured ([LR004](DECISIONS.md#lr004--due-renewals-keep-their-priority-b035-the-echo-is-measured-not-changed));
   links like TCP ([LR005](DECISIONS.md#lr005--links-behave-like-tcp-many-connections-a-handshake-backlog-silent-drop-fast-refusal));
   deadlines carried hop by hop ([LR006](DECISIONS.md#lr006--requests-carry-the-clients-deadline-each-hop-forwards-what-remains));
   overload answered in codes, clients retry the same bytes ([LR007](DECISIONS.md#lr007--overload-is-answered-in-codes-with-a-retry-after-clients-retry-the-same-bytes));
-  large requests have their own share of a node ([LR008](DECISIONS.md#lr008--large-requests-have-their-own-protocol-and-a-node-wide-share-the-socket-is-sized-for-them)).
+  large requests have their own share of a node ([LR008](DECISIONS.md#lr008--large-requests-have-their-own-protocol-and-a-node-wide-share-the-socket-is-sized-for-them));
+  a node's own chain work goes first ([LR009](DECISIONS.md#lr009--a-nodes-own-chain-work-goes-first-on-the-way-up-and-on-the-way-in));
+  idempotency checks read each block once ([LR010](DECISIONS.md#lr010--idempotency-checks-read-each-block-once)).

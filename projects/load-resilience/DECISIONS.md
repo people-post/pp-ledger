@@ -126,3 +126,43 @@ four times as fast. M14, M15: the flood no longer touches anyone else.
 all requests (small requests are cheap, M9: no need to queue them behind blocks). Refusing the
 channel open itself (the client sees a transport error, not `E_BUSY` with a retry-after). Reserved
 large slots for miners (DESIGN § Open questions).
+
+## LR009 — A node's own chain work goes first, on the way up and on the way in
+
+**Date:** 2026-10-17
+**Decision:** Requests a node sends for its own chain work (`Client::isChainDuty`: blocks, pulls for a
+slot leader, sync, `STATUS`) keep places to each peer that requests it forwards for clients cannot
+take (4 of 16, 1 of 2 large), and start first; at most 256 forwarded requests (16 large) wait per
+peer, and one more is answered `E_BUSY` at once. Peers whose chain work a node serves — miners
+registered through it (10 minutes after each registration the beacon took), its upstreams, peers
+listed in `allowedPeers` — are trusted: their requests have their own queue lane (served first, one
+other request after every 8) and their large requests places outside the node's share. A relay
+checks a registration's signature before forwarding it, as it checks transfers (an account it does
+not hold yet is the beacon's to judge).
+**Rationale:** M16: forged registrations filled the relay's places to the beacon, and a miner's
+block arrived after its deadline; M18: clients' reads filled the lane the miners' sync shares, and a
+miner sealed on a stale tip nine times. Both are a flood of strangers' requests holding up the work
+that makes blocks. Who sent a request says more than its type: a `BLOCK_GET` is a miner's sync or a
+client's read. Registration is already the proof that a peer is a miner (the beacon verifies its
+account's signature), and the miners renew it every minute.
+**Alternatives:** Priority by request type alone (a client's `BLOCK_GET` would jump the queue too).
+Strict priority for trusted peers (one misbehaving miner could starve everyone). A config list of
+trusted peers (another list for operators to keep; registration already tells).
+
+## LR010 — Idempotency checks read each block once
+
+**Date:** 2026-10-17
+**Decision:** The cross-block idempotency check takes each block's timestamp, slot and records'
+(payer, idempotent id) from a cache (`IdempotencyScanCache`, the newest 2,048 blocks) filled the first
+time a block is read; it starts over whenever the ledger's blocks may have changed (`Ledger::getRevision`:
+init, mount, rewind). The answers are the scan's, step for step — the same binary search by
+timestamp, the same slot bounds, the same errors — checked against it over random ledgers and after
+a rewind.
+**Rationale:** M20: the scan re-read and decoded every block of a transaction's validity window for
+each transaction checked — transactions × blocks × records — so a full block took a leader
+hundreds of milliseconds to validate, and more as blocks fill (with the defaults, 1,000 records a
+block and a window of minutes, millions of decodes a block). A leader missed its slot.
+**Alternatives:** An index of (payer, idempotent id) maintained with every block applied (faster
+still, but kept in step with every way blocks are added, sealed, abandoned and rewound — more state
+on the consensus path). Narrower validity windows (a client's choice, not the node's).
+
