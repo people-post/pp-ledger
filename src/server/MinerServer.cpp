@@ -358,6 +358,7 @@ MinerServer::hStatus(const Client::Request & /*request*/) {
   status.minerId = config_.minerId;
   status.nextBlockId = miner_.getNextBlockId();
   status.pendingTransactions = miner_.getPendingTransactionCount();
+  status.networkId = miner_.getNetworkId();
   if (!miner_.isConfigReady()) {
     status.stake = 0;
     status.currentSlot = 0;

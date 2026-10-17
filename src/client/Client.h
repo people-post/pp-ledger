@@ -300,6 +300,8 @@ public:
     uint64_t pendingTransactions{ 0 };
     uint64_t nStakeholders{ 0 };
     bool isSlotLeader{ false };
+    /** The chain's network id (what transactions are signed for); the field BeaconState has too. */
+    std::string networkId;
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);
@@ -627,6 +629,11 @@ public:
   const ILedgerTransport *transport() const { return transport_.get(); }
 
   Roe<BeaconState> fetchBeaconState();
+  /**
+   * The network id the node's chain has (from STATUS, any role): what a transaction must be signed
+   * for. An error when the node does not say — signed for an empty id, every node would refuse it.
+   */
+  Roe<std::string> fetchNetworkId();
   /** HEALTH of the node this client talks to (any role). */
   Roe<NodeHealth> fetchHealth();
   /** Fetch server's current time in milliseconds since Unix epoch (for calibration). */

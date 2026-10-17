@@ -125,12 +125,13 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
   pp::Ledger::Record rec;
   rec.type = type;
   rec.data = std::move(payload);
-  std::string networkId;
-  if (auto st = client.fetchBeaconState()) {
-    networkId = st->networkId;
+  auto networkId = client.fetchNetworkId();
+  if (!networkId) {
+    std::cerr << "Error: " << networkId.error().message << "\n";
+    return 1;
   }
   auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
@@ -492,12 +493,13 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
   TxRecord rec;
   rec.type = pp::Ledger::T_NEW_USER;
   rec.data = std::move(payload);
-  std::string networkId;
-  if (auto st = client.fetchBeaconState()) {
-    networkId = st->networkId;
+  auto networkId = client.fetchNetworkId();
+  if (!networkId) {
+    std::cerr << "Error: " << networkId.error().message << "\n";
+    return 1;
   }
   auto sigResult =
-      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId));
+      pp::utl::mlDsaSign(privateKey, rec.signingMessage(networkId.value()));
   if (!sigResult) {
     std::cerr << "Error: " << sigResult.error().message << "\n";
     return 1;
