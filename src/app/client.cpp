@@ -3,6 +3,7 @@
 #include "AccountIds.h"
 #include "../ledger/Ledger.h"
 #include "../chain/BlockValidation.h"
+#include "../chain/StateSnapshot.h"
 #include "../chain/Types.h"
 #include "../consensus/Types.hpp"
 #include "../network/LedgerAmpRuntime.h"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -572,6 +574,33 @@ static int runHealth(pp::Client& client, bool requireReady) {
   return 0;
 }
 
+/** export-state: the snapshot of `dir`'s ledger after block `height`, written to `out`. */
+static int runExportState(const std::string& dir, uint64_t height, const std::string& out, const std::string& scratch) {
+  if (std::filesystem::exists(out)) {
+    std::cerr << "Error: " << out << " exists (a snapshot is never overwritten)\n";
+    return 1;
+  }
+  const std::string ledgerDir = (std::filesystem::path(dir) / "data" / "ledger").string();
+  auto snapshot =
+      pp::state_export::exportState(ledgerDir, height, scratch.empty() ? out + ".scratch" : scratch);
+  if (!snapshot) {
+    std::cerr << "Error: " << snapshot.error().message << "\n";
+    return 1;
+  }
+  const auto& s = snapshot.value();
+  if (auto written = pp::utl::writeToNewFile(out, s.ltsToString()); !written) {
+    std::cerr << "Error: " << out << ": " << written.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Wrote " << out << ": " << s.accounts.size() << " accounts of network '" << s.predecessor.networkId
+            << "' at block " << s.predecessor.height << "\n"
+            << "  block hash: " << pp::utl::hexEncode(s.predecessor.blockHash) << "\n"
+            << "  state root: " << pp::utl::hexEncode(s.predecessor.stateRoot) << " (checked)\n"
+            << "Announce the network id, height and block hash with the new genesis: anyone holding the old\n"
+            << "chain checks them against their own block " << s.predecessor.height << ".\n";
+  return 0;
+}
+
 static int runSubmitTx(pp::Client& client, const std::string& filePath) {
   auto content = readFileContent(filePath);
   if (!content) {
@@ -623,6 +652,20 @@ int main(int argc, char *argv[]) {
   std::string keygenOut;
   keygen->add_option("-o,--out", keygenOut,
                      "Write <name>.key (private, hex, 0600) and <name>.pub (public, hex); never overwrites");
+
+  // Local command: export-state (re-genesis, beacon-authority B033)
+  auto* export_state_cmd = app.add_subcommand(
+      "export-state", "Write the account state of a node's ledger at a height, for a re-genesis to import");
+  std::string exportDir;
+  uint64_t exportHeight = 0;
+  std::string exportOut;
+  std::string exportScratch;
+  export_state_cmd->add_option("-d,--dir", exportDir, "A full node's work directory (a relay's: from genesis); left as it is")
+      ->required();
+  export_state_cmd->add_option("--height", exportHeight, "The last block whose state is exported")->required();
+  export_state_cmd->add_option("-o,--out", exportOut, "Snapshot file to write (never overwritten)")->required();
+  export_state_cmd->add_option("--scratch", exportScratch,
+                               "Where to copy the ledger while exporting: a path that does not exist (default: <out>.scratch; removed after)");
 
   // Local command: peer-id
   auto* peer_id_cmd = app.add_subcommand(
@@ -823,6 +866,11 @@ int main(int argc, char *argv[]) {
   CLI11_PARSE(app, argc, argv);
 
   // Handle keygen command (no server connection needed)
+  if (export_state_cmd->parsed()) {
+    pp::logging::getRootLogger().setLevel(debug ? pp::logging::Level::DEBUG : pp::logging::Level::WARNING);
+    return runExportState(exportDir, exportHeight, exportOut, exportScratch);
+  }
+
   if (peer_id_cmd->parsed()) {
     auto privateKey = pp::utl::readPrivateKey(peerIdKey, "");
     if (!privateKey) {

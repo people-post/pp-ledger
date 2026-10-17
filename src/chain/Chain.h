@@ -11,6 +11,7 @@
 #include "TxContext.h"
 #include "TxError.h"
 #include "Types.h"
+#include "StateSnapshot.h"
 #include "AuthorityTrail.h"
 #include "lib/common/Crypto.h"
 #include "common/Module.h"
@@ -160,6 +161,14 @@ public:
   std::string getNetworkId() const;
   /** Recovery set + beacon certificate in force; nullopt before genesis is applied. */
   std::optional<ChainAuthority> getAuthority() const { return txContext_.optAuthority; }
+  /** The config in force at the tip. */
+  std::optional<BlockChainConfig> getChainConfig() const { return txContext_.optChainConfig; }
+  /**
+   * Every account of the state at the tip, by ascending id: its leaf fields and its attachment
+   * (read from the record that last wrote it). For a re-genesis export (StateSnapshot, bp8);
+   * checks each attachment against the hash the account holds.
+   */
+  Roe<std::vector<StateSnapshot::Account>> exportAccounts() const;
   /** The recovery pending on this chain (beacon-authority ba7), as STATUS shows it; none if none. */
   std::optional<Client::RecoveryStatus> recoveryStatus() const;
   /**
