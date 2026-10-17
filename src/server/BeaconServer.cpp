@@ -590,6 +590,9 @@ BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
   if (!snapshot.ltsFromString(bytes)) {
     return BeaconServer::Error(path + " is not a state snapshot (version " + std::to_string(StateSnapshot::VERSION) + ")");
   }
+  if (auto bound = chain_block::validatePredecessorHeader(snapshot.predecessor); !bound) {
+    return BeaconServer::Error(path + ": " + bound.error().message);
+  }
   if (snapshot.accountsRoot() != snapshot.predecessor.stateRoot) {
     return BeaconServer::Error(path + ": the accounts do not hash to the state root it names");
   }

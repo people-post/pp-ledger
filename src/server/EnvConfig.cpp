@@ -161,7 +161,8 @@ std::vector<Field> commonFields() {
 std::vector<Field> anchorFields() {
   return {{"PP_LEDGER_NETWORK_ID", "networkId", Kind::String, "networkAnchor"},
           {"PP_LEDGER_GENESIS_HASH", "genesisHash", Kind::String, "networkAnchor"},
-          {"PP_LEDGER_TRUSTED_CHECKPOINT", "trustedCheckpointId", Kind::UInt, "networkAnchor"}};
+          {"PP_LEDGER_TRUSTED_CHECKPOINT", "trustedCheckpointId", Kind::UInt, "networkAnchor"},
+          {"PP_LEDGER_PREDECESSOR_DIR", "predecessorDir", Kind::String, "networkAnchor"}};
 }
 
 } // namespace pp::env_config

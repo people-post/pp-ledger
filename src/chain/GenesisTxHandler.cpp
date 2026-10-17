@@ -1,6 +1,7 @@
 #include "GenesisTxHandler.h"
 #include "AccountBuffer.h"
 #include "AccountPolicy.h"
+#include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "TxTyped.h"
 #include "Types.h"
@@ -76,6 +77,9 @@ chain_tx::Roe<void> GenesisTxHandler::openImportSpan(const GenesisAccountMeta &g
   if (import.predecessor.blockHash.size() != utl::SHA256_DIGEST_SIZE ||
       import.predecessor.stateRoot.size() != utl::SHA256_DIGEST_SIZE) {
     return refused("the predecessor's block hash and state root must be 32 bytes");
+  }
+  if (auto bound = chain_block::validatePredecessorHeader(import.predecessor); !bound) {
+    return refused(bound.error().message);
   }
   if (import.accountCount == 0) {
     return refused("no accounts to import");

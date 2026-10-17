@@ -211,6 +211,17 @@ std::string calculateGenesisConfigDigest(const BlockChainConfig &config) {
                         oss.str());
 }
 
+chain_tx::Roe<void> validatePredecessorHeader(const ChainPredecessor &predecessor) {
+  const auto &header = predecessor.header;
+  if (header.index != predecessor.height || calculateBlockHash(header) != predecessor.blockHash ||
+      header.stateRoot != predecessor.stateRoot) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "The predecessor's header is not block " + std::to_string(predecessor.height) +
+                                 " with that hash and state root");
+  }
+  return {};
+}
+
 chain_tx::Roe<void> validateImportBlockBody(const Ledger::ChainNode &block, const Ledger &ledger,
                                             const BlockChainConfig &config, uint64_t remaining) {
   const auto refused = [&](const std::string &why) {

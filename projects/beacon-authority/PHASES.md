@@ -157,11 +157,12 @@ every node (B022–B024).
       leaf fields and attachments), `pp-client export-state -d <copy> --height H` (cut a copy after
       *H*, load, dump, check the root against block *H*); tests: a snapshot's root equals the
       block's, an altered account fails
-- [x] **bp9** Importing genesis: genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
+- [x] **bp9** Importing genesis (and B037: the predecessor's root bound to block *H*'s header; relays
+      and miners check it against their own old ledger, `networkAnchor.predecessorDir`): genesis meta v11 (`predecessor`), `T_IMPORT` (20), the import span
       (ordering, slot 0, the end marker, the root check at *k*), applied fields (blockId, miner
       resets, system keys), genesis rules for an importing genesis (supply, committee, config), and
       `pp-beacon --init --import-state`; sync, adoption and checkpoints over the span; tests
-- [ ] **bp10** Tooling, runbook and drill: `pp-client check-predecessor`, `docs/ops/RE_GENESIS.md`,
+- [ ] **bp10** Tooling, runbook and drill: `pp-client check-predecessor` (the B037 check, by hand), `docs/ops/RE_GENESIS.md`,
       `--suite regenesis` (an old network with users, a token and miners → export at *H* → a new
       network: same ids, keys, balances and attachments; miners produce with their old keys; a
       transaction signed for the new network commits, one signed for the old is refused); contracts

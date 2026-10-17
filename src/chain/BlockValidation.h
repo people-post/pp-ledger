@@ -124,6 +124,13 @@ chain_tx::Roe<void> validateAuthorityRecordCount(const Ledger::Block &block);
  * genesis seed, no committee; T_IMPORT records only, at most `remaining`, within maxBlockBytes.
  * Hash and state root are checked as for any block (structural, and after apply).
  */
+/**
+ * A re-genesis's predecessor is one block (B037): its header is block `height`, hashes to
+ * `blockHash`, and holds `stateRoot` — the root the import is checked against cannot be chosen
+ * apart from the block.
+ */
+chain_tx::Roe<void> validatePredecessorHeader(const ChainPredecessor &predecessor);
+
 chain_tx::Roe<void> validateImportBlockBody(const Ledger::ChainNode &block, const Ledger &ledger,
                                             const BlockChainConfig &config, uint64_t remaining);
 

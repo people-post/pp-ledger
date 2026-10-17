@@ -2,6 +2,7 @@
 #include "Beacon.h"
 #include "Miner.h"
 #include "Rewind.h"
+#include "PredecessorCheck.h"
 #include "../../chain/AccountBuffer.h"
 #include "../../chain/StateSnapshot.h"
 #include "AccountAttachment.h"
@@ -731,6 +732,11 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
   StateSnapshot swapped = snapshot.value();
   std::swap(swapped.accounts[1], swapped.accounts[2]);
   refusedImport(swapped, "ascending account id");
+  // A made-up state with a root of its own, under the real block's hash (B037): the header binds the
+  // root to the block, so the made-up root is refused.
+  StateSnapshot madeUp = richer;
+  madeUp.predecessor.stateRoot = madeUp.accountsRoot();
+  refusedImport(madeUp, "header is not block");
 
   {
     BeaconServer server;
@@ -765,6 +771,45 @@ TEST_F(MinerPoolTest, ARegenesisImportsTheOldStateAndTheNetworkGoesOn) {
   EXPECT_EQ(miner.lastProducedSlot, 0u) << "slot counters of the old network are reset";
   auto genesis2 = beacon2.readBlock(0);
   ASSERT_TRUE(genesis2.isOk());
+
+  // A node that ran the old network vouches for it from its own ledger (B037).
+  EXPECT_TRUE(predecessor_check::check(genesis2.value(), (root_ / "beacon").string()).isOk());
+  auto expectRefused = [](const pp::Roe<void> &checked, const std::string &why) {
+    ASSERT_FALSE(checked.isOk()) << why;
+    EXPECT_NE(checked.error().message.find(why), std::string::npos) << checked.error().message;
+  };
+  Ledger::ChainNode oldGenesis;
+  {
+    Ledger old;
+    ASSERT_TRUE(old.mount((root_ / "beacon" / "data" / "ledger").string()).isOk());
+    oldGenesis = old.readBlock(0).value();
+  }
+  expectRefused(predecessor_check::check(oldGenesis, (root_ / "beacon").string()), "imports no predecessor");
+  expectRefused(predecessor_check::check(genesis2.value(), next.string()), "is not of network 'test-net'");
+  {
+    const fs::path shorter = root_ / "beacon-before-H";
+    fs::copy(root_ / "beacon", shorter, fs::copy_options::recursive);
+    Ledger cut;
+    ASSERT_TRUE(cut.mount((shorter / "data" / "ledger").string()).isOk());
+    ASSERT_TRUE(cut.rewindTo(block.block.index).isOk()); // ends below H
+  }
+  expectRefused(predecessor_check::check(genesis2.value(), (root_ / "beacon-before-H").string()),
+                "does not hold block");
+  {
+    // An old ledger of the same network holding another block H: not the one named.
+    const fs::path other = root_ / "beacon-other-H";
+    fs::copy(root_ / "beacon", other, fs::copy_options::recursive);
+    Ledger forked;
+    ASSERT_TRUE(forked.mount((other / "data" / "ledger").string()).isOk());
+    ASSERT_TRUE(forked.rewindTo(block.block.index).isOk());
+    Ledger::ChainNode another = block;
+    another.block.timestamp += 1;
+    another.hash = utl::sha256Raw(another.block.headerToString());
+    ASSERT_TRUE(forked.addBlock(another).isOk());
+    ASSERT_TRUE(forked.commit().isOk());
+  }
+  expectRefused(predecessor_check::check(genesis2.value(), (root_ / "beacon-other-H").string()),
+                "is not the one the re-genesis starts from");
 
   // A miner of the old network, with its old key, follows the new one and produces.
   miner_ = std::make_unique<Miner>();

@@ -19,7 +19,7 @@ namespace pp {
  * against (bp9).
  */
 struct StateSnapshot {
-  constexpr static const uint32_t VERSION = 1;
+  constexpr static const uint32_t VERSION = 2; // 2: the predecessor carries block `height`'s header (B037)
 
   /** Where the state comes from: the old network and its block at `height`. */
   using Predecessor = ChainPredecessor;

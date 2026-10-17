@@ -230,15 +230,25 @@ struct ChainAuthority {
   bool operator!=(const ChainAuthority &other) const { return !(*this == other); }
 };
 
-/** The network a re-genesis comes from, at its block `height` (beacon-authority B030). */
+/**
+ * The network a re-genesis comes from, at its block `height` (beacon-authority B030). `header` is
+ * that block's header (no records): it hashes to `blockHash` and holds `stateRoot`, so the root is
+ * bound to the block (B037) — whoever checks the block hash against the old chain checks the root.
+ */
 struct ChainPredecessor {
   std::string networkId;
   uint64_t height{0};
   std::string blockHash; ///< raw 32 bytes
   std::string stateRoot; ///< raw 32 bytes: block `height`'s header
+  Ledger::Block header;
 
-  bool operator==(const ChainPredecessor &other) const = default;
-  template <typename Archive> void serialize(Archive &ar) { ar & networkId & height & blockHash & stateRoot; }
+  bool operator==(const ChainPredecessor &other) const {
+    return networkId == other.networkId && height == other.height && blockHash == other.blockHash &&
+           stateRoot == other.stateRoot && header.headerToString() == other.header.headerToString();
+  }
+  template <typename Archive> void serialize(Archive &ar) {
+    ar & networkId & height & blockHash & stateRoot & header;
+  }
 };
 
 /** A system account's keys (reserve, registrar, fee, recycle) an importing genesis sets. */

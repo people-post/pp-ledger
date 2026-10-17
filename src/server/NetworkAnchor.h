@@ -16,6 +16,11 @@ struct NetworkAnchor {
   std::string genesis_hash;
   uint64_t trusted_checkpoint_id{0};
   bool trusted_checkpoint_set{false};
+  /**
+   * `predecessorDir`: this node's work directory on the old network, if the network it follows is
+   * a re-genesis: its block 0 must name block H of that ledger (predecessor_check, B037).
+   */
+  std::string predecessor_dir;
 
   bool isConfigured() const {
     return !network_id.empty() || !genesis_hash.empty() || trusted_checkpoint_set;
@@ -40,6 +45,9 @@ struct NetworkAnchor {
     if (auto cp = jd.getNonNegInt("trustedCheckpointId")) {
       anchor.trusted_checkpoint_id = *cp;
       anchor.trusted_checkpoint_set = true;
+    }
+    if (auto dir = jd.getString("predecessorDir")) {
+      anchor.predecessor_dir = *dir;
     }
     return anchor;
   }

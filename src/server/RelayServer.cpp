@@ -1,4 +1,5 @@
 #include "RelayServer.h"
+#include "PredecessorCheck.h"
 #include "NetworkAnchor.h"
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
@@ -117,6 +118,7 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
   }
   allowedPeers = std::move(allowed.value());
   genesisHash.reset();
+  predecessorDir.clear();
   if (const Object *anchorObj = jd.getObject("networkAnchor")) {
     auto anchor = NetworkAnchor::fromJson(*anchorObj);
     if (!anchor) {
@@ -125,6 +127,7 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
     if (!anchor.value().genesis_hash.empty()) {
       genesisHash = anchor.value().genesis_hash;
     }
+    predecessorDir = anchor.value().predecessor_dir;
   }
   return {};
 }
@@ -247,6 +250,7 @@ Service::Roe<void> RelayServer::onStart() {
   config_.network.udp_port = runFileConfig.port;
   config_.network.beacon_multiaddrs = runFileConfig.beacons;
   config_.network.genesisHash = runFileConfig.genesisHash;
+  config_.network.predecessorDir = runFileConfig.predecessorDir;
   auto identityKey = loadOrCreateIdentityKey();
   if (!identityKey) {
     return Service::Error(E_CONFIG, identityKey.error().message);
@@ -301,6 +305,17 @@ Service::Roe<void> RelayServer::onStart() {
   }
 
   orderRewindIfDue(); // a certificate kept before the node went down
+  // A relay that already holds the genesis checks it again: predecessorDir may be new (B037).
+  if (!config_.network.predecessorDir.empty() && relay_.getNextBlockId() > 0) {
+    auto genesis = relay_.readBlock(0);
+    if (!genesis) {
+      return Service::Error(E_CONFIG, "Cannot read the genesis to check its predecessor: " + genesis.error().message);
+    }
+    if (auto checked = predecessor_check::check(genesis.value(), config_.network.predecessorDir); !checked) {
+      return Service::Error(E_CONFIG, "Genesis refused: " + checked.error().message);
+    }
+    log().info << "Re-genesis checked against the old ledger in " << config_.network.predecessorDir;
+  }
   rankUpstreamsAtStart();
   if (auto offset = calibrateTimeToBeacon(); offset) {
     applyTimeOffset(offset.value());
@@ -336,6 +351,11 @@ void RelayServer::initBlockSync() {
   hooks.nextBlockId = [this]() { return relay_.getNextBlockId(); };
   hooks.tipHash = [this]() { return relay_.getTipHash(); };
   hooks.firstBlockHash = [this]() { return config_.network.genesisHash; }; // a relay starts at genesis
+  if (!config_.network.predecessorDir.empty()) {
+    hooks.checkGenesis = [dir = config_.network.predecessorDir](const Ledger::ChainNode &genesis) {
+      return predecessor_check::check(genesis, dir);
+    };
+  }
   hooks.authorityTrail = [this]() -> pp::Roe<AuthorityTrail> {
     auto trail = relay_.authorityTrail();
     return trail ? pp::Roe<AuthorityTrail>(trail.value()) : pp::Roe<AuthorityTrail>(pp::Error(trail.error().message));

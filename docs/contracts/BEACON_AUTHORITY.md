@@ -37,9 +37,9 @@ no migration (networks start from a new genesis on a change).
 | `AuthorityProof` | — | `steps`: `AuthorityStep {blockId, epoch, record}`… | `AUTHORITY_PROOF` reply |
 | `RecoveryStatus` | — | `announcedAt`, `applyEpoch`, `adminPublicKeys`, `adminMinSignatures` | `STATUS.recovery` |
 | `RewindReport` | 1 | `keptUpTo`, `droppedUpTo`, `generation` | `STATUS.rewound`, `data/rewind.dat`, `data/rewound.dat` |
-| `GenesisImport` | — (genesis meta v12) | `predecessor {networkId, height, blockHash, stateRoot}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
+| `GenesisImport` | — (genesis meta v12) | `predecessor {networkId, height, blockHash, stateRoot, header}`, `accountCount`, `systemKeys`: `{id, publicKeys, minSignatures}`… (reserve, registrar, fee, recycle) | `GenesisAccountMeta.import` of a re-genesis's `T_GENESIS` ([§ Importing genesis](#importing-genesis)) |
 | `T_IMPORT` meta | — | a `StateSnapshot` account: `id`, `wallet`, `blockId` (the old chain's), `attachment` | `T_IMPORT` (20) |
-| `StateSnapshot` | 1 | `predecessor {networkId, height, blockHash, stateRoot}` (raw hashes), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
+| `StateSnapshot` | 2 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
 Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
 evidence, replies).
@@ -438,6 +438,9 @@ The new network of a re-genesis (case 1, B030, B032): its genesis imports a `Sta
   the number of accounts to import, and the keys reserve, registrar, fee and recycle take; the
   genesis account takes the meta's `genesis` keys, with no balances yet. The admin keys that sign
   it vouch for all of it.
+- **The root is bound to the block** (B037): the predecessor carries block *H*'s header, which must
+  be block *H*, hash to `blockHash` and hold `stateRoot`. Whoever checks the block hash against the
+  old chain has checked the root the accounts are checked against.
 - **Blocks 1 … *k*** (the import span) hold `T_IMPORT` records only, unsigned, fee 0, by strictly
   ascending account id, at slot 0, stamped at genesis time, each within `maxBlockBytes`. Every node
   folds each account's leaf **as the old chain hashed it** into a tree; the block that imports the
@@ -455,6 +458,14 @@ The new network of a re-genesis (case 1, B030, B032): its genesis imports a `Sta
 - Relays and miners join fresh, pinning the new genesis (`networkAnchor.genesisHash`); syncing the
   span checks it as above. Miners keep their keys and account ids. A signature for the old network
   is no good on the new one (every signature binds the network id).
+- **Nodes that ran the old network check the predecessor themselves** (B037): with
+  `networkAnchor.predecessorDir` — their old work directory (stopped) — a relay or miner requires
+  the new genesis to name block *H* of that ledger: the same network id, block hash and state root.
+  Otherwise it refuses to follow the new network, as it does when that ledger does not hold *H* (it
+  cannot vouch for it). Checked when syncing block 0, at every relay start, and by a miner fetching
+  block 0 (also when it starts at a checkpoint). Every operator of the old network is then an
+  auditor: a re-genesis whose operator made up a state is refused by every node that held the real
+  block *H*. A node with no old ledger relies on the announcement (and on those that check).
 
 ## Authority proof
 
