@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <memory>
 #include <random>
 #include <string>
 
@@ -37,15 +38,21 @@ protected:
     std::filesystem::remove_all(dir_);
     Ledger::InitConfig config;
     config.workDir = dir_.string();
-    ASSERT_TRUE(ledger_.init(config).isOk());
+    ASSERT_TRUE(ledger().init(config).isOk());
     consensus_.setSlotTiming(kGenesis, kSlotSeconds, 10);
   }
-  void TearDown() override { std::filesystem::remove_all(dir_); }
+  void TearDown() override {
+    ledger_.reset(); // its files closed first: Windows does not remove open files
+    std::error_code ec;
+    std::filesystem::remove_all(dir_, ec);
+  }
+
+  Ledger &ledger() { return *ledger_; }
 
   /** Append a block for `slot` (sealed as its slot ends) holding `records`. */
   void add(uint64_t slot, std::vector<std::string> records) {
     Ledger::ChainNode node;
-    node.block.index = ledger_.getNextBlockId();
+    node.block.index = ledger().getNextBlockId();
     node.block.slot = slot;
     node.block.timestamp = consensus_.getSlotStartTime(slot) + static_cast<int64_t>(kSlotSeconds);
     for (auto &data : records) {
@@ -54,7 +61,7 @@ protected:
       node.block.records.push_back(std::move(record));
     }
     node.hash = "h" + std::to_string(node.block.index) + "-" + std::to_string(slot);
-    ASSERT_TRUE(ledger_.addBlock(node).isOk());
+    ASSERT_TRUE(ledger().addBlock(node).isOk());
   }
 
   /** Both scans over every query in a grid; returns how many found a duplicate. */
@@ -64,8 +71,8 @@ protected:
       for (uint64_t id = 1; id <= 6; ++id) {
         for (uint64_t slotMin = 0; slotMin <= maxSlot + 1; ++slotMin) {
           for (uint64_t slotMax = slotMin; slotMax <= maxSlot + 2; slotMax += 3) {
-            auto plain = chain_tx::checkIdempotency(ledger_, consensus_, id, wallet, slotMin, slotMax, keyOf);
-            auto cached = chain_tx::checkIdempotency(ledger_, consensus_, id, wallet, slotMin, slotMax, keyOf, &cache);
+            auto plain = chain_tx::checkIdempotency(ledger(), consensus_, id, wallet, slotMin, slotMax, keyOf);
+            auto cached = chain_tx::checkIdempotency(ledger(), consensus_, id, wallet, slotMin, slotMax, keyOf, &cache);
             EXPECT_EQ(plain.isOk(), cached.isOk()) << wallet << ":" << id << " in " << slotMin << ".." << slotMax;
             if (!plain.isOk() && !cached.isOk()) {
               EXPECT_EQ(plain.error().code, cached.error().code);
@@ -80,7 +87,7 @@ protected:
   }
 
   std::filesystem::path dir_;
-  Ledger ledger_;
+  std::unique_ptr<Ledger> ledger_ = std::make_unique<Ledger>();
   consensus::SlotCommittee consensus_;
 };
 
@@ -104,8 +111,8 @@ TEST_F(IdempotencyScanTest, CachedScanGivesTheSameAnswers) {
   EXPECT_GT(expectSameAnswers(cache, slot), 0u) << "the grid finds duplicates";
 
   // A rewind replaces blocks under the cache: it must not answer from the old ones.
-  ASSERT_TRUE(ledger_.rewindTo(10).isOk());
-  uint64_t again = consensus_.getSlotFromTimestamp(ledger_.readLastBlock().value().block.timestamp);
+  ASSERT_TRUE(ledger().rewindTo(10).isOk());
+  uint64_t again = consensus_.getSlotFromTimestamp(ledger().readLastBlock().value().block.timestamp);
   for (int i = 0; i < 6; ++i) {
     again += 1;
     add(again, {"9:9", std::to_string(1 + i % 3) + ":" + std::to_string(1 + i)});
