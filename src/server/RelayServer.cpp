@@ -135,6 +135,7 @@ RelayServer::RunFileConfig::ltsFromJson(const Object &jd) {
 // ============ RelayServer methods ============
 
 RelayServer::RelayServer() {
+  bindCore(relay_);
   redirectLogger("RelayServer");
   relay_.redirectLogger(log().getFullName() + ".Relay");
   client_.redirectLogger(log().getFullName() + ".Client");
@@ -300,7 +301,7 @@ Service::Roe<void> RelayServer::onStart() {
 
   auto relayInit = relay_.init(relayConfig);
   if (!relayInit) {
-    return Service::Error(E_RELAY, "Failed to initialize Relay: " +
+    return Service::Error(E_ROLE, "Failed to initialize Relay: " +
                                        relayInit.error().message);
   }
 
@@ -532,61 +533,16 @@ void RelayServer::dropHeldTipIfInvalid() {
 }
 
 void RelayServer::initHandlers() {
-  requestHandlers_.clear();
-
-  auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
-  hgs = [this](const Client::Request &request) { return hStatus(request); };
-
-  auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
-  hcs = [this](const Client::Request &request) { return hCalibration(request); };
-
-  requestHandlers_[Client::T_REQ_AUTHORITY_PROOF] = [this](const Client::Request &request) {
-    return hAuthorityProof(request);
-  };
-
-  auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
-  hga = [this](const Client::Request &request) { return hAccountGet(request); };
-
-  auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
-  htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
-
-  auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
-  htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
-
-
-  // Handlers that need the beacon (or a sync) reply later; see handleDeferred.
-  deferredHandlers_.clear();
-  deferredHandlers_[Client::T_REQ_BLOCK_GET] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dBlockGet(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_BLOCK_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dBlockAdd(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_REGISTER] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dRegister(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_MINER_LIST] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dMinerList(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dTxAdd(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &r,
-                                                             const RequestQueue::Reply &reply) {
-    dEquivocationAdd(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dTxPull(r, reply);
-  };
-}
-
-bool RelayServer::handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) {
-  auto it = deferredHandlers_.find(request.type);
-  if (it == deferredHandlers_.end()) {
-    return false;
-  }
-  it->second(request, reply);
-  return true;
+  // The chain reads and CALIBRATION are the base's (bindCore); what needs the upstream (or a sync)
+  // replies later.
+  handle(Client::T_REQ_STATUS, [this](const Client::Request &request) { return hStatus(request); });
+  handleLater(Client::T_REQ_BLOCK_GET, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dBlockGet(r, reply); });
+  handleLater(Client::T_REQ_BLOCK_ADD, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dBlockAdd(r, reply); });
+  handleLater(Client::T_REQ_REGISTER, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dRegister(r, reply); });
+  handleLater(Client::T_REQ_MINER_LIST, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dMinerList(r, reply); });
+  handleLater(Client::T_REQ_TX_ADD, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dTxAdd(r, reply); });
+  handleLater(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dEquivocationAdd(r, reply); });
+  handleLater(Client::T_REQ_TX_PULL, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dTxPull(r, reply); });
 }
 
 void RelayServer::onStop() {
@@ -627,17 +583,6 @@ Client::BeaconState RelayServer::buildStateResponse() const {
   }
 
   return state;
-}
-
-void RelayServer::orderRewindIfDue() {
-  if (restartRequested()) {
-    return;
-  }
-  if (auto due = relay_.scheduleRewind(approvedRewindGeneration()); !due) {
-    log().error << due.error().message;
-  } else if (due.value()) {
-    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
-  }
 }
 
 void RelayServer::runLoop() {
@@ -695,17 +640,6 @@ void RelayServer::syncBlocksPeriodically() {
   }
 
   trySyncBlocksFromBeacon(false);
-}
-
-std::string RelayServer::handleParsedRequest(const Client::Request &request) {
-  auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end())
-                                ? it->second(request)
-                                : hUnsupported(request);
-  if (!result) {
-    return Server::packResponse(1, result.error().message);
-  }
-  return Server::packResponse(result.value());
 }
 
 void RelayServer::dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -787,52 +721,6 @@ void RelayServer::dBlockAdd(const Client::Request &request, const RequestQueue::
   }));
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hAccountGet(const Client::Request &request) {
-  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!idResult) {
-    return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
-  }
-
-  uint64_t accountId = idResult.value();
-  auto result = relay_.getAccount(accountId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get account: " + result.error().message);
-  }
-  return result.value().ltsToString();
-}
-
-RelayServer::Roe<std::string>
-RelayServer::hTxGetByWallet(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = relay_.findTransactionsByWalletId(req.walletId, req.beforeBlockId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transactions: " + result.error().message);
-  }
-  Client::TxGetByWalletResponse response;
-  response.transactions = result.value();
-  response.nextBlockId = req.beforeBlockId;
-  return utl::binaryPack(response);
-}
-
-RelayServer::Roe<std::string>
-RelayServer::hTxGetByIndex(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByIndexRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = relay_.findTransactionByIndex(req.txIndex);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transaction: " + result.error().message);
-  }
-  return utl::binaryPack(result.value());
-}
-
 void RelayServer::dRegister(const Client::Request &request, const RequestQueue::Reply &reply) {
   auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
   if (!unpacked) {
@@ -869,17 +757,6 @@ void RelayServer::dRegister(const Client::Request &request, const RequestQueue::
 RelayServer::Roe<std::string>
 RelayServer::hStatus(const Client::Request & /*request*/) {
   return utl::binaryPack(buildStateResponse().ltsToMeta());
-}
-
-RelayServer::Roe<std::string>
-RelayServer::hCalibration(const Client::Request & /*request*/) {
-  int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-  Client::CalibrationResponse response;
-  response.msTimestamp = nowMs + timeOffsetToBeaconMs_;
-  response.nextBlockId = relay_.getNextBlockId();
-  return utl::binaryPack(response);
 }
 
 RelayServer::Roe<int64_t> RelayServer::calibrateTimeToBeacon() {
@@ -994,24 +871,6 @@ void RelayServer::dMinerList(const Client::Request & /*request*/, const RequestQ
       }));
 }
 
-RelayServer::Roe<std::string>
-RelayServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST,
-               "Unsupported request type: " + std::to_string(request.type));
-}
-
-RelayServer::Roe<std::string> RelayServer::hAuthorityProof(const Client::Request &request) {
-  auto upTo = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!upTo) {
-    return Error(E_REQUEST, "Invalid authority proof payload");
-  }
-  auto proof = relay_.authorityProof(upTo.value());
-  if (!proof) {
-    return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
-  }
-  return utl::binaryPack(proof.value());
-}
-
 namespace {
 /** A relay or miner this many blocks behind its upstream's signed tip is not ready. */
 constexpr uint64_t kReadyLagBlocks = 3;
@@ -1021,10 +880,6 @@ void RelayServer::fillHealth(Client::NodeHealth &health) const {
   Server::fillHealth(health);
   health.role = "relay";
   health.networkId = networkId_;
-  health.nextBlockId = relay_.getNextBlockId();
-  health.generation = relay_.getGeneration();
-  health.halted = relay_.getEquivocation().has_value();
-  health.recoveryPending = relay_.getRecoveryStatus().has_value();
   if (health.signedTipHeight) {
     health.upstreamNextBlockId = *health.signedTipHeight + 1;
   }

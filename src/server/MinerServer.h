@@ -22,16 +22,6 @@ namespace pp {
 
 class MinerServer : public Server {
 public:
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
-  static constexpr const int32_t E_CONFIG = -1;
-  static constexpr const int32_t E_NETWORK = -2;
-  static constexpr const int32_t E_MINER = -3;
-  static constexpr const int32_t E_REQUEST = -4;
 
   MinerServer();
   ~MinerServer() override;
@@ -45,15 +35,9 @@ protected:
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "MinerServer"; }
   void fillHealth(Client::NodeHealth &health) const override;
-  int32_t getRunErrorCode() const override { return E_MINER; }
+  int64_t clockOffsetMs() const override { return timeOffsetToBeaconMs_; }
 
   void runLoop() override;
-  /**
-   * When the held certificate orders a rewind (beacon-authority bp1), write the order and restart
-   * after kRewindRestartGrace. Called once the role has loaded, when a sync finishes (startup syncs
-   * too: a node back online with blocks past the cutover cannot sync), and from the run loop.
-   */
-  void orderRewindIfDue();
   Service::Roe<void> onStart() override;
   void onStop() override;
 
@@ -149,8 +133,6 @@ private:
   pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
                                        const Client::Wallet &admin) const;
 
-  std::string handleParsedRequest(const Client::Request &request) override;
-  bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   // Deferred: reply after an outbound call or the next sync
   void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
@@ -162,12 +144,7 @@ private:
   /** After a sync: answer block gets that were waiting for it. */
   void resolvePendingBlockGets();
 
-  Roe<std::string> hAccountGet(const Client::Request &request);
-  Roe<std::string> hTxGetByWallet(const Client::Request &request);
-  Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hCalibration(const Client::Request &request);
-  Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
   /** The upstreams this miner may follow, and the one it follows (bp2b). */
@@ -221,11 +198,6 @@ private:
   };
   std::optional<AnchoredStart> anchoredStart_;
 
-  using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
-  std::map<uint32_t, Handler> requestHandlers_;
-  using DeferredHandler =
-      std::function<void(const Client::Request &request, const RequestQueue::Reply &reply)>;
-  std::map<uint32_t, DeferredHandler> deferredHandlers_;
 
   struct PendingBlockGet {
     uint64_t blockId;

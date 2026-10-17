@@ -144,6 +144,13 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   if (const auto tip = latestSignedTip()) {
     health.signedTipHeight = tip->height;
   }
+  if (core_) {
+    health.networkId = core_->getNetworkId();
+    health.nextBlockId = core_->getNextBlockId();
+    health.generation = core_->getGeneration();
+    health.halted = core_->getEquivocation().has_value();
+    health.recoveryPending = core_->getRecoveryStatus().has_value();
+  }
   health.ready = false;
   health.notReady = serving_ ? "not ready" : "starting";
 }
@@ -409,8 +416,98 @@ void Server::postToServerThread(std::function<void()> task) {
   }
 }
 
-bool Server::handleDeferred(const Client::Request& /*request*/, const RequestQueue::Reply& /*reply*/) {
-  return false;
+void Server::bindCore(NodeCore& core) {
+  core_ = &core;
+  handleChainReads();
+}
+
+void Server::handle(uint32_t type, Handler handler) { routes_[type] = Route{std::move(handler), {}}; }
+
+void Server::handleLater(uint32_t type, LaterHandler handler) { routes_[type] = Route{{}, std::move(handler)}; }
+
+Service::Roe<void> Server::admit(const Client::Request& /*request*/) const { return {}; }
+
+void Server::handleChainReads() {
+  handle(Client::T_REQ_BLOCK_GET, [this](const Client::Request& request) -> Roe<std::string> {
+    auto blockId = utl::binaryUnpack<uint64_t>(request.payload);
+    if (!blockId) {
+      return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
+    }
+    auto block = core().readBlock(blockId.value());
+    if (!block) {
+      return Error(E_REQUEST, "Failed to get block: " + block.error().message);
+    }
+    return block.value().ltsToString();
+  });
+  handle(Client::T_REQ_ACCOUNT_GET, [this](const Client::Request& request) -> Roe<std::string> {
+    auto accountId = utl::binaryUnpack<uint64_t>(request.payload);
+    if (!accountId) {
+      return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
+    }
+    auto account = core().getAccount(accountId.value());
+    if (!account) {
+      return Error(E_REQUEST, "Failed to get account: " + account.error().message);
+    }
+    return account.value().ltsToString();
+  });
+  handle(Client::T_REQ_TX_GET_BY_WALLET, [this](const Client::Request& request) -> Roe<std::string> {
+    auto req = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);
+    if (!req) {
+      return Error(E_REQUEST, "Failed to deserialize request: " + req.error().message);
+    }
+    auto found = core().findTransactionsByWalletId(req.value().walletId, req.value().beforeBlockId);
+    if (!found) {
+      return Error(E_REQUEST, "Failed to get transactions: " + found.error().message);
+    }
+    Client::TxGetByWalletResponse response;
+    response.transactions = found.value();
+    response.nextBlockId = req.value().beforeBlockId;
+    return utl::binaryPack(response);
+  });
+  handle(Client::T_REQ_TX_GET_BY_INDEX, [this](const Client::Request& request) -> Roe<std::string> {
+    auto req = utl::binaryUnpack<Client::TxGetByIndexRequest>(request.payload);
+    if (!req) {
+      return Error(E_REQUEST, "Failed to deserialize request: " + req.error().message);
+    }
+    auto found = core().findTransactionByIndex(req.value().txIndex);
+    if (!found) {
+      return Error(E_REQUEST, "Failed to get transaction: " + found.error().message);
+    }
+    return utl::binaryPack(found.value());
+  });
+  handle(Client::T_REQ_AUTHORITY_PROOF, [this](const Client::Request& request) -> Roe<std::string> {
+    auto upTo = utl::binaryUnpack<uint64_t>(request.payload);
+    if (!upTo) {
+      return Error(E_REQUEST, "Invalid authority proof payload");
+    }
+    auto proof = core().authorityProof(upTo.value());
+    if (!proof) {
+      return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
+    }
+    return utl::binaryPack(proof.value());
+  });
+  handle(Client::T_REQ_CALIBRATION, [this](const Client::Request&) { return calibrationReply(); });
+}
+
+Service::Roe<std::string> Server::calibrationReply() const {
+  Client::CalibrationResponse response;
+  response.msTimestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count() +
+      clockOffsetMs();
+  response.nextBlockId = core().getNextBlockId();
+  return utl::binaryPack(response);
+}
+
+void Server::orderRewindIfDue() {
+  if (restartRequested()) {
+    return;
+  }
+  if (auto due = core().scheduleRewind(approvedRewindGeneration()); !due) {
+    log().error << due.error().message;
+  } else if (due.value()) {
+    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
+  }
 }
 
 void Server::serveRequestsFor(std::chrono::milliseconds budget) {
@@ -522,9 +619,20 @@ void Server::serveRequest(const RequestQueue::Item& item) {
     serveBlockWait(request.value(), item);
     return;
   }
+  const auto route = routes_.find(request.value().type);
+  if (route == routes_.end()) {
+    item.reply(packResponse(1, "Unsupported request type: " + std::to_string(request.value().type)));
+    return;
+  }
+  if (auto admitted = admit(request.value()); !admitted) {
+    item.reply(packResponse(1, admitted.error().message));
+    return;
+  }
   try {
-    if (!handleDeferred(request.value(), item.reply)) {
-      item.reply(handleParsedRequest(request.value()));
+    if (route->second.later) {
+      route->second.later(request.value(), item.reply);
+    } else {
+      replyWith(item.reply, route->second.now(request.value()));
     }
   } catch (const std::exception& e) {
     log().error << "Request handler threw: " << e.what();

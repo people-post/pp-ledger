@@ -39,7 +39,7 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
   blocking call) or gets it in a callback on the io lane (`roundTripAsync`,
   `Client::*Async`). The caller never drives the stack itself.
 - **Deferred replies:** a handler that needs another server keeps the request's
-  `reply` (`Server::handleDeferred`), starts an async call, and returns. The
+  `reply` (registered with `Server::handleLater`), starts an async call, and returns. The
   result hops back to the server thread (`postToServerThread` /
   `completeOnServerThread`), which updates state and replies. Meanwhile the
   server thread keeps serving other requests.

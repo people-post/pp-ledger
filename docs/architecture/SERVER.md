@@ -167,6 +167,7 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `STATUS`, `CALIBRATION` | serves | serves | serves | Chain tip, slot/epoch, network id, registry version; clock |
 | `HEALTH` | serves | serves | serves | Liveness, readiness and metrics state (`Client::NodeHealth`); answered at once to any peer from the server thread's last snapshot, never queued ([CONFIGURATION.md § Health and metrics](../ops/CONFIGURATION.md#health-and-metrics)) |
 | `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
+| `AUTHORITY_PROOF` | serves | serves | serves | Authority-changing records from genesis up to a block (beacon-authority ba5b); refused by a node that holds the chain from a checkpoint |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
 | `TX_ADD` | pools (a beacon certificate is kept first; refused once it stood down, except a certificate) | forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
@@ -178,6 +179,13 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 Which origins may send what (e.g. nothing travelling up is accepted from the
 upstream a node follows) is one table in `Server::isAllowedFrom`; see
 [LEDGER_TOPOLOGY.md — Request direction](LEDGER_TOPOLOGY.md#request-direction).
+
+Each role registers its handlers in one table (`Server::handle` for a reply now, `handleLater` for
+one that waits on another server). The base registers the chain reads and `CALIBRATION` for every
+role from its core (`bindCore`); a role replaces one where it differs (a follower fetches a block
+past its tip; a syncing miner refuses `CALIBRATION`). `Server::admit` may refuse a request before
+its handler (the beacon refuses producer writes once it stood down or halted). A type with no
+handler gets "Unsupported request type".
 
 ### Stakeholders
 

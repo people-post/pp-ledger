@@ -156,6 +156,7 @@ MinerServer::RunFileConfig::ltsFromJson(const Object &jd) {
 // ============ MinerServer methods ============
 
 MinerServer::MinerServer() {
+  bindCore(miner_);
   redirectLogger("MinerServer");
   miner_.redirectLogger(log().getFullName() + ".Miner");
   client_.redirectLogger(log().getFullName() + ".Client");
@@ -390,12 +391,12 @@ Service::Roe<void> MinerServer::onStart() {
     // Use default values from RunFileConfig struct
     auto encoded = encodeObjectPretty(runFileConfig.ltsToJson());
     if (!encoded) {
-      return Service::Error(E_MINER, "Failed to encode " + std::string(FILE_CONFIG) +
+      return Service::Error(E_ROLE, "Failed to encode " + std::string(FILE_CONFIG) +
                                          ": " + encoded.error().message);
     }
     std::ofstream configFile(configPath);
     if (!configFile) {
-      return Service::Error(E_MINER,
+      return Service::Error(E_ROLE,
                             "Failed to create " + std::string(FILE_CONFIG));
     }
     configFile << encoded.value() << std::endl;
@@ -445,7 +446,7 @@ Service::Roe<void> MinerServer::onStart() {
   setAllowedPeers(runFileConfig.allowedPeers);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
-    return Service::Error(E_MINER, "Failed to start AMP server: " + serverStarted.error().message);
+    return Service::Error(E_ROLE, "Failed to start AMP server: " + serverStarted.error().message);
   }
 
   if (!ampRuntime()) {
@@ -492,7 +493,7 @@ Service::Roe<void> MinerServer::onStart() {
 
   auto minerInit = miner_.init(minerConfig);
   if (!minerInit) {
-    return Service::Error(E_MINER, "Failed to initialize Miner: " +
+    return Service::Error(E_ROLE, "Failed to initialize Miner: " +
                                        minerInit.error().message);
   }
 
@@ -507,7 +508,7 @@ Service::Roe<void> MinerServer::onStart() {
   initBlockSync();
   lastSyncResult_.reset();
   if (auto error = runStartupSync(*blockSync_, lastSyncResult_, networkTuning().startupSyncTimeout); !error.empty()) {
-    return Service::Error(E_MINER, "Failed to sync blocks from beacon: " + error);
+    return Service::Error(E_ROLE, "Failed to sync blocks from beacon: " + error);
   }
 
   initHandlers();
@@ -640,44 +641,17 @@ void MinerServer::onBlockSyncFinished(const BlockSync::Result &result) {
 }
 
 void MinerServer::initHandlers() {
-  requestHandlers_.clear();
-
-  auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
-  hgs = [this](const Client::Request &request) { return hStatus(request); };
-
-  auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
-  hcs = [this](const Client::Request &request) { return hCalibration(request); };
-
-  auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
-  hga = [this](const Client::Request &request) { return hAccountGet(request); };
-
-  auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
-  htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
-
-  auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
-  htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
-
-  // Handlers that need another server (or a sync) reply later; see handleDeferred.
-  deferredHandlers_.clear();
-  deferredHandlers_[Client::T_REQ_BLOCK_GET] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dBlockGet(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &r, const RequestQueue::Reply &reply) {
-    dTxAdd(r, reply);
-  };
-  deferredHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &r,
-                                                             const RequestQueue::Reply &reply) {
-    dEquivocationAdd(r, reply);
-  };
-}
-
-bool MinerServer::handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) {
-  auto it = deferredHandlers_.find(request.type);
-  if (it == deferredHandlers_.end()) {
-    return false;
-  }
-  it->second(request, reply);
-  return true;
+  // The chain reads are the base's (bindCore); what needs another server (or a sync) replies later.
+  handle(Client::T_REQ_STATUS, [this](const Client::Request &request) { return hStatus(request); });
+  handle(Client::T_REQ_CALIBRATION, [this](const Client::Request &) -> Roe<std::string> {
+    if (!miner_.isConfigReady()) {
+      return Error(E_REQUEST, "Miner syncing, please retry later");
+    }
+    return calibrationReply();
+  });
+  handleLater(Client::T_REQ_BLOCK_GET, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dBlockGet(r, reply); });
+  handleLater(Client::T_REQ_TX_ADD, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dTxAdd(r, reply); });
+  handleLater(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &r, const RequestQueue::Reply &reply) { dEquivocationAdd(r, reply); });
 }
 
 void MinerServer::onStop() {
@@ -688,17 +662,6 @@ void MinerServer::onStop() {
   pendingBlockGets_.clear();
   Server::onStop();
   log().info << "MinerServer resources cleaned up";
-}
-
-void MinerServer::orderRewindIfDue() {
-  if (restartRequested()) {
-    return;
-  }
-  if (auto due = miner_.scheduleRewind(approvedRewindGeneration()); !due) {
-    log().error << due.error().message;
-  } else if (due.value()) {
-    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
-  }
 }
 
 void MinerServer::runLoop() {
@@ -787,18 +750,6 @@ void MinerServer::syncBlocksPeriodically() {
   trySyncBlocksFromBeacon(false);
 }
 
-std::string MinerServer::handleParsedRequest(const Client::Request &request) {
-  log().debug << "Handling request: " << request.type;
-  auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end())
-                                ? it->second(request)
-                                : hUnsupported(request);
-  if (!result) {
-    return Server::packResponse(1, result.error().message);
-  }
-  return Server::packResponse(result.value());
-}
-
 void MinerServer::dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply) {
   auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
   if (!idResult) {
@@ -834,52 +785,6 @@ void MinerServer::resolvePendingBlockGets() {
     }
   }
   pendingBlockGets_.clear();
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hAccountGet(const Client::Request &request) {
-  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!idResult) {
-    return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
-  }
-
-  uint64_t accountId = idResult.value();
-  auto result = miner_.getAccount(accountId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get account: " + result.error().message);
-  }
-  return result.value().ltsToString();
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hTxGetByWallet(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = miner_.findTransactionsByWalletId(req.walletId, req.beforeBlockId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transactions: " + result.error().message);
-  }
-  Client::TxGetByWalletResponse response;
-  response.transactions = result.value();
-  response.nextBlockId = req.beforeBlockId;
-  return utl::binaryPack(response);
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hTxGetByIndex(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByIndexRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = miner_.findTransactionByIndex(req.txIndex);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transaction: " + result.error().message);
-  }
-  return utl::binaryPack(result.value());
 }
 
 void MinerServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
@@ -936,26 +841,6 @@ MinerServer::hStatus(const Client::Request & /*request*/) {
   }
 
   return utl::binaryPack(status.ltsToMeta());
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hCalibration(const Client::Request & /*request*/) {
-  if (!miner_.isConfigReady()) {
-    return Error(E_REQUEST, "Miner syncing, please retry later");
-  }
-  int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-  Client::CalibrationResponse response;
-  response.msTimestamp = nowMs + timeOffsetToBeaconMs_;
-  response.nextBlockId = miner_.getNextBlockId();
-  return utl::binaryPack(response);
-}
-
-MinerServer::Roe<std::string>
-MinerServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST,
-               "Unsupported request type: " + std::to_string(request.type));
 }
 
 bool MinerServer::pullTransactionsForSlot(uint64_t slot) {
@@ -1245,10 +1130,6 @@ MinerServer::Roe<Client::BeaconState> MinerServer::connectToBeacon() {
 void MinerServer::fillHealth(Client::NodeHealth &health) const {
   Server::fillHealth(health);
   health.role = "miner";
-  health.networkId = miner_.getNetworkId();
-  health.nextBlockId = miner_.getNextBlockId();
-  health.generation = miner_.getGeneration();
-  health.halted = miner_.getEquivocation().has_value();
   if (lastSyncResult_ && lastSyncResult_->ok) {
     health.lastSyncAgeSeconds =
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - lastBlockSyncTime_).count();

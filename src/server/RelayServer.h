@@ -26,17 +26,6 @@ namespace pp {
 
 class RelayServer : public Server {
 public:
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
-  // Error codes
-  static constexpr const int32_t E_CONFIG = -1;
-  static constexpr const int32_t E_NETWORK = -2;
-  static constexpr const int32_t E_RELAY = -3;
-  static constexpr const int32_t E_REQUEST = -4;
 
   RelayServer();
   ~RelayServer() override = default;
@@ -50,18 +39,12 @@ protected:
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "RelayServer"; }
   void fillHealth(Client::NodeHealth &health) const override;
-  int32_t getRunErrorCode() const override { return E_RELAY; }
+  int64_t clockOffsetMs() const override { return timeOffsetToBeaconMs_; }
 
   /**
    * Service thread main loop - processes queued requests
    */
   void runLoop() override;
-  /**
-   * When the held certificate orders a rewind (beacon-authority bp1), write the order and restart
-   * after kRewindRestartGrace. Called once the role has loaded, when a sync finishes (startup syncs
-   * too: a node back online with blocks past the cutover cannot sync), and from the run loop.
-   */
-  void orderRewindIfDue();
 
   /**
    * Called before service thread starts - initializes beacon and network
@@ -141,7 +124,6 @@ private:
   /** A new certificate, to every upstream (TX_ADD): one behind a stood-down beacon learns it here. */
   void pushCertificateUp(const Ledger::Record &record);
 
-  std::string handleParsedRequest(const Client::Request &request) override;
   /** Serves BLOCK_WAIT: downstreams learn of each block once this relay has synced it. */
   std::optional<uint64_t> blockWaitTip() const override { return relay_.getNextBlockId(); }
   std::optional<Client::SignedTip> latestSignedTip() const override { return upstreamTip_.latest(); }
@@ -165,7 +147,6 @@ private:
   void dropHeldTipIfInvalid();
   /** True when `reply` carries a signed tip, valid here, for exactly `block`. */
   bool coversBlock(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
-  bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
 
   /** At start: the offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed (else another). */
   Roe<int64_t> calibrateTimeToBeacon();
@@ -183,14 +164,7 @@ private:
   void resolvePendingBlockGets();
 
   // Getters
-  Roe<std::string> hAccountGet(const Client::Request &request);
-  /** AUTHORITY_PROOF: authority-changing records from genesis up to a block (beacon-authority ba5b). */
-  Roe<std::string> hAuthorityProof(const Client::Request &request);
-  Roe<std::string> hTxGetByWallet(const Client::Request &request);
-  Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hCalibration(const Client::Request &request);
-  Roe<std::string> hUnsupported(const Client::Request &request);
 
   Config config_;
   Relay relay_;
@@ -210,12 +184,6 @@ private:
   std::chrono::steady_clock::time_point lastBlockSyncTime_{};
   uint64_t lastSyncedEpoch_{0};
 
-  using Handler =
-      std::function<Roe<std::string>(const Client::Request &request)>;
-  std::map<uint32_t, Handler> requestHandlers_;
-  using DeferredHandler =
-      std::function<void(const Client::Request &request, const RequestQueue::Reply &reply)>;
-  std::map<uint32_t, DeferredHandler> deferredHandlers_;
 
   struct PendingBlockGet {
     uint64_t blockId;

@@ -545,6 +545,7 @@ BeaconServer::RunFileConfig::ltsFromJson(const Object &jd) {
 // ============ BeaconServer methods ============
 
 BeaconServer::BeaconServer() {
+  bindCore(beacon_);
   redirectLogger("BeaconServer");
   beacon_.redirectLogger(log().getFullName() + ".Beacon");
   client_.redirectLogger(log().getFullName() + ".Client");
@@ -1049,45 +1050,15 @@ void BeaconServer::onStop() {
 }
 
 void BeaconServer::initHandlers() {
-  requestHandlers_.clear();
-
-  auto &hgs = requestHandlers_[Client::T_REQ_STATUS];
-  hgs = [this](const Client::Request &request) { return hStatus(request); };
-
-  auto &hcs = requestHandlers_[Client::T_REQ_CALIBRATION];
-  hcs = [this](const Client::Request &request) { return hCalibration(request); };
-
-  auto &hgb = requestHandlers_[Client::T_REQ_BLOCK_GET];
-  hgb = [this](const Client::Request &request) { return hBlockGet(request); };
-
-  requestHandlers_[Client::T_REQ_AUTHORITY_PROOF] = [this](const Client::Request &request) {
-    return hAuthorityProof(request);
-  };
-
-  auto &hga = requestHandlers_[Client::T_REQ_ACCOUNT_GET];
-  hga = [this](const Client::Request &request) { return hAccountGet(request); };
-
-  auto &htx = requestHandlers_[Client::T_REQ_TX_GET_BY_WALLET];
-  htx = [this](const Client::Request &request) { return hTxGetByWallet(request); };
-
-  auto &htxi = requestHandlers_[Client::T_REQ_TX_GET_BY_INDEX];
-  htxi = [this](const Client::Request &request) { return hTxGetByIndex(request); };
-
-  auto &hab = requestHandlers_[Client::T_REQ_BLOCK_ADD];
-  hab = [this](const Client::Request &request) { return hBlockAdd(request); };
-
-  auto &hreg = requestHandlers_[Client::T_REQ_REGISTER];
-  hreg = [this](const Client::Request &request) { return hRegister(request); };
-
-  auto &hml = requestHandlers_[Client::T_REQ_MINER_LIST];
-  hml = [this](const Client::Request &request) { return hMinerList(request); };
-
-  requestHandlers_[Client::T_REQ_TX_ADD] = [this](const Client::Request &request) { return hTxAdd(request); };
-  requestHandlers_[Client::T_REQ_EQUIVOCATION_ADD] = [this](const Client::Request &request) {
-    return hEquivocationAdd(request);
-  };
-  requestHandlers_[Client::T_REQ_TX_PULL] = [this](const Client::Request &request) { return hTxPull(request); };
-};
+  // The chain reads and CALIBRATION are the base's (bindCore).
+  handle(Client::T_REQ_STATUS, [this](const Client::Request &request) { return hStatus(request); });
+  handle(Client::T_REQ_BLOCK_ADD, [this](const Client::Request &request) { return hBlockAdd(request); });
+  handle(Client::T_REQ_REGISTER, [this](const Client::Request &request) { return hRegister(request); });
+  handle(Client::T_REQ_MINER_LIST, [this](const Client::Request &request) { return hMinerList(request); });
+  handle(Client::T_REQ_TX_ADD, [this](const Client::Request &request) { return hTxAdd(request); });
+  handle(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request) { return hEquivocationAdd(request); });
+  handle(Client::T_REQ_TX_PULL, [this](const Client::Request &request) { return hTxPull(request); });
+}
 
 
 namespace {
@@ -1139,17 +1110,6 @@ Client::BeaconState BeaconServer::buildStateResponse() const {
   return state;
 }
 
-void BeaconServer::orderRewindIfDue() {
-  if (restartRequested()) {
-    return;
-  }
-  if (auto due = beacon_.scheduleRewind(approvedRewindGeneration()); !due) {
-    log().error << due.error().message;
-  } else if (due.value()) {
-    requestRestart(kRewindRestartGrace); // a forward in flight (the certificate itself) finishes
-  }
-}
-
 void BeaconServer::runLoop() {
   log().info << "Request handler thread started";
 
@@ -1177,70 +1137,18 @@ bool isTerminalWrite(uint32_t type) {
 }
 } // namespace
 
-std::string BeaconServer::handleParsedRequest(const Client::Request &request) {
-  log().debug << "Handling request: " << request.type;
-  if (const auto by = isTerminalWrite(request.type) ? beacon_.supersededBy() : std::nullopt) {
-    return Server::packResponse(1, "This beacon stood down: beacon generation " + std::to_string(*by) +
-                                       " certifies another key");
+BeaconServer::Roe<void> BeaconServer::admit(const Client::Request &request) const {
+  if (!isTerminalWrite(request.type)) {
+    return {};
   }
-  if (const auto above = isTerminalWrite(request.type) ? beacon_.haltedAbove() : std::nullopt) {
-    return Server::packResponse(1, haltedMessage(*above));
+  if (const auto by = beacon_.supersededBy()) {
+    return Error(E_REQUEST, "This beacon stood down: beacon generation " + std::to_string(*by) +
+                                " certifies another key");
   }
-  auto it = requestHandlers_.find(request.type);
-  Roe<std::string> result = (it != requestHandlers_.end())
-                                ? it->second(request)
-                                : hUnsupported(request);
-  if (!result) {
-    return Server::packResponse(1, result.error().message);
+  if (const auto above = beacon_.haltedAbove()) {
+    return Error(E_REQUEST, haltedMessage(*above));
   }
-  return Server::packResponse(result.value());
-}
-
-BeaconServer::Roe<std::string>
-BeaconServer::hBlockGet(const Client::Request &request) {
-  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!idResult) {
-    return Error(E_REQUEST, "Invalid block get payload: " + request.payload);
-  }
-
-  uint64_t blockId = idResult.value();
-  auto result = beacon_.readBlock(blockId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get block: " + result.error().message);
-  }
-
-  return result.value().ltsToString();
-}
-
-BeaconServer::Roe<std::string>
-BeaconServer::hTxGetByWallet(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = beacon_.findTransactionsByWalletId(req.walletId, req.beforeBlockId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transactions: " + result.error().message);
-  }
-  Client::TxGetByWalletResponse response;
-  response.transactions = result.value();
-  response.nextBlockId = req.beforeBlockId;
-  return utl::binaryPack(response);
-}
-
-BeaconServer::Roe<std::string>
-BeaconServer::hTxGetByIndex(const Client::Request &request) {
-  auto reqResult = utl::binaryUnpack<Client::TxGetByIndexRequest>(request.payload);
-  if (!reqResult) {
-    return Error(E_REQUEST, "Failed to deserialize request: " + reqResult.error().message);
-  }
-  auto &req = reqResult.value();
-  auto result = beacon_.findTransactionByIndex(req.txIndex);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get transaction: " + result.error().message);
-  }
-  return utl::binaryPack(result.value());
+  return {};
 }
 
 BeaconServer::Roe<std::string>
@@ -1370,21 +1278,6 @@ BeaconServer::hTxPull(const Client::Request & /*request*/) {
 }
 
 BeaconServer::Roe<std::string>
-BeaconServer::hAccountGet(const Client::Request &request) {
-  auto idResult = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!idResult) {
-    return Error(E_REQUEST, "Invalid account get payload: " + request.payload);
-  }
-
-  uint64_t accountId = idResult.value();
-  auto result = beacon_.getAccount(accountId);
-  if (!result) {
-    return Error(E_REQUEST, "Failed to get account: " + result.error().message);
-  }
-  return result.value().ltsToString();
-}
-
-BeaconServer::Roe<std::string>
 BeaconServer::hRegister(const Client::Request &request) {
   auto unpacked = utl::binaryUnpack<pp::common::Meta>(request.payload);
   if (!unpacked) {
@@ -1422,16 +1315,6 @@ BeaconServer::hStatus(const Client::Request & /*request*/) {
 }
 
 BeaconServer::Roe<std::string>
-BeaconServer::hCalibration(const Client::Request & /*request*/) {
-  Client::CalibrationResponse response;
-  response.msTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-  response.nextBlockId = beacon_.getNextBlockId();
-  return utl::binaryPack(response);
-}
-
-BeaconServer::Roe<std::string>
 BeaconServer::hMinerList(const Client::Request & /*request*/) {
   expireMinerRecords();
   std::vector<pp::common::Meta> list;
@@ -1442,33 +1325,10 @@ BeaconServer::hMinerList(const Client::Request & /*request*/) {
   return utl::binaryPack(list);
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hUnsupported(const Client::Request &request) {
-  return Error(E_REQUEST,
-               "Unsupported request type: " + std::to_string(request.type));
-}
-
-BeaconServer::Roe<std::string> BeaconServer::hAuthorityProof(const Client::Request &request) {
-  auto upTo = utl::binaryUnpack<uint64_t>(request.payload);
-  if (!upTo) {
-    return Error(E_REQUEST, "Invalid authority proof payload");
-  }
-  auto proof = beacon_.authorityProof(upTo.value());
-  if (!proof) {
-    return Error(E_REQUEST, "Failed to build authority proof: " + proof.error().message);
-  }
-  return utl::binaryPack(proof.value());
-}
-
 void BeaconServer::fillHealth(Client::NodeHealth &health) const {
   Server::fillHealth(health);
   health.role = "beacon";
-  health.networkId = beacon_.getNetworkId();
-  health.nextBlockId = beacon_.getNextBlockId();
-  health.generation = beacon_.getGeneration();
-  health.halted = beacon_.haltedAbove().has_value();
   health.standingDown = beacon_.isSuperseded();
-  health.recoveryPending = beacon_.getRecoveryStatus().has_value();
   if (!isServing()) {
     return;
   }

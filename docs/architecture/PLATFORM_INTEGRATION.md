@@ -61,7 +61,8 @@ All ledger traffic is Amp over UDP ([AMP_TRANSPORT.md](../contracts/AMP_TRANSPOR
 UDP → ADP → MSH (ML-DSA identity) → channel /pp-ledger/rpc/1.0.0 → binaryPack Client::Request
 ```
 
-- One handler surface for every role: `Server::handleParsedRequest`. Topology rules:
+- One handler table for every role: `Server::handle` / `handleLater` per request type, served
+  by `Server::serveRequest`. Topology rules:
   [LEDGER_TOPOLOGY.md](LEDGER_TOPOLOGY.md).
 - Client side: `ILedgerTransport` (unframed request / response bytes) with `AmpLedgerTransport`
   (threaded over `LedgerAmpRuntime`, or caller-driven for tests). `InProcessLedgerTransport` exists

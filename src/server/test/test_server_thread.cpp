@@ -107,6 +107,9 @@ TEST(RequestQueueTest, OnePeerCannotTakeTheWholeLowLane) {
 /** Echo server; records which thread handled each request and the max overlap. */
 class EchoServer : public Server {
 public:
+  EchoServer() { echoTypes(); }
+  void handleNow(uint32_t type, Handler handler) { handle(type, std::move(handler)); }
+
   using Server::enqueueRequest;
   using Server::postToServerThread;
   using Server::packResponse;
@@ -137,14 +140,20 @@ protected:
   std::string getServerName() const override { return "EchoServer"; }
   void runLoop() override {}
 
-  /** "defer": hold the reply until the test completes it (like an outbound call). */
-  bool handleDeferred(const Client::Request& request, const RequestQueue::Reply& reply) override {
-    if (request.payload != "defer") {
-      return false;
+  /** Echoes every request type the tests send; "defer" holds the reply until the test completes it (like an outbound call). */
+  void echoTypes() {
+    for (uint32_t type : {uint32_t{1}, Client::T_REQ_BLOCK_ADD, Client::T_REQ_BLOCK_GET, Client::T_REQ_EQUIVOCATION_ADD,
+                          Client::T_REQ_MINER_LIST, Client::T_REQ_REGISTER, Client::T_REQ_STATUS, Client::T_REQ_TX_ADD,
+                          Client::T_REQ_TX_PULL}) {
+      handleLater(type, [this](const Client::Request& request, const RequestQueue::Reply& reply) {
+        if (request.payload == "defer") {
+          deferredReply = reply;
+          deferredThread = std::this_thread::get_id();
+          return;
+        }
+        reply(echo(request));
+      });
     }
-    deferredReply = reply;
-    deferredThread = std::this_thread::get_id();
-    return true;
   }
 
 public:
@@ -165,7 +174,7 @@ protected:
 public:
 
 protected:
-  std::string handleParsedRequest(const Client::Request& request) override {
+  std::string echo(const Client::Request& request) {
     const int now = ++active;
     int seen = maxActive.load();
     while (now > seen && !maxActive.compare_exchange_weak(seen, now)) {
@@ -258,6 +267,27 @@ TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   server.serveRequestsFor(50ms);
   EXPECT_EQ(replies.size(), 3u);
   EXPECT_EQ(server.handled.load(), 2);
+}
+
+// One handler table: a type with no handler is refused, and a handler registered later replaces
+// the one before it.
+TEST(ServerThreadTest, RequestsGoThroughTheHandlerTable) {
+  EchoServer server;
+  Replies replies;
+  server.enqueueRequest(packRequest("x", Client::T_REQ_ACCOUNT_GET), replies.sink()); // no handler
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_NE(replies.items[0].errorCode, 0);
+  EXPECT_EQ(replies.items[0].payload, "Unsupported request type: " + std::to_string(Client::T_REQ_ACCOUNT_GET));
+  EXPECT_EQ(server.handled.load(), 0);
+
+  server.handleNow(Client::T_REQ_STATUS, [](const Client::Request &) { return Service::Roe<std::string>("now"); });
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink());
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_EQ(replies.items[1].errorCode, 0);
+  EXPECT_EQ(replies.items[1].payload, "now") << "the later registration replaced the echo";
+  EXPECT_EQ(server.handled.load(), 0);
 }
 
 TEST(ServerThreadTest, NetworkTuningSizesTheRequestQueue) {
