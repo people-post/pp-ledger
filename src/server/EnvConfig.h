@@ -60,7 +60,7 @@ Roe<std::optional<pp::common::Object>> loadConfig(const std::string &path, const
 /** Fields every role reads: `PP_LEDGER_PORT`, `PP_LEDGER_ALLOWED_PEERS`. */
 std::vector<Field> commonFields();
 /** The network anchor (relay, miner): `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`,
- *  `PP_LEDGER_TRUSTED_CHECKPOINT`. */
+ *  `PP_LEDGER_TRUSTED_CHECKPOINT`, `PP_LEDGER_PREDECESSOR_DIR`. */
 std::vector<Field> anchorFields();
 
 } // namespace pp::env_config

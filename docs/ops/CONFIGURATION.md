@@ -31,7 +31,7 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_LEDGER_PORT` | beacon, relay, miner | `port` |
 | `PP_LEDGER_ALLOWED_PEERS` | beacon, relay, miner | `allowedPeers` (list) |
 | `PP_LEDGER_UPSTREAMS` | relay, miner | `beacons` (list of upstream multiaddrs) |
-| `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId` |
+| `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`, `PP_LEDGER_TRUSTED_CHECKPOINT`, `PP_LEDGER_PREDECESSOR_DIR` | relay, miner | `networkAnchor.networkId`, `.genesisHash`, `.trustedCheckpointId`, `.predecessorDir` |
 | `PP_MINER_ID` | miner | `minerId` |
 | `PP_MINER_KEYS` `[_FILE]` | miner | `keys` (list: hex keys or key file paths) |
 | `PP_GENESIS_KEY_FILES` | beacon `--init` | `--genesis-key` (list of key files; keeps keys out of argv) |
@@ -171,6 +171,12 @@ Later miners register on chain with `pp-client -b --host <relay> miner-register 
 - `stake` — optional initial balance taken from reserve; default an equal share
   of 10% of the supply among miners without an explicit stake
 
+**Re-genesis** (`pp-beacon --init --import-state state.snap`, case 1:
+[BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)):
+`networkId` (new, not the snapshot's), `systemAccounts` (the new keys) and `recovery` are required
+as above; `genesisMiners` is refused (miners come with the import). Every other field is the old
+network's, from the snapshot, unless set here.
+
 ## Beacon `config.json`
 
 ```json
@@ -216,6 +222,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 | `port` | 8519 | UDP listen port |
 | `allowedPeers` | anyone | Peer ids served; typically the relay's miners and clients |
 | `networkAnchor.genesisHash` | none | Hex hash of the genesis this relay syncs from (as `pp-client block 0` prints it); without it the relay takes genesis from its upstream on trust |
+| `networkAnchor.predecessorDir` | none | After a re-genesis: this node's work directory on the old network (stopped). The new genesis must name block *H* of that ledger — same network, block hash and state root — or the node refuses to follow it, and refuses when that ledger does not hold *H* ([BEACON_AUTHORITY.md § Importing genesis](../contracts/BEACON_AUTHORITY.md#importing-genesis)). Checked when syncing block 0 and at every start |
 
 ## Miner `config.json`
 
@@ -233,7 +240,7 @@ When the beacon's key is stolen, the admins certify a new key held on one of the
 | `keys` | **required** | Files with the account's hex private keys; the first is also the miner's network identity |
 | `beacons` | **required** | Upstream multiaddrs (relays, or the beacon), each ending in `/p2p/<peer id>` |
 | `port` | 8518 | UDP listen port (miners only dial out; nothing needs to reach it) |
-| `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId"}`. `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
+| `networkAnchor` | none | Optional pins checked against upstreams: `{"networkId", "genesisHash", "trustedCheckpointId", "predecessorDir"}` (`predecessorDir`: as for a relay above; a miner fetches block 0 to check it, even when starting at a checkpoint). `genesisHash` is the hex block hash (as `pp-client block 0` prints it, `0x` optional). With it, a fresh miner starting at a checkpoint replays the upstream's `AUTHORITY_PROOF` from genesis and requires the checkpoint to carry the authority it reaches, else starts at genesis |
 | `allowedPeers` | anyone | Peer ids served (a miner serves reads to local clients) |
 
 Relays and miners follow the upstream whose signed tip has the highest beacon generation they could

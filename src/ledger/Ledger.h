@@ -42,6 +42,7 @@ public:
   constexpr static uint16_t T_MINER_REVOKE = 17;   // Account opts out
   constexpr static uint16_t T_BEACON_CERT = 18;    // Admin set certifies the next beacon generation
   constexpr static uint16_t T_RECOVERY = 19;       // Recovery set announces a new admin set
+  constexpr static uint16_t T_IMPORT = 20;         // Re-genesis: one account of the predecessor network
 
   struct TxCommon {
     uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
@@ -174,12 +175,25 @@ public:
   };
 
   /**
+   * T_IMPORT: one account of the network a re-genesis comes from (beacon-authority B032), in an
+   * import block after an importing genesis. Unsigned: the predecessor's state root authenticates
+   * it. `meta` is the account as the old chain held it (chain layer: StateSnapshot::Account). Fee 0.
+   */
+  struct TxImport : TxCommon {
+    uint64_t walletId{ 0 };
+
+    template <typename Archive> void serialize(Archive &ar) { ar & walletId & fee & meta; }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
    * In-memory typed transaction payload for centralized dispatch. Variant order is not the
-   * record type id (16..19 follow 0..6; 7..15 are reserved): use typeOf().
+   * record type id (16..20 follow 0..6; 7..15 are reserved): use typeOf().
    */
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
                                TxUserUpdate, TxRenewal, TxEndUser,
-                               TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery>;
+                               TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport>;
   /** Record type id (T_*) of a typed transaction. */
   static uint16_t typeOf(const TypedTx &tx);
 

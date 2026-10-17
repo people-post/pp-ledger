@@ -875,3 +875,63 @@ the transport (blocks made that cannot travel); chunked block transfer now (not 
 at the checkpoint (unbounded checkpoint block, B015's rejected option); validators recompute the
 first renewal left out and check it would not fit (exact, but heavy for a liveness property).
 
+## B036 — Importing genesis: how it is built (bp9)
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis), [WIRE_SCHEMA.md](../../docs/contracts/WIRE_SCHEMA.md) (record 20, the importing genesis) (normative; this entry keeps the why).
+**Decision:** B032 as built, with these choices:
+- **Genesis meta v12** (v11 went to `maxBlockBytes`): `hasImport` + `GenesisImport {predecessor,
+  accountCount, systemKeys}`. Only an importing `T_GENESIS` carries it; a `T_CONFIG` or renewal
+  carrying one is refused, and a genesis renewal built from block 0 drops it.
+- **The span ends by count**, not by a marker: the block that imports the `accountCount`-th account
+  checks the root and closes the span.
+- **System keys travel in the genesis meta**, signed by the new admin keys. The `T_IMPORT` records
+  stay the old accounts verbatim, so their old leaves still hash to the predecessor's root.
+- **The genesis account** is created by `T_GENESIS` with the new admin keys and no balances; its
+  `T_IMPORT` adds only the imported balances, its `blockId` stays 0 — so genesis renewals and
+  checkpoints read its meta from block 0 as on any chain.
+- **Import blocks have their own path** in `Chain` (`isImportBlock`): no arrival, slot, leader,
+  timing or body-policy checks, no stake snapshot and no issuance baseline; their own header rules
+  (`validateImportBlockBody`). The first produced block then takes epoch 0's stake snapshot from the
+  imported registered miners, and the issuance baseline from the imported genesis balance.
+- **`maxTransactionsPerBlock` does not bind import blocks**; `maxBlockBytes` does (the transport).
+- **The tip at *k* is signed by `--init`** (a beacon would otherwise start on a ledger past genesis
+  with no signed tip, refused by B029).
+- **Config:** the snapshot's, overridden only by the fields `init-config.json` sets (presence, not
+  defaults).
+**Rationale:** Each choice keeps the import's check and the chain's daily paths apart: the old
+leaves are checked as they were; the new state is built so that every later rule (renewals,
+checkpoints, committees, issuance) sees an ordinary chain from block *k* + 1.
+**Cons:** Imported miners may be charged skipped slots between genesis and the first produced block
+if already due — none are, their counters having just been reset.
+
+## B037 — A re-genesis's predecessor is checked by the nodes that ran the old network
+
+**Date:** 2026-10-16
+**Superseded by:** [BEACON_AUTHORITY.md § Importing genesis](../../docs/contracts/BEACON_AUTHORITY.md#importing-genesis), [CONFIGURATION.md](../../docs/ops/CONFIGURATION.md) (`networkAnchor.predecessorDir`) (normative; this entry keeps the why).
+**Decision:**
+- **The root is bound to the block.** The predecessor carries block *H*'s header (StateSnapshot v2,
+  `GenesisImport`); every node requires it to be block *H*, to hash to `blockHash` and to hold
+  `stateRoot`.
+- **Old nodes vouch.** A relay or miner configured with `networkAnchor.predecessorDir` (its work
+  directory on the old network) requires the new genesis to name block *H* of that ledger — network
+  id, block hash, state root — and refuses to follow it otherwise, or when its ledger does not hold
+  *H*. Checked when syncing block 0 (`BlockSync` hook), at every relay start, and by a miner fetching
+  block 0.
+**Rationale:**
+- **What was unchecked.** Every node checked the import against `predecessor.stateRoot`, but that
+  root — and that block *H* is the old network's — came from whoever ran `--init`: a made-up state
+  with a root of its own would pass. And `blockHash` and `stateRoot` were independent fields, so
+  checking only the block hash against the old chain (the planned manual tool) would miss a
+  made-up root.
+- **The operators are the auditors.** The miners and relays moving to the new network held the old
+  chain; comparing one block of their own ledger is cheap, needs no new trust, and makes the check
+  automatic: a dishonest re-genesis is refused by every node that held the real block *H*.
+**Cons:** A node that never held the old chain cannot check; it relies on the announcement and on
+the nodes that do. A node whose old ledger ends below *H* refuses (it cannot vouch) — its operator
+drops the setting knowingly.
+**Alternatives:** A proof any node checks from the old genesis hash alone (the old genesis block,
+its authority proof, an old signed tip at or above *H* and the headers between) — set aside for
+now: larger, and the nodes that matter most already hold the old chain. Only the manual
+`check-predecessor` tool (an audit nobody is made to run).
+

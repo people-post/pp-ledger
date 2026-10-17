@@ -1,9 +1,14 @@
 #include "GenesisTxHandler.h"
 #include "AccountBuffer.h"
 #include "AccountPolicy.h"
+#include "BlockValidation.h"
 #include "ErrorCodes.h"
 #include "TxTyped.h"
 #include "Types.h"
+#include "AccountIds.h"
+#include "lib/common/Utilities.h"
+
+#include <set>
 
 namespace pp {
 
@@ -59,6 +64,51 @@ chain_tx::Roe<void> GenesisTxHandler::applyBlock(const Ledger::TypedTx &tx,
   }
 
   return applyGenesisInit(*pRoe.value(), c.ctx);
+}
+
+chain_tx::Roe<void> GenesisTxHandler::openImportSpan(const GenesisAccountMeta &gm, TxContext &ctx) const {
+  const auto &import = gm.import;
+  const auto refused = [](const std::string &why) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Importing genesis: " + why);
+  };
+  if (import.predecessor.networkId.empty() || import.predecessor.networkId == gm.config.networkId) {
+    return refused("the predecessor's network id must be set and differ from this network's");
+  }
+  if (import.predecessor.blockHash.size() != utl::SHA256_DIGEST_SIZE ||
+      import.predecessor.stateRoot.size() != utl::SHA256_DIGEST_SIZE) {
+    return refused("the predecessor's block hash and state root must be 32 bytes");
+  }
+  if (auto bound = chain_block::validatePredecessorHeader(import.predecessor); !bound) {
+    return refused(bound.error().message);
+  }
+  if (import.accountCount == 0) {
+    return refused("no accounts to import");
+  }
+  if (!gm.genesis.wallet.mBalances.empty()) {
+    return refused("the genesis account's balances come with the import");
+  }
+  // Reserve, registrar, fee and recycle, once each, with keys; genesis's are the meta's own.
+  std::set<uint64_t> ids;
+  for (const auto &keys : import.systemKeys) {
+    if (!AccountIds::isSystemAccount(keys.id) || keys.id == AccountBuffer::ID_GENESIS || keys.id > AccountIds::ID_RECYCLE ||
+        !ids.insert(keys.id).second) {
+      return refused("system account keys for id " + std::to_string(keys.id));
+    }
+    if (keys.publicKeys.empty() || keys.minSignatures == 0 || keys.minSignatures > keys.publicKeys.size()) {
+      return refused("system account " + std::to_string(keys.id) + " needs keys and a threshold they can meet");
+    }
+  }
+  if (ids.size() != AccountIds::ID_RECYCLE) {
+    return refused("keys for every system account (reserve, registrar, fee, recycle)");
+  }
+  ImportProgress progress;
+  progress.predecessor = import.predecessor;
+  progress.accountCount = import.accountCount;
+  progress.systemKeys = import.systemKeys;
+  ctx.importProgress = std::move(progress);
+  log().info << "Importing " << import.accountCount << " accounts of network '" << import.predecessor.networkId
+             << "' at block " << import.predecessor.height;
+  return {};
 }
 
 chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
@@ -120,6 +170,12 @@ chain_tx::Roe<void> GenesisTxHandler::applyGenesisInit(
         chain_err::E_INTERNAL_BUFFER,
         "Failed to add genesis account to buffer: " +
             roeAddGenesis.error().message);
+  }
+
+  if (gm.hasImport) {
+    if (auto opened = openImportSpan(gm, ctx); !opened) {
+      return opened;
+    }
   }
 
   log().info << "System initialized";

@@ -32,11 +32,12 @@ void signalHandler(int signal) {
 }
 } // namespace
 
-int initBeacon(const std::string& workDir, const std::vector<std::string>& genesisKeys, bool force) {
+int initBeacon(const std::string& workDir, const std::vector<std::string>& genesisKeys, bool force,
+               const std::string& importState) {
   pp::BeaconServer beaconServer;
   beaconServer.redirectLogger("pp.BeaconServer");
 
-  auto result = beaconServer.init(workDir, genesisKeys, force);
+  auto result = beaconServer.init(workDir, genesisKeys, force, importState);
   if (!result) {
     std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
     return 1;
@@ -103,6 +104,11 @@ int main(int argc, char *argv[]) {
   bool forceInit = false;
   app.add_flag("--force", forceInit, "--init only: replace an existing chain (data/) — destroys it");
 
+  std::string importState;
+  app.add_option("--import-state", importState,
+                 "--init only: a re-genesis importing this state snapshot (pp-client export-state): a new network "
+                 "whose accounts are the old one's at the snapshot's height (docs/contracts/BEACON_AUTHORITY.md)");
+
 
   bool promote = false;
   app.add_flag("--promote", promote,
@@ -146,12 +152,16 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
+  if (!importState.empty() && !initMode) {
+    std::cerr << "Error: --import-state goes with --init\n";
+    return 1;
+  }
   if (initMode && promote) {
     std::cerr << "Error: --init and --promote do not go together\n";
     return 1;
   }
   if (initMode) {
-    return initBeacon(options.workDir, genesisKeys, forceInit);
+    return initBeacon(options.workDir, genesisKeys, forceInit, importState);
   } else {
     return runBeacon(options.workDir, approvedRewindGeneration, promote, acceptLedgerTip, options.logFile);
   }

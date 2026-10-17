@@ -90,6 +90,8 @@ private:
     std::optional<std::set<std::string>> allowedPeers;
     /** `networkAnchor.genesisHash`: the genesis this relay syncs from (beacon-authority ba5b). */
     std::optional<std::string> genesisHash;
+    /** `networkAnchor.predecessorDir`: this relay's directory on the old network (B037). */
+    std::string predecessorDir;
 
     pp::common::Object ltsToJson();
     Roe<void> ltsFromJson(const pp::common::Object &jd);
@@ -100,6 +102,8 @@ private:
     std::vector<std::string> beacon_multiaddrs;
     /** Raw hash genesis must have (BlockSync pins the relay's first block). */
     std::optional<std::string> genesisHash;
+    /** Check a re-genesis's predecessor against this old ledger (predecessor_check). */
+    std::string predecessorDir;
   };
 
   struct Config {

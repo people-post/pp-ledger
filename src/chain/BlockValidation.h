@@ -118,6 +118,22 @@ chain_tx::Roe<void> validateEmptyHeartbeatPolicy(const Ledger::ChainNode &block,
 chain_tx::Roe<void> validateAuthorityRecordCount(const Ledger::Block &block);
 
 /** Layer: txRoot, header hash, authority records per block, sequence / previousHash / txIndex. */
+/**
+ * An import block of an importing genesis's span (beacon-authority B032), before its records
+ * apply: slot 0, no leader, epoch 0, stamped at genesis time, the empty stake snapshot and the
+ * genesis seed, no committee; T_IMPORT records only, at most `remaining`, within maxBlockBytes.
+ * Hash and state root are checked as for any block (structural, and after apply).
+ */
+/**
+ * A re-genesis's predecessor is one block (B037): its header is block `height`, hashes to
+ * `blockHash`, and holds `stateRoot` — the root the import is checked against cannot be chosen
+ * apart from the block.
+ */
+chain_tx::Roe<void> validatePredecessorHeader(const ChainPredecessor &predecessor);
+
+chain_tx::Roe<void> validateImportBlockBody(const Ledger::ChainNode &block, const Ledger &ledger,
+                                            const BlockChainConfig &config, uint64_t remaining);
+
 chain_tx::Roe<void> checkBlockStructural(const Ledger::ChainNode &block,
                                          const Ledger &ledger);
 

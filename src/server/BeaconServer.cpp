@@ -550,8 +550,60 @@ BeaconServer::BeaconServer() {
   client_.redirectLogger(log().getFullName() + ".Client");
 }
 
+namespace {
+
+/** Config fields `init-config.json` may override on a re-genesis (B032), by their JSON names. */
+const std::vector<std::pair<const char *, void (*)(Chain::BlockChainConfig &, const Chain::BlockChainConfig &)>>
+    kConfigOverrides = {
+        {"slotDuration", [](auto &to, const auto &from) { to.slotDuration = from.slotDuration; }},
+        {"slotsPerEpoch", [](auto &to, const auto &from) { to.slotsPerEpoch = from.slotsPerEpoch; }},
+        {"maxCustomMetaSize", [](auto &to, const auto &from) { to.maxCustomMetaSize = from.maxCustomMetaSize; }},
+        {"maxTransactionsPerBlock",
+         [](auto &to, const auto &from) { to.maxTransactionsPerBlock = from.maxTransactionsPerBlock; }},
+        {"maxBlockBytes", [](auto &to, const auto &from) { to.maxBlockBytes = from.maxBlockBytes; }},
+        {"minFeeCoefficients", [](auto &to, const auto &from) { to.minFeeCoefficients = from.minFeeCoefficients; }},
+        {"freeCustomMetaSize", [](auto &to, const auto &from) { to.freeCustomMetaSize = from.freeCustomMetaSize; }},
+        {"checkpointMinBlocks", [](auto &to, const auto &from) { to.checkpoint.minBlocks = from.checkpoint.minBlocks; }},
+        {"checkpointMinAgeSeconds",
+         [](auto &to, const auto &from) { to.checkpoint.minAgeSeconds = from.checkpoint.minAgeSeconds; }},
+        {"maxValidationTimespanSeconds",
+         [](auto &to, const auto &from) { to.maxValidationTimespanSeconds = from.maxValidationTimespanSeconds; }},
+        {"heartbeatSlots", [](auto &to, const auto &from) { to.heartbeatSlots = from.heartbeatSlots; }},
+        {"maxIssuancePerEpoch", [](auto &to, const auto &from) { to.maxIssuancePerEpoch = from.maxIssuancePerEpoch; }},
+        {"newAccountFee", [](auto &to, const auto &from) { to.newAccountFee = from.newAccountFee; }},
+        {"minerMinStake", [](auto &to, const auto &from) { to.minerMinStake = from.minerMinStake; }},
+        {"minerRegistrationFee", [](auto &to, const auto &from) { to.minerRegistrationFee = from.minerRegistrationFee; }},
+        {"minerDueAfterSlots", [](auto &to, const auto &from) { to.minerDueAfterSlots = from.minerDueAfterSlots; }},
+        {"minerMaxMissedSlots", [](auto &to, const auto &from) { to.minerMaxMissedSlots = from.minerMaxMissedSlots; }},
+        {"minerReregisterCooldownEpochs",
+         [](auto &to, const auto &from) { to.minerReregisterCooldownEpochs = from.minerReregisterCooldownEpochs; }},
+};
+
+/** A re-genesis's snapshot (pp-client export-state), checked against its own root. */
+BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    return BeaconServer::Error("Cannot read state snapshot " + path);
+  }
+  const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  StateSnapshot snapshot;
+  if (!snapshot.ltsFromString(bytes)) {
+    return BeaconServer::Error(path + " is not a state snapshot (version " + std::to_string(StateSnapshot::VERSION) + ")");
+  }
+  if (auto bound = chain_block::validatePredecessorHeader(snapshot.predecessor); !bound) {
+    return BeaconServer::Error(path + ": " + bound.error().message);
+  }
+  if (snapshot.accountsRoot() != snapshot.predecessor.stateRoot) {
+    return BeaconServer::Error(path + ": the accounts do not hash to the state root it names");
+  }
+  return snapshot;
+}
+
+} // namespace
+
 BeaconServer::Roe<void>
-BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force) {
+BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force,
+                   const std::string &importStatePath) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -649,6 +701,31 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
   initConfig.chain.minerMaxMissedSlots = initFileConfig.minerMaxMissedSlots;
   initConfig.chain.minerReregisterCooldownEpochs = initFileConfig.minerReregisterCooldownEpochs;
   initConfig.chain.networkId = initFileConfig.networkId;
+  if (!importStatePath.empty()) {
+    // A re-genesis (B032): the old network's config, but for what init-config.json sets.
+    auto snapshot = loadSnapshot(importStatePath);
+    if (!snapshot) {
+      return snapshot.error();
+    }
+    if (snapshot.value().predecessor.networkId == initFileConfig.networkId) {
+      return Error("A re-genesis needs a new networkId: '" + initFileConfig.networkId + "' is the old network's");
+    }
+    if (!initFileConfig.genesisMiners.empty()) {
+      return Error("A re-genesis imports its miners: remove genesisMiners from " + std::string(FILE_INIT_CONFIG));
+    }
+    Chain::BlockChainConfig chain = snapshot.value().config;
+    for (const auto &[key, take] : kConfigOverrides) {
+      if (jsonResult.value().contains(key)) {
+        take(chain, initConfig.chain);
+      }
+    }
+    chain.networkId = initFileConfig.networkId;
+    initConfig.chain = chain;
+    log().info << "  Re-genesis: " << snapshot.value().accounts.size() << " accounts of network '"
+               << snapshot.value().predecessor.networkId << "' at block " << snapshot.value().predecessor.height
+               << " (" << importStatePath << ")";
+    initConfig.import = std::move(snapshot.value());
+  }
   if (auto liveness = chain_tx::validateLivenessSettings(initConfig.chain); !liveness) {
     return Error("Invalid init config: " + liveness.error().message);
   }
@@ -682,7 +759,17 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
     initConfig.key.genesisSigners.push_back(privateKey.value());
   }
 
-  auto result = initFromWorkDir(initConfig, force);
+  // A re-genesis writes blocks past genesis: the beacon signs its tip now (B029 refuses a ledger
+  // past genesis with no signed tip).
+  std::optional<std::vector<utl::MlDsaKeyPair>> tipKeys;
+  if (initConfig.import.has_value()) {
+    auto keys = loadBeaconSigningKeys(workDir);
+    if (!keys) {
+      return keys.error();
+    }
+    tipKeys = std::move(keys.value());
+  }
+  auto result = initFromWorkDir(initConfig, force, tipKeys ? &*tipKeys : nullptr);
   if (!result) {
     return Error("Failed to initialize beacon: " + result.error().message);
   }
@@ -693,7 +780,8 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
 }
 
 BeaconServer::Roe<void>
-BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force) {
+BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force,
+                              const std::vector<utl::MlDsaKeyPair> *tipKeys) {
   log().info << "Initializing BeaconServer";
 
   // A chain is there already: genesis again would destroy it. Only on request.
@@ -717,6 +805,9 @@ BeaconServer::initFromWorkDir(const Beacon::InitConfig &config, bool force) {
     Beacon genesis;
     genesis.redirectLogger(log().getFullName() + ".Beacon");
     result = genesis.init(config);
+    if (result && tipKeys != nullptr) {
+      result = genesis.openTipSigning(*tipKeys, /*acceptLedgerTip=*/true); // its own blocks, just written
+    }
   }
   if (!result) {
     std::error_code ec;

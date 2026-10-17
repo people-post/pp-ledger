@@ -4,6 +4,7 @@
 #include "BlockAdmission.h"
 #include "Types.h"
 #include "AccountBuffer.h"
+#include "AccountStateTree.h"
 #include "TxFees.h"
 #include "TxIdempotency.h"
 #include "../consensus/SlotCommittee.h"
@@ -14,6 +15,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace pp {
 
@@ -24,6 +26,24 @@ struct FnAccountMetaForRecord {
   std::function<std::optional<std::string>(const Ledger::Record &,
                                              const Ledger::Block &)>
       fnGenesis;
+};
+
+/**
+ * An importing genesis's span in progress (beacon-authority B032): set by its T_GENESIS, advanced
+ * by each T_IMPORT, ended by the block that imports the last account — once the old leaves hash to
+ * the predecessor's state root.
+ */
+struct ImportProgress {
+  ChainPredecessor predecessor;
+  uint64_t accountCount{0};
+  uint64_t imported{0};
+  std::optional<uint64_t> lastId;
+  /** Keys the system accounts take (reserve, registrar, fee, recycle). */
+  std::vector<SystemAccountKeys> systemKeys;
+  /** The imported accounts' leaves as the old chain hashed them. */
+  AccountStateTree oldLeaves;
+
+  bool complete() const { return imported == accountCount; }
 };
 
 /**
@@ -44,6 +64,8 @@ struct TxContext {
   /** Set by Chain at each epoch's first block; bounds issuance per epoch. */
   std::optional<IssuanceBaseline> issuanceBaseline{std::nullopt};
   Checkpoint checkpoint{};
+  /** While an importing genesis's span is open (blocks 1..k); none otherwise. */
+  std::optional<ImportProgress> importProgress{std::nullopt};
   std::optional<FnAccountMetaForRecord> fnAccountMetaForRecord{std::nullopt};
   std::optional<chain_tx::FnIdempotencyKeyForRecord> fnIdempotencyKeyForRecord{
       std::nullopt};

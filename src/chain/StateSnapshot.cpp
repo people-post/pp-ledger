@@ -129,6 +129,9 @@ Roe<StateSnapshot> exportState(const std::string &ledgerDir, uint64_t height, co
   snapshot.predecessor.height = height;
   snapshot.predecessor.blockHash = block.value().hash;
   snapshot.predecessor.stateRoot = block.value().block.stateRoot;
+  snapshot.predecessor.header = block.value().block;
+  snapshot.predecessor.header.records.clear(); // the header binds the root; the body is not needed
+  snapshot.predecessor.header.committee.clear();
   snapshot.config = *config;
   snapshot.accounts = std::move(accounts.value());
   if (snapshot.accountsRoot() != snapshot.predecessor.stateRoot) {

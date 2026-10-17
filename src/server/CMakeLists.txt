@@ -8,6 +8,8 @@ add_library(pp_server STATIC
     CertificateStore.cpp
     CertificateStore.h
     EnvConfig.cpp
+    PredecessorCheck.cpp
+    PredecessorCheck.h
     EnvConfig.h
     EquivocationStore.cpp
     EquivocationStore.h

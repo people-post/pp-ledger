@@ -786,6 +786,33 @@ TEST_F(BlockSyncTest, APinnedFirstBlockMustMatch) {
   EXPECT_EQ(local_.size(), 10u);
 }
 
+// beacon-authority B037: a node syncing from block 0 runs its genesis check (a re-genesis's
+// predecessor against its old ledger); refused, nothing is taken.
+TEST_F(BlockSyncTest, AGenesisTheNodeRefusesIsNotTaken) {
+  local_.clear();
+  bool accept = false;
+  auto h = hooks();
+  h.checkGenesis = [&](const Ledger::ChainNode &genesis) -> pp::Roe<void> {
+    EXPECT_EQ(genesis.block.index, 0u);
+    return accept ? pp::Roe<void>() : pp::Roe<void>(pp::Error("not the predecessor"));
+  };
+  BlockSync refused(client_, h);
+  refused.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 1u);
+  EXPECT_FALSE(results_[0].ok);
+  EXPECT_NE(results_[0].error.find("not the predecessor"), std::string::npos) << results_[0].error;
+  EXPECT_TRUE(local_.empty());
+
+  accept = true;
+  BlockSync taken(client_, h);
+  taken.start();
+  runToEnd();
+  ASSERT_EQ(results_.size(), 2u);
+  EXPECT_TRUE(results_[1].ok) << results_[1].error;
+  EXPECT_EQ(local_.size(), 10u);
+}
+
 TEST_F(BlockSyncTest, DestroyedSyncDropsLateResults) {
   {
     BlockSync sync(client_, hooks());

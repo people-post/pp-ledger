@@ -163,6 +163,9 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
       !shape) {
     return shape.error();
   }
+  if (gm.hasImport) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Only an importing genesis carries an import");
+  }
   if (gm.hasPending) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "A config update cannot carry a pending update (its config is the update)");

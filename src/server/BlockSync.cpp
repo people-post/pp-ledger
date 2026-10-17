@@ -289,6 +289,12 @@ bool BlockSync::authenticateFirst(Ledger::ChainNode &block) {
     finish(false, "Block " + std::to_string(nextToProcess_) + " is not the pinned first block");
     return false;
   }
+  if (block.block.index == 0 && hooks_.checkGenesis) {
+    if (auto checked = hooks_.checkGenesis(block); !checked) {
+      finish(false, "Genesis refused: " + checked.error().message);
+      return false;
+    }
+  }
   auto trail = AuthorityTrail::fromStartingBlock(block.block);
   if (!trail) {
     finish(false, "Cannot start from block " + std::to_string(nextToProcess_) + ": " + trail.error().message);

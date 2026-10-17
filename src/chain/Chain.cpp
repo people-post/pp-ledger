@@ -632,6 +632,17 @@ Chain::Roe<void> Chain::assembleBlockHeader(Ledger::ChainNode &block) {
         consensus::deriveGenesisEpochSeed(gm.config.networkId, cfgDigest);
     // Do not setEpochSeed yet — processGenesisTxRecord → GenesisTxHandler
     // calls consensus.init() and would clear it.
+  } else if (isImportBlock(block)) {
+    // Like genesis: no committee, the genesis seed; slot 0 (no stake snapshot is taken here, so
+    // epoch 0's is the imported miners', at the first produced block).
+    block.block.epoch = 0;
+    block.block.stakeSnapshotHash = chain_block::calculateStakeSnapshotHash({});
+    block.block.committee.clear();
+    auto genesis = txContext_.ledger.readBlock(0);
+    if (!genesis) {
+      return Error(E_BLOCK_NOT_FOUND, "Import block without its genesis: " + genesis.error().message);
+    }
+    block.block.epochSeed = genesis.value().block.epochSeed;
   } else {
     block.block.epoch =
         txContext_.consensus.getEpochFromSlot(block.block.slot);
@@ -659,7 +670,7 @@ Chain::Roe<void> Chain::sealBlock(Ledger::ChainNode &block) {
   }
 
   // Slot checks run before any tip mutation so a bad slot fails cleanly.
-  if (block.block.index > 0) {
+  if (block.block.index > 0 && !isImportBlock(block)) {
     auto arrival = mapTxVoid(chain_block::checkBlockArrival(
         block, txContext_.ledger, txContext_.consensus));
     if (!arrival) {
@@ -690,7 +701,7 @@ Chain::TipSnapshot Chain::beginTipUpdate() {
   txContext_.bank.beginOverlay();
   return TipSnapshot{txContext_.consensus.saveTipState(), txContext_.optChainConfig,
                      txContext_.pendingChainConfig, txContext_.issuanceBaseline, txContext_.checkpoint,
-                     txContext_.optAuthority};
+                     txContext_.optAuthority, txContext_.importProgress};
 }
 
 void Chain::commitTipUpdate() { txContext_.bank.commitOverlay(); }
@@ -703,6 +714,7 @@ void Chain::rollbackTipUpdate(TipSnapshot snapshot) {
   txContext_.issuanceBaseline = snapshot.issuanceBaseline;
   txContext_.checkpoint = snapshot.checkpoint;
   txContext_.optAuthority = std::move(snapshot.optAuthority);
+  txContext_.importProgress = std::move(snapshot.importProgress);
 }
 
 Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
@@ -714,7 +726,15 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
     return assembled;
   }
 
-  if (block.block.index > 0) {
+  const bool importing = isImportBlock(block);
+  if (importing) {
+    if (auto valid = mapTxVoid(chain_block::validateImportBlockBody(
+            block, txContext_.ledger, txContext_.optChainConfig.value(),
+            txContext_.importProgress->accountCount - txContext_.importProgress->imported));
+        !valid) {
+      return Error(E_BLOCK_VALIDATION, valid.error().message);
+    }
+  } else if (block.block.index > 0) {
     enterBlockEpoch(block.block.epoch);
     if (auto ready = sealReadiness(block.block.slot); !ready) {
       return ready;
@@ -750,7 +770,11 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
                    "Failed to apply block for seal: " + applied.error().message);
     }
   }
-  if (block.block.index > 0) {
+  if (importing) {
+    if (auto finished = finishImportBlock(); !finished) {
+      return finished;
+    }
+  } else if (block.block.index > 0) {
     if (auto liveness = applyMinerLiveness(block, chain_block::BlockAdmissionMode::Full); !liveness) {
       return liveness;
     }
@@ -1022,6 +1046,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   }
   log().info << "Resetting account buffer";
   txContext_.bank.reset();
+  txContext_.importProgress.reset();
   epochStakeSnapshots_.clear();
   pendingSeal_.reset();
   authoritySteps_.clear();
@@ -1110,7 +1135,7 @@ Chain::Roe<void> Chain::addBlock(const Ledger::ChainNode &block) {
   // Slot monotonicity / future bound: arriving blocks under Full admission
   // only. loadFromLedger and CheckpointReplay catch-up skip them so history
   // written before these rules still loads.
-  if (block.block.index > 0 &&
+  if (block.block.index > 0 && !isImportBlock(block) &&
       admissionModeFor(block.block.index) ==
           chain_block::BlockAdmissionMode::Full) {
     auto arrival = mapTxVoid(chain_block::checkBlockArrival(
@@ -1218,8 +1243,8 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
 }
 
 Chain::Roe<void> Chain::prepareBlockEpoch(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode) {
-  // Genesis installs consensus while its record applies.
-  if (block.block.index == 0) {
+  // Genesis installs consensus while its record applies; import blocks take no stake snapshot.
+  if (block.block.index == 0 || isImportBlock(block)) {
     return {};
   }
   if (!txContext_.optChainConfig.has_value()) {
@@ -1303,9 +1328,57 @@ Chain::Roe<void> Chain::processBlock(const Ledger::ChainNode &block,
                                      chain_block::BlockAdmissionMode mode) {
   if (block.block.index == 0) {
     return processGenesisBlock(block);
-  } else {
-    return processNormalBlock(block, mode);
   }
+  if (isImportBlock(block)) {
+    return processImportBlock(block);
+  }
+  return processNormalBlock(block, mode);
+}
+
+bool Chain::isImportBlock(const Ledger::ChainNode &block) const {
+  return block.block.index > 0 && txContext_.importProgress.has_value();
+}
+
+Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode &block) {
+  if (auto structural = mapTxVoid(chain_block::checkBlockStructural(block, txContext_.ledger)); !structural) {
+    return Error(E_BLOCK_VALIDATION, structural.error().message);
+  }
+  if (auto valid = mapTxVoid(chain_block::validateImportBlockBody(
+          block, txContext_.ledger, txContext_.optChainConfig.value(),
+          txContext_.importProgress->accountCount - txContext_.importProgress->imported));
+      !valid) {
+    return Error(E_BLOCK_VALIDATION, valid.error().message);
+  }
+  for (const auto &rec : block.block.records) {
+    auto applied = processNormalTxRecord(rec, block.block.index, 0, 0, chain_block::BlockAdmissionMode::Full);
+    if (!applied) {
+      return Error(E_TX_VALIDATION, "Import block " + std::to_string(block.block.index) + ": " +
+                                        applied.error().message);
+    }
+  }
+  if (auto finished = finishImportBlock(); !finished) {
+    return finished;
+  }
+  if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
+    return Error(E_BLOCK_HASH, "Import block " + std::to_string(block.block.index) + " stateRoot mismatch");
+  }
+  return {};
+}
+
+Chain::Roe<void> Chain::finishImportBlock() {
+  auto &progress = txContext_.importProgress;
+  if (!progress.has_value() || !progress->complete()) {
+    return {};
+  }
+  if (progress->oldLeaves.root() != progress->predecessor.stateRoot) {
+    return Error(E_BLOCK_VALIDATION, "The imported accounts do not hash to the state root of block " +
+                                         std::to_string(progress->predecessor.height) + " of network '" +
+                                         progress->predecessor.networkId + "'");
+  }
+  log().info << "Imported " << progress->accountCount << " accounts of network '" << progress->predecessor.networkId
+             << "' at block " << progress->predecessor.height << ": they hash to its state root";
+  progress.reset();
+  return {};
 }
 
 Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
@@ -1876,6 +1949,10 @@ Chain::Roe<void> Chain::validateTxSignatures(
     const Ledger::Record &record,
     uint64_t slotLeaderId,
     chain_block::BlockAdmissionMode admissionMode) const {
+  if (record.type == Ledger::T_IMPORT) {
+    // Unsigned: the predecessor's state root authenticates the import (B032).
+    return record.signatures.empty() ? Roe<void>() : Error(E_TX_SIGNATURE, "An import is unsigned");
+  }
   if (record.signatures.size() < 1) {
     return Error(E_TX_SIGNATURE,
                  "Transaction must have at least one signature");

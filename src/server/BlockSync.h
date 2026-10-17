@@ -59,6 +59,9 @@ public:
     std::function<std::optional<std::string>()> tipHash;
     /** Optional: the hash the first block must have when the node holds none. */
     std::function<std::optional<std::string>()> firstBlockHash;
+    /** Optional: a further check of block 0 when this node syncs from it (a re-genesis's
+     *  predecessor against the node's old ledger, B037). */
+    std::function<pp::Roe<void>(const Ledger::ChainNode &)> checkGenesis;
     /** Optional: vet the authority and admin set a node with no blocks takes from block `blockId`. */
     std::function<pp::Roe<void>(uint64_t blockId, const ChainAuthority &, const Client::Wallet &admin)>
         checkStartingAuthority;

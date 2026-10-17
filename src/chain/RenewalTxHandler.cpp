@@ -144,6 +144,9 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
         "Failed to deserialize genesis renewal meta: " +
             std::to_string(tx.meta.size()) + " bytes");
   }
+  if (gm.hasImport) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Only an importing genesis carries an import");
+  }
 
   if (auto shape = chain_tx::validateGenesisWalletShape(gm.genesis.wallet);
       !shape) {

@@ -1,4 +1,5 @@
 #include "MinerServer.h"
+#include "PredecessorCheck.h"
 #include "../chain/BlockValidation.h"
 #include "../client/Client.h"
 #include "../ledger/Ledger.h"
@@ -237,7 +238,8 @@ MinerServer::Roe<void> MinerServer::verifyUpstreamState(const Client::BeaconStat
 }
 
 MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
-  if (config_.network.network_anchor.genesis_hash.empty()) {
+  const auto &anchor = config_.network.network_anchor;
+  if (anchor.genesis_hash.empty() && anchor.predecessor_dir.empty()) {
     return {};
   }
   auto block = client_.fetchBlock(0);
@@ -252,6 +254,16 @@ MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
   // genesis body.
   const std::string calculatedHash =
       chain_block::calculateBlockHash(block.value().block);
+  // A miner starting at a checkpoint never syncs block 0: it checks the predecessor here (B037).
+  if (!anchor.predecessor_dir.empty()) {
+    if (auto checked = predecessor_check::check(block.value(), anchor.predecessor_dir); !checked) {
+      return Error(E_CONFIG, "Genesis refused: " + checked.error().message);
+    }
+    log().info << "Re-genesis checked against the old ledger in " << anchor.predecessor_dir;
+  }
+  if (anchor.genesis_hash.empty()) {
+    return {}; // checked, but not pinned: the first block is still taken as the upstream serves it
+  }
   if (auto pinned = NetworkAnchor::verifyGenesisHash<Error>(config_.network.network_anchor, calculatedHash);
       !pinned) {
     return pinned;
@@ -544,6 +556,11 @@ void MinerServer::initBlockSync() {
   hooks.nextBlockId = [this]() { return miner_.getNextBlockId(); };
   hooks.tipHash = [this]() { return miner_.getTipHash(); };
   hooks.firstBlockHash = [this]() { return pinnedFirstBlockHash_; };
+  if (!config_.network.network_anchor.predecessor_dir.empty()) {
+    hooks.checkGenesis = [dir = config_.network.network_anchor.predecessor_dir](const Ledger::ChainNode &genesis) {
+      return predecessor_check::check(genesis, dir);
+    };
+  }
   hooks.checkStartingAuthority = [this](uint64_t blockId, const ChainAuthority &authority,
                                         const Client::Wallet &admin) {
     return checkStartingAuthority(blockId, authority, admin);
