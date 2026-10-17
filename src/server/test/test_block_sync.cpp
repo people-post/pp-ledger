@@ -903,7 +903,6 @@ protected:
   std::string getLogFileName() const override { return "test.log"; }
   std::string getServerName() const override { return "StartupServer"; }
   void runLoop() override {}
-  std::string handleParsedRequest(const Client::Request &) override { return {}; }
 };
 
 class StartupSyncTest : public ::testing::Test {

@@ -48,50 +48,9 @@ std::ostream &operator<<(std::ostream &os, const Beacon::MountConfig &config) {
   return os;
 }
 
-Beacon::Beacon() {
-  redirectLogger("Beacon");
-  chain_.redirectLogger(log().getFullName() + ".Chain");
-}
-
-Chain::Checkpoint Beacon::getCheckpoint() const {
-  return chain_.getCheckpoint();
-}
-
-uint64_t Beacon::getNextBlockId() const { return chain_.getNextBlockId(); }
-
-uint64_t Beacon::getCurrentSlot() const { return chain_.getCurrentSlot(); }
+Beacon::Beacon() : NodeCore("Beacon") {}
 
 bool Beacon::isBeforeDeliveryDeadline(uint64_t slot) const { return chain_.isBeforeDeliveryDeadline(slot); }
-
-uint64_t Beacon::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
-
-std::vector<consensus::Stakeholder> Beacon::getStakeholders() const {
-  return chain_.getStakeholders();
-}
-
-Beacon::Roe<Ledger::ChainNode> Beacon::readBlock(uint64_t blockId) const {
-  auto result = chain_.readBlock(blockId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-Beacon::Roe<Client::UserAccount> Beacon::getAccount(uint64_t accountId) const {
-  auto result = chain_.getAccount(accountId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-std::string Beacon::calculateHash(const Ledger::Block &block) const {
-  return chain_.calculateHash(block);
-}
-
-std::string Beacon::getNetworkId() const {
-  return chain_.getNetworkId();
-}
 
 Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner,
                                                  const std::string &networkId) const {
@@ -102,24 +61,6 @@ Beacon::Roe<void> Beacon::verifyMinerRegistration(const Client::MinerInfo &miner
                                            signed_.error().message);
   }
   return {};
-}
-
-Beacon::Roe<std::vector<Ledger::Record>>
-Beacon::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
-  auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-Beacon::Roe<Ledger::Record>
-Beacon::findTransactionByIndex(uint64_t txIndex) const {
-  auto result = chain_.findTransactionByIndex(txIndex);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
 }
 
 Beacon::Roe<void> Beacon::init(const InitConfig &config) {
@@ -146,7 +87,8 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
 
   // Initialize ledger
   Ledger::InitConfig ledgerConfig;
-  ledgerConfig.workDir = config.workDir + "/" + DIR_LEDGER;
+  setWorkDir(config.workDir);
+  ledgerConfig.workDir = ledgerDir();
   ledgerConfig.startingBlockId = 0;
 
   auto ledgerResult = chain_.initLedger(ledgerConfig);
@@ -157,7 +99,6 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   // The beacon signs what it commits: every block is durable before it is signed (B009).
   chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
 
-  config_.workDir = config.workDir;
   auto chainConfig = config.chain;
   chainConfig.genesisTime = consensusConfig.genesisTime;
 
@@ -220,11 +161,9 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
                         ". Use init() to create new beacon.");
   }
 
-  config_.workDir = config.workDir;
-
-  // Mount the ledger using Chain's mountLedger function
-  std::string ledgerPath = config.workDir + "/" + DIR_LEDGER;
-  if (auto rewound = applyPendingRewind(ledgerPath); !rewound) {
+  setWorkDir(config.workDir);
+  const std::string ledgerPath = ledgerDir();
+  if (auto rewound = applyPendingRewind(); !rewound) {
     return rewound;
   }
   log().info << "Mounting ledger at: " << ledgerPath;
@@ -246,15 +185,8 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
 
   uint64_t blockCount = loadResult.value();
 
-  certificates_ = std::make_unique<CertificateStore>(chain_, config.workDir + "/" + FILE_BEACON_CERT);
-  certificates_->redirectLogger(log().getFullName() + ".CertificateStore");
-  if (auto loaded = certificates_->load(); !loaded) {
-    return Error(3, loaded.error().message);
-  }
-  equivocations_ = std::make_unique<EquivocationStore>(chain_, config.workDir + "/" + FILE_EQUIVOCATION);
-  equivocations_->redirectLogger(log().getFullName() + ".EquivocationStore");
-  if (auto loaded = equivocations_->load(); !loaded) {
-    return Error(3, loaded.error().message);
+  if (auto opened = openStores(); !opened) {
+    return opened;
   }
 
   log().info << "Beacon mounted successfully";
@@ -263,11 +195,6 @@ Beacon::Roe<void> Beacon::mount(const MountConfig &config) {
   log().info << "  Current epoch: " << getCurrentEpoch();
 
   return {};
-}
-
-void Beacon::refresh() {
-  // Update stakeholders
-  chain_.refreshStakeholders();
 }
 
 Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
@@ -287,17 +214,12 @@ Beacon::Roe<void> Beacon::addBlock(const Ledger::ChainNode &block) {
       log().error << "Block " << block.block.index << " committed but not signed: " << signed_.error().message;
     }
   }
-  if (certificates_) {
-    certificates_->refresh(); // a block may have committed it, or replaced the admins who signed it
-  }
-  if (equivocations_) {
-    equivocations_->refresh(); // a certificate on chain may have resumed it
-  }
+  refreshStores();
   return {};
 }
 
 Beacon::Roe<void> Beacon::openTipSigning(const std::vector<utl::MlDsaKeyPair> &keys, bool acceptLedgerTip) {
-  auto signer = std::make_unique<TipSigner>(config_.workDir + "/" + FILE_SIGNED_TIP, keys);
+  auto signer = std::make_unique<TipSigner>(workDir() + "/" + FILE_SIGNED_TIP, keys);
   signer->redirectLogger(log().getFullName() + ".TipSigner");
   if (auto loaded = signer->load(); !loaded) {
     return Error(5, loaded.error().message);
@@ -401,15 +323,6 @@ Beacon::Roe<Chain::EquivocationOffer> Beacon::offerEquivocation(const Client::Eq
                 << "a later generation is certified";
   }
   return offered.value();
-}
-
-std::optional<Ledger::Record> Beacon::getCurrentCertificate() const {
-  return chain_.currentCertificateRecord();
-}
-
-uint64_t Beacon::getGeneration() const {
-  const auto authority = chain_.getAuthority();
-  return authority ? authority->beacon.generation : 0;
 }
 
 Beacon::Roe<void> Beacon::checkLedgerHoldsSignedTip(const Client::SignedTip &tip) const {
@@ -839,77 +752,11 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   return genesisBlock;
 }
 
-Beacon::Roe<Client::AuthorityProof> Beacon::authorityProof(uint64_t upToBlockId) const {
-  auto proof = chain_.authorityProof(upToBlockId);
-  if (!proof) {
-    return Error(proof.error().code, proof.error().message);
-  }
-  return proof.value();
+Beacon::Roe<void> Beacon::onRewound(uint64_t keptUpTo) {
+  // A tip above the kept blocks was signed by the superseded generation, which this beacon never
+  // signs with again (it stands down, or commits nothing above the cutover but a certificate).
+  return dropSignedTipAbove(keptUpTo);
 }
-
-
-Beacon::Roe<void> Beacon::applyPendingRewind(const std::string &ledgerDir) {
-  auto applied = rewind::applyPendingOrder(config_.workDir, ledgerDir);
-  if (!applied) {
-    return Error(3, "Failed to apply the pending rewind: " + applied.error().message);
-  }
-  if (const auto &order = applied.value()) {
-    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1
-                << " to " << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation
-                << ")";
-    // A tip above the kept blocks was signed by the superseded generation, which this beacon never
-    // signs with again (it stands down, or commits nothing above the cutover but a certificate).
-    if (auto dropped = dropSignedTipAbove(order->keptUpTo); !dropped) {
-      return dropped;
-    }
-  }
-  auto last = rewind::lastApplied(config_.workDir);
-  if (!last) {
-    return Error(3, last.error().message);
-  }
-  lastRewind_ = last.value();
-  return {};
-}
-
-Beacon::Roe<bool> Beacon::scheduleRewind(uint64_t approvedGeneration) {
-  auto scheduled = rewind::schedule(chain_, config_.workDir, approvedGeneration, maxAutomaticRewind_);
-  if (!scheduled) {
-    return Error(3, "Failed to write the rewind order: " + scheduled.error().message);
-  }
-  const auto &order = scheduled.value().order;
-  switch (scheduled.value().kind) {
-  case rewind::Scheduled::Kind::None:
-    return false;
-  case rewind::Scheduled::Kind::HeldBack:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      const auto &depth = scheduled.value().depthSeconds;
-      log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
-                  << order->keptUpTo << ", "
-                  << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
-                  << " of slots back — more than the " << maxAutomaticRewind_.count() / 3600
-                  << " h a node rewinds unattended. Check the certificate; to apply it, restart with "
-                  << "--approve-rewind " << order->generation;
-    }
-    return false;
-  case rewind::Scheduled::Kind::Forked:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      log().error << "Not rewinding: beacon generation " << order->generation << " vouches for another block "
-                  << order->keptUpTo << " than this node holds — its history forked at or below it, or the "
-                  << "certificate names the wrong block. Its tips past the cutover are refused; an operator "
-                  << "must look";
-    }
-    return false;
-  case rewind::Scheduled::Kind::Ordered:
-    break;
-  }
-  log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
-              << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
-              << "; restarting";
-  return true;
-}
-
 
 Beacon::Roe<void> Beacon::checkUnsignedLedger(const TipSigner &signer, bool acceptLedgerTip) const {
   const auto authority = chain_.getAuthority();
@@ -931,7 +778,7 @@ Beacon::Roe<void> Beacon::checkUnsignedLedger(const TipSigner &signer, bool acce
 }
 
 Beacon::Roe<void> Beacon::dropSignedTipAbove(uint64_t height) {
-  const std::string path = config_.workDir + "/" + FILE_SIGNED_TIP;
+  const std::string path = workDir() + "/" + FILE_SIGNED_TIP;
   auto bytes = node_file::readIfExists(path);
   if (!bytes) {
     return Error(3, bytes.error().message);

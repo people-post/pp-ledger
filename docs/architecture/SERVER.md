@@ -18,58 +18,56 @@ This document describes the server architecture for the pp-ledger blockchain sys
 
 ## Overview
 
-The pp-ledger server architecture consists of four main components:
+Each role has a core (its chain and what it does with it) and a server around it (the network,
+the request queue, the run loop):
 
-1. **Chain** - Base class providing common block validation and chain management
-2. **Beacon** - Network validator and data archiver (extends Chain)
-3. **Relay** - Trusted intermediary between beacons and miners (extends Chain)
-4. **Miner** - Block producer (extends Chain)
+| Role | Core | Server |
+|------|------|--------|
+| Beacon: signs the tips, archives the chain | `Beacon` | `BeaconServer` |
+| Relay: a full copy from genesis, served downstream | `Relay` | `RelayServer` |
+| Miner: produces blocks when it leads a slot | `Miner` | `MinerServer` |
 
-Each component has a corresponding server wrapper (*Server classes) that handles network communication over AMP.
-
-### Architecture Pattern
+### Cores
 
 ```
-┌──────────────────┐
-│   *Server        │  - Network communication (AMP)     
-│                  │  - Request routing and JSON handling
-│                  │  - Configuration loading
-└────────┬─────────┘
-         │ owns
-         ▼
-┌──────────────────┐
-│  Core Logic      │  - Consensus (Beacon/Miner)
-│  (Chain)         │  - Ledger management
-│                  │  - Block/Transaction processing
-└──────────────────┘
+NodeCore            the Chain, the certificate and equivocation stores, the reads, the rewind
+├── Beacon          genesis (--init), tip signing, offers of certificates and equivocations
+└── FollowerCore    opens its ledger at a starting block, adds synced blocks, checks signed tips,
+    │               notes certificates and equivocations from upstreams and peers
+    ├── Relay
+    └── Miner       slot leadership, the block it produces, its pending transactions
 ```
 
-**Benefits of this composition:**
+- **`NodeCore`** owns the `Chain` (composition: `Chain` holds the ledger, consensus and
+  validation). It serves the reads every role answers (blocks, accounts, transactions, authority
+  proofs, the certificate and equivocation held) and the rewind a certificate may order: it writes
+  the order, and applies it at the next start before the ledger mounts. A role adds to what a
+  rewind does through `onRewound` (the beacon drops a tip signed above the kept blocks).
+- **`FollowerCore`** is what a node following an upstream needs: `openLedger` (rewind, mount or
+  create at the starting block, load, open the stores), `addBlock`, signed-tip checks, and the
+  `note*` calls for certificates and evidence, which keep them if they verify.
 
-- **Separation of Concerns**: Network logic separated from business logic
-- **Testability**: Core logic can be tested independently
-- **Flexibility**: Multiple servers can use the same core
-- **Maintainability**: Clear boundaries between components
+### Servers
+
+```
+Server              the AMP listener, the request queue and its server thread, HEALTH, BLOCK_WAIT,
+│                   one handler table; from the core: the chain reads, CALIBRATION, the rewind order
+├── BeaconServer    --init and --promote, tip signing, the miner registry and the transaction pool
+└── FollowerServer  upstreams (UpstreamSet), BlockSync and the tip watch, the clock follower,
+    │               certificates and evidence up the tree, TX_ADD / EQUIVOCATION_ADD forwarded,
+    │               BLOCK_GET past the tip answered after the next sync
+    ├── RelayServer serves the chain downstream, forwards writes, re-serves the signed tip
+    └── MinerServer registration, slot leadership, the broadcast of the block it produces
+```
+
+A role server binds its core (`bindCore`, or `bindFollower` for a follower), registers its own
+handlers, and fills in the hooks where roles differ: for a follower, which upstream it may follow
+(`admitUpstream`), what its first block must be (`firstBlockHash`, `predecessorDir`,
+`checkStartingAuthority`), what it does with a signed tip (`onSignedTip`), after a sync
+(`onSynced`) or when trust changed (`onTrustChanged`), when a sync must wait or is due
+(`syncHeld`, `syncDue`), and its own work each turn of the run loop (`roleDuties`).
 
 ## Components
-
-### Chain (Base Class)
-
-The Chain class provides common functionality for both Beacon and Miner:
-
-**Responsibilities:**
-- Block validation
-- Chain management (in-memory BlockChain)
-- Consensus integration (SlotCommittee)
-- Ledger operations (persistent storage)
-- Base configuration
-
-**Key Methods:**
-- `getBlock(blockId)` - Retrieve a block by ID
-- `addBlockBase(block)` - Add a validated block to the chain
-- `getCurrentBlockId()` - Get the ID of the current block
-- `getCurrentSlot()` - Get the current consensus slot
-- `getCurrentEpoch()` - Get the current consensus epoch
 
 ### BeaconServer + Beacon
 
@@ -189,6 +187,7 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `STATUS`, `CALIBRATION` | serves | serves | serves | Chain tip, slot/epoch, network id, registry version; clock |
 | `HEALTH` | serves | serves | serves | Liveness, readiness and metrics state (`Client::NodeHealth`); answered at once to any peer from the server thread's last snapshot, never queued ([CONFIGURATION.md § Health and metrics](../ops/CONFIGURATION.md#health-and-metrics)) |
 | `BLOCK_GET`, `ACCOUNT_GET`, `TX_GET_BY_WALLET`, `TX_GET_BY_INDEX` | serves | serves (fetches up if missing) | serves | Reads; low-priority lane |
+| `AUTHORITY_PROOF` | serves | serves | serves | Authority-changing records from genesis up to a block (beacon-authority ba5b); refused by a node that holds the chain from a checkpoint |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
 | `TX_ADD` | pools (a beacon certificate is kept first; refused once it stood down, except a certificate) | forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
@@ -200,6 +199,13 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 Which origins may send what (e.g. nothing travelling up is accepted from the
 upstream a node follows) is one table in `Server::isAllowedFrom`; see
 [LEDGER_TOPOLOGY.md — Request direction](LEDGER_TOPOLOGY.md#request-direction).
+
+Each role registers its handlers in one table (`Server::handle` for a reply now, `handleLater` for
+one that waits on another server). The base registers the chain reads and `CALIBRATION` for every
+role from its core (`bindCore`); a role replaces one where it differs (a follower fetches a block
+past its tip; a syncing miner refuses `CALIBRATION`). `Server::admit` may refuse a request before
+its handler (the beacon refuses producer writes once it stood down or halted). A type with no
+handler gets "Unsupported request type".
 
 ### Stakeholders
 

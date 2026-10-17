@@ -3,6 +3,7 @@
 #include "MinerRegistry.h"
 #include "RequestQueue.h"
 #include "BlockSync.h"
+#include "NodeConfig.h"
 #include "Server.h"
 #include "../network/LedgerRpcProtocol.h"
 #include "lib/common/BinaryPack.hpp"
@@ -107,6 +108,9 @@ TEST(RequestQueueTest, OnePeerCannotTakeTheWholeLowLane) {
 /** Echo server; records which thread handled each request and the max overlap. */
 class EchoServer : public Server {
 public:
+  EchoServer() { echoTypes(); }
+  void handleNow(uint32_t type, Handler handler) { handle(type, std::move(handler)); }
+
   using Server::enqueueRequest;
   using Server::postToServerThread;
   using Server::packResponse;
@@ -117,7 +121,6 @@ public:
   using Server::addUpstream;
   using Server::followUpstream;
   using Server::setAllowedPeers;
-  using Server::parseAllowedPeers;
   using Server::loadOrCreateIdentityKey;
   using Server::laneFor;
   using Server::setRequestLimits;
@@ -137,14 +140,20 @@ protected:
   std::string getServerName() const override { return "EchoServer"; }
   void runLoop() override {}
 
-  /** "defer": hold the reply until the test completes it (like an outbound call). */
-  bool handleDeferred(const Client::Request& request, const RequestQueue::Reply& reply) override {
-    if (request.payload != "defer") {
-      return false;
+  /** Echoes every request type the tests send; "defer" holds the reply until the test completes it (like an outbound call). */
+  void echoTypes() {
+    for (uint32_t type : {uint32_t{1}, Client::T_REQ_BLOCK_ADD, Client::T_REQ_BLOCK_GET, Client::T_REQ_EQUIVOCATION_ADD,
+                          Client::T_REQ_MINER_LIST, Client::T_REQ_REGISTER, Client::T_REQ_STATUS, Client::T_REQ_TX_ADD,
+                          Client::T_REQ_TX_PULL}) {
+      handleLater(type, [this](const Client::Request& request, const RequestQueue::Reply& reply) {
+        if (request.payload == "defer") {
+          deferredReply = reply;
+          deferredThread = std::this_thread::get_id();
+          return;
+        }
+        reply(echo(request));
+      });
     }
-    deferredReply = reply;
-    deferredThread = std::this_thread::get_id();
-    return true;
   }
 
 public:
@@ -165,7 +174,7 @@ protected:
 public:
 
 protected:
-  std::string handleParsedRequest(const Client::Request& request) override {
+  std::string echo(const Client::Request& request) {
     const int now = ++active;
     int seen = maxActive.load();
     while (now > seen && !maxActive.compare_exchange_weak(seen, now)) {
@@ -258,6 +267,27 @@ TEST(ServerThreadTest, RepliesBusyWhenQueueIsFull) {
   server.serveRequestsFor(50ms);
   EXPECT_EQ(replies.size(), 3u);
   EXPECT_EQ(server.handled.load(), 2);
+}
+
+// One handler table: a type with no handler is refused, and a handler registered later replaces
+// the one before it.
+TEST(ServerThreadTest, RequestsGoThroughTheHandlerTable) {
+  EchoServer server;
+  Replies replies;
+  server.enqueueRequest(packRequest("x", Client::T_REQ_ACCOUNT_GET), replies.sink()); // no handler
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 1u);
+  EXPECT_NE(replies.items[0].errorCode, 0);
+  EXPECT_EQ(replies.items[0].payload, "Unsupported request type: " + std::to_string(Client::T_REQ_ACCOUNT_GET));
+  EXPECT_EQ(server.handled.load(), 0);
+
+  server.handleNow(Client::T_REQ_STATUS, [](const Client::Request &) { return Service::Roe<std::string>("now"); });
+  server.enqueueRequest(packRequest("x", Client::T_REQ_STATUS), replies.sink());
+  server.serveRequestsFor(50ms);
+  ASSERT_EQ(replies.size(), 2u);
+  EXPECT_EQ(replies.items[1].errorCode, 0);
+  EXPECT_EQ(replies.items[1].payload, "now") << "the later registration replaced the echo";
+  EXPECT_EQ(server.handled.load(), 0);
 }
 
 TEST(ServerThreadTest, NetworkTuningSizesTheRequestQueue) {
@@ -392,13 +422,45 @@ TEST(ServerThreadTest, WithoutAllowedPeersAnyoneIsServed) {
 TEST(ServerThreadTest, ParseAllowedPeers) {
   auto parse = [](const std::string& json) {
     auto value = pp::common::io::valueFromJsonString(json);
-    return EchoServer::parseAllowedPeers(*pp::common::asObject(value.value()));
+    return NodeConfig::parseAllowedPeers(*pp::common::asObject(value.value()));
   };
   EXPECT_FALSE(parse(R"({"port": 1})").value().has_value()); // absent: anyone
   EXPECT_EQ(parse(R"({"allowedPeers": ["a", "b"]})").value()->size(), 2u);
   EXPECT_TRUE(parse(R"({"allowedPeers": []})").value()->empty()); // only upstreams
   EXPECT_FALSE(parse(R"({"allowedPeers": "a"})").isOk());
   EXPECT_FALSE(parse(R"({"allowedPeers": [""]})").isOk());
+}
+
+// One parser for every follower (relay, miner): `beacon` and/or `beacons`, in order and without
+// repeats; the whole network anchor; the common fields.
+TEST(ServerThreadTest, FollowerConfigReadsTheSameFieldsForEveryFollower) {
+  const std::string a = "/ip4/127.0.0.1/udp/8517/adp/1.0.0/p2p/QmQxy7idP1HWWrhX6rzSxBp4Q94mKBzGGFjW3oCFgi69LZ";
+  const std::string b = "/dns4/relay/udp/8519/adp/1.0.0/p2p/QmQxy7idP1HWWrhX6rzSxBp4Q94mKBzGGFjW3oCFgi69LZ";
+  auto parse = [](const std::string& json) {
+    FollowerConfig config(8519);
+    auto value = pp::common::io::valueFromJsonString(json);
+    auto parsed = config.fromJson(*pp::common::asObject(value.value()));
+    return parsed ? pp::Roe<FollowerConfig>(config) : pp::Roe<FollowerConfig>(parsed.error());
+  };
+  auto one = parse(R"({"beacon": ")" + a + R"("})");
+  ASSERT_TRUE(one) << one.error().message;
+  EXPECT_EQ(one.value().upstreams, std::vector<std::string>{a});
+  EXPECT_EQ(one.value().port, 8519u) << "no port: the role's default";
+
+  auto both = parse(R"({"port": 9000, "beacon": ")" + a + R"(", "beacons": [")" + b + R"(", ")" + a + R"("],
+                        "allowedPeers": ["p"], "networkAnchor": {"networkId": "net-1", "trustedCheckpointId": 7,
+                        "predecessorDir": "old"}})");
+  ASSERT_TRUE(both) << both.error().message;
+  EXPECT_EQ(both.value().upstreams, (std::vector<std::string>{a, b}));
+  EXPECT_EQ(both.value().port, 9000u);
+  EXPECT_EQ(both.value().allowedPeers->size(), 1u);
+  EXPECT_EQ(both.value().anchor.network_id, "net-1");
+  EXPECT_TRUE(both.value().anchor.trusted_checkpoint_set);
+  EXPECT_EQ(both.value().anchor.predecessor_dir, "old");
+
+  EXPECT_FALSE(parse(R"({"port": 1})").isOk()) << "an upstream is required";
+  EXPECT_FALSE(parse(R"({"beacons": ["not a multiaddr"]})").isOk());
+  EXPECT_FALSE(parse(R"({"beacon": ")" + a + R"(", "port": 0})").isOk());
 }
 
 // The identity key is created on first start and reloaded after; with a

@@ -6,15 +6,19 @@
 #include "../network/ServerAmpSupport.h"
 #include "BlockSync.h"
 #include "BlockWaitList.h"
+#include "NodeCore.h"
 #include "RequestQueue.h"
 #include "ClockCalibration.h"
 #include "UpstreamSet.h"
 #include "../network/NetworkTuning.h"
 #include "EnvConfig.h"
+#include "NodeConfig.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <mutex>
@@ -30,6 +34,12 @@ namespace pp {
  */
 class Server : public Service {
 public:
+  /** Error codes of a role server (Service::Error): config, network, the role's core, a request. */
+  static constexpr int32_t E_CONFIG = -1;
+  static constexpr int32_t E_NETWORK = -2;
+  static constexpr int32_t E_ROLE = -3;
+  static constexpr int32_t E_REQUEST = -4;
+
   Server();
   ~Server() override;
 
@@ -65,7 +75,7 @@ protected:
   virtual std::string getSignatureFileName() const = 0;
   virtual std::string getLogFileName() const = 0;
   virtual std::string getServerName() const = 0;
-  virtual int32_t getRunErrorCode() const { return -1; }
+  virtual int32_t getRunErrorCode() const { return E_ROLE; }
 
   std::string listenMultiaddr() const;
   network::LedgerAmpRuntime* ampRuntime();
@@ -74,15 +84,39 @@ protected:
   static std::string packResponse(const std::string& payload);
   static std::string packResponse(uint16_t errorCode, const std::string& message);
 
-  /** Server thread only. */
-  virtual std::string handleParsedRequest(const Client::Request& request) = 0;
+  /**
+   * In the role's constructor: the core this server serves. The base then answers the chain reads
+   * (BLOCK_GET, ACCOUNT_GET, TX_GET_BY_WALLET, TX_GET_BY_INDEX, AUTHORITY_PROOF, CALIBRATION), fills
+   * the chain's part of HEALTH, and orders the rewinds the core schedules.
+   */
+  void bindCore(NodeCore& core);
+  NodeCore& core() { return *core_; }
+  const NodeCore& core() const { return *core_; }
+
+  /** Server thread: a handler's result, packed by the base (an error is code 1 with its message). */
+  using Handler = std::function<Roe<std::string>(const Client::Request& request)>;
+  /** Server thread: a handler that replies itself, now or later (after an outbound call, via postToServerThread). */
+  using LaterHandler = std::function<void(const Client::Request& request, const RequestQueue::Reply& reply)>;
+  /** Serve request `type` with `handler` (replacing any handler of `type`). */
+  void handle(uint32_t type, Handler handler);
+  void handleLater(uint32_t type, LaterHandler handler);
+  /**
+   * Server thread, before the handler of an allowed request: refuse it with an error (for example,
+   * writes to a beacon that stood down). Default: admit.
+   */
+  virtual Roe<void> admit(const Client::Request& request) const;
+  /** CALIBRATION: this node's clock against the beacon's, in ms (a follower's calibration). */
+  virtual int64_t clockOffsetMs() const { return 0; }
+  /** CALIBRATION's reply (the default handler; a role may refuse first). */
+  Roe<std::string> calibrationReply() const;
 
   /**
-   * Server thread. A role returns true when it takes `request` and will call
-   * `reply` later (e.g. after an outbound call completes, via
-   * postToServerThread). False: handled synchronously by handleParsedRequest.
+   * Server thread: when the held certificate orders a rewind (beacon-authority bp1;
+   * NodeCore::scheduleRewind), write the order and restart after kRewindRestartGrace. Called once
+   * the role has loaded, when a sync finishes (startup syncs too: a node back online with blocks
+   * past the cutover cannot sync), and from the run loop.
    */
-  virtual bool handleDeferred(const Client::Request& request, const RequestQueue::Reply& reply);
+  void orderRewindIfDue();
 
   /** Any thread: run `task` on the server thread. Dropped once stopped. */
   void postToServerThread(std::function<void()> task);
@@ -178,16 +212,22 @@ protected:
   /**
    * Before start: serve only these peers (and this node's upstreams). Unset =
    * anyone. Refused before queueing, so a peer outside the list never takes
-   * queue space. Config: `allowedPeers` (parseAllowedPeers).
+   * queue space. Config: `allowedPeers` (NodeConfig).
    */
   void setAllowedPeers(std::optional<std::set<std::string>> peerIds) { allowedPeers_ = std::move(peerIds); }
   bool isAllowedPeer(const std::string& peerId) const;
-  /** Optional `allowedPeers` array of peer ids in a role's config.json; absent = nullopt. */
-  static Service::Roe<std::optional<std::set<std::string>>> parseAllowedPeers(const pp::common::Object& config);
 
   /**
-   * Server thread: what HEALTH answers (Client::NodeHealth). The base fills identity and the queue;
-   * roles add their chain state and readiness (call the base first).
+   * onStart: `config.json` in the work directory merged with the PP_* variables `fields`
+   * (env_config::loadConfig). With neither, `templateJson` is written there for the operator to fill
+   * in and the start stops, telling them `whatToSet`.
+   */
+  Roe<pp::common::Object> loadRunConfig(const std::vector<env_config::Field>& fields,
+                                        const pp::common::Object& templateJson, const std::string& whatToSet);
+
+  /**
+   * Server thread: what HEALTH answers (Client::NodeHealth). The base fills identity, the queue and
+   * the core's chain state; roles add their readiness (call the base first).
    */
   virtual void fillHealth(Client::NodeHealth& health) const;
   /** True once the run loop serves requests (onStart is over). */
@@ -242,8 +282,10 @@ protected:
   }
 
 private:
-  /** Server thread: one queued request — deferred, or handled now and replied. */
+  /** Server thread: one queued request, through its handler. */
   void serveRequest(const RequestQueue::Item& item);
+  /** The chain reads every core answers (bindCore). */
+  void handleChainReads();
   /** BLOCK_WAIT: answer now if the tip is past the caller's, else park it. */
   void serveBlockWait(const Client::Request& request, const RequestQueue::Item& item);
   /** Answer parked waits the tip has passed or whose hold ended (cheap when nothing changed). */
@@ -253,6 +295,12 @@ private:
   void closeRequestQueue();
 
   std::string workDir_;
+  NodeCore* core_{nullptr};
+  struct Route {
+    Handler now;
+    LaterHandler later;
+  };
+  std::map<uint32_t, Route> routes_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   network::NetworkTuning tuning_;
   /** Change while running (addUpstream, followUpstream); read on the io lane and the server thread. */

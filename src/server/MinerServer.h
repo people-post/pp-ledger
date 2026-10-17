@@ -1,40 +1,22 @@
 #ifndef PP_LEDGER_MINER_SERVER_H
 #define PP_LEDGER_MINER_SERVER_H
 
+#include "BroadcastTally.h"
+#include "FollowerServer.h"
 #include "Miner.h"
 #include "NetworkAnchor.h"
-#include "BlockSync.h"
-#include "UpstreamSet.h"
-#include "UpstreamTipWatch.h"
-#include "BroadcastTally.h"
-#include "Server.h"
 #include "../client/Client.h"
-#include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
 #include <chrono>
+#include <optional>
+#include <set>
 #include <string>
-#include <thread>
-#include <atomic>
-#include <memory>
-#include <mutex>
+#include <vector>
 
 namespace pp {
 
-class MinerServer : public Server {
+class MinerServer : public FollowerServer {
 public:
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
-  static constexpr const int32_t E_CONFIG = -1;
-  static constexpr const int32_t E_NETWORK = -2;
-  static constexpr const int32_t E_MINER = -3;
-  static constexpr const int32_t E_REQUEST = -4;
-
   MinerServer();
-  ~MinerServer() override;
 
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);
@@ -45,48 +27,40 @@ protected:
   std::string getLogFileName() const override { return FILE_LOG; }
   std::string getServerName() const override { return "MinerServer"; }
   void fillHealth(Client::NodeHealth &health) const override;
-  int32_t getRunErrorCode() const override { return E_MINER; }
-
-  void runLoop() override;
-  /**
-   * When the held certificate orders a rewind (beacon-authority bp1), write the order and restart
-   * after kRewindRestartGrace. Called once the role has loaded, when a sync finishes (startup syncs
-   * too: a node back online with blocks past the cutover cannot sync), and from the run loop.
-   */
-  void orderRewindIfDue();
   Service::Roe<void> onStart() override;
-  void onStop() override;
+
+  /** Renews the registration; leads its slots. */
+  void roleDuties() override;
+  /** The anchored genesis, when the miner starts there (chooseStartingBlock). */
+  std::optional<std::string> firstBlockHash() const override;
+  /** The synced starting block agrees with the replayed proof (an anchored checkpoint start). */
+  pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
+                                       const Client::Wallet &admin) const override;
+  void onSynced() override { warnIfNotRegisteredMiner(); }
+  /** A produced block awaits its broadcast: a synced block would be refused. */
+  bool syncHeld() const override;
+  /** Leading the next slot, which starts within SYNC_BEFORE_SLOT_SECONDS: sync first. */
+  bool syncDue() const override;
 
 private:
-  constexpr static const char* FILE_CONFIG = "config.json";
   constexpr static const char* FILE_LOG = "miner.log";
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
-  struct RunFileConfig {
-    uint64_t minerId{ 0 };
+  /** config.json: the follower's fields (FollowerConfig), `minerId` and `keys` (key files). */
+  struct RunFileConfig : FollowerConfig {
+    uint64_t minerId{0};
     std::vector<std::string> keys;
-    uint16_t port{ Client::DEFAULT_MINER_PORT };
-    std::vector<std::string> beacons;
-    NetworkAnchor network_anchor;
 
-    /** `allowedPeers`: serve only these peer ids (and upstreams); absent = anyone. */
-    std::optional<std::set<std::string>> allowedPeers;
-
-    pp::common::Object ltsToJson() const;
-    Roe<void> ltsFromJson(const pp::common::Object& jd);
-  };
-
-  struct NetworkConfig {
-    uint16_t udp_port{ Client::DEFAULT_MINER_PORT };
-    std::vector<std::string> beacon_multiaddrs;
-    NetworkAnchor network_anchor;
+    RunFileConfig() : FollowerConfig(Client::DEFAULT_MINER_PORT) {}
+    Roe<void> fromJson(const pp::common::Object &jd);
+    /** A template: what is unknown stands as a placeholder. */
+    pp::common::Object toJson() const;
   };
 
   struct Config {
-    uint64_t minerId{ 0 };
+    uint64_t minerId{0};
     std::vector<std::string> privateKeys;
-    NetworkConfig network;
   };
 
   /**
@@ -96,23 +70,13 @@ private:
    */
   bool pullTransactionsForSlot(uint64_t slot);
   std::chrono::milliseconds txPullWait() const;
-  void syncBlocksPeriodically();
   /** Warn (once per epoch) when this miner's account is not a registered miner. */
   void warnIfNotRegisteredMiner();
-  /** Start a background sync (rate-limited to one per slot unless bypassed). */
-  void trySyncBlocksFromBeacon(bool bypassRateLimit = false);
-  /** BlockSync wiring and completion (server thread). */
-  void initBlockSync();
-  void onBlockSyncFinished(const BlockSync::Result &result);
   /** Re-register with the upstream every REGISTER_RENEW_INTERVAL so the beacon keeps our record. */
   void renewRegistrationPeriodically();
   /** Our registration, signed with all our keys for `networkId` (the beacon verifies it). */
   Roe<Client::MinerInfo> signedRegistration(const std::string &networkId) const;
   Roe<Client::BeaconState> connectToBeacon();
-  /** At start: the offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed. */
-  Roe<int64_t> calibrateTimeToBeacon();
-  /** Recalibration when a new beacon generation is in force (bp3); after the miner has loaded. */
-  void initClockFollower();
   void initHandlers();
   void handleSlotLeaderRole();
   /** Send a produced (sealed) block to every upstream in parallel. */
@@ -122,20 +86,6 @@ private:
   bool signedTipCovers(const Client::TipReply &reply, const Ledger::ChainNode &block) const;
   /** First upstream accepted it: commit our seal. */
   void commitProducedBlock(const Ledger::ChainNode& block);
-  /** Point `client` at upstream `index` (UpstreamSet::dialKey). */
-  Roe<void> dialUpstream(Client &client, size_t index);
-  /** Point client_ at the upstream followed now. */
-  Roe<void> dialActiveUpstream();
-  /** UpstreamSet wiring (bp2b). */
-  void initUpstreams();
-  /**
-   * A beacon certificate from STATUS or a TX_ADD: offer it; a new one goes to every upstream, its
-   * dial hints become upstreams and the upstreams are ranked again (bp2b).
-   */
-  std::optional<Chain::CertificateOffer> noteCertificate(const Ledger::Record &record, const std::string &from);
-  /** A new certificate, to every upstream (TX_ADD). */
-  void pushCertificateUp(const Ledger::Record &record);
-  Roe<void> verifyUpstreamState(const Client::BeaconState& state);
   Roe<void> verifyGenesisAnchor();
   /**
    * First block of a fresh miner: the upstream's checkpoint. With an anchored genesis, the
@@ -145,42 +95,10 @@ private:
   Roe<uint64_t> chooseStartingBlock(const Client::BeaconState &state);
   /** Replay the upstream's authority proof from the anchored genesis to `checkpointId` and check the checkpoint agrees. */
   Roe<AuthorityTrail> replayAuthorityTo(uint64_t checkpointId);
-  /** BlockSync::Hooks::checkStartingAuthority: the synced starting block agrees with the replayed proof. */
-  pp::Roe<void> checkStartingAuthority(uint64_t blockId, const ChainAuthority &authority,
-                                       const Client::Wallet &admin) const;
 
-  std::string handleParsedRequest(const Client::Request &request) override;
-  bool handleDeferred(const Client::Request &request, const RequestQueue::Reply &reply) override;
-
-  // Deferred: reply after an outbound call or the next sync
-  void dBlockGet(const Client::Request &request, const RequestQueue::Reply &reply);
-  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies, and pass it up. */
-  void dEquivocationAdd(const Client::Request &request, const RequestQueue::Reply &reply);
-  /** Evidence this miner found: to every upstream (fire and forget), so each beacon host halts. */
-  void pushEquivocationUp(const Client::Equivocation &evidence);
-  /** After a sync: answer block gets that were waiting for it. */
-  void resolvePendingBlockGets();
-
-  Roe<std::string> hAccountGet(const Client::Request &request);
-  Roe<std::string> hTxGetByWallet(const Client::Request &request);
-  Roe<std::string> hTxGetByIndex(const Client::Request &request);
   Roe<std::string> hStatus(const Client::Request &request);
-  Roe<std::string> hCalibration(const Client::Request &request);
-  Roe<std::string> hUnsupported(const Client::Request &request);
 
   Miner miner_;
-  /** The upstreams this miner may follow, and the one it follows (bp2b). */
-  std::unique_ptr<UpstreamSet> upstreams_;
-  /** Calls to the upstream followed now (forwarding, registration, tip watch). */
-  Client client_;
-  /** BlockSync's: pointed at an upstream when a sync starts, so a re-rank cannot move a sync midway. */
-  Client syncClient_;
-  /**
-   * Calls to each upstream in turn (block broadcast, STATUS probes, pushes up): each captures the
-   * dial key set just before it, so they run in parallel.
-   */
-  Client fanoutClient_;
 
   /** A produced block awaiting its broadcast results (at most one). */
   struct PendingBroadcast {
@@ -204,11 +122,6 @@ private:
   /** Network id the upstream advertised at connect; registrations are signed for it. */
   std::string registrationNetworkId_;
   static constexpr int64_t SYNC_BEFORE_SLOT_SECONDS = 2;
-  int64_t timeOffsetToBeaconMs_{0};
-  std::unique_ptr<clock_calibration::ClockFollower> clock_;
-
-  std::chrono::steady_clock::time_point lastBlockSyncTime_{};
-  uint64_t lastSyncedEpoch_{0};
   uint64_t registrationCheckedEpoch_{UINT64_MAX};
   /** Genesis fetched and matched against networkAnchor.genesisHash (none without an anchor). */
   std::optional<Ledger::ChainNode> anchoredGenesis_;
@@ -220,24 +133,6 @@ private:
     AuthorityTrail trail;
   };
   std::optional<AnchoredStart> anchoredStart_;
-
-  using Handler = std::function<Roe<std::string>(const Client::Request &request)>;
-  std::map<uint32_t, Handler> requestHandlers_;
-  using DeferredHandler =
-      std::function<void(const Client::Request &request, const RequestQueue::Reply &reply)>;
-  std::map<uint32_t, DeferredHandler> deferredHandlers_;
-
-  struct PendingBlockGet {
-    uint64_t blockId;
-    RequestQueue::Reply reply;
-  };
-  /** Block gets beyond our tip, answered after the next sync. */
-  std::vector<PendingBlockGet> pendingBlockGets_;
-  bool blockSyncRequested_{false};
-  std::unique_ptr<BlockSync> blockSync_;
-  /** BLOCK_WAIT on the upstream: requests a sync as soon as it has a new block. */
-  std::unique_ptr<UpstreamTipWatch> tipWatch_;
-  std::optional<BlockSync::Result> lastSyncResult_;
 };
 
 } // namespace pp

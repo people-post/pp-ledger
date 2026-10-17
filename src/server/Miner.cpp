@@ -5,15 +5,11 @@
 #include <algorithm>
 #include <limits>
 #include <chrono>
-#include <filesystem>
 #include <sstream>
 
 namespace pp {
 
-Miner::Miner() {
-  redirectLogger("Miner");
-  chain_.redirectLogger(log().getFullName() + ".Chain");
-}
+Miner::Miner() : FollowerCore("Miner") {}
 
 bool Miner::isSlotLeader() const {
   return chain_.isStakeholderSlotLeader(config_.minerId, getProductionSlot());
@@ -58,12 +54,6 @@ uint64_t Miner::getStake() const {
 
 size_t Miner::getPendingTransactionCount() const { return pendingTxes_.size(); }
 
-uint64_t Miner::getNextBlockId() const { return chain_.getNextBlockId(); }
-
-uint64_t Miner::getCurrentSlot() const { return chain_.getCurrentSlot(); }
-
-uint64_t Miner::getCurrentEpoch() const { return chain_.getCurrentEpoch(); }
-
 int64_t Miner::getConsensusTimestamp() const {
   return chain_.getConsensusTimestamp();
 }
@@ -72,83 +62,10 @@ int64_t Miner::getSlotStartTime(uint64_t slot) const {
   return chain_.getSlotStartTime(slot);
 }
 
-uint64_t Miner::getSlotDuration() const {
-  return chain_.getSlotDuration();
-}
-
-std::vector<consensus::Stakeholder> Miner::getStakeholders() const {
-  return chain_.getStakeholders();
-}
-
-Miner::Roe<Ledger::ChainNode> Miner::readBlock(uint64_t blockId) const {
-  auto result = chain_.readBlock(blockId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-Miner::Roe<Client::UserAccount> Miner::getAccount(uint64_t accountId) const {
-  auto result = chain_.getAccount(accountId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-std::string Miner::calculateHash(const Ledger::Block &block) const {
-  return chain_.calculateHash(block);
-}
-
-Miner::Roe<void> Miner::verifySignedTip(const Client::SignedTip &tip,
-                                    const std::vector<const Ledger::Block *> &pending) const {
-  auto verified = chain_.verifySignedTip(tip, pending);
-  if (!verified) {
-    return Error(verified.error().code, verified.error().message);
-  }
-  return {};
-}
-
-Miner::Roe<AuthorityTrail> Miner::authorityTrail() const {
-  auto trail = chain_.authorityTrail();
-  if (!trail) {
-    return Error(trail.error().code, trail.error().message);
-  }
-  return trail.value();
-}
-
-std::optional<std::string> Miner::getTipHash() const {
-  const uint64_t next = getNextBlockId();
-  if (next == 0) {
-    return std::nullopt;
-  }
-  auto tip = readBlock(next - 1);
-  return tip ? std::optional<std::string>(tip.value().hash) : std::nullopt;
-}
-
-Miner::Roe<std::vector<Ledger::Record>>
-Miner::findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const {
-  auto result = chain_.findTransactionsByWalletId(walletId, ioBlockId);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
-Miner::Roe<Ledger::Record>
-Miner::findTransactionByIndex(uint64_t txIndex) const {
-  auto result = chain_.findTransactionByIndex(txIndex);
-  if (!result) {
-    return Error(result.error().code, result.error().message);
-  }
-  return result.value();
-}
-
 Miner::Roe<void> Miner::init(const InitConfig &config) {
   if (config.privateKeys.empty()) {
     return Error(1, "At least one private key is required");
   }
-  config_.workDir = config.workDir;
   config_.minerId = config.minerId;
   config_.startingBlockId = config.startingBlockId;
   config_.privateKeys = config.privateKeys;
@@ -156,77 +73,11 @@ Miner::Roe<void> Miner::init(const InitConfig &config) {
   log().info << "Initializing Miner";
   log().info << "  Miner ID: " << config_.minerId;
   log().info << "  Starting block ID: " << config_.startingBlockId;
-
-  // Create work directory if it doesn't exist
-  if (!std::filesystem::exists(config.workDir)) {
-    std::filesystem::create_directories(config.workDir);
+  if (auto opened = openLedger(config.workDir, config.timeOffsetMs, config.startingBlockId); !opened) {
+    return opened;
   }
-
-  log().info << "  Work directory: " << config.workDir;
-
-  // Initialize consensus(timeOffsetMs only, full config from genesis block when loading)
-  consensus::SlotCommittee::Config consensusConfig;
-  consensusConfig.timeOffsetMs = config.timeOffsetMs;
-  chain_.initConsensus(consensusConfig);
-
-  // Initialize ledger
-  std::string ledgerDir = config.workDir + "/" + DIR_LEDGER;
-  if (auto rewound = applyPendingRewind(ledgerDir); !rewound) {
-    return rewound;
-  }
-
-  if (std::filesystem::exists(ledgerDir)) {
-    auto roe = chain_.mountLedger(ledgerDir);
-    if (!roe) {
-      return Error(2, "Failed to mount ledger: " + roe.error().message);
-    }
-    if (getNextBlockId() < config.startingBlockId) {
-      log().info << "Ledger data too old, removing existing work directory: "
-                 << ledgerDir;
-      std::error_code ec;
-      std::filesystem::remove_all(ledgerDir, ec);
-      if (ec) {
-        return Error("Failed to remove existing work directory: " +
-                     ec.message());
-      }
-    }
-  }
-
-  if (!std::filesystem::exists(ledgerDir)) {
-    Ledger::InitConfig ledgerConfig;
-    ledgerConfig.workDir = ledgerDir;
-    ledgerConfig.startingBlockId = config.startingBlockId;
-    auto ledgerResult = chain_.initLedger(ledgerConfig);
-    if (!ledgerResult) {
-      return Error(2, "Failed to initialize ledger: " +
-                          ledgerResult.error().message);
-    }
-  }
-
-  auto loadResult = chain_.loadFromLedger(config.startingBlockId);
-  if (!loadResult) {
-    return Error(2,
-                 "Failed to load from ledger: " + loadResult.error().message);
-  }
-
-  certificates_ = std::make_unique<CertificateStore>(chain_, config.workDir + "/" + FILE_BEACON_CERT);
-  certificates_->redirectLogger(log().getFullName() + ".CertificateStore");
-  if (auto loaded = certificates_->load(); !loaded) {
-    return Error(2, loaded.error().message);
-  }
-  equivocations_ = std::make_unique<EquivocationStore>(chain_, config.workDir + "/" + FILE_EQUIVOCATION);
-  equivocations_->redirectLogger(log().getFullName() + ".EquivocationStore");
-  if (auto loaded = equivocations_->load(); !loaded) {
-    return Error(2, loaded.error().message);
-  }
-
   log().info << "Miner initialized successfully";
   return {};
-}
-
-void Miner::refresh() {
-  // Update miner state
-  chain_.refreshStakeholders();
 }
 
 bool Miner::BlockBudget::take(const Ledger::Record &record) {
@@ -462,41 +313,11 @@ Miner::addTransaction(const Ledger::Record &record) {
 }
 
 Miner::Roe<void> Miner::addBlock(const Ledger::ChainNode &block) {
-  auto result = chain_.addBlock(block);
-  if (!result) {
-    return Error(10, result.error().message);
+  auto added = FollowerCore::addBlock(block);
+  if (added) {
+    slotCache_ = {}; // the tip moved: this slot's renewals and buffer are stale
   }
-  // The tip moved: this slot's renewals and buffer are stale.
-  slotCache_ = {};
-  if (certificates_) {
-    certificates_->retryPending();
-    certificates_->refresh(); // a block may have committed it, or replaced the admins who signed it
-  }
-  if (equivocations_) {
-    equivocations_->retryPending();
-    equivocations_->refresh(); // a certificate on chain may have resumed it
-  }
-  return {};
-}
-
-std::optional<Chain::CertificateOffer> Miner::noteCertificate(const Ledger::Record &record,
-                                                            const std::string &from) {
-  if (!certificates_) {
-    return std::nullopt; // no chain yet: nothing to verify it against
-  }
-  auto offered = certificates_->note(record, from);
-  if (offered == Chain::CertificateOffer::Newer && equivocations_) {
-    equivocations_->refresh(); // a later generation resumes a halted one
-  }
-  return offered;
-}
-
-std::optional<Chain::EquivocationOffer> Miner::noteEquivocation(const Client::Equivocation &evidence,
-                                                                const std::string &from) {
-  if (!equivocations_) {
-    return std::nullopt; // no chain yet: nothing to verify it against
-  }
-  return equivocations_->note(evidence, from);
+  return added;
 }
 
 // Private helper methods
@@ -546,64 +367,6 @@ Miner::Roe<Ledger::ChainNode> Miner::createBlock(
               << block.block.records.size() << " transactions";
 
   return block;
-}
-
-
-Miner::Roe<void> Miner::applyPendingRewind(const std::string &ledgerDir) {
-  auto applied = rewind::applyPendingOrder(config_.workDir, ledgerDir);
-  if (!applied) {
-    return Error(2, "Failed to apply the pending rewind: " + applied.error().message);
-  }
-  if (const auto &order = applied.value()) {
-    log().error << "Rewound: kept blocks up to " << order->keptUpTo << ", dropped " << order->keptUpTo + 1
-                << " to " << order->droppedUpTo << " (past the cutover of beacon generation " << order->generation
-                << ")";
-  }
-  auto last = rewind::lastApplied(config_.workDir);
-  if (!last) {
-    return Error(2, last.error().message);
-  }
-  lastRewind_ = last.value();
-  return {};
-}
-
-Miner::Roe<bool> Miner::scheduleRewind(uint64_t approvedGeneration) {
-  auto scheduled = rewind::schedule(chain_, config_.workDir, approvedGeneration, maxAutomaticRewind_);
-  if (!scheduled) {
-    return Error(2, "Failed to write the rewind order: " + scheduled.error().message);
-  }
-  const auto &order = scheduled.value().order;
-  switch (scheduled.value().kind) {
-  case rewind::Scheduled::Kind::None:
-    return false;
-  case rewind::Scheduled::Kind::HeldBack:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      const auto &depth = scheduled.value().depthSeconds;
-      log().error << "Not rewinding on its own: beacon generation " << order->generation << " orders a cut to block "
-                  << order->keptUpTo << ", "
-                  << (depth ? std::to_string(*depth / 3600) + " h" : std::string("an unknown time"))
-                  << " of slots back — more than the " << maxAutomaticRewind_.count() / 3600
-                  << " h a node rewinds unattended. Check the certificate; to apply it, restart with "
-                  << "--approve-rewind " << order->generation;
-    }
-    return false;
-  case rewind::Scheduled::Kind::Forked:
-    if (heldBackGeneration_ != order->generation) {
-      heldBackGeneration_ = order->generation;
-      log().error << "Not rewinding: beacon generation " << order->generation << " vouches for another block "
-                  << order->keptUpTo << " than this node holds — its history forked at or below it, or the "
-                  << "certificate names the wrong block. Its tips past the cutover are refused; an operator "
-                  << "must look";
-    }
-    return false;
-  case rewind::Scheduled::Kind::Ordered:
-    break;
-  }
-  log().error << "Rewinding to block " << order->keptUpTo << ": blocks " << order->keptUpTo + 1 << " to "
-              << order->droppedUpTo << " are past the cutover of beacon generation " << order->generation
-              << "; restarting";
-  return true;
 }
 
 } // namespace pp

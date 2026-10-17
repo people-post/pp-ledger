@@ -1,17 +1,10 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
-#include "CertificateStore.h"
-#include "Rewind.h"
-#include "EquivocationStore.h"
-#include "Chain.h"
+#include "NodeCore.h"
 #include "TipSigner.h"
 
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
 #include "lib/common/Meta.h"
-#include "common/Module.h"
-#include "common/ResultOrError.hpp"
 #include "lib/common/Utilities.h"
 
 #include <cstdint>
@@ -42,14 +35,8 @@ namespace pp {
  * - Checkpoints are created when data exceeds 1GB and is older than 1 year
  * - Miners produce blocks, Beacons verify and archive them
  */
-class Beacon : public Module {
+class Beacon : public NodeCore {
 public:
-  struct Error : RoeErrorBase {
-    using RoeErrorBase::RoeErrorBase;
-  };
-
-  template <typename T> using Roe = ResultOrError<T, Error>;
-
   /** An account's public keys and how many must sign (0 = all of them). */
   struct AccountKeys {
     std::vector<std::string> publicKeys; ///< raw ML-DSA-65 public keys
@@ -106,60 +93,23 @@ public:
   ~Beacon() override = default;
 
   // ----------------- accessors -------------------------------------
-  Chain::Checkpoint getCheckpoint() const;
-  uint64_t getNextBlockId() const;
-  uint64_t getCurrentSlot() const;
   /** Live admission only: a block for `slot` arrives before slotEnd + delivery window. */
   bool isBeforeDeliveryDeadline(uint64_t slot) const;
-  uint64_t getCurrentEpoch() const;
-  std::vector<consensus::Stakeholder> getStakeholders() const;
-  Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
-
-  Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
-  /** AUTHORITY_PROOF up to `upToBlockId` (Chain::authorityProof). */
-  Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
-  std::string calculateHash(const Ledger::Block &block) const;
-  /** networkId from loaded chain config (empty if not ready). */
-  std::string getNetworkId() const;
   /**
    * A REGISTER is genuine only if the miner account's keys signed it (as for
    * its transactions): nobody can register a miner id they do not control.
    */
   Roe<void> verifyMinerRegistration(const Client::MinerInfo &miner, const std::string &networkId) const;
-  /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
-  Roe<std::vector<Ledger::Record>>
-  findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
-  /** Find transaction by global chain index (0-based). */
-  Roe<Ledger::Record>
-  findTransactionByIndex(uint64_t txIndex) const;
 
   // ----------------- methods -------------------------------------
   Roe<void> init(const InitConfig &config);
   Roe<void> mount(const MountConfig &config);
-  void refresh();
 
   /**
    * Commit `block`; once tip signing is open, sign it (sign after durable commit). A block that
    * commits but cannot be signed still counts: the error is logged and the tip stays where it was.
    */
   Roe<void> addBlock(const Ledger::ChainNode &block);
-
-  /**
-   * At start, before the ledger mounts: apply a rewind ordered before the restart
-   * (beacon-authority bp1, B022) and load the last one applied.
-   */
-  Roe<void> applyPendingRewind(const std::string &ledgerDir);
-  /**
-   * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
-   * start — unless it reaches back further than the node rewinds on its own and the operator has
-   * not approved its generation (`approvedGeneration`, 0 = none; rewind::schedule). True when an
-   * order was written: the caller restarts.
-   */
-  Roe<bool> scheduleRewind(uint64_t approvedGeneration);
-  /** Tests: how far back the node rewinds on its own (default rewind::kMaxAutomaticRewind). */
-  void setMaxAutomaticRewind(std::chrono::seconds reach) { maxAutomaticRewind_ = reach; }
-  /** The last rewind this node applied (STATUS); none if none. */
-  const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
 
   /**
    * Start signing tips with `key` (after mount; beacon-authority ba3). Loads the persisted tip and
@@ -195,13 +145,8 @@ public:
   std::optional<uint64_t> takeoverWith(const std::vector<utl::MlDsaKeyPair> &keys) const;
   /** The latest signed tip's file under the mount's work directory (beacon only). */
   static constexpr const char *FILE_SIGNED_TIP = "signed-tip.dat";
-  /** The certificate held out of band, above the one in force (Chain::seenCertificate). */
-  std::optional<BeaconCertificate> getHeldCertificate() const { return chain_.seenCertificate(); }
   /** Block C here is not the one the held certificate vouches for (Chain::cutoverForked). */
   bool cutoverForked() const { return chain_.cutoverForked(); }
-  /** Where the beacon is reached: the certificates' dial hints (Chain::dialHints). */
-  std::vector<std::string> getDialHints() const { return chain_.dialHints(); }
-  uint64_t getSlotDuration() const { return chain_.getSlotDuration(); }
   uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
   /**
    * Equivocation evidence held (beacon-authority ba6): its height. The beacon then commits no block
@@ -210,9 +155,6 @@ public:
   std::optional<uint64_t> haltedAbove() const;
   /** Equivocation evidence pushed up (EQUIVOCATION_ADD): kept and persisted when it verifies. */
   Roe<Chain::EquivocationOffer> offerEquivocation(const Client::Equivocation &evidence);
-  /** The beacon generation in force (0 before the chain is loaded). */
-  uint64_t getGeneration() const;
-
   /**
    * A beacon certificate from outside the blocks (TX_ADD, beacon-authority ba5c): kept and
    * persisted if it is the highest generation seen. While it is not on chain, the beacon commits
@@ -220,24 +162,12 @@ public:
    * not hold its key.
    */
   Roe<Chain::CertificateOffer> offerCertificate(const Ledger::Record &record);
-  /** The current certificate for STATUS (Chain::currentCertificateRecord). */
-  std::optional<Ledger::Record> getCurrentCertificate() const;
-  /** Equivocation evidence this node halts on (beacon-authority ba6), for STATUS; none if none. */
-  std::optional<Client::Equivocation> getEquivocation() const { return chain_.equivocation(); }
-  /** A recovery pending on this chain (beacon-authority ba7), for STATUS; none if none. */
-  std::optional<Client::RecoveryStatus> getRecoveryStatus() const { return chain_.recoveryStatus(); }
+
+protected:
+  /** A tip above the kept blocks was signed by the superseded generation: drop it (dropSignedTipAbove). */
+  Roe<void> onRewound(uint64_t keptUpTo) override;
 
 private:
-  constexpr static const char *DIR_LEDGER = "ledger";
-  /** The highest beacon certificate seen out of band, beside the ledger. */
-  constexpr static const char *FILE_BEACON_CERT = "beacon-cert.dat";
-  /** Equivocation evidence this node halts on (ba6), beside the ledger. */
-  constexpr static const char *FILE_EQUIVOCATION = "equivocation.dat";
-
-  struct Config {
-    std::string workDir;
-  };
-
   /** Block 0 of a re-genesis: T_GENESIS only, naming the predecessor and the system keys (B032). */
   Roe<Ledger::ChainNode> createImportingGenesisBlock(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
                                                      const Chain::ChainAuthority &authority,
@@ -289,15 +219,7 @@ private:
   /** Sign the committed tip under the certificate in force. */
   TipSigner::Roe<void> signCommittedTip();
 
-  Chain chain_;
-  Config config_;
   std::unique_ptr<TipSigner> tipSigner_;
-  std::unique_ptr<CertificateStore> certificates_;
-  std::optional<Client::RewindReport> lastRewind_;
-  std::chrono::seconds maxAutomaticRewind_{rewind::kMaxAutomaticRewind};
-  /** Generation whose rewind was last reported as held back (one alert per certificate). */
-  uint64_t heldBackGeneration_{0};
-  std::unique_ptr<EquivocationStore> equivocations_;
   /** Generation already reported as certifying another key (one report per generation). */
   uint64_t uncertifiedWarnedGeneration_{0};
   /** This start's rewind removed the signed tip (dropSignedTipAbove): no tip is expected. */
