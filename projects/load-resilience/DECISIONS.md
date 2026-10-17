@@ -105,17 +105,23 @@ id and pays twice — what `pp-client add-tx` does when run again after a timeou
 the small protocol takes nothing larger (Amp resets a channel at the first fragment of a message
 over its limit). A node has at most 2 large requests arriving per peer and 8 in all; one more is
 answered at once — `E_RATE_LIMITED` / `E_BUSY` with a retry-after — and the client, which binds its
-channel when it opens it, reads that before sending its body. A peer outside `allowedPeers` is
+channel when it opens it, reads that before sending its body. A large request holds its place until
+it is answered, not only while it arrives, so large requests waiting in the queue cannot fill the
+queue's byte budget that small ones share (M15). A peer outside `allowedPeers` is
 refused when its large request's channel opens. Nodes ask for 8 MiB UDP socket buffers
 (`udpBufferBytes`), log what the OS granted, warn when it capped them, and report the kernel's drops
-on `HEALTH`; hosts raise `net.core.rmem_max` / `wmem_max`.
+on `HEALTH`; hosts raise `net.core.rmem_max` / `wmem_max`, or — in containers, which cannot — grant
+`CAP_NET_ADMIN`, which the image's node binaries hold as permitted only and use for the buffer call
+alone. The network thread reads on without waiting while datagrams keep coming.
 **Rationale:** A node has one socket and one network thread for every peer. M12: 64 peers sending
 4 MiB bodies overflowed the 208 KiB socket buffer (a million datagrams dropped in 8 s), and every
 peer lost packets alike — handshakes, health probes, the node's own upstream. The server's queues
 were never the bottleneck; bytes arriving were. Bounding the large bodies arriving at once bounds
 those bytes (8 × the senders' windows) whatever the number of peers; a buffer of a few MiB holds
-them. Refusing at the open costs a round trip, not 4 MiB. M14: the flood no longer touches anyone
-else.
+them. Refusing at the open costs a round trip, not 4 MiB. A larger buffer alone made things worse
+(M15): it only queued more, while the network thread slept between turns and refused clients' queued
+frames were still sent; with those fixed, no datagram is dropped and the relay takes large bodies
+four times as fast. M14, M15: the flood no longer touches anyone else.
 **Alternatives:** Only a larger buffer (any buffer is overrun by enough peers). A node-wide cap on
 all requests (small requests are cheap, M9: no need to queue them behind blocks). Refusing the
 channel open itself (the client sees a transport error, not `E_BUSY` with a retry-after). Reserved

@@ -140,8 +140,9 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const std::string& remote_pee
     refuse(Refusal::NotAllowed);
     return;
   }
-  // The slot is held while the request arrives: released with the body, or when the channel closes
-  // first (its handlers, holding the token, are dropped).
+  // The slot is held while the request arrives — a large one until it is answered, so large requests
+  // waiting in the server's queue count too and cannot fill the queue small ones share. Released then,
+  // or when the channel closes first (its handlers, holding the token, are dropped).
   auto refused = Refusal::PeerBusy;
   auto slot =
       std::make_shared<std::shared_ptr<Receiving::Slot>>(Receiving::acquire(lane.receiving, remote_peer_id, refused));
@@ -150,17 +151,25 @@ void HandleInboundChannel(pp::amp::PeerLink& link, const std::string& remote_pee
     return;
   }
   const auto post_io = options.post_io;
+  const bool holdUntilReply = lane.bulk;
   session->Bind(*link.Mux(), channel_id, InboundPolicy(lane, read_timeout),
-                [session, handler, post_io, read_timeout, remote_peer_id, slot](pp::Roe<std::vector<uint8_t>> body) {
-                  slot->reset(); // the body is complete (or failed): no longer receiving
+                [session, handler, post_io, read_timeout, remote_peer_id, slot,
+                 holdUntilReply](pp::Roe<std::vector<uint8_t>> body) {
+                  // The body is complete (or failed): no longer receiving.
+                  auto held = std::make_shared<std::shared_ptr<Receiving::Slot>>();
+                  if (body && holdUntilReply) {
+                    *held = std::move(*slot);
+                  }
+                  slot->reset();
                   if (!body) {
                     return false;
                   }
                   auto sent = std::make_shared<std::atomic<bool>>(false);
-                  AmpLedgerServer::Reply reply = [session, post_io, read_timeout, sent](std::string response) {
+                  AmpLedgerServer::Reply reply = [session, post_io, read_timeout, sent, held](std::string response) {
                     if (sent->exchange(true)) {
                       return;
                     }
+                    held->reset(); // answered (a reply never sent frees it with the last copy of `reply`)
                     // ChannelSession is io-thread affine: send on the io lane.
                     auto send = [session, read_timeout, response = std::move(response)]() mutable {
                       SendAndClose(*session, read_timeout, std::move(response));

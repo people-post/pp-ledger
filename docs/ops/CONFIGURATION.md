@@ -286,16 +286,21 @@ The receive and send buffers a node asks for its UDP socket (default 8 MiB; 0 = 
 One socket carries every peer: on Linux's default of 208 KiB, a few peers sending large requests at
 once made the kernel drop datagrams of every peer alike — handshakes, health probes, the node's own
 upstream link (load-resilience M12). The OS grants at most its cap; the node logs the sizes granted
-at start and warns when they are smaller than asked. Raise the cap on the host (on Docker too: the
-setting is the host's):
+at start and warns when they are smaller than asked. Either raise the cap on the host:
 
 ```bash
 sysctl -w net.core.rmem_max=8388608 net.core.wmem_max=8388608
 # persist: /etc/sysctl.d/90-pp-ledger.conf with the same two lines (key = value)
 ```
 
-A process with `CAP_NET_ADMIN` gets its size past the cap without it. `HEALTH`'s
-`udpReceiveDrops` shows whether the buffer is large enough.
+or give the node `CAP_NET_ADMIN`, which takes its size past the cap. A container cannot set these
+sysctls (they exist only in the host's network namespace; `docker run --sysctl` refuses them), so
+the image carries the capability on `pp-beacon`, `pp-relay` and `pp-miner` as permitted only
+(`setcap cap_net_admin+p`) and [deploy/compose.yml](../../deploy/compose.yml) grants it
+(`cap_add: [NET_ADMIN]`): the node makes it effective for sizing its socket alone. Without the
+grant the node starts all the same and gets what the host allows. Neither works with rootless
+containers or `no-new-privileges`; use the host sysctl there. `HEALTH`'s `udpReceiveDrops` shows
+whether the buffer is large enough.
 
 ## Identity keys
 

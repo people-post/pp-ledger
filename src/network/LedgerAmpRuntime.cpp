@@ -2,6 +2,7 @@
 #include "LedgerRpcProtocol.h"
 
 #include "amp/L1/OsUdpDatagramIo.h"
+#include "amp/L1/Types.h"
 #include "amp/link/AdpMultiaddr.h"
 
 namespace pp {
@@ -140,8 +141,16 @@ void LedgerAmpRuntime::Wake() {
 
 void LedgerAmpRuntime::PumpLoop() {
   pump_thread_id_ = std::this_thread::get_id();
+  auto& endpoint = stack_->GetEndpoint();
   while (!stop_.load()) {
+    const uint64_t received = endpoint.Stats().rx_datagrams;
     stack_->Runtime().Drive();
+    // A turn reads at most a budget of datagrams; one that read a whole budget left more waiting, so
+    // go again at once. Waiting here capped a node at a budget per 5 ms whatever its CPU, and under a
+    // burst of large requests its socket overflowed and dropped every peer's datagrams (lr8, M14).
+    if (endpoint.Stats().rx_datagrams - received >= pp::adp::kDefaultPumpBudget) {
+      continue;
+    }
     // Idle cadence for timers/retransmits; post() wakes us early for new work.
     std::unique_lock<std::mutex> lock(wake_mu_);
     wake_cv_.wait_for(lock, std::chrono::milliseconds(5), [this]() { return wake_ || stop_.load(); });

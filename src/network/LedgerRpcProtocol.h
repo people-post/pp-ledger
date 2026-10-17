@@ -34,9 +34,15 @@ inline constexpr size_t kMaxSmallRequestBytes = 64 * 1024;
  * what one peer makes a node buffer to this many × kMaxMessageBytes.
  */
 inline constexpr size_t kMaxReceivingPerPeer = 16;
-/** Large requests (kBulkProtocolId) one peer may have arriving at once. */
+/**
+ * Large requests (kBulkProtocolId) one peer may have in a node at once: arriving, or waiting for
+ * their answer.
+ */
 inline constexpr size_t kMaxBulkReceivingPerPeer = 2;
-/** Large requests arriving at once from all peers together: bounds what they make a node receive. */
+/**
+ * Large requests in a node at once from all peers together: bounds what they make it receive and
+ * hold (8 × 4 MiB), well within the request queue's byte budget that small requests share.
+ */
 inline constexpr size_t kMaxBulkReceivingTotal = 8;
 /** The protocol a request body of `bytes` travels on. */
 inline const char* ProtocolFor(size_t bytes) { return bytes > kMaxSmallRequestBytes ? kBulkProtocolId : kProtocolId; }

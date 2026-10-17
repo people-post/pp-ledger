@@ -122,7 +122,8 @@ Smoke network (beacon, relay, 3 miners; 2 s slots, 100 records a block), load th
 | M11 | Relay: 400 new identities at once, 800 `STATUS`/s, 10 tx/s beside | All served (p99 46 ms); resident memory 21 → 24 MB: ~7 KB per idle link |
 | M12 | Relay: 64 identities sending ~4 MiB `BLOCK_ADD` bodies at 64/s (256 MiB/s), 10 tx/s beside | Memory bounded (64 MB); run loop never slow; but the bodies mostly never arrived (channel not open, timeouts, dial timeouts), a `HEALTH` probe went unanswered for 5 s, and every other peer suffered — the transfers beside: replies p50 0.94 s (from 20 ms), p99 at the 30 s timeout, 11 `E_BUSY` because the relay's own channel to the beacon could not open, inclusion 12 s instead of 2 s |
 | M13 | Start-up, no load | The first blocks after the network starts (slots 2–7) were refused by the beacon as late ("after its delivery deadline") — every miner in turn; from then on none. To look at in lr10 |
-| M14 | M12 again after LR008 (large requests on their own protocol, 2 per peer and 8 per node arriving at once, refused at once; 8 MiB socket buffers asked for, this host capping them at 208 KiB) | The flood: 25 bodies received, 487 answered `E_BUSY` at once (p50 11 ms). `HEALTH` answered every time (20 probes, max 0.7 s). The transfers beside: 200 of 200 taken and included, replies p50 30 ms, p99 0.32 s, none busy. Kernel drops 1.09 M → 168 k (157 k at the relay): eight 4 MiB bodies at once still overrun a 208 KiB buffer (~150 KiB in flight per link) — what the 8 MiB buffer is for, once the host's cap allows it |
+| M14 | M12 again after LR008 (large requests on their own protocol, 2 per peer and 8 per node in progress, refused at once), on this host's 208 KiB buffer cap | The flood: 31 bodies received, 481 answered `E_BUSY` at once (p50 6 ms). `HEALTH` answered every time (20 probes, max 0.5 s). The transfers beside: 200 of 200 taken and included, replies p50 25 ms, p99 0.31 s, none busy. Kernel drops at the relay 1.09 M → 126 k: eight 4 MiB bodies at once still overrun 208 KiB |
+| M15 | M14 with the 8 MiB buffers granted (`CAP_NET_ADMIN`, in a container) | First try worse than M14 (transfers p50 0.88 s, probes up to 1.3 s, 172 k drops): a bigger buffer only queued more. Two causes: frames a refused client had queued were still sent after the relay closed the channel (Amp); and the relay's network thread, at 20–40 % CPU, slept 5 ms after each turn of 256 datagrams — a ceiling of ~50 k datagrams/s whatever its CPU. Fixed both; then the request queue (64 MiB) filled with received bodies and small requests got `E_BUSY` (58 of 200), so a large request now holds its place until answered. Final: **no drop**; probes max 69 ms; 107 bodies taken (~50 MB/s, 4× M14), the rest refused in 11 ms; transfers 200 of 200, p50 35 ms, p99 1.07 s — the relay's server thread decoding 107 junk blocks of 4 MiB |
 
 From M9–M12: a node takes a flood of requests well — one server thread, queues and lanes hold — but
 not a flood of **bytes**: one network thread carries every peer's packets, and a few peers sending
@@ -130,8 +131,10 @@ large bodies starve everyone else, handshakes, health probes and the node's own 
 included. Memory per idle link is small (M11); what bounds memory is receiving (16 requests of up to
 4 MiB per peer, no node-wide cap).
 
-After LR008 (M14) the flood is confined to large requests: everyone else is served as if it were
-not there, and the large requests themselves are told to come back (`E_BUSY`) instead of timing out.
+After LR008 (M14, M15) the flood is confined to large requests: everyone else is served, slower only
+by the server thread's time on the large ones, and the large requests themselves are told to come
+back (`E_BUSY`) instead of timing out. What a large request costs the server thread (decoding a
+block) is the next limit — a per-role question for the rest of lr8.
 
 So: the servers survive (goal 1 held so far, M6), but bursts are not absorbed (goal 2): they are
 bounced at the first hop (M3, M5), half-delivered with wrong answers (M4), or starved by renewals

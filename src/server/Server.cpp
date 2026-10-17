@@ -308,13 +308,13 @@ std::string Server::refusalResponse(const network::AmpLedgerServer::Refusal why)
     return packResponse(1, "Peer not allowed by this node");
   case Refusal::PeerBusy:
     ++requestsBusy_;
-    return packError(Client::E_RATE_LIMITED, "Too many requests arriving from this peer, please retry",
+    return packError(Client::E_RATE_LIMITED, "Too many requests in progress from this peer, please retry",
                      kBusyRetryAfterMs);
   case Refusal::NodeBusy:
     break;
   }
   ++requestsBusy_;
-  return packError(Client::E_BUSY, "Too many large requests arriving, please retry", kBusyRetryAfterMs);
+  return packError(Client::E_BUSY, "Too many large requests in progress, please retry", kBusyRetryAfterMs);
 }
 
 bool Server::isAllowedPeer(const std::string& peerId) const {

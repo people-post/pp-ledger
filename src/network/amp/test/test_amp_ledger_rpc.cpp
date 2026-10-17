@@ -327,6 +327,55 @@ TEST_F(AmpLedgerRpcTest, ALargeRequestPastTheNodesShareIsAnsweredAtOnce) {
   EXPECT_EQ(handled.load(), 1);
 }
 
+// lr8 (M14): a large request holds its place until it is answered, so large requests waiting in the
+// server's queue count too — they cannot fill the queue that small requests share.
+TEST_F(AmpLedgerRpcTest, ALargeRequestHoldsItsPlaceUntilAnswered) {
+  auto created = RpcHarness::Create();
+  ASSERT_TRUE(created.isOk());
+  auto h = std::move(created.value());
+  ASSERT_TRUE(h->Associate());
+  std::vector<pp::network::AmpLedgerServer::Reply> pending;
+  pp::network::AmpLedgerServer::Options options;
+  options.bulkTotal = 1;
+  options.refusal = RefusalName;
+  pp::network::AmpLedgerServer::BindAsync(
+      h->runtime_b->Links(),
+      [&pending](std::string, std::string, pp::network::AmpLedgerServer::Reply reply) {
+        pending.push_back(std::move(reply)); // answered later
+      },
+      std::move(options));
+  pp::AmpLedgerTransport transport(*h->runtime_a, "b", [&h]() { h->PumpBoth(); });
+  const std::string large(pp::ledger::rpc::kMaxSmallRequestBytes + 1, 'm');
+
+  std::optional<std::string> first;
+  transport.roundTripAsync(large, std::chrono::seconds(30), [&first](pp::ILedgerTransport::Roe<std::string> r) {
+    first = r ? r.value() : "error: " + r.error().message;
+  });
+  for (size_t i = 0; i < 2000 && pending.empty(); ++i) {
+    h->PumpBoth();
+  }
+  ASSERT_EQ(pending.size(), 1u) << "the first is received and waits for its answer";
+
+  auto second = transport.roundTrip(large, std::chrono::seconds(30));
+  ASSERT_TRUE(second.isOk()) << second.error().message;
+  EXPECT_EQ(second.value(), "node busy") << "its body has arrived, but it still holds the node's place";
+
+  pending.front()("done");
+  for (size_t i = 0; i < 400 && !first; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(first, "done");
+  std::optional<std::string> third;
+  transport.roundTripAsync(large, std::chrono::seconds(30), [&third](pp::ILedgerTransport::Roe<std::string> r) {
+    third = r ? r.value() : "error: " + r.error().message;
+  });
+  for (size_t i = 0; i < 2000 && pending.size() < 2; ++i) {
+    h->PumpBoth();
+  }
+  EXPECT_EQ(pending.size(), 2u) << "answered, the place is free again";
+  EXPECT_FALSE(third) << "not refused";
+}
+
 // lr8: a peer the node does not serve is refused when its large request's channel opens, not after
 // the body has arrived; a small request (HEALTH) still reaches the server, which checks it there.
 TEST_F(AmpLedgerRpcTest, AStrangersLargeRequestIsRefusedWhenItsChannelOpens) {

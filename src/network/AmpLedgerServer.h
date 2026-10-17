@@ -38,8 +38,8 @@ public:
   /** Why a request was refused when its channel opened, before its body was read. */
   enum class Refusal {
     NotAllowed, ///< a bulk request from a peer `admit` refuses
-    PeerBusy,   ///< the peer already has its share of requests arriving
-    NodeBusy,   ///< bulk requests from all peers fill the node's share
+    PeerBusy,   ///< the peer already has its share of requests in progress
+    NodeBusy,   ///< large requests from all peers fill the node's share
   };
 
   struct Options {
@@ -49,7 +49,7 @@ public:
     std::function<bool(const std::string& remotePeerId)> admit;
     /** The reply to a refused request, sent at once; empty: the channel is reset. */
     std::function<std::string(Refusal)> refusal;
-    /** Large requests arriving at once, from one peer and from all. */
+    /** Large requests in progress at once (arriving, or waiting for their answer), from one peer and from all. */
     size_t bulkPerPeer{pp::ledger::rpc::kMaxBulkReceivingPerPeer};
     size_t bulkTotal{pp::ledger::rpc::kMaxBulkReceivingTotal};
   };
