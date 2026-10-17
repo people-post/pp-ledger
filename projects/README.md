@@ -29,6 +29,7 @@ Do not put phase status in `AGENTS.md`.
 | [beacon-authority](beacon-authority/) | Verifiable beacon (part 1 shipped: [BEACON_AUTHORITY.md](../docs/contracts/BEACON_AUTHORITY.md)) and promotion after loss or a move (part 2) — open item E |
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
 | [platform-integration](platform-integration/DESIGN.md) | Ledger roles in pp-node (gateway) and pp-browser (client, optional miner) over Amp |
+| [load-resilience](load-resilience/DESIGN.md) | Survive overload and absorb transaction bursts: pass criteria, load tooling, pool and forwarding fixes, server / ledger-scale / network suites |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
 
 ## Done / archived

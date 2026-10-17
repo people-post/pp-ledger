@@ -143,6 +143,15 @@ public:
   /** Slot duration in seconds. */
   uint64_t getSlotDuration() const;
   uint64_t getStakeholderStake(uint64_t stakeholderId) const;
+  /**
+   * What a pool checks before it holds `record` (load-resilience lr4), cheap against the committed
+   * state: it decodes, its validity window has not ended at `nowSec`, its payer can cover the amount
+   * and the fee, and — when `verifySignatures` — its signer's keys signed it. What depends on the
+   * rest of a block (pending spends, fee rules on metadata, idempotent ids) is the leader's to check.
+   */
+  Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
+  /** (payer, idempotent id) of a record that has one (RecordHandler::getIdempotencyKey). */
+  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record &record) const;
   /** Max transactions per block (0 = no limit), renewals included (B035). */
   uint64_t getMaxTransactionsPerBlock() const;
   /** Max bytes per block (0 = no limit; B034). */

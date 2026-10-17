@@ -5,6 +5,7 @@
 #include "amp/L2/Types.h"
 #include "amp/link/AmpStack.h"
 #include "amp/link/MeshRuntime.h"
+#include "InFlightLimit.h"
 #include "NetworkTuning.h"
 
 #include <atomic>
@@ -73,6 +74,12 @@ public:
 
   std::string listenMultiaddr() const { return listen_multiaddr_; }
 
+  /**
+   * io lane: requests in flight to each peer from every client on this runtime (InFlightLimit);
+   * a fresh one at each Start, so a stop leaves no count behind.
+   */
+  const std::shared_ptr<InFlightLimit> &inFlightLimit() const { return in_flight_; }
+
 private:
   void PumpLoop();
   void Wake();
@@ -81,6 +88,7 @@ private:
   std::shared_ptr<pp::adp::Clock> clock_;
   std::unique_ptr<pp::amp::AmpStack> stack_;
   std::string listen_multiaddr_;
+  std::shared_ptr<InFlightLimit> in_flight_;
   std::atomic<bool> running_{false};
   std::atomic<bool> stop_{false};
   std::thread pump_thread_;

@@ -17,7 +17,7 @@ Related: [DESIGN.md](../product/DESIGN.md) (product overview), [LEDGER_STORAGE.m
 | Nested payloads | `binaryPack` / `binaryUnpack` |
 | Digests on wire | **Raw 32-byte** SHA-256 (`utl::sha256Raw`), not hex |
 | JSON / HTTP / CLI | Display only; binary fields use `toJsonSafeString` (`0x` + hex when needed) |
-| RPC frame | `u32` BE length + `Client::Request` / `Response` payload |
+| RPC frame | `u32` BE length + `Client::Request` / `Response` payload (version 2: `deadlineMs`, `retryAfterMs` — [AMP_TRANSPORT.md § Protocol](AMP_TRANSPORT.md#protocol)) |
 
 Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 

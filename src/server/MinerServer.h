@@ -108,6 +108,12 @@ private:
   };
   std::optional<PendingBroadcast> broadcast_;
   uint64_t nextBroadcastId_{1};
+  /** Blocks produced and broadcast, committed, abandoned (NodeHealth). */
+  uint64_t blocksSealed_{0};
+  uint64_t blocksCommitted_{0};
+  uint64_t blocksAbandoned_{0};
+  /** The last seal, after its slot ended (ms; negative: before). */
+  std::optional<int64_t> lastSealDelayMs_;
   Config config_;
 
   /** Longest a leader waits for its transaction pull before producing without it. */

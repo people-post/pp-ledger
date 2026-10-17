@@ -1,6 +1,7 @@
 #include "Client.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
+#include "LoadGenerator.h"
 #include "../ledger/Ledger.h"
 #include "../chain/BlockValidation.h"
 #include "../chain/PredecessorCheck.h"
@@ -135,7 +136,7 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
     return 1;
   }
   rec.signatures = {*sigResult};
-  auto result = client.addTransaction(rec);
+  auto result = client.submitTransaction(rec); // the same bytes again on overload (never re-signed)
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -145,13 +146,18 @@ static int signAndSubmit(pp::Client& client, uint16_t type, std::string payload,
 }
 
 static int runAddTx(pp::Client& client, uint64_t fromWalletId, uint64_t toWalletId,
-                    uint64_t amount, uint64_t fee, const std::string& key) {
+                    uint64_t amount, uint64_t fee, const std::string& key, uint64_t idempotentId) {
   pp::Ledger::TxDefault tx;
   tx.fromWalletId = fromWalletId;
   tx.toWalletId = toWalletId;
   tx.amount = amount;
   tx.fee = fee;
   setValidationWindow(tx.idempotentId, tx.validationTsMin, tx.validationTsMax);
+  if (idempotentId != 0) {
+    tx.idempotentId = idempotentId; // run again with the same id, the chain takes it once
+  }
+  std::cout << "Idempotent id: " << tx.idempotentId
+            << " (to run this again safely, pass --idempotent-id " << tx.idempotentId << ")\n";
   return signAndSubmit(client, pp::Ledger::T_DEFAULT, pp::utl::binaryPack(tx), key);
 }
 
@@ -497,7 +503,7 @@ static int runAddAccount(pp::Client& client, uint64_t fromWalletId, uint64_t toW
     return 1;
   }
   rec.signatures = {*sigResult};
-  auto result = client.addTransaction(rec);
+  auto result = client.submitTransaction(rec); // the same bytes again on overload (never re-signed)
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
@@ -646,12 +652,81 @@ static int runSubmitTx(pp::Client& client, const std::string& filePath) {
     std::cerr << "Error: Invalid tx record file: " << recResult.error().message << "\n";
     return 1;
   }
-  auto result = client.addTransaction(*recResult);
+  auto result = client.submitTransaction(*recResult);
   if (!result) {
     std::cerr << "Error: " << result.error().message << "\n";
     return 1;
   }
   std::cout << "Transaction submitted successfully\n";
+  return 0;
+}
+
+static int runLoadSetup(const std::string& host, pp::load::SetupConfig cfg, uint64_t timeoutSeconds,
+                        const std::string& out) {
+  if (std::filesystem::exists(out)) {
+    std::cerr << "Error: " << out << " exists\n";
+    return 1;
+  }
+  cfg.host = host;
+  cfg.timeout = std::chrono::seconds(timeoutSeconds);
+  for (auto& key : cfg.fromKeys) {
+    auto raw = pp::utl::readPrivateKey(key, "");
+    if (!raw) {
+      std::cerr << "Error: --key: " << raw.error().message << "\n";
+      return 1;
+    }
+    key = raw.value();
+  }
+  std::string networkId;
+  auto accounts = pp::load::setup(cfg, networkId);
+  if (!accounts) {
+    std::cerr << "Error: " << accounts.error().message << "\n";
+    return 1;
+  }
+  if (auto written = pp::load::writeAccounts(out, networkId, accounts.value()); !written) {
+    std::cerr << "Error: " << written.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Created " << accounts.value().size() << " of " << cfg.accounts << " accounts (network " << networkId
+            << "): " << out << "\n";
+  return accounts.value().size() == cfg.accounts ? 0 : 1;
+}
+
+static int runLoad(const std::string& host, pp::load::RunConfig cfg, const std::string& accountsFile,
+                   const std::string& mix, uint64_t durationSeconds, uint64_t burstAtSeconds, uint64_t drainSeconds,
+                   const std::string& jsonOut) {
+  auto parsed = pp::load::parseMix(mix);
+  if (!parsed) {
+    std::cerr << "Error: --mix: " << parsed.error().message << "\n";
+    return 1;
+  }
+  cfg.host = host;
+  cfg.mix = parsed.value();
+  cfg.duration = std::chrono::seconds(durationSeconds);
+  cfg.burstAt = std::chrono::seconds(burstAtSeconds);
+  cfg.drain = std::chrono::seconds(drainSeconds);
+  std::vector<pp::load::Account> accounts;
+  if (!accountsFile.empty()) {
+    std::string networkId;
+    auto read = pp::load::readAccounts(accountsFile, networkId);
+    if (!read) {
+      std::cerr << "Error: " << read.error().message << "\n";
+      return 1;
+    }
+    accounts = std::move(read.value());
+  }
+  auto report = pp::load::run(cfg, accounts);
+  if (!report) {
+    std::cerr << "Error: " << report.error().message << "\n";
+    return 1;
+  }
+  std::cout << report.value().text();
+  if (!jsonOut.empty()) {
+    auto text = pp::common::io::valueToJsonString(
+        pp::common::Value(std::make_shared<pp::common::Object>(report.value().json())), 2);
+    std::ofstream out(jsonOut, std::ios::trunc);
+    out << (text.isOk() ? text.value() : std::string("{}")) << "\n";
+  }
   return 0;
 }
 
@@ -759,6 +834,9 @@ int main(int argc, char *argv[]) {
       ->default_val(0);
   add_tx_cmd->add_option("-k,--key", key, "Private key (hex or file) to sign the transaction")
       ->required();
+  uint64_t addTxIdempotentId = 0;
+  add_tx_cmd->add_option("--idempotent-id", addTxIdempotentId,
+                         "Idempotent id (default: random). The same id again is taken once: a safe re-run");
 
   // miner-register / miner-revoke: the account opts in or out of mining (from the next epoch)
   auto* miner_register_cmd = app.add_subcommand(
@@ -888,6 +966,41 @@ int main(int argc, char *argv[]) {
       ->add_option("-k,--key", add_account_key,
                    "Private key (hex or file) of funding account to sign")
       ->required();
+
+  // load-setup / load: the load generator (projects/load-resilience)
+  auto* load_setup_cmd = app.add_subcommand(
+      "load-setup", "Create funded accounts for `load` (T_NEW_USER from a funding account); writes their keys");
+  pp::load::SetupConfig loadSetup;
+  uint64_t loadSetupTimeout = 300;
+  std::string loadSetupOut;
+  load_setup_cmd->add_option("--from", loadSetup.from, "Funding account id")->required();
+  load_setup_cmd->add_option("-k,--key", loadSetup.fromKeys, "Funding account private key (hex or file; repeat for each signature)")
+      ->required();
+  load_setup_cmd->add_option("-n,--accounts", loadSetup.accounts, "Accounts to create")->default_val(100);
+  load_setup_cmd->add_option("--amount", loadSetup.amount, "Balance of each")->default_val(100000);
+  load_setup_cmd->add_option("-f,--fee", loadSetup.fee, "Fee of each creation")->default_val(1);
+  load_setup_cmd->add_option("--timeout", loadSetupTimeout, "Seconds to wait for the accounts to exist")->default_val(300);
+  load_setup_cmd->add_option("-o,--output", loadSetupOut, "Accounts file to write (must not exist)")->required();
+
+  auto* load_cmd = app.add_subcommand(
+      "load", "Send requests at a fixed rate whatever the replies, classify every reply, follow transfers into blocks");
+  pp::load::RunConfig loadRun;
+  std::string loadAccounts, loadMix = "tx_add", loadJson;
+  uint64_t loadDuration = 10, loadBurstAt = 0, loadDrain = 60;
+  load_cmd->add_option("--accounts", loadAccounts, "Accounts file from load-setup (needed for transfers)");
+  load_cmd->add_option("--mix", loadMix,
+                       "Kinds and weights: tx_add, tx_junk, status, account_get, block_get, tx_get_by_wallet "
+                       "(e.g. tx_add=9,tx_junk=1)")
+      ->default_val("tx_add");
+  load_cmd->add_option("-r,--rate", loadRun.rate, "Requests per second, all kinds")->default_val(10);
+  load_cmd->add_option("-d,--duration", loadDuration, "Seconds of steady load")->default_val(10);
+  load_cmd->add_option("--burst", loadRun.burst, "Valid transfers sent at once, at --burst-at")->default_val(0);
+  load_cmd->add_option("--burst-at", loadBurstAt, "Seconds into the run for the burst")->default_val(0);
+  load_cmd->add_option("--peers", loadRun.peers, "Client identities to send from")->default_val(4);
+  load_cmd->add_option("--amount", loadRun.amount, "Amount of each transfer")->default_val(1);
+  load_cmd->add_option("-f,--fee", loadRun.fee, "Fee of each transfer")->default_val(1);
+  load_cmd->add_option("--drain", loadDrain, "Seconds to follow blocks after the last send")->default_val(60);
+  load_cmd->add_option("--json", loadJson, "Also write the report as JSON to this file");
 
   // sign-tx: add a signature to an existing tx file
   auto* sign_tx_cmd = app.add_subcommand("sign-tx", "Add signature to a transaction file");
@@ -1042,6 +1155,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  if (load_setup_cmd->parsed()) {
+    return runLoadSetup(multiaddr, loadSetup, loadSetupTimeout, loadSetupOut);
+  }
+  if (load_cmd->parsed()) {
+    return runLoad(multiaddr, loadRun, loadAccounts, loadMix, loadDuration, loadBurstAt, loadDrain, loadJson);
+  }
+
   auto ephemeralKeys = pp::utl::mlDsaGenerate();
   if (!ephemeralKeys) {
     std::cerr << "Error: failed to generate ephemeral AMP identity: " << ephemeralKeys.error().message << "\n";
@@ -1159,7 +1279,7 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: add-tx submits to a relay or the beacon: use -b/--beacon.\n";
       exitCode = 1;
     } else {
-      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key);
+      exitCode = runAddTx(client, fromWalletId, toWalletId, amount, fee, key, addTxIdempotentId);
     }
   }
   // Handle miner-register / miner-revoke (relay / beacon)

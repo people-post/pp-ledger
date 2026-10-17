@@ -92,6 +92,12 @@ protected:
   virtual bool syncHeld() const { return false; }
   /** Besides a new epoch, a sync is due now (a miner about to lead a slot). */
   virtual bool syncDue() const { return false; }
+  /**
+   * TX_ADD is checked here before it goes up (Chain::checkAdmission, load-resilience lr4): a node
+   * holding every account (a relay) refuses what the beacon would; one starting at a checkpoint
+   * passes it on.
+   */
+  virtual bool checksTransactions() const { return false; }
 
   // ----------------- shared -------------------------------------
   /**
@@ -105,6 +111,22 @@ protected:
   Client::Roe<void> dialUpstream();
   /** Point client_ at the upstream for a forwarded request; replies with the error if it cannot. */
   bool dialUpstreamFor(const RequestQueue::Reply &reply);
+  /**
+   * What forwarding `request` may wait (LR006): the client's remaining deadline less a margin, so
+   * this node answers before the client gives up; half the default timeout when the client sent
+   * none. Below kMinForward the request is not forwarded (forwardOrExpire).
+   */
+  static std::chrono::milliseconds forwardBudget(const Client::Request &request);
+  static constexpr std::chrono::milliseconds kMinForward{250};
+  /** The budget to forward `request` with, or none after replying E_EXPIRED (no time left). */
+  static std::optional<std::chrono::milliseconds> forwardOrExpire(const Client::Request &request,
+                                                                   const RequestQueue::Reply &reply);
+  /**
+   * Reply with an upstream's error (LR007): its overload code passed on; no answer in time as
+   * E_UPSTREAM_TIMEOUT (it may have taken the request); unreachable as E_BUSY; else the message.
+   */
+  static void replyUpstreamError(const RequestQueue::Reply &reply, const Client::Error &error,
+                                 const std::string &prefix = "");
   /**
    * A beacon certificate (STATUS, TX_ADD; ba5c): offer it. A new one goes to every upstream, its
    * dial hints become upstreams and the upstreams are ranked again (bp2b). None when refused.

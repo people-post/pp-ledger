@@ -58,6 +58,15 @@ NodeCore::Roe<Ledger::Record> NodeCore::findTransactionByIndex(uint64_t txIndex)
   return result.value();
 }
 
+NodeCore::Roe<void> NodeCore::checkAdmission(const Ledger::Record &record, int64_t nowSec,
+                                             bool verifySignatures) const {
+  auto checked = chain_.checkAdmission(record, nowSec, verifySignatures);
+  if (!checked) {
+    return Error(checked.error().code, checked.error().message);
+  }
+  return {};
+}
+
 uint64_t NodeCore::getGeneration() const {
   const auto authority = chain_.getAuthority();
   return authority ? authority->beacon.generation : 0;

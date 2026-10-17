@@ -72,6 +72,16 @@ public:
   /** Where to reach the beacon: the certificates' dial hints (Chain::dialHints). */
   std::vector<std::string> getDialHints() const { return chain_.dialHints(); }
 
+  /** Max records per block (0 = no limit) and max bytes (0 = no limit), from the config in force. */
+  uint64_t getMaxTransactionsPerBlock() const { return chain_.getMaxTransactionsPerBlock(); }
+  uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
+  /** What a pool checks before it holds `record` (Chain::checkAdmission). */
+  Roe<void> checkAdmission(const Ledger::Record &record, int64_t nowSec, bool verifySignatures) const;
+  /** (payer, idempotent id) of a record that has one. */
+  std::optional<std::pair<uint64_t, uint64_t>> idempotencyKeyOf(const Ledger::Record &record) const {
+    return chain_.idempotencyKeyOf(record);
+  }
+
   /** Recompute the stakeholders from the chain. */
   void refresh() { chain_.refreshStakeholders(); }
 

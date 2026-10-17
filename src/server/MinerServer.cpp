@@ -106,6 +106,10 @@ void MinerServer::roleDuties() {
 void MinerServer::fillHealth(Client::NodeHealth &health) const {
   FollowerServer::fillHealth(health);
   health.role = "miner";
+  health.blocksSealed = blocksSealed_;
+  health.blocksCommitted = blocksCommitted_;
+  health.blocksAbandoned = blocksAbandoned_;
+  health.lastSealDelayMs = lastSealDelayMs_;
 }
 
 MinerServer::Roe<void> MinerServer::verifyGenesisAnchor() {
@@ -448,12 +452,14 @@ void MinerServer::handleSlotLeaderRole() {
 
   log().info << "Successfully produced block " << block.block.index
              << " with hash " << block.hash;
+  lastSealDelayMs_ = -miner_.msUntilSlotEnd(block.block.slot);
   startBroadcast(block);
 }
 
 void MinerServer::startBroadcast(const Ledger::ChainNode &block) {
   const size_t upstreams = upstreams_->all().size();
   broadcast_ = PendingBroadcast{nextBroadcastId_++, block, BroadcastTally(upstreams)};
+  ++blocksSealed_;
   const uint64_t id = broadcast_->id;
   for (size_t i = 0; i < upstreams; ++i) {
     // Each call captures the dial key set just before it, so the sends run in parallel.
@@ -491,6 +497,7 @@ void MinerServer::onBroadcastResult(uint64_t broadcastId, size_t upstream, Clien
     break;
   case BroadcastTally::Event::AllFailed: {
     log().warning << "Failed to broadcast block " << broadcast_->block.block.index << " to any upstream";
+    ++blocksAbandoned_;
     Ledger::ChainNode block = std::move(broadcast_->block);
     broadcast_.reset();
     // Release the uncommitted seal, or every later seal/addBlock is refused.
@@ -533,6 +540,7 @@ void MinerServer::commitProducedBlock(const Ledger::ChainNode &block) {
     log().warning << "Failed to add block: " + addResult.error().message;
     return;
   }
+  ++blocksCommitted_;
   log().info << "Block produced successfully";
   log().info << "  Block ID: " << block.block.index;
   log().info << "  Slot: " << block.block.slot;

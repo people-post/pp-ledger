@@ -222,14 +222,18 @@ private:
   Roe<std::string> hStatus(const Client::Request &request);
   Roe<std::string> hRegister(const Client::Request &request);
   Roe<std::string> hMinerList(const Client::Request &request);
-  /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader. */
-  Roe<std::string> hTxAdd(const Client::Request &request);
+  /** TX_ADD reached the top of the tree: hold it in the pool for the slot leader (E_POOL_FULL when it cannot). */
+  void dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply);
+  /** When a full pool asks a client to try again (LR007): the blocks it takes to drain, in slots. */
+  uint32_t poolRetryAfterMs() const;
   /** EQUIVOCATION_ADD (ba6): keep the evidence if it verifies; the beacon halts on it. */
   Roe<std::string> hEquivocationAdd(const Client::Request &request);
   /** A T_BEACON_CERT in a TX_ADD (ba5c): kept if it is the highest seen; refused if it is not above. */
   Roe<void> offerCertificate(const Ledger::Record &record);
   /** TX_PULL: pending transactions for the slot leader (through its relay). */
   Roe<std::string> hTxPull(const Client::Request &request);
+  /** After a commit: drop pooled records that can no longer apply (load-resilience lr4). */
+  void dropStalePoolRecords(const std::vector<Ledger::Record> &committed);
 
   Config config_;
   Beacon beacon_;
@@ -240,8 +244,6 @@ private:
 
   MinerRegistry miners_;
   TxPool txPool_;
-  /** Most records one TX_PULL returns (a leader still caps what fits its block). */
-  static constexpr size_t TX_PULL_MAX_RECORDS = 1000;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
   static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
   /** A registration's issuedAt may differ from the beacon's clock by at most this much. */

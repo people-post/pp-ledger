@@ -36,6 +36,8 @@ protected:
   /** The held signed tip may no longer verify (a new certificate's cutover, equivocation evidence). */
   void onTrustChanged() override { dropHeldTipIfInvalid(); }
   void onSynced() override { startBeaconStateRefresh(); }
+  /** A relay holds every account: it refuses what the beacon would, before forwarding it. */
+  bool checksTransactions() const override { return true; }
 
 private:
   constexpr static const char *FILE_LOG = "relay.log";

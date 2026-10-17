@@ -869,6 +869,7 @@ Service::Roe<void> BeaconServer::onStart() {
   }
 
   setAllowedPeers(runFileConfig.allowedPeers);
+  setLinkLimits(runFileConfig);
   auto serverStarted = startAmpServer(*ampCfg);
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
@@ -1018,7 +1019,8 @@ void BeaconServer::initHandlers() {
   handle(Client::T_REQ_BLOCK_ADD, [this](const Client::Request &request) { return hBlockAdd(request); });
   handle(Client::T_REQ_REGISTER, [this](const Client::Request &request) { return hRegister(request); });
   handle(Client::T_REQ_MINER_LIST, [this](const Client::Request &request) { return hMinerList(request); });
-  handle(Client::T_REQ_TX_ADD, [this](const Client::Request &request) { return hTxAdd(request); });
+  handleLater(Client::T_REQ_TX_ADD,
+              [this](const Client::Request &request, const RequestQueue::Reply &reply) { dTxAdd(request, reply); });
   handle(Client::T_REQ_EQUIVOCATION_ADD, [this](const Client::Request &request) { return hEquivocationAdd(request); });
   handle(Client::T_REQ_TX_PULL, [this](const Client::Request &request) { return hTxPull(request); });
 }
@@ -1114,6 +1116,26 @@ BeaconServer::Roe<void> BeaconServer::admit(const Client::Request &request) cons
   return {};
 }
 
+void BeaconServer::dropStalePoolRecords(const std::vector<Ledger::Record> &committed) {
+  // A record whose idempotent id a block just used, or that no longer applies on the new state
+  // (its payer spent the funds, its window ended), would be pulled and refused by every leader.
+  // Signatures were checked on the way in.
+  std::set<std::pair<uint64_t, uint64_t>> used;
+  for (const auto &record : committed) {
+    if (auto key = beacon_.idempotencyKeyOf(record)) {
+      used.insert(*key);
+    }
+  }
+  const int64_t now = nowSeconds();
+  const size_t dropped = txPool_.removeIf([&](const Ledger::Record &record) {
+    const auto key = beacon_.idempotencyKeyOf(record);
+    return (key && used.contains(*key)) || !beacon_.checkAdmission(record, now, /*verifySignatures=*/false);
+  });
+  if (dropped > 0) {
+    log().info << "Dropped " << dropped << " pooled transaction(s) that can no longer apply";
+  }
+}
+
 BeaconServer::Roe<std::string>
 BeaconServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
@@ -1140,6 +1162,7 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
   txPool_.removeIncluded(block.block.records);
+  dropStalePoolRecords(block.block.records);
   return tipReply();
 }
 
@@ -1156,43 +1179,72 @@ std::string BeaconServer::tipReply() const {
   return utl::binaryPack(reply);
 }
 
-BeaconServer::Roe<std::string>
-BeaconServer::hTxAdd(const Client::Request &request) {
+void BeaconServer::dTxAdd(const Client::Request &request, const RequestQueue::Reply &reply) {
+  auto refuse = [&reply](const std::string &message) { replyWith(reply, Roe<std::string>(Error(E_REQUEST, message))); };
   auto record = utl::binaryUnpack<Ledger::Record>(request.payload);
   if (!record) {
-    return Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message);
+    refuse("Failed to deserialize transaction: " + record.error().message);
+    return;
   }
   if (!record.value().decode()) {
-    return Error(E_REQUEST, "Unknown or malformed transaction payload");
+    refuse("Unknown or malformed transaction payload");
+    return;
   }
   const bool certificate = record.value().type == Ledger::T_BEACON_CERT;
   if (certificate) {
     if (auto kept = offerCertificate(record.value()); !kept) {
-      return kept.error();
+      refuse(kept.error().message);
+      return;
     }
   }
   if (const auto by = beacon_.supersededBy()) {
     const std::string why = "beacon generation " + std::to_string(*by) + " certifies another key";
     if (certificate) {
-      return {"Beacon certificate kept; this beacon stood down: " + why};
+      reply(packResponse("Beacon certificate kept; this beacon stood down: " + why));
+    } else {
+      refuse("This beacon stood down: " + why);
     }
-    return Error(E_REQUEST, "This beacon stood down: " + why);
+    return;
   }
   // Halted (ba6): only a certificate — the way out — is still taken.
   if (const auto above = beacon_.haltedAbove(); above && !certificate) {
-    return Error(E_REQUEST, haltedMessage(*above));
+    refuse(haltedMessage(*above));
+    return;
   }
   const int64_t now = nowSeconds();
-  txPool_.expire(now);
-  switch (txPool_.add(record.value(), now)) {
-  case TxPool::Add::Added:
-    return {"Transaction submitted"};
-  case TxPool::Add::Duplicate:
-    return {"Transaction already submitted"};
-  case TxPool::Add::Full:
-    return Error(E_REQUEST, "Transaction pool full, please retry later");
+  // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
+  // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
+  if (auto admitted = beacon_.checkAdmission(record.value(), now, /*verifySignatures=*/true); !admitted) {
+    refuse("Transaction refused: " + admitted.error().message);
+    return;
   }
-  return Error(E_REQUEST, "Transaction not accepted");
+  txPool_.expire(now);
+  const auto key = beacon_.idempotencyKeyOf(record.value());
+  switch (txPool_.add(record.value(), now, key ? std::optional<uint64_t>(key->first) : std::nullopt)) {
+  case TxPool::Add::Added:
+    reply(packResponse("Transaction submitted"));
+    return;
+  case TxPool::Add::Duplicate:
+    reply(packResponse("Transaction already submitted"));
+    return;
+  case TxPool::Add::Full:
+    reply(packError(Client::E_POOL_FULL, "Transaction pool full, please retry later", poolRetryAfterMs()));
+    return;
+  case TxPool::Add::SenderFull:
+    reply(packError(Client::E_POOL_FULL,
+                    "Too many transactions of account " + std::to_string(key->first) + " pooled, please retry later",
+                    poolRetryAfterMs()));
+    return;
+  }
+  refuse("Transaction not accepted");
+}
+
+uint32_t BeaconServer::poolRetryAfterMs() const {
+  // About when the blocks ahead will have taken what is pooled now: a slot per block's worth.
+  const uint64_t slotMs = std::max<uint64_t>(beacon_.getSlotDuration(), 1) * 1000;
+  const uint64_t perBlock = std::max<uint64_t>(beacon_.getMaxTransactionsPerBlock(), 1);
+  const uint64_t blocks = (txPool_.size() + perBlock - 1) / perBlock;
+  return static_cast<uint32_t>(std::clamp<uint64_t>(blocks * slotMs, slotMs, 60000));
 }
 
 BeaconServer::Roe<std::string> BeaconServer::hEquivocationAdd(const Client::Request &request) {
@@ -1234,10 +1286,12 @@ BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &rec
 BeaconServer::Roe<std::string>
 BeaconServer::hTxPull(const Client::Request & /*request*/) {
   txPool_.expire(nowSeconds());
-  // No more than a leader can put in a block (B034): the reply always travels.
+  // No more than a leader can put in a block (B034, load-resilience lr5): the config's records and
+  // bytes, so the reply always travels and the pull never sets the drain rate below the block's.
+  const uint64_t maxRecords = beacon_.getMaxTransactionsPerBlock();
   const uint64_t maxBytes = beacon_.getMaxBlockBytes();
-  return utl::binaryPack(
-      txPool_.pending(TX_PULL_MAX_RECORDS, maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
+  return utl::binaryPack(txPool_.pending(maxRecords > 0 ? maxRecords : SIZE_MAX,
+                                         maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
 }
 
 BeaconServer::Roe<std::string>
@@ -1292,6 +1346,17 @@ void BeaconServer::fillHealth(Client::NodeHealth &health) const {
   Server::fillHealth(health);
   health.role = "beacon";
   health.standingDown = beacon_.isSuperseded();
+  health.txPoolRecords = txPool_.size();
+  health.txPoolBytes = txPool_.bytes();
+  health.txPoolOldestAgeSeconds = txPool_.oldestAgeSeconds(nowSeconds());
+  const auto &pool = txPool_.counters();
+  health.txPoolAdded = pool.added;
+  health.txPoolDuplicates = pool.duplicates;
+  health.txPoolFull = pool.full;
+  health.txPoolExpired = pool.expired;
+  health.txPoolIncluded = pool.included;
+  health.txPoolSenderFull = pool.senderFull;
+  health.txPoolDropped = pool.dropped;
   if (!isServing()) {
     return;
   }

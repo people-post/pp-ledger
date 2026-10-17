@@ -107,6 +107,8 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | **L-SMOKE-MOVE** | Case 3: the beacon moves to another host with its key and generation (runbook [MOVING_THE_BEACON.md](MOVING_THE_BEACON.md)) | Smoke (`scripts/test/pp_ledger_move_smoke.sh`, `--suite move`) | Own network: beacon, relay → 3 miners; the relay lists the beacon's new address (same peer id, another port) as a second candidate. The beacon stops on SIGTERM (exit 0), its work directory is copied whole and its old signing key removed; a copy without `data/signed-tip.dat` refuses to start (`--accept-ledger-tip`); the copy starts on the new port from the tip it signed, the relay follows it, and the relay and miners go on under generation 1 with no rewind and no equivocation; green |
 | **L-SMOKE-REGENESIS** | Case 1: a new network imports the old one's state; nodes that ran the old network check it (runbook [RE_GENESIS.md](RE_GENESIS.md)) | Smoke (`scripts/test/pp_ledger_regenesis_smoke.sh`, `--suite regenesis`) | Two networks in turn: beacon, relay → 3 miners with accounts; the beacon stops, every node holds the last block *H*, all stop; `export-state` from the relay at *H*; a new network (new id and keys) `--init --import-state`; a fresh relay and miners with `networkAnchor.predecessorDir` = their old directories each log the predecessor checked; an account is unchanged; `check-predecessor` passes against an old miner's ledger and refuses another network's; the new network grows with the old miners' keys; green |
 | **L-SMOKE-IMAGE** | The image and sample stack run from the environment: healthy (`pp-client health`), ready, pp-http `/metrics` reports every node ready, the chain grows, the HTTP API answers, a clean stop | Smoke (`--suite image`: `deploy/init.sh`, `docker compose up --wait`) | Own project, subnet (`172.29.7`) and host ports (285xx, 28080); green |
+| **L-LOAD-JUNK** | Badly signed transfers never take a place in the pool; valid ones beside them are taken and included | Smoke (`scripts/test/pp_ledger_burst_smoke.sh`, `--suite burst`) | 20/s for 15 s, one in ten junk, through the relay (`pp-client load`); junk refused at the relay, none in a block, every valid transfer within three blocks; green |
+| **L-LOAD-BURST** | A burst several blocks deep from many new clients is absorbed: taken whole, included within about the blocks it fills, no client told a failure for a transfer that went through | Smoke (`--suite burst`) | Own network, renewals once in a long while (projects/load-resilience LR004); 500 transfers at once from 64 new client identities on 10/s for 20 s; checks `taken == sent == included`, `includedNotTaken == 0`, drained within ⌈700 ÷ 100⌉ + 3 blocks; green |
 | **L-SMOKE-CHAOS** | Restart relay/miner; recover or fail clean | Smoke | `cost/flake` — nightly later |
 | **L-ADV-INGRESS** | Malformed / oversize / replay at RPC ingress | Integration (`ClientRejectsOversizeRequest`, `TruncatedClientRequestReturnsErrorResponse`, `EmptyRequestBodyReturnsErrorResponse`, `UnknownRequestTypeReturnsErrorResponse`, `RoundTripSurvivesDatagramDuplication`, `IdenticalRequestReplayIsIdempotentEcho`) | Nested payload / fuzz later |
 | **L-FORK-CHOICE** | Competing slot blocks / reorg | — | `non-goal` until fork choice ships |
@@ -118,7 +120,7 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 
 | Script | Role |
 |--------|------|
-| `scripts/test/pp_ledger_local_test.sh` | Suite driver (`unit` / `l0` / `l1` / `latejoin` / `smoke`[=l0] / `rotation` / `takeover` / `move` / `regenesis` / `image`) |
+| `scripts/test/pp_ledger_local_test.sh` | Suite driver (`unit` / `l0` / `l1` / `latejoin` / `smoke`[=l0] / `rotation` / `takeover` / `move` / `regenesis` / `burst` / `image`) |
 | `scripts/test/pp_ledger_network.sh` | Lifecycle `up` / `stop` / `clear` / `status` |
 | `scripts/test/pp_ledger_smoke_lib.sh` | Shared bring-up + hard-fail `pp-client` helpers |
 | `scripts/test/fixtures/*.tmpl` | Amp-aligned config templates |
@@ -129,11 +131,35 @@ unit/integration; keep multi-process smoke for process isolation and sync.
 | `scripts/test/pp_ledger_takeover_smoke.sh` | L-SMOKE-TAKEOVER |
 | `scripts/test/pp_ledger_move_smoke.sh` | L-SMOKE-MOVE |
 | `scripts/test/pp_ledger_regenesis_smoke.sh` | L-SMOKE-REGENESIS |
+| `scripts/test/pp_ledger_burst_smoke.sh` | L-LOAD-JUNK, L-LOAD-BURST |
 | `test-network.sh` / `test-checkpoint-cycles.sh` | Thin root wrappers |
 | `deploy/compose.yml`, `deploy/init.sh` | Sample stack; the image smoke (`--suite image`) runs it |
 
 When adding a scenario: give it a purpose ID, a hard assert, and a skip reason if
 it stays manual.
+
+## Load generator
+
+`pp-client load` (projects/load-resilience): requests at a fixed rate whatever the replies, from
+`--peers` client identities, every reply classified (`taken`, `duplicate`, `pool_full`, `served`,
+`busy`, `expired`, `timeout`, `unsent`, `refused`, with the commonest error messages), transfers
+followed into blocks (inclusion seconds and blocks; transfers included although their reply was an
+error; junk that must never be included). `--json` writes the report for scripts.
+
+```bash
+R=$(cat build/test-smoke/multiaddrs/relay); K=build/test-smoke/keys
+# Funded accounts, once per network (the reserve signs: three keys in the smoke fixture)
+pp-client -b --host "$R" load-setup --from 1 -k $K/reserve1.key -k $K/reserve2.key -k $K/reserve3.key \
+  -n 200 --amount 100000 -o accounts.json
+# 20/s for 15 s, 10 % junk; then a burst of 500 transfers two seconds in
+pp-client -b --host "$R" load --accounts accounts.json --mix tx_add=9,tx_junk=1 -r 20 -d 15
+pp-client -b --host "$R" load --accounts accounts.json -r 10 -d 20 --burst 500 --burst-at 2 --peers 64
+```
+
+Mix kinds: `tx_add`, `tx_junk` (decodes, badly signed), `status`, `account_get`, `block_get`,
+`tx_get_by_wallet`. The smoke fixture renews every account every two blocks
+(`checkpointMinBlocks` 2) with 100 records a block: more than a block's worth of accounts makes
+every block renewals-only. Start a load network with `PP_LEDGER_SMOKE_CHECKPOINT_MIN_BLOCKS=1000`.
 
 ---
 

@@ -57,7 +57,7 @@ Roe<size_t> overlay(pp::common::Object &config, const std::vector<Field> &fields
  */
 Roe<std::optional<pp::common::Object>> loadConfig(const std::string &path, const std::vector<Field> &fields);
 
-/** Fields every role reads: `PP_LEDGER_PORT`, `PP_LEDGER_ALLOWED_PEERS`. */
+/** Fields every role reads: `PP_LEDGER_PORT`, `PP_LEDGER_ALLOWED_PEERS`, `PP_LEDGER_MAX_LINKS`, `PP_LEDGER_HANDSHAKE_BACKLOG`. */
 std::vector<Field> commonFields();
 /** The network anchor (relay, miner): `PP_LEDGER_NETWORK_ID`, `PP_LEDGER_GENESIS_HASH`,
  *  `PP_LEDGER_TRUSTED_CHECKPOINT`, `PP_LEDGER_PREDECESSOR_DIR`. */

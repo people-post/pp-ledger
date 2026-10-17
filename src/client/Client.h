@@ -91,6 +91,8 @@ public:
 
   struct Error : RoeErrorBase {
     using RoeErrorBase::RoeErrorBase;
+    /** When the node said when to try again (Response::retryAfterMs); 0: it did not. */
+    uint32_t retryAfterMs{ 0 };
   };
 
   template <typename T> using Roe = ResultOrError<T, Error>;
@@ -152,6 +154,25 @@ public:
    */
   static constexpr const uint32_t T_REQ_TX_PULL = 3005;
 
+  /** A request type's name for logs and metric labels ("block_get"); "type_<n>" for one unknown. */
+  static std::string requestTypeName(uint32_t type);
+
+  // Overload and deadline codes (load-resilience LR006, LR007): sent by nodes in Response.errorCode,
+  // seen by clients as their Error code. All mean "the request was not done; the same bytes may be
+  // sent again" — after retryAfterMs when given.
+  /** The node's queue is full (or it is stopping). */
+  static constexpr const uint16_t E_BUSY = 10;
+  /** This peer has more requests at the node than it takes from one peer. */
+  static constexpr const uint16_t E_RATE_LIMITED = 11;
+  /** The beacon's transaction pool (or this payer's share of it) is full. */
+  static constexpr const uint16_t E_POOL_FULL = 12;
+  /** A relay's upstream did not answer in time: it may have taken the request (resend the same bytes). */
+  static constexpr const uint16_t E_UPSTREAM_TIMEOUT = 13;
+  /** The request waited past its deadline at the node and was not served. */
+  static constexpr const uint16_t E_EXPIRED = 14;
+  /** Whether `code` is one of the codes above. */
+  static bool isOverloadCode(int32_t code) { return code >= E_BUSY && code <= E_EXPIRED; }
+
   // Error codes
   static constexpr const uint16_t E_NOT_CONNECTED = 1;
   static constexpr const uint16_t E_INVALID_RESPONSE = 2;
@@ -162,16 +183,25 @@ public:
   // Get human-friendly error message for an error code
   static std::string getErrorMessage(uint16_t errorCode);
 
+  /**
+   * Version 2 (load-resilience LR006) adds `deadlineMs`: how long the client waits for the reply.
+   * A version 1 request is still read (no deadline).
+   */
   struct Request {
-    static constexpr const uint32_t VERSION = 1;
+    static constexpr const uint32_t VERSION = 2;
 
     uint32_t version{ VERSION };
     uint32_t type{ 0 };
     std::string payload;
+    /** Milliseconds the client waits from sending (0: unknown). A node forwards with what remains. */
+    uint32_t deadlineMs{ 0 };
 
     template <typename Archive>
     void serialize(Archive &ar) {
       ar & version & type & payload;
+      if (version >= 2) {
+        ar & deadlineMs;
+      }
     }
   };
 
@@ -190,15 +220,25 @@ public:
     return type;
   }
 
+  /**
+   * Version 2 (load-resilience LR007) adds `retryAfterMs`. A version 1 response is still read.
+   * `errorCode` 0: `payload` is the reply; else `payload` is the message. Codes on the wire: 1, 3
+   * (any error), and those below; a client sees the ones below as its Error code.
+   */
   struct Response {
-    static constexpr const uint32_t VERSION = 1;
+    static constexpr const uint32_t VERSION = 2;
     uint32_t version{ VERSION };
     uint16_t errorCode{ 0 };
     std::string payload;
+    /** With an overload code: when to try again (milliseconds; 0: none said). */
+    uint32_t retryAfterMs{ 0 };
 
     template <typename Archive>
     void serialize(Archive &ar) {
       ar & version & errorCode & payload;
+      if (version >= 2) {
+        ar & retryAfterMs;
+      }
     }
 
     bool isError() const { return errorCode != 0; }
@@ -448,6 +488,41 @@ public:
     uint64_t requestQueueDepth{ 0 };
     int64_t reportAgeMs{ -1 };     ///< since the server thread published; -1: never
 
+    // Load (load-resilience lr1). Counters run from the node's start.
+    /** Requests of one type served (handled, whatever the answer). */
+    struct RequestCount {
+      uint32_t type{ 0 };
+      uint64_t served{ 0 };
+      uint64_t waitMs{ 0 };    ///< summed: time in the queue before the handler ran
+      uint64_t serviceMs{ 0 }; ///< summed: time in the handler (to its reply, or to handing it on)
+    };
+    std::vector<RequestCount> requests;
+    uint64_t requestsBusy{ 0 };    ///< answered "busy" before queueing: queue full, or stopping
+    uint64_t requestsRefused{ 0 }; ///< refused unserved: too large, peer not allowed, malformed, unsupported, wrong direction
+    uint64_t requestsExpired{ 0 }; ///< waited longer than its client would, and answered unserved
+    uint64_t loopTurnsSlow{ 0 };   ///< run-loop turns longer than kSlowTurnMs (a slow handler or duty)
+    uint64_t loopTurnMaxMs{ 0 };   ///< the longest run-loop turn in the last 10 to 20 s
+    std::optional<uint64_t> rssBytes; ///< resident memory (where the platform tells)
+    // Miner
+    std::optional<uint64_t> blocksSealed;    ///< blocks it produced and broadcast
+    std::optional<uint64_t> blocksCommitted; ///< of those, committed on the beacon's signed tip
+    std::optional<uint64_t> blocksAbandoned; ///< of those, taken by no upstream
+    std::optional<int64_t> lastSealDelayMs;  ///< the last seal, after its slot ended
+    // Beacon: its transaction pool
+    std::optional<uint64_t> txPoolRecords;
+    std::optional<uint64_t> txPoolBytes;
+    std::optional<int64_t> txPoolOldestAgeSeconds;
+    std::optional<uint64_t> txPoolAdded;      ///< counters, from the start
+    std::optional<uint64_t> txPoolDuplicates;
+    std::optional<uint64_t> txPoolFull;       ///< refused: the pool was full
+    std::optional<uint64_t> txPoolExpired;
+    std::optional<uint64_t> txPoolIncluded;   ///< left the pool in a committed block
+    std::optional<uint64_t> txPoolSenderFull; ///< refused: its payer had its share pooled
+    std::optional<uint64_t> txPoolDropped;    ///< removed: could no longer apply after a block
+
+    /** A run-loop turn longer than this counts in loopTurnsSlow. */
+    static constexpr int64_t kSlowTurnMs = 1000;
+
     /** The server thread is reporting. */
     bool live() const { return reportAgeMs >= 0 && reportAgeMs < kStaleAfterMs; }
     /** Ready to serve, as reported by a live server thread. */
@@ -545,21 +620,43 @@ public:
    * thread before touching state.
    */
   template <typename T> using Done = std::function<void(Roe<T>)>;
-  void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done);
-  void fetchMinerListAsync(Done<std::vector<MinerInfo>> done);
-  void addTransactionAsync(const Ledger::Record &record, Done<void> done);
+  // `timeout` 0: the default for the request; else the budget a forwarding node has left (LR006).
+  void registerMinerServerAsync(const MinerInfo &minerInfo, Done<BeaconState> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+  void addTransactionAsync(const Ledger::Record &record, Done<void> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** EQUIVOCATION_ADD: push equivocation evidence up (beacon-authority ba6). Returns the reply text. */
   Roe<std::string> addEquivocation(const Equivocation &evidence);
-  void addEquivocationAsync(const Equivocation &evidence, Done<std::string> done);
+  void addEquivocationAsync(const Equivocation &evidence, Done<std::string> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** BLOCK_ADD: the reply carries the beacon's signed tip once it has committed the block. */
-  void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done);
+  void addBlockAsync(const Ledger::ChainNode &block, Done<TipReply> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   /** TX_PULL: pending transactions for the leader of `slot`. */
-  void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done);
+  void pullTransactionsAsync(uint64_t slot, Done<std::vector<Ledger::Record>> done, std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
   void fetchCalibrationAsync(Done<CalibrationResponse> done);
   void fetchBlockAsync(uint64_t blockId, Done<Ledger::ChainNode> done);
   void fetchBeaconStateAsync(Done<BeaconState> done);
   /** BLOCK_WAIT: `done` gets the upstream's next block id once it passes `knownNextBlockId` (or unchanged after a hold). */
   void waitForBlockAsync(uint64_t knownNextBlockId, Done<TipReply> done);
+
+  /**
+   * Any request, async: `done` gets the reply payload, or the server's error message (E_SERVER_ERROR)
+   * or the transport's (E_REQUEST_FAILED). For tools that look at every reply (pp-client load).
+   */
+  void requestAsync(uint32_t type, const std::string &payload, Done<std::string> done,
+                    std::chrono::milliseconds timeout = std::chrono::milliseconds(0));
+
+  /**
+   * TX_ADD with the one retry policy (load-resilience LR007): the same signed bytes are sent again
+   * after an overload code, a deadline or a transport failure — honouring retryAfterMs, else
+   * backing off (0.5 s doubling to 10 s), with jitter — until the node takes it, refuses it for good,
+   * or `maxWait` (and the transaction's validity window) ends. The reply text, or the last error.
+   * Never re-sign to retry: a new signature is a new transaction.
+   */
+  Roe<std::string> submitTransaction(const Ledger::Record &record,
+                                     std::chrono::milliseconds maxWait = std::chrono::minutes(2));
+  /** Whether `error` says the same request may be sent again. */
+  static bool isRetryable(const Error &error) {
+    return isOverloadCode(error.code) || isTransportError(error.code);
+  }
 
   /** True when the call failed before a server answered (worth retrying later). */
   static bool isTransportError(int32_t code) {
@@ -572,10 +669,14 @@ private:
   static Roe<Ledger::ChainNode> parseBlock(const std::string &payload);
   static Roe<TipReply> parseTipReply(const std::string &payload);
   static Roe<std::vector<MinerInfo>> parseMinerList(const std::string &payload);
-  std::string packRequest(uint32_t type, const std::string &payload);
+  std::string packRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
   static Roe<std::string> parseResponse(const ILedgerTransport::Roe<std::string> &result);
   void sendRequestAsync(uint32_t type, const std::string &payload,
                         std::chrono::milliseconds timeout, Done<std::string> done);
+  /** `timeout` when set, else `fallback`. */
+  static std::chrono::milliseconds orDefault(std::chrono::milliseconds timeout, std::chrono::milliseconds fallback) {
+    return timeout.count() > 0 ? timeout : fallback;
+  }
   Roe<std::string> sendRequest(uint32_t type, const std::string &payload, std::chrono::milliseconds timeout);
   std::chrono::milliseconds fastTimeout() const { return requestTimeout_; }
   std::chrono::milliseconds dataTimeout() const { return network::NetworkTuning::dataTimeoutFor(requestTimeout_); }

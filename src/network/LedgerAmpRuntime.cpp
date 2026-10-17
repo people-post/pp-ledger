@@ -1,4 +1,5 @@
 #include "LedgerAmpRuntime.h"
+#include "LedgerRpcProtocol.h"
 
 #include "amp/L1/OsUdpDatagramIo.h"
 #include "amp/link/AdpMultiaddr.h"
@@ -26,6 +27,7 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   }
   io_ = std::move(io);
   clock_ = std::move(clock);
+  in_flight_ = std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer);
 
   pp::amp::AmpStack::Config stack_config;
   stack_config.identity = std::move(config.identity);

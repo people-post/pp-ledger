@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ILedgerTransport.h"
+#include "../network/InFlightLimit.h"
 #include "amp/link/MeshRuntime.h"
 #include "common/Module.h"
 
@@ -45,11 +46,14 @@ public:
 private:
   /** Run `task` on the io lane (posts; wakes the pump thread in threaded mode). */
   void post(std::function<void()> task);
+  /** The runtime's in-flight limit (shared by its clients), or this transport's own. */
+  std::shared_ptr<network::InFlightLimit> inFlightLimit() const;
 
   pp::amp::MeshRuntime& mesh_;
   network::LedgerAmpRuntime* runtime_{nullptr};
   DriveFn drive_;
   std::string peer_key_;
+  std::shared_ptr<network::InFlightLimit> own_limit_;
 };
 
 } // namespace pp
