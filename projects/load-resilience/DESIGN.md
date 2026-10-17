@@ -1,6 +1,6 @@
 # Load resilience — design
 
-**Status:** lr0–lr2 done (design, metrics, load generator); first measurements in § Measured
+**Status:** lr0–lr5 done (design, metrics, load generator, pool); first measurements in § Measured
 **Decisions:** [DECISIONS.md](DECISIONS.md) · **Status today:** [CURRENT_STATE.md](CURRENT_STATE.md) ·
 **Order of work:** [PHASES.md](PHASES.md)
 
@@ -125,6 +125,7 @@ bounced at the first hop (M3, M5), half-delivered with wrong answers (M4), or st
 | Over the per-peer limit, a request is refused by the transport | The client sees "channel not open", not "busy, retry" |
 | Due renewals take a block before any user transaction (B035), and come due together (all accounts written in one burst renew one period later, together) | A burst of account creation comes back as a renewal burst that holds every user transaction for ⌈burst ÷ block capacity⌉ blocks; with more accounts due per period than blocks can renew, for good |
 | The client's timeout (30 s for TX_ADD) equals the relay's forward timeout | Both expire together; whether the beacon pooled it is unknown to the client |
+| A leader checks a transaction's idempotent id by reading every block of its validity window (`checkIdempotency`) | Each transaction a leader takes costs reads of up to its window's blocks (megabytes); not used for admission for that reason — for lr8 / lr9 |
 
 What already holds: bounded request queue with lanes (reads cannot crowd out writes), per-peer
 caps, "busy" before queueing, expiry of requests their client gave up on, `HEALTH` answered off the

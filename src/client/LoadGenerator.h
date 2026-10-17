@@ -102,7 +102,7 @@ struct KindReport {
   uint64_t sent{0};
   std::map<Outcome, uint64_t> outcomes;
   Latencies latencyMs;
-  /** Error replies by message (cut to 100 characters), to see what the outcomes stand for. */
+  /** Error replies by message (numbers masked, cut to 100 characters), to see what the outcomes stand for. */
   std::map<std::string, uint64_t> errors;
 };
 

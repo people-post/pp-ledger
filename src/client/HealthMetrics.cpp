@@ -213,6 +213,10 @@ std::string renderHealthMetrics(const std::vector<HealthMetricsTarget> &targets)
           optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.txPoolExpired; }));
   counter(out, targets, "pp_ledger_tx_pool_included_total", "Beacon: transactions that left the pool in a block",
           optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.txPoolIncluded; }));
+  counter(out, targets, "pp_ledger_tx_pool_sender_full_total", "Beacon: transactions refused, their payer's share full",
+          optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.txPoolSenderFull; }));
+  counter(out, targets, "pp_ledger_tx_pool_dropped_total", "Beacon: pooled transactions dropped, no longer applicable",
+          optionalField<uint64_t>([](const H &h) -> const std::optional<uint64_t> & { return h.txPoolDropped; }));
   return out.str();
 }
 

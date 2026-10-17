@@ -230,6 +230,8 @@ private:
   Roe<void> offerCertificate(const Ledger::Record &record);
   /** TX_PULL: pending transactions for the slot leader (through its relay). */
   Roe<std::string> hTxPull(const Client::Request &request);
+  /** After a commit: drop pooled records that can no longer apply (load-resilience lr4). */
+  void dropStalePoolRecords(const std::vector<Ledger::Record> &committed);
 
   Config config_;
   Beacon beacon_;
@@ -240,8 +242,6 @@ private:
 
   MinerRegistry miners_;
   TxPool txPool_;
-  /** Most records one TX_PULL returns (a leader still caps what fits its block). */
-  static constexpr size_t TX_PULL_MAX_RECORDS = 1000;
   /** A miner record not renewed this long is dropped (miners renew every MinerServer::REGISTER_RENEW_INTERVAL). */
   static constexpr std::chrono::minutes MINER_RECORD_TTL{5};
   /** A registration's issuedAt may differ from the beacon's clock by at most this much. */

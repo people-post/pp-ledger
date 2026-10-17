@@ -69,6 +69,22 @@ int64_t nowSeconds() {
   return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+/** An error message with its numbers masked ("account N"), cut to 100 characters: one line per kind. */
+std::string errorKind(const std::string &message) {
+  std::string out;
+  for (size_t i = 0; i < message.size() && out.size() < 100; ++i) {
+    if (std::isdigit(static_cast<unsigned char>(message[i]))) {
+      out += 'N';
+      while (i + 1 < message.size() && std::isdigit(static_cast<unsigned char>(message[i + 1]))) {
+        ++i;
+      }
+    } else {
+      out += message[i];
+    }
+  }
+  return out;
+}
+
 double msSince(Clock::time_point t) {
   return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
 }
@@ -515,7 +531,7 @@ pp::Roe<RunReport> run(const RunConfig &cfg, const std::vector<Account> &account
                                ++k.outcomes[outcome];
                                k.latencyMs.add(msSince(sentAt));
                                if (!reply) {
-                                 ++k.errors[reply.error().message.substr(0, 100)];
+                                 ++k.errors[errorKind(reply.error().message)];
                                }
                                if (kind == Kind::TxAdd && (outcome == Outcome::Taken || outcome == Outcome::Duplicate)) {
                                  ++shared->report.taken;

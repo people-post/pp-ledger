@@ -253,6 +253,42 @@ TEST_F(LeaderBudgetTest, DueRenewalsBeyondABlockWaitAndTransactionsWaitForThem) 
 // A pending transaction that stops applying (here: its validity window ended)
 // must be dropped when the next slot rebuilds the pool — not abort the slot
 // and stay pending, which stalled the leader for every later slot.
+// load-resilience lr4: what a pool checks before it holds a record — cheap, on the committed state.
+TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
+  const uint64_t slot = miner_->getCurrentSlot();
+  const int64_t from = miner_->getSlotStartTime(slot);
+  auto valid = transferValidFrom(slot, 60, 21);
+  EXPECT_TRUE(miner_->checkAdmission(valid, from, true)) << "signed by the reserve's keys, funded, in its window";
+  const auto key = miner_->idempotencyKeyOf(valid);
+  ASSERT_TRUE(key);
+  EXPECT_EQ(key->first, AccountBuffer::ID_RESERVE);
+  EXPECT_EQ(key->second, 21u);
+
+  auto junk = valid;
+  junk.signatures.front()[0] = static_cast<char>(junk.signatures.front()[0] ^ 0x5a);
+  EXPECT_FALSE(miner_->checkAdmission(junk, from, true)) << "a bad signature";
+  EXPECT_TRUE(miner_->checkAdmission(junk, from, false)) << "signatures are checked only when asked (once, on the way in)";
+
+  EXPECT_FALSE(miner_->checkAdmission(valid, from + 61, true)) << "its window ended";
+
+  auto rich = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
+  rich.amount = static_cast<uint64_t>(AccountIds::INITIAL_TOKEN_SUPPLY) * 2;
+  Ledger::Record unfunded = valid;
+  unfunded.data = utl::binaryPack(rich);
+  EXPECT_FALSE(miner_->checkAdmission(unfunded, from, false)) << "the payer cannot cover it";
+
+  auto stranger = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
+  stranger.fromWalletId = AccountIds::ID_FIRST_USER + 5; // no such account
+  Ledger::Record nobody = valid;
+  nobody.data = utl::binaryPack(stranger);
+  EXPECT_FALSE(miner_->checkAdmission(nobody, from, true)) << "no account signed it";
+
+  Ledger::Record garbage;
+  garbage.type = Ledger::T_DEFAULT;
+  garbage.data = "not a transaction";
+  EXPECT_FALSE(miner_->checkAdmission(garbage, from, false));
+}
+
 TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {
   auto slot = waitForLeaderSlotAfter(-1);
   ASSERT_TRUE(slot.has_value());

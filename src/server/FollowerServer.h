@@ -92,6 +92,12 @@ protected:
   virtual bool syncHeld() const { return false; }
   /** Besides a new epoch, a sync is due now (a miner about to lead a slot). */
   virtual bool syncDue() const { return false; }
+  /**
+   * TX_ADD is checked here before it goes up (Chain::checkAdmission, load-resilience lr4): a node
+   * holding every account (a relay) refuses what the beacon would; one starting at a checkpoint
+   * passes it on.
+   */
+  virtual bool checksTransactions() const { return false; }
 
   // ----------------- shared -------------------------------------
   /**

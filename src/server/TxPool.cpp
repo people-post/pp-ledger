@@ -32,7 +32,7 @@ int64_t validUntil(const Ledger::Record &record) {
 
 std::string TxPool::keyOf(const Ledger::Record &record) { return utl::sha256Raw(utl::binaryPack(record)); }
 
-TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec) {
+TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec, std::optional<uint64_t> sender) {
   std::string key = keyOf(record);
   if (byKey_.contains(key)) {
     ++counters_.duplicates;
@@ -46,12 +46,19 @@ TxPool::Add TxPool::add(const Ledger::Record &record, int64_t nowSec) {
     ++counters_.full;
     return Add::Full;
   }
+  if (sender && pooledBy(*sender) >= limits_.maxPerSender) {
+    ++counters_.senderFull;
+    return Add::SenderFull;
+  }
   const int64_t windowEnd = validUntil(record);
   const int64_t ttlEnd = nowSec + limits_.ttlSeconds;
   const uint64_t seq = nextSeq_++;
   byKey_.emplace(key, seq);
   byOrder_.emplace(seq, Entry{record, std::move(key), bytes, nowSec,
-                              windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd});
+                              windowEnd > 0 ? std::min(windowEnd, ttlEnd) : ttlEnd, sender});
+  if (sender) {
+    ++bySender_[*sender];
+  }
   bytes_ += bytes;
   ++counters_.added;
   return Add::Added;
@@ -78,6 +85,11 @@ void TxPool::erase(uint64_t seq) {
   }
   bytes_ -= it->second.bytes;
   byKey_.erase(it->second.key);
+  if (const auto &sender = it->second.sender) {
+    if (auto s = bySender_.find(*sender); s != bySender_.end() && --s->second == 0) {
+      bySender_.erase(s);
+    }
+  }
   byOrder_.erase(it);
 }
 
@@ -102,6 +114,25 @@ size_t TxPool::expire(int64_t nowSec) {
   }
   counters_.expired += expired.size();
   return expired.size();
+}
+
+size_t TxPool::removeIf(const std::function<bool(const Ledger::Record &)> &drop) {
+  std::vector<uint64_t> doomed;
+  for (const auto &[seq, entry] : byOrder_) {
+    if (drop(entry.record)) {
+      doomed.push_back(seq);
+    }
+  }
+  for (uint64_t seq : doomed) {
+    erase(seq);
+  }
+  counters_.dropped += doomed.size();
+  return doomed.size();
+}
+
+size_t TxPool::pooledBy(uint64_t sender) const {
+  auto it = bySender_.find(sender);
+  return it == bySender_.end() ? 0 : it->second;
 }
 
 std::optional<int64_t> TxPool::oldestAgeSeconds(int64_t nowSec) const {

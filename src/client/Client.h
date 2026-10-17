@@ -480,6 +480,8 @@ public:
     std::optional<uint64_t> txPoolFull;       ///< refused: the pool was full
     std::optional<uint64_t> txPoolExpired;
     std::optional<uint64_t> txPoolIncluded;   ///< left the pool in a committed block
+    std::optional<uint64_t> txPoolSenderFull; ///< refused: its payer had its share pooled
+    std::optional<uint64_t> txPoolDropped;    ///< removed: could no longer apply after a block
 
     /** A run-loop turn longer than this counts in loopTurnsSlow. */
     static constexpr int64_t kSlowTurnMs = 1000;

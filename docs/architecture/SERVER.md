@@ -190,11 +190,21 @@ node capability is a new request type here plus, when HTTP is wanted, a pp-http 
 | `AUTHORITY_PROOF` | serves | serves | serves | Authority-changing records from genesis up to a block (beacon-authority ba5b); refused by a node that holds the chain from a checkpoint |
 | `BLOCK_WAIT` | serves | serves | — | Held until the tip passes the caller's; blocks propagate down |
 | `BLOCK_ADD` | commits (refused once it stood down, or above the height of equivocation evidence it holds) | forwards up; stores the block when the reply's signed tip covers it | — | Slot leader's block; upward only, idempotent; the reply carries the beacon's signed tip |
-| `TX_ADD` | pools (a beacon certificate is kept first; refused once it stood down, except a certificate) | forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
-| `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions |
+| `TX_ADD` | pools what could apply (a beacon certificate is kept first; refused once it stood down, except a certificate) | checks, then forwards up | forwards up | Into the beacon's pending pool; a beacon certificate is also kept by each node it passes (`CertificateStore`, `data/beacon-cert.dat`) |
+| `TX_PULL` | serves | forwards up | — | Slot leader pulls pending transactions, oldest first, up to a block's records and bytes (`maxTransactionsPerBlock`, `maxBlockBytes`) |
 | `REGISTER` | records | forwards up | — | Signed by the miner account's keys; renewed every 60 s |
 | `MINER_LIST` | serves | forwards up | — | Registered miner ids (no addresses) |
 | `EQUIVOCATION_ADD` | keeps it and halts | keeps it, forwards up | keeps it, forwards up | Evidence that the beacon key signed two blocks at one height ([BEACON_AUTHORITY.md § Equivocation halt](../contracts/BEACON_AUTHORITY.md#equivocation-halt)); `data/equivocation.dat`; upward only |
+
+**The beacon's pool** (`TxPool`) holds only what could apply (load-resilience lr4). A `TX_ADD` is
+checked first, cheaply and on the committed state (`Chain::checkAdmission`): it decodes, its
+validity window is open, its payer's keys signed it, and the payer can cover the amount and the
+fee; what depends on the rest of a block (pending spends, idempotent ids) is the leader's. Relays
+run the same check before forwarding; miners, which may hold the chain from a checkpoint, pass it
+on. A payer may have at most `maxPerSender` (1,000) records pooled; the pool holds 10,000 records
+or 16 MiB, each for its validity window or 10 minutes. After each block it commits, the beacon drops
+pooled records whose idempotent id the block used or that no longer apply (the payer spent the
+funds, the window ended), so no leader keeps pulling and refusing them.
 
 Which origins may send what (e.g. nothing travelling up is accepted from the
 upstream a node follows) is one table in `Server::isAllowedFrom`; see

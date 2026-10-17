@@ -1114,6 +1114,26 @@ BeaconServer::Roe<void> BeaconServer::admit(const Client::Request &request) cons
   return {};
 }
 
+void BeaconServer::dropStalePoolRecords(const std::vector<Ledger::Record> &committed) {
+  // A record whose idempotent id a block just used, or that no longer applies on the new state
+  // (its payer spent the funds, its window ended), would be pulled and refused by every leader.
+  // Signatures were checked on the way in.
+  std::set<std::pair<uint64_t, uint64_t>> used;
+  for (const auto &record : committed) {
+    if (auto key = beacon_.idempotencyKeyOf(record)) {
+      used.insert(*key);
+    }
+  }
+  const int64_t now = nowSeconds();
+  const size_t dropped = txPool_.removeIf([&](const Ledger::Record &record) {
+    const auto key = beacon_.idempotencyKeyOf(record);
+    return (key && used.contains(*key)) || !beacon_.checkAdmission(record, now, /*verifySignatures=*/false);
+  });
+  if (dropped > 0) {
+    log().info << "Dropped " << dropped << " pooled transaction(s) that can no longer apply";
+  }
+}
+
 BeaconServer::Roe<std::string>
 BeaconServer::hBlockAdd(const Client::Request &request) {
   Ledger::ChainNode block;
@@ -1140,6 +1160,7 @@ BeaconServer::hBlockAdd(const Client::Request &request) {
     return Error(E_REQUEST, "Failed to add block: " + result.error().message);
   }
   txPool_.removeIncluded(block.block.records);
+  dropStalePoolRecords(block.block.records);
   return tipReply();
 }
 
@@ -1183,14 +1204,23 @@ BeaconServer::hTxAdd(const Client::Request &request) {
     return Error(E_REQUEST, haltedMessage(*above));
   }
   const int64_t now = nowSeconds();
+  // Only what could apply takes a place in the pool (load-resilience lr4): a badly signed or unfunded
+  // record would be pulled by every leader and refused by each, ahead of valid ones, until it expires.
+  if (auto admitted = beacon_.checkAdmission(record.value(), now, /*verifySignatures=*/true); !admitted) {
+    return Error(E_REQUEST, "Transaction refused: " + admitted.error().message);
+  }
   txPool_.expire(now);
-  switch (txPool_.add(record.value(), now)) {
+  const auto key = beacon_.idempotencyKeyOf(record.value());
+  switch (txPool_.add(record.value(), now, key ? std::optional<uint64_t>(key->first) : std::nullopt)) {
   case TxPool::Add::Added:
     return {"Transaction submitted"};
   case TxPool::Add::Duplicate:
     return {"Transaction already submitted"};
   case TxPool::Add::Full:
     return Error(E_REQUEST, "Transaction pool full, please retry later");
+  case TxPool::Add::SenderFull:
+    return Error(E_REQUEST, "Too many transactions of account " + std::to_string(key->first) +
+                                " pooled, please retry later");
   }
   return Error(E_REQUEST, "Transaction not accepted");
 }
@@ -1234,10 +1264,12 @@ BeaconServer::Roe<void> BeaconServer::offerCertificate(const Ledger::Record &rec
 BeaconServer::Roe<std::string>
 BeaconServer::hTxPull(const Client::Request & /*request*/) {
   txPool_.expire(nowSeconds());
-  // No more than a leader can put in a block (B034): the reply always travels.
+  // No more than a leader can put in a block (B034, load-resilience lr5): the config's records and
+  // bytes, so the reply always travels and the pull never sets the drain rate below the block's.
+  const uint64_t maxRecords = beacon_.getMaxTransactionsPerBlock();
   const uint64_t maxBytes = beacon_.getMaxBlockBytes();
-  return utl::binaryPack(
-      txPool_.pending(TX_PULL_MAX_RECORDS, maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
+  return utl::binaryPack(txPool_.pending(maxRecords > 0 ? maxRecords : SIZE_MAX,
+                                         maxBytes > 0 ? maxBytes : chain_tx::kMaxBlockBytesCeiling));
 }
 
 BeaconServer::Roe<std::string>
@@ -1301,6 +1333,8 @@ void BeaconServer::fillHealth(Client::NodeHealth &health) const {
   health.txPoolFull = pool.full;
   health.txPoolExpired = pool.expired;
   health.txPoolIncluded = pool.included;
+  health.txPoolSenderFull = pool.senderFull;
+  health.txPoolDropped = pool.dropped;
   if (!isServing()) {
     return;
   }

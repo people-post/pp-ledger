@@ -923,6 +923,28 @@ TEST(TxPoolTest, CountsWhatHappensToRecords) {
   EXPECT_EQ(pool.bytes(), 0u);
 }
 
+// load-resilience lr4: no payer fills the pool alone; records that can no longer apply leave it.
+TEST(TxPoolTest, ASenderHasAShareAndStaleRecordsLeave) {
+  TxPool::Limits limits;
+  limits.maxPerSender = 2;
+  TxPool pool(limits);
+  EXPECT_EQ(pool.add(transfer(1, 2000), 1000, 7), TxPool::Add::Added);
+  EXPECT_EQ(pool.add(transfer(2, 2000), 1000, 7), TxPool::Add::Added);
+  EXPECT_EQ(pool.add(transfer(3, 2000), 1000, 7), TxPool::Add::SenderFull);
+  EXPECT_EQ(pool.add(transfer(4, 2000), 1000, 8), TxPool::Add::Added) << "another payer still has room";
+  EXPECT_EQ(pool.add(transfer(5, 2000), 1000), TxPool::Add::Added) << "a record without a payer counts for none";
+  EXPECT_EQ(pool.pooledBy(7), 2u);
+
+  const auto first = transfer(1, 2000);
+  EXPECT_EQ(pool.removeIf([&](const Ledger::Record &r) { return r.data == first.data; }), 1u);
+  EXPECT_EQ(pool.pooledBy(7), 1u);
+  EXPECT_EQ(pool.add(transfer(3, 2000), 1001, 7), TxPool::Add::Added) << "its share freed";
+  EXPECT_EQ(pool.counters().senderFull, 1u);
+  EXPECT_EQ(pool.counters().dropped, 1u);
+  pool.removeIncluded({transfer(2, 2000), transfer(3, 2000)});
+  EXPECT_EQ(pool.pooledBy(7), 0u);
+}
+
 TEST(TxPoolTest, FullPoolRefuses) {
   TxPool::Limits limits;
   limits.maxRecords = 1;

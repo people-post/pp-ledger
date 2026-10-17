@@ -430,6 +430,8 @@ pp::common::Meta Client::NodeHealth::ltsToMeta() const {
   setOptional("txPoolFull", txPoolFull);
   setOptional("txPoolExpired", txPoolExpired);
   setOptional("txPoolIncluded", txPoolIncluded);
+  setOptional("txPoolSenderFull", txPoolSenderFull);
+  setOptional("txPoolDropped", txPoolDropped);
   return m;
 }
 
@@ -491,6 +493,8 @@ Client::Roe<bool> Client::NodeHealth::ltsFromMeta(const pp::common::Meta &meta) 
   txPoolFull = meta.getNonNegInt("txPoolFull");
   txPoolExpired = meta.getNonNegInt("txPoolExpired");
   txPoolIncluded = meta.getNonNegInt("txPoolIncluded");
+  txPoolSenderFull = meta.getNonNegInt("txPoolSenderFull");
+  txPoolDropped = meta.getNonNegInt("txPoolDropped");
   if (role.empty()) {
     return Error(E_INVALID_RESPONSE, "Health without a role");
   }

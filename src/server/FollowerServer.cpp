@@ -425,6 +425,14 @@ void FollowerServer::dTxAdd(const Client::Request &request, const RequestQueue::
     replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Failed to deserialize transaction: " + record.error().message)));
     return;
   }
+  if (checksTransactions() && record.value().type != Ledger::T_BEACON_CERT) {
+    const int64_t now =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    if (auto admitted = follower().checkAdmission(record.value(), now, /*verifySignatures=*/true); !admitted) {
+      replyWith(reply, Roe<std::string>(Error(E_REQUEST, "Transaction refused: " + admitted.error().message)));
+      return;
+    }
+  }
   // A beacon certificate counts here too (ba5c): a node cut off from an honest beacon still keeps it.
   std::string kept;
   if (record.value().type == Ledger::T_BEACON_CERT) {

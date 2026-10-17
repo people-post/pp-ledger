@@ -147,7 +147,6 @@ public:
   static constexpr const char *FILE_SIGNED_TIP = "signed-tip.dat";
   /** Block C here is not the one the held certificate vouches for (Chain::cutoverForked). */
   bool cutoverForked() const { return chain_.cutoverForked(); }
-  uint64_t getMaxBlockBytes() const { return chain_.getMaxBlockBytes(); }
   /**
    * Equivocation evidence held (beacon-authority ba6): its height. The beacon then commits no block
    * above it and takes no producer writes until a later generation is certified (resume).
