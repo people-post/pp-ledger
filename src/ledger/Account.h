@@ -90,15 +90,6 @@ struct AccountRecoveryAction {
   bool ltsFromString(const std::string &str);
 };
 
-/** A domain whose issuer ended, kept by the registrar's account, never given again (projects/domains). */
-struct RetiredDomain {
-  std::string domain;
-  uint64_t accountId{ 0 };
-
-  bool operator==(const RetiredDomain &other) const = default;
-  template <typename Archive> void serialize(Archive &ar) { ar & domain & accountId; }
-};
-
 struct Wallet {
   std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
   std::vector<std::string> publicKeys;
@@ -109,11 +100,9 @@ struct Wallet {
   /**
    * The account's domain (projects/domains): its symbol, `A`–`Z`, 1–3 letters for a system account,
    * 4–7 for an issued one; none for a user. Given by the genesis block or the registrar, then
-   * chain-owned and never changed.
+   * chain-owned and never changed; free again when the account ends.
    */
   std::string domain;
-  /** The registrar's account only: the domains of ended issuers, never given again. Chain-owned. */
-  std::vector<RetiredDomain> retiredDomains;
 
   bool operator==(const Wallet& other) const {
     return mBalances == other.mBalances &&
@@ -122,12 +111,11 @@ struct Wallet {
            keyType == other.keyType &&
            miner == other.miner &&
            recovery == other.recovery &&
-           domain == other.domain &&
-           retiredDomains == other.retiredDomains;
+           domain == other.domain;
   }
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery & domain & retiredDomains;
+    ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery & domain;
   }
 
   pp::common::Meta ltsToMeta() const;

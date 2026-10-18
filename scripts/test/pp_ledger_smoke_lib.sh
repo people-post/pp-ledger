@@ -1429,7 +1429,7 @@ run_domain_scenario() {
     --account-key "${key_dir}/named-${named}.pub" --amount 2000 --domain "$domain" -f 1
   wait_for_account "$named" "\"domain\":\"$domain\"" "L-SMOKE-DOMAIN: the issued account was not created with its domain"
   json=$(verified_domain "$domain")
-  grep -q "\"account\":${named}," <<<"$json" && grep -q '"retired":false' <<<"$json" ||
+  grep -q "\"account\":${named}," <<<"$json" ||
     die "L-SMOKE-DOMAIN: $domain is not proven account ${named}'s: $json"
   echo -e "${GREEN}✓ REG and PPL are the system's; ${domain} is account ${named}'s from its creation, proven${NC}"
 

@@ -580,8 +580,8 @@ public:
   };
 
   /**
-   * A domain's leaf in block `blockId`'s state root (projects/domains): the account it is bound to and
-   * whether that account ended (retired), or its absence; the path as AccountProof's.
+   * A domain's leaf in block `blockId`'s state root (projects/domains): the account it is bound to, or
+   * its absence (nobody has it); the path as AccountProof's.
    */
   struct DomainProof {
     std::string domain;
@@ -589,13 +589,12 @@ public:
     std::string stateRoot;
     bool present{ false };
     uint64_t accountId{ 0 };
-    bool retired{ false };
     uint64_t siblingMask{ 0 };
     std::vector<std::string> siblings;
 
     template <typename Archive>
     void serialize(Archive &ar) {
-      ar & domain & blockId & stateRoot & present & accountId & retired & siblingMask & siblings;
+      ar & domain & blockId & stateRoot & present & accountId & siblingMask & siblings;
     }
   };
 

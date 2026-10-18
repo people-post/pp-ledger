@@ -54,8 +54,6 @@ struct ProvenDomain {
   std::string domain;
   uint64_t blockId{0};
   std::optional<uint64_t> accountId;
-  /** The account ended; the domain stays its, never given again. */
-  bool retired{false};
 };
 
 /** `proof` against `block` (checked already): the domain's leaf and path give the block's state root. */

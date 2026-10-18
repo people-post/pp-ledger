@@ -28,26 +28,28 @@ exchange.
 
 **Date:** 2026-10-19
 **Decision:** System names in the genesis block; issued accounts' by the registrar, at creation or
-later (`T_DOMAIN_ASSIGN`); never changed, transferred or released in the first release.
+later (`T_DOMAIN_ASSIGN`); never changed or transferred while the account lives.
 **Rationale:** The owner's call: read-only first. The registrar already decides who issues; it now
 decides under which symbol, and answers for impersonation (`AAPL` for someone not Apple) off chain.
 
-## DN004 — Ended issuers' domains are retired
+## DN004 — A domain ends with its account
 
-**Date:** 2026-10-19
-**Decision:** An ended issuer's domain stays bound to it, marked retired, and is never given again.
-The registrar's account carries the retired list.
-**Rationale:** A symbol reused by a new issuer would let it pass for the old one to holders and
-links that remember the symbol. The list lives on an account that is renewed (so a node joining from
-a checkpoint has it) and is written in place, as miner state.
-**Alternatives:** Released after a quarantine (reuse, later); the list in the genesis meta (chain
-state too, but written by a different path than every other account change).
+**Date:** 2026-10-19 (revised the same day: first built as retired for good, kept on the registrar's
+account)
+**Decision:** When an account ends, its domain is free again. The registrar, the only one to give
+domains, decides whether a freed symbol is given again.
+**Rationale:** The owner's call. A domain is the account's, carried by its renewals; an ended account
+is renewed no more, so remembering its domain would take state of its own (a retired list on the
+registrar's account) for a rule the registrar can keep itself. Reusing ended account ids raises the
+same question; both are left for a later decision, together.
+**Alternatives:** Retired for good, on the registrar's account (as first built: a dead issuer's symbol
+never comes back, at the cost of chain state that only grows); released after a quarantine.
 
 ## DN005 — Both directions under the state root
 
 **Date:** 2026-10-19
-**Decision:** The domain in the account's leaf, and a domain leaf at `2⁶³ + code(domain)` in the same
-tree; account ids below 2⁶³.
+**Decision:** The domain in the account's leaf, and a domain leaf `(domain, account)` at `2⁶³ +
+code(domain)` in the same tree, while the account lives; account ids below 2⁶³.
 **Rationale:** Wallets prove what they show; a symbol is shown to decide where funds go. One tree
 keeps one root in the header and one proof shape. A base-27 code of seven letters is below 2³⁴, so
 the domain keys never meet account ids once those stay below 2⁶³.

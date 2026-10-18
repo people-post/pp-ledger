@@ -1,6 +1,6 @@
 # Domains — symbols for system and issuer accounts
 
-**Status:** design (dn0). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** dn1–dn2 built (pp-ledger); dn3–dn4 next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Accounts are numbers today: a token is "token 1,048,626", and a wallet cannot tell a real issuer from
@@ -28,22 +28,29 @@ first, with the symbol as the domain's form (DN001).
 
 ### Read-only (DN003)
 
-A domain, once given, never changes: renewals and the account's own updates carry it unchanged; no
-rename, no transfer, no release. An account has at most one.
+A domain, once given, never changes while its account lives: renewals and the account's own updates
+carry it unchanged; no rename, no transfer, no release. An account has at most one.
 
 - **System accounts:** named in the genesis block (the genesis record and the system accounts'
   records carry them), never later.
 - **Issued accounts:** the registrar names them — when it creates the account (`T_NEW_USER` carries
   the domain), or later for one created without (`T_DOMAIN_ASSIGN`, record type 7, signed by the
-  registrar; its fee from the registrar).
+  registrar; its fee from the registrar). It is in the block's state root at once (in place, as miner
+  state); the account's next renewal re-records it with the rest of the account.
 - **User accounts** have none.
 
-### Retired, never reused (DN004)
+### Free again when the account ends (DN004)
 
-When an issuer with a domain ends (it could not pay its renewal), its domain is **retired**: bound
-to its old account for good, never given again — a dead company's ticker never comes back on someone
-else's token. The registrar's account keeps the retired domains, in place (as miner state), so every
-renewal of it carries them and a node joining from a checkpoint learns them.
+A domain lives with its account: in the account's wallet, carried by its renewals like everything
+else about it. When the account ends (an issuer that could not pay its renewal), its domain ends with
+it and is **free again**. Only the registrar gives domains, so whether — and when, and to whom — a
+freed symbol is given again is the registrar's call: it can keep a dead company's ticker unused, or
+return it to the same organization.
+
+**Open (later, together):** what an ended account leaves behind. Today an ended account's id is free
+too: the next `T_NEW_USER` for it makes a new account that inherits nothing, and no node remembers the
+old one. A chain rule for reusing ended ids and their domains (a quarantine, a tombstone) is a later
+decision, taken for both at once.
 
 ### Proven both ways (DN005)
 
@@ -53,7 +60,8 @@ about is worse than a number. Both directions are under the block's state root:
 - **Account → domain:** the domain is in the account's wallet (`Wallet.domain`), so in its leaf.
 - **Domain → account:** each domain has a leaf of its own in the same sparse Merkle tree, at a key
   no account can have: `2⁶³ + code(domain)` (letters as base-27 digits, `A` = 1 … `Z` = 26). The leaf
-  commits `(domain, account, retired)`. Account ids are below 2⁶³ from now on.
+  commits `(domain, account)`; it is there while the account is, derived from it (a snapshot or a
+  node joining from a checkpoint rebuilds it from the account). Account ids are below 2⁶³ from now on.
 
 `DOMAIN_GET` (request 2101, reserved for it) answers with the leaf and its Merkle path, like
 `ACCOUNT_PROOF`; `verify::checkDomainProof` checks it against a verified block. An absent domain is
@@ -68,8 +76,8 @@ project).
 
 ## Wire
 
-- `Wallet.domain` (string; empty: none); the registrar's `Wallet.retiredDomains` (domain, account).
-  Account records change form: a new genesis (no network is live).
+- `Wallet.domain` (string; empty: none). Account records change form: a new genesis (no network is
+  live).
 - Record type 7 `T_DOMAIN_ASSIGN` (`TxDomainAssign`: `walletId`, `domain`, `fee`, idempotency and
   validity window), signed by the registrar.
 - `T_REQ_DOMAIN_GET` (2101): payload the domain; reply `DomainProof`.

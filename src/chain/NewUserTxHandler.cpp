@@ -227,11 +227,7 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   }
 
   // Domains (projects/domains): the genesis block names system accounts and genesis miners; after it,
-  // only the registrar, for the issued accounts it creates. Retired domains are the registrar's alone,
-  // and only the chain adds to them.
-  if (!userAccount.wallet.retiredDomains.empty()) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A new account carries no retired domains");
-  }
+  // only the registrar, for the issued accounts it creates.
   if (!userAccount.wallet.domain.empty()) {
     if (blockId != 0 && tx.fromWalletId != AccountBuffer::ID_REGISTRAR) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Only the registrar gives a domain");

@@ -128,8 +128,8 @@ chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const C
   if (!siblings) {
     return siblings.error();
   }
-  const std::string leaf = proof.present ? chain_domain::leafHash(proof.domain, proof.accountId, proof.retired)
-                                         : AccountStateTree::emptyLeaf();
+  const std::string leaf =
+      proof.present ? chain_domain::leafHash(proof.domain, proof.accountId) : AccountStateTree::emptyLeaf();
   if (AccountStateTree::rootFrom(chain_domain::treeKey(proof.domain), leaf, siblings.value()) != block.stateRoot) {
     return refused("The domain is not in the block's state root as the proof says");
   }
@@ -138,7 +138,6 @@ chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const C
   out.blockId = block.index;
   if (proof.present) {
     out.accountId = proof.accountId;
-    out.retired = proof.retired;
   }
   return out;
 }

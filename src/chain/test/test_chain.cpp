@@ -3942,7 +3942,6 @@ TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) 
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   ASSERT_TRUE(proven.value().accountId.has_value());
   EXPECT_EQ(*proven.value().accountId, plain);
-  EXPECT_FALSE(proven.value().retired);
   Client::DomainProof lying = proof.value();
   lying.accountId = acme;
   EXPECT_FALSE(verify::checkDomainProof(tip, lying).isOk()) << "a node cannot point a domain elsewhere";
@@ -3979,7 +3978,7 @@ TEST(DomainTest, LettersOnlyTheLengthTellsTheKindAndKeysNeverMeetAccounts) {
   EXPECT_EQ(treeKey("A"), AccountIds::ID_LIMIT + 1);
   EXPECT_NE(treeKey("A"), treeKey("AA"));
   EXPECT_LT(treeKey("ZZZZZZZ"), AccountIds::ID_LIMIT + (1ULL << 34));
-  EXPECT_NE(leafHash("ACME", 5, false), leafHash("ACME", 5, true));
+  EXPECT_NE(leafHash("ACME", 5), leafHash("ACME", 6));
 
   chain_genesis::SystemNames names = chain_genesis::defaultSystemNames();
   EXPECT_TRUE(chain_genesis::checkNames(names).isOk());
@@ -3991,7 +3990,7 @@ TEST(DomainTest, LettersOnlyTheLengthTellsTheKindAndKeysNeverMeetAccounts) {
   EXPECT_FALSE(chain_genesis::checkNames(names).isOk()) << "4 letters";
 }
 
-TEST(DomainTest, AnEndedIssuersDomainIsRetiredOnTheRegistrarAndTheRootFollows) {
+TEST(DomainTest, AnEndedAccountsDomainIsFreeAgainAndTheRootFollows) {
   AccountBuffer bank;
   auto accountOf = [](uint64_t id, int64_t balance, const std::string &domain) {
     AccountBuffer::Account a;
@@ -4005,17 +4004,15 @@ TEST(DomainTest, AnEndedIssuersDomainIsRetiredOnTheRegistrarAndTheRootFollows) {
   ASSERT_TRUE(bank.add(accountOf(AccountBuffer::ID_RECYCLE, 0, "")).isOk());
   ASSERT_TRUE(bank.add(accountOf(issuer, 10, "ACME")).isOk());
   ASSERT_TRUE(bank.findDomain("ACME").has_value());
-  EXPECT_FALSE(bank.findDomain("ACME")->retired);
+  EXPECT_EQ(bank.findDomain("ACME")->accountId, issuer);
+  EXPECT_FALSE(chain_tx::validateNewDomain("ACME", issuer + 1, bank, nullptr).isOk()) << "taken";
   const std::string before = bank.calculateStateRoot();
 
+  // The domain ends with its account: free again, for the registrar to give (or not).
   bank.beginOverlay();
   ASSERT_TRUE(bank.writeOff(issuer).isOk());
-  ASSERT_TRUE(bank.findDomain("ACME").has_value());
-  EXPECT_TRUE(bank.findDomain("ACME")->retired);
-  EXPECT_EQ(bank.findDomain("ACME")->accountId, issuer);
-  const std::vector<RetiredDomain> retired = bank.getAccount(AccountBuffer::ID_REGISTRAR).value().wallet.retiredDomains;
-  ASSERT_EQ(retired.size(), 1u);
-  EXPECT_EQ(retired[0], (RetiredDomain{"ACME", issuer}));
+  EXPECT_FALSE(bank.findDomain("ACME").has_value());
+  EXPECT_TRUE(chain_tx::validateNewDomain("ACME", issuer + 1, bank, nullptr).isOk());
   // The root is what the accounts alone give (a snapshot, a node joining from a checkpoint).
   AccountStateTree rebuilt;
   for (uint64_t id : {AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_RECYCLE}) {
@@ -4024,7 +4021,8 @@ TEST(DomainTest, AnEndedIssuersDomainIsRetiredOnTheRegistrarAndTheRootFollows) {
   EXPECT_EQ(rebuilt.root(), bank.calculateStateRoot());
 
   bank.rollbackOverlay();
-  EXPECT_FALSE(bank.findDomain("ACME")->retired);
+  ASSERT_TRUE(bank.findDomain("ACME").has_value());
+  EXPECT_EQ(bank.findDomain("ACME")->accountId, issuer);
   EXPECT_EQ(bank.calculateStateRoot(), before);
 }
 

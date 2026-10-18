@@ -30,7 +30,7 @@ chain_tx::Roe<void> validateFor(std::string_view domain, uint64_t accountId);
 /** The domain's key in the state tree: 2⁶³ + its letters as base-27 digits (A = 1 … Z = 26). */
 uint64_t treeKey(std::string_view domain);
 
-/** The domain's leaf: it is bound to `accountId`, retired or not. */
-std::string leafHash(std::string_view domain, uint64_t accountId, bool retired);
+/** The domain's leaf: it is bound to `accountId`. */
+std::string leafHash(std::string_view domain, uint64_t accountId);
 
 } // namespace pp::chain_domain

@@ -356,7 +356,7 @@ public:
   Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
   /** `domain`'s binding (or absence) in the tip block's state root, with its path (projects/domains). */
   Roe<Client::DomainProof> domainProof(const std::string &domain) const;
-  /** Who `domain` is bound to in the committed state, if anyone (retired domains included). */
+  /** Who `domain` is bound to in the committed state, if anyone. */
   std::optional<AccountBuffer::DomainEntry> findDomain(const std::string &domain) const;
 
   Roe<void>

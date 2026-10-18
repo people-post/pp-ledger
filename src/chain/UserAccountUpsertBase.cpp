@@ -124,9 +124,8 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Account update cannot change miner state: " + std::to_string(tx.walletId));
     }
-    // The domain and the registrar's retired domains are chain-owned (projects/domains): carried as held.
-    if (userAccount.wallet.domain != bufferAccountResult.value().wallet.domain ||
-        userAccount.wallet.retiredDomains != bufferAccountResult.value().wallet.retiredDomains) {
+    // The domain is chain-owned (projects/domains): carried as held.
+    if (userAccount.wallet.domain != bufferAccountResult.value().wallet.domain) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "An account's domain is given once and never changed: " + std::to_string(tx.walletId));
     }

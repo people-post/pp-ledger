@@ -40,37 +40,44 @@ std::string AccountBuffer::accountLeafHash(const Account &account) {
 void AccountBuffer::setLeaves(AccountStateTree &tree, const Account &account) {
   tree.setLeaf(account.id, accountLeafHash(account));
   if (!account.wallet.domain.empty()) {
-    tree.setLeaf(chain_domain::treeKey(account.wallet.domain),
-                 chain_domain::leafHash(account.wallet.domain, account.id, false));
-  }
-  for (const auto &retired : account.wallet.retiredDomains) {
-    tree.setLeaf(chain_domain::treeKey(retired.domain), chain_domain::leafHash(retired.domain, retired.accountId, true));
+    tree.setLeaf(chain_domain::treeKey(account.wallet.domain), chain_domain::leafHash(account.wallet.domain, account.id));
   }
 }
 
 void AccountBuffer::touchTree(const Account &account) {
   stateTree_.setLeaf(account.id, accountLeafHash(account));
   if (!account.wallet.domain.empty()) {
-    bindDomain(account.wallet.domain, DomainEntry{account.id, false});
-  }
-  for (const auto &retired : account.wallet.retiredDomains) {
-    bindDomain(retired.domain, DomainEntry{retired.accountId, true});
+    bindDomain(account.wallet.domain, DomainEntry{account.id});
   }
 }
 
-void AccountBuffer::bindDomain(const std::string &domain, const DomainEntry &entry) {
+void AccountBuffer::clearTree(const Account &account) {
+  stateTree_.clearLeaf(account.id);
+  if (!account.wallet.domain.empty()) {
+    bindDomain(account.wallet.domain, std::nullopt);
+  }
+}
+
+void AccountBuffer::bindDomain(const std::string &domain, const std::optional<DomainEntry> &entry) {
   auto it = domains_.find(domain);
-  if (it != domains_.end() && it->second == entry) {
+  const std::optional<DomainEntry> held =
+      it == domains_.end() ? std::nullopt : std::optional<DomainEntry>(it->second);
+  if (held == entry) {
     return;
   }
   if (!journals_.empty()) {
     auto &saved = journals_.back().savedDomains;
     if (saved.count(domain) == 0) {
-      saved.emplace(domain, it == domains_.end() ? std::nullopt : std::optional<DomainEntry>(it->second));
+      saved.emplace(domain, held);
     }
   }
-  domains_[domain] = entry;
-  stateTree_.setLeaf(chain_domain::treeKey(domain), chain_domain::leafHash(domain, entry.accountId, entry.retired));
+  if (entry) {
+    domains_[domain] = *entry;
+    stateTree_.setLeaf(chain_domain::treeKey(domain), chain_domain::leafHash(domain, entry->accountId));
+  } else {
+    domains_.erase(domain);
+    stateTree_.clearLeaf(chain_domain::treeKey(domain));
+  }
 }
 
 std::optional<AccountBuffer::DomainEntry> AccountBuffer::findDomain(const std::string &domain) const {
@@ -96,7 +103,6 @@ AccountBuffer::Roe<void> AccountBuffer::setDomain(uint64_t accountId, const std:
   return {};
 }
 
-void AccountBuffer::clearTree(uint64_t id) { stateTree_.clearLeaf(id); }
 
 AccountBuffer::Roe<AccountBuffer::Account *>
 AccountBuffer::mutableAccount(uint64_t id) {
@@ -645,18 +651,6 @@ AccountBuffer::Roe<void> AccountBuffer::writeOff(uint64_t accountId) {
                  "Recycle account not found: " + std::to_string(ID_RECYCLE));
   }
 
-  // Its domain is retired, never given again (projects/domains): the registrar's account keeps it.
-  const std::string domain = mAccounts_.at(accountId).wallet.domain;
-  if (!domain.empty()) {
-    auto registrarRoe = mutableAccount(ID_REGISTRAR);
-    if (!registrarRoe) {
-      return Error(E_ACCOUNT, "Registrar account not found: " + std::to_string(ID_REGISTRAR));
-    }
-    Account &registrar = *registrarRoe.value();
-    registrar.wallet.retiredDomains.push_back(RetiredDomain{domain, accountId});
-    touchTree(registrar);
-  }
-
   const std::map<uint64_t, int64_t> balances =
       mAccounts_.at(accountId).wallet.mBalances;
   Account &recycle = mAccounts_.at(ID_RECYCLE);
@@ -677,8 +671,8 @@ void AccountBuffer::remove(uint64_t id) {
     return;
   }
   recordUndo(id);
+  clearTree(mAccounts_.at(id));
   mAccounts_.erase(id);
-  clearTree(id);
 }
 
 void AccountBuffer::clear() {

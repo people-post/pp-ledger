@@ -601,7 +601,6 @@ Chain::Roe<Client::DomainProof> Chain::domainProof(const std::string &domain) co
   if (auto bound = bank.findDomain(domain)) {
     proof.present = true;
     proof.accountId = bound->accountId;
-    proof.retired = bound->retired;
   }
   packPath(bank.domainSiblings(domain), proof.siblingMask, proof.siblings);
   return proof;

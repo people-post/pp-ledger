@@ -62,10 +62,9 @@ public:
   /** Raw SHA-256 committing to an attachment's bytes as recorded (B031). */
   static std::string attachmentHashOf(const std::string &attachment);
 
-  /** Who a domain is bound to (projects/domains): an account, retired once that account ended. */
+  /** Who a domain is bound to (projects/domains): its account, while that account lives. */
   struct DomainEntry {
     uint64_t accountId{0};
-    bool retired{false};
     bool operator==(const DomainEntry &other) const = default;
   };
 
@@ -129,7 +128,7 @@ public:
    * caller checks it is the account's to have and free.
    */
   Roe<void> setDomain(uint64_t accountId, const std::string &domain);
-  /** Who `domain` is bound to in this buffer, if anyone (retired domains included). */
+  /** Who `domain` is bound to in this buffer, if anyone. */
   std::optional<DomainEntry> findDomain(const std::string &domain) const;
   /** Account recovery state, in place (as setMinerState): the account's blockId does not move. */
   Roe<void> setRecovery(uint64_t accountId, const Client::AccountRecovery &recovery);
@@ -146,8 +145,8 @@ public:
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId,
                             int64_t amount);
   /**
-   * End the account: its positive balances to the recycle account, and its domain, if it has one,
-   * retired on the registrar's account (projects/domains). Both must be held.
+   * End the account: its positive balances to the recycle account (which must be held); its domain,
+   * if it has one, free again (projects/domains).
    */
   Roe<void> writeOff(uint64_t accountId);
 
@@ -189,8 +188,8 @@ public:
   /** Leaf digest for one account (used by the SMT). */
   static std::string accountLeafHash(const Account &account);
   /**
-   * Every leaf `account` puts in the state tree (to rebuild a root from accounts alone): its own, its
-   * domain's, and — the registrar's — its retired domains' (projects/domains).
+   * Every leaf `account` puts in the state tree (to rebuild a root from accounts alone): its own and
+   * its domain's (projects/domains).
    */
   static void setLeaves(AccountStateTree &tree, const Account &account);
   /** The siblings along account `id`'s path in the state tree (AccountStateTree::siblings). */
@@ -209,11 +208,12 @@ public:
 
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
-  /** The account's leaf, and its domain's (and, for the registrar, its retired domains'). */
+  /** The account's leaf, and its domain's. */
   void touchTree(const Account &account);
-  void clearTree(uint64_t id);
-  /** Bind `domain` in the index and the tree (journaled). */
-  void bindDomain(const std::string &domain, const DomainEntry &entry);
+  /** The account's leaf and its domain's gone (its domain free again). */
+  void clearTree(const Account &account);
+  /** Bind `domain` to `entry`, or unbind it (none), in the index and the tree (journaled). */
+  void bindDomain(const std::string &domain, const std::optional<DomainEntry> &entry);
   /**
    * Pointer into mAccounts_. ResultOrError cannot store references, so
    * mutators use Account* rather than Roe<Account&>.

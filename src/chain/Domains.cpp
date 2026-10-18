@@ -67,11 +67,11 @@ uint64_t treeKey(std::string_view domain) {
   return AccountIds::ID_LIMIT + code;
 }
 
-std::string leafHash(std::string_view domain, uint64_t accountId, bool retired) {
+std::string leafHash(std::string_view domain, uint64_t accountId) {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   std::string name(domain);
-  ar & name & accountId & retired;
+  ar & name & accountId;
   return utl::sha256Raw(std::string("pp-ledger/domain-leaf/v1") + oss.str());
 }
 

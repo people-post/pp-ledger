@@ -7,7 +7,7 @@ namespace pp {
 
 /**
  * T_DOMAIN_ASSIGN (projects/domains): the registrar gives an issued account its domain — one it has
- * none of yet, a domain of 4–7 letters bound to no account (retired ones included). Signed by the
+ * none of yet, a domain of 4–7 letters bound to no account. Signed by the
  * registrar, which pays the fee (meta-size). Applied in place, as miner state: the account's blockId
  * does not move.
  */

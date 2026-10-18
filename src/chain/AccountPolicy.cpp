@@ -43,8 +43,7 @@ Roe<void> validateNewDomain(const std::string &domain, uint64_t accountId, const
     }
     if (auto bound = held->findDomain(domain)) {
       return TxError(chain_err::E_TX_VALIDATION,
-                     "Domain " + domain + " is " + (bound->retired ? "retired (account " : "account ") +
-                         std::to_string(bound->accountId) + (bound->retired ? "'s, ended)" : "'s"));
+                     "Domain " + domain + " is account " + std::to_string(bound->accountId) + "'s");
     }
   }
   return {};
@@ -164,9 +163,6 @@ Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
     if (auto valid = chain_domain::validateFor(wallet.domain, AccountIds::ID_GENESIS); !valid) {
       return valid;
     }
-  }
-  if (!wallet.retiredDomains.empty()) {
-    return TxError(chain_err::E_TX_VALIDATION, "Only the registrar's account keeps retired domains");
   }
   if (wallet.publicKeys.size() < 3) {
     return TxError(chain_err::E_TX_VALIDATION,

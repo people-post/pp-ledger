@@ -1487,7 +1487,7 @@ int main(int argc, char *argv[]) {
       std::cout << "{\n  \"verified\": true,\n  \"domain\": \"" << *name << "\",\n  \"domainBlock\": "
                 << proven.value().blockId << ",\n  \"bound\": " << (proven.value().accountId ? "true" : "false");
       if (proven.value().accountId) {
-        std::cout << ",\n  \"retired\": " << (proven.value().retired ? "true" : "false") << ",\n";
+        std::cout << ",\n";
         auto account = provenAccount(*proven.value().accountId);
         if (!account) {
           return fail(account.error().message);
@@ -1513,7 +1513,7 @@ int main(int argc, char *argv[]) {
     std::cout << "{\n  \"domain\": \"" << p.domain << "\",\n  \"block\": " << p.blockId << ",\n  \"bound\": "
               << (p.present ? "true" : "false");
     if (p.present) {
-      std::cout << ",\n  \"account\": " << p.accountId << ",\n  \"retired\": " << (p.retired ? "true" : "false");
+      std::cout << ",\n  \"account\": " << p.accountId;
     }
     std::cout << "\n}\n";
   }
