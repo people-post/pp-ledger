@@ -1,6 +1,9 @@
 #include "RecordHandler.h"
 #include "TxFees.h"
 
+#include <limits>
+#include <variant>
+
 #include "ErrorCodes.h"
 #include "BeaconCertTxHandler.h"
 #include "RecoveryTxHandler.h"
@@ -179,12 +182,20 @@ RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
   return handler->getBillableCustomMetaSizeForFee(config, tx);
 }
 
-chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx) {
+chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx, bool afterGenesis) {
   static const RecordHandler handler;
-  return chain_tx::calculateMinimumFeeForTransaction(
+  auto fee = chain_tx::calculateMinimumFeeForTransaction(
       config, tx, [](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
         return handler.getBillableCustomMetaSizeForFee(cfg, t);
       });
+  if (!fee || !afterGenesis || !std::holds_alternative<Ledger::TxNewUser>(tx)) {
+    return fee;
+  }
+  // NewUserTxHandler: an account created after genesis also pays the flat newAccountFee.
+  if (config.newAccountFee > std::numeric_limits<uint64_t>::max() - fee.value()) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "New account fee overflows");
+  }
+  return fee.value() + config.newAccountFee;
 }
 
 } // namespace pp

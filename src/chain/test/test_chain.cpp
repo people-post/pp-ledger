@@ -3,6 +3,9 @@
 #include "lib/common/Utilities.h"
 #include "AccountBuffer.h"
 #include "Chain.h"
+#include "ConfigPolicy.h"
+#include "Genesis.h"
+#include "RecordHandler.h"
 #include "StateSnapshot.h"
 #include "BlockValidation.h"
 #include "AccountPolicy.h"
@@ -243,7 +246,31 @@ TEST(ChainTest, TheGenesisMetaInForceIsTheConfigAdminKeysAndAuthority) {
   ASSERT_TRUE(chainFee.isOk());
   EXPECT_EQ(toolFee.value(), chainFee.value());
 
+  // A new account after genesis also pays the flat newAccountFee; genesis records do not.
+  Chain::BlockChainConfig withFlat = meta.value().config;
+  withFlat.newAccountFee = 50;
+  Ledger::TxNewUser created;
+  created.fromWalletId = AccountBuffer::ID_REGISTRAR;
+  created.toWalletId = AccountBuffer::ID_FIRST_ISSUED + 1;
+  auto metaOnly = minimumFeeFor(withFlat, Ledger::TypedTx(created), /*afterGenesis=*/false);
+  auto full = minimumFeeFor(withFlat, Ledger::TypedTx(created));
+  ASSERT_TRUE(metaOnly.isOk());
+  ASSERT_TRUE(full.isOk());
+  EXPECT_EQ(full.value(), metaOnly.value() + 50);
+
   std::filesystem::remove_all(tempDir, ec);
+}
+
+// The default config a plan starts from (pp-beacon --init, the Genesis app) passes the chain's rules.
+TEST(ChainTest, TheDefaultGenesisConfigIsValid) {
+  const auto config = chain_genesis::defaultConfig("test-net");
+  EXPECT_EQ(config.networkId, "test-net");
+  EXPECT_TRUE(chain_tx::validateLivenessSettings(config).isOk());
+  EXPECT_TRUE(chain_tx::validateBlockLimits(config).isOk());
+  EXPECT_EQ(config.maxIssuancePerEpoch, 0u); // no minting until a config update allows it
+  EXPECT_GE(chain_genesis::defaultRecoveryDelayEpochs(config), 1u);
+  EXPECT_EQ(chain_genesis::defaultMinerStake(0), 0u);
+  EXPECT_EQ(chain_genesis::defaultMinerStake(2), AccountBuffer::INITIAL_TOKEN_SUPPLY / 10 / 2);
 }
 
 TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
