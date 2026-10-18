@@ -65,7 +65,7 @@ flowchart TD
 
 **Notes**
 
-- **`chain`** is the `pp_chain` static library: `Chain`, `AccountBuffer`, and transaction helper modules (`ChainTx*`). Its data types (`Types.h`: chain config, genesis meta, beacon certificate, recovery announcement) are `pp_chain_types`, which links only `lib` and `ledger` — no network code.
+- **`chain`** is the `pp_chain` static library: `Chain`, `AccountBuffer`, transaction helper modules (`ChainTx*`), and `Genesis` (block 0's records from a plan, for the beacon's init and an offline-signed genesis). Its data types (`Types.h`: chain config, genesis meta, beacon certificate, recovery announcement) are `pp_chain_types`, which links only `lib` and `ledger` — no network code.
 - **`operation`** is `pp_operation`: operation files ([OPERATION_FILE.md](../contracts/OPERATION_FILE.md)). It links `pp_chain_types`, `ledger` and `lib` only, so an offline signer needs no network code. Account state types (`UserAccount`, `Wallet`, `MinerState`) live in `ledger` (`Account.h`) for the same reason; `Client` keeps aliases.
 - **`server`** still links `lib`, `ledger`, `client`, `consensus`, and `network` directly because Beacon / Miner / Relay code includes those headers for AMP and consensus types, in addition to linking **`pp_chain`** for chain state and validation.
 

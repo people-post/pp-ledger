@@ -7,7 +7,7 @@ command-line options, can come from the environment instead ([Environment](#envi
 
 | File | Role | Read when |
 |------|------|-----------|
-| `init-config.json` | beacon | `pp-beacon --init --genesis-key …` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
+| `init-config.json` | beacon | `pp-beacon --init --genesis-key …` or `--plan-genesis` only (genesis); a missing file is written as a template. `--init` refuses a work directory whose `data/` already holds a chain (`--force` replaces it, destroying it); a failed `--init` leaves no `data/` behind |
 | `config.json` | beacon, relay, miner | every start, optional when the environment sets what the role needs ([Environment](#environment)). With neither, the beacon runs on its defaults (nothing is written); the relay and miner write a template (upstream, account id, keys cannot be guessed) and stop |
 | `keys/amp-identity.txt` | beacon, relay | every start; created on first start — unless `PP_LEDGER_IDENTITY_KEY` sets the identity |
 | `keys/beacon-signing.key`, `.pub` | beacon | `--init`; created when absent (or pre-generated with `pp-client keygen -o keys/beacon-signing`). Every start: both must be present |
@@ -113,14 +113,16 @@ pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
 `<name>.key` and `<name>.pub`). The config holds public keys only; the beacon
 never generates or stores an account's private key. `--genesis-key` (repeat
 for M-of-N) signs the genesis block; the keys must be distinct genesis keys and
-at least its `minSignatures`.
+at least its `minSignatures`. To keep them off the beacon host, `--plan-genesis` writes block 0
+as an operation file the holders sign offline, and `--init --genesis-op` writes the signed one
+([OPERATION_FILE.md § Genesis](../contracts/OPERATION_FILE.md#genesis)).
 
 **The genesis account is the admin key.** After genesis it only signs config
 updates (`T_CONFIG`) and issues new supply to reserve (it may transfer to no
 other account and creates no accounts), so it must be M-of-N from the start: at
 least 3 keys and 2 signatures (the shape its renewals and updates are held to).
 Keep its keys offline with different people; the beacon needs them only for
-`--init`. A config update can replace the genesis keys (rotation, immediate);
+`--init --genesis-key` (never with an offline-signed genesis). A config update can replace the genesis keys (rotation, immediate);
 its config applies at the next epoch boundary, one update at a time
 ([WIRE_SCHEMA.md](../contracts/WIRE_SCHEMA.md#config-updates)).
 

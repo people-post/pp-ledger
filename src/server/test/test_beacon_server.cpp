@@ -2,6 +2,7 @@
 #include "CertificateStore.h"
 #include "EquivocationStore.h"
 #include "../chain/AccountBuffer.h"
+#include "../operation/Operation.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
 #include "TestTempPath.h"
@@ -103,6 +104,30 @@ struct GenesisSetup {
     }
   }
 
+  /** --plan-genesis, then each of `signers` signs its own copy and the copies merge (offline genesis). */
+  std::string signedGenesis(int64_t startTime, const std::vector<utl::MlDsaKeyPair> &signers) const {
+    const std::string plan = (dir / "plan.json").string();
+    std::filesystem::remove(plan);
+    BeaconServer planner;
+    EXPECT_TRUE(planner.planGenesis(dir.string(), plan, startTime).isOk());
+    std::vector<operation::Operation> copies;
+    for (const auto &signer : signers) {
+      auto copy = operation::load(plan);
+      EXPECT_TRUE(copy.isOk());
+      EXPECT_TRUE(operation::sign(copy.value(), signer.privateKey).isOk());
+      copies.push_back(copy.value());
+    }
+    const std::string out = (dir / "signed.json").string();
+    std::filesystem::remove(out);
+    EXPECT_TRUE(operation::save(operation::merge(copies).value(), out).isOk());
+    return out;
+  }
+
+  BeaconServer::Roe<void> initSigned(const std::string &operationPath) const {
+    BeaconServer server;
+    return server.initSigned(dir.string(), operationPath);
+  }
+
   /** Run --init in its own scope (a live server keeps ledger files open). */
   BeaconServer::Roe<void> init(const std::vector<std::string> &genesisKeyFiles) const {
     BeaconServer server;
@@ -155,6 +180,50 @@ TEST(BeaconServerInitTest, GenesisUsesTheConfiguredPublicKeysAndWritesNoKeys) {
   EXPECT_EQ(registrar.value().wallet.publicKeys, std::vector<std::string>{setup.registrar[0].publicKey});
   const auto &balances = registrar.value().wallet.mBalances;
   EXPECT_TRUE(balances.empty() || balances.at(AccountBuffer::ID_GENESIS) == 0);
+}
+
+// AD003 (offline genesis): the beacon plans block 0, the admins sign it apart, the beacon writes
+// it — no genesis private key on this host. The network starts at the planned time.
+TEST(BeaconServerInitTest, AGenesisSignedOfflineStartsTheChainAtItsPlannedTime) {
+  GenesisSetup setup("pp-ledger-beacon-offline-genesis-test");
+  setup.writeInitConfig();
+  const int64_t start = utl::getCurrentTime() + 600;
+  const std::string signedOp = setup.signedGenesis(start, {setup.genesis[0], setup.genesis[2]});
+  auto init = setup.initSigned(signedOp);
+  ASSERT_TRUE(init.isOk()) << init.error().message;
+
+  const Chain::GenesisAccountMeta gm = setup.genesisMeta();
+  EXPECT_EQ(gm.config.genesisTime, start);
+  EXPECT_EQ(gm.genesis.wallet.publicKeys.size(), 3u);
+  Beacon beacon;
+  Beacon::MountConfig mount;
+  mount.workDir = (setup.dir / "data").string();
+  ASSERT_TRUE(beacon.mount(mount).isOk());
+  EXPECT_EQ(beacon.getNetworkId(), "test-net");
+  auto reserve = beacon.getAccount(AccountBuffer::ID_RESERVE);
+  ASSERT_TRUE(reserve.isOk());
+  EXPECT_EQ(reserve.value().wallet.publicKeys, std::vector<std::string>{setup.reserve[0].publicKey});
+  EXPECT_GT(reserve.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS), 0);
+}
+
+// A signed genesis is written only when complete, and only by the beacon whose key it certifies.
+TEST(BeaconServerInitTest, AnOfflineGenesisNeedsItsQuorumAndThisBeaconsKey) {
+  GenesisSetup setup("pp-ledger-beacon-offline-genesis-refused-test");
+  setup.writeInitConfig();
+  const std::string oneSignature = setup.signedGenesis(utl::getCurrentTime(), {setup.genesis[1]});
+  auto shortOfQuorum = setup.initSigned(oneSignature);
+  ASSERT_FALSE(shortOfQuorum.isOk());
+  EXPECT_NE(shortOfQuorum.error().message.find("Signed by 1 of the 2"), std::string::npos)
+      << shortOfQuorum.error().message;
+
+  const std::string complete = setup.signedGenesis(utl::getCurrentTime(), {setup.genesis[0], setup.genesis[1]});
+  std::filesystem::remove(setup.dir / BeaconServer::FILE_BEACON_SIGNING_KEY);
+  std::filesystem::remove(setup.dir / BeaconServer::FILE_BEACON_SIGNING_PUB);
+  auto otherBeacon = setup.initSigned(complete);
+  ASSERT_FALSE(otherBeacon.isOk());
+  EXPECT_NE(otherBeacon.error().message.find("plan the genesis with this beacon's key"), std::string::npos)
+      << otherBeacon.error().message;
+  EXPECT_FALSE(std::filesystem::exists(setup.dir / "data" / "ledger"));
 }
 
 // beacon-authority ba1: --init writes the beacon signing key pair and the genesis record carries the

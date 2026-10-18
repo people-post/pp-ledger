@@ -46,6 +46,19 @@ public:
   Roe<void> init(const std::string& workDir, const std::vector<std::string>& genesisKeyFiles, bool force = false,
                  const std::string& importStatePath = "");
 
+  /**
+   * --plan-genesis: block 0 as init-config.json and this beacon's signing key say, starting at
+   * `startTime` (Unix seconds), written unsigned to `outputPath` as a genesis operation file
+   * (docs/contracts/OPERATION_FILE.md) for the admin keys to sign offline.
+   */
+  Roe<void> planGenesis(const std::string& workDir, const std::string& outputPath, int64_t startTime,
+                        const std::string& notes = "");
+  /**
+   * --init --genesis-op: write block 0 from a genesis operation signed by the admin quorum. Its
+   * generation-1 beacon key must be this beacon's; no genesis private key comes near this host.
+   */
+  Roe<void> initSigned(const std::string& workDir, const std::string& operationPath, bool force = false);
+
   Service::Roe<void> run(const std::string &workDir) override {
     return Server::run(workDir);
   }
@@ -175,6 +188,9 @@ private:
     NetworkConfig network;
     Chain::CheckpointConfig checkpoint;
   };
+
+  /** init-config.json (and a re-genesis's snapshot) as the genesis it describes, with no signer yet. */
+  Roe<Beacon::InitConfig> prepareInit(const std::string& workDir, const std::string& importStatePath);
 
   /** `tipKeys`: sign the tip the init wrote (a re-genesis's last import block, B032); none: unsigned. */
   Roe<void> initFromWorkDir(const Beacon::InitConfig& config, bool force,

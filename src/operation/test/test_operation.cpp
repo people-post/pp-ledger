@@ -191,6 +191,100 @@ TEST(OperationTest, TheSignersAreTheAccountTheChainChecks) {
   EXPECT_FALSE(wrap(common(keys, 1, AccountIds::ID_GENESIS), record));
 }
 
+/** Block 0 by hand (the beacon builds it with chain_genesis::records): genesis meta, two accounts. */
+std::vector<Ledger::Record> genesisRecords(const Keys &admins) {
+  GenesisAccountMeta meta;
+  meta.config.networkId = "test-net";
+  meta.config.genesisTime = 1'800'000'000;
+  meta.genesis.wallet.publicKeys = admins.publicKeys();
+  meta.genesis.wallet.minSignatures = 2;
+  Ledger::TxGenesis genesisTx;
+  genesisTx.meta = meta.ltsToString();
+  std::vector<Ledger::Record> records(1);
+  records[0].type = Ledger::T_GENESIS;
+  records[0].data = utl::binaryPack(genesisTx);
+  for (uint64_t id : {AccountIds::ID_FEE, AccountIds::ID_RESERVE}) {
+    UserAccount account;
+    account.wallet.publicKeys = {admins.pairs[0].publicKey};
+    account.wallet.minSignatures = 1;
+    Ledger::TxNewUser tx;
+    tx.fromWalletId = AccountIds::ID_GENESIS;
+    tx.toWalletId = id;
+    tx.amount = id == AccountIds::ID_RESERVE ? 1'000'000 : 0;
+    tx.meta = account.ltsToString();
+    Ledger::Record record;
+    record.type = Ledger::T_NEW_USER;
+    record.data = utl::binaryPack(tx);
+    records.push_back(record);
+  }
+  return records;
+}
+
+TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
+  Keys admins(3);
+  auto op = genesis(genesisRecords(admins), "launch", 1'800'000'000);
+  ASSERT_TRUE(op) << op.error().message;
+  EXPECT_EQ(op.value().kind, Kind::Genesis);
+  EXPECT_EQ(op.value().networkId, "test-net");
+  EXPECT_EQ(op.value().signers.account, AccountIds::ID_GENESIS);
+  EXPECT_EQ(op.value().signers.minSignatures, 2u);
+  ASSERT_EQ(op.value().moreRecords.size(), 2u);
+
+  // Two admins sign their own copies: each copy carries a signature of every record.
+  auto a = fromJson(toJson(op.value())).value();
+  auto b = fromJson(toJson(op.value())).value();
+  ASSERT_TRUE(sign(a, admins.pairs[0].privateKey));
+  ASSERT_TRUE(sign(b, admins.pairs[2].privateKey));
+  EXPECT_EQ(a.moreRecords[1].signatures.size(), 1u);
+  EXPECT_FALSE(signedRecords(a));
+  auto merged = merge({fromJson(toJson(a)).value(), fromJson(toJson(b)).value()});
+  ASSERT_TRUE(merged) << merged.error().message;
+  EXPECT_TRUE(check(merged.value()).complete());
+  auto records = signedRecords(merged.value());
+  ASSERT_TRUE(records) << records.error().message;
+  ASSERT_EQ(records.value().size(), 3u);
+  for (const auto &record : records.value()) {
+    EXPECT_EQ(record.signatures.size(), 2u);
+  }
+
+  // A key that has signed some records only has not signed the operation.
+  Operation partial = a;
+  partial.moreRecords[1].signatures.clear();
+  EXPECT_TRUE(check(partial).signedBy.empty());
+  // A changed account record breaks its signatures, and copies with it no longer merge.
+  Operation tampered = merged.value();
+  auto tx = utl::binaryUnpack<Ledger::TxNewUser>(tampered.moreRecords[1].data).value();
+  tx.amount += 1;
+  tampered.moreRecords[1].data = utl::binaryPack(tx);
+  auto reread = fromJson(toJson(tampered));
+  ASSERT_TRUE(reread);
+  EXPECT_FALSE(check(reread.value()).complete());
+  EXPECT_FALSE(merge({merged.value(), reread.value()}));
+
+  auto s = summarize(merged.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Start the chain (genesis)");
+  bool reserve = false;
+  for (const auto &[label, value] : s.value().lines) {
+    reserve = reserve || (label == "Reserve" && value.rfind("1,000,000; keys 1 of 1:", 0) == 0);
+  }
+  EXPECT_TRUE(reserve);
+}
+
+TEST(OperationTest, OnlyAGenesisCarriesMoreRecords) {
+  Keys keys(2);
+  auto op = transfer(common(keys, 1, AccountIds::ID_RESERVE), AccountIds::ID_REGISTRAR, 1, 0);
+  ASSERT_TRUE(op);
+  Operation withMore = op.value();
+  withMore.moreRecords.push_back(genesisRecords(Keys(3))[1]);
+  EXPECT_FALSE(fromJson(toJson(withMore)));
+  // Nor does a genesis carry anything but accounts the genesis account creates.
+  Keys admins(3);
+  auto records = genesisRecords(admins);
+  records.push_back(op.value().record);
+  EXPECT_FALSE(genesis(records, "", 0));
+}
+
 TEST(OperationTest, AmountsAreGroupedByThousands) {
   EXPECT_EQ(groupDigits(0), "0");
   EXPECT_EQ(groupDigits(999), "999");
