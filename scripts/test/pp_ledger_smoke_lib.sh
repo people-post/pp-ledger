@@ -1151,7 +1151,7 @@ wait_for_account() {
   die "$what (account $account: ${json:-none})"
 }
 
-# Token issuers (pp-ledger-admin's token app): the reserve funds the registrar, the registrar
+# Token issuers (pp-ledger-apps's token app): the reserve funds the registrar, the registrar
 # creates an issued account, which issues its own token (a transfer of the token whose id is its
 # own: its balance of it goes negative) to a user account, then replaces its keys. Needs carol's
 # account (run_operation_file_scenario).
