@@ -1,6 +1,6 @@
 # Account recovery — design
 
-**Status:** ar1–ar2 built (pp-ledger); ar3–ar4 next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** built: the rules and pp-client here (ar1–ar2, normative in [WIRE_SCHEMA § Account recovery](../../docs/contracts/WIRE_SCHEMA.md#account-recovery)), the wallet and token app in pp-ledger-apps (ar3), docs (ar4). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Today an account whose keys are all lost is lost: nothing can sign for it again. The genesis account
@@ -79,10 +79,12 @@ set, never a pending announcement).
 
 ## In pp-ledger-apps
 
-- **Wallet:** an account's *Recovery*: set or change its recovery set (keys from key cards or the vault —
-  a backup key kept offline, friends' keys) and the delay (in days, as epochs); a pending announcement
-  shown on Accounts, proven, with *Cancel the recovery*; *Recover an account* for recovery-key holders.
-- **Token app:** the same for an issuer.
+- **Wallet:** an account's *Recovery*: set or change its recovery set (keys from key cards — a backup
+  key kept in another wallet, friends' keys) and the delay (in days, as epochs); a pending announcement
+  shown on Accounts, proven, with *Cancel the recovery*; *Recover an account* for recovery-key holders
+  (the owner's key card, or a new key made there).
+- **Token app:** an issuer's recovery set on Signers (set, remove, cancel), the announcement on
+  Overview; its recovery-key holders recover it with the wallet.
 
 ## Phases
 

@@ -30,7 +30,7 @@ Do not put phase status in `AGENTS.md`.
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
 | [platform-integration](platform-integration/DESIGN.md) | Ledger roles in pp-node (gateway) and pp-browser (client, optional miner) over Amp |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
-| [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set names new keys after a delay; the owner can cancel, the account is not frozen |
+| [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set names new keys after a delay; the owner can cancel, the account is not frozen (built: [WIRE_SCHEMA § Account recovery](../docs/contracts/WIRE_SCHEMA.md#account-recovery)) |
 
 ## Done / archived
 
