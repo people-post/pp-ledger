@@ -10,6 +10,7 @@
 #include "lib/common/Utilities.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <set>
 
@@ -19,7 +20,7 @@ namespace {
 
 /** The minimum fee of `tx` under `config` (the fee bills the account's custom meta). */
 pp::Roe<uint64_t> minimumFee(const BlockChainConfig &config, const Ledger::TxNewUser &tx) {
-  auto fee = minimumFeeFor(config, Ledger::TypedTx(tx));
+  auto fee = minimumFeeFor(config, Ledger::TypedTx(tx), /*afterGenesis=*/false);
   if (!fee) {
     return pp::Error(fee.error().message);
   }
@@ -103,6 +104,37 @@ pp::Roe<std::pair<std::vector<Ledger::Record>, int64_t>> minerRecords(const Bloc
 }
 
 } // namespace
+
+BlockChainConfig defaultConfig(const std::string &networkId) {
+  BlockChainConfig config;
+  config.networkId = networkId;
+  config.slotDuration = defaults::kSlotDuration;
+  config.slotsPerEpoch = defaults::kSlotsPerEpoch;
+  config.maxCustomMetaSize = defaults::kMaxCustomMetaSize;
+  config.maxTransactionsPerBlock = defaults::kMaxTransactionsPerBlock;
+  config.maxBlockBytes = defaults::kMaxBlockBytes;
+  config.minFeeCoefficients.assign(std::begin(defaults::kMinFeeCoefficients), std::end(defaults::kMinFeeCoefficients));
+  config.freeCustomMetaSize = static_cast<uint32_t>(defaults::kFreeCustomMetaSize);
+  config.checkpoint.minBlocks = defaults::kCheckpointMinBlocks;
+  config.checkpoint.minAgeSeconds = defaults::kCheckpointMinAgeSeconds;
+  config.maxValidationTimespanSeconds = defaults::kMaxValidationTimespanSeconds;
+  config.heartbeatSlots = defaults::kSlotsPerEpoch;
+  config.minerDueAfterSlots = (defaults::kMinerDueSeconds + defaults::kSlotDuration - 1) / defaults::kSlotDuration;
+  config.minerMaxMissedSlots = defaults::kMinerMaxMissedSlots;
+  return config;
+}
+
+uint64_t defaultRecoveryDelayEpochs(const BlockChainConfig &config) {
+  const uint64_t epochSeconds = config.slotDuration * config.slotsPerEpoch;
+  if (epochSeconds == 0) {
+    return 1;
+  }
+  return std::max<uint64_t>(1, (defaults::kRecoveryDelaySeconds + epochSeconds - 1) / epochSeconds);
+}
+
+uint64_t defaultMinerStake(size_t withoutStake) {
+  return withoutStake == 0 ? 0 : AccountBuffer::INITIAL_TOKEN_SUPPLY / defaults::kGenesisMinerStakeShare / withoutStake;
+}
 
 UserAccount accountOf(const AccountKeys &keys, int64_t balance, const std::string &meta) {
   UserAccount account;

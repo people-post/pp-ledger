@@ -108,10 +108,12 @@ private:
 };
 
 /**
- * The least fee `tx` may carry under `config`: what a validator requires of its billable metadata
- * (the same rule, from a handler table of its own). For tools building transactions.
+ * The least fee `tx` may carry under `config`, by the validators' rules (from a handler table of its
+ * own): the fee for its billable metadata, and — for a new account after genesis (`afterGenesis`) —
+ * the config's flat newAccountFee. For tools building transactions.
  */
-chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx);
+chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx,
+                                      bool afterGenesis = true);
 
 } // namespace pp
 

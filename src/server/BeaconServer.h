@@ -22,7 +22,7 @@ namespace pp {
 class BeaconServer : public Server {
 public:
   /** Recovery delay when init-config omits `recovery.delayEpochs`: about 30 days (beacon-authority B007). */
-  constexpr static const uint64_t DEFAULT_RECOVERY_DELAY_SECONDS = 30ULL * 24 * 60 * 60;
+  constexpr static const uint64_t DEFAULT_RECOVERY_DELAY_SECONDS = chain_genesis::defaults::kRecoveryDelaySeconds;
   /** Beacon signing key pair under the work dir (same format as `pp-client keygen -o`). */
   constexpr static const char *FILE_BEACON_SIGNING_KEY = "keys/beacon-signing.key";
   constexpr static const char *FILE_BEACON_SIGNING_PUB = "keys/beacon-signing.pub";
@@ -105,24 +105,24 @@ private:
   constexpr static const char* FILE_SIGNATURE = ".signature";
   constexpr static const char* DIR_DATA = "data";
 
-  // Default configuration values
-  constexpr static const uint64_t DEFAULT_SLOT_DURATION = 7; // 7 seconds per slot
-  constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = static_cast<uint64_t>(24) * 3600; // 7 days per epoch
-  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = static_cast<uint64_t>(1) * 1024 * 1024; // 1MB
-  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = static_cast<uint64_t>(10) * 1024; // 10K
-  constexpr static const uint64_t DEFAULT_MAX_BLOCK_BYTES = static_cast<uint64_t>(4) * 1024 * 1024; // 4 MiB (B034)
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = 1;  // Base fee per transaction
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = 1;  // Fee per custom meta KiB
-  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = 1;  // Fee per custom meta KiB^2
-  constexpr static const uint64_t DEFAULT_FREE_CUSTOM_META_SIZE = 1024; // 1KiB free custom meta size
+  // Default configuration values: chain_genesis::defaults (the Genesis app starts from the same).
+  constexpr static const uint64_t DEFAULT_SLOT_DURATION = chain_genesis::defaults::kSlotDuration;
+  constexpr static const uint64_t DEFAULT_SLOTS_PER_EPOCH = chain_genesis::defaults::kSlotsPerEpoch;
+  constexpr static const uint64_t DEFAULT_MAX_CUSTOM_META_SIZE = chain_genesis::defaults::kMaxCustomMetaSize;
+  constexpr static const uint64_t DEFAULT_MAX_TRANSACTIONS_PER_BLOCK = chain_genesis::defaults::kMaxTransactionsPerBlock;
+  constexpr static const uint64_t DEFAULT_MAX_BLOCK_BYTES = chain_genesis::defaults::kMaxBlockBytes;
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_A = chain_genesis::defaults::kMinFeeCoefficients[0];
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_B = chain_genesis::defaults::kMinFeeCoefficients[1];
+  constexpr static const uint16_t DEFAULT_MIN_FEE_COEFF_C = chain_genesis::defaults::kMinFeeCoefficients[2];
+  constexpr static const uint64_t DEFAULT_FREE_CUSTOM_META_SIZE = chain_genesis::defaults::kFreeCustomMetaSize;
 
   // Checkpoint configuration values
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = 1 << 20; // 1 million blocks
-  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = static_cast<uint64_t>(365) * 24 * 3600; // 1 year (365 days)
-  constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = 86400; // 24 hours
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_BLOCKS = chain_genesis::defaults::kCheckpointMinBlocks;
+  constexpr static const uint64_t DEFAULT_CHECKPOINT_MIN_AGE_SECONDS = chain_genesis::defaults::kCheckpointMinAgeSeconds;
+  constexpr static const uint64_t DEFAULT_MAX_VALIDATION_TIMESPAN_SECONDS = chain_genesis::defaults::kMaxValidationTimespanSeconds;
   /** Default miner due period when omitted: one day of slots. */
-  constexpr static const uint64_t DEFAULT_MINER_DUE_SECONDS = 86400;
-  constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = 3;
+  constexpr static const uint64_t DEFAULT_MINER_DUE_SECONDS = chain_genesis::defaults::kMinerDueSeconds;
+  constexpr static const uint64_t DEFAULT_MINER_MAX_MISSED_SLOTS = chain_genesis::defaults::kMinerMaxMissedSlots;
 
   struct InitFileConfig {
     /** This chain's name; part of genesis (signatures and the epoch seed bind to it). */
@@ -173,7 +173,7 @@ private:
   };
 
   /** Default genesis miner stake: an equal share of 1/GENESIS_MINER_STAKE_SHARE of the supply. */
-  constexpr static const uint64_t GENESIS_MINER_STAKE_SHARE = 10;
+  constexpr static const uint64_t GENESIS_MINER_STAKE_SHARE = chain_genesis::defaults::kGenesisMinerStakeShare;
 
   /** config.json: the fields every node reads (NodeConfig). */
   struct RunFileConfig : NodeConfig {

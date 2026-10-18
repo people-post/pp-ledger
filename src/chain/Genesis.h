@@ -48,6 +48,35 @@ struct Plan {
   ChainAuthority authority;
 };
 
+/** What a new network starts with unless its plan says otherwise (pp-beacon --init, the Genesis app). */
+namespace defaults {
+inline constexpr uint64_t kSlotDuration = 7;                                       ///< seconds
+inline constexpr uint64_t kSlotsPerEpoch = 24ULL * 3600;                           ///< 7 days of 7 s slots
+inline constexpr uint64_t kMaxCustomMetaSize = 1ULL * 1024 * 1024;                 ///< 1 MiB
+inline constexpr uint64_t kMaxTransactionsPerBlock = 10ULL * 1024;
+inline constexpr uint64_t kMaxBlockBytes = 4ULL * 1024 * 1024;                     ///< 4 MiB (B034)
+inline constexpr uint16_t kMinFeeCoefficients[3] = {1, 1, 1};                     ///< a + b·KiB + c·KiB²
+inline constexpr uint64_t kFreeCustomMetaSize = 1024;
+inline constexpr uint64_t kCheckpointMinBlocks = 1ULL << 20;
+inline constexpr uint64_t kCheckpointMinAgeSeconds = 365ULL * 24 * 3600;
+inline constexpr uint64_t kMaxValidationTimespanSeconds = 86400;
+inline constexpr uint64_t kMinerDueSeconds = 86400;                                ///< a day of slots
+inline constexpr uint64_t kMinerMaxMissedSlots = 3;
+inline constexpr uint64_t kRecoveryDelaySeconds = 30ULL * 24 * 60 * 60;            ///< about a month
+/** Genesis miners without a stake share 1/kGenesisMinerStakeShare of the supply. */
+inline constexpr uint64_t kGenesisMinerStakeShare = 10;
+} // namespace defaults
+
+/**
+ * The default config of network `networkId`: the defaults above; heartbeats every epoch, miners due
+ * after a day of slots, no minting until a config update allows it, no flat new-account fee.
+ */
+BlockChainConfig defaultConfig(const std::string &networkId);
+/** About kRecoveryDelaySeconds of `config`'s epochs, at least 1. */
+uint64_t defaultRecoveryDelayEpochs(const BlockChainConfig &config);
+/** Each of `withoutStake` genesis miners' default stake. */
+uint64_t defaultMinerStake(size_t withoutStake);
+
 /** An account of `keys` holding `balance` of the native token. */
 UserAccount accountOf(const AccountKeys &keys, int64_t balance, const std::string &meta);
 
