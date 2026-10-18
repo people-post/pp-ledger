@@ -49,6 +49,57 @@ int initBeacon(const std::string& workDir, const std::vector<std::string>& genes
   return 0;
 }
 
+int initBeaconSigned(const std::string& workDir, const std::string& operationPath, bool force) {
+  pp::BeaconServer beaconServer;
+  beaconServer.redirectLogger("pp.BeaconServer");
+  if (auto result = beaconServer.initSigned(workDir, operationPath, force); !result) {
+    std::cerr << "Error: Failed to initialize beacon: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Beacon initialized from the signed genesis " << operationPath << ".\n"
+            << "You can now start the beacon with: pp-beacon -d " << workDir << "\n";
+  return 0;
+}
+
+/** `start`: Unix seconds, or +N seconds from now; empty: now. */
+pp::Roe<int64_t> parseStart(const std::string& start) {
+  const int64_t now = pp::utl::getCurrentTime();
+  if (start.empty()) {
+    return now;
+  }
+  try {
+    size_t used = 0;
+    const bool relative = start.front() == '+';
+    const long long value = std::stoll(relative ? start.substr(1) : start, &used);
+    if (used != start.size() - (relative ? 1 : 0) || value < 0) {
+      throw std::invalid_argument(start);
+    }
+    return relative ? now + value : static_cast<int64_t>(value);
+  } catch (const std::exception&) {
+    return pp::Error("--start: Unix seconds, or +N seconds from now: " + start);
+  }
+}
+
+int planGenesis(const std::string& workDir, const std::string& outputPath, const std::string& start,
+                const std::string& notes) {
+  auto startTime = parseStart(start);
+  if (!startTime) {
+    std::cerr << "Error: " << startTime.error().message << "\n";
+    return 1;
+  }
+  pp::BeaconServer beaconServer;
+  beaconServer.redirectLogger("pp.BeaconServer");
+  if (auto result = beaconServer.planGenesis(workDir, outputPath, startTime.value(), notes); !result) {
+    std::cerr << "Error: Failed to plan the genesis: " << result.error().message << "\n";
+    return 1;
+  }
+  std::cout << "Genesis plan written to " << outputPath << "; the network starts at "
+            << pp::utl::formatTimestampLocal(startTime.value()) << ".\n"
+            << "Each admin key holder signs a copy (pp-client op sign); merge them (pp-client op merge), then:\n"
+            << "  pp-beacon -d " << workDir << " --init --genesis-op <signed file>\n";
+  return 0;
+}
+
 int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote, bool acceptLedgerTip,
               const std::string& logFile) {
   auto logger = pp::logging::getLogger("pp");
@@ -101,6 +152,22 @@ int main(int argc, char *argv[]) {
       ->envname("PP_GENESIS_KEY_FILES")
       ->delimiter(',');
 
+  std::string genesisOp;
+  app.add_option("--genesis-op", genesisOp,
+                 "--init only: write the genesis signed offline in this operation file (--plan-genesis, then "
+                 "pp-client op sign / merge) instead of signing with --genesis-key");
+
+  std::string planGenesisOut;
+  app.add_option("--plan-genesis", planGenesisOut,
+                 "Write the genesis init-config.json and this beacon's key describe, unsigned, to this operation "
+                 "file, for the admin keys to sign offline (docs/contracts/OPERATION_FILE.md)");
+  std::string planStart;
+  app.add_option("--start", planStart,
+                 "--plan-genesis only: when the network starts — Unix seconds, or +N seconds from now (default: "
+                 "now). Leave the signers time: nodes wait at slot 0 until then");
+  std::string planNotes;
+  app.add_option("--notes", planNotes, "--plan-genesis only: a note for the signers");
+
   bool forceInit = false;
   app.add_flag("--force", forceInit, "--init only: replace an existing chain (data/) — destroys it");
 
@@ -131,6 +198,10 @@ int main(int argc, char *argv[]) {
     "  pp-beacon -d <dir> --init --genesis-key genesis.key [--genesis-key ...]\n"
     "  init-config.json sets networkId and the system accounts' public keys\n"
     "  (pp-client keygen -o <name>); a missing file is created as a template.\n"
+    "Or with the genesis keys kept offline:\n"
+    "  pp-beacon -d <dir> --plan-genesis plan.json [--start +3600]\n"
+    "  (each admin: pp-client op sign; then pp-client op merge ... -o signed.json)\n"
+    "  pp-beacon -d <dir> --init --genesis-op signed.json\n"
     "\n"
     "Run:\n"
     "  pp-beacon -d <dir> [--debug]\n"
@@ -159,6 +230,24 @@ int main(int argc, char *argv[]) {
   if (initMode && promote) {
     std::cerr << "Error: --init and --promote do not go together\n";
     return 1;
+  }
+  if (!genesisOp.empty() && (!initMode || !genesisKeys.empty() || !importState.empty())) {
+    std::cerr << "Error: --genesis-op goes with --init, without --genesis-key or --import-state\n";
+    return 1;
+  }
+  if ((!planStart.empty() || !planNotes.empty()) && planGenesisOut.empty()) {
+    std::cerr << "Error: --start and --notes go with --plan-genesis\n";
+    return 1;
+  }
+  if (!planGenesisOut.empty()) {
+    if (initMode || promote) {
+      std::cerr << "Error: --plan-genesis goes alone (then --init --genesis-op with the signed plan)\n";
+      return 1;
+    }
+    return planGenesis(options.workDir, planGenesisOut, planStart, planNotes);
+  }
+  if (initMode && !genesisOp.empty()) {
+    return initBeaconSigned(options.workDir, genesisOp, forceInit);
   }
   if (initMode) {
     return initBeacon(options.workDir, genesisKeys, forceInit, importState);

@@ -30,7 +30,8 @@ UTF-8 JSON, one object. Byte strings are base64 (RFC 4648, with padding), except
 | `kind` | string | `transfer`, `mint`, `new-account`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
 | `record` | object | `type` (the record type, integer) and `data` (base64 of the packed payload): what is signed |
 | `signers` | object | `account` (integer; absent for a key set), `minSignatures` (integer ≥ 1), `publicKeys` (base64 ML-DSA-65 public keys) |
-| `signatures` | array | Base64 ML-DSA-65 signatures collected, in any order |
+| `signatures` | array | Base64 ML-DSA-65 signatures of `record` collected, in any order |
+| `moreRecords` | array | A `genesis` only (§ Genesis): block 0's further records, each `{type, data, signatures}` |
 | `notes` | string | The creator's free text |
 | `createdAt` | integer | Unix seconds when the operation was made |
 
@@ -49,9 +50,9 @@ a signature in the file is exactly a signature the node checks.
   operation does.
 - **Signatures.** A signature counts when it verifies under one of `signers.publicKeys` and that
   key has not been counted already; others are invalid (shown, never submitted). Only a signer
-  signs, and each key once.
-- **Merge.** Copies merge when everything but `signatures` is identical; the result keeps the valid
-  signatures, one per key, in `publicKeys` order.
+  signs, and each key once. With `moreRecords`, a key has signed once it has signed every record.
+- **Merge.** Copies merge when everything but the signatures is identical; the result keeps the
+  valid signatures of each record, one per key, in `publicKeys` order.
 - **Submit.** Only with `minSignatures` valid signatures; the node's network id must be
   `networkId`, and its block 0 hash `genesisHash` when one is named. The submitted record carries
   the valid signatures only. Submitting again is harmless (the pool keeps one copy; the chain one
@@ -73,6 +74,27 @@ a signature in the file is exactly a signature the node checks.
 | `genesis` | `T_GENESIS` | The genesis account, 0 |
 | `record` | Any other type | Not checked |
 
+## Genesis
+
+Block 0 signed offline: the genesis keys never reach the beacon host.
+
+- `record` is the genesis record (`T_GENESIS`); `moreRecords` the rest of block 0, in order — the
+  fee, reserve, registrar and recycle accounts, then the genesis miners (`T_NEW_USER` from the
+  genesis account, each). A reader refuses `moreRecords` in any other kind, and any record there
+  but such an account.
+- `networkId` and `signers` (account 0, the admin keys and threshold) are the genesis record's;
+  `genesisHash` is empty (there is no block 0 yet).
+- The genesis record's config names the network's start (`genesisTime`): nodes stay at slot 0
+  until then. A late start is harmless (missed slots are charged within the first block's epoch
+  only, as when miners come up after any start).
+- `pp-beacon -d DIR --plan-genesis FILE [--start T] [--notes TEXT]` writes the plan from `DIR`'s
+  `init-config.json`, certifying `DIR`'s beacon signing key (made if missing). `--start`: Unix
+  seconds or `+N` seconds from now; default now.
+- `pp-beacon -d DIR --init --genesis-op FILE` writes block 0 from a complete genesis operation; it
+  refuses one certifying another beacon key, and one short of its quorum. The chain checks every
+  record's signatures as it would those of a key-signed genesis.
+- A re-genesis (`--import-state`) is still signed with `--genesis-key` on the beacon host.
+
 ## Commands
 
 `pp-client op …` ([SETUP.md § Client](../ops/SETUP.md#client)):
@@ -86,7 +108,7 @@ a signature in the file is exactly a signature the node checks.
 | `op show FILE` | What it does, its deadline, who signed (key fingerprints), whether complete | No |
 | `op sign FILE -k KEY [-o OUT]` | Add a signature (replaces FILE unless `-o`) | No |
 | `op merge FILE… -o OUT` | Merge signed copies | No |
-| `op submit FILE` | Submit a complete operation (`-b --host <relay or beacon>`) | Yes |
+| `op submit FILE` | Submit a complete operation (`-b --host <relay or beacon>`); not a genesis (§ Genesis) | Yes |
 
 Creators take `--valid-for SECONDS` (default 86400; the window opens a minute before now),
 `--notes`, and, offline, `--network-id`, `--genesis-hash`, `--signer-key` (repeat) and

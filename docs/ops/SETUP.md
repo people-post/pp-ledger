@@ -21,6 +21,18 @@ mkdir -p beacon
 ./app/pp-beacon -d beacon --init --genesis-key genesis1.key --genesis-key genesis2.key
 ```
 
+Or keep the genesis keys off the beacon host: the beacon plans block 0, each genesis key holder
+signs a copy offline, and the beacon writes the signed result
+([OPERATION_FILE.md § Genesis](../contracts/OPERATION_FILE.md#genesis)):
+
+```bash
+./app/pp-beacon -d beacon --plan-genesis plan.json --start +86400   # the network starts in a day
+# each holder, on their own machine, a copy of plan.json:
+./app/pp-client op show copy1.json && ./app/pp-client op sign copy1.json -k genesis1.key
+./app/pp-client op merge copy1.json copy2.json -o signed.json
+./app/pp-beacon -d beacon --init --genesis-op signed.json
+```
+
 This creates the genesis block (block 0) declaring the system accounts and any
 genesis miners by public key. The genesis keys are the chain's admin keys:
 keep them offline. The recovery keys can replace the admin keys (after a delay of about a month;

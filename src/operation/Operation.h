@@ -52,8 +52,14 @@ struct Operation {
   /** The record without its signatures: type and data, what is signed. */
   Ledger::Record record;
   SignerSet signers;
-  /** Raw signatures collected, in any order (each by a distinct key of `signers`). */
+  /** Raw signatures of `record` collected, in any order (each by a distinct key of `signers`). */
   std::vector<std::string> signatures;
+  /**
+   * A genesis only: block 0's records after the genesis record (system accounts, genesis miners),
+   * signed by the same keys; each carries its own signatures in `signatures`. A key has signed the
+   * operation once it has signed every record.
+   */
+  std::vector<Ledger::Record> moreRecords;
   /** The creator's free text: shown as theirs, never as what the operation does. */
   std::string notes;
   int64_t createdAt{0};
@@ -77,9 +83,9 @@ pp::Roe<void> save(const Operation &op, const std::string &path, bool overwrite 
 std::string fingerprint(const std::string &publicKey);
 
 struct SignatureCheck {
-  /** The keys that signed (a valid signature each), in `signers.publicKeys` order. */
+  /** The keys that signed (a valid signature of every record), in `signers.publicKeys` order. */
   std::vector<std::string> signedBy;
-  /** Signatures that verify under no listed key, or repeat a key already counted. */
+  /** Signatures (of any record) that verify under no listed key, or repeat a key already counted. */
   size_t invalid{0};
   uint32_t needed{0};
   bool complete() const { return signedBy.size() >= needed; }
@@ -88,8 +94,8 @@ struct SignatureCheck {
 SignatureCheck check(const Operation &op);
 
 /**
- * Sign `op` with `privateKey`: the key must be one of the signers', and not have signed already.
- * Returns the public key that signed.
+ * Sign `op` (every record) with `privateKey`: the key must be one of the signers', and not have
+ * signed already. Returns the public key that signed.
  */
 pp::Roe<std::string> sign(Operation &op, const std::string &privateKey);
 
@@ -101,6 +107,8 @@ pp::Roe<Operation> merge(const std::vector<Operation> &copies);
 
 /** The record as a node takes it: with the valid signatures. Refused short of the quorum. */
 pp::Roe<Ledger::Record> signedRecord(const Operation &op);
+/** Every record (`record`, then `moreRecords`) with its valid signatures. Refused short of the quorum. */
+pp::Roe<std::vector<Ledger::Record>> signedRecords(const Operation &op);
 
 /** What an operation does, for people: recomputed from the record, every time. */
 struct Summary {
@@ -145,5 +153,11 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
                               uint64_t fee);
 /** A record built elsewhere (pp-client mk-beacon-cert, mk-recovery, mk-tx), its signatures dropped. */
 pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record);
+/**
+ * Block 0 to sign offline (chain_genesis::records): the genesis record first. Its network and
+ * signers (the genesis account's keys) come from the genesis record; no genesis hash (there is no
+ * block 0 yet).
+ */
+pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std::string &notes, int64_t createdAt);
 
 } // namespace pp::operation

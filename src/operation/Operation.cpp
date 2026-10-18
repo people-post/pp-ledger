@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 #include <variant>
 
 namespace pp::operation {
@@ -57,15 +58,15 @@ uint64_t randomNonZero() {
   return value;
 }
 
-/** Each signature matched to the first listed key it verifies under and that has not signed. */
-std::vector<std::optional<size_t>> matchSignatures(const Operation &op) {
-  const std::string message = signingMessage(op);
-  std::vector<bool> used(op.signers.publicKeys.size(), false);
+/** Each of `signatures` matched to the first of `keys` it verifies under (of `message`) not yet matched. */
+std::vector<std::optional<size_t>> matchSignatures(const std::vector<std::string> &keys, const std::string &message,
+                                                   const std::vector<std::string> &signatures) {
+  std::vector<bool> used(keys.size(), false);
   std::vector<std::optional<size_t>> matched;
-  for (const auto &signature : op.signatures) {
+  for (const auto &signature : signatures) {
     std::optional<size_t> key;
-    for (size_t i = 0; i < op.signers.publicKeys.size(); ++i) {
-      if (!used[i] && utl::mlDsaVerify(op.signers.publicKeys[i], message, signature)) {
+    for (size_t i = 0; i < keys.size(); ++i) {
+      if (!used[i] && utl::mlDsaVerify(keys[i], message, signature)) {
         key = i;
         used[i] = true;
         break;
@@ -76,13 +77,14 @@ std::vector<std::optional<size_t>> matchSignatures(const Operation &op) {
   return matched;
 }
 
-/** The valid signatures, one per key, in key order. */
-std::vector<std::string> validSignatures(const Operation &op) {
-  const auto matched = matchSignatures(op);
+/** The valid ones of `signatures`, one per key, in key order. */
+std::vector<std::string> validSignatures(const std::vector<std::string> &keys, const std::string &message,
+                                         const std::vector<std::string> &signatures) {
+  const auto matched = matchSignatures(keys, message, signatures);
   std::vector<std::pair<size_t, std::string>> byKey;
   for (size_t i = 0; i < matched.size(); ++i) {
     if (matched[i]) {
-      byKey.emplace_back(*matched[i], op.signatures[i]);
+      byKey.emplace_back(*matched[i], signatures[i]);
     }
   }
   std::sort(byKey.begin(), byKey.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
@@ -91,6 +93,22 @@ std::vector<std::string> validSignatures(const Operation &op) {
     out.push_back(std::move(entry.second));
   }
   return out;
+}
+
+/** A record of an operation and the signatures collected for it. */
+template <typename Signatures> struct Part {
+  const Ledger::Record *record;
+  Signatures *signatures;
+};
+
+/** `record` with `signatures`, then each of `moreRecords` with its own (const as `op` is). */
+template <typename Op> auto partsOf(Op &op) {
+  using Signatures = std::conditional_t<std::is_const_v<Op>, const std::vector<std::string>, std::vector<std::string>>;
+  std::vector<Part<Signatures>> parts{{&op.record, &op.signatures}};
+  for (auto &more : op.moreRecords) {
+    parts.push_back({&more, &more.signatures});
+  }
+  return parts;
 }
 
 std::string accountName(uint64_t id) {
@@ -216,6 +234,29 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
 
 std::string signingMessage(const Operation &op) { return op.record.signingMessage(op.networkId); }
 
+static std::vector<Value> base64All(const std::vector<std::string> &items) {
+  std::vector<Value> out;
+  for (const auto &item : items) {
+    out.emplace_back(toBase64(item));
+  }
+  return out;
+}
+
+static pp::Roe<std::vector<std::string>> fromBase64All(const pp::common::Array *array, const std::string &what) {
+  std::vector<std::string> out;
+  if (!array) {
+    return out;
+  }
+  for (const auto &value : array->elements) {
+    auto bytes = fromBase64(pp::common::asString(value).value_or(""));
+    if (!bytes) {
+      return pp::Error("Operation file has a malformed " + what);
+    }
+    out.push_back(std::move(*bytes));
+  }
+  return out;
+}
+
 std::string toJson(const Operation &op) {
   Object record;
   record.setJsonUInt("type", op.record.type);
@@ -243,6 +284,17 @@ std::string toJson(const Operation &op) {
   root.set("record", record);
   root.set("signers", signers);
   root.set("signatures", Object::array(std::move(signatures)));
+  if (!op.moreRecords.empty()) {
+    std::vector<Value> more;
+    for (const auto &extra : op.moreRecords) {
+      auto entry = std::make_shared<Object>();
+      entry->setJsonUInt("type", extra.type);
+      entry->set("data", toBase64(extra.data));
+      entry->set("signatures", Object::array(base64All(extra.signatures)));
+      more.emplace_back(std::move(entry));
+    }
+    root.set("moreRecords", Object::array(std::move(more)));
+  }
   root.set("notes", op.notes);
   root.set("createdAt", static_cast<int64_t>(op.createdAt));
   return pp::common::io::objectToJsonString(root, 2) + "\n";
@@ -345,6 +397,32 @@ pp::Roe<Operation> fromJson(const std::string &json) {
       op.signatures.push_back(*signature);
     }
   }
+  if (const auto *more = root.getArray("moreRecords")) {
+    if (op.kind != Kind::Genesis) {
+      return pp::Error("Operation file: only a genesis carries more records");
+    }
+    for (const auto &value : more->elements) {
+      const Object *entry = pp::common::asObject(value);
+      const auto moreType = entry ? entry->getNonNegInt("type") : std::nullopt;
+      const auto moreData = entry ? fromBase64(entry->getString("data").value_or("")) : std::nullopt;
+      if (!moreType || *moreType > UINT16_MAX || !moreData) {
+        return pp::Error("Operation file has a malformed record in moreRecords");
+      }
+      Ledger::Record extra;
+      extra.type = static_cast<uint16_t>(*moreType);
+      extra.data = *moreData;
+      // Block 0 creates the system accounts and miners, each signed by the genesis account.
+      if (extra.type != Ledger::T_NEW_USER || !extra.decode() || signerAccountOf(extra) != AccountIds::ID_GENESIS) {
+        return pp::Error("Operation file: a genesis's more records are accounts the genesis account creates");
+      }
+      auto signatures = fromBase64All(entry->getArray("signatures"), "signature");
+      if (!signatures) {
+        return signatures.error();
+      }
+      extra.signatures = std::move(signatures.value());
+      op.moreRecords.push_back(std::move(extra));
+    }
+  }
   op.notes = root.getString("notes").value_or("");
   op.createdAt = root.getOrDefault("createdAt", int64_t{0});
   return op;
@@ -390,18 +468,25 @@ std::string fingerprint(const std::string &publicKey) {
 SignatureCheck check(const Operation &op) {
   SignatureCheck result;
   result.needed = op.signers.minSignatures;
-  const auto matched = matchSignatures(op);
-  std::vector<bool> signedKey(op.signers.publicKeys.size(), false);
-  for (const auto &key : matched) {
-    if (key) {
-      signedKey[*key] = true;
-    } else {
-      ++result.invalid;
+  const auto &keys = op.signers.publicKeys;
+  std::vector<bool> signedAll(keys.size(), true);
+  for (const auto &part : partsOf(op)) {
+    const auto matched = matchSignatures(keys, part.record->signingMessage(op.networkId), *part.signatures);
+    std::vector<bool> signedThis(keys.size(), false);
+    for (const auto &key : matched) {
+      if (key) {
+        signedThis[*key] = true;
+      } else {
+        ++result.invalid;
+      }
+    }
+    for (size_t i = 0; i < keys.size(); ++i) {
+      signedAll[i] = signedAll[i] && signedThis[i];
     }
   }
-  for (size_t i = 0; i < signedKey.size(); ++i) {
-    if (signedKey[i]) {
-      result.signedBy.push_back(op.signers.publicKeys[i]);
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (signedAll[i]) {
+      result.signedBy.push_back(keys[i]);
     }
   }
   return result;
@@ -413,51 +498,96 @@ pp::Roe<std::string> sign(Operation &op, const std::string &privateKey) {
   if (!signature) {
     return pp::Error("Cannot sign: " + signature.error().message);
   }
-  std::optional<std::string> key;
-  for (const auto &candidate : op.signers.publicKeys) {
-    if (utl::mlDsaVerify(candidate, message, signature.value())) {
-      key = candidate;
-      break;
+  std::optional<size_t> key;
+  for (size_t i = 0; i < op.signers.publicKeys.size() && !key; ++i) {
+    if (utl::mlDsaVerify(op.signers.publicKeys[i], message, signature.value())) {
+      key = i;
     }
   }
   if (!key) {
     return pp::Error("This key is not one of the operation's signers");
   }
+  const std::string &publicKey = op.signers.publicKeys[*key];
   const auto already = check(op);
-  if (std::find(already.signedBy.begin(), already.signedBy.end(), *key) != already.signedBy.end()) {
-    return pp::Error("This key has signed already (" + fingerprint(*key) + ")");
+  if (std::find(already.signedBy.begin(), already.signedBy.end(), publicKey) != already.signedBy.end()) {
+    return pp::Error("This key has signed already (" + fingerprint(publicKey) + ")");
   }
-  op.signatures.push_back(signature.value());
-  return *key;
+  // Every record this key has not signed yet.
+  for (const auto &part : partsOf(op)) {
+    const std::string partMessage = part.record->signingMessage(op.networkId);
+    const auto matched = matchSignatures(op.signers.publicKeys, partMessage, *part.signatures);
+    if (std::find(matched.begin(), matched.end(), std::optional<size_t>(*key)) != matched.end()) {
+      continue;
+    }
+    auto partSignature = part.record == &op.record ? signature : utl::mlDsaSign(privateKey, partMessage);
+    if (!partSignature) {
+      return pp::Error("Cannot sign: " + partSignature.error().message);
+    }
+    part.signatures->push_back(partSignature.value());
+  }
+  return publicKey;
 }
 
 pp::Roe<Operation> merge(const std::vector<Operation> &copies) {
   if (copies.empty()) {
     return pp::Error("Nothing to merge");
   }
+  auto sameRecords = [](const Operation &a, const Operation &b) {
+    if (a.record.type != b.record.type || a.record.data != b.record.data ||
+        a.moreRecords.size() != b.moreRecords.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < a.moreRecords.size(); ++i) {
+      if (a.moreRecords[i].type != b.moreRecords[i].type || a.moreRecords[i].data != b.moreRecords[i].data) {
+        return false;
+      }
+    }
+    return true;
+  };
   Operation merged = copies.front();
   for (size_t i = 1; i < copies.size(); ++i) {
     const Operation &other = copies[i];
     if (other.networkId != merged.networkId || other.genesisHash != merged.genesisHash ||
-        other.record.type != merged.record.type || other.record.data != merged.record.data ||
-        !(other.signers == merged.signers) || other.notes != merged.notes || other.createdAt != merged.createdAt) {
+        !sameRecords(other, merged) || !(other.signers == merged.signers) || other.notes != merged.notes ||
+        other.createdAt != merged.createdAt) {
       return pp::Error("Copy " + std::to_string(i + 1) + " is a different operation: only signatures may differ");
     }
     merged.signatures.insert(merged.signatures.end(), other.signatures.begin(), other.signatures.end());
+    for (size_t r = 0; r < merged.moreRecords.size(); ++r) {
+      auto &into = merged.moreRecords[r].signatures;
+      const auto &from = other.moreRecords[r].signatures;
+      into.insert(into.end(), from.begin(), from.end());
+    }
   }
-  merged.signatures = validSignatures(merged);
+  for (const auto &part : partsOf(merged)) {
+    *part.signatures =
+        validSignatures(merged.signers.publicKeys, part.record->signingMessage(merged.networkId), *part.signatures);
+  }
   return merged;
 }
 
-pp::Roe<Ledger::Record> signedRecord(const Operation &op) {
+pp::Roe<std::vector<Ledger::Record>> signedRecords(const Operation &op) {
   const auto checked = check(op);
   if (!checked.complete()) {
     return pp::Error("Signed by " + std::to_string(checked.signedBy.size()) + " of the " +
                      std::to_string(checked.needed) + " needed");
   }
-  Ledger::Record record = op.record;
-  record.signatures = validSignatures(op);
-  return record;
+  std::vector<Ledger::Record> out;
+  for (const auto &part : partsOf(op)) {
+    Ledger::Record record = *part.record;
+    record.signatures =
+        validSignatures(op.signers.publicKeys, part.record->signingMessage(op.networkId), *part.signatures);
+    out.push_back(std::move(record));
+  }
+  return out;
+}
+
+pp::Roe<Ledger::Record> signedRecord(const Operation &op) {
+  auto records = signedRecords(op);
+  if (!records) {
+    return records.error();
+  }
+  return records.value().front();
 }
 
 std::string groupDigits(uint64_t value) {
@@ -539,9 +669,37 @@ pp::Roe<Summary> summarize(const Operation &op) {
     s.lines = {{"New admin keys", keysLine(announcement.adminPublicKeys, announcement.adminMinSignatures)}};
     break;
   }
-  case Kind::Genesis:
+  case Kind::Genesis: {
+    const auto &tx = std::get<Ledger::TxGenesis>(typed.value());
     s.title = "Start the chain (genesis)";
+    GenesisAccountMeta meta;
+    if (!meta.ltsFromString(tx.meta)) {
+      return pp::Error("The genesis record does not decode");
+    }
+    s.lines.emplace_back("Starts", utl::formatTimestampLocal(meta.config.genesisTime));
+    describeConfig(meta.config, s);
+    s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
+    const auto &recovery = meta.authority.recovery;
+    s.lines.emplace_back("Recovery keys", keysLine(recovery.publicKeys, recovery.minSignatures) + "; takes effect " +
+                                              std::to_string(recovery.delayEpochs) + " epoch(s) after announcing");
+    s.lines.emplace_back("Beacon key (generation " + std::to_string(meta.authority.beacon.generation) + ")",
+                         fingerprint(meta.authority.beacon.publicKey));
+    for (const auto &extra : op.moreRecords) {
+      auto account = utl::binaryUnpack<Ledger::TxNewUser>(extra.data);
+      UserAccount created;
+      if (!account || !created.ltsFromString(account.value().meta)) {
+        return pp::Error("A genesis account record does not decode");
+      }
+      const uint64_t id = account.value().toWalletId;
+      const bool miner = created.wallet.miner.registered;
+      std::string line = keysLine(created.wallet.publicKeys, created.wallet.minSignatures);
+      if (account.value().amount > 0) {
+        line = groupDigits(account.value().amount) + (miner ? " staked; keys " : "; keys ") + line;
+      }
+      s.lines.emplace_back(miner ? "Miner " + std::to_string(id) : accountName(id), line);
+    }
     break;
+  }
   case Kind::Other:
     s.title = "Transaction of type " + std::to_string(op.record.type);
     break;
@@ -634,6 +792,42 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
   op.record.type = Ledger::T_NEW_USER;
   op.record.data = utl::binaryPack(tx);
   op.kind = Kind::NewAccount;
+  return op;
+}
+
+pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std::string &notes, int64_t createdAt) {
+  if (records.empty() || records.front().type != Ledger::T_GENESIS) {
+    return pp::Error("A genesis starts with the genesis record");
+  }
+  auto tx = utl::binaryUnpack<Ledger::TxGenesis>(records.front().data);
+  GenesisAccountMeta meta;
+  if (!tx || !meta.ltsFromString(tx.value().meta)) {
+    return pp::Error("The genesis record does not decode");
+  }
+  Operation op;
+  op.networkId = meta.config.networkId;
+  op.signers.account = AccountIds::ID_GENESIS;
+  op.signers.publicKeys = meta.genesis.wallet.publicKeys;
+  op.signers.minSignatures = meta.genesis.wallet.minSignatures;
+  op.record.type = records.front().type;
+  op.record.data = records.front().data;
+  op.kind = Kind::Genesis;
+  for (size_t i = 1; i < records.size(); ++i) {
+    const auto &extra = records[i];
+    if (extra.type != Ledger::T_NEW_USER || !extra.decode() || signerAccountOf(extra) != AccountIds::ID_GENESIS) {
+      return pp::Error("Record " + std::to_string(i) + " of the genesis is not an account the genesis account creates");
+    }
+    Ledger::Record unsigned_;
+    unsigned_.type = extra.type;
+    unsigned_.data = extra.data;
+    op.moreRecords.push_back(std::move(unsigned_));
+  }
+  op.notes = notes;
+  op.createdAt = createdAt;
+  if (op.networkId.empty() || op.signers.publicKeys.empty() || op.signers.minSignatures == 0 ||
+      op.signers.minSignatures > op.signers.publicKeys.size()) {
+    return pp::Error("The genesis record names no network, or no admin keys to sign it");
+  }
   return op;
 }
 

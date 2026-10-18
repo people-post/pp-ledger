@@ -320,7 +320,8 @@ initialize_beacon_with_test_config() {
   fi
   # Every account holder makes its own keys: 3 per system account (all must
   # sign), one per miner. The beacon only ever sees public keys; the genesis
-  # keys sign genesis (--genesis-key). Reserve keys later fund test accounts.
+  # keys sign genesis offline (a genesis operation file; --genesis-key for a
+  # re-genesis). Reserve keys later fund test accounts.
   local key_dir="${TEST_DIR}/keys" name i sep="" system_accounts="" genesis_args=()
   mkdir -p "$key_dir"
   for name in genesis reserve registrar fee recycle; do
@@ -373,12 +374,34 @@ initialize_beacon_with_test_config() {
   echo -e "${CYAN}Created init-config.json (slot=${SLOT_DURATION}s, epoch=${SLOTS_PER_EPOCH})${NC}"
 
   local init_output
-  local import_args=()
-  [[ -z "$import_state" ]] || import_args=(--import-state "$import_state")
-  init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init "${genesis_args[@]}" "${import_args[@]}" 2>&1) || {
-    echo "$init_output" >&2
-    die "beacon --init failed"
-  }
+  if [[ -n "$import_state" ]]; then
+    # A re-genesis is signed on the beacon host with the genesis keys.
+    init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init "${genesis_args[@]}" \
+      --import-state "$import_state" 2>&1) || {
+      echo "$init_output" >&2
+      die "beacon --init failed"
+    }
+  else
+    # Offline genesis (OPERATION_FILE.md § Genesis): the beacon plans block 0, each admin signs their
+    # own copy, the copies merge, and the beacon writes the signed block 0 — no genesis key here.
+    local plan_dir="${TEST_DIR}/genesis-op" copies=()
+    rm -rf "$plan_dir"
+    mkdir -p "$plan_dir"
+    "$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --plan-genesis "$plan_dir/plan.json" >/dev/null 2>&1 ||
+      die "beacon --plan-genesis failed"
+    for i in 1 2 3; do
+      cp "$plan_dir/plan.json" "$plan_dir/copy${i}.json"
+      "$BUILD_DIR/app/pp-client" op sign "$plan_dir/copy${i}.json" -k "$key_dir/genesis${i}.key" >/dev/null ||
+        die "pp-client op sign (genesis${i}) failed"
+      copies+=("$plan_dir/copy${i}.json")
+    done
+    "$BUILD_DIR/app/pp-client" op merge "${copies[@]}" -o "$plan_dir/signed.json" >/dev/null ||
+      die "pp-client op merge (genesis) failed"
+    init_output=$("$BUILD_DIR/app/pp-beacon" -d "$beacon_dir" --init --genesis-op "$plan_dir/signed.json" 2>&1) || {
+      echo "$init_output" >&2
+      die "beacon --init --genesis-op failed"
+    }
+  fi
   # Avoid SIGPIPE under pipefail: print a short prefix without head closing early.
   printf '%s\n' "${init_output}" | awk 'NR<=3 {print}' || true
   echo -e "${GREEN}✓ Beacon initialized${NC}"

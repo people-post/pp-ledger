@@ -1,4 +1,6 @@
 #include "BeaconServer.h"
+#include "../chain/Genesis.h"
+#include "../operation/Operation.h"
 #include "../chain/ConfigPolicy.h"
 #include "BlockAddPolicy.h"
 #include "../client/Client.h"
@@ -572,9 +574,8 @@ BeaconServer::Roe<StateSnapshot> loadSnapshot(const std::string &path) {
 
 } // namespace
 
-BeaconServer::Roe<void>
-BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force,
-                   const std::string &importStatePath) {
+BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::string &workDir,
+                                                               const std::string &importStatePath) {
   log().info << "Initializing new beacon with work directory: " << workDir;
 
   std::filesystem::path workDirPath(workDir);
@@ -610,7 +611,7 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
 
     return Error("Created " + initConfigPath.string() +
                  ": set networkId and the system accounts' public keys (pp-client keygen -o <name>), then run "
-                 "--init again with --genesis-key");
+                 "--init again with --genesis-key (or plan an offline-signed genesis: --plan-genesis)");
   } else {
     log().info << "Found existing " << FILE_INIT_CONFIG;
   }
@@ -721,7 +722,18 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
              << initConfig.authority.recovery.delayEpochs << " epoch(s)";
   log().info << "  Beacon signing key: " << FILE_BEACON_SIGNING_KEY << " (generation 1)";
 
-  initConfig.key = initFileConfig.systemAccounts;
+  static_cast<chain_genesis::SystemKeys &>(initConfig.key) = initFileConfig.systemAccounts;
+  return initConfig;
+}
+
+BeaconServer::Roe<void>
+BeaconServer::init(const std::string &workDir, const std::vector<std::string> &genesisKeyFiles, bool force,
+                   const std::string &importStatePath) {
+  auto prepared = prepareInit(workDir, importStatePath);
+  if (!prepared) {
+    return prepared.error();
+  }
+  Beacon::InitConfig initConfig = std::move(prepared.value());
   for (const auto &keyFile : genesisKeyFiles) {
     auto privateKey = utl::readPrivateKey(keyFile, ".");
     if (!privateKey) {
@@ -747,6 +759,77 @@ BeaconServer::init(const std::string &workDir, const std::vector<std::string> &g
 
 
   log().info << "Beacon initialized successfully";
+  return {};
+}
+
+BeaconServer::Roe<void> BeaconServer::planGenesis(const std::string &workDir, const std::string &outputPath,
+                                                  int64_t startTime, const std::string &notes) {
+  auto prepared = prepareInit(workDir, "");
+  if (!prepared) {
+    return prepared.error();
+  }
+  const Beacon::InitConfig &initConfig = prepared.value();
+  chain_genesis::Plan plan;
+  plan.config = initConfig.chain;
+  plan.config.genesisTime = startTime;
+  plan.keys = initConfig.key;
+  plan.miners = initConfig.miners;
+  plan.authority = initConfig.authority;
+  auto records = chain_genesis::records(plan);
+  if (!records) {
+    return Error(records.error().message);
+  }
+  auto op = operation::genesis(records.value(), notes, utl::getCurrentTime());
+  if (!op) {
+    return Error(op.error().message);
+  }
+  if (auto saved = operation::save(op.value(), outputPath); !saved) {
+    return Error(saved.error().message);
+  }
+  log().info << "Genesis plan written to " << outputPath << " (" << records.value().size() << " records)";
+  return {};
+}
+
+BeaconServer::Roe<void> BeaconServer::initSigned(const std::string &workDir, const std::string &operationPath,
+                                                 bool force) {
+  log().info << "Initializing new beacon from a signed genesis: " << operationPath;
+  auto op = operation::load(operationPath);
+  if (!op) {
+    return Error(op.error().message);
+  }
+  if (op.value().kind != operation::Kind::Genesis) {
+    return Error(operationPath + " is a " + operation::kindName(op.value().kind) + ", not a genesis");
+  }
+  auto records = operation::signedRecords(op.value());
+  if (!records) {
+    return Error(operationPath + ": " + records.error().message);
+  }
+  auto gm = chain_genesis::metaOf(records.value().front());
+  if (!gm) {
+    return Error(gm.error().message);
+  }
+  // The genesis certifies one beacon key: this beacon must hold it, or it could sign nothing.
+  if (auto ensured = ensureWorkDirectory(workDir, FILE_SIGNATURE); !ensured) {
+    return Error(ensured.error().code, ensured.error().message);
+  }
+  auto signingKey = loadOrCreateBeaconSigningKey(workDir);
+  if (!signingKey) {
+    return signingKey.error();
+  }
+  if (signingKey.value() != gm.value().authority.beacon.publicKey) {
+    return Error("The genesis certifies beacon key " + operation::fingerprint(gm.value().authority.beacon.publicKey) +
+                 ", this beacon holds " + operation::fingerprint(signingKey.value()) +
+                 ": plan the genesis with this beacon's key (" + FILE_BEACON_SIGNING_PUB + ")");
+  }
+  Beacon::InitConfig initConfig;
+  initConfig.workDir = workDir + "/" + DIR_DATA;
+  initConfig.chain = gm.value().config;
+  initConfig.signedGenesis = std::move(records.value());
+  if (auto result = initFromWorkDir(initConfig, force); !result) {
+    return result;
+  }
+  log().info << "Beacon initialized from the signed genesis; the network starts at "
+             << utl::formatTimestampLocal(gm.value().config.genesisTime);
   return {};
 }
 

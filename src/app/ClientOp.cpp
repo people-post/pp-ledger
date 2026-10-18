@@ -263,6 +263,9 @@ int OpCommands::run(pp::Client *client) {
     if (!operation) {
       return fail(operation.error().message);
     }
+    if (operation.value().kind == op::Kind::Genesis) {
+      return fail("a genesis is not submitted: it starts a beacon (pp-beacon --init --genesis-op " + file_ + ")");
+    }
     auto record = op::signedRecord(operation.value());
     if (!record) {
       return fail(record.error().message);
