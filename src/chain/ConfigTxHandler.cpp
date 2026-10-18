@@ -188,6 +188,11 @@ chain_tx::Roe<BlockChainConfig> ConfigTxHandler::applyConfigUpdate(
     }
   }
 
+  // The genesis account's domain was given in the genesis block, for good (projects/domains).
+  if (auto held = bank.getAccount(AccountBuffer::ID_GENESIS); held && held.value().wallet.domain != gm.genesis.wallet.domain) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A config update cannot change the genesis account's domain");
+  }
+
   if (!bank.verifyBalance(AccountBuffer::ID_GENESIS, 0, 0,
                           gm.genesis.wallet.mBalances)) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,

@@ -354,6 +354,10 @@ public:
    * being sealed): ask again.
    */
   Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
+  /** `domain`'s binding (or absence) in the tip block's state root, with its path (projects/domains). */
+  Roe<Client::DomainProof> domainProof(const std::string &domain) const;
+  /** Who `domain` is bound to in the committed state, if anyone (retired domains included). */
+  std::optional<AccountBuffer::DomainEntry> findDomain(const std::string &domain) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,

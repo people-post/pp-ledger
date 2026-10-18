@@ -188,7 +188,7 @@ chain_tx::Roe<void> RenewalTxHandler::applyRenewal(
     // (Only T_CONFIG, signed by the admin set, and a recovery change these.)
     const Client::Wallet &carried = gm.genesis.wallet;
     if (carried.publicKeys != held.publicKeys || carried.minSignatures != held.minSignatures ||
-        carried.keyType != held.keyType) {
+        carried.keyType != held.keyType || carried.domain != held.domain) {
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Genesis renewal must carry the admin set in force (keys and threshold)");
     }

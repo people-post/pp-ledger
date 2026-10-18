@@ -18,7 +18,7 @@ namespace pp {
 /** RecordHandler owns the per-record-type tx handlers. */
 class RecordHandler final {
 public:
-  /** Handler table size: record type ids 0..T_ACCOUNT_RECOVERY (7..15 reserved, no handler). */
+  /** Handler table size: record type ids 0..T_ACCOUNT_RECOVERY (8..15 reserved, no handler). */
   static constexpr std::size_t kNumTxTypes = Ledger::T_ACCOUNT_RECOVERY + 1;
 
   RecordHandler();

@@ -59,6 +59,7 @@ public:
   Roe<std::vector<Ledger::Record>> findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   /** Chain::accountProof. */
   Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
+  Roe<Client::DomainProof> domainProof(const std::string &domain) const;
   /** Chain::producerStats. */
   Roe<Client::ProducerStatsResponse> producerStats(uint64_t fromBlockId, uint64_t toBlockId) const;
   /** Find transaction by global chain index (0-based). */

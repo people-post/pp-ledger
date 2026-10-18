@@ -1,4 +1,5 @@
 #include "Chain.h"
+#include "Domains.h"
 #include "AccountPolicy.h"
 #include "BeaconCertTxHandler.h"
 #include "BlockValidation.h"
@@ -559,6 +560,53 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
   return response;
 }
 
+namespace {
+
+/** The non-empty siblings of a path and the mask saying which heights they are (proofs leave the rest out). */
+void packPath(const std::vector<std::string> &siblings, uint64_t &mask, std::vector<std::string> &out) {
+  for (size_t h = 0; h < siblings.size(); ++h) {
+    if (!AccountStateTree::isEmptyAt(static_cast<int>(h), siblings[h])) {
+      mask |= 1ULL << h;
+      out.push_back(siblings[h]);
+    }
+  }
+}
+
+} // namespace
+
+std::optional<AccountBuffer::DomainEntry> Chain::findDomain(const std::string &domain) const {
+  return txContext_.bank.findDomain(domain);
+}
+
+Chain::Roe<Client::DomainProof> Chain::domainProof(const std::string &domain) const {
+  if (!chain_domain::isWellFormed(domain)) {
+    return Error(E_INVALID_ARGUMENT, "Not a domain: 1 to 7 capital letters A-Z");
+  }
+  const uint64_t next = txContext_.ledger.getNextBlockId();
+  if (next == 0) {
+    return Error(E_BLOCK_NOT_FOUND, "No blocks yet");
+  }
+  auto tip = txContext_.ledger.readBlock(next - 1);
+  if (!tip) {
+    return Error(E_BLOCK_NOT_FOUND, "Cannot read the tip block: " + tip.error().message);
+  }
+  const auto &bank = txContext_.bank;
+  if (bank.calculateStateRoot() != tip.value().block.stateRoot) {
+    return Error(E_ACCOUNT_BUFFER, "The account state is not the tip's right now (a block is being sealed): ask again");
+  }
+  Client::DomainProof proof;
+  proof.domain = domain;
+  proof.blockId = tip.value().block.index;
+  proof.stateRoot = tip.value().block.stateRoot;
+  if (auto bound = bank.findDomain(domain)) {
+    proof.present = true;
+    proof.accountId = bound->accountId;
+    proof.retired = bound->retired;
+  }
+  packPath(bank.domainSiblings(domain), proof.siblingMask, proof.siblings);
+  return proof;
+}
+
 Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
   const uint64_t next = txContext_.ledger.getNextBlockId();
   if (next == 0) {
@@ -582,13 +630,7 @@ Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
     proof.lastWriteBlockId = account.value().blockId;
     proof.attachmentHash = account.value().attachmentHash;
   }
-  const auto siblings = bank.stateSiblings(accountId);
-  for (size_t h = 0; h < siblings.size(); ++h) {
-    if (!AccountStateTree::isEmptyAt(static_cast<int>(h), siblings[h])) {
-      proof.siblingMask |= 1ULL << h;
-      proof.siblings.push_back(siblings[h]);
-    }
-  }
+  packPath(bank.stateSiblings(accountId), proof.siblingMask, proof.siblings);
   return proof;
 }
 

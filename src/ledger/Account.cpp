@@ -83,6 +83,16 @@ pp::common::Meta Wallet::ltsToMeta() const {
     }
     j.set("recovery", r);
   }
+  if (!domain.empty()) {
+    j.set("domain", domain);
+  }
+  if (!retiredDomains.empty()) {
+    pp::common::Meta retired;
+    for (const auto &r : retiredDomains) {
+      retired.setJsonUInt(r.domain, r.accountId);
+    }
+    j.set("retiredDomains", retired);
+  }
   return j;
 }
 

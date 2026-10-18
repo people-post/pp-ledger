@@ -27,9 +27,10 @@ public:
   constexpr static uint16_t T_RENEWAL = 5;     // Miner to renew user/genesis account with latest account info
   constexpr static uint16_t T_END_USER = 6;    // Miner to terminate user account due to insufficient fee.
 
+  // The registrar gives an issued account its domain (projects/domains).
+  constexpr static uint16_t T_DOMAIN_ASSIGN = 7;
   // Reserved for name-directory / attachment (docs/product/NAME_DIRECTORY.md); not
   // installed in RecordHandler yet — do not reuse these ids.
-  constexpr static uint16_t T_DOMAIN_CLAIM = 7;
   constexpr static uint16_t T_DOMAIN_RENEW = 8;
   constexpr static uint16_t T_DOMAIN_RELEASE = 9;
   constexpr static uint16_t T_NAME_CLAIM = 10;
@@ -205,13 +206,28 @@ public:
   };
 
   /**
+   * T_DOMAIN_ASSIGN (projects/domains): the registrar gives issued account `walletId` the domain
+   * `domain` (4–7 letters, never given before). Signed by the registrar; the fee from the registrar.
+   */
+  struct TxDomainAssign : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 };
+    std::string domain;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & domain & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
    * In-memory typed transaction payload for centralized dispatch. Variant order is not the
-   * record type id (16..20 follow 0..6; 7..15 are reserved): use typeOf().
+   * record type id (16..21 follow 0..6, then 7; 8..15 are reserved): use typeOf().
    */
   using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
                                TxUserUpdate, TxRenewal, TxEndUser,
                                TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport,
-                               TxAccountRecovery>;
+                               TxAccountRecovery, TxDomainAssign>;
   /** Record type id (T_*) of a typed transaction. */
   static uint16_t typeOf(const TypedTx &tx);
 

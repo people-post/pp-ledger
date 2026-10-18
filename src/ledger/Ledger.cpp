@@ -31,6 +31,7 @@ std::string transactionTypeToHumanString(uint16_t type) {
     case Ledger::T_RECOVERY: return "recovery";
     case Ledger::T_IMPORT: return "import";
     case Ledger::T_ACCOUNT_RECOVERY: return "account_recovery";
+    case Ledger::T_DOMAIN_ASSIGN: return "domain_assign";
     default: return "unknown_" + std::to_string(type);
   }
 }
@@ -155,6 +156,14 @@ pp::common::Meta Ledger::TxAccountRecovery::ltsToMeta() const {
   return m;
 }
 
+pp::common::Meta Ledger::TxDomainAssign::ltsToMeta() const {
+  pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
+  appendIdempotencyMeta(m, *this);
+  m.setUIntForJson("walletId", walletId);
+  m.set("domain", domain);
+  return m;
+}
+
 pp::common::Meta Ledger::TxRecovery::ltsToMeta() const {
   pp::common::Meta m = static_cast<const Ledger::TxCommon &>(*this).ltsToMeta();
   appendIdempotencyMeta(m, *this);
@@ -191,7 +200,7 @@ uint16_t Ledger::typeOf(const TypedTx &tx) {
   static constexpr uint16_t kTypeByIndex[] = {T_DEFAULT,     T_GENESIS, T_NEW_USER,       T_CONFIG,
                                               T_USER_UPDATE, T_RENEWAL, T_END_USER,       T_MINER_REGISTER,
                                               T_MINER_REVOKE, T_BEACON_CERT, T_RECOVERY, T_IMPORT,
-                                              T_ACCOUNT_RECOVERY};
+                                              T_ACCOUNT_RECOVERY, T_DOMAIN_ASSIGN};
   static_assert(std::size(kTypeByIndex) == std::variant_size_v<TypedTx>);
   return kTypeByIndex[tx.index()];
 }
@@ -335,6 +344,13 @@ Ledger::Record::decode() const {
     auto txRoe = utl::binaryUnpack<Ledger::TxAccountRecovery>(data);
     if (!txRoe) {
       return Ledger::Error(1, "Invalid packed TxAccountRecovery payload: " + txRoe.error().message);
+    }
+    return Ledger::TypedTx(txRoe.value());
+  }
+  case Ledger::T_DOMAIN_ASSIGN: {
+    auto txRoe = utl::binaryUnpack<Ledger::TxDomainAssign>(data);
+    if (!txRoe) {
+      return Ledger::Error(1, "Invalid packed TxDomainAssign payload: " + txRoe.error().message);
     }
     return Ledger::TypedTx(txRoe.value());
   }

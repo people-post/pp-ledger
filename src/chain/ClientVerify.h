@@ -49,6 +49,18 @@ struct ProvenAccount {
 /** `proof` against `block` (checked already): its leaf and path give the block's state root. */
 chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof);
 
+/** A domain as a proof shows it, once checked (projects/domains): no account when nobody has it. */
+struct ProvenDomain {
+  std::string domain;
+  uint64_t blockId{0};
+  std::optional<uint64_t> accountId;
+  /** The account ended; the domain stays its, never given again. */
+  bool retired{false};
+};
+
+/** `proof` against `block` (checked already): the domain's leaf and path give the block's state root. */
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof);
+
 } // namespace pp::verify
 
 #endif // PP_LEDGER_CLIENT_VERIFY_H

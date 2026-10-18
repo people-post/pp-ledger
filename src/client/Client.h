@@ -95,8 +95,12 @@ public:
    * in the state root of the node's tip block, with its Merkle path (WIRE_SCHEMA § Account proofs).
    */
   static constexpr const uint32_t T_REQ_ACCOUNT_PROOF = 2003;
-  // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
+  /**
+   * Payload binaryPack(std::string domain); reply binaryPack(DomainProof): the domain's binding (or
+   * its absence) in the state root of the node's tip block, with its Merkle path (projects/domains).
+   */
   static constexpr const uint32_t T_REQ_DOMAIN_GET = 2101;
+  // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
   static constexpr const uint32_t T_REQ_NAME_GET = 2102;
   static constexpr const uint32_t T_REQ_NAME_GET_BY_WALLET = 2103;
 
@@ -575,6 +579,26 @@ public:
     }
   };
 
+  /**
+   * A domain's leaf in block `blockId`'s state root (projects/domains): the account it is bound to and
+   * whether that account ended (retired), or its absence; the path as AccountProof's.
+   */
+  struct DomainProof {
+    std::string domain;
+    uint64_t blockId{ 0 };
+    std::string stateRoot;
+    bool present{ false };
+    uint64_t accountId{ 0 };
+    bool retired{ false };
+    uint64_t siblingMask{ 0 };
+    std::vector<std::string> siblings;
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & domain & blockId & stateRoot & present & accountId & retired & siblingMask & siblings;
+    }
+  };
+
   /** Blocks [fromBlockId, toBlockId) (block 0 is not counted). */
   struct ProducerStatsRequest {
     uint64_t fromBlockId{ 0 };
@@ -681,6 +705,8 @@ public:
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
   /** T_REQ_ACCOUNT_PROOF: account `accountId` in the node's tip state, with its Merkle path. */
   Roe<AccountProof> fetchAccountProof(uint64_t accountId);
+  /** T_REQ_DOMAIN_GET: `domain` (as stored: capital letters) in the node's tip state, with its path. */
+  Roe<DomainProof> fetchDomainProof(const std::string &domain);
   /** T_REQ_PRODUCER_STATS: one page (capped at kMaxProducerStatsBlocks). */
   Roe<ProducerStatsResponse> fetchProducerStats(const ProducerStatsRequest &request);
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);

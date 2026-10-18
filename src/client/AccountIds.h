@@ -24,14 +24,20 @@ struct AccountIds {
    *                                     the genesis block; never terminated, renew fee-free
    *   [ID_FIRST_ISSUED, ID_FIRST_USER)  issued accounts — created by the registrar after
    *                                     genesis (e.g. token issuers, genesis miners)
-   *   [ID_FIRST_USER, ...)              user accounts
+   *   [ID_FIRST_USER, ID_LIMIT)         user accounts
+   * Account ids stay below ID_LIMIT: the state tree's keys from there up are domains'
+   * (projects/domains).
    */
   constexpr static uint64_t ID_FIRST_ISSUED = 1ULL << 20;
 
   /** User account ids are >= this value (~1e9). */
   constexpr static uint64_t ID_FIRST_USER = 1ULL << 30;
 
+  /** Every account id is below this; state-tree keys from here up are domains' (projects/domains). */
+  constexpr static uint64_t ID_LIMIT = 1ULL << 63;
+
   constexpr static bool isSystemAccount(uint64_t id) { return id < ID_FIRST_ISSUED; }
+  constexpr static bool isIssuedAccount(uint64_t id) { return id >= ID_FIRST_ISSUED && id < ID_FIRST_USER; }
 
   constexpr static uint64_t INITIAL_TOKEN_SUPPLY = 1ULL << 30;
 };

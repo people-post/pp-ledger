@@ -151,6 +151,10 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
     AccountBuffer &bank, uint64_t blockId, bool isBufferMode,
     chain_block::BlockAdmissionMode admissionMode) const {
   // Id range first: structural, before fee and balance checks.
+  if (tx.toWalletId >= AccountIds::ID_LIMIT) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Account ids are below 2^63 (the state tree's keys above are domains')");
+  }
   if (AccountIds::isSystemAccount(tx.toWalletId) && blockId != 0) {
     return chain_tx::TxError(
         chain_err::E_TX_VALIDATION,
@@ -220,6 +224,23 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   if (userAccount.wallet.miner != expectedMiner) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "A new account cannot carry miner state (register with T_MINER_REGISTER)");
+  }
+
+  // Domains (projects/domains): the genesis block names system accounts and genesis miners; after it,
+  // only the registrar, for the issued accounts it creates. Retired domains are the registrar's alone,
+  // and only the chain adds to them.
+  if (!userAccount.wallet.retiredDomains.empty()) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A new account carries no retired domains");
+  }
+  if (!userAccount.wallet.domain.empty()) {
+    if (blockId != 0 && tx.fromWalletId != AccountBuffer::ID_REGISTRAR) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Only the registrar gives a domain");
+    }
+    if (auto valid = chain_tx::validateNewDomain(userAccount.wallet.domain, tx.toWalletId, bank,
+                                                 isBufferMode ? &ctx.bank : nullptr);
+        !valid) {
+      return valid;
+    }
   }
 
   // A new account may name its recovery set; never an announcement (projects/account-recovery).

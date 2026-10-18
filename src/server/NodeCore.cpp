@@ -49,6 +49,14 @@ NodeCore::Roe<Client::AuthorityProof> NodeCore::authorityProof(uint64_t upToBloc
   return proof.value();
 }
 
+NodeCore::Roe<Client::DomainProof> NodeCore::domainProof(const std::string &domain) const {
+  auto result = chain_.domainProof(domain);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 NodeCore::Roe<Client::AccountProof> NodeCore::accountProof(uint64_t accountId) const {
   auto result = chain_.accountProof(accountId);
   if (!result) {

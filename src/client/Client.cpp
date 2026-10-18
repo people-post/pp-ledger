@@ -790,6 +790,19 @@ void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono:
   });
 }
 
+Client::Roe<Client::DomainProof> Client::fetchDomainProof(const std::string &domain) {
+  log().debug << "Requesting the proof of domain " << domain;
+  auto result = sendRequest(T_REQ_DOMAIN_GET, utl::binaryPack(domain), dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto proof = utl::binaryUnpack<DomainProof>(result.value());
+  if (!proof) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack the domain proof: " + proof.error().message);
+  }
+  return proof.value();
+}
+
 Client::Roe<Client::AccountProof> Client::fetchAccountProof(uint64_t accountId) {
   log().debug << "Requesting the proof of account " << accountId;
   auto result = sendRequest(T_REQ_ACCOUNT_PROOF, utl::binaryPack(accountId), dataTimeout());
