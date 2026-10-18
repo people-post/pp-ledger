@@ -417,6 +417,7 @@ RequestQueue::Lane Server::laneFor(const uint32_t type) {
   case Client::T_REQ_BLOCK_WAIT:
   case Client::T_REQ_AUTHORITY_PROOF:
   case Client::T_REQ_ACCOUNT_GET:
+  case Client::T_REQ_CONFIG_GET:
   case Client::T_REQ_TX_GET_BY_WALLET:
   case Client::T_REQ_TX_GET_BY_INDEX:
   case Client::T_REQ_DOMAIN_GET:
@@ -577,6 +578,13 @@ void Server::handleChainReads() {
       return Error(E_REQUEST, "Failed to get account: " + account.error().message);
     }
     return account.value().ltsToString();
+  });
+  handle(Client::T_REQ_CONFIG_GET, [this](const Client::Request&) -> Roe<std::string> {
+    auto meta = core().genesisMetaInForce();
+    if (!meta) {
+      return Error(E_REQUEST, "Failed to get the config: " + meta.error().message);
+    }
+    return meta.value().ltsToString();
   });
   handle(Client::T_REQ_TX_GET_BY_WALLET, [this](const Client::Request& request) -> Roe<std::string> {
     auto req = utl::binaryUnpack<Client::TxGetByWalletRequest>(request.payload);

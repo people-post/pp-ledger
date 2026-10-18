@@ -201,6 +201,51 @@ TEST(ChainTest, AddBlock_AddsValidGenesisBlock) {
   std::filesystem::remove_all(tempDir, ec);
 }
 
+// CONFIG_GET serves this: what tools build transactions and config updates from.
+TEST(ChainTest, TheGenesisMetaInForceIsTheConfigAdminKeysAndAuthority) {
+  Chain validator;
+  EXPECT_FALSE(validator.genesisMetaInForce()); // nothing loaded yet
+
+  auto genesisKey = makeKeyPair();
+  auto feeKey = makeKeyPair();
+  auto reserveKey = makeKeyPair();
+  auto recycleKey = makeKeyPair();
+  Chain::BlockChainConfig chainConfig = makeChainConfig(1000);
+  consensus::SlotCommittee::Config consensusConfig;
+  consensusConfig.slotDuration = 1;
+  consensusConfig.slotsPerEpoch = 10;
+  validator.initConsensus(consensusConfig);
+  std::filesystem::path tempDir = pp::test::uniqueTempPath("pp-ledger-chain-meta-test");
+  std::error_code ec;
+  std::filesystem::remove_all(tempDir, ec);
+  Ledger::InitConfig ledgerConfig;
+  ledgerConfig.workDir = tempDir.string();
+  ASSERT_TRUE(validator.initLedger(ledgerConfig).isOk());
+  ASSERT_TRUE(validator.addBlock(makeGenesisBlock(validator, chainConfig, genesisKey, feeKey, reserveKey, recycleKey))
+                  .isOk());
+
+  auto meta = validator.genesisMetaInForce();
+  ASSERT_TRUE(meta.isOk()) << meta.error().message;
+  EXPECT_EQ(meta.value().config.networkId, chainConfig.networkId);
+  EXPECT_EQ(meta.value().config.minFeeCoefficients, chainConfig.minFeeCoefficients);
+  EXPECT_FALSE(meta.value().hasPending);
+  EXPECT_EQ(meta.value().genesis.wallet.publicKeys, std::vector<std::string>{genesisKey.publicKey});
+  EXPECT_EQ(meta.value().authority, validator.getAuthority().value());
+
+  // The fee tools compute is the chain's.
+  Ledger::TxDefault transfer;
+  transfer.fromWalletId = AccountBuffer::ID_RESERVE;
+  transfer.toWalletId = AccountBuffer::ID_FEE;
+  transfer.amount = 1;
+  auto toolFee = minimumFeeFor(meta.value().config, Ledger::TypedTx(transfer));
+  auto chainFee = validator.calculateMinimumFeeForTransaction(meta.value().config, Ledger::TypedTx(transfer));
+  ASSERT_TRUE(toolFee.isOk());
+  ASSERT_TRUE(chainFee.isOk());
+  EXPECT_EQ(toolFee.value(), chainFee.value());
+
+  std::filesystem::remove_all(tempDir, ec);
+}
+
 TEST(ChainTest, FindTransactionsByWalletId_ReturnsEmptyWhenChainHasNoBlocks) {
   Chain validator;
 

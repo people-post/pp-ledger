@@ -19,11 +19,7 @@ namespace {
 
 /** The minimum fee of `tx` under `config` (the fee bills the account's custom meta). */
 pp::Roe<uint64_t> minimumFee(const BlockChainConfig &config, const Ledger::TxNewUser &tx) {
-  static const RecordHandler handler;
-  auto fee = chain_tx::calculateMinimumFeeForTransaction(
-      config, Ledger::TypedTx(tx), [](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
-        return handler.getBillableCustomMetaSizeForFee(cfg, t);
-      });
+  auto fee = minimumFeeFor(config, Ledger::TypedTx(tx));
   if (!fee) {
     return pp::Error(fee.error().message);
   }

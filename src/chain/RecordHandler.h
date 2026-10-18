@@ -107,5 +107,11 @@ private:
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};
 };
 
+/**
+ * The least fee `tx` may carry under `config`: what a validator requires of its billable metadata
+ * (the same rule, from a handler table of its own). For tools building transactions.
+ */
+chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx);
+
 } // namespace pp
 

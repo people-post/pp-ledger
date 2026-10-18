@@ -1,5 +1,6 @@
 #include "Client.h"
 #include "ClientOp.h"
+#include "../operation/Operation.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "LoadGenerator.h"
@@ -806,6 +807,9 @@ int main(int argc, char *argv[]) {
   uint64_t blockId = 0;
   block_cmd->add_option("blockId", blockId, "Block ID")->required();
 
+  auto* config_cmd = app.add_subcommand(
+      "config", "Get the config in force (and any update pending), the admin keys and the authority");
+
   auto* account_cmd = app.add_subcommand("account", "Get account info by ID");
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
@@ -1262,6 +1266,24 @@ int main(int argc, char *argv[]) {
     }
   }
   // Handle account command
+  else if (config_cmd->parsed()) {
+    auto meta = client.fetchGenesisMeta();
+    if (!meta) {
+      std::cerr << "Error: " << meta.error().message << "\n";
+      return 1;
+    }
+    const auto &gm = meta.value();
+    std::cout << "Config in force: " << gm.config << "\n";
+    if (gm.hasPending) {
+      std::cout << "Pending from epoch " << gm.pending.activationEpoch << ": " << gm.pending.config << "\n";
+    }
+    std::cout << "Admin keys: " << static_cast<int>(gm.genesis.wallet.minSignatures) << " of "
+              << gm.genesis.wallet.publicKeys.size() << ":";
+    for (const auto &key : gm.genesis.wallet.publicKeys) {
+      std::cout << " " << pp::operation::fingerprint(key);
+    }
+    std::cout << "\nAuthority: " << gm.authority << "\n";
+  }
   else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);
     if (result) {

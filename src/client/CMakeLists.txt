@@ -23,6 +23,7 @@ target_include_directories(pp_client PUBLIC
 target_link_libraries(pp_client PUBLIC
     pp_ledger_common
     pp_ledger
+    pp_chain_types
     pp_network
     pp_ledger_amp
 )

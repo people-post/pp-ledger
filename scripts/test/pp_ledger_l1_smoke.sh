@@ -40,6 +40,12 @@ fi
 register_miner_account $((1 << 30)) "${TEST_DIR}/keys/alice.key" 120 ||
   die "L-SMOKE-L1: miner registration did not land"
 
+# CONFIG_GET: the relay serves the config in force (what tools build transactions from).
+config_reply=$(run_pp_client -b --host "$(relay_multiaddr)" config 2>&1) ||
+  die "L-SMOKE-L1: pp-client config failed: ${config_reply}"
+grep -q "Admin keys: 3 of 3" <<<"$config_reply" || die "L-SMOKE-L1: config shows no admin keys: ${config_reply}"
+echo -e "${GREEN}✓ The relay serves the config in force${NC}"
+
 # Operation files: a multi-signature transaction signed apart, merged and submitted.
 run_operation_file_scenario 120
 

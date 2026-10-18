@@ -77,7 +77,7 @@ as a convenience. Promotion after a loss is in design:
 | `TX_ADD` | Terminal pool | Tx held for a slot leader | Write-through; a beacon certificate is also kept by every node it passes |
 | `TX_PULL` | Terminal pool | Pending txs for the leader | Pass through |
 | `EQUIVOCATION_ADD` | Every node on the way up | Evidence kept; the node halts on it | Keep, then write-through |
-| `ACCOUNT_GET`, `TX_*` | Any node | State at its own tip | Serve locally |
+| `ACCOUNT_GET`, `CONFIG_GET`, `TX_*` | Any node | State at its own tip | Serve locally |
 
 ### Request direction
 

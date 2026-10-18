@@ -48,6 +48,8 @@ public:
   std::string calculateHash(const Ledger::Block &block) const { return chain_.calculateHash(block); }
 
   Roe<Client::UserAccount> getAccount(uint64_t accountId) const;
+  /** The genesis meta in force (Chain::genesisMetaInForce). */
+  Roe<GenesisAccountMeta> genesisMetaInForce() const;
   Roe<Ledger::ChainNode> readBlock(uint64_t blockId) const;
   /** Hash of the last block held; none while the ledger is empty. */
   std::optional<std::string> getTipHash() const;

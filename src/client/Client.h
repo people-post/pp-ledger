@@ -9,6 +9,7 @@
 #include "lib/common/Meta.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
+#include "../chain/Types.h"
 #include "../ledger/Account.h"
 #include "../ledger/Ledger.h"
 #include "../consensus/Types.hpp"
@@ -79,6 +80,8 @@ public:
   static constexpr const uint32_t T_REQ_EQUIVOCATION_ADD = 1005;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
+  /** The genesis meta in force at the node's tip: config (and any update pending), admin account, authority. */
+  static constexpr const uint32_t T_REQ_CONFIG_GET = 2002;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
   static constexpr const uint32_t T_REQ_DOMAIN_GET = 2101;
   static constexpr const uint32_t T_REQ_NAME_GET = 2102;
@@ -593,6 +596,8 @@ public:
   Roe<Ledger::ChainNode> fetchBlock(uint64_t blockId);
   /** AUTHORITY_PROOF up to `upToBlockId`. */
   Roe<AuthorityProof> fetchAuthorityProof(uint64_t upToBlockId);
+  /** CONFIG_GET: the genesis meta in force at the node's tip (Chain::genesisMetaInForce). */
+  Roe<GenesisAccountMeta> fetchGenesisMeta();
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);

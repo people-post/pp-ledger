@@ -173,6 +173,12 @@ public:
   /** The config in force at the tip. */
   std::optional<BlockChainConfig> getChainConfig() const { return txContext_.optChainConfig; }
   /**
+   * The genesis meta in force for a block of the current epoch: the config in force and any update
+   * pending, the admin account (keys, threshold), the authority — what CONFIG_GET serves, and what
+   * a genesis renewal carries.
+   */
+  Roe<GenesisAccountMeta> genesisMetaInForce() const;
+  /**
    * Every account of the state at the tip, by ascending id: its leaf fields and its attachment
    * (read from the record that last wrote it). For a re-genesis export (StateSnapshot, bp8);
    * checks each attachment against the hash the account holds.
@@ -408,6 +414,8 @@ protected:
   bool checkpointEligibleAt(uint64_t index, uint64_t epoch) const;
 
 private:
+  /** Set `gm`'s config state, authority and admin set to those in force for a block of `epoch`. */
+  void setStateInForce(GenesisAccountMeta &gm, uint64_t epoch) const;
   /** Maximum blocks to scan in findTransactionsByWalletId to avoid long runs.
    */
   constexpr static const uint64_t MAX_BLOCKS_TO_SCAN_FOR_WALLET_TX = 32;

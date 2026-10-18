@@ -362,15 +362,7 @@ Chain::createRenewalTx(uint64_t accountId, uint64_t slot) const {
       if (!gm.ltsFromString(tx.meta)) {
         return Error(E_INTERNAL_DESERIALIZE, "Failed to deserialize genesis renewal meta");
       }
-      const uint64_t epoch = txContext_.consensus.getEpochFromSlot(slot);
-      gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig, epoch);
-      if (txContext_.optAuthority.has_value()) {
-        // As the block's epoch will hold it: a recovery due by then has replaced the admin set
-        // before the records apply (applyDueRecovery).
-        ChainAuthority authority = txContext_.optAuthority.value();
-        chain_tx::advanceAuthorityToEpoch(authority, gm.genesis.wallet, epoch);
-        gm.authority = authority;
-      }
+      setStateInForce(gm, txContext_.consensus.getEpochFromSlot(slot));
       tx.meta = gm.ltsToString();
     }
   }
@@ -1551,6 +1543,31 @@ Chain::Roe<void> Chain::addBufferTransaction(
     bank.rollbackOverlay();
   }
   return applied;
+}
+
+void Chain::setStateInForce(GenesisAccountMeta &gm, uint64_t epoch) const {
+  gm.setConfigStateAt(txContext_.optChainConfig.value(), txContext_.pendingChainConfig, epoch);
+  if (txContext_.optAuthority.has_value()) {
+    // As the block's epoch will hold it: a recovery due by then has replaced the admin set
+    // before the records apply (applyDueRecovery).
+    ChainAuthority authority = txContext_.optAuthority.value();
+    chain_tx::advanceAuthorityToEpoch(authority, gm.genesis.wallet, epoch);
+    gm.authority = authority;
+  }
+}
+
+Chain::Roe<GenesisAccountMeta> Chain::genesisMetaInForce() const {
+  if (!txContext_.optChainConfig.has_value()) {
+    return Error(E_STATE_INIT, "The chain config is not loaded yet");
+  }
+  auto admin = getAccount(AccountBuffer::ID_GENESIS);
+  if (!admin) {
+    return admin.error();
+  }
+  GenesisAccountMeta gm;
+  gm.genesis = admin.value();
+  setStateInForce(gm, getCurrentEpoch());
+  return gm;
 }
 
 Chain::Roe<void> Chain::processGenesisTxRecord(
