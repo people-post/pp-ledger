@@ -8,6 +8,14 @@ NodeCore::NodeCore(const std::string &name) {
   chain_.redirectLogger(log().getFullName() + ".Chain");
 }
 
+NodeCore::Roe<GenesisAccountMeta> NodeCore::genesisMetaInForce() const {
+  auto meta = chain_.genesisMetaInForce();
+  if (!meta) {
+    return Error(meta.error().code, meta.error().message);
+  }
+  return meta.value();
+}
+
 NodeCore::Roe<Client::UserAccount> NodeCore::getAccount(uint64_t accountId) const {
   auto result = chain_.getAccount(accountId);
   if (!result) {

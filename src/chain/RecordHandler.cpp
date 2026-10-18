@@ -1,4 +1,5 @@
 #include "RecordHandler.h"
+#include "TxFees.h"
 
 #include "ErrorCodes.h"
 #include "BeaconCertTxHandler.h"
@@ -176,6 +177,14 @@ RecordHandler::getBillableCustomMetaSizeForFee(const BlockChainConfig &config,
                                  std::to_string(type));
   }
   return handler->getBillableCustomMetaSizeForFee(config, tx);
+}
+
+chain_tx::Roe<uint64_t> minimumFeeFor(const BlockChainConfig &config, const Ledger::TypedTx &tx) {
+  static const RecordHandler handler;
+  return chain_tx::calculateMinimumFeeForTransaction(
+      config, tx, [](const BlockChainConfig &cfg, const Ledger::TypedTx &t) {
+        return handler.getBillableCustomMetaSizeForFee(cfg, t);
+      });
 }
 
 } // namespace pp

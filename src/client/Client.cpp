@@ -269,6 +269,8 @@ std::string Client::requestTypeName(uint32_t type) {
     return "equivocation_add";
   case T_REQ_ACCOUNT_GET:
     return "account_get";
+  case T_REQ_CONFIG_GET:
+    return "config_get";
   case T_REQ_DOMAIN_GET:
     return "domain_get";
   case T_REQ_NAME_GET:
@@ -623,6 +625,18 @@ Client::Roe<Client::UserAccount> Client::fetchUserAccount(const uint64_t account
     return Error(E_INVALID_RESPONSE, "Failed to deserialize user account");
   }
   return account;
+}
+
+Client::Roe<GenesisAccountMeta> Client::fetchGenesisMeta() {
+  auto result = sendRequest(T_REQ_CONFIG_GET, "", dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  GenesisAccountMeta meta;
+  if (!meta.ltsFromString(result.value())) {
+    return Error(E_INVALID_RESPONSE, "Failed to deserialize the genesis meta");
+  }
+  return meta;
 }
 
 Client::Roe<Client::BeaconState> Client::parseBeaconState(const std::string &payload) {
