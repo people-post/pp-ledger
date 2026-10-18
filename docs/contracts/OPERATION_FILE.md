@@ -27,7 +27,7 @@ UTF-8 JSON, one object. Byte strings are base64 (RFC 4648, with padding), except
 | `version` | integer | `1`; a reader refuses any other |
 | `networkId` | string | The chain's network id: part of the signing message |
 | `genesisHash` | hex string | Block 0's hash (32 bytes), or `""` when the creator did not know it |
-| `kind` | string | `transfer`, `batch`, `mint`, `new-account`, `account-update`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
+| `kind` | string | `transfer`, `batch`, `mint`, `new-account`, `account-update`, `account-recovery`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
 | `record` | object | `type` (the record type, integer) and `data` (base64 of the packed payload): what is signed |
 | `signers` | object | `account` (integer; absent for a key set), `minSignatures` (integer ≥ 1), `publicKeys` (base64 ML-DSA-65 public keys) |
 | `signatures` | array | Base64 ML-DSA-65 signatures of `record` collected, in any order |
@@ -69,7 +69,8 @@ a signature in the file is exactly a signature the node checks.
 | `transfer` | Any other `T_DEFAULT` | Its `fromWalletId` |
 | `batch` | Two or more transfers (`record`, then `moreRecords`) from one account | Their `fromWalletId` |
 | `new-account` | `T_NEW_USER` | Its `fromWalletId` |
-| `account-update` | `T_USER_UPDATE` | Its `walletId`: the keys in force sign for the keys that replace them |
+| `account-update` | `T_USER_UPDATE` | Its `walletId`: the keys in force sign for the keys and threshold that replace them (and the first recovery set) |
+| `account-recovery` | `T_ACCOUNT_RECOVERY` | Its `walletId`, but its keys are the account's **recovery set** and its threshold ([WIRE_SCHEMA § Account recovery](WIRE_SCHEMA.md#account-recovery)) |
 | `config-update` | `T_CONFIG` | The genesis account, 0 |
 | `beacon-certificate` | `T_BEACON_CERT` | The genesis account, 0 |
 | `recovery` | `T_RECOVERY` | The recovery key set ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md)): no `account` |
@@ -122,6 +123,9 @@ Block 0 signed offline: the genesis keys never reach the beacon host.
 | `op mint --amount N -f FEE -o FILE` | A mint (genesis → reserve) | Same |
 | `op new-account --from A --id ID --account-key K… --amount N -f FEE -o FILE` | A new account, funded by A | Same |
 | `op update-keys --account A --new-key K… [--new-min-signatures N] -f FEE -o FILE` | A's keys and threshold replaced (default: all new keys); the rest of A's meta as the node has it | Always |
+| `op set-recovery --account A (--recovery-key K… [--recovery-min-signatures N] --delay-seconds S \| --none) -f FEE -o FILE` | A's recovery set (N of the keys, default 1) and delay: named by A's keys when A has none; after that a change signed by A's recovery set (`--none` removes it) | Always |
+| `op recover --account A --new-key K… [--new-min-signatures N] -f FEE -o FILE` | A's recovery set announces A's next keys; A is frozen until they take over (the first epoch start after A's delay); A pays the fee | When not given `--network-id` and `--signer-key` |
+| `op withdraw-recovery --account A -f FEE -o FILE` | A's recovery set withdraws the recovery announced: A's keys sign again | Same |
 | `op batch --from A --payments CSV [--meta TEXT] -f FEE -o FILE` | A batch from A: a transfer per CSV line `to,amount[,token]` (`#` comments), each paying FEE and carrying TEXT | When not given `--network-id` and `--signer-key` |
 | `op wrap TX-FILE -o FILE` | An operation of a record made by `mk-beacon-cert`, `mk-recovery`, `mk-tx`, … (its signatures dropped) | Same; a recovery always needs `--signer-key` |
 | `op show FILE` | What it does, its deadline, who signed (key fingerprints), whether complete | No |
@@ -132,7 +136,7 @@ Block 0 signed offline: the genesis keys never reach the beacon host.
 Creators take `--valid-for SECONDS` (default 86400; the window opens a minute before now),
 `--notes`, and, offline, `--network-id`, `--genesis-hash`, `--signer-key` (repeat) and
 `--min-signatures` (default: all keys). With a node they read the network id, block 0's hash and
-the signing account's keys and threshold from it.
+the signing account's keys and threshold from it (the account's recovery set for what that set signs).
 
 A key's **fingerprint** is the first 16 hex digits of its SHA-256, in groups of four
 (`29ed-2bc7-b246-1936`): what signers compare.

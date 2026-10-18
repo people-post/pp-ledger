@@ -28,6 +28,7 @@ class Client : public Module {
 public:
   /** Account state types (src/ledger/Account.h): no network code needed to read or build them. */
   using MinerState = pp::MinerState;
+  using AccountRecovery = pp::AccountRecovery;
   using Wallet = pp::Wallet;
   using UserAccount = pp::UserAccount;
 

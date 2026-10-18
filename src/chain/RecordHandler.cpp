@@ -7,6 +7,7 @@
 #include "ErrorCodes.h"
 #include "BeaconCertTxHandler.h"
 #include "RecoveryTxHandler.h"
+#include "AccountRecoveryTxHandler.h"
 #include "ImportTxHandler.h"
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
@@ -36,6 +37,7 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_BEACON_CERT, std::make_unique<BeaconCertTxHandler>());
   install(Ledger::T_RECOVERY, std::make_unique<RecoveryTxHandler>());
   install(Ledger::T_IMPORT, std::make_unique<ImportTxHandler>());
+  install(Ledger::T_ACCOUNT_RECOVERY, std::make_unique<AccountRecoveryTxHandler>());
 }
 
 ITxHandler *RecordHandler::get(std::size_t type) {
@@ -103,6 +105,9 @@ RecordHandler::applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
   if (!decoded) {
     return decoded.error();
   }
+  if (auto open = checkNotFrozen(rec, *decoded.value().first, decoded.value().second, bank, ctx.ctx.bank); !open) {
+    return open;
+  }
   return decoded.value().first->applyBuffer(decoded.value().second, bank, ctx);
 }
 
@@ -113,7 +118,40 @@ RecordHandler::applyBlock(const Ledger::Record &rec, AccountBuffer &bank,
   if (!decoded) {
     return decoded.error();
   }
+  if (auto open = checkNotFrozen(rec, *decoded.value().first, decoded.value().second, bank, ctx.ctx.bank); !open) {
+    return open;
+  }
   return decoded.value().first->applyBlock(decoded.value().second, bank, ctx);
+}
+
+chain_tx::Roe<void> RecordHandler::checkNotFrozen(const Ledger::Record &rec, const ITxHandler &handler,
+                                                  const Ledger::TypedTx &tx, const AccountBuffer &bank,
+                                                  const AccountBuffer &committed) const {
+  switch (rec.type) {
+  case Ledger::T_DEFAULT:
+  case Ledger::T_NEW_USER:
+  case Ledger::T_USER_UPDATE:
+  case Ledger::T_MINER_REGISTER:
+  case Ledger::T_MINER_REVOKE:
+    break;
+  default: // signed by a leader, a recovery set, the admin set, or not at all
+    return {};
+  }
+  auto signer = handler.getSignerAccountId(tx, 0);
+  if (!signer) {
+    return {}; // the handler reports it
+  }
+  auto account = bank.getAccount(signer.value());
+  if (!account) {
+    account = committed.getAccount(signer.value());
+  }
+  if (account && account.value().wallet.recovery.pending) {
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Account " + std::to_string(signer.value()) +
+                                 " is frozen: its recovery set announced new keys, taking over at epoch " +
+                                 std::to_string(account.value().wallet.recovery.applyEpoch));
+  }
+  return {};
 }
 
 void RecordHandler::redirectLoggers(const std::string &baseName) {

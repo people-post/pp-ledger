@@ -21,6 +21,30 @@ namespace pp::chain_tx {
 using FnPublisherExists = std::function<bool(uint64_t)>;
 
 /** Key type / publicKeys / minSignatures checks shared by user-account paths. */
+/**
+ * A key set a recovery names (the recovery set, or announced next keys): 1 to kMaxSignatureCount
+ * distinct ML-DSA-65 keys, 1 to that many to sign.
+ */
+Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what);
+
+/** Half an epoch, in seconds (at least 1): the shortest delay an account's recovery may have. */
+uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config);
+
+/**
+ * The epoch a recovery announced in `slot` applies at: the first epoch that starts at least
+ * `delaySeconds` after the slot does (projects/account-recovery AR008).
+ */
+uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint64_t delaySeconds);
+
+/**
+ * An account's recovery set as named — first by the account's keys (T_NEW_USER, T_USER_UPDATE), then
+ * by the set itself (T_ACCOUNT_RECOVERY): none (all fields empty), or a valid set and a delay of at
+ * least half an epoch (`config`; without one, at least a second); never on a system account; never an
+ * announcement (that is the chain's).
+ */
+Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t accountId,
+                              const std::optional<BlockChainConfig> &config);
+
 Roe<void> validateUserWalletBasics(const Crypto &crypto,
                                    const Client::Wallet &wallet);
 

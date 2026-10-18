@@ -852,6 +852,7 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
     if (auto liveness = applyMinerLiveness(block, chain_block::BlockAdmissionMode::Full); !liveness) {
       return liveness;
     }
+    applyDueAccountRecoveries(block);
   }
 
   if (block.block.index == 0) {
@@ -898,6 +899,20 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
     chargedMisses_[block.block.index] = std::move(charged);
   }
   return {};
+}
+
+void Chain::applyDueAccountRecoveries(const Ledger::ChainNode &block) {
+  // At the first block of an epoch (or the first this node holds), after its records: the set's
+  // withdrawal in the block clears a recovery before it applies; renewals there carry the keys before.
+  if (block.block.index > 0) {
+    if (auto prev = txContext_.ledger.readBlock(block.block.index - 1); prev && prev.value().block.epoch == block.block.epoch) {
+      return;
+    }
+  }
+  for (uint64_t id : txContext_.bank.applyDueRecoveries(block.block.epoch)) {
+    log().info << "Account " << id << ": its recovery applied at block " << block.block.index
+               << " (epoch " << block.block.epoch << "): the announced keys sign for it now";
+  }
 }
 
 bool Chain::isMinerDue(uint64_t accountId, uint64_t slot) const {
@@ -1576,6 +1591,7 @@ Chain::Roe<void> Chain::processNormalBlock(
   if (auto liveness = applyMinerLiveness(block, mode); !liveness) {
     return liveness;
   }
+  applyDueAccountRecoveries(block);
 
   // A node warming up from a checkpoint holds only the accounts renewed so far: its root cannot
   // match until Full admission (from the next checkpoint), which checks every block.
@@ -2126,6 +2142,27 @@ Chain::Roe<void> Chain::validateTxSignatures(
     }
     return mapTxVoid(chain_tx::verifyRecoverySigned(record, txContext_.optAuthority->recovery, getNetworkId(),
                                                     txContext_.crypto, log()));
+  }
+  if (record.type == Ledger::T_ACCOUNT_RECOVERY) {
+    // Signed by the account's recovery set, not its keys (projects/account-recovery).
+    auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
+    if (!tx) {
+      return Error(E_TX_VALIDATION, "Malformed account recovery");
+    }
+    auto account = txContext_.bank.getAccount(tx.value().walletId);
+    if (!account) {
+      return chain_block::admissionTxStrict(admissionMode)
+                 ? Error(E_ACCOUNT_NOT_FOUND, "Account not found: " + std::to_string(tx.value().walletId))
+                 : Roe<void>();
+    }
+    const Client::AccountRecovery &recovery = account.value().wallet.recovery;
+    if (!recovery.hasSet()) {
+      return Error(E_TX_SIGNATURE, "Account " + std::to_string(tx.value().walletId) + " has no recovery set");
+    }
+    AccountBuffer::Account signers = account.value();
+    signers.wallet.publicKeys = recovery.publicKeys;
+    signers.wallet.minSignatures = recovery.minSignatures;
+    return verifySignaturesAgainstAccount(record.signingMessage(getNetworkId()), record.signatures, signers);
   }
   auto signerAccountIdRoe =
       recordHandler_.getSignerAccountId(record, slotLeaderId);

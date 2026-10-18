@@ -1262,6 +1262,118 @@ run_token_scenario() {
   echo -e "${GREEN}✓ Issuer ${issuer} issued 1,000 of its token to ${carol}; its keys are now 2 of 2${NC}"
 }
 
+# Account $1's JSON, spaces removed (empty when unknown).
+account_json() {
+  run_pp_client -b --host "$(relay_multiaddr)" account "$1" 2>/dev/null | tr -d ' \n' || true
+}
+
+# Wait until account $1's JSON (spaces removed) does not match the regex $2; die with $3 after $4 s.
+wait_for_account_without() {
+  local account=$1 pattern=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) json
+  while ((SECONDS < deadline)); do
+    json=$(account_json "$account")
+    if [[ -n "$json" ]] && ! grep -Eq "$pattern" <<<"$json"; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: ${json:-none})"
+}
+
+# Wait until account $1's native balance is at most $2; die with $3 after $4 s.
+wait_for_balance_below() {
+  local account=$1 most=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) balance
+  while ((SECONDS < deadline)); do
+    balance=$(native_balance "$account")
+    if [[ -n "$balance" ]] && ((balance <= most)); then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: balance ${balance:-unknown}, expected at most $most)"
+}
+
+# Account recovery (projects/account-recovery): the account's key names a recovery set (two guardians,
+# both to sign, half an epoch's delay); its key cannot change it after; the set announces new keys and
+# the account is frozen; the set withdraws it and the account pays again; the set announces again and,
+# at the first epoch start after the delay, the new key is the account's and signs; the old one does not.
+run_account_recovery_scenario() {
+  local key_dir="${TEST_DIR}/keys" account=$(((1 << 30) + 20)) carol=$(((1 << 30) + 7))
+  local half=$((SLOT_DURATION * SLOTS_PER_EPOCH / 2))
+  while grep -q '"mBalances"' <<<"$(account_json "$account")"; do
+    account=$((account + 1)) # a network kept up across runs: a new account each run
+  done
+  echo -e "${CYAN}Account recovery: ${account}'s recovery set freezes it, withdraws, then gives it new keys...${NC}"
+  local r=() name
+  for i in 1 2 3; do r+=("${key_dir}/reserve$i.key"); done
+  for name in owner guardian1 guardian2 next; do
+    rm -f "${key_dir}/recover-${account}-${name}".{key,pub}
+    generate_tx_keypair "recover-${account}-${name}" >/dev/null
+  done
+  local k="${key_dir}/recover-${account}" g=("${key_dir}/recover-${account}-guardian1.key" "${key_dir}/recover-${account}-guardian2.key")
+  operation_flow recover-new "${r[@]}" -- new-account --from "$RESERVE_ACCOUNT_ID" --id "$account" \
+    --account-key "${k}-owner.pub" --amount 5000 -f 1
+  wait_for_account "$account" '"mBalances":\{"0":[1-9]' "L-SMOKE-RECOVERY: the account was not created"
+
+  operation_flow recover-set "${k}-owner.key" -- set-recovery --account "$account" \
+    --recovery-key "${k}-guardian1.pub" --recovery-key "${k}-guardian2.pub" --recovery-min-signatures 2 \
+    --delay-seconds "$half" -f 1
+  wait_for_account "$account" "\"recovery\":\\{[^}]*\"delaySeconds\":$half" "L-SMOKE-RECOVERY: the recovery set was not set"
+
+  # Signed apart from the operation flow, it should never land: the account's key acting as the set.
+  local dir="${TEST_DIR}/operation"
+  try_alone() { # <name> <key> <op args...>: made with one signer, signed, submitted; may be refused
+    local name=$1 key=$2
+    shift 2
+    run_pp_client -b --host "$(relay_multiaddr)" op "$@" -f 1 --signer-key "${key%.key}.pub" --min-signatures 1 \
+      -o "$dir/$name.json" >/dev/null 2>&1 &&
+      run_pp_client op sign "$dir/$name.json" -k "$key" >/dev/null 2>&1 &&
+      run_pp_client -b --host "$(relay_multiaddr)" op submit "$dir/$name.json" >/dev/null 2>&1 || true
+  }
+  try_alone recover-owner-change "${k}-owner.key" set-recovery --account "$account" --none
+  try_alone recover-one "${k}-guardian1.key" recover --account "$account" --new-key "${k}-next.pub"
+  sleep $((SLOT_DURATION * 3))
+  local json
+  json=$(account_json "$account")
+  grep -q '"pending"' <<<"$json" && die "L-SMOKE-RECOVERY: one guardian of two announced a recovery"
+  grep -q '"recovery":{' <<<"$json" || die "L-SMOKE-RECOVERY: the account's key removed its recovery set"
+  echo -e "${GREEN}✓ The account's key named the set and cannot change it; one guardian alone cannot act${NC}"
+
+  operation_flow recover-announce "${g[@]}" -- recover --account "$account" --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the announcement is not pending"
+  local before
+  before=$(native_balance "$account")
+  try_alone recover-frozen "${k}-owner.key" transfer --from "$account" --to "$carol" --amount 1000
+  sleep $((SLOT_DURATION * 4))
+  (($(native_balance "$account") > before - 1000)) || die "L-SMOKE-RECOVERY: a frozen account paid"
+  operation_flow recover-withdraw "${g[@]}" -- withdraw-recovery --account "$account" -f 1
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the set's withdrawal did not clear it"
+  before=$(native_balance "$account")
+  operation_flow recover-unfrozen "${k}-owner.key" -- transfer --from "$account" --to "$carol" --amount 10 -f 1
+  wait_for_balance_below "$account" $((before - 10)) "L-SMOKE-RECOVERY: the account's key does not sign again"
+  echo -e "${GREEN}✓ Announced: the account was frozen; the set withdrew it and the account's key signs again${NC}"
+
+  operation_flow recover-again "${g[@]}" -- recover --account "$account" --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the second announcement is not pending"
+  local next
+  next=$(tr -d ' \n' <"${k}-next.pub" | sed 's/^0x//' | cut -c1-64 | tr 'A-F' 'a-f')
+  # Half an epoch of delay: applied at the first epoch start after it, at most two epochs on.
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the recovery did not apply" \
+    $((SLOT_DURATION * SLOTS_PER_EPOCH * 3 + 30))
+  grep -Eqi "\"publicKeys\":\[\"(0x)?${next}" <<<"$(account_json "$account")" ||
+    die "L-SMOKE-RECOVERY: the account's keys are not the announced ones: $(account_json "$account")"
+  before=$(native_balance "$account")
+  operation_flow recover-pays "${k}-next.key" -- transfer --from "$account" --to "$carol" --amount 10 -f 1
+  wait_for_balance_below "$account" $((before - 10)) "L-SMOKE-RECOVERY: the new key's transfer did not land"
+  before=$(native_balance "$account")
+  try_alone recover-old "${k}-owner.key" transfer --from "$account" --to "$carol" --amount 1000
+  sleep $((SLOT_DURATION * 4))
+  (($(native_balance "$account") > before - 1000)) || die "L-SMOKE-RECOVERY: the old key still signs for the account"
+  echo -e "${GREEN}✓ Account ${account} recovered: the announced key signs, the old one no longer does${NC}"
+}
+
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
 # chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
 register_miner_account() {

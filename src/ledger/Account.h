@@ -37,30 +37,85 @@ struct MinerState {
   }
 };
 
+/**
+ * An account's way back (projects/account-recovery; WIRE_SCHEMA § Account recovery): a recovery set
+ * that stands above the account's keys. It announces the account's next keys, which take over at the
+ * first epoch start at least `delaySeconds` on; meanwhile the account is frozen (its keys sign nothing)
+ * and only the set may withdraw it. The account's keys name the first set (T_NEW_USER, T_USER_UPDATE);
+ * after that only the set changes itself (T_ACCOUNT_RECOVERY). Renewals carry all of it unchanged.
+ */
+struct AccountRecovery {
+  /** Who may announce, and how many must sign; none: the account has no recovery. */
+  std::vector<std::string> publicKeys;
+  uint8_t minSignatures{ 0 };
+  /** Seconds from an announcement's slot to the earliest its keys take over (at least half an epoch). */
+  uint64_t delaySeconds{ 0 };
+  /** An announcement waiting: the account's next keys, the epoch they take over at, the block it is in. */
+  bool pending{ false };
+  std::vector<std::string> nextPublicKeys;
+  uint8_t nextMinSignatures{ 0 };
+  uint64_t applyEpoch{ 0 };
+  uint64_t announcedAt{ 0 };
+
+  bool hasSet() const { return !publicKeys.empty(); }
+  bool operator==(const AccountRecovery &other) const = default;
+
+  template <typename Archive> void serialize(Archive &ar) {
+    ar & publicKeys & minSignatures & delaySeconds & pending & nextPublicKeys & nextMinSignatures & applyEpoch &
+        announcedAt;
+  }
+};
+
+/** What a T_ACCOUNT_RECOVERY does (its `meta`), signed by the account's recovery set. */
+struct AccountRecoveryAction {
+  constexpr static const uint32_t VERSION = 1;
+
+  enum Kind : uint8_t {
+    /** The account's next keys (`publicKeys`, `minSignatures`): the account frozen until they apply. */
+    ANNOUNCE = 1,
+    /** The announcement waiting withdrawn: the account's keys sign again. */
+    WITHDRAW = 2,
+    /** The recovery set replaced (`publicKeys`, `minSignatures`, `delaySeconds`), or removed (no keys). */
+    CHANGE = 3,
+  };
+
+  uint8_t kind{ 0 };
+  std::vector<std::string> publicKeys;
+  uint8_t minSignatures{ 0 };
+  uint64_t delaySeconds{ 0 };
+
+  template <typename Archive> void serialize(Archive &ar) { ar & kind & publicKeys & minSignatures & delaySeconds; }
+
+  std::string ltsToString() const;
+  bool ltsFromString(const std::string &str);
+};
+
 struct Wallet {
   std::map<uint64_t, int64_t> mBalances; // tokenId -> balance
   std::vector<std::string> publicKeys;
   uint8_t minSignatures{ 0 };
   uint8_t keyType{ 0 };  // Crypto::TK_ML_DSA_65 = 1; use Crypto::isSupported() to check
   MinerState miner;
+  AccountRecovery recovery;
 
   bool operator==(const Wallet& other) const {
     return mBalances == other.mBalances &&
            publicKeys == other.publicKeys &&
            minSignatures == other.minSignatures &&
            keyType == other.keyType &&
-           miner == other.miner;
+           miner == other.miner &&
+           recovery == other.recovery;
   }
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar & mBalances & publicKeys & minSignatures & keyType & miner;
+    ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery;
   }
 
   pp::common::Meta ltsToMeta() const;
 };
 
 struct UserAccount {
-  constexpr static const uint32_t VERSION = 2;
+  constexpr static const uint32_t VERSION = 3;
 
   Wallet wallet;
   std::string meta;

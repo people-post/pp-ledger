@@ -1,12 +1,70 @@
 #include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "../client/AccountAttachment.h"
+#include "../client/AccountIds.h"
 #include "lib/common/Utilities.h"
 
 #include <algorithm>
 #include <set>
 
 namespace pp::chain_tx {
+
+Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what) {
+  auto invalid = [what](const std::string &why) {
+    return TxError(chain_err::E_TX_VALIDATION, std::string(what) + ": " + why);
+  };
+  if (keys.empty() || keys.size() > kMaxSignatureCount) {
+    return invalid("1 to " + std::to_string(kMaxSignatureCount) + " keys");
+  }
+  std::set<std::string> seen;
+  for (const auto &key : keys) {
+    if (key.size() != utl::kMlDsaPublicKeyBytes) {
+      return invalid("a key is not an ML-DSA-65 public key");
+    }
+    if (!seen.insert(key).second) {
+      return invalid("the same key twice");
+    }
+  }
+  if (minSignatures < 1 || minSignatures > keys.size()) {
+    return invalid("signatures needed between 1 and its keys");
+  }
+  return {};
+}
+
+uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config) {
+  return std::max<uint64_t>(1, config.slotDuration * config.slotsPerEpoch / 2);
+}
+
+uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint64_t delaySeconds) {
+  const uint64_t slotDuration = std::max<uint64_t>(1, config.slotDuration);
+  const uint64_t slotsPerEpoch = std::max<uint64_t>(1, config.slotsPerEpoch);
+  const uint64_t delaySlots = delaySeconds / slotDuration + (delaySeconds % slotDuration != 0 ? 1 : 0);
+  const uint64_t earliest = slot + delaySlots;
+  return earliest / slotsPerEpoch + (earliest % slotsPerEpoch != 0 ? 1 : 0);
+}
+
+Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t accountId,
+                              const std::optional<BlockChainConfig> &config) {
+  if (recovery.pending || !recovery.nextPublicKeys.empty() || recovery.nextMinSignatures != 0 ||
+      recovery.applyEpoch != 0 || recovery.announcedAt != 0) {
+    return TxError(chain_err::E_TX_VALIDATION, "A recovery set is named without an announcement (that is the chain's)");
+  }
+  if (!recovery.hasSet()) {
+    if (recovery.minSignatures != 0 || recovery.delaySeconds != 0) {
+      return TxError(chain_err::E_TX_VALIDATION, "A recovery without a set names no threshold or delay");
+    }
+    return {};
+  }
+  if (AccountIds::isSystemAccount(accountId)) {
+    return TxError(chain_err::E_TX_VALIDATION, "A system account has no recovery of its own (the genesis recovery set covers it)");
+  }
+  const uint64_t least = config ? minRecoveryDelaySeconds(*config) : 1;
+  if (recovery.delaySeconds < least) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "A recovery's delay is at least half an epoch (" + std::to_string(least) + " s)");
+  }
+  return validateRecoveryKeys(recovery.publicKeys, recovery.minSignatures, "Recovery set");
+}
 
 Roe<void> validateUserWalletBasics(const Crypto &crypto,
                                    const Client::Wallet &wallet) {

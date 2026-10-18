@@ -26,6 +26,8 @@ enum class Kind {
   Mint,
   NewAccount,
   AccountUpdate,
+  /** An account's recovery set announcing its next keys (T_ACCOUNT_RECOVERY). */
+  AccountRecovery,
   ConfigUpdate,
   BeaconCertificate,
   Recovery,
@@ -194,6 +196,26 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
  */
 pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
                                uint32_t minSignatures, uint64_t fee);
+/**
+ * Name account `current`'s first recovery set (projects/account-recovery; T_USER_UPDATE, signed by the
+ * keys in force): `keys`, `minSignatures` of them to act, `delaySeconds` (at least half an epoch) from
+ * an announcement to the earliest its keys take over. Its keys stay. Refused once it has a set: only
+ * the set changes itself then (changeRecovery).
+ */
+pp::Roe<Operation> setRecovery(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t delaySeconds, uint64_t fee);
+/**
+ * The recovery set's actions on account `account` (T_ACCOUNT_RECOVERY), signed by that set
+ * (`common.signers`: its keys and threshold, `account` the account); the account pays `fee`.
+ * Announce its next `keys`: the account is frozen until they take over.
+ */
+pp::Roe<Operation> announceRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+                                    uint32_t minSignatures, uint64_t fee);
+/** Withdraw the recovery announced: the account's keys sign again. */
+pp::Roe<Operation> withdrawRecovery(const Common &common, uint64_t account, uint64_t fee);
+/** Replace the recovery set with `keys` (none: remove it), `minSignatures` and `delaySeconds`. */
+pp::Roe<Operation> changeRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+                                  uint32_t minSignatures, uint64_t delaySeconds, uint64_t fee);
 /** A record built elsewhere (pp-client mk-beacon-cert, mk-recovery, mk-tx), its signatures dropped. */
 pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record);
 /**

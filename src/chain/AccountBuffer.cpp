@@ -76,6 +76,43 @@ AccountBuffer::Roe<void> AccountBuffer::setWalletKeys(uint64_t accountId, const 
   return {};
 }
 
+AccountBuffer::Roe<void> AccountBuffer::setRecovery(uint64_t accountId, const Client::AccountRecovery &recovery) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account &account = *accountRoe.value();
+  account.wallet.recovery = recovery;
+  touchTree(account);
+  return {};
+}
+
+std::vector<uint64_t> AccountBuffer::applyDueRecoveries(uint64_t epoch) {
+  std::vector<uint64_t> due;
+  for (const auto &[id, account] : mAccounts_) {
+    if (account.wallet.recovery.pending && account.wallet.recovery.applyEpoch <= epoch) {
+      due.push_back(id);
+    }
+  }
+  for (uint64_t id : due) {
+    auto accountRoe = mutableAccount(id);
+    if (!accountRoe) {
+      continue;
+    }
+    Account &account = *accountRoe.value();
+    Client::AccountRecovery &recovery = account.wallet.recovery;
+    account.wallet.publicKeys = recovery.nextPublicKeys;
+    account.wallet.minSignatures = recovery.nextMinSignatures;
+    recovery.pending = false;
+    recovery.nextPublicKeys.clear();
+    recovery.nextMinSignatures = 0;
+    recovery.applyEpoch = 0;
+    recovery.announcedAt = 0;
+    touchTree(account);
+  }
+  return due;
+}
+
 void AccountBuffer::recordUndo(uint64_t id) {
   if (journals_.empty()) {
     return;

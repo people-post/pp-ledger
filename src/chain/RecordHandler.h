@@ -18,8 +18,8 @@ namespace pp {
 /** RecordHandler owns the per-record-type tx handlers. */
 class RecordHandler final {
 public:
-  /** Handler table size: record type ids 0..T_IMPORT (7..15 reserved, no handler). */
-  static constexpr std::size_t kNumTxTypes = Ledger::T_IMPORT + 1;
+  /** Handler table size: record type ids 0..T_ACCOUNT_RECOVERY (7..15 reserved, no handler). */
+  static constexpr std::size_t kNumTxTypes = Ledger::T_ACCOUNT_RECOVERY + 1;
 
   RecordHandler();
   ~RecordHandler() = default;
@@ -84,7 +84,9 @@ public:
 
   /**
    * Decode `rec`, dispatch to its handler, and run applyBuffer. Mirrors
-   * Chain's decode / handler-not-registered errors.
+   * Chain's decode / handler-not-registered errors. Both apply paths refuse a
+   * record the account's own keys sign while its recovery is announced
+   * (the account is frozen: projects/account-recovery).
    */
   chain_tx::Roe<void> applyBuffer(const Ledger::Record &rec, AccountBuffer &bank,
                                   const BufferApplyContext &ctx) const;
@@ -103,6 +105,15 @@ private:
   /** Decode record and resolve its handler (shared by apply/signer paths). */
   chain_tx::Roe<std::pair<const ITxHandler *, Ledger::TypedTx>>
   decodeWithHandler(const Ledger::Record &rec) const;
+
+  /**
+   * A record its account's own keys sign (a transfer, an account creation or
+   * update, a miner registration or revocation), refused while that account
+   * has a recovery announced. `bank` first, then `committed`.
+   */
+  chain_tx::Roe<void> checkNotFrozen(const Ledger::Record &rec, const ITxHandler &handler,
+                                     const Ledger::TypedTx &tx, const AccountBuffer &bank,
+                                     const AccountBuffer &committed) const;
 
   std::array<std::unique_ptr<ITxHandler>, kNumTxTypes> handlers_{};
 };

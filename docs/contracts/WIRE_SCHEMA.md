@@ -120,6 +120,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18)) |
 | 19 | `T_RECOVERY` | Recovery set announces a new admin set, applied `delayEpochs` later ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#recovery--t_recovery-record-19)) |
 | 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
+| 21 | `T_ACCOUNT_RECOVERY` | An account's recovery set announces its next keys (the account frozen until they apply), withdraws that, or changes itself ([Account recovery](#account-recovery)) |
 
 Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
@@ -214,7 +215,8 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
   (the meta recorded at the account's last write); only the renewal fee leaves its balance.
   Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
-  keys, threshold and meta, and pays its fee from the account's native balance **as the chain has
+  keys, threshold and meta (and names the account's first recovery set: [Account
+  recovery](#account-recovery); refused while a recovery is announced), and pays its fee from the account's native balance **as the chain has
   it** — balances in its meta are ignored, so renewals or transfers landing between its making and
   its inclusion do not void it (refused when that balance cannot pay the fee). An account that cannot pay its renewal fee is ended
   instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
@@ -367,7 +369,7 @@ time window, and header commitments still apply. Policy helper:
 ## Miner registration and liveness
 
 Only **registered miners** are elected ([Leader election](#leader-election-live)). Registration is
-on-chain account state (`Wallet.miner`, `UserAccount` version **2**): `registered`,
+on-chain account state (`Wallet.miner`, `UserAccount` version **3**): `registered`,
 `lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`. Account creation and update cannot
 set it (a new account carries the default state; an update or renewal keeps it); only the rules
 below change it, in place — the account's `blockId` (where renewal reads its meta) does not move.
@@ -416,6 +418,54 @@ certificate with a cutover — the first block after a beacon outage
 ([BEACON_AUTHORITY.md § Taking over](BEACON_AUTHORITY.md#taking-over)). Code: `MinerTxHandler`, `MinerLiveness`
 (`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
 warns when its account is not a registered miner.
+
+## Account recovery
+
+A user or issued account may name a **recovery set**: keys that stand above the account's own. The
+set can give the account new keys — when its keys are lost, or stolen — and only the set changes
+itself (design and rationale: `projects/account-recovery`). It is account state in the account's leaf,
+so proven like a balance ([Account proofs](#account-proofs)): `Wallet.recovery` (`AccountRecovery`,
+`UserAccount` version **3**):
+
+| Field | Holds |
+|-------|-------|
+| `publicKeys`, `minSignatures` | The recovery set and how many of it sign its actions (none: no recovery) |
+| `delaySeconds` | From an announcement's slot to the earliest its keys take over: at least half an epoch |
+| `pending`, `nextPublicKeys`, `nextMinSignatures`, `applyEpoch`, `announcedAt` | An announcement waiting: the account's next keys, the epoch they take over at, the block that announced them |
+
+**The first set.** Account creation (`T_NEW_USER`) or the account's own update (`T_USER_UPDATE`,
+signed by its keys) may name it while the account has none: `publicKeys` (1–32 distinct ML-DSA-65
+keys), `minSignatures` (1 … their number), `delaySeconds` ≥ half an epoch (`slotDuration ×
+slotsPerEpoch / 2`); never for a system account, never the pending fields
+(`AccountPolicy::validateRecoverySet`). Once it has a set, every update and renewal carries
+`recovery` unchanged: the account's keys neither change nor remove it.
+
+**`T_ACCOUNT_RECOVERY` (21)** — `TxAccountRecovery`: `walletId`, `fee`, `meta`
+(`AccountRecoveryAction`: `kind`, `publicKeys`, `minSignatures`, `delaySeconds`), `idempotentId`,
+`validationTsMin`, `validationTsMax`. **Signed by the account's recovery set** (its threshold), never
+by its keys; refused for an account with no set. Fee ≥ the base fee (billed size 0: keys are not
+custom metadata), from the account's native balance, to the fee account.
+
+| `kind` | Does | Refused when |
+|--------|------|--------------|
+| 1 `ANNOUNCE` | Sets `pending` with the next `publicKeys` and `minSignatures`, `applyEpoch` (below), `announcedAt` = its block | An announcement is pending; the keys are not a valid set; a delay is named |
+| 2 `WITHDRAW` | Clears the pending fields | Nothing is pending; keys or a delay are named |
+| 3 `CHANGE` | Replaces the set: `publicKeys`, `minSignatures`, `delaySeconds` as for the first set, or none (removed) | An announcement is pending (withdraw it first) |
+
+**Frozen while announced.** From the record that announces to the block that applies (or the
+withdrawal), every record the account's own keys sign — `T_DEFAULT` from it, `T_NEW_USER` from it,
+`T_USER_UPDATE`, `T_MINER_REGISTER`, `T_MINER_REVOKE` — is refused, in the pool and in blocks, by the
+state at that point of the block (`RecordHandler::checkNotFrozen`). Transfers to it, its renewals and
+its recovery set's records go on.
+
+**Applying.** `applyEpoch` is the first epoch that starts at least `delaySeconds` after the
+announcing slot starts: `ceil((slot + ceil(delaySeconds / slotDuration)) / slotsPerEpoch)`
+(`chain_tx::recoveryApplyEpoch`) — an announcement late in an epoch never takes over at the next
+epoch's start unless the delay has passed. At the first block of an epoch (or the first a node holds
+of it), **after its records**, every pending announcement with `applyEpoch` ≤ that epoch applies, in
+account-id order: the account's keys and threshold become the announced ones and the pending fields
+clear; the set and delay stay. In place, as miner state: the account's `blockId` does not move
+(`AccountBuffer::applyDueRecoveries`, `Chain::applyDueAccountRecoveries`).
 
 ## Producer statistics
 

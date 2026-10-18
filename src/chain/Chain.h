@@ -500,6 +500,8 @@ private:
    *  minerMinStake (WIRE_SCHEMA § Miner registration and liveness). */
   std::vector<consensus::Stakeholder> electionCandidates() const;
   /** Block-level miner liveness after the records (chain_tx::applyMinerLiveness). */
+  /** Account recoveries due by the block's epoch, applied at an epoch's first block (projects/account-recovery). */
+  void applyDueAccountRecoveries(const Ledger::ChainNode &block);
   Roe<void> applyMinerLiveness(const Ledger::ChainNode &block, chain_block::BlockAdmissionMode mode);
   Roe<void> sealOnTip(Ledger::ChainNode &block);
 

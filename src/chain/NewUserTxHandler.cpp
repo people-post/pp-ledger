@@ -222,6 +222,12 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
                              "A new account cannot carry miner state (register with T_MINER_REGISTER)");
   }
 
+  // A new account may name its recovery set; never an announcement (projects/account-recovery).
+  if (auto valid = chain_tx::validateRecoverySet(userAccount.wallet.recovery, tx.toWalletId, ctx.optChainConfig);
+      !valid) {
+    return valid;
+  }
+
   if (userAccount.wallet.mBalances.size() != 1) {
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "User account must have exactly one balance");

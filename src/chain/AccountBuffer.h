@@ -117,6 +117,13 @@ public:
   Roe<void> setMinerState(uint64_t accountId, const Client::MinerState &miner);
   /** Replace an account's keys and threshold in place (a recovery replacing the admin set, ba7). */
   Roe<void> setWalletKeys(uint64_t accountId, const std::vector<std::string> &publicKeys, uint8_t minSignatures);
+  /** Account recovery state, in place (as setMinerState): the account's blockId does not move. */
+  Roe<void> setRecovery(uint64_t accountId, const Client::AccountRecovery &recovery);
+  /**
+   * Every announcement due by `epoch` (applyEpoch <= epoch) applied, in id order: the account's keys
+   * become the announced ones, the announcement cleared, its set and delay kept. The ids applied.
+   */
+  std::vector<uint64_t> applyDueRecoveries(uint64_t epoch);
 
   Roe<void> depositBalance(uint64_t accountId, uint64_t tokenId,
                            int64_t amount);

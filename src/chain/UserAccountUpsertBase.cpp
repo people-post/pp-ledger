@@ -124,6 +124,21 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Account update cannot change miner state: " + std::to_string(tx.walletId));
     }
+    // Recovery (projects/account-recovery): the recovery set stands above the account's keys. They
+    // name the first one; after that only the set changes itself (T_ACCOUNT_RECOVERY), and every
+    // update or renewal carries the recovery as the chain holds it.
+    const Client::AccountRecovery &held = bufferAccountResult.value().wallet.recovery;
+    if (kind == UpsertKind::Update && !held.hasSet()) {
+      if (auto valid = chain_tx::validateRecoverySet(userAccount.wallet.recovery, tx.walletId, ctx.optChainConfig);
+          !valid) {
+        return valid;
+      }
+    } else if (userAccount.wallet.recovery != held) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               std::string(kind == UpsertKind::Update ? "Only its recovery set changes"
+                                                                      : "Renewal cannot change") +
+                                   " the recovery of account " + std::to_string(tx.walletId));
+    }
     if (kind != UpsertKind::Update && chain_block::admissionTxStrict(admissionMode)) {
       if (auto kept = checkRenewalKeepsAccount(userAccount, bufferAccountResult.value()); !kept) {
         return kept;

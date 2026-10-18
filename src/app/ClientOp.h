@@ -70,4 +70,16 @@ private:
   Create updateKeys_;
   std::vector<std::string> newKeys_;
   uint32_t newMinSignatures_{1};
+  Create setRecovery_;
+  std::vector<std::string> recoveryKeys_;
+  uint32_t recoveryMinSignatures_{1};
+  uint64_t recoveryDelaySeconds_{0};
+  bool noRecovery_{false};
+  Create withdrawRecovery_;
+  Create recover_;
+  /**
+   * Signed by the account's recovery set (its keys and threshold read from the node by default): a
+   * recovery, a withdrawal, a change of a set the account has (`hasRecoverySet`).
+   */
+  bool signedByRecoverySet(const Create &create, bool hasRecoverySet) const;
 };

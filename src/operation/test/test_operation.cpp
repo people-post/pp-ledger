@@ -386,13 +386,70 @@ TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
 
   auto s = summarize(update.value());
   ASSERT_TRUE(s) << s.error().message;
-  EXPECT_EQ(s.value().title, "Replace an account's keys");
+  EXPECT_EQ(s.value().title, "Update an account: its keys, its recovery");
   auto back = fromJson(toJson(update.value()));
   ASSERT_TRUE(back) << back.error().message;
   EXPECT_EQ(back.value().kind, Kind::AccountUpdate);
   Operation otherSigners = update.value();
   otherSigners.signers.account = AccountIds::ID_RESERVE;
   EXPECT_FALSE(fromJson(toJson(otherSigners))); // the updated account signs, no other
+}
+
+TEST(OperationTest, AnAccountNamesItsFirstRecoverySetThenTheSetActs) {
+  Keys owner(1);
+  Keys guardians(3);
+  Keys next(1);
+  const uint64_t account = AccountIds::ID_FIRST_USER + 4;
+  UserAccount current;
+  current.wallet.publicKeys = owner.publicKeys();
+  current.wallet.minSignatures = 1;
+  current.wallet.mBalances[AccountIds::ID_GENESIS] = 500;
+
+  // The account's keys name the first set: the set, how many act, the delay; its keys and the rest kept.
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 4, 3600, 10)); // 4 of 3
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 0, 10));    // no delay
+  auto set = setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 86400, 10);
+  ASSERT_TRUE(set) << set.error().message;
+  EXPECT_EQ(set.value().kind, Kind::AccountUpdate);
+  UserAccount carried;
+  ASSERT_TRUE(carried.ltsFromString(utl::binaryUnpack<Ledger::TxUserUpdate>(set.value().record.data).value().meta));
+  EXPECT_EQ(carried.wallet.publicKeys, owner.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.publicKeys, guardians.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.minSignatures, 2);
+  EXPECT_EQ(carried.wallet.recovery.delaySeconds, 86400u);
+  EXPECT_EQ(carried.wallet.mBalances.at(AccountIds::ID_GENESIS), 490);
+  // Once it has a set, its keys do not change it.
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), carried, next.publicKeys(), 1, 86400, 10));
+
+  // The set acts for the account: announce, withdraw, change itself — never named by another account.
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, AccountIds::ID_FIRST_USER), account, next.publicKeys(), 1, 10));
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 2, 10)); // 2 of 1
+  auto announce = announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 10);
+  ASSERT_TRUE(announce) << announce.error().message;
+  EXPECT_EQ(announce.value().kind, Kind::AccountRecovery);
+  EXPECT_EQ(signerAccountOf(announce.value().record), account);
+  auto s = summarize(announce.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Recover an account: new keys, the account frozen until then");
+  auto back = fromJson(toJson(announce.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::AccountRecovery);
+
+  auto withdraw = withdrawRecovery(common(guardians, 2, account), account, 10);
+  ASSERT_TRUE(withdraw) << withdraw.error().message;
+  EXPECT_EQ(summarize(withdraw.value()).value().title, "Withdraw an account's recovery");
+  auto change = changeRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 3600, 10);
+  ASSERT_TRUE(change) << change.error().message;
+  EXPECT_EQ(summarize(change.value()).value().title, "Change an account's recovery set");
+  EXPECT_TRUE(changeRecovery(common(guardians, 2, account), account, {}, 0, 0, 10)); // removed
+  EXPECT_FALSE(changeRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 0, 10));
+
+  // Announced (as the chain holds it): the account is frozen — its keys make no update.
+  carried.wallet.recovery.pending = true;
+  carried.wallet.recovery.nextPublicKeys = next.publicKeys();
+  carried.wallet.recovery.nextMinSignatures = 1;
+  carried.wallet.recovery.applyEpoch = 9;
+  EXPECT_FALSE(replaceKeys(common(owner, 1, account), carried, next.publicKeys(), 1, 10));
 }
 
 TEST(OperationTest, AmountsAreGroupedByThousands) {
