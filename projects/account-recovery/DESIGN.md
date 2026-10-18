@@ -37,9 +37,10 @@ accounts are the genesis recovery set's to recover.
 
 ### Announce: `T_ACCOUNT_RECOVERY` (AR004)
 
-A new record type (21): `walletId`, the next `publicKeys` and `minSignatures`, `fee`, the validity
-window and idempotent id; **signed by the account's recovery set** (its threshold), not by the
-account's keys. It is refused when the account has no recovery set, or one announcement is pending
+A new record type (21): `walletId`, the announcement (`meta`: the next `publicKeys` and
+`minSignatures`), `fee`, the validity window and idempotent id; **signed by the account's recovery set**
+(its threshold), not by the account's keys. Its fee is the base fee: keys are not custom metadata (an
+update's keys are not billed either). It is refused when the account has no recovery set, or one announcement is pending
 already. The fee comes from the account's native balance (as every fee of the account does). Applying
 it records `pending`, with `applyEpoch` = the block's epoch + `delayEpochs`.
 
@@ -52,11 +53,12 @@ announcement waits: it spends, and its keys sign, as before.
 
 ### Apply (AR005)
 
-At the first block of an epoch at or past `applyEpoch`, before its records, every node replaces the
-account's keys with the announced ones and clears `pending` — in place, as miner state and the genesis
-recovery change accounts (the account's `blockId`, where renewal reads its record, does not move).
-Nodes keep an index of pending announcements by `applyEpoch`, rebuilt from the accounts at start, so
-no block scans every account.
+At the first block of an epoch at or past `applyEpoch`, **after its records** (as miner liveness),
+every node replaces the account's keys with the announced ones and clears `pending` — in place, as
+miner state changes accounts (the account's `blockId`, where renewal reads its record, does not move).
+After the records: a renewal in that block was built from the keys before, and an owner's update in it
+cancels the announcement before it applies. The accounts are looked through once an epoch, at its
+first block (or the first a node holds).
 
 ### Carried unchanged (AR006)
 

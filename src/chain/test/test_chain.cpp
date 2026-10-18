@@ -3668,6 +3668,129 @@ TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
   EXPECT_FALSE(none.value().wallet.has_value());
 }
 
+// projects/account-recovery: an account's recovery set announces its next keys; the owner's own update
+// cancels it; otherwise the first block of the epoch it is due in applies it — on both nodes alike.
+TEST_F(MinerLivenessTest, AnAccountIsRecoveredUnlessItsOwnerCancels) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  for (uint64_t slot = 1; slot < 40; ++slot) {
+    lead(slot, kTestMinerId);
+  }
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 3, 100000);
+  peer.setClockOverride(peer.getSlotStartTime(1));
+  ASSERT_TRUE(peer.addBlock(user.block).isOk());
+  const auto guardian = makeKeyPair();
+  const auto nextKey = makeKeyPair();
+  const int64_t from = harness_.chainConfig.genesisTime;
+
+  auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
+    Client::UserAccount account = peer.getAccount(user.id).value().wallet.publicKeys.empty()
+                                      ? Client::UserAccount{}
+                                      : Client::UserAccount{peer.getAccount(user.id).value().wallet, ""};
+    account.wallet.recovery = recovery;
+    account.meta = AccountAttachment::emptySerialized();
+    Ledger::TxUserUpdate uu;
+    uu.walletId = user.id;
+    uu.fee = 5000;
+    uu.meta = account.ltsToString();
+    uu.idempotentId = idem;
+    uu.validationTsMin = from;
+    uu.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
+  };
+  auto announce = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    AccountRecoveryAnnouncement next;
+    next.publicKeys = {nextKey.publicKey};
+    next.minSignatures = 1;
+    Ledger::TxAccountRecovery tx;
+    tx.walletId = user.id;
+    tx.meta = next.ltsToString();
+    tx.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(tx)).value();
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_ACCOUNT_RECOVERY, tx, signer, producer.getNetworkId());
+  };
+  auto refused = [&](const Ledger::Record &record) {
+    AccountBuffer scratch;
+    return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
+  };
+
+  // The owner sets a recovery set: the guardian, 1 of 1, a delay of one epoch.
+  Client::AccountRecovery set;
+  set.publicKeys = {guardian.publicKey};
+  set.minSignatures = 1;
+  set.delayEpochs = 1;
+  EXPECT_TRUE(refused(announce(guardian, 20))) << "no recovery set yet";
+  Ledger::ChainNode block = commit(user.block, 2, {update(user.key, 10, set)});
+  ASSERT_EQ(peer.getAccount(user.id).value().wallet.recovery, set);
+
+  // Announced by the guardian — not by the owner's key, and once.
+  EXPECT_TRUE(refused(announce(user.key, 21))) << "the owner's key is not the recovery set";
+  block = commit(block, 3, {announce(guardian, 22)});
+  Client::AccountRecovery pending = peer.getAccount(user.id).value().wallet.recovery;
+  ASSERT_TRUE(pending.pending);
+  EXPECT_EQ(pending.applyEpoch, 1u) << "epoch 0 + a delay of 1";
+  EXPECT_EQ(pending.nextPublicKeys, std::vector<std::string>{nextKey.publicKey});
+  EXPECT_TRUE(refused(announce(guardian, 23))) << "one announcement at a time";
+  // The owner's wallet sees it, proven.
+  auto proof = peer.accountProof(user.id);
+  ASSERT_TRUE(proof.isOk()) << proof.error().message;
+  auto proven = verify::checkAccountProof(peer.readBlock(block.block.index).value().block, proof.value());
+  ASSERT_TRUE(proven.isOk()) << proven.error().message;
+  EXPECT_TRUE(proven.value().wallet->recovery.pending);
+
+  // The owner cancels: their own update clears it; the account was never frozen.
+  block = commit(block, 4, {update(user.key, 11, set)});
+  EXPECT_FALSE(peer.getAccount(user.id).value().wallet.recovery.pending);
+  EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey});
+
+  // Announced again and left: the first block of epoch 1 applies it, on both nodes.
+  block = commit(block, 5, {announce(guardian, 24)});
+  block = commit(block, 7, {makeReserveTransfer(harness_, 5, 60)});
+  EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey})
+      << "not yet: still epoch 0";
+  block = commit(block, 12, {makeReserveTransfer(harness_, 5, 61)});
+  for (Chain *node : {&producer, &peer}) {
+    const auto after = node->getAccount(user.id).value().wallet;
+    EXPECT_EQ(after.publicKeys, std::vector<std::string>{nextKey.publicKey});
+    EXPECT_EQ(after.minSignatures, 1u);
+    EXPECT_FALSE(after.recovery.pending);
+    EXPECT_EQ(after.recovery.publicKeys, set.publicKeys) << "the set stays";
+  }
+  // The new key signs for the account; the old one no longer does.
+  EXPECT_TRUE(refused(update(user.key, 12, set)));
+  block = commit(block, 13, {update(nextKey, 13, set)});
+}
+
+TEST(AccountRecoveryPolicyTest, OwnersSetASetAndADelayNeverAnAnnouncement) {
+  Client::AccountRecovery none;
+  EXPECT_TRUE(chain_tx::validateOwnerRecovery(none, AccountBuffer::ID_FIRST_USER).isOk());
+  Client::AccountRecovery set;
+  set.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey};
+  set.minSignatures = 2;
+  set.delayEpochs = 3;
+  EXPECT_TRUE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_FIRST_USER).isOk());
+  EXPECT_TRUE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_FIRST_ISSUED).isOk()) << "issuers too";
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_RESERVE).isOk()) << "not system accounts";
+  Client::AccountRecovery noDelay = set;
+  noDelay.delayEpochs = 0;
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(noDelay, AccountBuffer::ID_FIRST_USER).isOk());
+  Client::AccountRecovery tooMany = set;
+  tooMany.minSignatures = 3;
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(tooMany, AccountBuffer::ID_FIRST_USER).isOk());
+  Client::AccountRecovery twice = set;
+  twice.publicKeys[1] = twice.publicKeys[0];
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(twice, AccountBuffer::ID_FIRST_USER).isOk());
+  Client::AccountRecovery announced = set;
+  announced.pending = true;
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(announced, AccountBuffer::ID_FIRST_USER).isOk())
+      << "an announcement is the chain's";
+  Client::AccountRecovery stray;
+  stray.delayEpochs = 2;
+  EXPECT_FALSE(chain_tx::validateOwnerRecovery(stray, AccountBuffer::ID_FIRST_USER).isOk());
+}
+
 // A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item
 // E): it carries the config in force for its block and, separately, a config update still
 // pending — never the pending update as if it were in force.

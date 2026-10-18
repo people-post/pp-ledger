@@ -21,6 +21,19 @@ namespace pp::chain_tx {
 using FnPublisherExists = std::function<bool(uint64_t)>;
 
 /** Key type / publicKeys / minSignatures checks shared by user-account paths. */
+/**
+ * A key set a recovery names (the recovery set, or announced next keys): 1 to kMaxSignatureCount
+ * distinct ML-DSA-65 keys, 1 to that many to sign.
+ */
+Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what);
+
+/**
+ * An account's recovery as its owner may set it (projects/account-recovery): none (all fields empty),
+ * or a valid set and a delay of at least one epoch; never on a system account; never a pending
+ * announcement (that is the chain's, set by T_ACCOUNT_RECOVERY).
+ */
+Roe<void> validateOwnerRecovery(const Client::AccountRecovery &recovery, uint64_t accountId);
+
 Roe<void> validateUserWalletBasics(const Crypto &crypto,
                                    const Client::Wallet &wallet);
 

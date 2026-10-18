@@ -46,6 +46,7 @@ add_library(pp_chain STATIC
     ImportTxHandler.cpp
     PredecessorCheck.cpp
     ConfigPolicy.h
+    AccountRecoveryTxHandler.cpp
     AuthorityTrail.cpp
     ClientVerify.cpp
     AuthorityTrail.h

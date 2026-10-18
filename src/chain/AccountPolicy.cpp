@@ -1,12 +1,55 @@
 #include "AccountPolicy.h"
 #include "ErrorCodes.h"
 #include "../client/AccountAttachment.h"
+#include "../client/AccountIds.h"
 #include "lib/common/Utilities.h"
 
 #include <algorithm>
 #include <set>
 
 namespace pp::chain_tx {
+
+Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what) {
+  auto invalid = [what](const std::string &why) {
+    return TxError(chain_err::E_TX_VALIDATION, std::string(what) + ": " + why);
+  };
+  if (keys.empty() || keys.size() > kMaxSignatureCount) {
+    return invalid("1 to " + std::to_string(kMaxSignatureCount) + " keys");
+  }
+  std::set<std::string> seen;
+  for (const auto &key : keys) {
+    if (key.size() != utl::kMlDsaPublicKeyBytes) {
+      return invalid("a key is not an ML-DSA-65 public key");
+    }
+    if (!seen.insert(key).second) {
+      return invalid("the same key twice");
+    }
+  }
+  if (minSignatures < 1 || minSignatures > keys.size()) {
+    return invalid("signatures needed between 1 and its keys");
+  }
+  return {};
+}
+
+Roe<void> validateOwnerRecovery(const Client::AccountRecovery &recovery, uint64_t accountId) {
+  if (recovery.pending || !recovery.nextPublicKeys.empty() || recovery.nextMinSignatures != 0 ||
+      recovery.applyEpoch != 0 || recovery.announcedAt != 0) {
+    return TxError(chain_err::E_TX_VALIDATION, "An account's own write cannot carry a recovery announcement");
+  }
+  if (!recovery.hasSet()) {
+    if (recovery.minSignatures != 0 || recovery.delayEpochs != 0) {
+      return TxError(chain_err::E_TX_VALIDATION, "A recovery without a set names no threshold or delay");
+    }
+    return {};
+  }
+  if (AccountIds::isSystemAccount(accountId)) {
+    return TxError(chain_err::E_TX_VALIDATION, "A system account has no recovery of its own (the genesis recovery set covers it)");
+  }
+  if (recovery.delayEpochs < 1) {
+    return TxError(chain_err::E_TX_VALIDATION, "A recovery's delay is at least one epoch");
+  }
+  return validateRecoveryKeys(recovery.publicKeys, recovery.minSignatures, "Recovery set");
+}
 
 Roe<void> validateUserWalletBasics(const Crypto &crypto,
                                    const Client::Wallet &wallet) {

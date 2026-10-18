@@ -43,13 +43,17 @@ for anything done to it; one at a time keeps the owner's view simple.
 **Alternatives:** A `T_USER_UPDATE` the recovery set may sign (blurs who acts; the update rules would
 grow a second signer set).
 
-## AR005 — Applied at an epoch's first block, from an index
+## AR005 — Applied at an epoch's first block, after its records
 
 **Date:** 2026-10-19
-**Decision:** Due announcements apply before the records of an epoch's first block, in place; nodes
-index pending announcements by `applyEpoch` (rebuilt from the accounts at start).
-**Rationale:** As the genesis recovery applies; deterministic on every node; the index keeps a block
-from scanning every account.
+**Decision:** Due announcements apply after the records of an epoch's first block (or the first a node
+holds), in place; the accounts are looked through once an epoch.
+**Rationale:** Deterministic on every node, as miner liveness. After the records, not before: a
+renewal in that block is built from the keys before, and an owner's cancelling update in it wins. Once
+an epoch, an in-memory pass over the accounts is cheap; an index would have to follow every rollback
+of the account state.
+**Alternatives:** Before the records (as first designed: refuses that block's renewals); an index by
+`applyEpoch`.
 
 ## AR006 — Chain-owned, carried unchanged
 

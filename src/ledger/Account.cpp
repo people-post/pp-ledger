@@ -60,7 +60,49 @@ pp::common::Meta Wallet::ltsToMeta() const {
     }
     j.set("miner", m);
   }
+  if (recovery != AccountRecovery{}) {
+    auto keysOf = [](const std::vector<std::string> &list) {
+      std::vector<pp::common::Meta::Value> out;
+      for (const auto &pk : list) {
+        std::string safe = utl::toJsonSafeString(pk);
+        out.emplace_back(std::move(safe));
+      }
+      return out;
+    };
+    pp::common::Meta r;
+    r.set("publicKeys", pp::common::Meta::array(keysOf(recovery.publicKeys)));
+    r.setJsonUInt("minSignatures", recovery.minSignatures);
+    r.setJsonUInt("delayEpochs", recovery.delayEpochs);
+    if (recovery.pending) {
+      pp::common::Meta p;
+      p.set("publicKeys", pp::common::Meta::array(keysOf(recovery.nextPublicKeys)));
+      p.setJsonUInt("minSignatures", recovery.nextMinSignatures);
+      p.setJsonUInt("applyEpoch", recovery.applyEpoch);
+      p.setJsonUInt("announcedAt", recovery.announcedAt);
+      r.set("pending", p);
+    }
+    j.set("recovery", r);
+  }
   return j;
+}
+
+std::string AccountRecoveryAnnouncement::ltsToString() const {
+  std::ostringstream oss(std::ios::binary);
+  OutputArchive ar(oss);
+  ar & VERSION & *this;
+  return oss.str();
+}
+
+bool AccountRecoveryAnnouncement::ltsFromString(const std::string &str) {
+  std::istringstream iss(str, std::ios::binary);
+  InputArchive ar(iss);
+  uint32_t version = 0;
+  ar & version;
+  if (version != VERSION) {
+    return false;
+  }
+  ar & *this;
+  return !ar.failed();
 }
 
 std::string UserAccount::ltsToString() const {
