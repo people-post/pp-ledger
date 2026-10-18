@@ -267,6 +267,8 @@ std::string Client::requestTypeName(uint32_t type) {
     return "authority_proof";
   case T_REQ_EQUIVOCATION_ADD:
     return "equivocation_add";
+  case T_REQ_PRODUCER_STATS:
+    return "producer_stats";
   case T_REQ_ACCOUNT_GET:
     return "account_get";
   case T_REQ_CONFIG_GET:
@@ -784,6 +786,19 @@ void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono:
   sendRequestAsync(T_REQ_MINER_LIST, "", orDefault(timeout, fastTimeout()), [done = std::move(done)](Roe<std::string> result) {
     done(result ? parseMinerList(result.value()) : Roe<std::vector<MinerInfo>>(result.error()));
   });
+}
+
+Client::Roe<Client::ProducerStatsResponse> Client::fetchProducerStats(const ProducerStatsRequest &request) {
+  log().debug << "Requesting producer stats: blocks " << request.fromBlockId << " to " << request.toBlockId;
+  auto result = sendRequest(T_REQ_PRODUCER_STATS, utl::binaryPack(request), dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto response = utl::binaryUnpack<ProducerStatsResponse>(result.value());
+  if (!response) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack producer stats: " + response.error().message);
+  }
+  return response.value();
 }
 
 Client::Roe<Client::TxGetByWalletResponse> Client::fetchTransactionsByWallet(const TxGetByWalletRequest &request) {

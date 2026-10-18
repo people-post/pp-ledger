@@ -510,6 +510,55 @@ Chain::findTransactionsByWalletId(uint64_t walletId,
   return out;
 }
 
+Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBlockId, uint64_t toBlockId) const {
+  const uint64_t first = std::max<uint64_t>(fromBlockId, 1);
+  const uint64_t end = std::min(toBlockId, txContext_.ledger.getNextBlockId());
+  if (first < end && first < txContext_.ledger.getStartingBlockId()) {
+    return Error(E_BLOCK_NOT_FOUND, "This node holds blocks from " +
+                                        std::to_string(txContext_.ledger.getStartingBlockId()) + " on");
+  }
+  Client::ProducerStatsResponse response;
+  response.fromBlockId = fromBlockId;
+  std::map<uint64_t, Client::ProducerStats> byAccount;
+  uint64_t id = first;
+  for (; id < end && id - first < Client::kMaxProducerStatsBlocks; ++id) {
+    auto read = txContext_.ledger.readBlock(id);
+    if (!read) {
+      return Error(E_BLOCK_NOT_FOUND, "Block not found: " + std::to_string(id));
+    }
+    const auto &block = read.value().block;
+    auto &producer = byAccount[block.slotLeader];
+    producer.accountId = block.slotLeader;
+    ++producer.blocks;
+    for (const auto &record : block.records) {
+      auto typed = record.decode();
+      if (!typed) {
+        continue;
+      }
+      const uint64_t fee = std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, typed.value());
+      producer.fees += fee;
+      response.fees += fee;
+    }
+    if (auto misses = chargedMisses_.find(id); misses != chargedMisses_.end()) {
+      for (uint64_t leader : misses->second) {
+        auto &missed = byAccount[leader];
+        missed.accountId = leader;
+        ++missed.missesCharged;
+      }
+    }
+    if (response.blocks == 0) {
+      response.firstSlot = block.slot;
+    }
+    response.lastSlot = block.slot;
+    ++response.blocks;
+  }
+  response.nextBlockId = id;
+  for (auto &[account, stats] : byAccount) {
+    response.producers.push_back(stats);
+  }
+  return response;
+}
+
 Chain::Roe<Ledger::Record>
 Chain::findTransactionByIndex(uint64_t txIndex) const {
   const uint64_t firstBlockId = txContext_.ledger.getStartingBlockId();
@@ -802,12 +851,18 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
   // The first block after a beacon outage commits the new beacon's certificate: its skipped slots
   // are the outage, not missed leaders (bp3).
   const bool chargeSkipped = !BeaconCertTxHandler::commitsCutover(block.block);
+  std::vector<uint64_t> charged;
   auto applied = mapTxVoid(chain_tx::applyMinerLiveness(txContext_.bank, txContext_.consensus,
                                                         txContext_.optChainConfig.value(), prevSlot,
                                                         block.block, chain_block::admissionTxStrict(mode),
-                                                        chargeSkipped));
+                                                        chargeSkipped, &charged));
   if (!applied) {
     return Error(E_TX_VALIDATION, "Miner liveness: " + applied.error().message);
+  }
+  if (charged.empty()) {
+    chargedMisses_.erase(block.block.index);
+  } else {
+    chargedMisses_[block.block.index] = std::move(charged);
   }
   return {};
 }
@@ -1018,6 +1073,7 @@ Chain::Roe<void> Chain::initLedger(const Ledger::InitConfig &config) {
   }
   authoritySteps_.clear();
   authorityStepsFrom_ = config.startingBlockId;
+  chargedMisses_.clear();
   return {};
 }
 
@@ -1041,6 +1097,7 @@ Chain::Roe<uint64_t> Chain::loadFromLedger(uint64_t startingBlockId) {
   txContext_.bank.reset();
   txContext_.importProgress.reset();
   epochStakeSnapshots_.clear();
+  chargedMisses_.clear();
   pendingSeal_.reset();
   authoritySteps_.clear();
   authorityStepsFrom_ = startingBlockId;

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <sstream>
 #include <type_traits>
@@ -24,7 +25,7 @@ namespace {
 
 const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
-      {Kind::Transfer, "transfer"},       {Kind::Mint, "mint"},
+      {Kind::Transfer, "transfer"},       {Kind::Batch, "batch"},           {Kind::Mint, "mint"},
       {Kind::NewAccount, "new-account"},  {Kind::AccountUpdate, "account-update"},
       {Kind::ConfigUpdate, "config-update"},
       {Kind::BeaconCertificate, "beacon-certificate"}, {Kind::Recovery, "recovery"},
@@ -216,6 +217,11 @@ Kind kindOf(const Ledger::Record &record) {
   }
 }
 
+Kind kindOf(const Operation &op) {
+  const Kind kind = kindOf(op.record);
+  return kind == Kind::Transfer && !op.moreRecords.empty() ? Kind::Batch : kind;
+}
+
 std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
   switch (record.type) {
   case Ledger::T_DEFAULT: {
@@ -287,7 +293,7 @@ std::string toJson(const Operation &op) {
   root.setJsonUInt("version", kVersion);
   root.set("networkId", op.networkId);
   root.set("genesisHash", utl::hexEncode(op.genesisHash));
-  root.set("kind", kindName(kindOf(op.record)));
+  root.set("kind", kindName(kindOf(op)));
   root.set("record", record);
   root.set("signers", signers);
   root.set("signatures", Object::array(std::move(signatures)));
@@ -361,11 +367,6 @@ pp::Roe<Operation> fromJson(const std::string &json) {
   if (!op.record.decode()) {
     return pp::Error("Operation file record does not decode as a type " + std::to_string(*type) + " transaction");
   }
-  op.kind = kindOf(op.record);
-  if (const auto claimed = root.getString("kind"); !claimed || kindFromName(*claimed) != op.kind) {
-    return pp::Error("Operation file says it is a " + claimed.value_or("?") + ", its record is a " +
-                     kindName(op.kind));
-  }
   const Object *signers = root.getObject("signers");
   if (!signers) {
     return pp::Error("Operation file names no signers");
@@ -404,9 +405,13 @@ pp::Roe<Operation> fromJson(const std::string &json) {
       op.signatures.push_back(*signature);
     }
   }
+  const Kind recordKind = kindOf(op.record);
   if (const auto *more = root.getArray("moreRecords")) {
-    if (op.kind != Kind::Genesis) {
-      return pp::Error("Operation file: only a genesis carries more records");
+    if (recordKind != Kind::Genesis && recordKind != Kind::Transfer) {
+      return pp::Error("Operation file: only a genesis or a batch of transfers carries more records");
+    }
+    if (recordKind == Kind::Transfer && (more->elements.empty() || more->elements.size() >= kMaxBatchTransfers)) {
+      return pp::Error("Operation file: a batch carries 2 to " + std::to_string(kMaxBatchTransfers) + " transfers");
     }
     for (const auto &value : more->elements) {
       const Object *entry = pp::common::asObject(value);
@@ -418,9 +423,23 @@ pp::Roe<Operation> fromJson(const std::string &json) {
       Ledger::Record extra;
       extra.type = static_cast<uint16_t>(*moreType);
       extra.data = *moreData;
-      // Block 0 creates the system accounts and miners, each signed by the genesis account.
-      if (extra.type != Ledger::T_NEW_USER || !extra.decode() || signerAccountOf(extra) != AccountIds::ID_GENESIS) {
-        return pp::Error("Operation file: a genesis's more records are accounts the genesis account creates");
+      if (recordKind == Kind::Genesis) {
+        // Block 0 creates the system accounts and miners, each signed by the genesis account.
+        if (extra.type != Ledger::T_NEW_USER || !extra.decode() || signerAccountOf(extra) != AccountIds::ID_GENESIS) {
+          return pp::Error("Operation file: a genesis's more records are accounts the genesis account creates");
+        }
+      } else {
+        // A batch: transfers from the same account, each a distinct transaction.
+        if (extra.type != Ledger::T_DEFAULT || !extra.decode() || kindOf(extra) != Kind::Transfer ||
+            signerAccountOf(extra) != op.signers.account) {
+          return pp::Error("Operation file: a batch's more records are transfers from its account");
+        }
+        const bool repeated = extra.data == op.record.data ||
+                              std::any_of(op.moreRecords.begin(), op.moreRecords.end(),
+                                          [&extra](const Ledger::Record &r) { return r.data == extra.data; });
+        if (repeated) {
+          return pp::Error("Operation file: a batch carries the same transfer twice");
+        }
       }
       auto signatures = fromBase64All(entry->getArray("signatures"), "signature");
       if (!signatures) {
@@ -429,6 +448,11 @@ pp::Roe<Operation> fromJson(const std::string &json) {
       extra.signatures = std::move(signatures.value());
       op.moreRecords.push_back(std::move(extra));
     }
+  }
+  op.kind = kindOf(op);
+  if (const auto claimed = root.getString("kind"); !claimed || kindFromName(*claimed) != op.kind) {
+    return pp::Error("Operation file says it is a " + claimed.value_or("?") + ", its records make a " +
+                     kindName(op.kind));
   }
   op.notes = root.getString("notes").value_or("");
   op.createdAt = root.getOrDefault("createdAt", int64_t{0});
@@ -611,7 +635,7 @@ pp::Roe<Summary> summarize(const Operation &op) {
     return pp::Error("The record does not decode: " + typed.error().message);
   }
   Summary s;
-  const Kind kind = kindOf(op.record);
+  const Kind kind = kindOf(op);
   std::visit([&s](const auto &tx) { windowOf(tx, s); }, typed.value());
   switch (kind) {
   case Kind::Transfer: {
@@ -620,6 +644,33 @@ pp::Roe<Summary> summarize(const Operation &op) {
     s.lines = {{"From", accountName(tx.fromWalletId)}, {"To", accountName(tx.toWalletId)},
                {"Amount", groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : "")},
                {"Fee", groupDigits(tx.fee)}};
+    break;
+  }
+  case Kind::Batch: {
+    std::vector<Ledger::TxDefault> all{std::get<Ledger::TxDefault>(typed.value())};
+    for (const auto &extra : op.moreRecords) {
+      auto tx = utl::binaryUnpack<Ledger::TxDefault>(extra.data);
+      if (!tx) {
+        return pp::Error("A transfer of the batch does not decode");
+      }
+      all.push_back(tx.value());
+    }
+    s.title = std::to_string(all.size()) + " transfers from " + accountName(all.front().fromWalletId);
+    std::map<uint64_t, uint64_t> totals;
+    uint64_t fees = 0;
+    for (const auto &tx : all) {
+      s.lines.emplace_back("To " + accountName(tx.toWalletId),
+                           groupDigits(tx.amount) + (tx.tokenId ? " of token " + std::to_string(tx.tokenId) : ""));
+      totals[tx.tokenId] += tx.amount;
+      fees += tx.fee;
+    }
+    for (const auto &[token, total] : totals) {
+      s.lines.emplace_back(token ? "Total of token " + std::to_string(token) : "Total", groupDigits(total));
+    }
+    s.lines.emplace_back("Fees, all", groupDigits(fees));
+    if (!all.front().meta.empty()) {
+      s.lines.emplace_back("Each carries", std::to_string(all.front().meta.size()) + " bytes of metadata");
+    }
     break;
   }
   case Kind::Mint: {
@@ -771,7 +822,8 @@ pp::Roe<void> checkCommon(const Common &common, bool needsAccount) {
 
 } // namespace
 
-pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId) {
+pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId,
+                            const std::string &meta) {
   if (auto ok = checkCommon(common, true); !ok) {
     return ok.error();
   }
@@ -781,11 +833,54 @@ pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, 
   tx.toWalletId = to;
   tx.amount = amount;
   tx.fee = fee;
+  tx.meta = meta;
   stamp(tx, common);
   Operation op = start(common);
   op.record.type = Ledger::T_DEFAULT;
   op.record.data = utl::binaryPack(tx);
   op.kind = kindOf(op.record);
+  return op;
+}
+
+pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &payments, uint64_t feeEach,
+                             const std::string &meta) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (payments.size() < 2 || payments.size() > kMaxBatchTransfers) {
+    return pp::Error("A batch carries 2 to " + std::to_string(kMaxBatchTransfers) + " transfers");
+  }
+  const uint64_t from = *common.signers.account;
+  Operation op = start(common);
+  for (size_t i = 0; i < payments.size(); ++i) {
+    const Payment &p = payments[i];
+    if (p.amount == 0 || p.to == from) {
+      return pp::Error("Transfer " + std::to_string(i + 1) + " of the batch: " +
+                       (p.amount == 0 ? "an amount above 0" : "it cannot go to the account it comes from"));
+    }
+    if (from == AccountIds::ID_GENESIS && p.to == AccountIds::ID_RESERVE) {
+      return pp::Error("A mint is not batched");
+    }
+    Ledger::TxDefault tx;
+    tx.tokenId = p.tokenId;
+    tx.fromWalletId = from;
+    tx.toWalletId = p.to;
+    tx.amount = p.amount;
+    tx.fee = feeEach;
+    tx.meta = meta;
+    Common each = common;
+    each.idempotentId = common.idempotentId ? common.idempotentId + i : 0;
+    stamp(tx, each);
+    Ledger::Record record;
+    record.type = Ledger::T_DEFAULT;
+    record.data = utl::binaryPack(tx);
+    if (i == 0) {
+      op.record = std::move(record);
+    } else {
+      op.moreRecords.push_back(std::move(record));
+    }
+  }
+  op.kind = Kind::Batch;
   return op;
 }
 

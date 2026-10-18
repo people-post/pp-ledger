@@ -9,6 +9,7 @@
 #include "../ledger/Ledger.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace pp::chain_tx {
 
@@ -29,11 +30,12 @@ bool isMinerDue(const Client::MinerState &miner, uint64_t slot, const BlockChain
  *     with a cutover, bp3) — the gap is the beacon's, not the leaders';
  *  2. a registered producer's last produced slot is the block's slot and its misses reset.
  * `consensus` must hold the block's epoch committee and seed. Accounts missing from `bank`
- * (late-join replay) are skipped when `strict` is false.
+ * (late-join replay) are skipped when `strict` is false. `charged`, when given, gets each miss's
+ * leader (in slot order).
  */
 Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee &consensus,
                              const BlockChainConfig &config, uint64_t prevSlot, const Ledger::Block &block,
-                             bool strict, bool chargeSkipped = true);
+                             bool strict, bool chargeSkipped = true, std::vector<uint64_t> *charged = nullptr);
 
 } // namespace pp::chain_tx
 

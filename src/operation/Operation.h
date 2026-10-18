@@ -21,6 +21,8 @@ inline constexpr uint32_t kVersion = 1;
 /** What an operation does, as its record says (never as the file claims). */
 enum class Kind {
   Transfer,
+  /** Several transfers from one account (record, then moreRecords), signed together. */
+  Batch,
   Mint,
   NewAccount,
   AccountUpdate,
@@ -65,15 +67,21 @@ struct Operation {
   /** Raw signatures of `record` collected, in any order (each by a distinct key of `signers`). */
   std::vector<std::string> signatures;
   /**
-   * A genesis only: block 0's records after the genesis record (system accounts, genesis miners),
-   * signed by the same keys; each carries its own signatures in `signatures`. A key has signed the
-   * operation once it has signed every record.
+   * The records after `record`, signed by the same keys, each carrying its own signatures in
+   * `signatures`: a genesis's (block 0's system accounts and genesis miners), or a batch's (its
+   * other transfers). A key has signed the operation once it has signed every record.
    */
   std::vector<Ledger::Record> moreRecords;
   /** The creator's free text: shown as theirs, never as what the operation does. */
   std::string notes;
   int64_t createdAt{0};
 };
+
+/** The operation's kind: its record's, but a transfer with more transfers after it is a batch. */
+Kind kindOf(const Operation &op);
+
+/** The most transfers a batch carries. */
+inline constexpr size_t kMaxBatchTransfers = 1000;
 
 /** What is signed: the record's signing message for the operation's network. */
 std::string signingMessage(const Operation &op);
@@ -154,8 +162,25 @@ struct Common {
   int64_t createdAt{0};
 };
 
-/** A transfer of `amount` of `tokenId` (0: the native token) from the signers' account to `to`. */
-pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId = 0);
+/**
+ * A transfer of `amount` of `tokenId` (0: the native token) from the signers' account to `to`,
+ * carrying `meta` (none by default).
+ */
+pp::Roe<Operation> transfer(const Common &common, uint64_t to, uint64_t amount, uint64_t fee, uint64_t tokenId = 0,
+                            const std::string &meta = "");
+/** One transfer of a batch: `amount` of `tokenId` (0: the native token) to `to`. */
+struct Payment {
+  uint64_t to{0};
+  uint64_t amount{0};
+  uint64_t tokenId{0};
+};
+/**
+ * A batch: a transfer from the signers' account for each of `payments` (two or more, at most
+ * kMaxBatchTransfers), each paying `feeEach` and carrying `meta` (the same for all: e.g. what the
+ * batch is for). One validity window; each its own idempotency id.
+ */
+pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &payments, uint64_t feeEach,
+                             const std::string &meta = "");
 /** New native tokens: a transfer from the genesis account to the reserve (the only way to mint). */
 pp::Roe<Operation> mint(const Common &common, uint64_t amount, uint64_t fee);
 /** A new account `id` funded with `amount` by the signers' account (the registrar for issued ids). */

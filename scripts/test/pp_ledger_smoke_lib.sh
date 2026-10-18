@@ -1151,6 +1151,44 @@ wait_for_account() {
   die "$what (account $account: ${json:-none})"
 }
 
+native_balance() { # account $1's native balance (empty when unknown)
+  run_pp_client -b --host "$(relay_multiaddr)" account "$1" 2>/dev/null | tr -d ' \n' |
+    sed -n 's/.*"mBalances":{"0":\(-\{0,1\}[0-9]*\).*/\1/p'
+}
+
+# A batch (the fee app's payouts): the reserve pays the registrar and carol in one operation, signed
+# once by its three holders and submitted transfer by transfer; then the producers of the chain so far
+# (T_REQ_PRODUCER_STATS) add up. Needs carol's account (run_operation_file_scenario).
+run_batch_scenario() {
+  local key_dir="${TEST_DIR}/keys" carol=$(((1 << 30) + 7)) r=()
+  for i in 1 2 3; do r+=("${key_dir}/reserve$i.key"); done
+  echo -e "${CYAN}Batch: the reserve pays the registrar and ${carol} in one operation...${NC}"
+  local registrar_before carol_before
+  registrar_before=$(native_balance 2)
+  carol_before=$(native_balance "$carol")
+  [[ -n "$registrar_before" && -n "$carol_before" ]] || die "L-SMOKE-BATCH: cannot read the balances"
+  printf '# to,amount\n2,700\n%s,300\n' "$carol" >"${TEST_DIR}/payments.csv"
+  operation_flow batch "${r[@]}" -- batch --from "$RESERVE_ACCOUNT_ID" --payments "${TEST_DIR}/payments.csv" \
+    --meta "round 1" -f 1
+  wait_for_account 2 "\"mBalances\":\\{\"0\":$((registrar_before + 700))[,}]" "L-SMOKE-BATCH: the registrar was not paid"
+  local carol_after
+  carol_after=$(native_balance "$carol")
+  # Carol's renewals may take a fee meanwhile.
+  ((carol_after > carol_before + 300 - 10 && carol_after <= carol_before + 300)) ||
+    die "L-SMOKE-BATCH: carol $carol_before → $carol_after, expected +300"
+  echo -e "${GREEN}✓ Batch: the registrar got 700 and ${carol} 300, signed once by the reserve's holders${NC}"
+
+  local json total listed
+  json=$(run_pp_client -b --host "$(relay_multiaddr)" producers --from 1 2>/dev/null | tr -d ' \n') ||
+    die "L-SMOKE-BATCH: pp-client producers failed"
+  total=$(sed -n 's/.*"toBlockId":[0-9]*,"blocks":\([0-9]*\),.*/\1/p' <<<"$json")
+  listed=$(grep -o '"account":[0-9]*,"blocks":[0-9]*' <<<"$json" | sed 's/.*"blocks"://' | awk '{s += $1} END {print s}')
+  [[ -n "$total" && "$total" -gt 0 && "$total" == "$listed" ]] ||
+    die "L-SMOKE-BATCH: producers do not add up (total ${total:-?}, listed ${listed:-?}): $json"
+  grep -q '"fees":[1-9]' <<<"$json" || die "L-SMOKE-BATCH: no fees counted: $json"
+  echo -e "${GREEN}✓ Producers: ${total} blocks, each counted to its producer${NC}"
+}
+
 # Token issuers (pp-ledger-apps's token app): the reserve funds the registrar, the registrar
 # creates an issued account, which issues its own token (a transfer of the token whose id is its
 # own: its balance of it goes negative) to a user account, then replaces its keys. Needs carol's
