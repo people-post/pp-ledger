@@ -386,13 +386,76 @@ TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
 
   auto s = summarize(update.value());
   ASSERT_TRUE(s) << s.error().message;
-  EXPECT_EQ(s.value().title, "Replace an account's keys");
+  EXPECT_EQ(s.value().title, "Update an account: its keys, its recovery");
   auto back = fromJson(toJson(update.value()));
   ASSERT_TRUE(back) << back.error().message;
   EXPECT_EQ(back.value().kind, Kind::AccountUpdate);
   Operation otherSigners = update.value();
   otherSigners.signers.account = AccountIds::ID_RESERVE;
   EXPECT_FALSE(fromJson(toJson(otherSigners))); // the updated account signs, no other
+}
+
+TEST(OperationTest, AnOwnerSetsARecoveryItsSetAnnouncesAndTheOwnerCancels) {
+  Keys owner(1);
+  Keys guardians(3);
+  Keys next(1);
+  const uint64_t account = AccountIds::ID_FIRST_USER + 4;
+  UserAccount current;
+  current.wallet.publicKeys = owner.publicKeys();
+  current.wallet.minSignatures = 1;
+  current.wallet.mBalances[AccountIds::ID_GENESIS] = 500;
+
+  // The owner sets it: the set, how many sign, the delay; keys and the rest kept.
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 4, 3, 10)); // 4 of 3
+  EXPECT_FALSE(setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 0, 10)); // no delay
+  auto set = setRecovery(common(owner, 1, account), current, guardians.publicKeys(), 2, 3, 10);
+  ASSERT_TRUE(set) << set.error().message;
+  EXPECT_EQ(set.value().kind, Kind::AccountUpdate);
+  auto carriedOf = [](const Operation &op) {
+    UserAccount carried;
+    EXPECT_TRUE(carried.ltsFromString(utl::binaryUnpack<Ledger::TxUserUpdate>(op.record.data).value().meta));
+    return carried;
+  };
+  UserAccount carried = carriedOf(set.value());
+  EXPECT_EQ(carried.wallet.publicKeys, owner.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.publicKeys, guardians.publicKeys());
+  EXPECT_EQ(carried.wallet.recovery.minSignatures, 2);
+  EXPECT_EQ(carried.wallet.recovery.delayEpochs, 3u);
+  EXPECT_EQ(carried.wallet.mBalances.at(AccountIds::ID_GENESIS), 490);
+  EXPECT_FALSE(carriedOf(setRecovery(common(owner, 1, account), carried, {}, 0, 0, 10).value()).wallet.recovery.hasSet());
+
+  // The set announces the next keys, signing for the account.
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, AccountIds::ID_FIRST_USER), account, next.publicKeys(), 1, 10));
+  EXPECT_FALSE(announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 2, 10)); // 2 of 1
+  auto announce = announceRecovery(common(guardians, 2, account), account, next.publicKeys(), 1, 10);
+  ASSERT_TRUE(announce) << announce.error().message;
+  EXPECT_EQ(announce.value().kind, Kind::AccountRecovery);
+  EXPECT_EQ(signerAccountOf(announce.value().record), account);
+  auto s = summarize(announce.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Recover an account: new keys, after its delay");
+  auto back = fromJson(toJson(announce.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::AccountRecovery);
+
+  // Announced (as the chain holds it): the owner cancels; their updates never carry an announcement.
+  EXPECT_FALSE(cancelRecovery(common(owner, 1, account), carried, 10)); // nothing announced
+  carried.wallet.recovery.pending = true;
+  carried.wallet.recovery.nextPublicKeys = next.publicKeys();
+  carried.wallet.recovery.nextMinSignatures = 1;
+  carried.wallet.recovery.applyEpoch = 9;
+  carried.wallet.recovery.announcedAt = 70;
+  auto cancel = cancelRecovery(common(owner, 1, account), carried, 10);
+  ASSERT_TRUE(cancel) << cancel.error().message;
+  UserAccount after = carriedOf(cancel.value());
+  EXPECT_FALSE(after.wallet.recovery.pending);
+  EXPECT_TRUE(after.wallet.recovery.nextPublicKeys.empty());
+  EXPECT_EQ(after.wallet.recovery.applyEpoch, 0u);
+  EXPECT_EQ(after.wallet.recovery.publicKeys, guardians.publicKeys()); // the set stays
+  EXPECT_EQ(after.wallet.publicKeys, owner.publicKeys());
+  auto replaced = replaceKeys(common(owner, 1, account), carried, next.publicKeys(), 1, 10);
+  ASSERT_TRUE(replaced) << replaced.error().message;
+  EXPECT_FALSE(carriedOf(replaced.value()).wallet.recovery.pending);
 }
 
 TEST(OperationTest, AmountsAreGroupedByThousands) {

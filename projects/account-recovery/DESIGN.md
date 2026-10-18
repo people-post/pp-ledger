@@ -1,6 +1,6 @@
 # Account recovery — design
 
-**Status:** design (ar0). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** ar1–ar2 built (pp-ledger); ar3–ar4 next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Today an account whose keys are all lost is lost: nothing can sign for it again. The genesis account
@@ -73,8 +73,9 @@ set, never a pending announcement).
   (no network is live: AR007).
 - Record type 21 `T_ACCOUNT_RECOVERY`; operation-file kind `account-recovery` (signed by the recovery
   set: `signers` names the recovery keys and their threshold, with `account` the recovered account).
-- `pp-client`: `op update-keys` gains `--recovery-key` (repeat), `--recovery-min-signatures`,
-  `--recovery-delay-epochs`; `op recover --account A --new-key K… --new-min-signatures N -f FEE`.
+- `pp-client`: `op set-recovery --account A --recovery-key K… --recovery-min-signatures N
+  --delay-epochs D` (or `--none`); `op cancel-recovery --account A`; `op recover --account A --new-key
+  K… --new-min-signatures N` (signers: A's recovery set, read from the node).
 
 ## In pp-ledger-apps
 

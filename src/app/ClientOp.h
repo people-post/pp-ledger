@@ -70,4 +70,11 @@ private:
   Create updateKeys_;
   std::vector<std::string> newKeys_;
   uint32_t newMinSignatures_{1};
+  Create setRecovery_;
+  std::vector<std::string> recoveryKeys_;
+  uint32_t recoveryMinSignatures_{1};
+  uint64_t recoveryDelayEpochs_{0};
+  bool noRecovery_{false};
+  Create cancelRecovery_;
+  Create recover_;
 };

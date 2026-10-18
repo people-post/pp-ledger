@@ -53,5 +53,6 @@ run_operation_file_scenario 120
 run_batch_scenario
 run_verified_account_scenario
 run_token_scenario
+run_account_recovery_scenario
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; batch; verified account; token issuer)${NC}"
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; batch; verified account; token issuer; account recovery)${NC}"

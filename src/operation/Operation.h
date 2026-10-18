@@ -26,6 +26,8 @@ enum class Kind {
   Mint,
   NewAccount,
   AccountUpdate,
+  /** An account's recovery set announcing its next keys (T_ACCOUNT_RECOVERY). */
+  AccountRecovery,
   ConfigUpdate,
   BeaconCertificate,
   Recovery,
@@ -194,6 +196,22 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
  */
 pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
                                uint32_t minSignatures, uint64_t fee);
+/**
+ * Set account `current`'s recovery set (projects/account-recovery): `keys` (none: no recovery),
+ * `minSignatures` of them to announce, `delayEpochs` before an announcement applies. Its keys stay.
+ * Like every update by the account, it cancels an announcement waiting.
+ */
+pp::Roe<Operation> setRecovery(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t delayEpochs, uint64_t fee);
+/** Cancel the recovery announced for account `current`: its update changing nothing else. */
+pp::Roe<Operation> cancelRecovery(const Common &common, const UserAccount &current, uint64_t fee);
+/**
+ * Announce account `account`'s next `keys` (T_ACCOUNT_RECOVERY), signed by its recovery set
+ * (`common.signers`: the set's keys and threshold, `account` the recovered account). They take over
+ * after the account's delay, unless its owner cancels.
+ */
+pp::Roe<Operation> announceRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+                                    uint32_t minSignatures, uint64_t fee);
 /** A record built elsewhere (pp-client mk-beacon-cert, mk-recovery, mk-tx), its signatures dropped. */
 pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record);
 /**

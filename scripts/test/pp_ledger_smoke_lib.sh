@@ -1262,6 +1262,106 @@ run_token_scenario() {
   echo -e "${GREEN}✓ Issuer ${issuer} issued 1,000 of its token to ${carol}; its keys are now 2 of 2${NC}"
 }
 
+# Account $1's JSON, spaces removed (empty when unknown).
+account_json() {
+  run_pp_client -b --host "$(relay_multiaddr)" account "$1" 2>/dev/null | tr -d ' \n' || true
+}
+
+# Wait until account $1's JSON (spaces removed) does not match the regex $2; die with $3 after $4 s.
+wait_for_account_without() {
+  local account=$1 pattern=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) json
+  while ((SECONDS < deadline)); do
+    json=$(account_json "$account")
+    if [[ -n "$json" ]] && ! grep -Eq "$pattern" <<<"$json"; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: ${json:-none})"
+}
+
+# Wait until account $1's native balance is at most $2; die with $3 after $4 s.
+wait_for_balance_below() {
+  local account=$1 most=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) balance
+  while ((SECONDS < deadline)); do
+    balance=$(native_balance "$account")
+    if [[ -n "$balance" ]] && ((balance <= most)); then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: balance ${balance:-unknown}, expected at most $most)"
+}
+
+# Account recovery (projects/account-recovery): an account names a recovery set (two guardians, a
+# delay of one epoch); the set announces new keys, the owner cancels; the set announces again and,
+# an epoch later, the new key is the account's and signs; the old one no longer does.
+run_account_recovery_scenario() {
+  local key_dir="${TEST_DIR}/keys" account=$(((1 << 30) + 20)) carol=$(((1 << 30) + 7))
+  while grep -q '"mBalances"' <<<"$(account_json "$account")"; do
+    account=$((account + 1)) # a network kept up across runs: a new account each run
+  done
+  echo -e "${CYAN}Account recovery: ${account}'s guardians announce new keys; it cancels; then they apply...${NC}"
+  local r=() name
+  for i in 1 2 3; do r+=("${key_dir}/reserve$i.key"); done
+  for name in owner guardian1 guardian2 next; do
+    rm -f "${key_dir}/recover-${account}-${name}".{key,pub}
+    generate_tx_keypair "recover-${account}-${name}" >/dev/null
+  done
+  local k="${key_dir}/recover-${account}"
+  operation_flow recover-new "${r[@]}" -- new-account --from "$RESERVE_ACCOUNT_ID" --id "$account" \
+    --account-key "${k}-owner.pub" --amount 5000 -f 1
+  wait_for_account "$account" '"mBalances":\{"0":[1-9]' "L-SMOKE-RECOVERY: the account was not created"
+
+  operation_flow recover-set "${k}-owner.key" -- set-recovery --account "$account" \
+    --recovery-key "${k}-guardian1.pub" --recovery-key "${k}-guardian2.pub" --recovery-min-signatures 2 \
+    --delay-epochs 1 -f 1
+  wait_for_account "$account" '"recovery":\{[^}]*"delayEpochs":1' "L-SMOKE-RECOVERY: the recovery set was not set"
+  if run_pp_client -b --host "$(relay_multiaddr)" op recover --account "$account" --new-key "${k}-next.pub" -f 1 \
+    --signer-key "${k}-guardian1.pub" --min-signatures 1 -o "${TEST_DIR}/operation/recover-one.json" >/dev/null 2>&1 &&
+    run_pp_client op sign "${TEST_DIR}/operation/recover-one.json" -k "${k}-guardian1.key" >/dev/null 2>&1 &&
+    run_pp_client -b --host "$(relay_multiaddr)" op submit "${TEST_DIR}/operation/recover-one.json" >/dev/null 2>&1; then
+    sleep $((SLOT_DURATION * 3))
+    grep -q '"pending"' <<<"$(account_json "$account")" &&
+      die "L-SMOKE-RECOVERY: one guardian of two announced a recovery"
+  fi
+
+  operation_flow recover-announce "${k}-guardian1.key" "${k}-guardian2.key" -- recover --account "$account" \
+    --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the announcement is not pending"
+  operation_flow recover-cancel "${k}-owner.key" -- cancel-recovery --account "$account" -f 1
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the owner's cancel did not clear it"
+  echo -e "${GREEN}✓ The guardians' announcement was pending; the owner cancelled it${NC}"
+
+  operation_flow recover-again "${k}-guardian1.key" "${k}-guardian2.key" -- recover --account "$account" \
+    --new-key "${k}-next.pub" -f 1
+  wait_for_account "$account" '"pending":\{' "L-SMOKE-RECOVERY: the second announcement is not pending"
+  local next
+  next=$(tr -d ' \n' <"${k}-next.pub" | sed 's/^0x//' | cut -c1-64 | tr 'A-F' 'a-f')
+  # One epoch of delay: applied at the first block of the epoch after next, at most two epochs on.
+  wait_for_account_without "$account" '"pending"' "L-SMOKE-RECOVERY: the recovery did not apply" \
+    $((SLOT_DURATION * SLOTS_PER_EPOCH * 3 + 30))
+  grep -Eqi "\"publicKeys\":\[\"(0x)?${next}" <<<"$(account_json "$account")" ||
+    die "L-SMOKE-RECOVERY: the account's keys are not the announced ones: $(account_json "$account")"
+
+  local before
+  before=$(native_balance "$account")
+  operation_flow recover-pays "${k}-next.key" -- transfer --from "$account" --to "$carol" --amount 10 -f 1
+  wait_for_balance_below "$account" $((before - 10)) "L-SMOKE-RECOVERY: the new key's transfer did not land"
+  # The old key, claiming to be the account's: refused (by the relay, or never in a block).
+  before=$(native_balance "$account")
+  local old="${TEST_DIR}/operation/recover-old.json"
+  run_pp_client -b --host "$(relay_multiaddr)" op transfer --from "$account" --to "$carol" --amount 1000 -f 1 \
+    --signer-key "${k}-owner.pub" --min-signatures 1 -o "$old" >/dev/null || die "L-SMOKE-RECOVERY: op transfer failed"
+  run_pp_client op sign "$old" -k "${k}-owner.key" >/dev/null || die "L-SMOKE-RECOVERY: op sign failed"
+  run_pp_client -b --host "$(relay_multiaddr)" op submit "$old" >/dev/null 2>&1 || true
+  sleep $((SLOT_DURATION * 4))
+  (($(native_balance "$account") > before - 1000)) || die "L-SMOKE-RECOVERY: the old key still signs for the account"
+  echo -e "${GREEN}✓ Account ${account} recovered: the announced key signs, the old one no longer does${NC}"
+}
+
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
 # chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
 register_miner_account() {

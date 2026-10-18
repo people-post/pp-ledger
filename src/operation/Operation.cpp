@@ -27,6 +27,7 @@ const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
       {Kind::Transfer, "transfer"},       {Kind::Batch, "batch"},           {Kind::Mint, "mint"},
       {Kind::NewAccount, "new-account"},  {Kind::AccountUpdate, "account-update"},
+      {Kind::AccountRecovery, "account-recovery"},
       {Kind::ConfigUpdate, "config-update"},
       {Kind::BeaconCertificate, "beacon-certificate"}, {Kind::Recovery, "recovery"},
       {Kind::Genesis, "genesis"},         {Kind::Other, "record"}};
@@ -204,6 +205,8 @@ Kind kindOf(const Ledger::Record &record) {
     return Kind::NewAccount;
   case Ledger::T_USER_UPDATE:
     return Kind::AccountUpdate;
+  case Ledger::T_ACCOUNT_RECOVERY:
+    return Kind::AccountRecovery;
   case Ledger::T_CONFIG:
     return Kind::ConfigUpdate;
   case Ledger::T_BEACON_CERT:
@@ -234,6 +237,11 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
   }
   case Ledger::T_USER_UPDATE: {
     auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
+    return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
+  }
+  case Ledger::T_ACCOUNT_RECOVERY: {
+    // The recovered account; its recovery set signs (the signers name that set's keys).
+    auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
     return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
   }
   case Ledger::T_CONFIG:
@@ -694,14 +702,33 @@ pp::Roe<Summary> summarize(const Operation &op) {
   }
   case Kind::AccountUpdate: {
     const auto &tx = std::get<Ledger::TxUserUpdate>(typed.value());
-    s.title = "Replace an account's keys";
+    s.title = "Update an account: its keys, its recovery";
     UserAccount account;
     if (!account.ltsFromString(tx.meta)) {
       return pp::Error("The account update does not decode");
     }
     s.lines = {{"Account", accountName(tx.walletId)},
-               {"Its keys from then on", keysLine(account.wallet.publicKeys, account.wallet.minSignatures)},
-               {"Fee", groupDigits(tx.fee)}};
+               {"Its keys from then on", keysLine(account.wallet.publicKeys, account.wallet.minSignatures)}};
+    const auto &r = account.wallet.recovery;
+    s.lines.emplace_back("Its recovery set", r.hasSet() ? keysLine(r.publicKeys, r.minSignatures) + "; " +
+                                                             std::to_string(r.delayEpochs) +
+                                                             " epoch(s) from an announcement to new keys"
+                                                       : "none");
+    s.lines.emplace_back("A recovery announced", "cancelled, if any (every update by the account cancels it)");
+    s.lines.emplace_back("Fee", groupDigits(tx.fee));
+    break;
+  }
+  case Kind::AccountRecovery: {
+    const auto &tx = std::get<Ledger::TxAccountRecovery>(typed.value());
+    s.title = "Recover an account: new keys, after its delay";
+    AccountRecoveryAnnouncement next;
+    if (!next.ltsFromString(tx.meta)) {
+      return pp::Error("The account recovery does not decode");
+    }
+    s.lines = {{"Account", accountName(tx.walletId)},
+               {"Its keys after the delay", keysLine(next.publicKeys, next.minSignatures)},
+               {"Unless", "the account's own keys cancel it before then"},
+               {"Fee (from the account)", groupDigits(tx.fee)}};
     break;
   }
   case Kind::ConfigUpdate: {
@@ -945,25 +972,38 @@ pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std
   return op;
 }
 
-pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
-                               uint32_t minSignatures, uint64_t fee) {
-  if (auto ok = checkCommon(common, true); !ok) {
-    return ok.error();
-  }
+namespace {
+
+/** The account as its owner writes it back: an announcement waiting is the chain's, never carried. */
+UserAccount ownerCopy(const UserAccount &current) {
+  UserAccount next = current;
+  next.wallet.recovery.pending = false;
+  next.wallet.recovery.nextPublicKeys.clear();
+  next.wallet.recovery.nextMinSignatures = 0;
+  next.wallet.recovery.applyEpoch = 0;
+  next.wallet.recovery.announcedAt = 0;
+  return next;
+}
+
+pp::Roe<void> checkKeySet(const std::vector<std::string> &keys, uint32_t minSignatures, const std::string &what) {
   if (keys.empty() || minSignatures == 0 || minSignatures > keys.size() || minSignatures > 255) {
-    return pp::Error("The new keys: at least one, and between 1 and that many to sign");
+    return pp::Error(what + ": at least one key, and between 1 and that many to sign");
   }
   for (const auto &key : keys) {
     if (key.size() != utl::kMlDsaPublicKeyBytes || std::count(keys.begin(), keys.end(), key) > 1) {
-      return pp::Error("The new keys must be distinct ML-DSA-65 public keys");
+      return pp::Error(what + ": distinct ML-DSA-65 public keys");
     }
   }
-  UserAccount next = current;
-  next.wallet.publicKeys = keys;
-  next.wallet.minSignatures = static_cast<uint8_t>(minSignatures);
-  // The update carries the balances as they will be: the fee comes out of the native token.
+  return {};
+}
+
+/**
+ * An update of `next` (the account as it will be) paying `fee`: the update carries the balances as
+ * they will be, the fee out of the native token.
+ */
+pp::Roe<Operation> updateOf(const Common &common, UserAccount next, uint64_t fee) {
   int64_t &native = next.wallet.mBalances[AccountIds::ID_GENESIS];
-  if (fee > static_cast<uint64_t>(native)) {
+  if (fee > static_cast<uint64_t>(std::max<int64_t>(native, 0))) {
     return pp::Error("The account cannot pay the fee (" + groupDigits(fee) + ")");
   }
   native -= static_cast<int64_t>(fee);
@@ -977,6 +1017,81 @@ pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current,
   op.record.data = utl::binaryPack(tx);
   op.kind = Kind::AccountUpdate;
   return op;
+}
+
+} // namespace
+
+pp::Roe<Operation> setRecovery(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t delayEpochs, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  UserAccount next = ownerCopy(current);
+  AccountRecovery &recovery = next.wallet.recovery;
+  if (keys.empty()) {
+    recovery = AccountRecovery{};
+  } else {
+    if (auto ok = checkKeySet(keys, minSignatures, "The recovery set"); !ok) {
+      return ok.error();
+    }
+    if (delayEpochs == 0) {
+      return pp::Error("The recovery's delay is at least one epoch");
+    }
+    recovery.publicKeys = keys;
+    recovery.minSignatures = static_cast<uint8_t>(minSignatures);
+    recovery.delayEpochs = delayEpochs;
+  }
+  return updateOf(common, std::move(next), fee);
+}
+
+pp::Roe<Operation> cancelRecovery(const Common &common, const UserAccount &current, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (!current.wallet.recovery.pending) {
+    return pp::Error("No recovery is announced for the account");
+  }
+  return updateOf(common, ownerCopy(current), fee);
+}
+
+pp::Roe<Operation> announceRecovery(const Common &common, uint64_t account, const std::vector<std::string> &keys,
+                                    uint32_t minSignatures, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (common.signers.account != account) {
+    return pp::Error("The signers name the recovered account (their keys are its recovery set's)");
+  }
+  if (auto ok = checkKeySet(keys, minSignatures, "The new keys"); !ok) {
+    return ok.error();
+  }
+  AccountRecoveryAnnouncement next;
+  next.publicKeys = keys;
+  next.minSignatures = static_cast<uint8_t>(minSignatures);
+  Ledger::TxAccountRecovery tx;
+  tx.walletId = account;
+  tx.fee = fee;
+  tx.meta = next.ltsToString();
+  stamp(tx, common);
+  Operation op = start(common);
+  op.record.type = Ledger::T_ACCOUNT_RECOVERY;
+  op.record.data = utl::binaryPack(tx);
+  op.kind = Kind::AccountRecovery;
+  return op;
+}
+
+pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (auto ok = checkKeySet(keys, minSignatures, "The new keys"); !ok) {
+    return ok.error();
+  }
+  UserAccount next = ownerCopy(current);
+  next.wallet.publicKeys = keys;
+  next.wallet.minSignatures = static_cast<uint8_t>(minSignatures);
+  return updateOf(common, std::move(next), fee);
 }
 
 pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record) {
