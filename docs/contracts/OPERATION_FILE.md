@@ -27,7 +27,7 @@ UTF-8 JSON, one object. Byte strings are base64 (RFC 4648, with padding), except
 | `version` | integer | `1`; a reader refuses any other |
 | `networkId` | string | The chain's network id: part of the signing message |
 | `genesisHash` | hex string | Block 0's hash (32 bytes), or `""` when the creator did not know it |
-| `kind` | string | `transfer`, `mint`, `new-account`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
+| `kind` | string | `transfer`, `mint`, `new-account`, `account-update`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
 | `record` | object | `type` (the record type, integer) and `data` (base64 of the packed payload): what is signed |
 | `signers` | object | `account` (integer; absent for a key set), `minSignatures` (integer ≥ 1), `publicKeys` (base64 ML-DSA-65 public keys) |
 | `signatures` | array | Base64 ML-DSA-65 signatures of `record` collected, in any order |
@@ -68,6 +68,7 @@ a signature in the file is exactly a signature the node checks.
 | `mint` | `T_DEFAULT` from genesis (0) to the reserve (1): the only way to mint | The genesis (admin) account, 0 |
 | `transfer` | Any other `T_DEFAULT` | Its `fromWalletId` |
 | `new-account` | `T_NEW_USER` | Its `fromWalletId` |
+| `account-update` | `T_USER_UPDATE` | Its `walletId`: the keys in force sign for the keys that replace them |
 | `config-update` | `T_CONFIG` | The genesis account, 0 |
 | `beacon-certificate` | `T_BEACON_CERT` | The genesis account, 0 |
 | `recovery` | `T_RECOVERY` | The recovery key set ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md)): no `account` |
@@ -104,6 +105,7 @@ Block 0 signed offline: the genesis keys never reach the beacon host.
 | `op transfer --from A --to B --amount N -f FEE -o FILE` | A transfer from A | When not given `--network-id` and `--signer-key` |
 | `op mint --amount N -f FEE -o FILE` | A mint (genesis → reserve) | Same |
 | `op new-account --from A --id ID --account-key K… --amount N -f FEE -o FILE` | A new account, funded by A | Same |
+| `op update-keys --account A --new-key K… [--new-min-signatures N] -f FEE -o FILE` | A's keys and threshold replaced (default: all new keys); the rest of A's meta as the node has it | Always |
 | `op wrap TX-FILE -o FILE` | An operation of a record made by `mk-beacon-cert`, `mk-recovery`, `mk-tx`, … (its signatures dropped) | Same; a recovery always needs `--signer-key` |
 | `op show FILE` | What it does, its deadline, who signed (key fingerprints), whether complete | No |
 | `op sign FILE -k KEY [-o OUT]` | Add a signature (replaces FILE unless `-o`) | No |

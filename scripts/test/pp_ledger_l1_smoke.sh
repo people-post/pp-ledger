@@ -49,4 +49,7 @@ echo -e "${GREEN}✓ The relay serves the config in force${NC}"
 # Operation files: a multi-signature transaction signed apart, merged and submitted.
 run_operation_file_scenario 120
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file)${NC}"
+# Token issuers: issued account, its own token issued to a holder, its keys replaced.
+run_token_scenario
+
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; token issuer)${NC}"

@@ -159,6 +159,14 @@ OpCommands::OpCommands(CLI::App &app) {
   newAccount_.cmd->add_option("--amount", amount_, "Initial balance, paid by --from")->required();
   addCreateOptions(newAccount_, true);
 
+  updateKeys_.cmd = op_->add_subcommand(
+      "update-keys", "Replace an account's keys (signed by the keys in force; reads the account from the node)");
+  updateKeys_.cmd->add_option("--account", from_, "The account")->required();
+  updateKeys_.cmd->add_option("--new-key", newKeys_, "A key of the new set (hex or .pub; repeat)")->required();
+  updateKeys_.cmd->add_option("--new-min-signatures", newMinSignatures_, "Signatures the new set needs")
+      ->default_val(1);
+  addCreateOptions(updateKeys_, true);
+
   wrap_.cmd = op_->add_subcommand(
       "wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
   wrap_.cmd->add_option("file", file_, "Transaction file (its signatures are dropped)")->required();
@@ -184,7 +192,7 @@ void OpCommands::addCreateOptions(Create &create, bool withFee) {
 bool OpCommands::parsed() const { return op_->parsed(); }
 
 const OpCommands::Create *OpCommands::parsedCreate() const {
-  for (const Create *create : {&transfer_, &mint_, &newAccount_, &wrap_}) {
+  for (const Create *create : {&transfer_, &mint_, &newAccount_, &updateKeys_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
     }
@@ -199,7 +207,8 @@ bool OpCommands::needsNode() const {
     return true;
   }
   const Create *create = parsedCreate();
-  return create && (create->networkId.empty() || create->signerKeys.empty());
+  // A key replacement carries the account's balances as they are: always read from the node.
+  return create && (create == &updateKeys_ || create->networkId.empty() || create->signerKeys.empty());
 }
 
 int OpCommands::run(pp::Client *client) {
@@ -388,6 +397,16 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
     built = op::transfer(common, to_, amount_, create.fee, tokenId_);
   } else if (&create == &mint_) {
     built = op::mint(common, amount_, create.fee);
+  } else if (&create == &updateKeys_) {
+    auto keys = readPublicKeys(newKeys_, "--new-key");
+    if (!keys) {
+      return fail(keys.error().message);
+    }
+    auto current = client->fetchUserAccount(from_);
+    if (!current) {
+      return fail("reading account " + std::to_string(from_) + ": " + current.error().message);
+    }
+    built = op::replaceKeys(common, current.value(), keys.value(), newMinSignatures_, create.fee);
   } else if (&create == &newAccount_) {
     auto keys = readPublicKeys(accountKeys_, "--account-key");
     if (!keys) {

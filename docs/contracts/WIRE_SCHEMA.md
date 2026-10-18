@@ -174,8 +174,15 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   | Range | Kind | Created by | Rules |
   |-------|------|------------|-------|
   | `[0, 1<<20)` | **System** — Genesis `0`, Reserve `1`, Registrar `2`, Fee `3`, Recycle `4`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
-  | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Registrar | Normal renewal / termination |
+  | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Registrar | Normal renewal / termination; issues the token whose id is its own (below) |
   | `[1<<30, …)` | **Users** | Any funded account except genesis | Normal renewal / termination |
+
+  **Custom tokens.** An issued account issues one token, the one whose id is its account id: it
+  sends it without holding it, and its balance of it goes negative — minus the supply outstanding
+  (`AccountBuffer::issuesToken`; admission checks the same). Every other balance, and every
+  balance of a user account, stays at or above `0`. Fees are always native, so an issuer keeps a
+  native balance for its renewals: one that cannot pay is ended, and its balances (the negative one
+  included) go to the recycle account.
 
   Every `T_NEW_USER` after genesis pays at least the meta-size fee plus the
   one-time `newAccountFee` (chain config, may be `0`); genesis-block records pay
@@ -206,7 +213,10 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   block's slot time, never a node's clock). The slot leader signs renewals, so a renewal re-records
   the account **as it is**: its keys, threshold, key type and meta must equal the committed ones
   (the meta recorded at the account's last write); only the renewal fee leaves its balance.
-  Changing them takes the account's own `T_USER_UPDATE`. An account that cannot pay its renewal fee is ended
+  Changing them takes the account's own `T_USER_UPDATE`, signed by the keys in force: it replaces the
+  keys, threshold and meta, and pays its fee from the account's native balance **as the chain has
+  it** — balances in its meta are ignored, so renewals or transfers landing between its making and
+  its inclusion do not void it (refused when that balance cannot pay the fee). An account that cannot pay its renewal fee is ended
   instead (`T_END_USER`, fee `0`): its `meta` carries the balances it leaves to the recycle account
   (packed `map<tokenId, int64>`; Full checks them against the account), so a node that does not
   hold the account still credits the recycle account.

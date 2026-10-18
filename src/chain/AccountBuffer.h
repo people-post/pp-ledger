@@ -164,6 +164,15 @@ public:
   /** Leaf digest for one account (used by the SMT). */
   static std::string accountLeafHash(const Account &account);
 
+  /**
+   * Account `accountId` issues token `tokenId`: its balance of it may go negative (minus that is the
+   * supply out). The genesis account issues the native token; an issued account its own (token id =
+   * account id). Users issue none.
+   */
+  static bool issuesToken(uint64_t accountId, uint64_t tokenId) {
+    return accountId < ID_FIRST_USER && accountId == tokenId;
+  }
+
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
   void touchTree(const Account &account);

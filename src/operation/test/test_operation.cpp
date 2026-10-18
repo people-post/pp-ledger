@@ -285,6 +285,45 @@ TEST(OperationTest, OnlyAGenesisCarriesMoreRecords) {
   EXPECT_FALSE(genesis(records, "", 0));
 }
 
+TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {
+  Keys inForce(2);
+  Keys next(3);
+  const uint64_t issuer = AccountIds::ID_FIRST_ISSUED + 9;
+  UserAccount current;
+  current.wallet.publicKeys = inForce.publicKeys();
+  current.wallet.minSignatures = 2;
+  current.wallet.mBalances[AccountIds::ID_GENESIS] = 500;
+  current.wallet.mBalances[issuer] = -1000; // its own token, issued
+  current.meta = "attachment";
+
+  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 4, 10)); // more than the keys
+  EXPECT_FALSE(replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 501)); // cannot pay
+  auto update = replaceKeys(common(inForce, 2, issuer), current, next.publicKeys(), 2, 10);
+  ASSERT_TRUE(update) << update.error().message;
+  EXPECT_EQ(update.value().kind, Kind::AccountUpdate);
+  EXPECT_EQ(signerAccountOf(update.value().record), issuer);
+  EXPECT_EQ(update.value().signers.publicKeys, inForce.publicKeys()); // the keys in force sign
+
+  // It carries the account as it will be: new keys, the fee out of the native balance, the rest kept.
+  auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(update.value().record.data).value();
+  UserAccount carried;
+  ASSERT_TRUE(carried.ltsFromString(tx.meta));
+  EXPECT_EQ(carried.wallet.publicKeys, next.publicKeys());
+  EXPECT_EQ(carried.wallet.mBalances.at(AccountIds::ID_GENESIS), 490);
+  EXPECT_EQ(carried.wallet.mBalances.at(issuer), -1000);
+  EXPECT_EQ(carried.meta, "attachment");
+
+  auto s = summarize(update.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Replace an account's keys");
+  auto back = fromJson(toJson(update.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::AccountUpdate);
+  Operation otherSigners = update.value();
+  otherSigners.signers.account = AccountIds::ID_RESERVE;
+  EXPECT_FALSE(fromJson(toJson(otherSigners))); // the updated account signs, no other
+}
+
 TEST(OperationTest, AmountsAreGroupedByThousands) {
   EXPECT_EQ(groupDigits(0), "0");
   EXPECT_EQ(groupDigits(999), "999");

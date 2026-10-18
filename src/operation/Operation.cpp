@@ -25,7 +25,8 @@ namespace {
 const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
       {Kind::Transfer, "transfer"},       {Kind::Mint, "mint"},
-      {Kind::NewAccount, "new-account"},  {Kind::ConfigUpdate, "config-update"},
+      {Kind::NewAccount, "new-account"},  {Kind::AccountUpdate, "account-update"},
+      {Kind::ConfigUpdate, "config-update"},
       {Kind::BeaconCertificate, "beacon-certificate"}, {Kind::Recovery, "recovery"},
       {Kind::Genesis, "genesis"},         {Kind::Other, "record"}};
   return names;
@@ -131,8 +132,8 @@ std::string accountName(uint64_t id) {
 std::string keysLine(const std::vector<std::string> &keys, uint32_t minSignatures) {
   std::ostringstream out;
   out << minSignatures << " of " << keys.size() << ":";
-  for (const auto &key : keys) {
-    out << " " << fingerprint(key);
+  for (size_t i = 0; i < keys.size(); ++i) {
+    out << (i == 0 ? " " : ", ") << fingerprint(keys[i]);
   }
   return out.str();
 }
@@ -200,6 +201,8 @@ Kind kindOf(const Ledger::Record &record) {
   }
   case Ledger::T_NEW_USER:
     return Kind::NewAccount;
+  case Ledger::T_USER_UPDATE:
+    return Kind::AccountUpdate;
   case Ledger::T_CONFIG:
     return Kind::ConfigUpdate;
   case Ledger::T_BEACON_CERT:
@@ -222,6 +225,10 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
   case Ledger::T_NEW_USER: {
     auto tx = utl::binaryUnpack<Ledger::TxNewUser>(record.data);
     return tx ? std::optional<uint64_t>(tx.value().fromWalletId) : std::nullopt;
+  }
+  case Ledger::T_USER_UPDATE: {
+    auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
+    return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
   }
   case Ledger::T_CONFIG:
   case Ledger::T_BEACON_CERT:
@@ -634,6 +641,18 @@ pp::Roe<Summary> summarize(const Operation &op) {
     }
     break;
   }
+  case Kind::AccountUpdate: {
+    const auto &tx = std::get<Ledger::TxUserUpdate>(typed.value());
+    s.title = "Replace an account's keys";
+    UserAccount account;
+    if (!account.ltsFromString(tx.meta)) {
+      return pp::Error("The account update does not decode");
+    }
+    s.lines = {{"Account", accountName(tx.walletId)},
+               {"Its keys from then on", keysLine(account.wallet.publicKeys, account.wallet.minSignatures)},
+               {"Fee", groupDigits(tx.fee)}};
+    break;
+  }
   case Kind::ConfigUpdate: {
     const auto &tx = std::get<Ledger::TxConfig>(typed.value());
     s.title = "Change the chain's config (from the next epoch)";
@@ -828,6 +847,40 @@ pp::Roe<Operation> genesis(const std::vector<Ledger::Record> &records, const std
       op.signers.minSignatures > op.signers.publicKeys.size()) {
     return pp::Error("The genesis record names no network, or no admin keys to sign it");
   }
+  return op;
+}
+
+pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (keys.empty() || minSignatures == 0 || minSignatures > keys.size() || minSignatures > 255) {
+    return pp::Error("The new keys: at least one, and between 1 and that many to sign");
+  }
+  for (const auto &key : keys) {
+    if (key.size() != utl::kMlDsaPublicKeyBytes || std::count(keys.begin(), keys.end(), key) > 1) {
+      return pp::Error("The new keys must be distinct ML-DSA-65 public keys");
+    }
+  }
+  UserAccount next = current;
+  next.wallet.publicKeys = keys;
+  next.wallet.minSignatures = static_cast<uint8_t>(minSignatures);
+  // The update carries the balances as they will be: the fee comes out of the native token.
+  int64_t &native = next.wallet.mBalances[AccountIds::ID_GENESIS];
+  if (fee > static_cast<uint64_t>(native)) {
+    return pp::Error("The account cannot pay the fee (" + groupDigits(fee) + ")");
+  }
+  native -= static_cast<int64_t>(fee);
+  Ledger::TxUserUpdate tx;
+  tx.walletId = *common.signers.account;
+  tx.fee = fee;
+  tx.meta = next.ltsToString();
+  stamp(tx, common);
+  Operation op = start(common);
+  op.record.type = Ledger::T_USER_UPDATE;
+  op.record.data = utl::binaryPack(tx);
+  op.kind = Kind::AccountUpdate;
   return op;
 }
 

@@ -1101,6 +1101,95 @@ run_operation_file_scenario() {
   die "L-SMOKE-OPERATION: account $account not created within ${max_wait}s"
 }
 
+# One operation file, end to end: make it (the pp-client op arguments), sign a copy per key, merge,
+# submit. Dies on failure. Usage: operation_flow <name> <key files...> -- <op args...>
+operation_flow() {
+  local name=$1 dir="${TEST_DIR}/operation"
+  shift
+  local keys=()
+  while [[ $1 != "--" ]]; do keys+=("$1"); shift; done
+  shift
+  mkdir -p "$dir"
+  rm -f "$dir/$name".*
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" op "$@" -o "$dir/$name.json" >/dev/null ||
+    die "op $1 ($name) failed"
+  local i=0 copies=()
+  for key in "${keys[@]}"; do
+    i=$((i + 1))
+    cp "$dir/$name.json" "$dir/$name.copy$i.json"
+    run_pp_client op sign "$dir/$name.copy$i.json" -k "$key" >/dev/null || die "op sign ($name) failed"
+    copies+=("$dir/$name.copy$i.json")
+  done
+  if ((${#copies[@]} > 1)); then
+    run_pp_client op merge "${copies[@]}" -o "$dir/$name.signed.json" >/dev/null || die "op merge ($name) failed"
+  else
+    cp "${copies[0]}" "$dir/$name.signed.json"
+  fi
+  # The same bytes again are harmless: a node just behind the relay may not hold the payer's
+  # latest state yet (an account created a block ago).
+  local attempt
+  for attempt in 1 2 3; do
+    if run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" op submit "$dir/$name.signed.json" >/dev/null; then
+      return 0
+    fi
+    sleep 3
+  done
+  die "op submit ($name) failed"
+}
+
+# Wait until account $1's JSON (spaces removed) matches the regex $2; die with $3 after $4 s.
+wait_for_account() {
+  local account=$1 pattern=$2 what=$3 max_wait=${4:-90}
+  local deadline=$((SECONDS + max_wait)) json
+  while ((SECONDS < deadline)); do
+    json=$(run_pp_client -b --host "$(relay_multiaddr)" account "$account" 2>/dev/null | tr -d ' \n' || true)
+    if grep -Eq "$pattern" <<<"$json"; then
+      return 0
+    fi
+    sleep 1
+  done
+  die "$what (account $account: ${json:-none})"
+}
+
+# Token issuers (pp-ledger-admin's token app): the reserve funds the registrar, the registrar
+# creates an issued account, which issues its own token (a transfer of the token whose id is its
+# own: its balance of it goes negative) to a user account, then replaces its keys. Needs carol's
+# account (run_operation_file_scenario).
+run_token_scenario() {
+  local key_dir="${TEST_DIR}/keys"
+  local issuer=$(((1 << 20) + 50)) carol=$(((1 << 30) + 7))
+  # A network kept up across runs already has earlier issuers: take the first id not yet on the chain,
+  # so the token is new and its supply starts at 0.
+  local existing
+  while existing=$(run_pp_client -b --host "$(relay_multiaddr)" account "$issuer" 2>/dev/null || true) &&
+    grep -q '"mBalances"' <<<"$existing"; do
+    issuer=$((issuer + 1))
+  done
+  echo -e "${CYAN}Token issuer ${issuer}: created by the registrar, issues to ${carol}, replaces its keys...${NC}"
+  local r=() g=()
+  for i in 1 2 3; do r+=("${key_dir}/reserve$i.key"); g+=("${key_dir}/registrar$i.key"); done
+  operation_flow fund-registrar "${r[@]}" -- transfer --from "$RESERVE_ACCOUNT_ID" --to 2 --amount 100000 -f 1
+  wait_for_account 2 '"mBalances":\{"0":[1-9]' "L-SMOKE-TOKEN: the registrar was not funded"
+  generate_tx_keypair "issuer-${issuer}" >/dev/null
+  generate_tx_keypair "issuer-${issuer}-next1" >/dev/null
+  generate_tx_keypair "issuer-${issuer}-next2" >/dev/null
+  operation_flow issuer-account "${g[@]}" -- new-account --from 2 --id "$issuer" \
+    --account-key "${key_dir}/issuer-${issuer}.pub" --amount 5000 -f 1
+  # Exists, with a native balance (renewals take their fee from it soon on the smoke chain).
+  wait_for_account "$issuer" '"mBalances":\{"0":[1-9]' "L-SMOKE-TOKEN: the issued account was not created"
+  operation_flow issue "${key_dir}/issuer-${issuer}.key" -- transfer --from "$issuer" --to "$carol" --amount 1000 \
+    --token "$issuer" -f 1
+  wait_for_account "$carol" "\"${issuer}\":1000" "L-SMOKE-TOKEN: the token did not reach the holder"
+  if ! (wait_for_account "$issuer" "\"${issuer}\":-1000" "supply" 30); then
+    run_pp_client -b --host "$(relay_multiaddr)" transactions "$issuer" >"${TEST_DIR}/issuer-transactions.json" 2>&1 || true
+    die "L-SMOKE-TOKEN: the issuer's supply is not -1000 (its transactions: ${TEST_DIR}/issuer-transactions.json)"
+  fi
+  operation_flow issuer-keys "${key_dir}/issuer-${issuer}.key" -- update-keys --account "$issuer" \
+    --new-key "${key_dir}/issuer-${issuer}-next1.pub" --new-key "${key_dir}/issuer-${issuer}-next2.pub" --new-min-signatures 2 -f 1
+  wait_for_account "$issuer" "\"minSignatures\":2" "L-SMOKE-TOKEN: the issuer's keys were not replaced"
+  echo -e "${GREEN}✓ Issuer ${issuer} issued 1,000 of its token to ${carol}; its keys are now 2 of 2${NC}"
+}
+
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
 # chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
 register_miner_account() {

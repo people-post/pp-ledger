@@ -3228,6 +3228,53 @@ TEST_F(ChainComposeTest, MinerStateCannotBeSetByAccountCreationOrUpdate) {
   }
 }
 
+// An account update replaces keys and meta; the balances stay the chain's, whatever the update
+// carries — they move while the account's holders sign it (transfers in, renewals, issuing).
+TEST_F(ChainComposeTest, AnAccountUpdateKeepsTheChainsBalances) {
+  auto &producer = harness_.producer;
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  auto leader = producer.getSlotLeader(1);
+  ASSERT_TRUE(leader.isOk());
+  const auto held = producer.getAccount(kTestMinerId).value();
+  const auto nextKey = makeKeyPair();
+
+  Client::UserAccount update;
+  update.wallet = held.wallet;
+  update.wallet.publicKeys = {nextKey.publicKey};
+  update.wallet.minSignatures = 1;
+  update.wallet.mBalances[AccountBuffer::ID_GENESIS] += 5000; // stale or wrong: not used
+  update.wallet.mBalances[kTestMinerId] = -77;
+  update.meta = AccountAttachment::emptySerialized();
+  Ledger::TxUserUpdate uu;
+  uu.walletId = kTestMinerId;
+  uu.fee = 100;
+  uu.meta = update.ltsToString();
+  uu.idempotentId = 3;
+  uu.validationTsMin = now - 60;
+  uu.validationTsMax = now + 60;
+  AccountBuffer scratch;
+  auto added = producer.addBufferTransaction(
+      scratch, makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey, producer.getNetworkId()), leader.value());
+  ASSERT_TRUE(added.isOk()) << added.error().message;
+  auto after = scratch.getAccount(kTestMinerId);
+  ASSERT_TRUE(after.isOk());
+  EXPECT_EQ(after.value().wallet.publicKeys, std::vector<std::string>{nextKey.publicKey});
+  EXPECT_EQ(after.value().wallet.mBalances.at(AccountBuffer::ID_GENESIS),
+            held.wallet.mBalances.at(AccountBuffer::ID_GENESIS) - 100);
+  EXPECT_EQ(after.value().wallet.mBalances.count(kTestMinerId), 0u);
+
+  // Its fee is still paid: an update it cannot pay is refused.
+  uu.fee = static_cast<uint64_t>(held.wallet.mBalances.at(AccountBuffer::ID_GENESIS)) + 1;
+  uu.idempotentId = 4;
+  AccountBuffer scratch2;
+  EXPECT_FALSE(producer
+                   .addBufferTransaction(scratch2,
+                                         makeRecord(Ledger::T_USER_UPDATE, uu, harness_.reserveKey,
+                                                    producer.getNetworkId()),
+                                         leader.value())
+                   .isOk());
+}
+
 namespace {
 
 /** A funded user account (block at `slot`), for miner-registration tests. */
