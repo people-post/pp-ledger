@@ -452,6 +452,25 @@ TEST(OperationTest, AnAccountNamesItsFirstRecoverySetThenTheSetActs) {
   EXPECT_FALSE(replaceKeys(common(owner, 1, account), carried, next.publicKeys(), 1, 10));
 }
 
+TEST(OperationTest, TheRegistrarGivesAnIssuedAccountItsDomain) {
+  Keys registrar(2);
+  const uint64_t issuer = AccountIds::ID_FIRST_ISSUED + 12;
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_RESERVE), issuer, "ACME", 10)) << "the registrar signs";
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), AccountIds::ID_FIRST_USER, "ACME", 10));
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "ABC", 10));
+  EXPECT_FALSE(assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "acme", 10));
+  auto op = assignDomain(common(registrar, 2, AccountIds::ID_REGISTRAR), issuer, "ACME", 10);
+  ASSERT_TRUE(op) << op.error().message;
+  EXPECT_EQ(op.value().kind, Kind::DomainAssign);
+  EXPECT_EQ(signerAccountOf(op.value().record), AccountIds::ID_REGISTRAR);
+  auto s = summarize(op.value());
+  ASSERT_TRUE(s) << s.error().message;
+  EXPECT_EQ(s.value().title, "Give an account its domain");
+  auto back = fromJson(toJson(op.value()));
+  ASSERT_TRUE(back) << back.error().message;
+  EXPECT_EQ(back.value().kind, Kind::DomainAssign);
+}
+
 TEST(OperationTest, AmountsAreGroupedByThousands) {
   EXPECT_EQ(groupDigits(0), "0");
   EXPECT_EQ(groupDigits(999), "999");

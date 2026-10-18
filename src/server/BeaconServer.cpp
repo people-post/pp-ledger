@@ -224,6 +224,16 @@ Object BeaconServer::InitFileConfig::ltsToJson() {
       accounts.set(name, entry);
     }
     j.set("systemAccounts", accounts);
+    // The system accounts' domains (projects/domains): 1-3 capital letters; the genesis account's is
+    // the native token's symbol.
+    const chain_genesis::SystemNames names = chain_genesis::defaultSystemNames();
+    Object systemNames;
+    systemNames.set("genesis", names.genesis);
+    systemNames.set("reserve", names.reserve);
+    systemNames.set("registrar", names.registrar);
+    systemNames.set("fee", names.fee);
+    systemNames.set("recycle", names.recycle);
+    j.set("systemNames", systemNames);
     // The recovery set: held apart from the admin (genesis) keys, used almost never.
     Object recoveryEntry;
     std::vector<Value> recoveryKeys{Value(std::string("<hex public key from recovery1.pub>"))};
@@ -460,6 +470,31 @@ BeaconServer::Roe<void> BeaconServer::InitFileConfig::parseSystemAccounts(const 
       return keys.error();
     }
     *slot = std::move(keys.value());
+  }
+  // Optional: the system accounts' domains (projects/domains); each omitted one keeps its default, an
+  // empty one is none.
+  if (jd.contains("systemNames")) {
+    const Object *names = jd.getObject("systemNames");
+    if (!names) {
+      return Error(E_CONFIG, "Field 'systemNames' must be an object {genesis, reserve, registrar, fee, recycle}");
+    }
+    chain_genesis::SystemNames &out = systemAccounts.names;
+    for (const auto &[name, field] : {std::pair<const char *, std::string *>{"genesis", &out.genesis},
+                                      {"reserve", &out.reserve},
+                                      {"registrar", &out.registrar},
+                                      {"fee", &out.fee},
+                                      {"recycle", &out.recycle}}) {
+      if (names->contains(name)) {
+        auto value = names->getString(name);
+        if (!value) {
+          return Error(E_CONFIG, std::string("systemNames.") + name + " must be a string");
+        }
+        *field = *value;
+      }
+    }
+    if (auto valid = chain_genesis::checkNames(out); !valid) {
+      return Error(E_CONFIG, valid.error().message);
+    }
   }
   return {};
 }
@@ -723,6 +758,7 @@ BeaconServer::Roe<Beacon::InitConfig> BeaconServer::prepareInit(const std::strin
   log().info << "  Beacon signing key: " << FILE_BEACON_SIGNING_KEY << " (generation 1)";
 
   static_cast<chain_genesis::SystemKeys &>(initConfig.key) = initFileConfig.systemAccounts;
+  initConfig.key.names = initFileConfig.systemAccounts.names;
   return initConfig;
 }
 
@@ -773,6 +809,7 @@ BeaconServer::Roe<void> BeaconServer::planGenesis(const std::string &workDir, co
   plan.config = initConfig.chain;
   plan.config.genesisTime = startTime;
   plan.keys = initConfig.key;
+  plan.names = initConfig.key.names;
   plan.miners = initConfig.miners;
   plan.authority = initConfig.authority;
   auto records = chain_genesis::records(plan);

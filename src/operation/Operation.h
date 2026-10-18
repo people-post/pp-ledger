@@ -28,6 +28,8 @@ enum class Kind {
   AccountUpdate,
   /** An account's recovery set announcing its next keys (T_ACCOUNT_RECOVERY). */
   AccountRecovery,
+  /** The registrar giving an issued account its domain (T_DOMAIN_ASSIGN). */
+  DomainAssign,
   ConfigUpdate,
   BeaconCertificate,
   Recovery,
@@ -185,6 +187,11 @@ pp::Roe<Operation> transfers(const Common &common, const std::vector<Payment> &p
                              const std::string &meta = "");
 /** New native tokens: a transfer from the genesis account to the reserve (the only way to mint). */
 pp::Roe<Operation> mint(const Common &common, uint64_t amount, uint64_t fee);
+/**
+ * Give issued account `account` its domain `domain` (T_DOMAIN_ASSIGN, projects/domains): signed by
+ * the registrar (`common.signers.account`), which pays `fee`.
+ */
+pp::Roe<Operation> assignDomain(const Common &common, uint64_t account, const std::string &domain, uint64_t fee);
 /** A new account `id` funded with `amount` by the signers' account (the registrar for issued ids). */
 pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccount &account, uint64_t amount,
                               uint64_t fee);

@@ -3,6 +3,7 @@
 #include "AccountAttachment.h"
 #include "AccountIds.h"
 #include "Client.h"
+#include "../chain/Domains.h"
 #include "../operation/Operation.h"
 #include "lib/common/Crypto.h"
 #include "lib/common/Utilities.h"
@@ -194,6 +195,8 @@ OpCommands::OpCommands(CLI::App &app) {
                               "Signatures the new account needs")
       ->default_val(1);
   newAccount_.cmd->add_option("--amount", amount_, "Initial balance, paid by --from")->required();
+  newAccount_.cmd->add_option("--domain", domain_,
+                              "Its domain, an issued account's (4-7 letters; the registrar gives it)");
   addCreateOptions(newAccount_, true);
 
   updateKeys_.cmd = op_->add_subcommand(
@@ -233,6 +236,12 @@ OpCommands::OpCommands(CLI::App &app) {
   withdrawRecovery_.cmd->add_option("--account", from_, "The account (pays the fee)")->required();
   addCreateOptions(withdrawRecovery_, true);
 
+  assignDomain_.cmd = op_->add_subcommand(
+      "assign-domain", "Give an issued account its domain (4-7 letters, once; signed by the registrar)");
+  assignDomain_.cmd->add_option("--account", from_, "The issued account")->required();
+  assignDomain_.cmd->add_option("--domain", domain_, "The domain (a symbol: ACME)")->required();
+  addCreateOptions(assignDomain_, true);
+
   wrap_.cmd = op_->add_subcommand(
       "wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
   wrap_.cmd->add_option("file", file_, "Transaction file (its signatures are dropped)")->required();
@@ -265,7 +274,7 @@ bool OpCommands::signedByRecoverySet(const Create &create, bool hasRecoverySet) 
 
 const OpCommands::Create *OpCommands::parsedCreate() const {
   for (const Create *create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &setRecovery_,
-                               &withdrawRecovery_, &recover_, &wrap_}) {
+                               &withdrawRecovery_, &recover_, &assignDomain_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
     }
@@ -417,6 +426,8 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
     account = op::signerAccountOf(wrapped);
   } else if (&create == &mint_) {
     account = pp::AccountIds::ID_GENESIS;
+  } else if (&create == &assignDomain_) {
+    account = pp::AccountIds::ID_REGISTRAR;
   } else {
     account = from_;
   }
@@ -542,6 +553,12 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
     built = op::announceRecovery(common, from_, keys.value(), newMinSignatures_, create.fee);
   } else if (&create == &withdrawRecovery_) {
     built = op::withdrawRecovery(common, from_, create.fee);
+  } else if (&create == &assignDomain_) {
+    auto name = pp::chain_domain::normalize(domain_);
+    if (!name) {
+      return fail("--domain: 1 to 7 letters A-Z");
+    }
+    built = op::assignDomain(common, from_, *name, create.fee);
   } else if (&create == &newAccount_) {
     auto keys = readPublicKeys(accountKeys_, "--account-key");
     if (!keys) {
@@ -556,6 +573,13 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
     newAccount.wallet.keyType = pp::Crypto::TK_ML_DSA_65;
     newAccount.wallet.mBalances[pp::AccountIds::ID_GENESIS] = static_cast<int64_t>(amount_);
     newAccount.meta = pp::AccountAttachment::emptySerialized();
+    if (!domain_.empty()) {
+      auto name = pp::chain_domain::normalize(domain_);
+      if (!name) {
+        return fail("--domain: 1 to 7 letters A-Z");
+      }
+      newAccount.wallet.domain = *name;
+    }
     built = op::newAccount(common, accountId_, newAccount, amount_, create.fee);
   } else {
     built = op::wrap(common, wrapped);
