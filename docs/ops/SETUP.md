@@ -120,6 +120,8 @@ R=/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>
 ./app/pp-client --host "$R" -b config            # config in force (and pending), admin keys, authority
 ./app/pp-client --host "$R" -b producers --from 1 # blocks, fees, misses charged per producer (to the tip)
 ./app/pp-client --host "$R" -b verified-account 1073741824 --genesis-hash 0x…  # proven, no node believed
+./app/pp-client --host "$R" -b domain ACME        # who a domain (a symbol) is bound to
+./app/pp-client --host "$R" -b verified-domain ACME --genesis-hash 0x…  # the domain and its account, proven
 ./app/pp-client --host "$R" -b add-tx <from> <to> 100 -k <key>   # into the beacon's pool
 ./app/pp-client --host "$M" -m status            # a miner: id, stake, pending transactions
 ```

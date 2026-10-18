@@ -76,6 +76,8 @@ private:
   uint64_t recoveryDelaySeconds_{0};
   bool noRecovery_{false};
   Create withdrawRecovery_;
+  Create assignDomain_;
+  std::string domain_;
   Create recover_;
   /**
    * Signed by the account's recovery set (its keys and threshold read from the node by default): a

@@ -83,6 +83,9 @@ pp::common::Meta Wallet::ltsToMeta() const {
     }
     j.set("recovery", r);
   }
+  if (!domain.empty()) {
+    j.set("domain", domain);
+  }
   return j;
 }
 

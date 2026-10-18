@@ -49,6 +49,8 @@ public:
    */
   struct InitKeyConfig : chain_genesis::SystemKeys {
     std::vector<std::string> genesisSigners; ///< raw ML-DSA-65 private keys
+    /** The system accounts' domains (init-config.json `systemNames`; projects/domains). */
+    chain_genesis::SystemNames names = chain_genesis::defaultSystemNames();
   };
 
   /** A miner account created in the genesis block (chain_genesis::Miner). */

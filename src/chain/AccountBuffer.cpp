@@ -1,4 +1,5 @@
 #include "AccountBuffer.h"
+#include "Domains.h"
 
 #include "common/Serialize.hpp"
 #include "lib/common/Utilities.h"
@@ -36,11 +37,72 @@ std::string AccountBuffer::accountLeafHash(const Account &account) {
   return utl::sha256Raw(std::string("pp-ledger/account-leaf/v2") + oss.str());
 }
 
-void AccountBuffer::touchTree(const Account &account) {
-  stateTree_.setLeaf(account.id, accountLeafHash(account));
+void AccountBuffer::setLeaves(AccountStateTree &tree, const Account &account) {
+  tree.setLeaf(account.id, accountLeafHash(account));
+  if (!account.wallet.domain.empty()) {
+    tree.setLeaf(chain_domain::treeKey(account.wallet.domain), chain_domain::leafHash(account.wallet.domain, account.id));
+  }
 }
 
-void AccountBuffer::clearTree(uint64_t id) { stateTree_.clearLeaf(id); }
+void AccountBuffer::touchTree(const Account &account) {
+  stateTree_.setLeaf(account.id, accountLeafHash(account));
+  if (!account.wallet.domain.empty()) {
+    bindDomain(account.wallet.domain, DomainEntry{account.id});
+  }
+}
+
+void AccountBuffer::clearTree(const Account &account) {
+  stateTree_.clearLeaf(account.id);
+  if (!account.wallet.domain.empty()) {
+    bindDomain(account.wallet.domain, std::nullopt);
+  }
+}
+
+void AccountBuffer::bindDomain(const std::string &domain, const std::optional<DomainEntry> &entry) {
+  auto it = domains_.find(domain);
+  const std::optional<DomainEntry> held =
+      it == domains_.end() ? std::nullopt : std::optional<DomainEntry>(it->second);
+  if (held == entry) {
+    return;
+  }
+  if (!journals_.empty()) {
+    auto &saved = journals_.back().savedDomains;
+    if (saved.count(domain) == 0) {
+      saved.emplace(domain, held);
+    }
+  }
+  if (entry) {
+    domains_[domain] = *entry;
+    stateTree_.setLeaf(chain_domain::treeKey(domain), chain_domain::leafHash(domain, entry->accountId));
+  } else {
+    domains_.erase(domain);
+    stateTree_.clearLeaf(chain_domain::treeKey(domain));
+  }
+}
+
+std::optional<AccountBuffer::DomainEntry> AccountBuffer::findDomain(const std::string &domain) const {
+  auto it = domains_.find(domain);
+  if (it == domains_.end()) {
+    return std::nullopt;
+  }
+  return it->second;
+}
+
+std::vector<std::string> AccountBuffer::domainSiblings(const std::string &domain) const {
+  return stateTree_.siblings(chain_domain::treeKey(domain));
+}
+
+AccountBuffer::Roe<void> AccountBuffer::setDomain(uint64_t accountId, const std::string &domain) {
+  auto accountRoe = mutableAccount(accountId);
+  if (!accountRoe) {
+    return accountRoe.error();
+  }
+  Account &account = *accountRoe.value();
+  account.wallet.domain = domain;
+  touchTree(account);
+  return {};
+}
+
 
 AccountBuffer::Roe<AccountBuffer::Account *>
 AccountBuffer::mutableAccount(uint64_t id) {
@@ -130,7 +192,7 @@ void AccountBuffer::recordUndo(uint64_t id) {
 }
 
 void AccountBuffer::beginOverlay() {
-  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_, draftTags_});
+  journals_.push_back(Journal{stateTree_.clone(), {}, idempotencyKeys_, draftTags_, {}});
 }
 
 void AccountBuffer::commitOverlay() {
@@ -147,6 +209,10 @@ void AccountBuffer::commitOverlay() {
   for (auto &[id, value] : inner.saved) {
     outer.emplace(id, std::move(value));
   }
+  auto &outerDomains = journals_.back().savedDomains;
+  for (auto &[domain, value] : inner.savedDomains) {
+    outerDomains.emplace(domain, std::move(value));
+  }
 }
 
 void AccountBuffer::rollbackOverlay() {
@@ -160,6 +226,13 @@ void AccountBuffer::rollbackOverlay() {
       mAccounts_[id] = std::move(*value);
     } else {
       mAccounts_.erase(id);
+    }
+  }
+  for (auto &[domain, value] : journal.savedDomains) {
+    if (value.has_value()) {
+      domains_[domain] = *value;
+    } else {
+      domains_.erase(domain);
     }
   }
   stateTree_ = std::move(journal.tree);
@@ -598,8 +671,8 @@ void AccountBuffer::remove(uint64_t id) {
     return;
   }
   recordUndo(id);
+  clearTree(mAccounts_.at(id));
   mAccounts_.erase(id);
-  clearTree(id);
 }
 
 void AccountBuffer::clear() {
@@ -607,6 +680,13 @@ void AccountBuffer::clear() {
     recordUndo(id);
   }
   mAccounts_.clear();
+  if (!journals_.empty()) {
+    auto &saved = journals_.back().savedDomains;
+    for (const auto &[domain, entry] : domains_) {
+      saved.emplace(domain, entry);
+    }
+  }
+  domains_.clear();
   stateTree_ = AccountStateTree{};
   idempotencyKeys_.clear();
   draftTags_.clear();

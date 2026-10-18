@@ -1,4 +1,5 @@
 #include "ClientVerify.h"
+#include "Domains.h"
 
 #include "AccountBuffer.h"
 #include "AccountStateTree.h"
@@ -55,25 +56,40 @@ chain_tx::Roe<void> checkBlocksUnderTip(const Client::SignedTip &tip, const std:
   return {};
 }
 
-chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof) {
-  if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
-    return refused("The proof is of another block");
-  }
-  // The path: the siblings carried, the empty subtree's where the mask says so.
+namespace {
+
+/** A proof's path: the siblings carried, the empty subtree's where the mask leaves them out. */
+chain_tx::Roe<std::vector<std::string>> unpackPath(uint64_t mask, const std::vector<std::string> &carried) {
   std::vector<std::string> siblings(AccountStateTree::kDepth);
   size_t next = 0;
   for (int h = 0; h < AccountStateTree::kDepth; ++h) {
-    if ((proof.siblingMask >> h) & 1ULL) {
-      if (next >= proof.siblings.size()) {
+    if ((mask >> h) & 1ULL) {
+      if (next >= carried.size()) {
         return refused("The proof's path is short");
       }
-      siblings[static_cast<size_t>(h)] = proof.siblings[next++];
+      siblings[static_cast<size_t>(h)] = carried[next++];
     } else {
       siblings[static_cast<size_t>(h)] = AccountStateTree::emptySubtree(h);
     }
   }
-  if (next != proof.siblings.size()) {
+  if (next != carried.size()) {
     return refused("The proof's path is long");
+  }
+  return siblings;
+}
+
+} // namespace
+
+chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const Client::AccountProof &proof) {
+  if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
+    return refused("The proof is of another block");
+  }
+  if (proof.accountId >= AccountIds::ID_LIMIT) {
+    return refused("Not an account id: the state tree's keys from 2^63 up are domains'");
+  }
+  auto siblings = unpackPath(proof.siblingMask, proof.siblings);
+  if (!siblings) {
+    return siblings.error();
   }
   std::string leaf = AccountStateTree::emptyLeaf();
   if (proof.present) {
@@ -84,7 +100,7 @@ chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const
     account.attachmentHash = proof.attachmentHash;
     leaf = AccountBuffer::accountLeafHash(account);
   }
-  if (AccountStateTree::rootFrom(proof.accountId, leaf, siblings) != block.stateRoot) {
+  if (AccountStateTree::rootFrom(proof.accountId, leaf, siblings.value()) != block.stateRoot) {
     return refused("The account is not in the block's state root as the proof says");
   }
   ProvenAccount out;
@@ -94,6 +110,34 @@ chain_tx::Roe<ProvenAccount> checkAccountProof(const Ledger::Block &block, const
     out.wallet = proof.wallet;
     out.lastWriteBlockId = proof.lastWriteBlockId;
     out.attachmentHash = proof.attachmentHash;
+  }
+  return out;
+}
+
+chain_tx::Roe<ProvenDomain> checkDomainProof(const Ledger::Block &block, const Client::DomainProof &proof) {
+  if (proof.blockId != block.index || proof.stateRoot != block.stateRoot) {
+    return refused("The proof is of another block");
+  }
+  if (!chain_domain::isWellFormed(proof.domain)) {
+    return refused("Not a domain: " + proof.domain);
+  }
+  if (proof.present && proof.accountId >= AccountIds::ID_LIMIT) {
+    return refused("Not an account id");
+  }
+  auto siblings = unpackPath(proof.siblingMask, proof.siblings);
+  if (!siblings) {
+    return siblings.error();
+  }
+  const std::string leaf =
+      proof.present ? chain_domain::leafHash(proof.domain, proof.accountId) : AccountStateTree::emptyLeaf();
+  if (AccountStateTree::rootFrom(chain_domain::treeKey(proof.domain), leaf, siblings.value()) != block.stateRoot) {
+    return refused("The domain is not in the block's state root as the proof says");
+  }
+  ProvenDomain out;
+  out.domain = proof.domain;
+  out.blockId = block.index;
+  if (proof.present) {
+    out.accountId = proof.accountId;
   }
   return out;
 }

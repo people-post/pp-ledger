@@ -97,6 +97,12 @@ struct Wallet {
   uint8_t keyType{ 0 };  // Crypto::TK_ML_DSA_65 = 1; use Crypto::isSupported() to check
   MinerState miner;
   AccountRecovery recovery;
+  /**
+   * The account's domain (projects/domains): its symbol, `A`–`Z`, 1–3 letters for a system account,
+   * 4–7 for an issued one; none for a user. Given by the genesis block or the registrar, then
+   * chain-owned and never changed; free again when the account ends.
+   */
+  std::string domain;
 
   bool operator==(const Wallet& other) const {
     return mBalances == other.mBalances &&
@@ -104,18 +110,19 @@ struct Wallet {
            minSignatures == other.minSignatures &&
            keyType == other.keyType &&
            miner == other.miner &&
-           recovery == other.recovery;
+           recovery == other.recovery &&
+           domain == other.domain;
   }
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery;
+    ar & mBalances & publicKeys & minSignatures & keyType & miner & recovery & domain;
   }
 
   pp::common::Meta ltsToMeta() const;
 };
 
 struct UserAccount {
-  constexpr static const uint32_t VERSION = 3;
+  constexpr static const uint32_t VERSION = 4;
 
   Wallet wallet;
   std::string meta;

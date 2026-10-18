@@ -10,6 +10,7 @@
 #include "StateSnapshot.h"
 #include "BlockValidation.h"
 #include "AccountPolicy.h"
+#include "Domains.h"
 #include "../consensus/EpochSeed.h"
 #include "client/AccountAttachment.h"
 #include "client/Client.h"
@@ -3846,6 +3847,183 @@ TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
   EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 5, 25), 1u);  // 5 + 5 = 10 → epoch 1, at the edge
   EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 0, 26), 1u);  // 26 s is 6 slots → epoch 1
   EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 3, 86400), 1729u); // a day: 17,280 slots on
+}
+
+// projects/domains: issued accounts get their domain from the registrar — at creation or later, once —
+// and both directions are proven under the state root.
+TEST_F(MinerLivenessTest, TheRegistrarGivesIssuedAccountsDomainsProvenBothWays) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  for (uint64_t slot = 1; slot < 20; ++slot) {
+    lead(slot, kTestMinerId);
+  }
+  const auto &registrarKey = harness_.recycleKey; // the harness's registrar signs with it
+  const int64_t from = harness_.chainConfig.genesisTime;
+  const uint64_t acme = AccountBuffer::ID_FIRST_ISSUED + 5;
+  const uint64_t plain = AccountBuffer::ID_FIRST_ISSUED + 6;
+  const uint64_t user = AccountBuffer::ID_FIRST_USER + 9;
+  uint64_t idem = 500;
+
+  auto newAccount = [&](uint64_t fromId, const utl::MlDsaKeyPair &signer, uint64_t id, const std::string &domain) {
+    Client::UserAccount account = makeUserAccount(makeKeyPair().publicKey, 1000);
+    account.wallet.domain = domain;
+    Ledger::TxNewUser nu;
+    nu.fromWalletId = fromId;
+    nu.toWalletId = id;
+    nu.amount = 1000;
+    nu.meta = account.ltsToString();
+    nu.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(nu)).value();
+    nu.idempotentId = ++idem;
+    nu.validationTsMin = from;
+    nu.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_NEW_USER, nu, signer, producer.getNetworkId());
+  };
+  auto assign = [&](const utl::MlDsaKeyPair &signer, uint64_t id, const std::string &domain) {
+    Ledger::TxDomainAssign tx;
+    tx.walletId = id;
+    tx.domain = domain;
+    tx.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(tx)).value();
+    tx.idempotentId = ++idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_DOMAIN_ASSIGN, tx, signer, producer.getNetworkId());
+  };
+  auto refused = [&](const Ledger::Record &record) {
+    AccountBuffer scratch;
+    return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
+  };
+
+  // The reserve funds the registrar.
+  Ledger::TxDefault fund;
+  fund.tokenId = AccountBuffer::ID_GENESIS;
+  fund.fromWalletId = AccountBuffer::ID_RESERVE;
+  fund.toWalletId = AccountBuffer::ID_REGISTRAR;
+  fund.amount = 100000;
+  fund.fee = 1;
+  fund.idempotentId = ++idem;
+  fund.validationTsMin = from;
+  fund.validationTsMax = from + 3600;
+  Ledger::ChainNode block = commit(harness_.genesis, 1, {makeRecord(Ledger::T_DEFAULT, fund, harness_.reserveKey,
+                                                                    producer.getNetworkId())});
+
+  // Created with a domain: 4–7 capital letters, by the registrar; a user account has none.
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ABC"))) << "the system's length";
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "Acme"))) << "capitals only";
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ACMECORP"))) << "7 at most";
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, user, "BOBCO"))) << "users have none";
+  block = commit(block, 2, {newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, acme, "ACME"),
+                            newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, plain, ""),
+                            newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, user, "")});
+  for (Chain *node : {&producer, &peer}) {
+    EXPECT_EQ(node->getAccount(acme).value().wallet.domain, "ACME");
+    ASSERT_TRUE(node->findDomain("ACME").has_value());
+    EXPECT_EQ(node->findDomain("ACME")->accountId, acme);
+  }
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_REGISTRAR, registrarKey, AccountBuffer::ID_FIRST_ISSUED + 7,
+                                 "ACME"))) << "taken";
+  EXPECT_TRUE(refused(newAccount(AccountBuffer::ID_RESERVE, harness_.reserveKey, AccountIds::ID_LIMIT, "")))
+      << "account ids stay below 2^63";
+
+  // Given later, once, by the registrar only.
+  EXPECT_TRUE(refused(assign(registrarKey, acme, "SHOPCO"))) << "it has one";
+  EXPECT_TRUE(refused(assign(registrarKey, plain, "ACME"))) << "taken";
+  EXPECT_TRUE(refused(assign(registrarKey, plain, "SHO"))) << "the system's length";
+  EXPECT_TRUE(refused(assign(registrarKey, user, "BOBCO"))) << "a user account";
+  EXPECT_TRUE(refused(assign(harness_.reserveKey, plain, "SHOPCO"))) << "the registrar signs";
+  block = commit(block, 3, {assign(registrarKey, plain, "SHOPCO")});
+  EXPECT_EQ(peer.getAccount(plain).value().wallet.domain, "SHOPCO");
+  EXPECT_TRUE(refused(assign(registrarKey, plain, "OTHERCO"))) << "never changed";
+
+  // Proven both ways on the peer: domain → account, and the account's leaf carries its domain.
+  const Ledger::Block tip = peer.readBlock(block.block.index).value().block;
+  auto proof = peer.domainProof("SHOPCO");
+  ASSERT_TRUE(proof.isOk()) << proof.error().message;
+  auto proven = verify::checkDomainProof(tip, proof.value());
+  ASSERT_TRUE(proven.isOk()) << proven.error().message;
+  ASSERT_TRUE(proven.value().accountId.has_value());
+  EXPECT_EQ(*proven.value().accountId, plain);
+  Client::DomainProof lying = proof.value();
+  lying.accountId = acme;
+  EXPECT_FALSE(verify::checkDomainProof(tip, lying).isOk()) << "a node cannot point a domain elsewhere";
+  Client::DomainProof hidden = proof.value();
+  hidden.present = false;
+  EXPECT_FALSE(verify::checkDomainProof(tip, hidden).isOk()) << "nor hide it";
+  auto absent = peer.domainProof("NOBODY");
+  ASSERT_TRUE(absent.isOk());
+  auto none = verify::checkDomainProof(tip, absent.value());
+  ASSERT_TRUE(none.isOk()) << none.error().message;
+  EXPECT_FALSE(none.value().accountId.has_value());
+  auto accountProof = peer.accountProof(plain);
+  ASSERT_TRUE(accountProof.isOk());
+  auto account = verify::checkAccountProof(tip, accountProof.value());
+  ASSERT_TRUE(account.isOk()) << account.error().message;
+  EXPECT_EQ(account.value().wallet->domain, "SHOPCO");
+  EXPECT_FALSE(peer.domainProof("shopco").isOk()) << "stored as capitals";
+}
+
+TEST(DomainTest, LettersOnlyTheLengthTellsTheKindAndKeysNeverMeetAccounts) {
+  using namespace chain_domain;
+  EXPECT_TRUE(validateFor("PPL", AccountIds::ID_GENESIS).isOk());
+  EXPECT_TRUE(validateFor("R", AccountIds::ID_RESERVE).isOk());
+  EXPECT_FALSE(validateFor("ACME", AccountIds::ID_RESERVE).isOk()) << "4 letters is an issuer's";
+  EXPECT_TRUE(validateFor("ACME", AccountIds::ID_FIRST_ISSUED).isOk());
+  EXPECT_TRUE(validateFor("SHOPPER", AccountIds::ID_FIRST_USER - 1).isOk());
+  EXPECT_FALSE(validateFor("ABC", AccountIds::ID_FIRST_ISSUED).isOk()) << "1-3 letters are the system's";
+  EXPECT_FALSE(validateFor("SHOPPERS", AccountIds::ID_FIRST_ISSUED).isOk());
+  EXPECT_FALSE(validateFor("ACME", AccountIds::ID_FIRST_USER).isOk()) << "users have none";
+  EXPECT_FALSE(validateFor("AC1E", AccountIds::ID_FIRST_ISSUED).isOk());
+  EXPECT_FALSE(validateFor("", AccountIds::ID_FIRST_ISSUED).isOk());
+  EXPECT_EQ(normalize("acme").value_or(""), "ACME");
+  EXPECT_FALSE(normalize("ac-me").has_value());
+  EXPECT_EQ(treeKey("A"), AccountIds::ID_LIMIT + 1);
+  EXPECT_NE(treeKey("A"), treeKey("AA"));
+  EXPECT_LT(treeKey("ZZZZZZZ"), AccountIds::ID_LIMIT + (1ULL << 34));
+  EXPECT_NE(leafHash("ACME", 5), leafHash("ACME", 6));
+
+  chain_genesis::SystemNames names = chain_genesis::defaultSystemNames();
+  EXPECT_TRUE(chain_genesis::checkNames(names).isOk());
+  EXPECT_EQ(names.genesis, "PPL");
+  names.fee = names.reserve;
+  EXPECT_FALSE(chain_genesis::checkNames(names).isOk()) << "two the same";
+  names = chain_genesis::defaultSystemNames();
+  names.registrar = "REGS";
+  EXPECT_FALSE(chain_genesis::checkNames(names).isOk()) << "4 letters";
+}
+
+TEST(DomainTest, AnEndedAccountsDomainIsFreeAgainAndTheRootFollows) {
+  AccountBuffer bank;
+  auto accountOf = [](uint64_t id, int64_t balance, const std::string &domain) {
+    AccountBuffer::Account a;
+    a.id = id;
+    a.wallet = makeUserAccount(makeKeyPair().publicKey, balance).wallet;
+    a.wallet.domain = domain;
+    return a;
+  };
+  const uint64_t issuer = AccountBuffer::ID_FIRST_ISSUED + 1;
+  ASSERT_TRUE(bank.add(accountOf(AccountBuffer::ID_REGISTRAR, 0, "REG")).isOk());
+  ASSERT_TRUE(bank.add(accountOf(AccountBuffer::ID_RECYCLE, 0, "")).isOk());
+  ASSERT_TRUE(bank.add(accountOf(issuer, 10, "ACME")).isOk());
+  ASSERT_TRUE(bank.findDomain("ACME").has_value());
+  EXPECT_EQ(bank.findDomain("ACME")->accountId, issuer);
+  EXPECT_FALSE(chain_tx::validateNewDomain("ACME", issuer + 1, bank, nullptr).isOk()) << "taken";
+  const std::string before = bank.calculateStateRoot();
+
+  // The domain ends with its account: free again, for the registrar to give (or not).
+  bank.beginOverlay();
+  ASSERT_TRUE(bank.writeOff(issuer).isOk());
+  EXPECT_FALSE(bank.findDomain("ACME").has_value());
+  EXPECT_TRUE(chain_tx::validateNewDomain("ACME", issuer + 1, bank, nullptr).isOk());
+  // The root is what the accounts alone give (a snapshot, a node joining from a checkpoint).
+  AccountStateTree rebuilt;
+  for (uint64_t id : {AccountBuffer::ID_REGISTRAR, AccountBuffer::ID_RECYCLE}) {
+    AccountBuffer::setLeaves(rebuilt, bank.getAccount(id).value());
+  }
+  EXPECT_EQ(rebuilt.root(), bank.calculateStateRoot());
+
+  bank.rollbackOverlay();
+  ASSERT_TRUE(bank.findDomain("ACME").has_value());
+  EXPECT_EQ(bank.findDomain("ACME")->accountId, issuer);
+  EXPECT_EQ(bank.calculateStateRoot(), before);
 }
 
 // A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item

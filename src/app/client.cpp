@@ -8,6 +8,7 @@
 #include "../ledger/Ledger.h"
 #include "../chain/BlockValidation.h"
 #include "../chain/ClientVerify.h"
+#include "../chain/Domains.h"
 #include "../chain/PredecessorCheck.h"
 #include "../chain/StateSnapshot.h"
 #include "../chain/Types.h"
@@ -842,6 +843,17 @@ int main(int argc, char *argv[]) {
   verified_cmd->add_option("--genesis-hash", verifiedGenesis, "Block 0's hash, hex (from a source you trust)")
       ->required();
 
+  auto* verified_domain_cmd = app.add_subcommand(
+      "verified-domain", "A domain proven from a pinned genesis hash, and its account: no node believed");
+  std::string verifiedDomain;
+  verified_domain_cmd->add_option("domain", verifiedDomain, "The domain (a symbol: ACME)")->required();
+  verified_domain_cmd->add_option("--genesis-hash", verifiedGenesis, "Block 0's hash, hex (from a source you trust)")
+      ->required();
+
+  auto* domain_cmd = app.add_subcommand("domain", "Who a domain (a symbol: ACME) is bound to, as the node says");
+  std::string domainName;
+  domain_cmd->add_option("domain", domainName, "The domain")->required();
+
   auto* account_cmd = app.add_subcommand("account", "Get account info by ID");
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
@@ -1376,7 +1388,7 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "\nAuthority: " << gm.authority << "\n";
   }
-  else if (verified_cmd->parsed()) {
+  else if (verified_cmd->parsed() || verified_domain_cmd->parsed()) {
     exitCode = [&]() -> int {
       auto fail = [](const std::string &what) {
         std::cerr << "Not verified: " << what << "\n";
@@ -1391,56 +1403,119 @@ int main(int argc, char *argv[]) {
       if (!genesis) {
         return fail("block 0: " + genesis.error().message);
       }
-      auto state = client.fetchBeaconState();
-      if (!state || !state.value().signedTip) {
-        return fail("the node shows no signed tip");
-      }
-      const auto tip = *state.value().signedTip;
-      auto proof = client.fetchAccountProof(verifiedId);
-      if (!proof) {
-        return fail("account proof: " + proof.error().message);
-      }
-      if (proof.value().blockId > tip.height) {
-        return fail("the proof is above the signed tip: ask again");
-      }
-      // The blocks from the signed tip down to the proof's.
-      std::vector<pp::Ledger::ChainNode> blocks;
-      for (uint64_t id = tip.height + 1; id-- > proof.value().blockId;) {
-        auto block = client.fetchBlock(id);
-        if (!block) {
-          return fail("block " + std::to_string(id) + ": " + block.error().message);
+      // Block `blockId`, checked: the signed tip by the authority trail from block 0, the blocks under it.
+      auto checkedBlock = [&](uint64_t blockId) -> pp::Roe<pp::Ledger::Block> {
+        auto state = client.fetchBeaconState();
+        if (!state || !state.value().signedTip) {
+          return pp::Error("the node shows no signed tip");
         }
-        blocks.push_back(std::move(block.value()));
+        const auto tip = *state.value().signedTip;
+        if (blockId > tip.height) {
+          return pp::Error("the proof is above the signed tip: ask again");
+        }
+        std::vector<pp::Ledger::ChainNode> blocks;
+        for (uint64_t id = tip.height + 1; id-- > blockId;) {
+          auto block = client.fetchBlock(id);
+          if (!block) {
+            return pp::Error("block " + std::to_string(id) + ": " + block.error().message);
+          }
+          blocks.push_back(std::move(block.value()));
+        }
+        auto authority = client.fetchAuthorityProof(tip.height);
+        if (!authority) {
+          return pp::Error("authority proof: " + authority.error().message);
+        }
+        auto trail = pp::verify::authorityAt(genesis.value(), pinned, authority.value(), tip.height,
+                                             blocks.front().block.epoch);
+        if (!trail) {
+          return pp::Error(trail.error().message);
+        }
+        if (auto ok = trail.value().verifyTip(tip); !ok) {
+          return pp::Error("signed tip: " + ok.error().message);
+        }
+        if (auto ok = pp::verify::checkBlocksUnderTip(tip, blocks); !ok) {
+          return pp::Error(ok.error().message);
+        }
+        return blocks.back().block;
+      };
+      // Account `id` proven: its JSON fields, or why not.
+      auto provenAccount = [&](uint64_t id) -> pp::Roe<std::string> {
+        auto proof = client.fetchAccountProof(id);
+        if (!proof) {
+          return pp::Error("account proof: " + proof.error().message);
+        }
+        auto block = checkedBlock(proof.value().blockId);
+        if (!block) {
+          return block.error();
+        }
+        auto proven = pp::verify::checkAccountProof(block.value(), proof.value());
+        if (!proven) {
+          return pp::Error(proven.error().message);
+        }
+        std::string out = "  \"account\": " + std::to_string(id) + ",\n  \"block\": " +
+                          std::to_string(proven.value().blockId) + ",\n  \"exists\": " +
+                          (proven.value().wallet ? "true" : "false");
+        if (proven.value().wallet) {
+          out += ",\n  \"wallet\": " + pp::common::io::metaToJsonString(proven.value().wallet->ltsToMeta(), 2);
+        }
+        return out;
+      };
+      if (verified_cmd->parsed()) {
+        auto account = provenAccount(verifiedId);
+        if (!account) {
+          return fail(account.error().message);
+        }
+        std::cout << "{\n  \"verified\": true,\n" << account.value() << "\n}\n";
+        return 0;
       }
-      auto authority = client.fetchAuthorityProof(tip.height);
-      if (!authority) {
-        return fail("authority proof: " + authority.error().message);
+      auto name = pp::chain_domain::normalize(verifiedDomain);
+      if (!name) {
+        return fail("not a domain: 1 to 7 letters A-Z");
       }
-      auto trail = pp::verify::authorityAt(genesis.value(), pinned, authority.value(), tip.height,
-                                           blocks.front().block.epoch);
-      if (!trail) {
-        return fail(trail.error().message);
+      auto proof = client.fetchDomainProof(*name);
+      if (!proof) {
+        return fail("domain proof: " + proof.error().message);
       }
-      if (auto ok = trail.value().verifyTip(tip); !ok) {
-        return fail("signed tip: " + ok.error().message);
+      auto block = checkedBlock(proof.value().blockId);
+      if (!block) {
+        return fail(block.error().message);
       }
-      if (auto ok = pp::verify::checkBlocksUnderTip(tip, blocks); !ok) {
-        return fail(ok.error().message);
-      }
-      auto proven = pp::verify::checkAccountProof(blocks.back().block, proof.value());
+      auto proven = pp::verify::checkDomainProof(block.value(), proof.value());
       if (!proven) {
         return fail(proven.error().message);
       }
-      std::cout << "{\n  \"verified\": true,\n  \"account\": " << verifiedId << ",\n  \"block\": "
-                << proven.value().blockId << ",\n  \"signedTip\": " << tip.height << ",\n  \"generation\": "
-                << tip.generation << ",\n  \"exists\": " << (proven.value().wallet ? "true" : "false");
-      if (proven.value().wallet) {
-        std::cout << ",\n  \"wallet\": "
-                  << pp::common::io::metaToJsonString(proven.value().wallet->ltsToMeta(), 2);
+      std::cout << "{\n  \"verified\": true,\n  \"domain\": \"" << *name << "\",\n  \"domainBlock\": "
+                << proven.value().blockId << ",\n  \"bound\": " << (proven.value().accountId ? "true" : "false");
+      if (proven.value().accountId) {
+        std::cout << ",\n";
+        auto account = provenAccount(*proven.value().accountId);
+        if (!account) {
+          return fail(account.error().message);
+        }
+        std::cout << account.value();
       }
       std::cout << "\n}\n";
       return 0;
     }();
+  }
+  else if (domain_cmd->parsed()) {
+    auto name = pp::chain_domain::normalize(domainName);
+    if (!name) {
+      std::cerr << "Error: not a domain: 1 to 7 letters A-Z\n";
+      return 1;
+    }
+    auto proof = client.fetchDomainProof(*name);
+    if (!proof) {
+      std::cerr << "Error: " << proof.error().message << "\n";
+      return 1;
+    }
+    const auto &p = proof.value();
+    std::cout << "{\n  \"domain\": \"" << p.domain << "\",\n  \"block\": " << p.blockId << ",\n  \"bound\": "
+              << (p.present ? "true" : "false");
+    if (p.present) {
+      std::cout << ",\n  \"account\": " << p.accountId;
+    }
+    std::cout << "\n}\n";
   }
   else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);

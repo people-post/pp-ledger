@@ -36,7 +36,7 @@ std::string StateSnapshot::accountsRoot() const {
     leaf.wallet = account.wallet;
     leaf.blockId = account.blockId;
     leaf.attachmentHash = AccountBuffer::attachmentHashOf(account.attachment);
-    tree.setLeaf(account.id, AccountBuffer::accountLeafHash(leaf));
+    AccountBuffer::setLeaves(tree, leaf);
   }
   return tree.root();
 }

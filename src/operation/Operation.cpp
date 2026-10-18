@@ -27,7 +27,7 @@ const std::vector<std::pair<Kind, std::string>> &kindNames() {
   static const std::vector<std::pair<Kind, std::string>> names = {
       {Kind::Transfer, "transfer"},       {Kind::Batch, "batch"},           {Kind::Mint, "mint"},
       {Kind::NewAccount, "new-account"},  {Kind::AccountUpdate, "account-update"},
-      {Kind::AccountRecovery, "account-recovery"},
+      {Kind::AccountRecovery, "account-recovery"}, {Kind::DomainAssign, "domain-assign"},
       {Kind::ConfigUpdate, "config-update"},
       {Kind::BeaconCertificate, "beacon-certificate"}, {Kind::Recovery, "recovery"},
       {Kind::Genesis, "genesis"},         {Kind::Other, "record"}};
@@ -217,6 +217,8 @@ Kind kindOf(const Ledger::Record &record) {
     return Kind::AccountUpdate;
   case Ledger::T_ACCOUNT_RECOVERY:
     return Kind::AccountRecovery;
+  case Ledger::T_DOMAIN_ASSIGN:
+    return Kind::DomainAssign;
   case Ledger::T_CONFIG:
     return Kind::ConfigUpdate;
   case Ledger::T_BEACON_CERT:
@@ -249,6 +251,8 @@ std::optional<uint64_t> signerAccountOf(const Ledger::Record &record) {
     auto tx = utl::binaryUnpack<Ledger::TxUserUpdate>(record.data);
     return tx ? std::optional<uint64_t>(tx.value().walletId) : std::nullopt;
   }
+  case Ledger::T_DOMAIN_ASSIGN:
+    return AccountIds::ID_REGISTRAR; // the registrar signs and pays
   case Ledger::T_ACCOUNT_RECOVERY: {
     // The recovered account; its recovery set signs (the signers name that set's keys).
     auto tx = utl::binaryUnpack<Ledger::TxAccountRecovery>(record.data);
@@ -705,6 +709,9 @@ pp::Roe<Summary> summarize(const Operation &op) {
     UserAccount account;
     if (account.ltsFromString(tx.meta)) {
       s.lines.emplace_back("Its keys", keysLine(account.wallet.publicKeys, account.wallet.minSignatures));
+      if (!account.wallet.domain.empty()) {
+        s.lines.emplace_back("Its domain", account.wallet.domain + " (its token's symbol; never changed)");
+      }
     } else {
       s.lines.emplace_back("Its keys", "(the account record does not decode)");
     }
@@ -723,6 +730,14 @@ pp::Roe<Summary> summarize(const Operation &op) {
       s.lines.emplace_back("Its recovery set", recoveryLine(r.publicKeys, r.minSignatures, r.delaySeconds));
     }
     s.lines.emplace_back("Fee", groupDigits(tx.fee));
+    break;
+  }
+  case Kind::DomainAssign: {
+    const auto &tx = std::get<Ledger::TxDomainAssign>(typed.value());
+    s.title = "Give an account its domain";
+    s.lines = {{"Account", accountName(tx.walletId)},
+               {"Its domain", tx.domain + " (its token's symbol; never changed)"},
+               {"Fee (from the registrar)", groupDigits(tx.fee)}};
     break;
   }
   case Kind::AccountRecovery: {
@@ -803,6 +818,9 @@ pp::Roe<Summary> summarize(const Operation &op) {
     s.lines.emplace_back("Starts", utl::formatTimestampLocal(meta.config.genesisTime));
     describeConfig(meta.config, s);
     s.lines.emplace_back("Admin keys", keysLine(meta.genesis.wallet.publicKeys, meta.genesis.wallet.minSignatures));
+    if (!meta.genesis.wallet.domain.empty()) {
+      s.lines.emplace_back("The native token's symbol", meta.genesis.wallet.domain + " (the genesis account's domain)");
+    }
     const auto &recovery = meta.authority.recovery;
     s.lines.emplace_back("Recovery keys", keysLine(recovery.publicKeys, recovery.minSignatures) + "; takes effect " +
                                               std::to_string(recovery.delayEpochs) + " epoch(s) after announcing");
@@ -819,6 +837,9 @@ pp::Roe<Summary> summarize(const Operation &op) {
       std::string line = keysLine(created.wallet.publicKeys, created.wallet.minSignatures);
       if (account.value().amount > 0) {
         line = groupDigits(account.value().amount) + (miner ? " staked; keys " : "; keys ") + line;
+      }
+      if (!created.wallet.domain.empty()) {
+        line = created.wallet.domain + "; " + line;
       }
       s.lines.emplace_back(miner ? "Miner " + std::to_string(id) : accountName(id), line);
     }
@@ -960,6 +981,32 @@ pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccou
   op.record.type = Ledger::T_NEW_USER;
   op.record.data = utl::binaryPack(tx);
   op.kind = Kind::NewAccount;
+  return op;
+}
+
+pp::Roe<Operation> assignDomain(const Common &common, uint64_t account, const std::string &domain, uint64_t fee) {
+  if (auto ok = checkCommon(common, true); !ok) {
+    return ok.error();
+  }
+  if (common.signers.account != AccountIds::ID_REGISTRAR) {
+    return pp::Error("The registrar gives domains: its keys sign");
+  }
+  if (account < AccountIds::ID_FIRST_ISSUED || account >= AccountIds::ID_FIRST_USER) {
+    return pp::Error("Only issued accounts get a domain from the registrar");
+  }
+  if (domain.size() < 4 || domain.size() > 7 ||
+      !std::all_of(domain.begin(), domain.end(), [](char c) { return c >= 'A' && c <= 'Z'; })) {
+    return pp::Error("An issued account's domain is 4 to 7 capital letters A-Z");
+  }
+  Ledger::TxDomainAssign tx;
+  tx.walletId = account;
+  tx.domain = domain;
+  tx.fee = fee;
+  stamp(tx, common);
+  Operation op = start(common);
+  op.record.type = Ledger::T_DOMAIN_ASSIGN;
+  op.record.data = utl::binaryPack(tx);
+  op.kind = Kind::DomainAssign;
   return op;
 }
 

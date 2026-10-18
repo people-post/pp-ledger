@@ -62,6 +62,12 @@ public:
   /** Raw SHA-256 committing to an attachment's bytes as recorded (B031). */
   static std::string attachmentHashOf(const std::string &attachment);
 
+  /** Who a domain is bound to (projects/domains): its account, while that account lives. */
+  struct DomainEntry {
+    uint64_t accountId{0};
+    bool operator==(const DomainEntry &other) const = default;
+  };
+
   AccountBuffer();
   ~AccountBuffer() = default;
 
@@ -117,6 +123,13 @@ public:
   Roe<void> setMinerState(uint64_t accountId, const Client::MinerState &miner);
   /** Replace an account's keys and threshold in place (a recovery replacing the admin set, ba7). */
   Roe<void> setWalletKeys(uint64_t accountId, const std::vector<std::string> &publicKeys, uint8_t minSignatures);
+  /**
+   * The account's domain, in place (as setMinerState), given by the registrar (projects/domains). The
+   * caller checks it is the account's to have and free.
+   */
+  Roe<void> setDomain(uint64_t accountId, const std::string &domain);
+  /** Who `domain` is bound to in this buffer, if anyone. */
+  std::optional<DomainEntry> findDomain(const std::string &domain) const;
   /** Account recovery state, in place (as setMinerState): the account's blockId does not move. */
   Roe<void> setRecovery(uint64_t accountId, const Client::AccountRecovery &recovery);
   /**
@@ -131,6 +144,10 @@ public:
                             uint64_t amount, uint64_t fee);
   Roe<void> withdrawBalance(uint64_t accountId, uint64_t tokenId,
                             int64_t amount);
+  /**
+   * End the account: its positive balances to the recycle account (which must be held); its domain,
+   * if it has one, free again (projects/domains).
+   */
   Roe<void> writeOff(uint64_t accountId);
 
   /** Remove account by id. No-op if id does not exist. */
@@ -170,8 +187,15 @@ public:
 
   /** Leaf digest for one account (used by the SMT). */
   static std::string accountLeafHash(const Account &account);
+  /**
+   * Every leaf `account` puts in the state tree (to rebuild a root from accounts alone): its own and
+   * its domain's (projects/domains).
+   */
+  static void setLeaves(AccountStateTree &tree, const Account &account);
   /** The siblings along account `id`'s path in the state tree (AccountStateTree::siblings). */
   std::vector<std::string> stateSiblings(uint64_t id) const { return stateTree_.siblings(id); }
+  /** The siblings along `domain`'s path in the state tree (its key: chain_domain::treeKey). */
+  std::vector<std::string> domainSiblings(const std::string &domain) const;
 
   /**
    * Account `accountId` issues token `tokenId`: its balance of it may go negative (minus that is the
@@ -184,8 +208,12 @@ public:
 
 private:
   bool isNegativeBalanceAllowed(const Account &account, uint64_t tokenId) const;
+  /** The account's leaf, and its domain's. */
   void touchTree(const Account &account);
-  void clearTree(uint64_t id);
+  /** The account's leaf and its domain's gone (its domain free again). */
+  void clearTree(const Account &account);
+  /** Bind `domain` to `entry`, or unbind it (none), in the index and the tree (journaled). */
+  void bindDomain(const std::string &domain, const std::optional<DomainEntry> &entry);
   /**
    * Pointer into mAccounts_. ResultOrError cannot store references, so
    * mutators use Account* rather than Roe<Account&>.
@@ -201,9 +229,13 @@ private:
     /** Draft idempotency keys at beginOverlay() (a draft holds at most one block's worth). */
     std::set<IdempotencyKey> idempotencyKeys;
     std::set<std::string> draftTags;
+    /** Domain entries before their first change; nullopt = unbound. */
+    std::map<std::string, std::optional<DomainEntry>> savedDomains;
   };
 
   std::map<uint64_t, Account> mAccounts_;
+  /** Domain → its account (projects/domains), derived from the accounts: kept with the tree. */
+  std::map<std::string, DomainEntry> domains_;
   AccountStateTree stateTree_;
   std::vector<Journal> journals_;
   std::set<IdempotencyKey> idempotencyKeys_;

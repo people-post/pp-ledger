@@ -124,6 +124,11 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                "Account update cannot change miner state: " + std::to_string(tx.walletId));
     }
+    // The domain is chain-owned (projects/domains): carried as held.
+    if (userAccount.wallet.domain != bufferAccountResult.value().wallet.domain) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               "An account's domain is given once and never changed: " + std::to_string(tx.walletId));
+    }
     // Recovery (projects/account-recovery): the recovery set stands above the account's keys. They
     // name the first one; after that only the set changes itself (T_ACCOUNT_RECOVERY), and every
     // update or renewal carries the recovery as the chain holds it.

@@ -275,7 +275,7 @@ struct GenesisImport {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 12;
+  constexpr static const uint32_t VERSION = 13;
 
   BlockChainConfig config;
   UserAccount genesis;

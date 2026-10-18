@@ -1,4 +1,5 @@
 #include "AccountPolicy.h"
+#include "Domains.h"
 #include "ErrorCodes.h"
 #include "../client/AccountAttachment.h"
 #include "../client/AccountIds.h"
@@ -27,6 +28,23 @@ Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t min
   }
   if (minSignatures < 1 || minSignatures > keys.size()) {
     return invalid("signatures needed between 1 and its keys");
+  }
+  return {};
+}
+
+Roe<void> validateNewDomain(const std::string &domain, uint64_t accountId, const AccountBuffer &bank,
+                            const AccountBuffer *committed) {
+  if (auto valid = chain_domain::validateFor(domain, accountId); !valid) {
+    return valid;
+  }
+  for (const AccountBuffer *held : {&bank, committed}) {
+    if (!held) {
+      continue;
+    }
+    if (auto bound = held->findDomain(domain)) {
+      return TxError(chain_err::E_TX_VALIDATION,
+                     "Domain " + domain + " is account " + std::to_string(bound->accountId) + "'s");
+    }
   }
   return {};
 }
@@ -140,6 +158,11 @@ Roe<Client::UserAccount> loadAndValidateUserAccountMeta(
 Roe<void> validateGenesisWalletShape(const Client::Wallet &wallet) {
   if (wallet.miner != Client::MinerState{}) {
     return TxError(chain_err::E_TX_VALIDATION, "The genesis account cannot be a miner");
+  }
+  if (!wallet.domain.empty()) {
+    if (auto valid = chain_domain::validateFor(wallet.domain, AccountIds::ID_GENESIS); !valid) {
+      return valid;
+    }
   }
   if (wallet.publicKeys.size() < 3) {
     return TxError(chain_err::E_TX_VALIDATION,

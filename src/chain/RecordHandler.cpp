@@ -8,6 +8,7 @@
 #include "BeaconCertTxHandler.h"
 #include "RecoveryTxHandler.h"
 #include "AccountRecoveryTxHandler.h"
+#include "DomainAssignTxHandler.h"
 #include "ImportTxHandler.h"
 #include "ConfigTxHandler.h"
 #include "DefaultTxHandler.h"
@@ -38,6 +39,7 @@ RecordHandler::RecordHandler() {
   install(Ledger::T_RECOVERY, std::make_unique<RecoveryTxHandler>());
   install(Ledger::T_IMPORT, std::make_unique<ImportTxHandler>());
   install(Ledger::T_ACCOUNT_RECOVERY, std::make_unique<AccountRecoveryTxHandler>());
+  install(Ledger::T_DOMAIN_ASSIGN, std::make_unique<DomainAssignTxHandler>());
 }
 
 ITxHandler *RecordHandler::get(std::size_t type) {

@@ -1,4 +1,5 @@
 #include "Genesis.h"
+#include "Domains.h"
 
 #include "AccountBuffer.h"
 #include "AccountPolicy.h"
@@ -176,15 +177,50 @@ pp::Roe<void> checkKeys(const SystemKeys &keys) {
   return {};
 }
 
+SystemNames defaultSystemNames() { return SystemNames{"PPL", "RSV", "REG", "FEE", "RCY"}; }
+
+pp::Roe<void> checkNames(const SystemNames &names) {
+  const std::pair<const char *, const std::string *> named[] = {{"genesis", &names.genesis},
+                                                                {"reserve", &names.reserve},
+                                                                {"registrar", &names.registrar},
+                                                                {"fee", &names.fee},
+                                                                {"recycle", &names.recycle}};
+  std::set<std::string> seen;
+  for (const auto &[account, name] : named) {
+    if (name->empty()) {
+      continue;
+    }
+    if (auto valid = chain_domain::validateFor(*name, AccountIds::ID_GENESIS); !valid) {
+      return pp::Error(std::string("systemNames.") + account + ": " + valid.error().message);
+    }
+    if (!seen.insert(*name).second) {
+      return pp::Error(std::string("systemNames.") + account + ": " + *name + " is another system account's");
+    }
+  }
+  return {};
+}
+
+namespace {
+
+UserAccount named(UserAccount account, const std::string &domain) {
+  account.wallet.domain = domain;
+  return account;
+}
+
+} // namespace
+
 pp::Roe<std::vector<Ledger::Record>> records(const Plan &plan) {
   if (auto keysOk = checkKeys(plan.keys); !keysOk) {
     return keysOk.error();
+  }
+  if (auto namesOk = checkNames(plan.names); !namesOk) {
+    return namesOk.error();
   }
   const BlockChainConfig &config = plan.config;
 
   GenesisAccountMeta gm;
   gm.config = config;
-  gm.genesis = accountOf(plan.keys.genesis, 0, AccountAttachment::emptySerialized());
+  gm.genesis = named(accountOf(plan.keys.genesis, 0, AccountAttachment::emptySerialized()), plan.names.genesis);
   gm.authority = plan.authority;
   gm.authority.beacon.networkId = config.networkId;
   // The genesis record carries the authority, so the admin keys that sign it sign the generation-1
@@ -202,11 +238,12 @@ pp::Roe<std::vector<Ledger::Record>> records(const Plan &plan) {
   // System accounts. Fee comes first: the other records pay their fees into it. Fee, registrar and
   // recycle start empty; reserve takes the rest of the supply (reserve funds the registrar later).
   const std::string emptyMeta = AccountAttachment::emptySerialized();
-  auto fee = systemAccount(config, AccountBuffer::ID_FEE, accountOf(plan.keys.fee, 0, emptyMeta), "fee account");
-  auto registrar =
-      systemAccount(config, AccountBuffer::ID_REGISTRAR, accountOf(plan.keys.registrar, 0, emptyMeta), "registrar");
-  auto recycle =
-      systemAccount(config, AccountBuffer::ID_RECYCLE, accountOf(plan.keys.recycle, 0, emptyMeta), "recycle account");
+  auto fee = systemAccount(config, AccountBuffer::ID_FEE, named(accountOf(plan.keys.fee, 0, emptyMeta), plan.names.fee),
+                           "fee account");
+  auto registrar = systemAccount(config, AccountBuffer::ID_REGISTRAR,
+                                 named(accountOf(plan.keys.registrar, 0, emptyMeta), plan.names.registrar), "registrar");
+  auto recycle = systemAccount(config, AccountBuffer::ID_RECYCLE,
+                               named(accountOf(plan.keys.recycle, 0, emptyMeta), plan.names.recycle), "recycle account");
   for (const auto *made : {&fee, &registrar, &recycle}) {
     if (!*made) {
       return made->error();
@@ -219,7 +256,7 @@ pp::Roe<std::vector<Ledger::Record>> records(const Plan &plan) {
 
   // The reserve's fee bills its custom meta only, not its balance.
   Ledger::TxNewUser probe;
-  probe.meta = accountOf(plan.keys.reserve, 0, emptyMeta).ltsToString();
+  probe.meta = named(accountOf(plan.keys.reserve, 0, emptyMeta), plan.names.reserve).ltsToString();
   auto reserveFee = minimumFee(config, probe);
   if (!reserveFee) {
     return pp::Error("Failed to calculate the reserve fee: " + reserveFee.error().message);
@@ -237,7 +274,7 @@ pp::Roe<std::vector<Ledger::Record>> records(const Plan &plan) {
   reserveTx.toWalletId = AccountBuffer::ID_RESERVE;
   reserveTx.amount = static_cast<uint64_t>(reserveAmount);
   reserveTx.fee = reserveFee.value();
-  reserveTx.meta = accountOf(plan.keys.reserve, reserveAmount, emptyMeta).ltsToString();
+  reserveTx.meta = named(accountOf(plan.keys.reserve, reserveAmount, emptyMeta), plan.names.reserve).ltsToString();
 
   std::vector<Ledger::Record> out;
   out.push_back(std::move(genesisRecord));

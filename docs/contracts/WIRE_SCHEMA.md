@@ -115,6 +115,7 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 4 | `T_USER_UPDATE` | Account self-update |
 | 5 | `T_RENEWAL` | Miner renew |
 | 6 | `T_END_USER` | Miner close |
+| 7 | `T_DOMAIN_ASSIGN` | The registrar gives an issued account its domain ([Domains](#domains)) |
 | 16 | `T_MINER_REGISTER` | Account registers as a miner ([Miner registration and liveness](#miner-registration-and-liveness)) |
 | 17 | `T_MINER_REVOKE` | Account revokes its miner registration |
 | 18 | `T_BEACON_CERT` | Admin set certifies the next beacon generation ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md#later-generations--t_beacon_cert-record-18)) |
@@ -122,7 +123,8 @@ Changing `type` or replaying onto another network invalidates signatures.
 | 20 | `T_IMPORT` | Re-genesis: one account of the predecessor network, in an import block; unsigned, fee 0 ([BEACON_AUTHORITY.md § Importing genesis](BEACON_AUTHORITY.md#importing-genesis)) |
 | 21 | `T_ACCOUNT_RECOVERY` | An account's recovery set announces its next keys (the account frozen until they apply), withdraws that, or changes itself ([Account recovery](#account-recovery)) |
 
-Ids 7–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
+
+Ids 8–15 are reserved for name-directory / attachment (`docs/product/NAME_DIRECTORY.md`);
 not installed in `RecordHandler`.
 
 ### Config updates
@@ -176,7 +178,9 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   |-------|------|------------|-------|
   | `[0, 1<<20)` | **System** — Genesis `0`, Reserve `1`, Registrar `2`, Fee `3`, Recycle `4`; rest reserved | Genesis block only | Never terminated (`T_END_USER` refused); renewal fee must be `0` (genesis included: it issues the native token, so a fee would be minted) |
   | `[1<<20, 1<<30)` | **Issued** (token issuers, operator-created accounts) | Registrar | Normal renewal / termination; issues the token whose id is its own (below) |
-  | `[1<<30, …)` | **Users** | Any funded account except genesis | Normal renewal / termination |
+  | `[1<<30, 1<<63)` | **Users** | Any funded account except genesis | Normal renewal / termination |
+
+  Account ids stay below 2⁶³: the state tree's keys from there up are [domains](#domains)'.
 
   **Custom tokens.** An issued account issues one token, the one whose id is its account id: it
   sends it without holding it, and its balance of it goes negative — minus the supply outstanding
@@ -245,7 +249,7 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **12**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **13**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
 ([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`
@@ -369,7 +373,7 @@ time window, and header commitments still apply. Policy helper:
 ## Miner registration and liveness
 
 Only **registered miners** are elected ([Leader election](#leader-election-live)). Registration is
-on-chain account state (`Wallet.miner`, `UserAccount` version **3**): `registered`,
+on-chain account state (`Wallet.miner`, `UserAccount` version **4**): `registered`,
 `lastProducedSlot`, `missedDue`, `autoDeregisteredEpoch`. Account creation and update cannot
 set it (a new account carries the default state; an update or renewal keeps it); only the rules
 below change it, in place — the account's `blockId` (where renewal reads its meta) does not move.
@@ -425,7 +429,7 @@ A user or issued account may name a **recovery set**: keys that stand above the 
 set can give the account new keys — when its keys are lost, or stolen — and only the set changes
 itself (design and rationale: `projects/account-recovery`). It is account state in the account's leaf,
 so proven like a balance ([Account proofs](#account-proofs)): `Wallet.recovery` (`AccountRecovery`,
-`UserAccount` version **3**):
+`UserAccount` version **4**):
 
 | Field | Holds |
 |-------|-------|
@@ -466,6 +470,41 @@ of it), **after its records**, every pending announcement with `applyEpoch` ≤ 
 account-id order: the account's keys and threshold become the announced ones and the pending fields
 clear; the set and delay stay. In place, as miner state: the account's `blockId` does not move
 (`AccountBuffer::applyDueRecoveries`, `Chain::applyDueAccountRecoveries`).
+
+## Domains
+
+A system or issued account may have a **domain**: a symbol of capital letters that is its token's
+ticker and its domain (design: `projects/domains`). It is account state in the account's leaf
+(`Wallet.domain`, `UserAccount` version **4**), and each domain has a leaf of its own, so both
+directions are proven ([Account proofs](#account-proofs)).
+
+| Accounts | Domain | Given by |
+|----------|--------|----------|
+| System | 1–3 letters `A`–`Z` | The genesis block: the genesis record (`genesis.wallet.domain`) and the system accounts' records; init-config `systemNames` (defaults `PPL`, `RSV`, `REG`, `FEE`, `RCY`; provisional) |
+| Issued | 4–7 letters `A`–`Z` | The registrar: in the `T_NEW_USER` that creates it, or later by `T_DOMAIN_ASSIGN` |
+| User | none | — |
+
+Every domain is bound to one account at most, and an account has at most one
+(`chain_tx::validateNewDomain`). Once given, it never changes while the account lives: updates,
+renewals, config updates and genesis renewals carry it as held. **When the account ends, its domain
+is free again**; only the registrar gives it again. Ended account ids are free too (a later
+`T_NEW_USER` makes a new account); a rule for reusing either is open.
+
+**`T_DOMAIN_ASSIGN` (7)** — `TxDomainAssign`: `walletId` (an issued account with no domain), `domain`,
+`fee`, `meta`, `idempotentId`, `validationTsMin`, `validationTsMax`. Signed by the registrar (account
+2), which pays the fee (meta-size) to the fee account. Applied in place, as miner state: the
+account's `blockId` does not move; its next renewal re-records the domain with the rest of it.
+
+**The domain leaf.** At key `2⁶³ + code(domain)`, where `code` reads the letters as base-27 digits
+(`A` = 1 … `Z` = 26, most significant first); the leaf is `SHA-256("pp-ledger/domain-leaf/v1" ‖
+pack(domain, accountId))`. It is there while its account is (`AccountBuffer::setLeaves` derives it
+from the account, for a snapshot or a node joining from a checkpoint).
+
+**`DOMAIN_GET` (request 2101).** Payload `binaryPack(std::string domain)` (capital letters); reply
+`binaryPack(DomainProof)`: `domain`, `blockId`, `stateRoot`, `present`, `accountId`, `siblingMask`,
+`siblings` — the path as `ACCOUNT_PROOF`'s. `verify::checkDomainProof` checks it against a verified
+block; an absent domain is proven absent. `pp-client domain NAME`, `verified-domain NAME
+--genesis-hash H` (the domain, then its account, both proven from block 0's hash).
 
 ## Producer statistics
 

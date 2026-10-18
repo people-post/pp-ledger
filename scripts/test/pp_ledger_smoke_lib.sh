@@ -1374,6 +1374,79 @@ run_account_recovery_scenario() {
   echo -e "${GREEN}✓ Account ${account} recovered: the announced key signs, the old one no longer does${NC}"
 }
 
+# A 5-letter domain from number $1: D and four letters of it in base 26 (one per account).
+domain_for() {
+  local n=$1 out="" letters=(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z)
+  for _ in 1 2 3 4; do
+    out="${letters[$((n % 26))]}$out"
+    n=$((n / 26))
+  done
+  echo "D$out"
+}
+
+# An issued account id from $1 up that the chain does not hold yet (a network kept up across runs).
+unused_issued_id() {
+  local id=$1
+  while grep -q '"mBalances"' <<<"$(account_json "$id")"; do
+    id=$((id + 1))
+  done
+  echo "$id"
+}
+
+# Domains (projects/domains): the system accounts named in the genesis block; the registrar creates an
+# issued account with a domain, and gives another one its domain later; each proven from block 0's hash.
+# Needs the registrar funded (run_token_scenario).
+run_domain_scenario() {
+  local key_dir="${TEST_DIR}/keys" g=() genesis json
+  for i in 1 2 3; do g+=("${key_dir}/registrar$i.key"); done
+  genesis=$(run_pp_client -b --host "$(relay_multiaddr)" block 0 2>/dev/null | tr -d ' \n' |
+    sed -n 's/^{"hash":"\(0x[0-9a-f]*\)".*/\1/p')
+  [[ -n "$genesis" ]] || die "L-SMOKE-DOMAIN: cannot read block 0's hash"
+  verified_domain() { # <domain>: its proven JSON, spaces removed (the node may hold a block above the signed tip)
+    local attempt out
+    for attempt in 1 2 3; do
+      if out=$(run_pp_client -b --host "$(relay_multiaddr)" verified-domain "$1" --genesis-hash "$genesis" 2>&1); then
+        tr -d ' \n' <<<"$out"
+        return 0
+      fi
+      sleep 2
+    done
+    echo "$out"
+  }
+  echo -e "${CYAN}Domains: the system names, an issuer named at creation and one named later, proven...${NC}"
+  json=$(verified_domain REG)
+  grep -q '"verified":true' <<<"$json" && grep -q '"account":2,' <<<"$json" ||
+    die "L-SMOKE-DOMAIN: REG is not proven the registrar's: $json"
+  json=$(verified_domain ppl)
+  grep -q '"account":0,' <<<"$json" || die "L-SMOKE-DOMAIN: PPL is not proven the genesis account's: $json"
+
+  local named later
+  named=$(unused_issued_id $(((1 << 20) + 300)))
+  local domain
+  domain=$(domain_for "$named")
+  generate_tx_keypair "named-${named}" >/dev/null
+  operation_flow named-account "${g[@]}" -- new-account --from 2 --id "$named" \
+    --account-key "${key_dir}/named-${named}.pub" --amount 2000 --domain "$domain" -f 1
+  wait_for_account "$named" "\"domain\":\"$domain\"" "L-SMOKE-DOMAIN: the issued account was not created with its domain"
+  json=$(verified_domain "$domain")
+  grep -q "\"account\":${named}," <<<"$json" ||
+    die "L-SMOKE-DOMAIN: $domain is not proven account ${named}'s: $json"
+  echo -e "${GREEN}✓ REG and PPL are the system's; ${domain} is account ${named}'s from its creation, proven${NC}"
+
+  later=$(unused_issued_id $((named + 1)))
+  local laterDomain
+  laterDomain=$(domain_for "$later")
+  generate_tx_keypair "named-${later}" >/dev/null
+  operation_flow later-account "${g[@]}" -- new-account --from 2 --id "$later" \
+    --account-key "${key_dir}/named-${later}.pub" --amount 2000 -f 1
+  wait_for_account "$later" '"mBalances":\{"0":[1-9]' "L-SMOKE-DOMAIN: the second issued account was not created"
+  operation_flow later-domain "${g[@]}" -- assign-domain --account "$later" --domain "$laterDomain" -f 1
+  wait_for_account "$later" "\"domain\":\"$laterDomain\"" "L-SMOKE-DOMAIN: the registrar's assignment did not land"
+  json=$(run_pp_client -b --host "$(relay_multiaddr)" domain "$laterDomain" 2>/dev/null | tr -d ' \n')
+  grep -q "\"account\":${later}" <<<"$json" || die "L-SMOKE-DOMAIN: $laterDomain does not point at ${later}: $json"
+  echo -e "${GREEN}✓ The registrar gave account ${later} its domain ${laterDomain} later${NC}"
+}
+
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
 # chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
 register_miner_account() {

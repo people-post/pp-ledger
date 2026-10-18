@@ -110,7 +110,7 @@ chain_tx::Roe<void> ImportTxHandler::applyBlock(const Ledger::TypedTx &tx, Accou
   oldLeaf.wallet = account.wallet;
   oldLeaf.blockId = account.blockId;
   oldLeaf.attachmentHash = AccountBuffer::attachmentHashOf(account.attachment);
-  progress->oldLeaves.setLeaf(account.id, AccountBuffer::accountLeafHash(oldLeaf));
+  AccountBuffer::setLeaves(progress->oldLeaves, oldLeaf);
 
   if (account.id == AccountBuffer::ID_GENESIS) {
     // The genesis record set its keys and attachment at block 0: only the balances come over.

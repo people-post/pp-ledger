@@ -10,6 +10,8 @@ target_link_libraries(pp_chain_types PUBLIC pp_ledger_common pp_ledger)
 # Chain state: AccountBuffer, block/tx validation helpers, Chain orchestration.
 add_library(pp_chain STATIC
     AccountBuffer.cpp
+    Domains.cpp
+    Domains.h
     AccountBuffer.h
     AccountStateTree.cpp
     AccountStateTree.h
@@ -47,6 +49,7 @@ add_library(pp_chain STATIC
     PredecessorCheck.cpp
     ConfigPolicy.h
     AccountRecoveryTxHandler.cpp
+    DomainAssignTxHandler.cpp
     AuthorityTrail.cpp
     ClientVerify.cpp
     AuthorityTrail.h

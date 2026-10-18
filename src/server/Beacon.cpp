@@ -530,6 +530,7 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   chain_genesis::Plan plan;
   plan.config = config;
   plan.keys = key;
+  plan.names = key.names;
   plan.miners = miners;
   plan.authority = authority;
   auto records = chain_genesis::records(plan);

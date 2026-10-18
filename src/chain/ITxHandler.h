@@ -140,6 +140,8 @@ public:
       return std::get<Ledger::TxImport>(tx).meta.size();
     case Ledger::T_ACCOUNT_RECOVERY:
       return 0; // keys only: not custom metadata (an update's keys are not billed either)
+    case Ledger::T_DOMAIN_ASSIGN:
+      return std::get<Ledger::TxDomainAssign>(tx).meta.size();
     default:
       return chain_tx::TxError(chain_err::E_INTERNAL,
                                "Unknown typed transaction variant");

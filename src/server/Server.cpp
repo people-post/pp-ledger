@@ -613,6 +613,17 @@ void Server::handleChainReads() {
     }
     return utl::binaryPack(proof.value());
   });
+  handle(Client::T_REQ_DOMAIN_GET, [this](const Client::Request& request) -> Roe<std::string> {
+    auto domain = utl::binaryUnpack<std::string>(request.payload);
+    if (!domain) {
+      return Error(E_REQUEST, "Failed to deserialize request: " + domain.error().message);
+    }
+    auto proof = core().domainProof(domain.value());
+    if (!proof) {
+      return Error(E_REQUEST, "Cannot prove the domain: " + proof.error().message);
+    }
+    return utl::binaryPack(proof.value());
+  });
   handle(Client::T_REQ_PRODUCER_STATS, [this](const Client::Request& request) -> Roe<std::string> {
     auto req = utl::binaryUnpack<Client::ProducerStatsRequest>(request.payload);
     if (!req) {

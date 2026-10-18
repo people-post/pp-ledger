@@ -28,6 +28,18 @@ struct SystemKeys {
 };
 
 /**
+ * The system accounts' domains (projects/domains; init-config.json `systemNames`): 1–3 capital
+ * letters each, distinct; empty for none. The genesis account's is the native token's symbol.
+ */
+struct SystemNames {
+  std::string genesis;
+  std::string reserve;
+  std::string registrar;
+  std::string fee;
+  std::string recycle;
+};
+
+/**
  * A miner account created in the genesis block, so the chain has real stake from block 0 (system
  * accounts never count as stake). Id in the issued range; only public keys (miners keep their keys).
  */
@@ -38,11 +50,17 @@ struct Miner {
   uint64_t stake{0}; ///< initial native-token balance, taken from the reserve
 };
 
+/** The provisional system names (projects/domains DN006): PPL, RSV, REG, FEE, RCY. */
+SystemNames defaultSystemNames();
+/** Each name 1–3 capital letters (or none), no two the same. */
+pp::Roe<void> checkNames(const SystemNames &names);
+
 /** Everything block 0 says. */
 struct Plan {
   /** With networkId and genesisTime (the network's slot 0). */
   BlockChainConfig config;
   SystemKeys keys;
+  SystemNames names = defaultSystemNames();
   std::vector<Miner> miners;
   /** Recovery set and the generation-1 beacon certificate (its networkId is set from `config`). */
   ChainAuthority authority;

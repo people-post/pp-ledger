@@ -27,6 +27,14 @@ using FnPublisherExists = std::function<bool(uint64_t)>;
  */
 Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what);
 
+/**
+ * `domain` may be given to account `accountId` now (projects/domains): its form and length for the
+ * account's kind (chain_domain::validateFor), and bound to no account in
+ * `bank` nor, when given, `committed`.
+ */
+Roe<void> validateNewDomain(const std::string &domain, uint64_t accountId, const AccountBuffer &bank,
+                            const AccountBuffer *committed);
+
 /** Half an epoch, in seconds (at least 1): the shortest delay an account's recovery may have. */
 uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config);
 
