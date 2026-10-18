@@ -269,6 +269,8 @@ std::string Client::requestTypeName(uint32_t type) {
     return "equivocation_add";
   case T_REQ_PRODUCER_STATS:
     return "producer_stats";
+  case T_REQ_ACCOUNT_PROOF:
+    return "account_proof";
   case T_REQ_ACCOUNT_GET:
     return "account_get";
   case T_REQ_CONFIG_GET:
@@ -786,6 +788,19 @@ void Client::fetchMinerListAsync(Done<std::vector<MinerInfo>> done, std::chrono:
   sendRequestAsync(T_REQ_MINER_LIST, "", orDefault(timeout, fastTimeout()), [done = std::move(done)](Roe<std::string> result) {
     done(result ? parseMinerList(result.value()) : Roe<std::vector<MinerInfo>>(result.error()));
   });
+}
+
+Client::Roe<Client::AccountProof> Client::fetchAccountProof(uint64_t accountId) {
+  log().debug << "Requesting the proof of account " << accountId;
+  auto result = sendRequest(T_REQ_ACCOUNT_PROOF, utl::binaryPack(accountId), dataTimeout());
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  auto proof = utl::binaryUnpack<AccountProof>(result.value());
+  if (!proof) {
+    return Error(E_INVALID_RESPONSE, "Failed to unpack the account proof: " + proof.error().message);
+  }
+  return proof.value();
 }
 
 Client::Roe<Client::ProducerStatsResponse> Client::fetchProducerStats(const ProducerStatsRequest &request) {

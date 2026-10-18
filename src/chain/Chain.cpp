@@ -559,6 +559,39 @@ Chain::Roe<Client::ProducerStatsResponse> Chain::producerStats(uint64_t fromBloc
   return response;
 }
 
+Chain::Roe<Client::AccountProof> Chain::accountProof(uint64_t accountId) const {
+  const uint64_t next = txContext_.ledger.getNextBlockId();
+  if (next == 0) {
+    return Error(E_BLOCK_NOT_FOUND, "No blocks yet");
+  }
+  auto tip = txContext_.ledger.readBlock(next - 1);
+  if (!tip) {
+    return Error(E_BLOCK_NOT_FOUND, "Cannot read the tip block: " + tip.error().message);
+  }
+  const auto &bank = txContext_.bank;
+  if (bank.calculateStateRoot() != tip.value().block.stateRoot) {
+    return Error(E_ACCOUNT_BUFFER, "The account state is not the tip's right now (a block is being sealed): ask again");
+  }
+  Client::AccountProof proof;
+  proof.accountId = accountId;
+  proof.blockId = tip.value().block.index;
+  proof.stateRoot = tip.value().block.stateRoot;
+  if (auto account = bank.getAccount(accountId)) {
+    proof.present = true;
+    proof.wallet = account.value().wallet;
+    proof.lastWriteBlockId = account.value().blockId;
+    proof.attachmentHash = account.value().attachmentHash;
+  }
+  const auto siblings = bank.stateSiblings(accountId);
+  for (size_t h = 0; h < siblings.size(); ++h) {
+    if (!AccountStateTree::isEmptyAt(static_cast<int>(h), siblings[h])) {
+      proof.siblingMask |= 1ULL << h;
+      proof.siblings.push_back(siblings[h]);
+    }
+  }
+  return proof;
+}
+
 Chain::Roe<Ledger::Record>
 Chain::findTransactionByIndex(uint64_t txIndex) const {
   const uint64_t firstBlockId = txContext_.ledger.getStartingBlockId();

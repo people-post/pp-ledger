@@ -421,6 +421,7 @@ RequestQueue::Lane Server::laneFor(const uint32_t type) {
   case Client::T_REQ_TX_GET_BY_WALLET:
   case Client::T_REQ_TX_GET_BY_INDEX:
   case Client::T_REQ_PRODUCER_STATS:
+  case Client::T_REQ_ACCOUNT_PROOF:
   case Client::T_REQ_DOMAIN_GET:
   case Client::T_REQ_NAME_GET:
   case Client::T_REQ_NAME_GET_BY_WALLET:
@@ -600,6 +601,17 @@ void Server::handleChainReads() {
     response.transactions = found.value();
     response.nextBlockId = req.value().beforeBlockId;
     return utl::binaryPack(response);
+  });
+  handle(Client::T_REQ_ACCOUNT_PROOF, [this](const Client::Request& request) -> Roe<std::string> {
+    auto accountId = utl::binaryUnpack<uint64_t>(request.payload);
+    if (!accountId) {
+      return Error(E_REQUEST, "Failed to deserialize request: " + accountId.error().message);
+    }
+    auto proof = core().accountProof(accountId.value());
+    if (!proof) {
+      return Error(E_REQUEST, "Cannot prove the account: " + proof.error().message);
+    }
+    return utl::binaryPack(proof.value());
   });
   handle(Client::T_REQ_PRODUCER_STATS, [this](const Client::Request& request) -> Roe<std::string> {
     auto req = utl::binaryUnpack<Client::ProducerStatsRequest>(request.payload);

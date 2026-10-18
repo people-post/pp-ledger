@@ -163,6 +163,8 @@ public:
 
   /** Leaf digest for one account (used by the SMT). */
   static std::string accountLeafHash(const Account &account);
+  /** The siblings along account `id`'s path in the state tree (AccountStateTree::siblings). */
+  std::vector<std::string> stateSiblings(uint64_t id) const { return stateTree_.siblings(id); }
 
   /**
    * Account `accountId` issues token `tokenId`: its balance of it may go negative (minus that is the

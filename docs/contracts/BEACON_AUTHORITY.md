@@ -19,7 +19,8 @@ genesis block (T_GENESIS, signed by the genesis quorum)
 ```
 
 A node checks a signed tip by following this chain from what it already holds — never on an
-upstream's word. Peer ids pinned in configs remain a convenience, not the trust anchor.
+upstream's word. A client holding nothing but block 0's hash follows it the same way, down to an
+account in a block's state root ([WIRE_SCHEMA.md § Account proofs](WIRE_SCHEMA.md#account-proofs)). Peer ids pinned in configs remain a convenience, not the trust anchor.
 
 ## Formats
 

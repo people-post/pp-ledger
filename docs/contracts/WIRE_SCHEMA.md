@@ -430,6 +430,30 @@ Misses charged are not on the chain: each node records them as it applies blocks
 rebuilt by its replay at start), so any node holding the range answers the same. Refused for blocks
 before the node's first (a node started at a checkpoint).
 
+## Account proofs
+
+A client can know an account without believing the node that tells it (a wallet's verified read):
+
+1. **Block 0** is the one whose hash it pinned (from a source it trusts): its hash recomputed from its
+   contents (`verify::checkGenesis`).
+2. **The beacon key in force**: `AUTHORITY_PROOF` replayed from block 0, each step signed by the admin
+   set in force at its point (`verify::authorityAt`, `AuthorityTrail::replayProof`); a node can leave
+   steps out, not forge them — a tip signed by a later generation then fails to verify.
+3. **The signed tip** (`STATUS.signedTip`), checked with that key (`AuthorityTrail::verifyTip`).
+4. **The blocks under it**: each hash recomputed, each linked by `previousHash`, the first the tip's
+   (`verify::checkBlocksUnderTip`).
+5. **The account**: `ACCOUNT_PROOF` (request 2003, payload `uint64 accountId`) answers with the account
+   in the state root of the node's tip block — `blockId`, `stateRoot`, whether present, the leaf's fields
+   (`wallet`, the last write's `blockId`, `attachmentHash`) and the path's siblings, the empty subtree's
+   left out (`siblingMask` bit *h*: `siblings` carries height *h*'s, leaf level first). The client
+   recomputes the leaf (§ Commitments) and the root along the path, and compares it with that block's
+   `stateRoot` (`verify::checkAccountProof`). An absent account's leaf is the empty one: absence is
+   proven too.
+
+A node refuses `ACCOUNT_PROOF` while its account state is ahead of its tip (a block being sealed); a
+proof above the latest signed tip waits for the next one. `pp-client verified-account ID
+--genesis-hash HEX` does all five and prints the account only if they hold.
+
 ## Miner sign-in (`REGISTER` request)
 
 Network-level: a miner announces itself to its upstream. It does not make the account a miner

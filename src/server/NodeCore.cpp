@@ -49,6 +49,14 @@ NodeCore::Roe<Client::AuthorityProof> NodeCore::authorityProof(uint64_t upToBloc
   return proof.value();
 }
 
+NodeCore::Roe<Client::AccountProof> NodeCore::accountProof(uint64_t accountId) const {
+  auto result = chain_.accountProof(accountId);
+  if (!result) {
+    return Error(result.error().code, result.error().message);
+  }
+  return result.value();
+}
+
 NodeCore::Roe<Client::ProducerStatsResponse> NodeCore::producerStats(uint64_t fromBlockId, uint64_t toBlockId) const {
   auto result = chain_.producerStats(fromBlockId, toBlockId);
   if (!result) {

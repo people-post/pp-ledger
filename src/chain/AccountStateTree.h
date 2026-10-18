@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace pp {
 
@@ -29,6 +30,20 @@ public:
 
   /** Remove leaf (revert to empty subtree). */
   void clearLeaf(uint64_t key);
+
+  /**
+   * The siblings along `key`'s path, from the leaf's up to the root's children (kDepth of them):
+   * with the leaf, they give the root (rootFrom). An absent key's leaf is emptyLeaf().
+   */
+  std::vector<std::string> siblings(uint64_t key) const;
+  /** The root `leafHash` at `key` and its `siblings` (leaf level first) make. */
+  static std::string rootFrom(uint64_t key, const std::string &leafHash, const std::vector<std::string> &siblings);
+  /** The leaf of a key nobody holds. */
+  static const std::string &emptyLeaf() { return emptyAt(0); }
+  /** Whether `sibling` at `height` (0: the leaf's) is the empty subtree's: proofs leave those out. */
+  static bool isEmptyAt(int height, const std::string &sibling) { return sibling == emptyAt(height); }
+  /** The empty subtree of `height`, to put back what a proof left out. */
+  static const std::string &emptySubtree(int height) { return emptyAt(height); }
 
   /** Current root digest (32 bytes). */
   const std::string &root() const { return rootHash_; }
