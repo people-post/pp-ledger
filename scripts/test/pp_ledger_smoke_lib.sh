@@ -1038,6 +1038,46 @@ inject_transactions_for_block_production() {
   echo -e "${GREEN}✓ Transaction inject attempted${NC}"
 }
 
+# Operation files (docs/contracts/OPERATION_FILE.md), end to end: the reserve funds a new account
+# through an operation made from the chain (its signers, network id, genesis hash), signed in parallel
+# by the three reserve holders, merged and submitted; wait until the account exists.
+run_operation_file_scenario() {
+  local account=$(((1 << 30) + 7))
+  local key_dir="${TEST_DIR}/keys" dir="${TEST_DIR}/operation"
+  local max_wait=${1:-90}
+  echo -e "${CYAN}Operation file: reserve funds account ${account}, signed apart and merged...${NC}"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  generate_tx_keypair "carol" >/dev/null
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" op new-account --from "$RESERVE_ACCOUNT_ID" \
+    --id "$account" --account-key "${key_dir}/carol.pub" --amount 700 -f 1 --notes "smoke: carol" \
+    -o "${dir}/new-account.json" >/dev/null || die "L-SMOKE-OPERATION: op new-account failed"
+  local i copies=()
+  for i in 1 2 3; do
+    cp "${dir}/new-account.json" "${dir}/copy${i}.json"
+    run_pp_client op sign "${dir}/copy${i}.json" -k "${key_dir}/reserve${i}.key" >/dev/null ||
+      die "L-SMOKE-OPERATION: op sign with reserve${i} failed"
+    copies+=("${dir}/copy${i}.json")
+  done
+  if run_pp_client -b --host "$(relay_multiaddr)" op submit "${dir}/copy1.json" >/dev/null 2>&1; then
+    die "L-SMOKE-OPERATION: an operation short of its quorum was submitted"
+  fi
+  run_pp_client op merge "${copies[@]}" -o "${dir}/signed.json" >/dev/null || die "L-SMOKE-OPERATION: op merge failed"
+  run_pp_client op show "${dir}/signed.json" | grep -q "complete, ready to submit" ||
+    die "L-SMOKE-OPERATION: the merged operation is not complete"
+  run_pp_client ${DEBUG_FLAG} -b --host "$(relay_multiaddr)" op submit "${dir}/signed.json" >/dev/null ||
+    die "L-SMOKE-OPERATION: op submit failed"
+  local deadline=$((SECONDS + max_wait))
+  while ((SECONDS < deadline)); do
+    if run_pp_client -b --host "$(relay_multiaddr)" account "$account" >/dev/null 2>&1; then
+      echo -e "${GREEN}✓ Account $account created by a merged operation file${NC}"
+      return 0
+    fi
+    sleep 1
+  done
+  die "L-SMOKE-OPERATION: account $account not created within ${max_wait}s"
+}
+
 # Register an account as a miner (T_MINER_REGISTER, signed by the account) and wait until the
 # chain shows it registered. The fixture's minerRegistrationFee is 10; overpaying is allowed.
 register_miner_account() {

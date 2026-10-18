@@ -1,3 +1,12 @@
+# The chain's data types (config, authority, certificates, genesis meta): no network code, so admin
+# tools can read and build them (operation files).
+add_library(pp_chain_types STATIC
+    Types.cpp
+    Types.h
+)
+target_include_directories(pp_chain_types PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${PP_SRC_DIR})
+target_link_libraries(pp_chain_types PUBLIC pp_ledger_common pp_ledger)
+
 # Chain state: AccountBuffer, block/tx validation helpers, Chain orchestration.
 add_library(pp_chain STATIC
     AccountBuffer.cpp
@@ -10,8 +19,6 @@ add_library(pp_chain STATIC
     Chain.h
     RecordHandler.cpp
     RecordHandler.h
-    Types.cpp
-    Types.h
     ErrorCodes.h
     BlockAdmission.h
     TxContext.h
@@ -67,6 +74,7 @@ target_include_directories(pp_chain PUBLIC
 )
 
 target_link_libraries(pp_chain PUBLIC
+    pp_chain_types
     pp_ledger_common
     pp_ledger
     pp_client

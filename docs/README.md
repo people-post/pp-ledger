@@ -43,6 +43,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | [contracts/BEACON_AUTHORITY.md](contracts/BEACON_AUTHORITY.md) | Beacon certificates, signed tips, adoption rule, equivocation halt, recovery; their RPC fields |
 | [contracts/AMP_TRANSPORT.md](contracts/AMP_TRANSPORT.md) | Amp / ADP multiaddrs, ledger RPC over Amp |
 | [contracts/LEDGER_STORAGE.md](contracts/LEDGER_STORAGE.md) | On-disk volumes / indexes; node state files (signing keys, signed tip, certificate, evidence) |
+| [contracts/OPERATION_FILE.md](contracts/OPERATION_FILE.md) | Operation files: multi-signature transactions passed between signers as JSON; `pp-client op` |
 
 ---
 

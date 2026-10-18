@@ -1,7 +1,8 @@
 #ifndef PP_LEDGER_CHAIN_TYPES_H
 #define PP_LEDGER_CHAIN_TYPES_H
 
-#include "../client/Client.h"
+#include "../ledger/Account.h"
+#include "../ledger/Ledger.h"
 
 #include <cstdint>
 #include <optional>
@@ -277,7 +278,7 @@ struct GenesisAccountMeta {
   constexpr static const uint32_t VERSION = 12;
 
   BlockChainConfig config;
-  Client::UserAccount genesis;
+  UserAccount genesis;
   /** Genesis renewals only: a config update not yet in force (T_GENESIS / T_CONFIG carry none;
    *  a T_CONFIG's `config` is itself the update). */
   bool hasPending{false};

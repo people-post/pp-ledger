@@ -4,6 +4,8 @@ set(PP_APP_OUTPUT_DIR "${CMAKE_BINARY_DIR}/app")
 # Client executable
 add_executable(pp-client
     client.cpp
+    ClientOp.cpp
+    ClientOp.h
 )
 
 target_link_libraries(pp-client PRIVATE
@@ -11,6 +13,7 @@ target_link_libraries(pp-client PRIVATE
     pp_client
     pp_ledger
     pp_chain
+    pp_operation
     CLI11::CLI11
 )
 set_target_properties(pp-client PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PP_APP_OUTPUT_DIR}")
