@@ -1279,8 +1279,8 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "Admin keys: " << static_cast<int>(gm.genesis.wallet.minSignatures) << " of "
               << gm.genesis.wallet.publicKeys.size() << ":";
-    for (const auto &key : gm.genesis.wallet.publicKeys) {
-      std::cout << " " << pp::operation::fingerprint(key);
+    for (const auto &adminKey : gm.genesis.wallet.publicKeys) {
+      std::cout << " " << pp::operation::fingerprint(adminKey);
     }
     std::cout << "\nAuthority: " << gm.authority << "\n";
   }
