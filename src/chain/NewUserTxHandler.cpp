@@ -223,7 +223,8 @@ chain_tx::Roe<void> NewUserTxHandler::applyNewUser(
   }
 
   // A new account may name its recovery set; never an announcement (projects/account-recovery).
-  if (auto valid = chain_tx::validateOwnerRecovery(userAccount.wallet.recovery, tx.toWalletId); !valid) {
+  if (auto valid = chain_tx::validateRecoverySet(userAccount.wallet.recovery, tx.toWalletId, ctx.optChainConfig);
+      !valid) {
     return valid;
   }
 

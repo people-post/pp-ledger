@@ -41,18 +41,32 @@ AccountRecoveryTxHandler::getIdempotencyKey(const Ledger::TypedTx &tx) const {
   return std::optional<std::pair<uint64_t, uint64_t>>(std::make_pair(p.value()->walletId, p.value()->idempotentId));
 }
 
-chain_tx::Roe<AccountRecoveryAnnouncement>
-AccountRecoveryTxHandler::decodeAnnouncement(const Ledger::TxAccountRecovery &tx) {
-  AccountRecoveryAnnouncement announcement;
-  if (!announcement.ltsFromString(tx.meta)) {
+chain_tx::Roe<AccountRecoveryAction> AccountRecoveryTxHandler::decodeAction(const Ledger::TxAccountRecovery &tx) {
+  AccountRecoveryAction action;
+  if (!action.ltsFromString(tx.meta)) {
     return chain_tx::TxError(chain_err::E_INTERNAL_DESERIALIZE, "Failed to deserialize the account recovery");
   }
-  if (auto valid = chain_tx::validateRecoveryKeys(announcement.publicKeys, announcement.minSignatures,
-                                                  "The announced keys");
-      !valid) {
-    return valid.error();
+  switch (action.kind) {
+  case AccountRecoveryAction::ANNOUNCE:
+    if (action.delaySeconds != 0) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "An announcement names no delay");
+    }
+    if (auto valid = chain_tx::validateRecoveryKeys(action.publicKeys, action.minSignatures, "The announced keys");
+        !valid) {
+      return valid.error();
+    }
+    return action;
+  case AccountRecoveryAction::WITHDRAW:
+    if (!action.publicKeys.empty() || action.minSignatures != 0 || action.delaySeconds != 0) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, "A withdrawal names no keys or delay");
+    }
+    return action;
+  case AccountRecoveryAction::CHANGE:
+    return action; // checked against the account and the config on apply (validateRecoverySet)
+  default:
+    return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                             "Unknown account recovery action: " + std::to_string(action.kind));
   }
-  return announcement;
 }
 
 chain_tx::Roe<void> AccountRecoveryTxHandler::applyBuffer(const Ledger::TypedTx &tx, AccountBuffer &bank,
@@ -99,15 +113,19 @@ chain_tx::Roe<void> AccountRecoveryTxHandler::apply(const Ledger::TxAccountRecov
   if (blockId == 0) {
     return chain_tx::TxError(chain_err::E_TX_TYPE, "An account recovery cannot be in the genesis block");
   }
-  auto announcement = decodeAnnouncement(tx);
-  if (!announcement) {
-    return announcement.error();
+  auto action = decodeAction(tx);
+  if (!action) {
+    return action.error();
   }
+  if (!ctx.optChainConfig.has_value()) {
+    return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for an account recovery");
+  }
+  const BlockChainConfig &config = ctx.optChainConfig.value();
   if (chain_block::admissionTxStrict(admissionMode)) {
-    if (!ctx.optChainConfig.has_value() || !ctx.fnBillableCustomMetaSizeForFee.has_value()) {
+    if (!ctx.fnBillableCustomMetaSizeForFee.has_value()) {
       return chain_tx::TxError(chain_err::E_STATE_INIT, "Chain config required for an account recovery");
     }
-    auto least = chain_tx::calculateMinimumFeeForTransaction(ctx.optChainConfig.value(), Ledger::TypedTx(tx),
+    auto least = chain_tx::calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx),
                                                              *ctx.fnBillableCustomMetaSizeForFee);
     if (!least) {
       return least.error();
@@ -130,10 +148,44 @@ chain_tx::Roe<void> AccountRecoveryTxHandler::apply(const Ledger::TxAccountRecov
     return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                              "Account " + std::to_string(tx.walletId) + " has no recovery set");
   }
-  if (recovery.pending) {
-    return chain_tx::TxError(chain_err::E_TX_VALIDATION, "Account " + std::to_string(tx.walletId) +
-                                                             " has a recovery announced already (until epoch " +
-                                                             std::to_string(recovery.applyEpoch) + ")");
+  const std::string account = "Account " + std::to_string(tx.walletId);
+  Client::AccountRecovery next = recovery;
+  switch (action.value().kind) {
+  case AccountRecoveryAction::ANNOUNCE:
+    if (recovery.pending) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, account + " has a recovery announced already (until epoch " +
+                                                               std::to_string(recovery.applyEpoch) + ")");
+    }
+    next.pending = true;
+    next.nextPublicKeys = action.value().publicKeys;
+    next.nextMinSignatures = action.value().minSignatures;
+    next.applyEpoch = chain_tx::recoveryApplyEpoch(config, slot, recovery.delaySeconds);
+    next.announcedAt = blockId;
+    break;
+  case AccountRecoveryAction::WITHDRAW:
+    if (!recovery.pending) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION, account + " has no recovery announced");
+    }
+    next.pending = false;
+    next.nextPublicKeys.clear();
+    next.nextMinSignatures = 0;
+    next.applyEpoch = 0;
+    next.announcedAt = 0;
+    break;
+  default: { // CHANGE
+    if (recovery.pending) {
+      return chain_tx::TxError(chain_err::E_TX_VALIDATION,
+                               account + " has a recovery announced: withdraw it before changing the set");
+    }
+    next = Client::AccountRecovery{};
+    next.publicKeys = action.value().publicKeys;
+    next.minSignatures = action.value().minSignatures;
+    next.delaySeconds = action.value().delaySeconds;
+    if (auto valid = chain_tx::validateRecoverySet(next, tx.walletId, ctx.optChainConfig); !valid) {
+      return valid;
+    }
+    break;
+  }
   }
   if (tx.fee > 0) {
     if (auto paid = bank.withdrawBalance(tx.walletId, AccountBuffer::ID_GENESIS, static_cast<int64_t>(
@@ -147,12 +199,7 @@ chain_tx::Roe<void> AccountRecoveryTxHandler::apply(const Ledger::TxAccountRecov
       return credited;
     }
   }
-  recovery.pending = true;
-  recovery.nextPublicKeys = announcement.value().publicKeys;
-  recovery.nextMinSignatures = announcement.value().minSignatures;
-  recovery.applyEpoch = ctx.consensus.getEpochFromSlot(slot) + recovery.delayEpochs;
-  recovery.announcedAt = blockId;
-  if (auto set = bank.setRecovery(tx.walletId, recovery); !set) {
+  if (auto set = bank.setRecovery(tx.walletId, next); !set) {
     return chain_tx::TxError(chain_err::E_INTERNAL_BUFFER, set.error().message);
   }
   return {};

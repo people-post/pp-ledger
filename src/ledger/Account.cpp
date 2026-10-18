@@ -72,7 +72,7 @@ pp::common::Meta Wallet::ltsToMeta() const {
     pp::common::Meta r;
     r.set("publicKeys", pp::common::Meta::array(keysOf(recovery.publicKeys)));
     r.setJsonUInt("minSignatures", recovery.minSignatures);
-    r.setJsonUInt("delayEpochs", recovery.delayEpochs);
+    r.setJsonUInt("delaySeconds", recovery.delaySeconds);
     if (recovery.pending) {
       pp::common::Meta p;
       p.set("publicKeys", pp::common::Meta::array(keysOf(recovery.nextPublicKeys)));
@@ -86,14 +86,14 @@ pp::common::Meta Wallet::ltsToMeta() const {
   return j;
 }
 
-std::string AccountRecoveryAnnouncement::ltsToString() const {
+std::string AccountRecoveryAction::ltsToString() const {
   std::ostringstream oss(std::ios::binary);
   OutputArchive ar(oss);
   ar & VERSION & *this;
   return oss.str();
 }
 
-bool AccountRecoveryAnnouncement::ltsFromString(const std::string &str) {
+bool AccountRecoveryAction::ltsFromString(const std::string &str) {
   std::istringstream iss(str, std::ios::binary);
   InputArchive ar(iss);
   uint32_t version = 0;

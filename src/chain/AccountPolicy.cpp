@@ -31,13 +31,26 @@ Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t min
   return {};
 }
 
-Roe<void> validateOwnerRecovery(const Client::AccountRecovery &recovery, uint64_t accountId) {
+uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config) {
+  return std::max<uint64_t>(1, config.slotDuration * config.slotsPerEpoch / 2);
+}
+
+uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint64_t delaySeconds) {
+  const uint64_t slotDuration = std::max<uint64_t>(1, config.slotDuration);
+  const uint64_t slotsPerEpoch = std::max<uint64_t>(1, config.slotsPerEpoch);
+  const uint64_t delaySlots = delaySeconds / slotDuration + (delaySeconds % slotDuration != 0 ? 1 : 0);
+  const uint64_t earliest = slot + delaySlots;
+  return earliest / slotsPerEpoch + (earliest % slotsPerEpoch != 0 ? 1 : 0);
+}
+
+Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t accountId,
+                              const std::optional<BlockChainConfig> &config) {
   if (recovery.pending || !recovery.nextPublicKeys.empty() || recovery.nextMinSignatures != 0 ||
       recovery.applyEpoch != 0 || recovery.announcedAt != 0) {
-    return TxError(chain_err::E_TX_VALIDATION, "An account's own write cannot carry a recovery announcement");
+    return TxError(chain_err::E_TX_VALIDATION, "A recovery set is named without an announcement (that is the chain's)");
   }
   if (!recovery.hasSet()) {
-    if (recovery.minSignatures != 0 || recovery.delayEpochs != 0) {
+    if (recovery.minSignatures != 0 || recovery.delaySeconds != 0) {
       return TxError(chain_err::E_TX_VALIDATION, "A recovery without a set names no threshold or delay");
     }
     return {};
@@ -45,8 +58,10 @@ Roe<void> validateOwnerRecovery(const Client::AccountRecovery &recovery, uint64_
   if (AccountIds::isSystemAccount(accountId)) {
     return TxError(chain_err::E_TX_VALIDATION, "A system account has no recovery of its own (the genesis recovery set covers it)");
   }
-  if (recovery.delayEpochs < 1) {
-    return TxError(chain_err::E_TX_VALIDATION, "A recovery's delay is at least one epoch");
+  const uint64_t least = config ? minRecoveryDelaySeconds(*config) : 1;
+  if (recovery.delaySeconds < least) {
+    return TxError(chain_err::E_TX_VALIDATION,
+                   "A recovery's delay is at least half an epoch (" + std::to_string(least) + " s)");
   }
   return validateRecoveryKeys(recovery.publicKeys, recovery.minSignatures, "Recovery set");
 }

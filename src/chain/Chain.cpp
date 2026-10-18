@@ -902,8 +902,8 @@ Chain::Roe<void> Chain::applyMinerLiveness(const Ledger::ChainNode &block, chain
 }
 
 void Chain::applyDueAccountRecoveries(const Ledger::ChainNode &block) {
-  // At the first block of an epoch (or the first this node holds), after its records: an owner's
-  // update in the block cancels a recovery before it applies; renewals there carry the keys before.
+  // At the first block of an epoch (or the first this node holds), after its records: the set's
+  // withdrawal in the block clears a recovery before it applies; renewals there carry the keys before.
   if (block.block.index > 0) {
     if (auto prev = txContext_.ledger.readBlock(block.block.index - 1); prev && prev.value().block.epoch == block.block.epoch) {
       return;

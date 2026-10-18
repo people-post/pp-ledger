@@ -27,12 +27,23 @@ using FnPublisherExists = std::function<bool(uint64_t)>;
  */
 Roe<void> validateRecoveryKeys(const std::vector<std::string> &keys, uint8_t minSignatures, std::string_view what);
 
+/** Half an epoch, in seconds (at least 1): the shortest delay an account's recovery may have. */
+uint64_t minRecoveryDelaySeconds(const BlockChainConfig &config);
+
 /**
- * An account's recovery as its owner may set it (projects/account-recovery): none (all fields empty),
- * or a valid set and a delay of at least one epoch; never on a system account; never a pending
- * announcement (that is the chain's, set by T_ACCOUNT_RECOVERY).
+ * The epoch a recovery announced in `slot` applies at: the first epoch that starts at least
+ * `delaySeconds` after the slot does (projects/account-recovery AR008).
  */
-Roe<void> validateOwnerRecovery(const Client::AccountRecovery &recovery, uint64_t accountId);
+uint64_t recoveryApplyEpoch(const BlockChainConfig &config, uint64_t slot, uint64_t delaySeconds);
+
+/**
+ * An account's recovery set as named — first by the account's keys (T_NEW_USER, T_USER_UPDATE), then
+ * by the set itself (T_ACCOUNT_RECOVERY): none (all fields empty), or a valid set and a delay of at
+ * least half an epoch (`config`; without one, at least a second); never on a system account; never an
+ * announcement (that is the chain's).
+ */
+Roe<void> validateRecoverySet(const Client::AccountRecovery &recovery, uint64_t accountId,
+                              const std::optional<BlockChainConfig> &config);
 
 Roe<void> validateUserWalletBasics(const Crypto &crypto,
                                    const Client::Wallet &wallet);

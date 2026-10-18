@@ -205,31 +205,33 @@ OpCommands::OpCommands(CLI::App &app) {
   addCreateOptions(updateKeys_, true);
 
   setRecovery_.cmd = op_->add_subcommand(
-      "set-recovery", "Set an account's recovery set and delay (signed by its keys; reads the account from the node)");
+      "set-recovery", "Set an account's recovery set and delay: its keys name the first, then only the set changes "
+                      "itself (reads the account from the node)");
   setRecovery_.cmd->add_option("--account", from_, "The account")->required();
   auto *recoveryKey =
       setRecovery_.cmd->add_option("--recovery-key", recoveryKeys_, "A key of the recovery set (hex or .pub; repeat)");
   setRecovery_.cmd->add_option("--recovery-min-signatures", recoveryMinSignatures_,
-                               "Signatures of the set an announcement needs")
+                               "Signatures of the set it takes to act")
       ->default_val(1);
-  setRecovery_.cmd->add_option("--delay-epochs", recoveryDelayEpochs_,
-                               "Epochs from an announcement to the new keys (the owner can cancel in them)");
-  auto *none = setRecovery_.cmd->add_flag("--none", noRecovery_, "Remove the account's recovery set");
+  setRecovery_.cmd->add_option("--delay-seconds", recoveryDelaySeconds_,
+                               "From an announcement to the earliest its keys take over (at least half an epoch)");
+  auto *none = setRecovery_.cmd->add_flag("--none", noRecovery_, "Remove the recovery set (signed by the set)");
   recoveryKey->excludes(none);
   addCreateOptions(setRecovery_, true);
 
-  cancelRecovery_.cmd = op_->add_subcommand(
-      "cancel-recovery", "Cancel the recovery announced for an account (signed by its keys)");
-  cancelRecovery_.cmd->add_option("--account", from_, "The account")->required();
-  addCreateOptions(cancelRecovery_, true);
-
   recover_.cmd = op_->add_subcommand(
-      "recover", "Announce an account's new keys, signed by its recovery set (they apply after its delay)");
+      "recover", "Announce an account's new keys, signed by its recovery set: the account is frozen until they "
+                 "take over at the first epoch start after its delay");
   recover_.cmd->add_option("--account", from_, "The account to recover (pays the fee)")->required();
   recover_.cmd->add_option("--new-key", newKeys_, "A key of the new set (hex or .pub; repeat)")->required();
   recover_.cmd->add_option("--new-min-signatures", newMinSignatures_, "Signatures the new set needs")
       ->default_val(1);
   addCreateOptions(recover_, true);
+
+  withdrawRecovery_.cmd = op_->add_subcommand(
+      "withdraw-recovery", "Withdraw the recovery announced for an account, signed by its recovery set");
+  withdrawRecovery_.cmd->add_option("--account", from_, "The account (pays the fee)")->required();
+  addCreateOptions(withdrawRecovery_, true);
 
   wrap_.cmd = op_->add_subcommand(
       "wrap", "Make an operation of a transaction file (mk-beacon-cert, mk-recovery, mk-tx …)");
@@ -257,9 +259,13 @@ void OpCommands::addCreateOptions(Create &create, bool withFee) {
 
 bool OpCommands::parsed() const { return op_->parsed(); }
 
+bool OpCommands::signedByRecoverySet(const Create &create, bool hasRecoverySet) const {
+  return &create == &recover_ || &create == &withdrawRecovery_ || (&create == &setRecovery_ && hasRecoverySet);
+}
+
 const OpCommands::Create *OpCommands::parsedCreate() const {
   for (const Create *create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &setRecovery_,
-                               &cancelRecovery_, &recover_, &wrap_}) {
+                               &withdrawRecovery_, &recover_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
     }
@@ -275,7 +281,7 @@ bool OpCommands::needsNode() const {
   }
   const Create *create = parsedCreate();
   // An account's update carries its balances as they are: always read from the node.
-  const bool update = create == &updateKeys_ || create == &setRecovery_ || create == &cancelRecovery_;
+  const bool update = create == &updateKeys_ || create == &setRecovery_;
   return create && (update || create->networkId.empty() || create->signerKeys.empty());
 }
 
@@ -465,8 +471,8 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
       }
       common.signers.publicKeys = onChain.value().wallet.publicKeys;
       common.signers.minSignatures = onChain.value().wallet.minSignatures;
-      if (&create == &recover_) {
-        // A recovery is signed by the account's recovery set, not its keys.
+      if (signedByRecoverySet(create, onChain.value().wallet.recovery.hasSet())) {
+        // Signed by the account's recovery set, not its keys.
         const auto &recovery = onChain.value().wallet.recovery;
         if (!recovery.hasSet()) {
           return fail("account " + std::to_string(*account) + " has no recovery set");
@@ -503,24 +509,29 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
       return fail("reading account " + std::to_string(from_) + ": " + current.error().message);
     }
     built = op::replaceKeys(common, current.value(), keys.value(), newMinSignatures_, create.fee);
-  } else if (&create == &setRecovery_ || &create == &cancelRecovery_) {
+  } else if (&create == &setRecovery_) {
     auto current = client->fetchUserAccount(from_);
     if (!current) {
       return fail("reading account " + std::to_string(from_) + ": " + current.error().message);
     }
-    if (&create == &cancelRecovery_) {
-      built = op::cancelRecovery(common, current.value(), create.fee);
-    } else if (noRecovery_) {
-      built = op::setRecovery(common, current.value(), {}, 0, 0, create.fee);
-    } else {
+    std::vector<std::string> keys;
+    if (!noRecovery_) {
       if (recoveryKeys_.empty()) {
-        return fail("give --recovery-key (repeat) and --delay-epochs, or --none");
+        return fail("give --recovery-key (repeat) and --delay-seconds, or --none");
       }
-      auto keys = readPublicKeys(recoveryKeys_, "--recovery-key");
-      if (!keys) {
-        return fail(keys.error().message);
+      auto read = readPublicKeys(recoveryKeys_, "--recovery-key");
+      if (!read) {
+        return fail(read.error().message);
       }
-      built = op::setRecovery(common, current.value(), keys.value(), recoveryMinSignatures_, recoveryDelayEpochs_,
+      keys = read.value();
+    }
+    if (signedByRecoverySet(create, current.value().wallet.recovery.hasSet())) {
+      built = op::changeRecovery(common, from_, keys, noRecovery_ ? 0 : recoveryMinSignatures_,
+                                 noRecovery_ ? 0 : recoveryDelaySeconds_, create.fee);
+    } else if (noRecovery_) {
+      return fail("account " + std::to_string(from_) + " has no recovery set");
+    } else {
+      built = op::setRecovery(common, current.value(), keys, recoveryMinSignatures_, recoveryDelaySeconds_,
                               create.fee);
     }
   } else if (&create == &recover_) {
@@ -529,6 +540,8 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
       return fail(keys.error().message);
     }
     built = op::announceRecovery(common, from_, keys.value(), newMinSignatures_, create.fee);
+  } else if (&create == &withdrawRecovery_) {
+    built = op::withdrawRecovery(common, from_, create.fee);
   } else if (&create == &newAccount_) {
     auto keys = readPublicKeys(accountKeys_, "--account-key");
     if (!keys) {

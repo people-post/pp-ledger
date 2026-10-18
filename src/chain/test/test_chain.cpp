@@ -3668,9 +3668,11 @@ TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
   EXPECT_FALSE(none.value().wallet.has_value());
 }
 
-// projects/account-recovery: an account's recovery set announces its next keys; the owner's own update
-// cancels it; otherwise the first block of the epoch it is due in applies it — on both nodes alike.
-TEST_F(MinerLivenessTest, AnAccountIsRecoveredUnlessItsOwnerCancels) {
+// projects/account-recovery: an account's recovery set stands above its keys. The keys name the first
+// set; after that only the set changes itself. An announcement freezes the account (its keys sign
+// nothing) until the first epoch starting at least the delay later applies it — on both nodes alike;
+// only the set withdraws it.
+TEST_F(MinerLivenessTest, AnAccountsRecoverySetStandsAboveItsKeys) {
   auto &producer = harness_.producer;
   auto &peer = harness_.peer;
   for (uint64_t slot = 1; slot < 40; ++slot) {
@@ -3680,15 +3682,16 @@ TEST_F(MinerLivenessTest, AnAccountIsRecoveredUnlessItsOwnerCancels) {
   peer.setClockOverride(peer.getSlotStartTime(1));
   ASSERT_TRUE(peer.addBlock(user.block).isOk());
   const auto guardian = makeKeyPair();
+  const auto guardian2 = makeKeyPair();
   const auto nextKey = makeKeyPair();
   const int64_t from = harness_.chainConfig.genesisTime;
+  // Slots of 5 s, epochs of 10 slots: half an epoch is 25 s.
+  const uint64_t halfEpoch = chain_tx::minRecoveryDelaySeconds(harness_.chainConfig);
+  ASSERT_EQ(halfEpoch, 25u);
 
   auto update = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const Client::AccountRecovery &recovery) {
-    Client::UserAccount account = peer.getAccount(user.id).value().wallet.publicKeys.empty()
-                                      ? Client::UserAccount{}
-                                      : Client::UserAccount{peer.getAccount(user.id).value().wallet, ""};
+    Client::UserAccount account{peer.getAccount(user.id).value().wallet, AccountAttachment::emptySerialized()};
     account.wallet.recovery = recovery;
-    account.meta = AccountAttachment::emptySerialized();
     Ledger::TxUserUpdate uu;
     uu.walletId = user.id;
     uu.fee = 5000;
@@ -3698,41 +3701,79 @@ TEST_F(MinerLivenessTest, AnAccountIsRecoveredUnlessItsOwnerCancels) {
     uu.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_USER_UPDATE, uu, signer, producer.getNetworkId());
   };
-  auto announce = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
-    AccountRecoveryAnnouncement next;
-    next.publicKeys = {nextKey.publicKey};
-    next.minSignatures = 1;
+  auto act = [&](const utl::MlDsaKeyPair &signer, uint64_t idem, const AccountRecoveryAction &action) {
     Ledger::TxAccountRecovery tx;
     tx.walletId = user.id;
-    tx.meta = next.ltsToString();
+    tx.meta = action.ltsToString();
     tx.fee = minimumFeeFor(harness_.chainConfig, Ledger::TypedTx(tx)).value();
     tx.idempotentId = idem;
     tx.validationTsMin = from;
     tx.validationTsMax = from + 3600;
     return makeRecord(Ledger::T_ACCOUNT_RECOVERY, tx, signer, producer.getNetworkId());
   };
+  AccountRecoveryAction announce;
+  announce.kind = AccountRecoveryAction::ANNOUNCE;
+  announce.publicKeys = {nextKey.publicKey};
+  announce.minSignatures = 1;
+  AccountRecoveryAction withdraw;
+  withdraw.kind = AccountRecoveryAction::WITHDRAW;
+  auto pay = [&](const utl::MlDsaKeyPair &signer, uint64_t idem) {
+    Ledger::TxDefault tx;
+    tx.tokenId = AccountBuffer::ID_GENESIS;
+    tx.fromWalletId = user.id;
+    tx.toWalletId = AccountBuffer::ID_FEE;
+    tx.amount = 10;
+    tx.fee = 1;
+    tx.idempotentId = idem;
+    tx.validationTsMin = from;
+    tx.validationTsMax = from + 3600;
+    return makeRecord(Ledger::T_DEFAULT, tx, signer, producer.getNetworkId());
+  };
   auto refused = [&](const Ledger::Record &record) {
     AccountBuffer scratch;
     return !producer.addBufferTransaction(scratch, record, kTestMinerId).isOk();
   };
+  auto recovery = [&] { return peer.getAccount(user.id).value().wallet.recovery; };
+  // Blocks in every slot up to `slot` (the miner misses none: missing slots would deregister it).
+  uint64_t filler = 100;
+  auto upTo = [&](Ledger::ChainNode block, uint64_t slot) {
+    for (uint64_t s = block.block.slot + 1; s < slot; ++s) {
+      block = commit(block, s, {makeReserveTransfer(harness_, 5, filler++)});
+    }
+    return block;
+  };
 
-  // The owner sets a recovery set: the guardian, 1 of 1, a delay of one epoch.
+  // The account's keys name the first set: the guardian, a delay of half an epoch at least.
   Client::AccountRecovery set;
   set.publicKeys = {guardian.publicKey};
   set.minSignatures = 1;
-  set.delayEpochs = 1;
-  EXPECT_TRUE(refused(announce(guardian, 20))) << "no recovery set yet";
+  set.delaySeconds = halfEpoch - 1;
+  EXPECT_TRUE(refused(update(user.key, 9, set))) << "less than half an epoch";
+  set.delaySeconds = halfEpoch;
+  EXPECT_TRUE(refused(act(guardian, 20, announce))) << "no recovery set yet";
   Ledger::ChainNode block = commit(user.block, 2, {update(user.key, 10, set)});
-  ASSERT_EQ(peer.getAccount(user.id).value().wallet.recovery, set);
+  ASSERT_EQ(recovery(), set);
 
-  // Announced by the guardian — not by the owner's key, and once.
-  EXPECT_TRUE(refused(announce(user.key, 21))) << "the owner's key is not the recovery set";
-  block = commit(block, 3, {announce(guardian, 22)});
-  Client::AccountRecovery pending = peer.getAccount(user.id).value().wallet.recovery;
-  ASSERT_TRUE(pending.pending);
-  EXPECT_EQ(pending.applyEpoch, 1u) << "epoch 0 + a delay of 1";
-  EXPECT_EQ(pending.nextPublicKeys, std::vector<std::string>{nextKey.publicKey});
-  EXPECT_TRUE(refused(announce(guardian, 23))) << "one announcement at a time";
+  // From then on the account's keys cannot change it, nor remove it; the set changes itself.
+  Client::AccountRecovery other = set;
+  other.publicKeys = {guardian2.publicKey};
+  EXPECT_TRUE(refused(update(user.key, 11, other))) << "only the set changes the set";
+  EXPECT_TRUE(refused(update(user.key, 12, Client::AccountRecovery{}))) << "nor removes it";
+  AccountRecoveryAction change;
+  change.kind = AccountRecoveryAction::CHANGE;
+  change.publicKeys = {guardian2.publicKey};
+  change.minSignatures = 1;
+  change.delaySeconds = halfEpoch;
+  EXPECT_TRUE(refused(act(user.key, 21, change))) << "the account's key is not the set";
+  block = commit(block, 3, {act(guardian, 22, change)});
+  EXPECT_EQ(recovery().publicKeys, std::vector<std::string>{guardian2.publicKey});
+  EXPECT_TRUE(refused(act(guardian, 23, announce))) << "the old set acts no more";
+
+  // Announced at slot 8: epoch 1 starts 2 slots (10 s) later, too soon; epoch 2 it is.
+  block = commit(upTo(block, 8), 8, {act(guardian2, 24, announce)});
+  ASSERT_TRUE(recovery().pending);
+  EXPECT_EQ(recovery().applyEpoch, 2u) << "the first epoch starting 25 s after slot 8";
+  EXPECT_EQ(recovery().nextPublicKeys, std::vector<std::string>{nextKey.publicKey});
   // The owner's wallet sees it, proven.
   auto proof = peer.accountProof(user.id);
   ASSERT_TRUE(proof.isOk()) << proof.error().message;
@@ -3740,55 +3781,71 @@ TEST_F(MinerLivenessTest, AnAccountIsRecoveredUnlessItsOwnerCancels) {
   ASSERT_TRUE(proven.isOk()) << proven.error().message;
   EXPECT_TRUE(proven.value().wallet->recovery.pending);
 
-  // The owner cancels: their own update clears it; the account was never frozen.
-  block = commit(block, 4, {update(user.key, 11, set)});
-  EXPECT_FALSE(peer.getAccount(user.id).value().wallet.recovery.pending);
-  EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey});
+  // Frozen: the account's keys sign nothing — no payment, no update; only the set withdraws it.
+  EXPECT_TRUE(refused(pay(user.key, 30))) << "frozen";
+  EXPECT_TRUE(refused(update(user.key, 13, recovery()))) << "frozen";
+  EXPECT_TRUE(refused(act(guardian2, 25, announce))) << "one announcement at a time";
+  EXPECT_TRUE(refused(act(guardian2, 26, change))) << "the set is not changed while it waits";
+  EXPECT_TRUE(refused(act(user.key, 27, withdraw))) << "the account's key does not withdraw it";
+  block = commit(block, 9, {act(guardian2, 28, withdraw)});
+  EXPECT_FALSE(recovery().pending);
+  block = commit(upTo(block, 11), 11, {pay(user.key, 31)});
 
-  // Announced again and left: the first block of epoch 1 applies it, on both nodes.
-  block = commit(block, 5, {announce(guardian, 24)});
-  block = commit(block, 7, {makeReserveTransfer(harness_, 5, 60)});
+  // Announced again at slot 12 (earliest slot 17): the first block of epoch 2 applies it, on both nodes.
+  block = commit(block, 12, {act(guardian2, 29, announce)});
+  EXPECT_EQ(recovery().applyEpoch, 2u);
+  block = commit(upTo(block, 18), 18, {makeReserveTransfer(harness_, 5, 60)});
   EXPECT_EQ(peer.getAccount(user.id).value().wallet.publicKeys, std::vector<std::string>{user.key.publicKey})
-      << "not yet: still epoch 0";
-  block = commit(block, 12, {makeReserveTransfer(harness_, 5, 61)});
+      << "not yet: still epoch 1";
+  block = commit(upTo(block, 21), 21, {makeReserveTransfer(harness_, 5, 61)});
   for (Chain *node : {&producer, &peer}) {
     const auto after = node->getAccount(user.id).value().wallet;
     EXPECT_EQ(after.publicKeys, std::vector<std::string>{nextKey.publicKey});
     EXPECT_EQ(after.minSignatures, 1u);
     EXPECT_FALSE(after.recovery.pending);
-    EXPECT_EQ(after.recovery.publicKeys, set.publicKeys) << "the set stays";
+    EXPECT_EQ(after.recovery.publicKeys, std::vector<std::string>{guardian2.publicKey}) << "the set stays";
   }
   // The new key signs for the account; the old one no longer does.
-  EXPECT_TRUE(refused(update(user.key, 12, set)));
-  block = commit(block, 13, {update(nextKey, 13, set)});
+  EXPECT_TRUE(refused(pay(user.key, 32)));
+  block = commit(block, 22, {pay(nextKey, 33)});
 }
 
-TEST(AccountRecoveryPolicyTest, OwnersSetASetAndADelayNeverAnAnnouncement) {
+TEST(AccountRecoveryPolicyTest, ASetHasKeysAThresholdAndHalfAnEpochOfDelay) {
+  BlockChainConfig config;
+  config.slotDuration = 5;
+  config.slotsPerEpoch = 10;
+  const std::optional<BlockChainConfig> withConfig = config;
   Client::AccountRecovery none;
-  EXPECT_TRUE(chain_tx::validateOwnerRecovery(none, AccountBuffer::ID_FIRST_USER).isOk());
+  EXPECT_TRUE(chain_tx::validateRecoverySet(none, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   Client::AccountRecovery set;
   set.publicKeys = {makeKeyPair().publicKey, makeKeyPair().publicKey};
   set.minSignatures = 2;
-  set.delayEpochs = 3;
-  EXPECT_TRUE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_FIRST_USER).isOk());
-  EXPECT_TRUE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_FIRST_ISSUED).isOk()) << "issuers too";
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(set, AccountBuffer::ID_RESERVE).isOk()) << "not system accounts";
-  Client::AccountRecovery noDelay = set;
-  noDelay.delayEpochs = 0;
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(noDelay, AccountBuffer::ID_FIRST_USER).isOk());
+  set.delaySeconds = 25;
+  EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
+  EXPECT_TRUE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_FIRST_ISSUED, withConfig).isOk()) << "issuers too";
+  EXPECT_FALSE(chain_tx::validateRecoverySet(set, AccountBuffer::ID_RESERVE, withConfig).isOk()) << "not system accounts";
+  Client::AccountRecovery short_ = set;
+  short_.delaySeconds = 24;
+  EXPECT_FALSE(chain_tx::validateRecoverySet(short_, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   Client::AccountRecovery tooMany = set;
   tooMany.minSignatures = 3;
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(tooMany, AccountBuffer::ID_FIRST_USER).isOk());
+  EXPECT_FALSE(chain_tx::validateRecoverySet(tooMany, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   Client::AccountRecovery twice = set;
   twice.publicKeys[1] = twice.publicKeys[0];
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(twice, AccountBuffer::ID_FIRST_USER).isOk());
+  EXPECT_FALSE(chain_tx::validateRecoverySet(twice, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
   Client::AccountRecovery announced = set;
   announced.pending = true;
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(announced, AccountBuffer::ID_FIRST_USER).isOk())
+  EXPECT_FALSE(chain_tx::validateRecoverySet(announced, AccountBuffer::ID_FIRST_USER, withConfig).isOk())
       << "an announcement is the chain's";
   Client::AccountRecovery stray;
-  stray.delayEpochs = 2;
-  EXPECT_FALSE(chain_tx::validateOwnerRecovery(stray, AccountBuffer::ID_FIRST_USER).isOk());
+  stray.delaySeconds = 30;
+  EXPECT_FALSE(chain_tx::validateRecoverySet(stray, AccountBuffer::ID_FIRST_USER, withConfig).isOk());
+
+  // The first epoch starting at least the delay after the slot: never the epoch's next start too soon.
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 8, 25), 2u);  // slot 8 + 5 = 13 → epoch 2 (slot 20)
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 5, 25), 1u);  // 5 + 5 = 10 → epoch 1, at the edge
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 0, 26), 1u);  // 26 s is 6 slots → epoch 1
+  EXPECT_EQ(chain_tx::recoveryApplyEpoch(config, 3, 86400), 1729u); // a day: 17,280 slots on
 }
 
 // A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item

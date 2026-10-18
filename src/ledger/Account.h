@@ -39,18 +39,18 @@ struct MinerState {
 
 /**
  * An account's way back (projects/account-recovery; WIRE_SCHEMA § Account recovery): a recovery set
- * the owner chooses may announce the account's next keys, which take over `delayEpochs` later unless
- * the owner's own update cancels them first. The set and delay are the owner's (T_NEW_USER,
- * T_USER_UPDATE); the announcement is chain-owned (T_ACCOUNT_RECOVERY sets it, an update clears it,
- * block apply applies it); renewals carry all of it unchanged.
+ * that stands above the account's keys. It announces the account's next keys, which take over at the
+ * first epoch start at least `delaySeconds` on; meanwhile the account is frozen (its keys sign nothing)
+ * and only the set may withdraw it. The account's keys name the first set (T_NEW_USER, T_USER_UPDATE);
+ * after that only the set changes itself (T_ACCOUNT_RECOVERY). Renewals carry all of it unchanged.
  */
 struct AccountRecovery {
   /** Who may announce, and how many must sign; none: the account has no recovery. */
   std::vector<std::string> publicKeys;
   uint8_t minSignatures{ 0 };
-  /** Epochs between an announcement and its taking over (at least 1). */
-  uint64_t delayEpochs{ 0 };
-  /** An announcement waiting: the account's next keys, when they take over, the block it is in. */
+  /** Seconds from an announcement's slot to the earliest its keys take over (at least half an epoch). */
+  uint64_t delaySeconds{ 0 };
+  /** An announcement waiting: the account's next keys, the epoch they take over at, the block it is in. */
   bool pending{ false };
   std::vector<std::string> nextPublicKeys;
   uint8_t nextMinSignatures{ 0 };
@@ -61,19 +61,30 @@ struct AccountRecovery {
   bool operator==(const AccountRecovery &other) const = default;
 
   template <typename Archive> void serialize(Archive &ar) {
-    ar & publicKeys & minSignatures & delayEpochs & pending & nextPublicKeys & nextMinSignatures & applyEpoch &
+    ar & publicKeys & minSignatures & delaySeconds & pending & nextPublicKeys & nextMinSignatures & applyEpoch &
         announcedAt;
   }
 };
 
-/** What a T_ACCOUNT_RECOVERY announces: the account's next keys and threshold (its `meta`). */
-struct AccountRecoveryAnnouncement {
+/** What a T_ACCOUNT_RECOVERY does (its `meta`), signed by the account's recovery set. */
+struct AccountRecoveryAction {
   constexpr static const uint32_t VERSION = 1;
 
+  enum Kind : uint8_t {
+    /** The account's next keys (`publicKeys`, `minSignatures`): the account frozen until they apply. */
+    ANNOUNCE = 1,
+    /** The announcement waiting withdrawn: the account's keys sign again. */
+    WITHDRAW = 2,
+    /** The recovery set replaced (`publicKeys`, `minSignatures`, `delaySeconds`), or removed (no keys). */
+    CHANGE = 3,
+  };
+
+  uint8_t kind{ 0 };
   std::vector<std::string> publicKeys;
   uint8_t minSignatures{ 0 };
+  uint64_t delaySeconds{ 0 };
 
-  template <typename Archive> void serialize(Archive &ar) { ar & publicKeys & minSignatures; }
+  template <typename Archive> void serialize(Archive &ar) { ar & kind & publicKeys & minSignatures & delaySeconds; }
 
   std::string ltsToString() const;
   bool ltsFromString(const std::string &str);

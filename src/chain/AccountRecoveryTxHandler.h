@@ -6,12 +6,12 @@
 namespace pp {
 
 /**
- * T_ACCOUNT_RECOVERY (projects/account-recovery): an account's recovery set announces its next keys.
- * Signed by the account's recovery set, not its keys (Chain checks that before apply). The account has
- * a set and no announcement waiting; the fee (meta-size) comes from its native balance. Applied, the
- * announcement waits in the account's recovery state — in place, as miner state — until the first
- * block of an epoch at or past `applyEpoch` (= this block's epoch + the account's delay) applies it
- * (AccountBuffer::applyDueRecoveries), unless the account's own update clears it first.
+ * T_ACCOUNT_RECOVERY (projects/account-recovery): an account's recovery set acts on it — announces its
+ * next keys, withdraws that announcement, or changes itself (AccountRecoveryAction). Signed by the
+ * account's recovery set, not its keys (Chain checks that before apply); the account pays the base
+ * fee from its native balance. An announcement waits in the account's recovery state — in place, as
+ * miner state — with the account frozen (RecordHandler refuses what its keys sign) until the first
+ * block of `applyEpoch` (recoveryApplyEpoch) applies it (AccountBuffer::applyDueRecoveries).
  */
 class AccountRecoveryTxHandler final : public ITxHandler {
 public:
@@ -32,8 +32,8 @@ public:
   applyBlock(const Ledger::TypedTx &tx, AccountBuffer &bank,
              const BlockApplyContext &c) const override;
 
-  /** The announcement a T_ACCOUNT_RECOVERY carries, its keys checked. */
-  static chain_tx::Roe<AccountRecoveryAnnouncement> decodeAnnouncement(const Ledger::TxAccountRecovery &tx);
+  /** The action a T_ACCOUNT_RECOVERY carries: a known kind, its keys checked for an announcement. */
+  static chain_tx::Roe<AccountRecoveryAction> decodeAction(const Ledger::TxAccountRecovery &tx);
 
 private:
   chain_tx::Roe<void> apply(const Ledger::TxAccountRecovery &tx, const TxContext &ctx, AccountBuffer &bank,

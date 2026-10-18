@@ -190,9 +190,9 @@ public:
   };
 
   /**
-   * T_ACCOUNT_RECOVERY (projects/account-recovery): account `walletId`'s recovery set announces the
-   * account's next keys (`meta`: an AccountRecoveryAnnouncement); they take over after the account's
-   * delay unless its own update cancels them. Signed by the recovery set; the fee from the account.
+   * T_ACCOUNT_RECOVERY (projects/account-recovery): account `walletId`'s recovery set acts on it
+   * (`meta`: an AccountRecoveryAction) — announces its next keys (the account frozen until they take
+   * over), withdraws that, or changes itself. Signed by the recovery set; the fee from the account.
    */
   struct TxAccountRecovery : TxCommon, TxIdempotencyWindow {
     uint64_t walletId{ 0 };
