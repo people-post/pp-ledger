@@ -1,6 +1,6 @@
 # Domains — symbols for system and issuer accounts
 
-**Status:** dn1–dn2 built (pp-ledger); dn3–dn4 next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** built: the rules and pp-client here (dn1–dn2, normative in [WIRE_SCHEMA § Domains](../../docs/contracts/WIRE_SCHEMA.md#domains)), the apps in pp-ledger-apps (dn3), docs (dn4). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Accounts are numbers today: a token is "token 1,048,626", and a wallet cannot tell a real issuer from
