@@ -6,6 +6,7 @@
 #include "LoadGenerator.h"
 #include "../ledger/Ledger.h"
 #include "../chain/BlockValidation.h"
+#include "../chain/ClientVerify.h"
 #include "../chain/PredecessorCheck.h"
 #include "../chain/StateSnapshot.h"
 #include "../chain/Types.h"
@@ -811,6 +812,14 @@ int main(int argc, char *argv[]) {
   auto* config_cmd = app.add_subcommand(
       "config", "Get the config in force (and any update pending), the admin keys and the authority");
 
+  auto* verified_cmd = app.add_subcommand(
+      "verified-account", "An account proven from a pinned genesis hash: no node believed (use -b/--beacon or -m/--miner)");
+  uint64_t verifiedId = 0;
+  std::string verifiedGenesis;
+  verified_cmd->add_option("accountId", verifiedId, "Account ID")->required();
+  verified_cmd->add_option("--genesis-hash", verifiedGenesis, "Block 0's hash, hex (from a source you trust)")
+      ->required();
+
   auto* account_cmd = app.add_subcommand("account", "Get account info by ID");
   uint64_t accountId = 0;
   account_cmd->add_option("accountId", accountId, "Account ID")->required();
@@ -1291,6 +1300,72 @@ int main(int argc, char *argv[]) {
       std::cout << " " << pp::operation::fingerprint(adminKey);
     }
     std::cout << "\nAuthority: " << gm.authority << "\n";
+  }
+  else if (verified_cmd->parsed()) {
+    exitCode = [&]() -> int {
+      auto fail = [](const std::string &what) {
+        std::cerr << "Not verified: " << what << "\n";
+        return 1;
+      };
+      std::string pinned = verifiedGenesis;
+      if (pinned.rfind("0x", 0) == 0) {
+        pinned = pinned.substr(2);
+      }
+      pinned = pp::utl::hexDecode(pinned);
+      auto genesis = client.fetchBlock(0);
+      if (!genesis) {
+        return fail("block 0: " + genesis.error().message);
+      }
+      auto state = client.fetchBeaconState();
+      if (!state || !state.value().signedTip) {
+        return fail("the node shows no signed tip");
+      }
+      const auto tip = *state.value().signedTip;
+      auto proof = client.fetchAccountProof(verifiedId);
+      if (!proof) {
+        return fail("account proof: " + proof.error().message);
+      }
+      if (proof.value().blockId > tip.height) {
+        return fail("the proof is above the signed tip: ask again");
+      }
+      // The blocks from the signed tip down to the proof's.
+      std::vector<pp::Ledger::ChainNode> blocks;
+      for (uint64_t id = tip.height + 1; id-- > proof.value().blockId;) {
+        auto block = client.fetchBlock(id);
+        if (!block) {
+          return fail("block " + std::to_string(id) + ": " + block.error().message);
+        }
+        blocks.push_back(std::move(block.value()));
+      }
+      auto authority = client.fetchAuthorityProof(tip.height);
+      if (!authority) {
+        return fail("authority proof: " + authority.error().message);
+      }
+      auto trail = pp::verify::authorityAt(genesis.value(), pinned, authority.value(), tip.height,
+                                           blocks.front().block.epoch);
+      if (!trail) {
+        return fail(trail.error().message);
+      }
+      if (auto ok = trail.value().verifyTip(tip); !ok) {
+        return fail("signed tip: " + ok.error().message);
+      }
+      if (auto ok = pp::verify::checkBlocksUnderTip(tip, blocks); !ok) {
+        return fail(ok.error().message);
+      }
+      auto proven = pp::verify::checkAccountProof(blocks.back().block, proof.value());
+      if (!proven) {
+        return fail(proven.error().message);
+      }
+      std::cout << "{\n  \"verified\": true,\n  \"account\": " << verifiedId << ",\n  \"block\": "
+                << proven.value().blockId << ",\n  \"signedTip\": " << tip.height << ",\n  \"generation\": "
+                << tip.generation << ",\n  \"exists\": " << (proven.value().wallet ? "true" : "false");
+      if (proven.value().wallet) {
+        std::cout << ",\n  \"wallet\": "
+                  << pp::common::io::metaToJsonString(proven.value().wallet->ltsToMeta(), 2);
+      }
+      std::cout << "\n}\n";
+      return 0;
+    }();
   }
   else if (account_cmd->parsed()) {
     auto result = client.fetchUserAccount(accountId);

@@ -47,6 +47,7 @@ add_library(pp_chain STATIC
     PredecessorCheck.cpp
     ConfigPolicy.h
     AuthorityTrail.cpp
+    ClientVerify.cpp
     AuthorityTrail.h
     BeaconCertTxHandler.cpp
     BeaconCertTxHandler.h

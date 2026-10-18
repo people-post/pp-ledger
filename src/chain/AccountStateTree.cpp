@@ -90,6 +90,33 @@ AccountStateTree::setRec(const std::shared_ptr<Node> &node, uint64_t key,
   return out;
 }
 
+std::vector<std::string> AccountStateTree::siblings(uint64_t key) const {
+  std::vector<std::string> out(kDepth);
+  std::shared_ptr<Node> node = root_;
+  // From the root down: at height h, the sibling is the other child's subtree (height h - 1).
+  for (int height = kDepth; height > 0; --height) {
+    const bool goRight = ((key >> static_cast<uint64_t>(height - 1)) & 1ULL) != 0;
+    const std::shared_ptr<Node> other = node ? (goRight ? node->left : node->right) : nullptr;
+    out[static_cast<size_t>(height - 1)] = nodeHash(other, height - 1);
+    node = node ? (goRight ? node->right : node->left) : nullptr;
+  }
+  return out;
+}
+
+std::string AccountStateTree::rootFrom(uint64_t key, const std::string &leafHash,
+                                       const std::vector<std::string> &siblings) {
+  if (siblings.size() != static_cast<size_t>(kDepth)) {
+    return {};
+  }
+  std::string hash = leafHash;
+  for (int height = 1; height <= kDepth; ++height) {
+    const bool right = ((key >> static_cast<uint64_t>(height - 1)) & 1ULL) != 0;
+    const std::string &sibling = siblings[static_cast<size_t>(height - 1)];
+    hash = right ? hashInternal(sibling, hash) : hashInternal(hash, sibling);
+  }
+  return hash;
+}
+
 void AccountStateTree::setLeaf(uint64_t key, const std::string &leafHash) {
   root_ = setRec(root_, key, kDepth, leafHash, false);
   rootHash_ = nodeHash(root_, kDepth);

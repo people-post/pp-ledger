@@ -89,6 +89,11 @@ public:
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   /** The genesis meta in force at the node's tip: config (and any update pending), admin account, authority. */
   static constexpr const uint32_t T_REQ_CONFIG_GET = 2002;
+  /**
+   * Payload binaryPack(uint64 accountId); reply binaryPack(AccountProof): the account (or its absence)
+   * in the state root of the node's tip block, with its Merkle path (WIRE_SCHEMA § Account proofs).
+   */
+  static constexpr const uint32_t T_REQ_ACCOUNT_PROOF = 2003;
   // Reserved for name-directory (docs/product/NAME_DIRECTORY.md); not wired yet.
   static constexpr const uint32_t T_REQ_DOMAIN_GET = 2101;
   static constexpr const uint32_t T_REQ_NAME_GET = 2102;
@@ -545,6 +550,30 @@ public:
     pp::common::Meta ltsToMeta() const;
   };
 
+  /**
+   * An account's leaf in block `blockId`'s state root (AccountStateTree, depth 64): the account's
+   * wallet, last write and attachment hash (what the leaf hashes), or its absence; and the path's
+   * siblings — those of the empty subtree left out (`siblingMask` bit h set: `siblings` carries
+   * height h's, leaf level first).
+   */
+  struct AccountProof {
+    uint64_t accountId{ 0 };
+    uint64_t blockId{ 0 };
+    std::string stateRoot;
+    bool present{ false };
+    Wallet wallet;
+    uint64_t lastWriteBlockId{ 0 };
+    std::string attachmentHash;
+    uint64_t siblingMask{ 0 };
+    std::vector<std::string> siblings;
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & accountId & blockId & stateRoot & present & wallet & lastWriteBlockId & attachmentHash & siblingMask &
+          siblings;
+    }
+  };
+
   /** Blocks [fromBlockId, toBlockId) (block 0 is not counted). */
   struct ProducerStatsRequest {
     uint64_t fromBlockId{ 0 };
@@ -649,6 +678,8 @@ public:
   Roe<GenesisAccountMeta> fetchGenesisMeta();
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
+  /** T_REQ_ACCOUNT_PROOF: account `accountId` in the node's tip state, with its Merkle path. */
+  Roe<AccountProof> fetchAccountProof(uint64_t accountId);
   /** T_REQ_PRODUCER_STATS: one page (capped at kMaxProducerStatsBlocks). */
   Roe<ProducerStatsResponse> fetchProducerStats(const ProducerStatsRequest &request);
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);

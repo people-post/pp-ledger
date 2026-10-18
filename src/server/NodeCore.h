@@ -57,6 +57,8 @@ public:
   Roe<Client::AuthorityProof> authorityProof(uint64_t upToBlockId) const;
   /** Find transactions involving walletId, scanning backwards from ioBlockId (0 = latest). ioBlockId is updated to the last block scanned. */
   Roe<std::vector<Ledger::Record>> findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
+  /** Chain::accountProof. */
+  Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
   /** Chain::producerStats. */
   Roe<Client::ProducerStatsResponse> producerStats(uint64_t fromBlockId, uint64_t toBlockId) const;
   /** Find transaction by global chain index (0-based). */

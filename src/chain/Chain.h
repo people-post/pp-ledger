@@ -348,6 +348,12 @@ public:
    * Refused for blocks this node does not hold.
    */
   Roe<Client::ProducerStatsResponse> producerStats(uint64_t fromBlockId, uint64_t toBlockId) const;
+  /**
+   * Account `accountId` (or its absence) in the tip block's state root, with its Merkle path
+   * (WIRE_SCHEMA § Account proofs). Refused while the account state is ahead of the tip (a block
+   * being sealed): ask again.
+   */
+  Roe<Client::AccountProof> accountProof(uint64_t accountId) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,

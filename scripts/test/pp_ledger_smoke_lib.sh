@@ -1189,6 +1189,40 @@ run_batch_scenario() {
   echo -e "${GREEN}✓ Producers: ${total} blocks, each counted to its producer${NC}"
 }
 
+# A wallet's verified read (WIRE_SCHEMA § Account proofs): carol's account proven from block 0's
+# hash through the authority proof, the signed tip and her Merkle path; an absent account proven
+# absent; a wrong pinned hash refused. Needs carol's account (run_operation_file_scenario).
+run_verified_account_scenario() {
+  local carol=$(((1 << 30) + 7)) genesis out
+  echo -e "${CYAN}Verified read: account ${carol} proven from block 0's hash...${NC}"
+  genesis=$(run_pp_client -b --host "$(relay_multiaddr)" block 0 2>/dev/null | tr -d ' \n' |
+    sed -n 's/^{"hash":"\(0x[0-9a-f]*\)".*/\1/p')
+  [[ -n "$genesis" ]] || die "L-SMOKE-PROOF: cannot read block 0's hash"
+  local attempt
+  for attempt in 1 2 3; do
+    if out=$(run_pp_client -b --host "$(relay_multiaddr)" verified-account "$carol" --genesis-hash "$genesis" 2>&1); then
+      break
+    fi
+    sleep 2 # the relay may hold a block above the beacon's latest signed tip
+  done
+  local json
+  json=$(tr -d ' \n' <<<"$out")
+  grep -q '"verified":true' <<<"$json" && grep -q '"exists":true' <<<"$json" ||
+    die "L-SMOKE-PROOF: carol's account was not proven: $out"
+  local balance
+  balance=$(native_balance "$carol")
+  grep -q "\"mBalances\":{\"0\":${balance}[,}]" <<<"$json" ||
+    die "L-SMOKE-PROOF: the proven balance is not the node's ($balance): $out"
+  out=$(run_pp_client -b --host "$(relay_multiaddr)" verified-account $((carol + 1000)) --genesis-hash "$genesis" 2>&1) ||
+    die "L-SMOKE-PROOF: an absent account was not proven absent: $out"
+  grep -q '"exists": false' <<<"$out" || die "L-SMOKE-PROOF: an absent account shows as present: $out"
+  if run_pp_client -b --host "$(relay_multiaddr)" verified-account "$carol" \
+    --genesis-hash "0x$(printf '%064d' 7)" >/dev/null 2>&1; then
+    die "L-SMOKE-PROOF: a wrong pinned genesis hash was accepted"
+  fi
+  echo -e "${GREEN}✓ Verified: account ${carol} proven to block 0's hash (balance ${balance}); an absent one proven absent; a wrong hash refused${NC}"
+}
+
 # Token issuers (pp-ledger-apps's token app): the reserve funds the registrar, the registrar
 # creates an issued account, which issues its own token (a transfer of the token whose id is its
 # own: its balance of it goes negative) to a user account, then replaces its keys. Needs carol's

@@ -1,3 +1,4 @@
+#include "ClientVerify.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Crypto.h"
 #include "lib/common/Utilities.h"
@@ -3607,6 +3608,64 @@ TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
     EXPECT_EQ(past.value().blocks, 1u);
     EXPECT_EQ(past.value().nextBlockId, next);
   }
+}
+
+// WIRE_SCHEMA § Account proofs: what a wallet checks so as to believe no node — from the genesis hash
+// it pinned, block 0; the authority proof to the beacon key; the signed tip; the blocks under it; the
+// account in the tip block's state root.
+TEST_F(ChainComposeTest, AClientProvesAnAccountFromThePinnedGenesis) {
+  auto &peer = harness_.peer;
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  peer.setClockOverride(peer.getSlotStartTime(1));
+  ASSERT_TRUE(peer.addBlock(user.block).isOk());
+  const uint64_t height = user.block.block.index;
+  const Ledger::ChainNode genesis = peer.readBlock(0).value();
+  const Ledger::ChainNode tipBlock = peer.readBlock(height).value();
+
+  // Block 0 and the authority, from the pinned hash.
+  EXPECT_FALSE(verify::checkGenesis(genesis, std::string(32, '\x01')).isOk()) << "not the pinned hash";
+  auto authority = peer.authorityProof(height);
+  ASSERT_TRUE(authority.isOk()) << authority.error().message;
+  auto trail = verify::authorityAt(genesis, genesis.hash, authority.value(), height, tipBlock.block.epoch);
+  ASSERT_TRUE(trail.isOk()) << trail.error().message;
+  const Client::SignedTip tip = signTip(peer, height, 1, testBeaconKey());
+  EXPECT_TRUE(trail.value().verifyTip(tip).isOk());
+  EXPECT_FALSE(trail.value().verifyTip(signTip(peer, height, 1, makeKeyPair())).isOk()) << "not the beacon's";
+
+  // The blocks under the tip, by their hashes.
+  EXPECT_TRUE(verify::checkBlocksUnderTip(tip, {tipBlock, genesis}).isOk());
+  Ledger::ChainNode altered = tipBlock;
+  altered.block.stateRoot = std::string(32, '\x02');
+  EXPECT_FALSE(verify::checkBlocksUnderTip(tip, {altered}).isOk()) << "its hash no longer matches";
+  EXPECT_FALSE(verify::checkBlocksUnderTip(tip, {genesis}).isOk()) << "not the tip's block";
+
+  // The account, in the tip block's state root.
+  auto proof = peer.accountProof(user.id);
+  ASSERT_TRUE(proof.isOk()) << proof.error().message;
+  EXPECT_EQ(proof.value().blockId, height);
+  EXPECT_LT(proof.value().siblings.size(), 16u) << "empty subtrees are left out";
+  auto proven = verify::checkAccountProof(tipBlock.block, proof.value());
+  ASSERT_TRUE(proven.isOk()) << proven.error().message;
+  ASSERT_TRUE(proven.value().wallet.has_value());
+  EXPECT_EQ(proven.value().wallet->mBalances, peer.getAccount(user.id).value().wallet.mBalances);
+
+  Client::AccountProof richer = proof.value();
+  richer.wallet.mBalances[AccountBuffer::ID_GENESIS] += 1'000'000;
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, richer).isOk()) << "a balance the root does not hold";
+  Client::AccountProof hidden = proof.value();
+  hidden.present = false;
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, hidden).isOk()) << "the account is there";
+  EXPECT_FALSE(verify::checkAccountProof(genesis.block, proof.value()).isOk()) << "another block";
+  Client::AccountProof longer = proof.value();
+  longer.siblings.push_back(std::string(32, '\x03'));
+  EXPECT_FALSE(verify::checkAccountProof(tipBlock.block, longer).isOk());
+
+  // An account nobody holds is proven absent.
+  auto absent = peer.accountProof(user.id + 1000);
+  ASSERT_TRUE(absent.isOk()) << absent.error().message;
+  auto none = verify::checkAccountProof(tipBlock.block, absent.value());
+  ASSERT_TRUE(none.isOk()) << none.error().message;
+  EXPECT_FALSE(none.value().wallet.has_value());
 }
 
 // A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item
