@@ -19,7 +19,17 @@ inline constexpr const char *kFormat = "pp-ledger-operation";
 inline constexpr uint32_t kVersion = 1;
 
 /** What an operation does, as its record says (never as the file claims). */
-enum class Kind { Transfer, Mint, NewAccount, ConfigUpdate, BeaconCertificate, Recovery, Genesis, Other };
+enum class Kind {
+  Transfer,
+  Mint,
+  NewAccount,
+  AccountUpdate,
+  ConfigUpdate,
+  BeaconCertificate,
+  Recovery,
+  Genesis,
+  Other
+};
 
 std::string kindName(Kind kind);
 std::optional<Kind> kindFromName(const std::string &name);
@@ -27,7 +37,7 @@ std::optional<Kind> kindFromName(const std::string &name);
 Kind kindOf(const Ledger::Record &record);
 /**
  * The account whose keys sign `record`, as the chain resolves it: the payer of a transfer or new
- * account, the genesis (admin) account of a config update, beacon certificate or genesis. None for a
+ * account, the account an update replaces, the genesis (admin) account of a config update, beacon certificate or genesis. None for a
  * recovery (the recovery key set signs it) or a kind the operation file does not know (Other).
  */
 std::optional<uint64_t> signerAccountOf(const Ledger::Record &record);
@@ -151,6 +161,14 @@ pp::Roe<Operation> mint(const Common &common, uint64_t amount, uint64_t fee);
 /** A new account `id` funded with `amount` by the signers' account (the registrar for issued ids). */
 pp::Roe<Operation> newAccount(const Common &common, uint64_t id, const UserAccount &account, uint64_t amount,
                               uint64_t fee);
+/**
+ * Replace account `current`'s keys (T_USER_UPDATE, signed by the keys in force — `common.signers`):
+ * the account as it is, with `keys` and `minSignatures`, its native balance less the fee. The chain
+ * keeps its own balances (renewals and transfers in between do not void it): only the fee leaves the
+ * native balance as it is then.
+ */
+pp::Roe<Operation> replaceKeys(const Common &common, const UserAccount &current, const std::vector<std::string> &keys,
+                               uint32_t minSignatures, uint64_t fee);
 /** A record built elsewhere (pp-client mk-beacon-cert, mk-recovery, mk-tx), its signatures dropped. */
 pp::Roe<Operation> wrap(const Common &common, const Ledger::Record &record);
 /**

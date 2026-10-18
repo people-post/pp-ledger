@@ -97,6 +97,18 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
                                "User account not found in buffer: " +
                                    std::to_string(tx.walletId));
     }
+  } else if (kind == UpsertKind::Update) {
+    // The balances are the chain's: they move while the account's holders sign (transfers in,
+    // renewals, its own issuing). An update replaces the keys, key type and meta; the fee comes out
+    // of the native balance held now. The balances it carries are not used.
+    auto balances = bufferAccountResult.value().wallet.mBalances;
+    int64_t &native = balances[AccountBuffer::ID_GENESIS];
+    if (native < 0 || static_cast<uint64_t>(native) < tx.fee) {
+      return chain_tx::TxError(chain_err::E_TX_TRANSFER,
+                               "Account " + std::to_string(tx.walletId) + " cannot pay the update's fee");
+    }
+    native -= static_cast<int64_t>(tx.fee);
+    userAccount.wallet.mBalances = std::move(balances);
   } else {
     auto balanceVerifyResult = bank.verifyBalance(
         tx.walletId, 0, tx.fee, userAccount.wallet.mBalances);
@@ -104,6 +116,8 @@ chain_tx::Roe<void> UserAccountUpsertBase::applyUserAccountUpsert(
       return chain_tx::TxError(chain_err::E_TX_VALIDATION,
                                balanceVerifyResult.error().message);
     }
+  }
+  if (bufferAccountResult) {
     // Miner state is chain-owned: an update or renewal carries it unchanged (only
     // T_MINER_REGISTER / T_MINER_REVOKE and block apply change it).
     if (userAccount.wallet.miner != bufferAccountResult.value().wallet.miner) {

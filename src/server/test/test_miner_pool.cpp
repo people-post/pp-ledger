@@ -406,6 +406,19 @@ TEST_F(MinerPoolTest, AdmissionRefusesWhatCouldNeverApply) {
   garbage.type = Ledger::T_DEFAULT;
   garbage.data = "not a transaction";
   EXPECT_FALSE(miner_->checkAdmission(garbage, from, false));
+
+  // An issued account (the genesis miner) issues its own token from nothing — the fee it pays in
+  // the native token; another issuer's token it must hold.
+  auto issue = utl::binaryUnpack<Ledger::TxDefault>(valid.data).value();
+  issue.fromWalletId = kMinerId;
+  issue.tokenId = kMinerId;
+  issue.amount = 1'000'000;
+  Ledger::Record issuing = valid;
+  issuing.data = utl::binaryPack(issue);
+  EXPECT_TRUE(miner_->checkAdmission(issuing, from, false)) << "an issuer issues its own token";
+  issue.tokenId = kMinerId + 1;
+  issuing.data = utl::binaryPack(issue);
+  EXPECT_FALSE(miner_->checkAdmission(issuing, from, false)) << "another issuer's token, not held";
 }
 
 TEST_F(MinerPoolTest, StalePendingTransactionDoesNotStallTheLeader) {

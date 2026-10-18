@@ -1986,10 +1986,12 @@ Chain::Roe<void> Chain::checkAdmission(const Ledger::Record &record, int64_t now
         // The payer covers it on the committed state (pending spends are the leader's to weigh).
         auto covers = [&](uint64_t payer, uint64_t tokenId, uint64_t amount, uint64_t fee) -> Roe<void> {
           const int64_t native = bank.getBalance(payer, AccountBuffer::ID_GENESIS);
+          // An issuer sending its own token issues it: only the fee needs covering.
+          const bool issuing = AccountBuffer::issuesToken(payer, tokenId);
           const bool enough = tokenId == AccountBuffer::ID_GENESIS
                                   ? native >= 0 && static_cast<uint64_t>(native) >= amount + fee
-                                  : bank.getBalance(payer, tokenId) >= static_cast<int64_t>(amount) && native >= 0 &&
-                                        static_cast<uint64_t>(native) >= fee;
+                                  : (issuing || bank.getBalance(payer, tokenId) >= static_cast<int64_t>(amount)) &&
+                                        native >= 0 && static_cast<uint64_t>(native) >= fee;
           if (!enough) {
             return Error(E_TX_TRANSFER, "Account " + std::to_string(payer) + " cannot cover the amount and fee");
           }

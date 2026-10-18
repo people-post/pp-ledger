@@ -64,4 +64,7 @@ private:
   uint32_t accountMinSignatures_{1};
   Create wrap_;
   std::optional<uint64_t> wrapAccount_;
+  Create updateKeys_;
+  std::vector<std::string> newKeys_;
+  uint32_t newMinSignatures_{1};
 };

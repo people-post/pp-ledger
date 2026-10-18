@@ -138,8 +138,7 @@ bool AccountBuffer::isEmpty() const { return mAccounts_.empty(); }
 
 bool AccountBuffer::isNegativeBalanceAllowed(const Account &account,
                                              uint64_t tokenId) const {
-  // Only the genesis token account can have negative balances
-  return account.id < ID_FIRST_USER && account.id == tokenId;
+  return issuesToken(account.id, tokenId);
 }
 
 std::vector<uint64_t>
