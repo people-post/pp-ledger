@@ -30,7 +30,8 @@ Do not put phase status in `AGENTS.md`.
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
 | [platform-integration](platform-integration/DESIGN.md) | Ledger roles in pp-node (gateway) and pp-browser (client, optional miner) over Amp |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
-| [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set names new keys after a delay; the owner can cancel, the account is not frozen (built: [WIRE_SCHEMA § Account recovery](../docs/contracts/WIRE_SCHEMA.md#account-recovery)) |
+| [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set above the account's keys names new keys, the account frozen until they take over (built in 1.4.0: [WIRE_SCHEMA § Account recovery](../docs/contracts/WIRE_SCHEMA.md#account-recovery)) |
+| [domains](domains/DESIGN.md) | Symbols for system (1–3 letters) and issuer accounts (4–7): a token's ticker and the account's domain, given by genesis or the registrar, read-only, proven both ways |
 
 ## Done / archived
 
