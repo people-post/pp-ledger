@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+
 using namespace pp;
 using namespace pp::operation;
 
@@ -271,18 +273,87 @@ TEST(OperationTest, AGenesisIsSignedRecordByRecordAndMerged) {
   EXPECT_TRUE(reserve);
 }
 
-TEST(OperationTest, OnlyAGenesisCarriesMoreRecords) {
+TEST(OperationTest, MoreRecordsAreAGenesissAccountsOrABatchsTransfers) {
   Keys keys(2);
   auto op = transfer(common(keys, 1, AccountIds::ID_RESERVE), AccountIds::ID_REGISTRAR, 1, 0);
   ASSERT_TRUE(op);
   Operation withMore = op.value();
   withMore.moreRecords.push_back(genesisRecords(Keys(3))[1]);
   EXPECT_FALSE(fromJson(toJson(withMore)));
+  // A batch's more records are transfers from its account, each once.
+  auto other = transfer(common(keys, 1, AccountIds::ID_REGISTRAR), AccountIds::ID_RESERVE, 1, 0);
+  ASSERT_TRUE(other);
+  Operation fromAnother = op.value();
+  fromAnother.moreRecords.push_back(other.value().record);
+  EXPECT_FALSE(fromJson(toJson(fromAnother)));
+  Operation twice = op.value();
+  twice.moreRecords.push_back(op.value().record);
+  EXPECT_FALSE(fromJson(toJson(twice)));
+  auto mint = pp::operation::mint(common(keys, 1, AccountIds::ID_GENESIS), 5, 0);
+  ASSERT_TRUE(mint);
+  Operation mints = mint.value();
+  auto again = pp::operation::mint(common(keys, 1, AccountIds::ID_GENESIS), 5, 0);
+  mints.moreRecords.push_back(again.value().record);
+  EXPECT_FALSE(fromJson(toJson(mints))); // a mint is not batched
   // Nor does a genesis carry anything but accounts the genesis account creates.
   Keys admins(3);
   auto records = genesisRecords(admins);
   records.push_back(op.value().record);
   EXPECT_FALSE(genesis(records, "", 0));
+}
+
+TEST(OperationTest, ABatchIsSignedOnceAndSubmittedTransferByTransfer) {
+  Keys keys(3);
+  const std::vector<Payment> payments = {{AccountIds::ID_FIRST_USER + 1, 700, 0},
+                                         {AccountIds::ID_FIRST_ISSUED + 9, 300, 0},
+                                         {AccountIds::ID_FIRST_USER + 2, 50, AccountIds::ID_FIRST_ISSUED + 5}};
+  auto op = transfers(common(keys, 2, AccountIds::ID_FEE), payments, 2, "round 3");
+  ASSERT_TRUE(op) << op.error().message;
+  EXPECT_EQ(op.value().kind, Kind::Batch);
+  ASSERT_EQ(op.value().moreRecords.size(), 2u);
+  // Each its own transaction: distinct idempotency ids, one window, the same metadata.
+  std::set<uint64_t> ids;
+  for (const auto *record : {&op.value().record, &op.value().moreRecords[0], &op.value().moreRecords[1]}) {
+    auto tx = utl::binaryUnpack<Ledger::TxDefault>(record->data);
+    ASSERT_TRUE(tx);
+    EXPECT_EQ(tx.value().fromWalletId, AccountIds::ID_FEE);
+    EXPECT_EQ(tx.value().fee, 2u);
+    EXPECT_EQ(tx.value().meta, "round 3");
+    ids.insert(tx.value().idempotentId);
+  }
+  EXPECT_EQ(ids.size(), 3u);
+
+  // Signed apart, merged: complete once two holders signed every transfer.
+  Operation a = op.value();
+  Operation b = op.value();
+  ASSERT_TRUE(sign(a, keys.pairs[0].privateKey));
+  ASSERT_TRUE(sign(b, keys.pairs[2].privateKey));
+  EXPECT_FALSE(signedRecords(a));
+  auto merged = merge({fromJson(toJson(a)).value(), fromJson(toJson(b)).value()});
+  ASSERT_TRUE(merged) << merged.error().message;
+  EXPECT_EQ(merged.value().kind, Kind::Batch);
+  auto records = signedRecords(merged.value());
+  ASSERT_TRUE(records) << records.error().message;
+  ASSERT_EQ(records.value().size(), 3u);
+  for (const auto &record : records.value()) {
+    EXPECT_EQ(record.signatures.size(), 2u);
+  }
+
+  auto summary = summarize(merged.value());
+  ASSERT_TRUE(summary) << summary.error().message;
+  EXPECT_EQ(summary.value().title, "3 transfers from Fee");
+  bool total = false;
+  bool fees = false;
+  for (const auto &[label, value] : summary.value().lines) {
+    total = total || (label == "Total" && value == "1,000");
+    fees = fees || (label == "Fees, all" && value == "6");
+  }
+  EXPECT_TRUE(total);
+  EXPECT_TRUE(fees);
+
+  EXPECT_FALSE(transfers(common(keys, 2, AccountIds::ID_FEE), {payments[0]}, 2)); // one is a transfer
+  EXPECT_FALSE(transfers(common(keys, 2, AccountIds::ID_FEE), {payments[0], {AccountIds::ID_FEE, 1, 0}}, 2));
+  EXPECT_FALSE(transfers(common(keys, 2, AccountIds::ID_FEE), {payments[0], {7, 0, 0}}, 2));
 }
 
 TEST(OperationTest, AnAccountReplacesItsKeysSignedByThoseInForce) {

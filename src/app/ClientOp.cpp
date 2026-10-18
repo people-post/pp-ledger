@@ -106,6 +106,37 @@ void print(const op::Operation &operation) {
   }
 }
 
+/** A batch's payments: a CSV of `to,amount[,token]` lines ('#' starts a comment). */
+pp::Roe<std::vector<op::Payment>> readPayments(const std::string &path) {
+  std::ifstream in(path);
+  if (!in) {
+    return pp::Error("cannot open " + path);
+  }
+  std::vector<op::Payment> payments;
+  std::string line;
+  for (size_t number = 1; std::getline(in, line); ++number) {
+    line = line.substr(0, line.find('#'));
+    line.erase(std::remove_if(line.begin(), line.end(), [](unsigned char c) { return std::isspace(c); }), line.end());
+    if (line.empty()) {
+      continue;
+    }
+    std::vector<uint64_t> fields;
+    std::istringstream cells(line);
+    for (std::string cell; std::getline(cells, cell, ',');) {
+      if (cell.empty() || !std::all_of(cell.begin(), cell.end(), [](unsigned char c) { return std::isdigit(c); }) ||
+          cell.size() > 19) {
+        return pp::Error(path + " line " + std::to_string(number) + ": not to,amount[,token]");
+      }
+      fields.push_back(std::stoull(cell));
+    }
+    if (fields.size() < 2 || fields.size() > 3) {
+      return pp::Error(path + " line " + std::to_string(number) + ": not to,amount[,token]");
+    }
+    payments.push_back({fields[0], fields[1], fields.size() == 3 ? fields[2] : 0});
+  }
+  return payments;
+}
+
 pp::Roe<op::Operation> loadChecked(const std::string &path) {
   auto operation = op::load(path);
   if (!operation) {
@@ -142,6 +173,12 @@ OpCommands::OpCommands(CLI::App &app) {
   transfer_.cmd->add_option("--amount", amount_, "Amount")->required();
   transfer_.cmd->add_option("--token", tokenId_, "Token id (0: the native token)");
   addCreateOptions(transfer_, true);
+
+  batch_.cmd = op_->add_subcommand("batch", "Create a batch: several transfers from one account, signed together");
+  batch_.cmd->add_option("--from", from_, "Paying account (its keys sign)")->required();
+  batch_.cmd->add_option("--payments", paymentsFile_, "CSV of to,amount[,token] lines")->required();
+  batch_.cmd->add_option("--meta", meta_, "Text every transfer carries (e.g. what the batch is for)");
+  addCreateOptions(batch_, true);
 
   mint_.cmd = op_->add_subcommand("mint", "Create a mint: new native tokens to the reserve (the admin keys sign)");
   mint_.cmd->add_option("--amount", amount_, "Amount")->required();
@@ -185,14 +222,15 @@ void OpCommands::addCreateOptions(Create &create, bool withFee) {
   create.cmd->add_option("--min-signatures", create.minSignatures,
                          "Signatures needed (with --signer-key; default: all of them)");
   if (withFee) {
-    create.cmd->add_option("-f,--fee", create.fee, "Fee, paid by the signers' account")->required();
+    create.cmd->add_option("-f,--fee", create.fee, "Fee, paid by the signers' account (a batch: each transfer's)")
+        ->required();
   }
 }
 
 bool OpCommands::parsed() const { return op_->parsed(); }
 
 const OpCommands::Create *OpCommands::parsedCreate() const {
-  for (const Create *create : {&transfer_, &mint_, &newAccount_, &updateKeys_, &wrap_}) {
+  for (const Create *create : {&transfer_, &batch_, &mint_, &newAccount_, &updateKeys_, &wrap_}) {
     if (create->cmd->parsed()) {
       return create;
     }
@@ -275,9 +313,9 @@ int OpCommands::run(pp::Client *client) {
     if (operation.value().kind == op::Kind::Genesis) {
       return fail("a genesis is not submitted: it starts a beacon (pp-beacon --init --genesis-op " + file_ + ")");
     }
-    auto record = op::signedRecord(operation.value());
-    if (!record) {
-      return fail(record.error().message);
+    auto records = op::signedRecords(operation.value());
+    if (!records) {
+      return fail(records.error().message);
     }
     auto networkId = client->fetchNetworkId();
     if (!networkId) {
@@ -297,11 +335,24 @@ int OpCommands::run(pp::Client *client) {
                     " (its genesis hash differs from the node's)");
       }
     }
-    auto reply = client->submitTransaction(record.value());
-    if (!reply) {
-      return fail(reply.error().message);
+    // A batch's transfers go one by one: each stands alone (sending one again is harmless).
+    size_t refused = 0;
+    for (size_t i = 0; i < records.value().size(); ++i) {
+      if (auto reply = client->submitTransaction(records.value()[i]); !reply) {
+        if (records.value().size() == 1) {
+          return fail(reply.error().message);
+        }
+        ++refused;
+        std::cerr << "Transfer " << (i + 1) << " refused: " << reply.error().message << "\n";
+      }
     }
-    std::cout << "Submitted: " << op::kindName(operation.value().kind) << "\n";
+    if (refused > 0) {
+      return fail(std::to_string(refused) + " of " + std::to_string(records.value().size()) +
+                  " transfers refused (the others were submitted)");
+    }
+    std::cout << "Submitted: " << op::kindName(operation.value().kind)
+              << (records.value().size() > 1 ? " of " + std::to_string(records.value().size()) + " transfers" : "")
+              << "\n";
     return 0;
   }
 
@@ -395,6 +446,12 @@ int OpCommands::runCreate(const Create &create, pp::Client *client) {
   pp::Roe<op::Operation> built = pp::Error("unknown op command");
   if (&create == &transfer_) {
     built = op::transfer(common, to_, amount_, create.fee, tokenId_);
+  } else if (&create == &batch_) {
+    auto payments = readPayments(paymentsFile_);
+    if (!payments) {
+      return fail("--payments: " + payments.error().message);
+    }
+    built = op::transfers(common, payments.value(), create.fee, meta_);
   } else if (&create == &mint_) {
     built = op::mint(common, amount_, create.fee);
   } else if (&create == &updateKeys_) {

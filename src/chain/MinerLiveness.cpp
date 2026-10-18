@@ -15,7 +15,7 @@ namespace {
 
 /** One skipped slot led by `leaderId`: a miss if it was due; deregister at the limit. */
 Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slot, uint64_t blockEpoch,
-                            const BlockChainConfig &config, bool strict) {
+                            const BlockChainConfig &config, bool strict, std::vector<uint64_t> *charged) {
   auto account = bank.getAccount(leaderId);
   if (!account) {
     return strict ? Roe<void>(TxError(chain_err::E_ACCOUNT_NOT_FOUND,
@@ -27,6 +27,9 @@ Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slo
     return {};
   }
   ++miner.missedDue;
+  if (charged) {
+    charged->push_back(leaderId);
+  }
   if (config.minerMaxMissedSlots > 0 && miner.missedDue >= config.minerMaxMissedSlots) {
     miner.registered = false;
     miner.missedDue = 0;
@@ -42,7 +45,7 @@ Roe<void> chargeSkippedSlot(AccountBuffer &bank, uint64_t leaderId, uint64_t slo
 
 Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee &consensus,
                              const BlockChainConfig &config, uint64_t prevSlot, const Ledger::Block &block,
-                             bool strict, bool chargeSkipped) {
+                             bool strict, bool chargeSkipped, std::vector<uint64_t> *charged) {
   // 1. Skipped slots of this block's epoch: its committee and seed elect their leaders.
   const uint64_t slotsPerEpoch = consensus.getConfig().slotsPerEpoch;
   const uint64_t epochFirstSlot = slotsPerEpoch > 0 ? block.epoch * slotsPerEpoch : block.slot;
@@ -52,8 +55,8 @@ Roe<void> applyMinerLiveness(AccountBuffer &bank, const consensus::SlotCommittee
       if (!leader) {
         continue;  // no committee for the slot: nobody was elected
       }
-      if (auto charged = chargeSkippedSlot(bank, leader.value(), slot, block.epoch, config, strict); !charged) {
-        return charged;
+      if (auto ok = chargeSkippedSlot(bank, leader.value(), slot, block.epoch, config, strict, charged); !ok) {
+        return ok;
       }
     }
   }

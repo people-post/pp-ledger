@@ -27,11 +27,11 @@ UTF-8 JSON, one object. Byte strings are base64 (RFC 4648, with padding), except
 | `version` | integer | `1`; a reader refuses any other |
 | `networkId` | string | The chain's network id: part of the signing message |
 | `genesisHash` | hex string | Block 0's hash (32 bytes), or `""` when the creator did not know it |
-| `kind` | string | `transfer`, `mint`, `new-account`, `account-update`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
+| `kind` | string | `transfer`, `batch`, `mint`, `new-account`, `account-update`, `config-update`, `beacon-certificate`, `recovery`, `genesis`, or `record` (any other type) |
 | `record` | object | `type` (the record type, integer) and `data` (base64 of the packed payload): what is signed |
 | `signers` | object | `account` (integer; absent for a key set), `minSignatures` (integer ≥ 1), `publicKeys` (base64 ML-DSA-65 public keys) |
 | `signatures` | array | Base64 ML-DSA-65 signatures of `record` collected, in any order |
-| `moreRecords` | array | A `genesis` only (§ Genesis): block 0's further records, each `{type, data, signatures}` |
+| `moreRecords` | array | A `genesis`'s (§ Genesis): block 0's further records; a `batch`'s (§ Batch): its other transfers. Each `{type, data, signatures}` |
 | `notes` | string | The creator's free text |
 | `createdAt` | integer | Unix seconds when the operation was made |
 
@@ -55,7 +55,7 @@ a signature in the file is exactly a signature the node checks.
   valid signatures of each record, one per key, in `publicKeys` order.
 - **Submit.** Only with `minSignatures` valid signatures; the node's network id must be
   `networkId`, and its block 0 hash `genesisHash` when one is named. The submitted record carries
-  the valid signatures only. Submitting again is harmless (the pool keeps one copy; the chain one
+  the valid signatures only; a batch's records are submitted one by one. Submitting again is harmless (the pool keeps one copy; the chain one
   transaction per payer and idempotent id).
 - **Validity.** The record's validity window (`validationTsMin`…`validationTsMax`) is the deadline
   for every signer; the chain caps its length (`maxValidationTimespanSeconds`, default one day).
@@ -67,6 +67,7 @@ a signature in the file is exactly a signature the node checks.
 |--------|--------|-------------------------------|
 | `mint` | `T_DEFAULT` from genesis (0) to the reserve (1): the only way to mint | The genesis (admin) account, 0 |
 | `transfer` | Any other `T_DEFAULT` | Its `fromWalletId` |
+| `batch` | Two or more transfers (`record`, then `moreRecords`) from one account | Their `fromWalletId` |
 | `new-account` | `T_NEW_USER` | Its `fromWalletId` |
 | `account-update` | `T_USER_UPDATE` | Its `walletId`: the keys in force sign for the keys that replace them |
 | `config-update` | `T_CONFIG` | The genesis account, 0 |
@@ -74,6 +75,21 @@ a signature in the file is exactly a signature the node checks.
 | `recovery` | `T_RECOVERY` | The recovery key set ([BEACON_AUTHORITY.md](BEACON_AUTHORITY.md)): no `account` |
 | `genesis` | `T_GENESIS` | The genesis account, 0 |
 | `record` | Any other type | Not checked |
+
+## Batch
+
+Several transfers from one account, reviewed and signed together (pp-ledger-apps' fee app pays a
+round's recipients this way).
+
+- `record` is the first transfer, `moreRecords` the others: 2 to 1,000 (`kMaxBatchTransfers`), each
+  a `T_DEFAULT` from `signers.account` (not a mint), no two the same. Each has its own idempotent id;
+  they share the validity window, the fee (each pays it) and, when given, the metadata.
+- A key signs every transfer at once; the summary is the table — each recipient and amount, the
+  totals per token, the fees.
+- Each transfer is its own transaction: submitted one by one, admitted and applied on its own (the
+  pool takes up to 1,000 pending per account), possibly in different blocks. A transfer the
+  account cannot cover when it applies is refused alone; the creator checks the total against the
+  balance.
 
 ## Genesis
 
@@ -106,11 +122,12 @@ Block 0 signed offline: the genesis keys never reach the beacon host.
 | `op mint --amount N -f FEE -o FILE` | A mint (genesis → reserve) | Same |
 | `op new-account --from A --id ID --account-key K… --amount N -f FEE -o FILE` | A new account, funded by A | Same |
 | `op update-keys --account A --new-key K… [--new-min-signatures N] -f FEE -o FILE` | A's keys and threshold replaced (default: all new keys); the rest of A's meta as the node has it | Always |
+| `op batch --from A --payments CSV [--meta TEXT] -f FEE -o FILE` | A batch from A: a transfer per CSV line `to,amount[,token]` (`#` comments), each paying FEE and carrying TEXT | When not given `--network-id` and `--signer-key` |
 | `op wrap TX-FILE -o FILE` | An operation of a record made by `mk-beacon-cert`, `mk-recovery`, `mk-tx`, … (its signatures dropped) | Same; a recovery always needs `--signer-key` |
 | `op show FILE` | What it does, its deadline, who signed (key fingerprints), whether complete | No |
 | `op sign FILE -k KEY [-o OUT]` | Add a signature (replaces FILE unless `-o`) | No |
 | `op merge FILE… -o OUT` | Merge signed copies | No |
-| `op submit FILE` | Submit a complete operation (`-b --host <relay or beacon>`); not a genesis (§ Genesis) | Yes |
+| `op submit FILE` | Submit a complete operation (`-b --host <relay or beacon>`); a batch transfer by transfer, reporting any refused; not a genesis (§ Genesis) | Yes |
 
 Creators take `--valid-for SECONDS` (default 86400; the window opens a minute before now),
 `--notes`, and, offline, `--network-id`, `--genesis-hash`, `--signer-key` (repeat) and

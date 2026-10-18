@@ -417,6 +417,19 @@ certificate with a cutover — the first block after a beacon outage
 (`isMinerDue`, `applyMinerLiveness`); `pp-client miner-register` / `miner-revoke`; pp-miner
 warns when its account is not a registered miner.
 
+## Producer statistics
+
+`PRODUCER_STATS` (request 1006; `pp-client producers --from A --to B`) counts blocks `[from, to)`
+(block 0 excluded) per account: blocks produced (`slotLeader`), the fees of their transactions,
+and the **misses charged** — the slots it led while due and skipped (§ Miner registration and
+liveness, step 1). Not every empty slot: an idle chain seals about one heartbeat block an epoch, so
+a skipped slot is a miss only for a due leader. A reply covers at most 10,000 blocks
+(`kMaxProducerStatsBlocks`) and stops at the node's tip; `nextBlockId` says where to ask again.
+
+Misses charged are not on the chain: each node records them as it applies blocks (`Chain`, by block,
+rebuilt by its replay at start), so any node holding the range answers the same. Refused for blocks
+before the node's first (a node started at a checkpoint).
+
 ## Miner sign-in (`REGISTER` request)
 
 Network-level: a miner announces itself to its upstream. It does not make the account a miner

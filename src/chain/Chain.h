@@ -342,6 +342,12 @@ public:
   findTransactionsByWalletId(uint64_t walletId, uint64_t &ioBlockId) const;
   Roe<Ledger::Record>
   findTransactionByIndex(uint64_t txIndex) const;
+  /**
+   * Who produced blocks [from, to) (block 0 not counted), the fees in them, and the misses charged
+   * to due miners (WIRE_SCHEMA § Producer statistics); at most Client::kMaxProducerStatsBlocks.
+   * Refused for blocks this node does not hold.
+   */
+  Roe<Client::ProducerStatsResponse> producerStats(uint64_t fromBlockId, uint64_t toBlockId) const;
 
   Roe<void>
   addBufferTransaction(AccountBuffer &bank,
@@ -553,6 +559,14 @@ private:
   bool isGenerationSuperseded(uint64_t generation) const;
   /** Drop held evidence whose generation a later certificate superseded (resume). */
   void refreshEquivocation();
+
+  /**
+   * Each block's misses charged (miner liveness): the leaders, in slot order, of the slots it skipped
+   * while due. Written for every block applied (none: erased), so a block sealed and abandoned, or
+   * dropped at a cutover, is replaced by the block applied at its index; read below the tip only.
+   * Rebuilt by the replay at start.
+   */
+  std::map<uint64_t, std::vector<uint64_t>> chargedMisses_;
 
   /** Stake snapshot per epoch, recorded by the block path only (see refreshStakeholders). */
   std::map<uint64_t, std::vector<consensus::Stakeholder>> epochStakeSnapshots_;

@@ -3552,6 +3552,63 @@ TEST_F(MinerLivenessTest, DueMissesDeregisterAndCoolDownBlocksReregistration) {
   EXPECT_EQ(minerOf(user.id).autoDeregisteredEpoch, Client::MinerState::kNever);
 }
 
+// Producer statistics (WIRE_SCHEMA § Producer statistics): a range's blocks by producer, the fees in
+// them, and the misses charged to due leaders — the same on the node that sealed and the one that
+// admitted the blocks.
+TEST_F(MinerLivenessTest, ProducerStatsCountBlocksFeesAndChargedMisses) {
+  for (uint64_t slot = 1; slot < 40; ++slot) {
+    lead(slot, kTestMinerId);
+  }
+  FundedUser user = addFundedUser(harness_, harness_.genesis, 1, AccountBuffer::ID_FIRST_USER + 1, 1000);
+  harness_.peer.setClockOverride(harness_.peer.getSlotStartTime(1));
+  ASSERT_TRUE(harness_.peer.addBlock(user.block).isOk());
+  std::vector<Ledger::ChainNode> blocks = {user.block};
+  blocks.push_back(commit(blocks.back(), 2, {minerTx(harness_, user, Ledger::T_MINER_REGISTER, 8, 40)}));
+  lead(4, user.id);
+  lead(5, user.id);
+  blocks.push_back(commit(blocks.back(), 6, {makeReserveTransfer(harness_, 5, 41)})); // charges the user once
+  lead(7, user.id);
+  blocks.push_back(commit(blocks.back(), 7, {makeReserveTransfer(harness_, 5, 42)})); // the user produces
+
+  uint64_t fees = 0;
+  for (const auto &block : blocks) {
+    for (const auto &record : block.block.records) {
+      fees += std::visit([](const auto &tx) -> uint64_t { return tx.fee; }, record.decode().value());
+    }
+  }
+  const uint64_t next = blocks.back().block.index + 1;
+  for (Chain *node : {&harness_.producer, &harness_.peer}) {
+    auto stats = node->producerStats(0, next);
+    ASSERT_TRUE(stats.isOk()) << stats.error().message;
+    EXPECT_EQ(stats.value().blocks, blocks.size()) << "block 0 is not counted";
+    EXPECT_EQ(stats.value().fees, fees);
+    EXPECT_EQ(stats.value().nextBlockId, next);
+    EXPECT_EQ(stats.value().firstSlot, 1u);
+    EXPECT_EQ(stats.value().lastSlot, 7u);
+    ASSERT_EQ(stats.value().producers.size(), 2u);
+    const auto &miner = stats.value().producers[0];
+    const auto &newcomer = stats.value().producers[1];
+    EXPECT_EQ(miner.accountId, kTestMinerId);
+    EXPECT_EQ(miner.blocks, blocks.size() - 1);
+    EXPECT_EQ(miner.missesCharged, 0u) << "it led slot 3 but was not due";
+    EXPECT_EQ(newcomer.accountId, user.id);
+    EXPECT_EQ(newcomer.blocks, 1u);
+    EXPECT_EQ(newcomer.missesCharged, 1u);
+    EXPECT_EQ(miner.fees + newcomer.fees, fees);
+
+    // A range of one block; a range past the tip stops at the tip.
+    auto one = node->producerStats(blocks[2].block.index, blocks[2].block.index + 1);
+    ASSERT_TRUE(one.isOk());
+    EXPECT_EQ(one.value().blocks, 1u);
+    ASSERT_EQ(one.value().producers.size(), 2u);
+    EXPECT_EQ(one.value().producers[1].missesCharged, 1u);
+    auto past = node->producerStats(next - 1, next + 100);
+    ASSERT_TRUE(past.isOk());
+    EXPECT_EQ(past.value().blocks, 1u);
+    EXPECT_EQ(past.value().nextBlockId, next);
+  }
+}
+
 // A genesis renewal is what a node starting from its checkpoint reads (BLOCK_PIPELINE open item
 // E): it carries the config in force for its block and, separately, a config update still
 // pending — never the pending update as if it were in force.

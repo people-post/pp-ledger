@@ -21,6 +21,7 @@
 #include <cli11.hpp>
 
 #include <algorithm>
+#include <map>
 #include <cctype>
 #include <chrono>
 #include <filesystem>
@@ -823,6 +824,13 @@ int main(int argc, char *argv[]) {
                      "Search backwards from before this block ID (0 = latest)")
       ->default_val(0);
 
+  auto* producers_cmd = app.add_subcommand(
+      "producers", "Who produced blocks [--from, --to), the fees in them, misses charged (use -b/--beacon or -m/--miner)");
+  uint64_t producersFrom = 1;
+  uint64_t producersTo = 0;
+  producers_cmd->add_option("--from", producersFrom, "First block")->default_val(1);
+  producers_cmd->add_option("--to", producersTo, "Block after the last (0: the tip)")->default_val(0);
+
   auto* tx_cmd = app.add_subcommand("transaction",
                                     "Get transaction by chain index (use -b/--beacon or -m/--miner)");
   uint64_t tx_index = 0;
@@ -1307,6 +1315,62 @@ int main(int argc, char *argv[]) {
       std::cerr << "Error: " << result.error().message << "\n";
       exitCode = 1;
     }
+  }
+  // Producer statistics over a block range, page by page (beacon/relay/miner)
+  else if (producers_cmd->parsed()) {
+    exitCode = [&]() -> int {
+      uint64_t to = producersTo;
+      if (to == 0) {
+        auto state = client.fetchBeaconState();
+        if (!state) {
+          std::cerr << "Error: reading the tip: " << state.error().message << "\n";
+          return 1;
+        }
+        to = state.value().nextBlockId;
+      }
+      std::map<uint64_t, pp::Client::ProducerStats> byAccount;
+      pp::Client::ProducerStatsResponse total;
+      uint64_t next = producersFrom;
+      while (next < to) {
+        auto page = client.fetchProducerStats({next, to});
+        if (!page) {
+          std::cerr << "Error: " << page.error().message << "\n";
+          return 1;
+        }
+        const auto &p = page.value();
+        if (p.blocks > 0 && total.blocks == 0) {
+          total.firstSlot = p.firstSlot;
+        }
+        if (p.blocks > 0) {
+          total.lastSlot = p.lastSlot;
+        }
+        total.blocks += p.blocks;
+        total.fees += p.fees;
+        for (const auto &s : p.producers) {
+          auto &sum = byAccount[s.accountId];
+          sum.accountId = s.accountId;
+          sum.blocks += s.blocks;
+          sum.fees += s.fees;
+          sum.missesCharged += s.missesCharged;
+        }
+        if (p.nextBlockId <= next) {
+          break; // the node's tip: nothing more
+        }
+        next = p.nextBlockId;
+      }
+      std::cout << "{\n  \"fromBlockId\": " << producersFrom << ",\n  \"toBlockId\": " << next
+                << ",\n  \"blocks\": " << total.blocks << ",\n  \"fees\": " << total.fees
+                << ",\n  \"firstSlot\": " << total.firstSlot << ",\n  \"lastSlot\": " << total.lastSlot
+                << ",\n  \"producers\": [";
+      bool firstEntry = true;
+      for (const auto &[id, s] : byAccount) {
+        std::cout << (firstEntry ? "\n" : ",\n") << "    {\"account\": " << id << ", \"blocks\": " << s.blocks
+                  << ", \"fees\": " << s.fees << ", \"missesCharged\": " << s.missesCharged << "}";
+        firstEntry = false;
+      }
+      std::cout << (firstEntry ? "]" : "\n  ]") << "\n}\n";
+      return 0;
+    }();
   }
   // Handle transaction-by-index command (beacon/relay/miner)
   else if (tx_cmd->parsed()) {

@@ -78,6 +78,13 @@ public:
    * beacon halts too. Reply: a short text.
    */
   static constexpr const uint32_t T_REQ_EQUIVOCATION_ADD = 1005;
+  /**
+   * Payload binaryPack(ProducerStatsRequest); reply binaryPack(ProducerStatsResponse): who produced
+   * the blocks of a range, the fees in them, and the misses charged to due miners (WIRE_SCHEMA
+   * § Producer statistics). At most kMaxProducerStatsBlocks a reply: page with nextBlockId.
+   */
+  static constexpr const uint32_t T_REQ_PRODUCER_STATS = 1006;
+  static constexpr const uint64_t kMaxProducerStatsBlocks = 10000;
 
   static constexpr const uint32_t T_REQ_ACCOUNT_GET = 2001;
   /** The genesis meta in force at the node's tip: config (and any update pending), admin account, authority. */
@@ -538,6 +545,48 @@ public:
     pp::common::Meta ltsToMeta() const;
   };
 
+  /** Blocks [fromBlockId, toBlockId) (block 0 is not counted). */
+  struct ProducerStatsRequest {
+    uint64_t fromBlockId{ 0 };
+    uint64_t toBlockId{ 0 };
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & fromBlockId & toBlockId;
+    }
+  };
+
+  /** One account's part in a range of blocks. */
+  struct ProducerStats {
+    uint64_t accountId{ 0 };
+    uint64_t blocks{ 0 };        ///< blocks it produced (its slotLeader)
+    uint64_t fees{ 0 };          ///< fees of the transactions in those blocks
+    uint64_t missesCharged{ 0 }; ///< slots it led while due and skipped (miner liveness)
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & accountId & blocks & fees & missesCharged;
+    }
+  };
+
+  struct ProducerStatsResponse {
+    uint64_t fromBlockId{ 0 };
+    /** Where the reply stops: toBlockId, the node's tip, or earlier when capped (ask again from here). */
+    uint64_t nextBlockId{ 0 };
+    uint64_t blocks{ 0 };
+    uint64_t fees{ 0 };
+    /** Slots of the first and last block counted (0 when none). */
+    uint64_t firstSlot{ 0 };
+    uint64_t lastSlot{ 0 };
+    /** By account id. */
+    std::vector<ProducerStats> producers;
+
+    template <typename Archive>
+    void serialize(Archive &ar) {
+      ar & fromBlockId & nextBlockId & blocks & fees & firstSlot & lastSlot & producers;
+    }
+  };
+
   struct TxGetByIndexRequest {
     uint64_t txIndex{ 0 };
 
@@ -600,6 +649,8 @@ public:
   Roe<GenesisAccountMeta> fetchGenesisMeta();
   Roe<UserAccount> fetchUserAccount(const uint64_t accountId);
   Roe<TxGetByWalletResponse> fetchTransactionsByWallet(const TxGetByWalletRequest &request);
+  /** T_REQ_PRODUCER_STATS: one page (capped at kMaxProducerStatsBlocks). */
+  Roe<ProducerStatsResponse> fetchProducerStats(const ProducerStatsRequest &request);
   Roe<Ledger::Record> fetchTransactionByIndex(const TxGetByIndexRequest &request);
 
   Roe<void> addTransaction(const Ledger::Record &record);

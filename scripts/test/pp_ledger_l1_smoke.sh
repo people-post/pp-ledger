@@ -50,6 +50,7 @@ echo -e "${GREEN}✓ The relay serves the config in force${NC}"
 run_operation_file_scenario 120
 
 # Token issuers: issued account, its own token issued to a holder, its keys replaced.
+run_batch_scenario
 run_token_scenario
 
-echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; token issuer)${NC}"
+echo -e "${GREEN}L-SMOKE-L1 PASSED (nextBlockId $start_tip → $end_tip; miner registered; operation file; batch; token issuer)${NC}"
