@@ -2,6 +2,7 @@
 #define PP_LEDGER_BEACON_H
 
 #include "NodeCore.h"
+#include "../chain/Genesis.h"
 #include "TipSigner.h"
 
 #include "lib/common/Meta.h"
@@ -38,10 +39,7 @@ namespace pp {
 class Beacon : public NodeCore {
 public:
   /** An account's public keys and how many must sign (0 = all of them). */
-  struct AccountKeys {
-    std::vector<std::string> publicKeys; ///< raw ML-DSA-65 public keys
-    uint8_t minSignatures{0};
-  };
+  using AccountKeys = chain_genesis::AccountKeys;
 
   /**
    * Genesis accounts by public key (init-config.json `systemAccounts`), plus
@@ -49,26 +47,12 @@ public:
    * The beacon generates and keeps no account keys: each holder creates its
    * own; the genesis key is the long-term admin key, kept offline.
    */
-  struct InitKeyConfig {
-    AccountKeys genesis;
-    AccountKeys reserve;
-    AccountKeys registrar;
-    AccountKeys fee;
-    AccountKeys recycle;
+  struct InitKeyConfig : chain_genesis::SystemKeys {
     std::vector<std::string> genesisSigners; ///< raw ML-DSA-65 private keys
   };
 
-  /**
-   * A miner account created in the genesis block, so the chain has real stake
-   * from block 0 (system accounts never count as stake). Id in the issued
-   * range; the operator supplies only public keys (miners keep their keys).
-   */
-  struct GenesisMiner {
-    uint64_t id{0};
-    std::vector<std::string> publicKeys; ///< raw ML-DSA-65 public keys
-    uint8_t minSignatures{1};
-    uint64_t stake{0}; ///< initial native-token balance, taken from reserve
-  };
+  /** A miner account created in the genesis block (chain_genesis::Miner). */
+  using GenesisMiner = chain_genesis::Miner;
 
   struct InitConfig {
     // Base configuration
@@ -83,6 +67,11 @@ public:
      * after a genesis that carries only the config, keys and authority (no `miners`).
      */
     std::optional<StateSnapshot> import;
+    /**
+     * Block 0's records signed offline (a genesis operation file): written as they are, at the
+     * genesis time their meta names; `chain`, `key`, `miners` and `authority` are then unused.
+     */
+    std::vector<Ledger::Record> signedGenesis;
   };
 
   struct MountConfig {
@@ -179,20 +168,10 @@ private:
                      const InitKeyConfig &key,
                      const std::vector<GenesisMiner> &miners,
                      const Chain::ChainAuthority &authority);
-  /**
-   * A genesis-signed NEW_USER record creating `account` at `toId`. `fee` 0
-   * means "the minimum fee for this record"; the fee used is written back.
-   */
-  Roe<Ledger::Record> createSystemAccountRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
-                                                uint64_t toId, const Client::UserAccount &account,
-                                                uint64_t &fee, const std::string &label);
-  /** Reserve's NEW_USER record: the supply left after `otherCosts` (other records' fees and stakes). */
-  Roe<Ledger::Record> createReserveRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
-                                          int64_t otherCosts);
-  /** Genesis miner NEW_USER records (after the system records) and their total stake + fees. */
-  Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
-  createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
-                            const std::vector<GenesisMiner> &miners);
+  /** Block 0 of the records signed offline (InitConfig::signedGenesis). */
+  Roe<Ledger::ChainNode> createSignedGenesisBlock(const std::vector<Ledger::Record> &records);
+  /** Seal block 0 of `records` at `genesisTime`. */
+  Roe<Ledger::ChainNode> sealGenesisBlock(std::vector<Ledger::Record> records, int64_t genesisTime);
 
   /**
    * The signers must be distinct genesis keys and at least the genesis

@@ -19,20 +19,6 @@ namespace pp {
 
 namespace {
 
-Client::UserAccount
-makeUserAccountFromKeys(const Beacon::AccountKeys &keys,
-                        int64_t balance, const std::string &meta) {
-  Client::UserAccount account;
-  account.wallet.mBalances[AccountBuffer::ID_GENESIS] = balance;
-  account.wallet.publicKeys = keys.publicKeys;
-  account.wallet.minSignatures =
-      keys.minSignatures != 0
-          ? keys.minSignatures
-          : static_cast<uint8_t>(std::min<size_t>(keys.publicKeys.size(), std::numeric_limits<uint8_t>::max()));
-  account.wallet.keyType = Crypto::TK_ML_DSA_65;
-  account.meta = meta;
-  return account;
-}
 
 } // namespace
 
@@ -76,12 +62,23 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   std::filesystem::create_directories(config.workDir);
   log().info << "  Work directory created: " << config.workDir;
 
+  // A genesis signed offline names its config, genesis time included; else the network starts now.
+  auto chainConfig = config.chain;
+  chainConfig.genesisTime = utl::getCurrentTime();
+  if (!config.signedGenesis.empty()) {
+    auto gm = chain_genesis::metaOf(config.signedGenesis.front());
+    if (!gm) {
+      return Error(2, gm.error().message);
+    }
+    chainConfig = gm.value().config;
+  }
+
   // Initialize consensus
   consensus::SlotCommittee::Config consensusConfig;
-  consensusConfig.genesisTime = utl::getCurrentTime();
+  consensusConfig.genesisTime = chainConfig.genesisTime;
   consensusConfig.timeOffsetMs = 0;
-  consensusConfig.slotDuration = config.chain.slotDuration;
-  consensusConfig.slotsPerEpoch = config.chain.slotsPerEpoch;
+  consensusConfig.slotDuration = chainConfig.slotDuration;
+  consensusConfig.slotsPerEpoch = chainConfig.slotsPerEpoch;
   chain_.initConsensus(consensusConfig);
 
   // Initialize ledger
@@ -98,16 +95,17 @@ Beacon::Roe<void> Beacon::init(const InitConfig &config) {
   // The beacon signs what it commits: every block is durable before it is signed (B009).
   chain_.setLedgerCommitPolicy(Ledger::CommitPolicy::everyBlock());
 
-  auto chainConfig = config.chain;
-  chainConfig.genesisTime = consensusConfig.genesisTime;
-
   // Create and add genesis block
   auto authority = config.authority;
   authority.beacon.networkId = chainConfig.networkId;
   if (config.import.has_value() && !config.miners.empty()) {
     return Error(2, "A re-genesis imports its miners: give no genesis miners");
   }
-  auto genesisBlockResult = config.import.has_value()
+  if (!config.signedGenesis.empty() && config.import.has_value()) {
+    return Error(2, "A re-genesis is not signed offline yet: init it with the genesis keys");
+  }
+  auto genesisBlockResult = !config.signedGenesis.empty() ? createSignedGenesisBlock(config.signedGenesis)
+                            : config.import.has_value()
                                 ? createImportingGenesisBlock(chainConfig, config.key, authority, *config.import)
                                 : createGenesisBlock(chainConfig, config.key, config.miners, authority);
   if (!genesisBlockResult) {
@@ -387,31 +385,8 @@ Beacon::signWithGenesisKeys(Ledger::Record &record,
 }
 
 Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
-  const std::pair<const char *, const AccountKeys *> accounts[] = {
-      {"genesis", &key.genesis},     {"reserve", &key.reserve}, {"registrar", &key.registrar},
-      {"fee", &key.fee},             {"recycle", &key.recycle}};
-  for (const auto &[name, keys] : accounts) {
-    if (keys->publicKeys.empty()) {
-      return Error(2, std::string("System account '") + name + "' needs public keys");
-    }
-    for (const auto &pk : keys->publicKeys) {
-      if (pk.size() != utl::kMlDsaPublicKeyBytes) {
-        return Error(2, std::string("System account '") + name + "' has a malformed public key");
-      }
-    }
-    if (keys->minSignatures > keys->publicKeys.size()) {
-      return Error(2, std::string("System account '") + name + "' minSignatures exceeds its key count");
-    }
-  }
-  // The genesis (admin) account is M-of-N from the start: the same shape its
-  // renewals and config updates are held to (at least 3 keys, 2 signatures).
-  Client::Wallet genesisWallet;
-  genesisWallet.publicKeys = key.genesis.publicKeys;
-  genesisWallet.minSignatures =
-      key.genesis.minSignatures != 0 ? key.genesis.minSignatures
-                                     : static_cast<uint8_t>(std::min<size_t>(key.genesis.publicKeys.size(), 255));
-  if (auto shape = chain_tx::validateGenesisWalletShape(genesisWallet); !shape) {
-    return Error(2, "systemAccounts.genesis: " + shape.error().message);
+  if (auto shape = chain_genesis::checkKeys(key); !shape) {
+    return Error(2, shape.error().message);
   }
 
   // Each signer must be a distinct genesis key: sign a probe and match it.
@@ -444,114 +419,6 @@ Beacon::Roe<void> Beacon::checkInitKeys(const InitKeyConfig &key) const {
   return {};
 }
 
-Beacon::Roe<Ledger::Record>
-Beacon::createSystemAccountRecord(const Chain::BlockChainConfig &config, const InitKeyConfig &key, uint64_t toId,
-                                  const Client::UserAccount &account, uint64_t &fee, const std::string &label) {
-  Ledger::TxNewUser tx;
-  tx.fromWalletId = AccountBuffer::ID_GENESIS;
-  tx.toWalletId = toId;
-  auto it = account.wallet.mBalances.find(AccountBuffer::ID_GENESIS);
-  tx.amount = it == account.wallet.mBalances.end() ? 0 : static_cast<uint64_t>(it->second);
-  tx.meta = account.ltsToString();
-  if (fee == 0) {
-    auto minFee = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx));
-    if (!minFee) {
-      return Error(2, "Failed to calculate " + label + " fee: " + minFee.error().message);
-    }
-    fee = minFee.value();
-  }
-  tx.fee = fee;
-
-  Ledger::Record rec;
-  rec.type = Ledger::T_NEW_USER;
-  rec.data = utl::binaryPack(tx);
-  if (auto signedRec = signWithGenesisKeys(rec, key.genesisSigners, config.networkId, label); !signedRec) {
-    return signedRec.error();
-  }
-  return rec;
-}
-
-Beacon::Roe<Ledger::Record> Beacon::createReserveRecord(const Chain::BlockChainConfig &config,
-                                                        const InitKeyConfig &key, int64_t otherCosts) {
-  // The fee bills the account's custom meta only, not its balance.
-  Ledger::TxNewUser probe;
-  probe.meta = makeUserAccountFromKeys(key.reserve, 0, AccountAttachment::emptySerialized()).ltsToString();
-  auto feeRoe = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(probe));
-  if (!feeRoe) {
-    return Error(2, "Failed to calculate reserve fee: " + feeRoe.error().message);
-  }
-  uint64_t reserveFee = feeRoe.value();
-  const int64_t reserveAmount = static_cast<int64_t>(AccountBuffer::INITIAL_TOKEN_SUPPLY) - otherCosts -
-                                static_cast<int64_t>(reserveFee);
-  if (reserveAmount < 0) {
-    return Error(2, "Initial token supply is insufficient for genesis fees and stakes");
-  }
-  return createSystemAccountRecord(
-      config, key, AccountBuffer::ID_RESERVE,
-      makeUserAccountFromKeys(key.reserve, reserveAmount, AccountAttachment::emptySerialized()), reserveFee,
-      "reserve transaction");
-}
-
-Beacon::Roe<std::pair<std::vector<Ledger::Record>, int64_t>>
-Beacon::createGenesisMinerRecords(const Chain::BlockChainConfig &config, const InitKeyConfig &key,
-                                  const std::vector<GenesisMiner> &miners) {
-  std::vector<Ledger::Record> records;
-  int64_t total = 0;
-  std::set<uint64_t> seen;
-  for (const auto &miner : miners) {
-    if (miner.id < AccountBuffer::ID_FIRST_ISSUED || miner.id >= AccountBuffer::ID_FIRST_USER) {
-      return Error(2, "Genesis miner id " + std::to_string(miner.id) + " must be in the issued range [" +
-                          std::to_string(AccountBuffer::ID_FIRST_ISSUED) + ", " +
-                          std::to_string(AccountBuffer::ID_FIRST_USER) + ")");
-    }
-    if (!seen.insert(miner.id).second) {
-      return Error(2, "Duplicate genesis miner id " + std::to_string(miner.id));
-    }
-    if (miner.publicKeys.empty() || miner.minSignatures == 0 || miner.minSignatures > miner.publicKeys.size()) {
-      return Error(2, "Genesis miner " + std::to_string(miner.id) +
-                          " needs public keys and 1 <= minSignatures <= key count");
-    }
-    if (miner.stake == 0 || miner.stake > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-      return Error(2, "Genesis miner " + std::to_string(miner.id) + " needs a positive stake");
-    }
-    Client::UserAccount account;
-    account.wallet.mBalances[AccountBuffer::ID_GENESIS] = static_cast<int64_t>(miner.stake);
-    account.wallet.publicKeys = miner.publicKeys;
-    account.wallet.minSignatures = miner.minSignatures;
-    account.wallet.miner.registered = true;  // a new chain's committee: registered from block 0
-    account.wallet.keyType = Crypto::TK_ML_DSA_65;
-    account.meta = AccountAttachment::emptySerialized();
-
-    Ledger::TxNewUser tx;
-    tx.fromWalletId = AccountBuffer::ID_GENESIS;
-    tx.toWalletId = miner.id;
-    tx.amount = miner.stake;
-    tx.meta = account.ltsToString();
-    auto fee = chain_.calculateMinimumFeeForTransaction(config, Ledger::TypedTx(tx));
-    if (!fee) {
-      return Error(2, "Failed to calculate genesis miner fee: " + fee.error().message);
-    }
-    tx.fee = fee.value();
-
-    Ledger::Record rec;
-    rec.type = Ledger::T_NEW_USER;
-    rec.data = utl::binaryPack(tx);
-    auto signedRec = signWithGenesisKeys(rec, key.genesisSigners, config.networkId, "genesis miner transaction");
-    if (!signedRec) {
-      return signedRec.error();
-    }
-    // All non-negative: overflow-checked sum (portable; no compiler builtins).
-    const int64_t add = static_cast<int64_t>(miner.stake);
-    const int64_t feeAmount = static_cast<int64_t>(tx.fee);
-    if (add > std::numeric_limits<int64_t>::max() - total - feeAmount) {
-      return Error(2, "Genesis miner stakes overflow");
-    }
-    total += add + feeAmount;
-    records.push_back(std::move(rec));
-  }
-  return std::make_pair(std::move(records), total);
-}
-
 Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::BlockChainConfig &config,
                                                                   const InitKeyConfig &key,
                                                                   const Chain::ChainAuthority &authority,
@@ -568,7 +435,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::
 
   Chain::GenesisAccountMeta gm;
   gm.config = config;
-  gm.genesis = makeUserAccountFromKeys(key.genesis, 0, AccountAttachment::emptySerialized());
+  gm.genesis = chain_genesis::accountOf(key.genesis, 0, AccountAttachment::emptySerialized());
   gm.genesis.wallet.mBalances.clear(); // they come with the import
   gm.authority = authority;
   if (auto valid = chain_tx::validateGenesisAuthority(gm.authority, gm.genesis.wallet, config.networkId); !valid) {
@@ -581,7 +448,7 @@ Beacon::Roe<Ledger::ChainNode> Beacon::createImportingGenesisBlock(const Chain::
                                  {AccountBuffer::ID_REGISTRAR, &key.registrar},
                                  {AccountBuffer::ID_FEE, &key.fee},
                                  {AccountBuffer::ID_RECYCLE, &key.recycle}}) {
-    const auto wallet = makeUserAccountFromKeys(*keys, 0, "").wallet;
+    const auto wallet = chain_genesis::accountOf(*keys, 0, "").wallet;
     gm.import.systemKeys.push_back(SystemAccountKeys{id, wallet.publicKeys, wallet.minSignatures});
   }
 
@@ -660,92 +527,49 @@ Beacon::createGenesisBlock(const Chain::BlockChainConfig &config,
   if (auto keysOk = checkInitKeys(key); !keysOk) {
     return keysOk.error();
   }
+  chain_genesis::Plan plan;
+  plan.config = config;
+  plan.keys = key;
+  plan.miners = miners;
+  plan.authority = authority;
+  auto records = chain_genesis::records(plan);
+  if (!records) {
+    return Error(2, records.error().message);
+  }
+  for (auto &record : records.value()) {
+    if (auto signedRec = signWithGenesisKeys(record, key.genesisSigners, config.networkId, "genesis record");
+        !signedRec) {
+      return signedRec.error();
+    }
+  }
+  return sealGenesisBlock(std::move(records.value()), config.genesisTime);
+}
 
+Beacon::Roe<Ledger::ChainNode> Beacon::createSignedGenesisBlock(const std::vector<Ledger::Record> &records) {
+  log().info << "Creating the genesis block signed offline (" << records.size() << " records)";
+  if (records.empty()) {
+    return Error(2, "The signed genesis has no records");
+  }
+  auto gm = chain_genesis::metaOf(records.front());
+  if (!gm) {
+    return Error(2, gm.error().message);
+  }
+  // Sealing applies every record and checks its signatures against the genesis account.
+  return sealGenesisBlock(records, gm.value().config.genesisTime);
+}
+
+Beacon::Roe<Ledger::ChainNode> Beacon::sealGenesisBlock(std::vector<Ledger::Record> records, int64_t genesisTime) {
   Ledger::ChainNode genesisBlock;
   genesisBlock.block.index = 0;
-  genesisBlock.block.timestamp = config.genesisTime;
+  genesisBlock.block.timestamp = genesisTime;
   genesisBlock.block.previousHash = utl::zeroHash();
   genesisBlock.block.slot = 0;
   genesisBlock.block.slotLeader = 0;
   genesisBlock.block.epoch = 0;
-
-  Chain::GenesisAccountMeta gm;
-  gm.config = config;
-  gm.genesis =
-      makeUserAccountFromKeys(key.genesis, 0, AccountAttachment::emptySerialized());
-  gm.authority = authority;
-  // The genesis record carries the authority, so the admin keys that sign it sign the
-  // generation-1 beacon certificate too.
-  if (auto valid = chain_tx::validateGenesisAuthority(gm.authority, gm.genesis.wallet, config.networkId);
-      !valid) {
-    return Error(2, valid.error().message);
-  }
-
-  // First transaction: GenesisAccountMeta
-  Ledger::TxGenesis txGenesis;
-  txGenesis.fee = 0;
-  txGenesis.meta = gm.ltsToString();
-
-  Ledger::Record rec;
-  rec.type = Ledger::T_GENESIS;
-  rec.data = utl::binaryPack(txGenesis);
-  rec.signatures = {};
-  auto roeGenesis =
-      signWithGenesisKeys(rec, key.genesisSigners, config.networkId,
-                          "checkpoint transaction");
-  if (!roeGenesis) {
-    return roeGenesis.error();
-  }
-  genesisBlock.block.records.push_back(rec);
-
-  // System accounts. Fee comes first: the other records pay their fees into
-  // it. Fee, registrar and recycle start empty; reserve takes the rest of the
-  // supply (reserve funds the registrar later).
-  struct ZeroAccount {
-    uint64_t id;
-    const AccountKeys *keys;
-    const char *label;
-    uint64_t fee{0};
-    Ledger::Record rec;
-  };
-  ZeroAccount zeroAccounts[] = {{AccountBuffer::ID_FEE, &key.fee, "fee transaction", 0, {}},
-                                {AccountBuffer::ID_REGISTRAR, &key.registrar, "registrar transaction", 0, {}},
-                                {AccountBuffer::ID_RECYCLE, &key.recycle, "recycle transaction", 0, {}}};
-  int64_t zeroAccountFees = 0;
-  for (auto &zero : zeroAccounts) {
-    auto recRoe = createSystemAccountRecord(
-        config, key, zero.id, makeUserAccountFromKeys(*zero.keys, 0, AccountAttachment::emptySerialized()),
-        zero.fee, zero.label);
-    if (!recRoe) {
-      return recRoe.error();
-    }
-    zero.rec = std::move(recRoe.value());
-    zeroAccountFees += static_cast<int64_t>(zero.fee);
-  }
-
-  auto minerRecords = createGenesisMinerRecords(config, key, miners);
-  if (!minerRecords) {
-    return minerRecords.error();
-  }
-  const int64_t minerTotal = minerRecords.value().second;
-
-  auto reserveRec = createReserveRecord(config, key, zeroAccountFees + minerTotal);
-  if (!reserveRec) {
-    return reserveRec.error();
-  }
-
-  genesisBlock.block.records.push_back(std::move(zeroAccounts[0].rec)); // fee
-  genesisBlock.block.records.push_back(std::move(reserveRec.value()));
-  genesisBlock.block.records.push_back(std::move(zeroAccounts[1].rec)); // registrar
-  genesisBlock.block.records.push_back(std::move(zeroAccounts[2].rec)); // recycle
-  for (auto &minerRec : minerRecords.value().first) {
-    genesisBlock.block.records.push_back(std::move(minerRec));
-  }
-
+  genesisBlock.block.records = std::move(records);
   auto sealResult = chain_.sealBlock(genesisBlock);
   if (!sealResult) {
-    return Error(19, "Failed to seal genesis block: " +
-                         sealResult.error().message);
+    return Error(19, "Failed to seal genesis block: " + sealResult.error().message);
   }
   log().debug << "Genesis block created with hash: " << genesisBlock.hash;
   return genesisBlock;
