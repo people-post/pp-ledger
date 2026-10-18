@@ -13,7 +13,7 @@ set(PP_CPP_AMP_GIT_TAG "v2.21.0"
 
 set(PP_AMP_BUILD_TESTS OFF CACHE BOOL "Build pp-cpp-amp tests" FORCE)
 
-set(_pp_amp_sibling "${CMAKE_SOURCE_DIR}/../pp-cpp-amp")
+set(_pp_amp_sibling "${PROJECT_SOURCE_DIR}/../pp-cpp-amp")
 if(PP_CPP_AMP_SOURCE_DIR)
   set(_pp_amp_src "${PP_CPP_AMP_SOURCE_DIR}")
 elseif(EXISTS "${_pp_amp_sibling}/CMakeLists.txt")
