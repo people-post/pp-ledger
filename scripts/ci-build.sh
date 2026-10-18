@@ -59,7 +59,9 @@ if [[ -n "$DO_BUILD" ]]; then
     -B "$BUILD_DIR"
   )
 
-  if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+  # Ninja on Windows, and in CI wherever it is installed: it keeps every core busy. (Not for
+  # local runs elsewhere: an existing build directory keeps the generator it was made with.)
+  if [[ "${RUNNER_OS:-}" == "Windows" ]] || { [[ -n "${CI:-}" ]] && command -v ninja >/dev/null 2>&1; }; then
     CMAKE_ARGS+=(-G Ninja)
   fi
 
@@ -82,7 +84,9 @@ if [[ -n "$DO_TEST" ]]; then
   # ctest uses -C/--build-config for multi-config generators; --config is only
   # valid for `cmake --build`.
   # Test cases run in parallel processes; tests take private temp paths (src/testing/TestTempPath.h).
-  CTEST_ARGS=(--test-dir "$BUILD_DIR" --output-on-failure --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-2}")
+  # Two at a time by default (CTEST_PARALLEL_LEVEL): some tests time slots and syncs, and stay
+  # steady on shared runners however many cores compile.
+  CTEST_ARGS=(--test-dir "$BUILD_DIR" --output-on-failure --parallel "${CTEST_PARALLEL_LEVEL:-2}")
   if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
     CTEST_ARGS+=(-C Release)
   fi
