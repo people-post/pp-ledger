@@ -124,7 +124,8 @@ R=/ip4/10.0.0.2/udp/8519/adp/1.0.0/p2p/<relay peer id>
 ./app/pp-client --host "$M" -m status            # a miner: id, stake, pending transactions
 ```
 
-Local commands (no node): `keygen`, `peer-id`, `mk-tx`, `mk-account`, `mk-beacon-cert`,
+Local commands (no node): `keygen`, `key-export` / `key-import` (a key file to and from a key backup,
+[KEY_BACKUP.md](../contracts/KEY_BACKUP.md)), `peer-id`, `mk-tx`, `mk-account`, `mk-beacon-cert`,
 `mk-recovery`, `mk-equivocation`, `sign-tx`, `export-state` (a node directory's account state at a
 height, for a re-genesis: [BEACON_AUTHORITY.md § State export](../contracts/BEACON_AUTHORITY.md#state-export)).
 `./app/pp-client --help` lists them all.

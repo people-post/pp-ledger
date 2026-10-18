@@ -1,5 +1,6 @@
 #include "Client.h"
 #include "ClientOp.h"
+#include "../operation/KeyBackup.h"
 #include "../operation/Operation.h"
 #include "AccountAttachment.h"
 #include "AccountIds.h"
@@ -768,6 +769,27 @@ int main(int argc, char *argv[]) {
   keygen->add_option("-o,--out", keygenOut,
                      "Write <name>.key (private, hex, 0600) and <name>.pub (public, hex); never overwrites");
 
+  // Local commands: key backups (docs/contracts/KEY_BACKUP.md) — a key file to and from the backup
+  // wallets exchange.
+  auto* key_export_cmd = app.add_subcommand("key-export", "Encrypt a key file into a key backup (wallets import it)");
+  std::string keyExportKey;
+  std::string keyExportLabel;
+  std::string keyBackupOut;
+  std::string keyPassphraseFile;
+  key_export_cmd->add_option("key", keyExportKey, "Private key file (hex, as keygen writes it)")->required();
+  key_export_cmd->add_option("--label", keyExportLabel, "A name for the key, kept inside the backup");
+  key_export_cmd->add_option("-o,--out", keyBackupOut, "The key backup to write (never overwritten)")->required();
+  key_export_cmd->add_option("--passphrase-file", keyPassphraseFile,
+                             "Read the passphrase from this file (default: one line from standard input)");
+  auto* key_import_cmd = app.add_subcommand("key-import", "Decrypt a key backup into <name>.key and <name>.pub");
+  std::string keyImportIn;
+  std::string keyImportOut;
+  key_import_cmd->add_option("backup", keyImportIn, "The key backup")->required();
+  key_import_cmd->add_option("-o,--out", keyImportOut, "Write <name>.key and <name>.pub (never overwritten)")
+      ->required();
+  key_import_cmd->add_option("--passphrase-file", keyPassphraseFile,
+                             "Read the passphrase from this file (default: one line from standard input)");
+
   // Local command: export-state (re-genesis, beacon-authority B033)
   auto* export_state_cmd = app.add_subcommand(
       "export-state", "Write the account state of a node's ledger at a height, for a re-genesis to import");
@@ -1072,6 +1094,59 @@ int main(int argc, char *argv[]) {
     }
     std::cout << "Peer id:          " << amp.value().local_peer_id << "\n";
     std::cout << "Public key (hex): " << pp::utl::hexEncode(publicKey.value()) << "\n";
+    return 0;
+  }
+
+  if (key_export_cmd->parsed() || key_import_cmd->parsed()) {
+    std::string passphrase;
+    if (!keyPassphraseFile.empty()) {
+      std::ifstream in(keyPassphraseFile);
+      std::getline(in, passphrase);
+    } else {
+      std::cerr << "Passphrase: ";
+      std::getline(std::cin, passphrase);
+    }
+    if (key_export_cmd->parsed()) {
+      auto privateKey = pp::utl::readPrivateKey(keyExportKey, "");
+      auto publicKey = privateKey ? pp::network::PublicKeyFromPrivateKey(privateKey.value())
+                                  : pp::Roe<std::string>(pp::Error("not read"));
+      if (!privateKey || !publicKey) {
+        std::cerr << "Error: " << keyExportKey << ": not an ML-DSA-65 private key file\n";
+        return 1;
+      }
+      auto json = pp::operation::keyBackupToJson({keyExportLabel, publicKey.value(), privateKey.value()}, passphrase);
+      if (!json) {
+        std::cerr << "Error: " << json.error().message << "\n";
+        return 1;
+      }
+      if (auto written = pp::utl::writeToNewFile(keyBackupOut, json.value()); !written) {
+        std::cerr << "Error: " << keyBackupOut << ": " << written.error().message << "\n";
+        return 1;
+      }
+      std::cout << "Key backup written: " << keyBackupOut << " (public key "
+                << pp::operation::fingerprint(publicKey.value()) << ")\n";
+      return 0;
+    }
+    std::ifstream in(keyImportIn, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    auto restored = pp::operation::keyBackupFromJson(text.str(), passphrase);
+    if (!restored) {
+      std::cerr << "Error: " << keyImportIn << ": " << restored.error().message << "\n";
+      return 1;
+    }
+    if (auto written = pp::utl::writeToNewFile(keyImportOut + ".key", pp::utl::hexEncode(restored.value().privateKey) + "\n");
+        !written) {
+      std::cerr << "Error: " << keyImportOut << ".key: " << written.error().message << "\n";
+      return 1;
+    }
+    if (auto written = pp::utl::writeToNewFile(keyImportOut + ".pub", pp::utl::hexEncode(restored.value().publicKey) + "\n");
+        !written) {
+      std::cerr << "Error: " << keyImportOut << ".pub: " << written.error().message << "\n";
+      return 1;
+    }
+    std::cout << "Key " << (restored.value().label.empty() ? "" : "\"" + restored.value().label + "\" ")
+              << pp::operation::fingerprint(restored.value().publicKey) << " written to " << keyImportOut << ".key/.pub\n";
     return 0;
   }
 
