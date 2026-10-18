@@ -1,5 +1,5 @@
 # Keep historical artifact path: build/app/<binary>
-set(PP_APP_OUTPUT_DIR "${CMAKE_BINARY_DIR}/app")
+set(PP_APP_OUTPUT_DIR "${PROJECT_BINARY_DIR}/app")
 
 # Client executable
 add_executable(pp-client

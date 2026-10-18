@@ -43,8 +43,12 @@ own `cmake/`; the two repos may sit on different tags.
 `pp::ledger_common`: an app that must not reach the network links it alone. `pp_ledger_amp` (static,
 no alias) holds the Amp binding and is linked by `pp_client` and `pp_server`.
 
-**Options:** `PP_LEDGER_BUILD_APPS` (ON), `PP_LEDGER_BUILD_HTTP` (OFF), `PP_LEDGER_BUILD_TESTS`
-(OFF).
+**Options:** `PP_LEDGER_BUILD_APPS` (ON at top level, OFF when embedded), `PP_LEDGER_BUILD_HTTP`
+(OFF), `PP_LEDGER_BUILD_TESTS` (OFF).
+
+**Embedding:** another project takes pp-ledger with `FetchContent` or `add_subdirectory`; paths are
+the project's own (`PROJECT_SOURCE_DIR`), and pp-cpp-common / pp-cpp-crypto / googletest already
+defined by the parent are reused. Headers include from `src/` (`#include "operation/Operation.h"`).
 
 **`src/lib/common`** (`pp_ledger_common`) keeps only ledger-specific pieces: `Crypto`, `Meta`
 (an alias of pp-cpp-common `Object`), `BinaryPack` wrappers, `Service`, `ThreadSafeQueue`,
