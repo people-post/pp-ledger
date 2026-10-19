@@ -9,7 +9,9 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 using namespace pp;
 using namespace std::chrono_literals;
@@ -139,7 +141,8 @@ TEST(RoleRunnerNamesTest, RolesByName) {
 }
 
 // pp-node's use: a relay role on the node's runtime, from its own work directory, stopped from the
-// node's thread while its startup still waits for an upstream that never answers.
+// node's thread while its startup still waits for an upstream that never answers. The node is told
+// when to advertise the ledger's protocols (bound) and when to withdraw them (before they go).
 TEST_F(RoleRunnerTest, ARelayRoleOnAHostTakesItsAddressAndStopsPromptly) {
   auto hub = pp::adp::MemoryDatagramIo::MakeHub();
   pp::test::TestAmpHost host;
@@ -154,6 +157,16 @@ TEST_F(RoleRunnerTest, ARelayRoleOnAHostTakesItsAddressAndStopsPromptly) {
   options.workDir = dir_.string();
   options.logFile = "none";
   options.host = host.forLedger();
+  std::mutex mu;
+  std::vector<bool> listening;
+  bool listenFileAtBind = false;
+  options.onListening = [&](const bool bound) {
+    std::lock_guard<std::mutex> lock(mu);
+    listening.push_back(bound);
+    if (bound) {
+      listenFileAtBind = std::filesystem::exists(dir_ / "listen.multiaddr");
+    }
+  };
   RoleRunner runner(std::move(options));
   auto ran = std::async(std::launch::async, [&runner]() { return runner.run(); });
 
@@ -175,4 +188,7 @@ TEST_F(RoleRunnerTest, ARelayRoleOnAHostTakesItsAddressAndStopsPromptly) {
   EXPECT_LT(std::chrono::steady_clock::now() - stopAt, 5s) << "a host's shutdown does not wait out the startup";
   auto result = ran.get();
   EXPECT_TRUE(result.isOk()) << (result.isOk() ? "" : result.error().message);
+  std::lock_guard<std::mutex> lock(mu);
+  EXPECT_EQ(listening, (std::vector<bool>{true, false})) << "bound once, withdrawn once";
+  EXPECT_TRUE(listenFileAtBind) << "told once its listener is up";
 }
