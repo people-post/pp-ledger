@@ -29,20 +29,16 @@ void FollowerServer::bindFollower(FollowerCore &core) {
 
 // ============ start ============
 
-Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, const std::string &identityKey) {
+Service::Roe<void> FollowerServer::startFollowing(const FollowerConfig &config, const IdentityKeyFn &identityKey) {
   config_ = config;
   if (auto set = setUpstreams(config_.upstreams); !set) {
     return Error(E_CONFIG, set.error().message);
   }
   initUpstreams();
 
-  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(identityKey, config_.port);
-  if (!ampCfg) {
-    return Error(E_CONFIG, "Failed to build AMP config: " + ampCfg.error().message);
-  }
   setAllowedPeers(config_.allowedPeers);
   setTransportLimits(config_);
-  if (auto started = startAmpServer(*ampCfg); !started) {
+  if (auto started = startAmpServer(config_.port, identityKey); !started) {
     return Error(E_NETWORK, "Failed to start AMP server: " + started.error().message);
   }
   if (!ampRuntime()) {

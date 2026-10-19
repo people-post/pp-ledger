@@ -71,7 +71,14 @@ UDP → ADP → MSH (ML-DSA identity) → channel /pp-ledger/rpc/1.0.0 → binar
   by `Server::serveRequest`. Topology rules:
   [LEDGER_TOPOLOGY.md](LEDGER_TOPOLOGY.md).
 - Client side: `ILedgerTransport` (unframed request / response bytes) with `AmpLedgerTransport`
-  (threaded over `LedgerAmpRuntime`, or caller-driven for tests). `InProcessLedgerTransport` exists
+  (threaded over an `AmpHost`, or caller-driven for tests).
+- **On a host's runtime** (`Server::runOnHost`, `network::HostedAmpRuntime`): a node serves and
+  calls on another program's Amp runtime — pp-node's mesh — with its socket, identity and listen
+  address; the configured `port` and identity key go unused. The host keeps the runtime-wide
+  settings: it drives the runtime, advertises `AmpLedgerServer::protocolIds()` with its own
+  protocols, sets listen addresses, link limits and refusing unhandled opens. pp-ledger only binds
+  and removes its protocol handlers, and no io-lane call reaches a stopped node
+  ([THREADING.md](THREADING.md) rule 6). `InProcessLedgerTransport` exists
   but nothing uses it yet.
 - Peers are curated ADP multiaddrs (`/ip4/…/udp/…/adp/1.0.0/p2p/<PeerId>`); there is no DHT or
   open discovery.

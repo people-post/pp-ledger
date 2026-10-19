@@ -251,7 +251,10 @@ Service::Roe<void> MinerServer::onStart() {
   log().info << "  UDP port: " << runFileConfig.port;
   log().info << "  Beacons: " << runFileConfig.upstreams.size();
 
-  if (auto started = startFollowing(runFileConfig, config_.privateKeys.front()); !started) {
+  // A miner's network identity is its account's first key (on a host: the host's identity).
+  const std::string accountKey = config_.privateKeys.front();
+  if (auto started = startFollowing(runFileConfig, [accountKey]() -> Service::Roe<std::string> { return accountKey; });
+      !started) {
     return started;
   }
 

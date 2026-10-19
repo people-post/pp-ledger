@@ -418,8 +418,8 @@ Success responses include:
 
 See [THREADING.md](THREADING.md) for the model and its rollout.
 
-- **AMP**: the `LedgerAmpRuntime` pump thread is the only thread that drives the
-  AMP stack; outbound calls post to it and wait
+- **AMP**: one thread drives the AMP stack — the `LedgerAmpRuntime` pump, or on a
+  host (`Server::runOnHost`) the host's driver; outbound calls post to it and wait
 - **All servers**: the role `runLoop` thread is the server thread. RPC requests
   are queued (`RequestQueue`, bounded) and handled one at a time on it between
   duties, so role, chain and ledger state are single-threaded

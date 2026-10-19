@@ -890,7 +890,7 @@ TEST_F(AmpLedgerRpcTest, ThreadedAsyncRoundTripCompletesOnIoLane) {
   std::promise<std::pair<std::string, bool>> done;
   transport.roundTripAsync("async-payload", std::chrono::seconds(5),
                            [&](pp::ILedgerTransport::Roe<std::string> r) {
-                             done.set_value({r ? r.value() : r.error().message, pair.a.onPumpThread()});
+                             done.set_value({r ? r.value() : r.error().message, pair.a.onIoThread()});
                            });
   auto f = done.get_future();
   ASSERT_EQ(f.wait_for(std::chrono::seconds(10)), std::future_status::ready);

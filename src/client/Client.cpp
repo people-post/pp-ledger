@@ -459,7 +459,7 @@ Client::Client() = default;
 
 Client::~Client() = default;
 
-void Client::attachAmpTransport(network::LedgerAmpRuntime& runtime, std::string default_peer_key) {
+void Client::attachAmpTransport(network::AmpHost& runtime, std::string default_peer_key) {
   amp_default_peer_key_ = std::move(default_peer_key);
   transport_ = std::make_unique<AmpLedgerTransport>(runtime, amp_default_peer_key_);
   if (auto* amp = dynamic_cast<AmpLedgerTransport*>(transport_.get())) {

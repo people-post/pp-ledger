@@ -8,17 +8,6 @@
 namespace pp {
 namespace network {
 
-std::shared_ptr<InFlightLimit> makeInFlightLimit() {
-  return std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxReceivingPerPeer, pp::ledger::rpc::kReservedForDuties,
-                                         pp::ledger::rpc::kMaxWaitingPerPeer);
-}
-
-std::shared_ptr<InFlightLimit> makeBulkInFlightLimit() {
-  return std::make_shared<InFlightLimit>(pp::ledger::rpc::kMaxBulkReceivingPerPeer,
-                                         pp::ledger::rpc::kBulkReservedForDuties,
-                                         pp::ledger::rpc::kMaxBulkWaitingPerPeer);
-}
-
 LedgerAmpRuntime::~LedgerAmpRuntime() { Stop(); }
 
 pp::Roe<void> LedgerAmpRuntime::Start(LedgerAmpConfig config) {
@@ -43,8 +32,6 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   }
   io_ = std::move(io);
   clock_ = std::move(clock);
-  in_flight_ = makeInFlightLimit();
-  bulk_in_flight_ = makeBulkInFlightLimit();
 
   pp::amp::AmpStack::Config stack_config;
   stack_config.identity = std::move(config.identity);
@@ -72,6 +59,7 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   listen_multiaddr_ = *ma;
   stack_->Links().SetLocalListenMultiaddrs({listen_multiaddr_});
 
+  open();
   running_ = true;
   stop_ = false;
   pump_thread_ = std::thread([this]() { PumpLoop(); });
@@ -79,6 +67,7 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
 }
 
 void LedgerAmpRuntime::Stop() {
+  close(); // no pp-ledger code runs from the io lane from here on
   stop_ = true;
   Wake();
   if (pump_thread_.joinable()) {
@@ -115,8 +104,6 @@ std::optional<pp::adp::DatagramIoStats> LedgerAmpRuntime::socketStats() const {
   return io ? io->Stats() : std::nullopt;
 }
 
-pp::amp::PeerLinkManager& LedgerAmpRuntime::links() { return stack_->Links(); }
-
 pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
 
 void LedgerAmpRuntime::post(IoTask task) {
@@ -131,7 +118,7 @@ void LedgerAmpRuntime::post(IoTask task) {
   }
   // No lock held: PostToIo takes amp's io lock, which the pump thread already
   // holds when it posts from inside Drive().
-  stack->PostToIo(std::move(task));
+  stack->PostToIo(guardTask(std::move(task)));
   Wake();
   {
     std::lock_guard<std::mutex> lock(post_mu_);
@@ -140,7 +127,7 @@ void LedgerAmpRuntime::post(IoTask task) {
   posts_drained_cv_.notify_all();
 }
 
-bool LedgerAmpRuntime::onPumpThread() const { return std::this_thread::get_id() == pump_thread_id_.load(); }
+bool LedgerAmpRuntime::onIoThread() const { return std::this_thread::get_id() == pump_thread_id_.load(); }
 
 void LedgerAmpRuntime::Wake() {
   {

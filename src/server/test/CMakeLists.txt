@@ -47,3 +47,7 @@ gtest_discover_tests(test_load_generator)
 add_executable(test_overload test_overload.cpp)
 target_link_libraries(test_overload PRIVATE pp_server GTest::gtest_main)
 gtest_discover_tests(test_overload)
+
+add_executable(test_hosted_amp test_hosted_amp.cpp)
+target_link_libraries(test_hosted_amp PRIVATE pp_server pp_testing GTest::gtest_main)
+gtest_discover_tests(test_hosted_amp)

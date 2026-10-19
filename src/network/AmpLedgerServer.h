@@ -7,6 +7,7 @@
 #include <chrono>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace pp {
 namespace network {
@@ -57,7 +58,12 @@ public:
     /** Large requests in progress at once (arriving, or waiting for their answer), from one peer and from all. */
     size_t bulkPerPeer{pp::ledger::rpc::kMaxBulkReceivingPerPeer};
     size_t bulkTotal{pp::ledger::rpc::kMaxBulkReceivingTotal};
+    /** Add protocolIds() to the runtime's advertised ones: a runtime of its own; a host advertises them itself. */
+    bool advertise{true};
   };
+
+  /** The protocols a node serving ledger RPC answers on (a host advertises them; pi1). */
+  static std::vector<std::string> protocolIds();
 
   static void BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, Options options);
   static void BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler handler, IoPost post_io = {},

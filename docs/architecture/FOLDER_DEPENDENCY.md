@@ -95,7 +95,7 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 |--------|------------|--------|
 | **lib** | — | Logger, Module, Service, ResultOrError, Serialize, BinaryPack shims; Utilities (ML-DSA via pp-cpp-crypto); Value/Meta/JSON via pp-cpp-common |
 | **consensus** | lib | SlotCommittee, EpochManager, SlotTimer, SlotLeaderSelection |
-| **network** | lib | AMP ledger RPC: LedgerAmpRuntime, AmpLedgerServer, ServerAmpSupport, NetworkTuning |
+| **network** | lib | AMP ledger RPC: AmpHost (LedgerAmpRuntime, HostedAmpRuntime), AmpLedgerServer, ServerAmpSupport, NetworkTuning |
 | **ledger** | lib | Ledger, DirStore, FileStore, FileDirStore, VolumeStore |
 | **client** | lib, ledger, network | Client; also includes `consensus/Types.hpp` (no `pp_consensus` link in CMake) |
 | **chain** | lib, ledger, client, consensus, network | `pp_chain`: Chain, AccountBuffer, `Tx*`, handler interface; `pp_chain_types` (Types) links lib and ledger only |

@@ -1,7 +1,7 @@
 #include "AmpLedgerTransport.h"
 #include "Client.h"
 
-#include "../network/LedgerAmpRuntime.h"
+#include "../network/AmpHost.h"
 #include "../network/LedgerRpcProtocol.h"
 #include "amp/L3/ChannelSession.h"
 
@@ -329,7 +329,7 @@ private:
 
 } // namespace
 
-AmpLedgerTransport::AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::string peer_key)
+AmpLedgerTransport::AmpLedgerTransport(network::AmpHost& runtime, std::string peer_key)
     : mesh_(runtime.runtime()), runtime_(&runtime), peer_key_(std::move(peer_key)) {}
 
 AmpLedgerTransport::AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive)
@@ -361,7 +361,7 @@ bool AmpLedgerTransport::registerEndpoint(const std::string& peer_key, const std
   if (runtime_ && !runtime_->isRunning()) {
     return false;
   }
-  if (runtime_ && runtime_->onPumpThread()) {
+  if (runtime_ && runtime_->onIoThread()) {
     return mesh_.RegisterEndpoint(peer_key, multiaddr).isOk();
   }
   auto done = std::make_shared<ResultSlot<bool>>();
@@ -392,7 +392,7 @@ AmpLedgerTransport::Roe<std::string> AmpLedgerTransport::roundTrip(const std::st
   if (runtime_ && !runtime_->isRunning()) {
     return TransportError("AmpLedgerTransport: AMP runtime not running");
   }
-  if (runtime_ && runtime_->onPumpThread()) {
+  if (runtime_ && runtime_->onIoThread()) {
     return TransportError("AmpLedgerTransport: roundTrip on the AMP pump thread would deadlock");
   }
 
@@ -432,7 +432,11 @@ void AmpLedgerTransport::roundTripAsync(const std::string& requestBody, const st
     done(TransportError("AmpLedgerTransport: AMP runtime not running"));
     return;
   }
-  // The io-lane amp timer bounds the call; no thread waits on it.
+  // The io-lane amp timer bounds the call; no thread waits on it. On a host's runtime the reply may
+  // come after its caller went away: `done` runs only while the host is open.
+  if (runtime_) {
+    done = runtime_->guard(std::move(done));
+  }
   auto call = std::make_shared<RoundTripCall>(mesh_, peer_key_, requestBody, timeout, inFlightLimit(requestBody.size()), std::move(done));
   post([call]() { call->enqueue(); });
 }
