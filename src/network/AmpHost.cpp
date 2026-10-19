@@ -15,41 +15,19 @@ std::shared_ptr<InFlightLimit> makeBulkInFlightLimit() {
                                          pp::ledger::rpc::kMaxBulkWaitingPerPeer);
 }
 
-AmpHost::AmpHost() : gate_(std::make_shared<Gate>()) {}
+AmpHost::AmpHost() = default;
 
-AmpHost::~AmpHost() { gate_->setOpen(false); }
+AmpHost::~AmpHost() { close(); }
 
 void AmpHost::open() {
   in_flight_ = makeInFlightLimit();
   bulk_in_flight_ = makeBulkInFlightLimit();
-  gate_->setOpen(true);
+  open_->store(true, std::memory_order_release);
 }
 
-void AmpHost::close() { gate_->setOpen(false); }
-
-bool AmpHost::Gate::enter() {
-  std::lock_guard<std::mutex> lock(mu_);
-  if (!open_) {
-    return false;
-  }
-  ++inside_;
-  return true;
-}
-
-void AmpHost::Gate::leave() {
-  {
-    std::lock_guard<std::mutex> lock(mu_);
-    --inside_;
-  }
-  left_.notify_all();
-}
-
-void AmpHost::Gate::setOpen(bool open) {
-  std::unique_lock<std::mutex> lock(mu_);
-  open_ = open;
-  if (!open) {
-    left_.wait(lock, [this]() { return inside_ == 0; });
-  }
+void AmpHost::close() {
+  open_->store(false, std::memory_order_release);
+  lifetime_.InvalidateAndWait();  // a call that saw it open finishes first (not one on this thread)
 }
 
 } // namespace network

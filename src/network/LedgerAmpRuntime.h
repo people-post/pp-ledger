@@ -63,7 +63,7 @@ public:
   pp::amp::MeshRuntime& runtime() override;
   /** Run `task` on the pump thread's io lane, guarded. Any thread; no-op when stopped. */
   void post(IoTask task) override;
-  /** True on the pump thread. */
+  /** True on the pump thread (the runtime's claimed driver), or inside its io executor's RunAndWait. */
   bool onIoThread() const override;
   std::string listenMultiaddr() const override { return listen_multiaddr_; }
   /** The socket's buffers as granted and the datagrams the OS dropped for want of room; none when stopped or in tests. */
@@ -84,14 +84,13 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<bool> stop_{false};
   std::thread pump_thread_;
-  std::atomic<std::thread::id> pump_thread_id_{};
   /**
-   * Gates post() against Stop() tearing down stack_. Never held while calling
-   * into the stack: the pump thread posts while holding amp's io lock.
+   * Guards `lane_` and `io_` (read by post() / socketStats() on any thread). A leaf: never held while
+   * calling into the stack — the pump thread posts while holding amp's io lock.
    */
   mutable std::mutex post_mu_;
-  std::condition_variable posts_drained_cv_;
-  size_t posts_in_flight_{0};
+  /** The stack's io lane (MeshRuntime::IoExecutor): safe to post to while Stop() tears the stack down. */
+  std::shared_ptr<pp::SerialExecutor> lane_;
   std::mutex wake_mu_;
   std::condition_variable wake_cv_;
   bool wake_{false};

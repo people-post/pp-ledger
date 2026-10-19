@@ -6,7 +6,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <thread>
 
 namespace pp {
 namespace network {
@@ -39,17 +38,16 @@ public:
   bool isRunning() const override { return open_; }
   pp::amp::MeshRuntime& runtime() override { return *host_.runtime; }
   void post(IoTask task) override;
-  /** The thread that drove the host's runtime last (seen from an io tick). */
+  /** The host's io lane (MeshRuntime::IoExecutor): its driver thread, or inside its RunAndWait. */
   bool onIoThread() const override;
   std::string listenMultiaddr() const override;
   bool ownsRuntime() const override { return false; }
 
 private:
   Host host_;
+  /** The host's io lane; outlives its runtime safely (posts are then dropped). */
+  std::shared_ptr<pp::SerialExecutor> io_;
   std::atomic<bool> open_{false};
-  pp::amp::MeshRuntime::IoTickId tick_{};
-  /** Shared with the tick, which may run once more after RemoveIoTick. */
-  std::shared_ptr<std::atomic<std::thread::id>> driver_ = std::make_shared<std::atomic<std::thread::id>>();
 };
 
 } // namespace network

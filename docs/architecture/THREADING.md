@@ -47,8 +47,13 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 ## Rules
 
 1. **One driver.** Only the pump thread calls `MeshRuntime::Drive` / `Pump` /
-   `Tick` (amp's exclusive-driver contract). Tests may instead drive from the
-   test thread, which is then the only driver.
+   `Tick` (amp's exclusive-driver contract). It claims the runtime as it starts
+   (`ClaimDriver`): a drive from any other thread is then refused and counted
+   (`RefusedDrives`) — a second driver is a bug. A host's driver claims its own.
+   Tests may instead drive from the test thread, unclaimed, which is then the
+   only driver. `AmpHost::onIoThread()` is the io executor's
+   `RunsTasksOnCurrentThread` (`MeshRuntime::IoExecutor`): the driver thread, or a
+   thread inside its `RunAndWait` (holding the io lock).
 2. **No off-thread link work.** Other threads do not call into links, channel
    muxes or sessions per request. They use `AmpHost::post()` and wait.
    `links()` / `runtime()` are for setup (binding handlers) only.
@@ -62,10 +67,12 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
 6. **On a host, pp-ledger is a guest.** On a host's runtime (`Server::runOnHost`)
    the host drives; pp-ledger posts and binds its protocol handlers only. Every
    call from the io lane into pp-ledger — posted work, a request's dispatch, an
-   async call's `done` — goes through `AmpHost::guard`: once the node stops
-   (`HostedAmpRuntime::closeHosted`, never on the driver thread) none runs, while
-   the host's runtime runs on. Posted work runs under the host's io lock: a post
-   from another thread waits for the host's current turn.
+   async call's `done` — goes through `AmpHost::guard` (a `pp::Lifetime` and an
+   open flag): once the node stops (`HostedAmpRuntime::closeHosted`) none runs —
+   close waits for one in progress on another thread — while the host's runtime
+   runs on. Work is posted through the host's io executor (`IoExecutor`), which may
+   outlive its runtime (posts are then dropped); it runs under the host's io lock:
+   a post from another thread waits for the host's current turn.
 
 ## Transport modes
 

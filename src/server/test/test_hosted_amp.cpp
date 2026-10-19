@@ -238,3 +238,28 @@ TEST(HostedAmpRuntimeTest, WorkQueuedBeforeTheCloseDoesNotRunAfterIt) {
   EXPECT_FALSE(ran.load()) << "queued before the close, dropped after it";
   EXPECT_FALSE(doneCalled.load()) << "a reply (or timeout) after the close does not reach its caller";
 }
+
+// THREADING.md rule 1: a standalone node's pump claims its runtime — a drive from any other thread is
+// refused — and onIoThread is the io executor's view: the pump thread, or inside its RunAndWait.
+TEST(LedgerAmpRuntimeTest, ThePumpIsTheOnlyDriver) {
+  auto hub = pp::adp::MemoryDatagramIo::MakeHub();
+  network::LedgerAmpRuntime runtime;
+  auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, pp::adp::IpEndpoint::V4(10, 4, 0, 1, 1000));
+  ASSERT_TRUE(runtime.StartForTest(io, std::make_shared<pp::adp::WallClock>(), freshIdentity()).isOk());
+
+  std::promise<bool> onIo;
+  runtime.post([&]() { onIo.set_value(runtime.onIoThread()); });
+  auto future = onIo.get_future();
+  ASSERT_EQ(future.wait_for(5s), std::future_status::ready);
+  EXPECT_TRUE(future.get()) << "posted work runs on the pump";
+  EXPECT_FALSE(runtime.onIoThread());
+
+  const uint64_t refused = runtime.runtime().RefusedDrives();
+  runtime.runtime().Drive();  // a second driver
+  EXPECT_EQ(runtime.runtime().RefusedDrives(), refused + 1);
+
+  bool inside = false;
+  runtime.runtime().IoExecutor()->RunAndWait([&]() { inside = runtime.onIoThread(); });
+  EXPECT_TRUE(inside) << "holding the io lock through the executor counts as on the lane";
+  runtime.Stop();
+}

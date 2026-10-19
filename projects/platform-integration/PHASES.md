@@ -11,7 +11,9 @@ Order only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DESIG
       its own; the apps use it. On the way: a server's stop source (`Service::setStopSource`), so a
       stop between two servers is not lost; smoke scripts no longer exit silently on an empty grep
 - [ ] **pi3** Mesh repo (after pp-node moves out of pp-browser): a MeshHost hook for protocols to
-      advertise, the ledger handlers before peers arrive, one driver, pp-cpp-amp ≥ v2.21.0
+      advertise, the ledger handlers before peers arrive. Done ahead, in pp-browser (#353): one
+      driver (MeshPump claims the runtime; pp-node no longer ticks beside it) and pp-cpp-amp v2.23.0,
+      which pp-ledger pins too (IoExecutor)
 - [ ] **pi4** pp-node ledger role: `cmake/PpLedger.cmake`; config (role, ledger work directory);
       run it on the mesh runtime; shutdown before `MeshHost::Stop`; smoke: a pp-node relay between
       a standalone beacon and miner, a pp-node miner behind a standalone relay (PI003, PI004)
