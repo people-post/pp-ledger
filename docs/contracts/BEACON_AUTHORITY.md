@@ -352,9 +352,9 @@ admin-signed certificate of a higher generation, kept as above, can order it
   `keptUpTo`, its last block as `droppedUpTo`, the generation) to `data/rewind.dat`, logs an
   error-level alert, keeps serving for 2 s (a forward in flight — the certificate itself —
   finishes), and restarts.
-- **Restart.** The app runs a fresh server on the same work directory (`pp-beacon`, `pp-relay` and
-  `pp-miner` loop in `main`); every object is rebuilt from disk, as at a cold start. A signal stops
-  the loop.
+- **Restart.** A fresh server runs on the same work directory (`RoleRunner`, which `pp-beacon`,
+  `pp-relay`, `pp-miner` and a host embedding a role use); every object is rebuilt from disk, as at
+  a cold start. A stop (a signal, the host) ends the loop.
 - **Apply**, at start, before the ledger mounts: the ledger keeps the blocks up to `keptUpTo`
   (`Ledger::rewindTo`); when that lies below the ledger's first block (a miner started at a later
   checkpoint) the ledger is removed and the node joins fresh. A beacon also drops a stored signed tip

@@ -1,5 +1,5 @@
 #include "common/Logger.h"
-#include "../server/RelayServer.h"
+#include "../server/RoleRunner.h"
 
 #include "NodeOptions.h"
 
@@ -12,51 +12,17 @@
 #include <string>
 
 namespace {
-pp::RelayServer *g_relayServer = nullptr;
-
-/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
-std::atomic<bool> g_stopRequested{false};
+/** Set while the role runs: a signal stops it (one atomic store). */
+std::atomic<pp::RoleRunner *> g_runner{nullptr};
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    g_stopRequested = true;
-    if (g_relayServer) {
-      g_relayServer->setStop(true);
+    if (pp::RoleRunner *runner = g_runner.load()) {
+      runner->stop();
     }
   }
 }
 } // namespace
-
-int runRelay(const std::string &workDir, uint64_t approvedRewindGeneration, const std::string &logFile) {
-  auto logger = pp::logging::getLogger("pp");
-
-  logger.info << "Running relay with work directory: " << workDir;
-
-  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
-  // work directory for as long as the last one asks to be restarted.
-  while (!g_stopRequested) {
-    pp::RelayServer relay;
-    relay.redirectLogger("pp.R");
-    relay.setApprovedRewindGeneration(approvedRewindGeneration);
-    relay.setLogFile(logFile);
-    g_relayServer = &relay; // for the signal handler
-
-    auto runResult = relay.run(workDir);
-    g_relayServer = nullptr;
-
-    if (!runResult) {
-      logger.error << "Failed to run relay: " + runResult.error().message;
-      return 1;
-    }
-    if (!relay.restartRequested()) {
-      break;
-    }
-    logger.warning << "Relay restarting";
-  }
-
-  logger.info << "Relay stopped";
-  return 0;
-}
 
 int main(int argc, char *argv[]) {
   CLI::App app{"pp-relay - Relay server for pp-ledger"};
@@ -85,5 +51,19 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runRelay(options.workDir, approvedRewindGeneration, options.logFile);
+  pp::RoleRunner::Options run;
+  run.role = pp::RoleRunner::Role::Relay;
+  run.workDir = options.workDir;
+  run.approvedRewindGeneration = approvedRewindGeneration;
+  run.logFile = options.logFile;
+  pp::RoleRunner runner(std::move(run));
+  runner.redirectLogger("pp");
+  g_runner = &runner;
+  auto ran = runner.run();
+  g_runner = nullptr;
+  if (!ran) {
+    pp::logging::getLogger("pp").error << ran.error().message;
+    return 1;
+  }
+  return 0;
 }

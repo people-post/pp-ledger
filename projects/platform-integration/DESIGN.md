@@ -1,6 +1,6 @@
 # Platform integration — ledger roles in pp-node and pp-browser
 
-**Status:** decided (2026-10-19, [DECISIONS.md](DECISIONS.md)); pi1 built. Progress:
+**Status:** decided (2026-10-19, [DECISIONS.md](DECISIONS.md)); pi1 and pi2 built. Progress:
 [CURRENT_STATE.md](CURRENT_STATE.md); order: [PHASES.md](PHASES.md). Today pp-ledger runs only as
 standalone binaries and pp-browser has no ledger code:
 [docs/architecture/PLATFORM_INTEGRATION.md](../../docs/architecture/PLATFORM_INTEGRATION.md).
@@ -71,9 +71,9 @@ mesh directory (`ledger_gateway`) comes later ([PI005](DECISIONS.md#pi005--upstr
 - **pi1 — shared runtime** (built): `network::AmpHost` (post, io-thread check, in-flight limits,
   guarded io-lane calls) with `LedgerAmpRuntime` (standalone) and `HostedAmpRuntime` (a host's);
   `Server::runOnHost`; clients attach to either.
-- **pi2 — a role runner:** what each app's `main()` does today — load the role from its work
-  directory, run it, run a fresh server after a rewind (B022), stop on request — as a library
-  entry pp-node calls on its own thread, with `runOnHost`.
+- **pi2 — a role runner** (built): `RoleRunner` — what each app's `main()` did: run the role on its
+  work directory, a fresh server after a rewind (B022), stop on request — called by the apps and
+  by pp-node on a thread of its own, with `Options::host`.
 
 ## Work in the mesh repo / pp-node
 

@@ -36,9 +36,20 @@ public:
   Service(const Service &) = delete;
   Service &operator=(const Service &) = delete;
 
-  bool isStopSet() const { return isStopSet_; }
+  /** Stop requested: on this service, or by its stop source. */
+  bool isStopSet() const {
+    const std::atomic<bool> *source = stopSource_.load();
+    return isStopSet_ || (source && source->load());
+  }
 
   void setStop(bool value) { isStopSet_ = value; }
+  /**
+   * A flag owned by whoever runs this service (a RoleRunner, platform-integration pi2): set, it
+   * stops the service as setStop(true) does — also before run() starts, which clears its own flag.
+   * Setting it is one atomic store: safe from any thread and a signal handler. It must outlive
+   * the service.
+   */
+  void setStopSource(const std::atomic<bool> *source) { stopSource_ = source; }
 
   Roe<void> run();
   Roe<void> start();
@@ -68,6 +79,8 @@ protected:
 private:
   /// Flag indicating if stop has been requested
   std::atomic<bool> isStopSet_{ false };
+  /// See setStopSource
+  std::atomic<const std::atomic<bool> *> stopSource_{ nullptr };
 
   /// The service thread
   std::thread thread_;

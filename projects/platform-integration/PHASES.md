@@ -6,9 +6,10 @@ Order only; status lives in [CURRENT_STATE.md](CURRENT_STATE.md). Design: [DESIG
       and `HostedAmpRuntime` (a host's); `Server::runOnHost` — the node takes the host's identity
       and address, asks no identity key, sets no runtime-wide setting; io-lane calls guarded so a
       stopped node is never called; clients attach to either (PI001, PI002, PI006)
-- [ ] **pi2** Role runner (pp-ledger): a library entry that runs a relay or a miner on its work
-      directory — the app's restart loop after a rewind (B022), stop on request — on a host's
-      runtime or its own; the apps use it too
+- [x] **pi2** Role runner (pp-ledger): `RoleRunner` runs a beacon, relay or miner on its work
+      directory — the restart loop after a rewind (B022), stop on request — on a host's runtime or
+      its own; the apps use it. On the way: a server's stop source (`Service::setStopSource`), so a
+      stop between two servers is not lost; smoke scripts no longer exit silently on an empty grep
 - [ ] **pi3** Mesh repo (after pp-node moves out of pp-browser): a MeshHost hook for protocols to
       advertise, the ledger handlers before peers arrive, one driver, pp-cpp-amp ≥ v2.21.0
 - [ ] **pi4** pp-node ledger role: `cmake/PpLedger.cmake`; config (role, ledger work directory);
