@@ -3,9 +3,7 @@
 namespace pp {
 namespace network {
 
-HostedAmpRuntime::HostedAmpRuntime(Host host) : host_(std::move(host)) {
-  // MeshRuntime::IsDriving is the driver's own state: learn the driver's thread from a tick instead.
-  tick_ = host_.runtime->AddIoTick([driver = driver_]() { *driver = std::this_thread::get_id(); });
+HostedAmpRuntime::HostedAmpRuntime(Host host) : host_(std::move(host)), io_(host_.runtime->IoExecutor()) {
   open();
   open_ = true;
 }
@@ -17,16 +15,15 @@ void HostedAmpRuntime::closeHosted() {
     return;
   }
   close();
-  host_.runtime->RemoveIoTick(tick_);
 }
 
 void HostedAmpRuntime::post(IoTask task) {
   if (open_) {
-    host_.runtime->PostToIo(guardTask(std::move(task)));
+    io_->Post(guardTask(std::move(task)));
   }
 }
 
-bool HostedAmpRuntime::onIoThread() const { return std::this_thread::get_id() == driver_->load(); }
+bool HostedAmpRuntime::onIoThread() const { return io_->RunsTasksOnCurrentThread(); }
 
 std::string HostedAmpRuntime::listenMultiaddr() const {
   return open_ && host_.listenMultiaddr ? host_.listenMultiaddr() : std::string{};

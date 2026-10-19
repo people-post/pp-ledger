@@ -81,8 +81,9 @@ pp-node and the mesh code move out of pp-browser first ([pp-browser order](#orde
 
 - **MeshHost:** a hook for protocols to advertise beside its own (it rebuilds the advertised list),
   and the ledger handlers registered before peers arrive (it refuses unhandled opens). One driver:
-  pp-node's main loop also calls `MeshHost::Tick()` while the pump thread drives.
-- **pp-cpp-amp:** pp-node on pp-ledger's pin or later (pp-ledger is on v2.21.0).
+  done ahead in pp-browser (MeshPump claims the runtime; pp-node's main loop no longer ticks).
+- **pp-cpp-amp:** pp-node on pp-ledger's pin or later — both on v2.23.0, whose `IoExecutor` is
+  how a guest posts onto (and recognizes) the host's io lane.
 - **The ledger role** (`feature/`): `cmake/PpLedger.cmake` (pinned tag, source-dir override; the
   link allowlist widened for it); config — the role and a ledger work directory inside the node's
   data directory, holding pp-ledger's own `config.json`, account keys (miner) and data

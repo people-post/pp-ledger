@@ -59,6 +59,10 @@ pp::Roe<void> LedgerAmpRuntime::StartForTest(std::shared_ptr<pp::adp::DatagramIo
   listen_multiaddr_ = *ma;
   stack_->Links().SetLocalListenMultiaddrs({listen_multiaddr_});
 
+  {
+    std::lock_guard<std::mutex> lock(post_mu_);
+    lane_ = stack_->Runtime().IoExecutor();
+  }
   open();
   running_ = true;
   stop_ = false;
@@ -73,14 +77,13 @@ void LedgerAmpRuntime::Stop() {
   if (pump_thread_.joinable()) {
     pump_thread_.join();
   }
-  pump_thread_id_ = std::thread::id{};
   std::unique_ptr<pp::amp::AmpStack> stack;
   {
-    // After this, post() is a no-op; wait out posts already past the gate.
-    // Tear down outside post_mu_: the stack takes its own io lock.
-    std::unique_lock<std::mutex> lock(post_mu_);
+    // After this, post() is a no-op. A post already holding the lane is safe: the lane outlives the
+    // stack (its calls are dropped once the runtime goes). Tear down outside post_mu_.
+    std::lock_guard<std::mutex> lock(post_mu_);
     running_ = false;
-    posts_drained_cv_.wait(lock, [this]() { return posts_in_flight_ == 0; });
+    lane_.reset();
     stack = std::move(stack_);
   }
   if (stack) {
@@ -107,27 +110,28 @@ std::optional<pp::adp::DatagramIoStats> LedgerAmpRuntime::socketStats() const {
 pp::amp::MeshRuntime& LedgerAmpRuntime::runtime() { return stack_->Runtime(); }
 
 void LedgerAmpRuntime::post(IoTask task) {
-  pp::amp::AmpStack* stack = nullptr;
+  std::shared_ptr<pp::SerialExecutor> lane;
   {
     std::lock_guard<std::mutex> lock(post_mu_);
-    if (!running_ || !stack_) {
+    if (!running_) {
       return;
     }
-    stack = stack_.get();
-    ++posts_in_flight_;
+    lane = lane_;
   }
-  // No lock held: PostToIo takes amp's io lock, which the pump thread already
-  // holds when it posts from inside Drive().
-  stack->PostToIo(guardTask(std::move(task)));
+  // No lock held: posting takes amp's io lock, which the pump thread already holds when it posts
+  // from inside Drive().
+  lane->Post(guardTask(std::move(task)));
   Wake();
-  {
-    std::lock_guard<std::mutex> lock(post_mu_);
-    --posts_in_flight_;
-  }
-  posts_drained_cv_.notify_all();
 }
 
-bool LedgerAmpRuntime::onIoThread() const { return std::this_thread::get_id() == pump_thread_id_.load(); }
+bool LedgerAmpRuntime::onIoThread() const {
+  std::shared_ptr<pp::SerialExecutor> lane;
+  {
+    std::lock_guard<std::mutex> lock(post_mu_);
+    lane = lane_;
+  }
+  return lane && lane->RunsTasksOnCurrentThread();
+}
 
 void LedgerAmpRuntime::Wake() {
   {
@@ -138,7 +142,8 @@ void LedgerAmpRuntime::Wake() {
 }
 
 void LedgerAmpRuntime::PumpLoop() {
-  pump_thread_id_ = std::this_thread::get_id();
+  // The pump is the stack's only driver: a drive from any other thread is refused (and counted).
+  stack_->Runtime().ClaimDriver();
   auto& endpoint = stack_->GetEndpoint();
   while (!stop_.load()) {
     const uint64_t received = endpoint.Stats().rx_datagrams;
@@ -154,6 +159,7 @@ void LedgerAmpRuntime::PumpLoop() {
     wake_cv_.wait_for(lock, std::chrono::milliseconds(5), [this]() { return wake_ || stop_.load(); });
     wake_ = false;
   }
+  stack_->Runtime().ReleaseDriver();
 }
 
 } // namespace network

@@ -4,12 +4,12 @@
 #include "amp/L1/DatagramIo.h"
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/PeerLinkManager.h"
+#include "common/Lifetime.h"
 
-#include <condition_variable>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -46,7 +46,10 @@ public:
   pp::amp::PeerLinkManager& links() { return runtime().Links(); }
   /** Run `task` on the io lane, guarded (see guard). Any thread; dropped once closed or stopped. */
   virtual void post(IoTask task) = 0;
-  /** True on the thread driving the runtime. Blocking on io work from there would deadlock. */
+  /**
+   * True where io work runs: the thread driving the runtime, or one holding its io lock through its
+   * io executor (MeshRuntime::IoExecutor). Blocking on io work from there would deadlock.
+   */
   virtual bool onIoThread() const = 0;
   /** This node's listen multiaddr, ending in /p2p/<PeerId>; empty when not running. */
   virtual std::string listenMultiaddr() const = 0;
@@ -68,48 +71,27 @@ public:
 
   /**
    * `fn`, run only while this host is open: a call after close() is dropped, and close() waits for
-   * one in progress. The returned function outlives the host safely.
+   * one in progress on another thread. The returned function outlives the host safely.
    */
   template <typename... Args> std::function<void(Args...)> guard(std::function<void(Args...)> fn) const {
-    return [gate = gate_, fn = std::move(fn)](Args... args) {
-      if (!gate->enter()) {
-        return;
+    return lifetime_.Bind([open = open_, fn = std::move(fn)](Args... args) {
+      if (open->load(std::memory_order_acquire)) {
+        fn(std::forward<Args>(args)...);
       }
-      const Gate::Inside inside(*gate);
-      fn(std::forward<Args>(args)...);
-    };
+    });
   }
   IoTask guardTask(IoTask task) const { return guard<>(std::move(task)); }
 
 protected:
   /** Open for pp-ledger: fresh in-flight limits, guarded calls run. */
   void open();
-  /** Closed: guarded calls are dropped; waits for one in progress (never call it on the io thread). */
+  /** Closed: guarded calls are dropped; waits for one in progress on another thread. */
   void close();
 
 private:
-  class Gate {
-  public:
-    /** Leaves on destruction (also when the call throws). */
-    struct Inside {
-      explicit Inside(Gate& gate) : gate_(gate) {}
-      ~Inside() { gate_.leave(); }
-      Inside(const Inside&) = delete;
-      Inside& operator=(const Inside&) = delete;
-      Gate& gate_;
-    };
-    bool enter();
-    void leave();
-    void setOpen(bool open);
-
-  private:
-    std::mutex mu_;
-    std::condition_variable left_;
-    bool open_{false};
-    size_t inside_{0};
-  };
-
-  std::shared_ptr<Gate> gate_;
+  /** Read inside each guarded call: one that saw it open is still running when close() waits. */
+  std::shared_ptr<std::atomic<bool>> open_ = std::make_shared<std::atomic<bool>>(false);
+  pp::Lifetime lifetime_;
   std::shared_ptr<InFlightLimit> in_flight_;
   std::shared_ptr<InFlightLimit> bulk_in_flight_;
 };
