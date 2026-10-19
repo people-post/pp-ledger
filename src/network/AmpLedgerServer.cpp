@@ -211,7 +211,9 @@ void AmpLedgerServer::BindAsync(pp::amp::PeerLinkManager& links, AsyncHandler ha
        std::make_shared<Receiving>(shared->bulkPerPeer, std::numeric_limits<size_t>::max())},
   };
   for (const auto& lane : lanes) {
-    Advertise(links, lane.protocolId);
+    if (shared->advertise) {
+      Advertise(links, lane.protocolId);
+    }
     links.SetProtocolHandler(lane.protocolId, [&links, bound, shared, lane](pp::amp::LinkHandle link_handle,
                                                                             const std::string& remote_peer_id,
                                                                             const uint32_t channel_id) {
@@ -245,6 +247,8 @@ void AmpLedgerServer::Bind(pp::amp::PeerLinkManager& links, Handler handler, Wor
       },
       std::move(post_io), read_timeout);
 }
+
+std::vector<std::string> AmpLedgerServer::protocolIds() { return {kProtocolId, kBulkProtocolId}; }
 
 void AmpLedgerServer::Unbind(pp::amp::PeerLinkManager& links) {
   links.RemoveProtocolHandler(kProtocolId);

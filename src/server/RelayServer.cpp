@@ -59,11 +59,6 @@ Service::Roe<void> RelayServer::onStart() {
     return Service::Error(E_CONFIG, "Failed to parse config (config.json and PP_LEDGER_* variables): " +
                                         parsed.error().message);
   }
-  auto identityKey = loadOrCreateIdentityKey();
-  if (!identityKey) {
-    return Service::Error(E_CONFIG, identityKey.error().message);
-  }
-
   log().info << "Configuration loaded";
   log().info << "  UDP port: " << config.port;
   for (const auto &upstream : config.upstreams) {
@@ -73,7 +68,7 @@ Service::Roe<void> RelayServer::onStart() {
     log().info << "  Genesis pinned (networkAnchor.genesisHash)";
   }
 
-  if (auto started = startFollowing(config, identityKey.value()); !started) {
+  if (auto started = startFollowing(config, [this]() { return loadOrCreateIdentityKey(); }); !started) {
     return started;
   }
 

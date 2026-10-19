@@ -28,7 +28,7 @@ Do not put phase status in `AGENTS.md`.
 |---------|--------|
 | [beacon-authority](beacon-authority/) | Verifiable beacon (part 1 shipped: [BEACON_AUTHORITY.md](../docs/contracts/BEACON_AUTHORITY.md)) and promotion after loss or a move (part 2) — open item E |
 | [development-budget](development-budget/PLAN.md) | Deliverables, phased roadmap, team and budget plan |
-| [platform-integration](platform-integration/DESIGN.md) | Ledger roles in pp-node (gateway) and pp-browser (client, optional miner) over Amp |
+| [platform-integration](platform-integration/DESIGN.md) | A ledger role (relay or miner) in pp-node on its mesh runtime; later pp-browser's client and optional miner (pi1 built: `Server::runOnHost`) |
 | [ledger-topology](ledger-topology/DESIGN.md) | Planned topology work: reorg repair, upstream cross-checks, range sync, watermarks, re-calibration |
 | [account-recovery](account-recovery/DESIGN.md) | A way back for every user and issued account: an opt-in recovery set above the account's keys names new keys, the account frozen until they take over (built in 1.4.0: [WIRE_SCHEMA § Account recovery](../docs/contracts/WIRE_SCHEMA.md#account-recovery)) |
 | [domains](domains/DESIGN.md) | Symbols for system (1–3 letters) and issuer accounts (4–7): a token's ticker and the account's domain, given by genesis or the registrar, read-only, proven both ways (built: [WIRE_SCHEMA § Domains](../docs/contracts/WIRE_SCHEMA.md#domains)) |

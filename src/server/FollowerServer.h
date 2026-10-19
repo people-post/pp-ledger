@@ -48,7 +48,7 @@ protected:
    * The upstreams `config` names (setUpstreams, UpstreamSet), then the AMP server with `identityKey`
    * on its port, serving its allowedPeers (and the upstreams). Keeps `config` (followerConfig).
    */
-  Roe<void> startFollowing(const FollowerConfig &config, const std::string &identityKey);
+  Roe<void> startFollowing(const FollowerConfig &config, const IdentityKeyFn &identityKey);
   const FollowerConfig &followerConfig() const { return config_; }
   /** The offset to the beacon's clock (beacon ms = local ms + offset), through the upstream followed, else another. */
   Roe<int64_t> calibrateTimeToBeacon();

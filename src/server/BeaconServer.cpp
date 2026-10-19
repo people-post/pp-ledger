@@ -978,19 +978,10 @@ Service::Roe<void> BeaconServer::onStart() {
                   << beacon_.getSeenCertificate()->cutoverHeight + 1;
   }
 
-  auto keyResult = loadOrCreateIdentityKey();
-  if (!keyResult) {
-    return Service::Error(E_CONFIG, keyResult.error().message);
-  }
-
-  auto ampCfg = network::LedgerAmpConfigFromPrivateKey(*keyResult, config_.network.udp_port);
-  if (!ampCfg) {
-    return Service::Error(E_NETWORK, "Failed to build AMP config: " + ampCfg.error().message);
-  }
-
   setAllowedPeers(runFileConfig.allowedPeers);
   setTransportLimits(runFileConfig);
-  auto serverStarted = startAmpServer(*ampCfg);
+  auto serverStarted =
+      startAmpServer(config_.network.udp_port, [this]() { return loadOrCreateIdentityKey(); });
   if (!serverStarted) {
     return Service::Error(-5, "Failed to start AMP server: " + serverStarted.error().message);
   }

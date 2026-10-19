@@ -62,8 +62,10 @@ receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`.
 | `network/LedgerRpcProtocol.h` | Protocol id, channel policy factory, limits |
 | `network/AmpLedgerServer.*` | Bind handler on `PeerLinkManager` |
 | `client/AmpLedgerTransport.*` | `ILedgerTransport` over AMP |
-| `network/LedgerAmpRuntime.*` | Slim `AmpStack` for standalone binaries |
-| `network/ServerAmpSupport.*` | `Server::startAmpServer` glue |
+| `network/AmpHost.*` | The runtime servers and clients run on (post, io-thread check, in-flight limits, guarded io-lane calls) |
+| `network/LedgerAmpRuntime.*` | `AmpHost` of a standalone binary: its own `AmpStack`, socket, identity and pump thread |
+| `network/HostedAmpRuntime.*` | `AmpHost` over a host's runtime (pp-node's mesh): the host's socket, identity and driver |
+| `network/ServerAmpSupport.*` | `Server::startAmpServer` glue (own runtime or hosted) |
 | `network/amp/AmpIdentity.*` | Identity + multiaddr config helpers |
 | `network/amp/LedgerPeerId.*` | Fleet-compatible PeerId from ML-DSA-65 |
 

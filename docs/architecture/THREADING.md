@@ -1,8 +1,8 @@
 # Threading model
 
 How pp-ledger processes use threads around the AMP stack and server state.
-Code wins if this disagrees; see `src/network/LedgerAmpRuntime.*`,
-`src/client/AmpLedgerTransport.*`, `src/server/Server.*`.
+Code wins if this disagrees; see `src/network/AmpHost.*`, `LedgerAmpRuntime.*`,
+`HostedAmpRuntime.*`, `src/client/AmpLedgerTransport.*`, `src/server/Server.*`.
 
 ## Model
 
@@ -10,7 +10,7 @@ Two kinds of thread own everything; other threads hand them work.
 
 | Thread | Owns | Does |
 |--------|------|------|
-| **Network (pump) thread** — `LedgerAmpRuntime` | The AMP stack: links, channel mux, channel sessions | Receives and sends datagrams, runs posted io work, fires amp timers |
+| **Network (pump) thread** — `LedgerAmpRuntime`'s, or a host's driver (`HostedAmpRuntime`: pp-node's mesh) | The AMP stack: links, channel mux, channel sessions | Receives and sends datagrams, runs posted io work, fires amp timers |
 | **Server thread** — the role's `runLoop` thread | Chain / ledger / role state | Runs role duties (refresh, sync, block production) and handles requests one at a time in between |
 
 Messages flow through queues between them:
@@ -50,7 +50,7 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
    `Tick` (amp's exclusive-driver contract). Tests may instead drive from the
    test thread, which is then the only driver.
 2. **No off-thread link work.** Other threads do not call into links, channel
-   muxes or sessions per request. They use `LedgerAmpRuntime::post()` and wait.
+   muxes or sessions per request. They use `AmpHost::post()` and wait.
    `links()` / `runtime()` are for setup (binding handlers) only.
 3. **Never block the pump thread.** A blocking `roundTrip` from the pump thread
    would wait on itself; it returns an error instead.
@@ -59,13 +59,20 @@ peer ◄── pump thread ◄──(reply: PostToIo)── server thread
    references into the caller's stack frame.
 5. **Ledger and Chain are single-threaded.** They take no locks; their owner
    serializes access.
+6. **On a host, pp-ledger is a guest.** On a host's runtime (`Server::runOnHost`)
+   the host drives; pp-ledger posts and binds its protocol handlers only. Every
+   call from the io lane into pp-ledger — posted work, a request's dispatch, an
+   async call's `done` — goes through `AmpHost::guard`: once the node stops
+   (`HostedAmpRuntime::closeHosted`, never on the driver thread) none runs, while
+   the host's runtime runs on. Posted work runs under the host's io lock: a post
+   from another thread waits for the host's current turn.
 
 ## Transport modes
 
 `AmpLedgerTransport` supports two ways of reaching the driver:
 
-- **Threaded** (`AmpLedgerTransport(LedgerAmpRuntime&, peer)`): servers, pp-client,
-  pp-http. `roundTrip` posts, then waits on a condition variable. The io-lane amp
+- **Threaded** (`AmpLedgerTransport(AmpHost&, peer)`): servers (on their own
+  runtime or a host's), pp-client, pp-http. `roundTrip` posts, then waits on a condition variable. The io-lane amp
   timer ends the call at `timeout`; the waiter adds a short grace period in case
   the pump thread stalls.
 - **Caller-driven** (`AmpLedgerTransport(MeshRuntime&, peer, drive)`): unit tests

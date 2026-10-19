@@ -1,4 +1,5 @@
 #include "Server.h"
+#include "../network/amp/AmpIdentity.h"
 #include "../client/Client.h"
 #include "lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
@@ -203,7 +204,7 @@ void Server::fillHealth(Client::NodeHealth& health) const {
   if (ampSupport_ && ampSupport_->isRunning()) {
     health.links = ampSupport_->links().CountLinks();
   }
-  if (const auto socket = ampSupport_ ? ampSupport_->runtime().socketStats() : std::nullopt) {
+  if (const auto socket = ampSupport_ && ampSupport_->isRunning() ? ampSupport_->host().socketStats() : std::nullopt) {
     health.udpReceiveBufferBytes = socket->receive_buffer_bytes;
     health.udpReceiveDrops = socket->receive_drops;
   }
@@ -911,8 +912,8 @@ std::string Server::listenMultiaddr() const {
   return ampSupport_ ? ampSupport_->listenMultiaddr() : std::string{};
 }
 
-network::LedgerAmpRuntime* Server::ampRuntime() {
-  return ampSupport_ ? &ampSupport_->runtime() : nullptr;
+network::AmpHost* Server::ampRuntime() {
+  return ampSupport_ && ampSupport_->isRunning() ? &ampSupport_->host() : nullptr;
 }
 
 pp::amp::PeerLinkManager* Server::peerLinks() {
@@ -956,47 +957,69 @@ Service::Roe<std::string> Server::loadOrCreateIdentityKey() {
   return key.value();
 }
 
-Service::Roe<void> Server::startAmpServer(const network::LedgerAmpConfig& config) {
+Service::Roe<void> Server::startAmpServer(const uint16_t port, const IdentityKeyFn& identityKey) {
   if (ampSupport_) {
     return Service::Error(-1, "AMP server already started");
   }
   if (requests_->isClosed()) {
     requests_ = std::make_unique<RequestQueue>(requestCapacity_);  // restart after a stop
   }
-  network::LedgerAmpConfig tuned = config;
+  network::AmpLedgerServer::Options ingress;
+  ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
+  ingress.trusted = [this](const std::string& peerId) { return isTrustedPeer(peerId); };
+  ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
+  auto dispatch = [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
+    enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
+  };
+  ampSupport_ = std::make_unique<network::ServerAmpSupport>();
+  Service::Roe<void> started;
+  if (onHost()) {
+    started = ampSupport_->StartHosted(hostAmp_, tuning_.channelReadTimeout(), dispatch, std::move(ingress));
+  } else {
+    started = startOwnAmp(port, identityKey, dispatch, std::move(ingress));
+  }
+  if (!started) {
+    ampSupport_.reset();
+    return started;
+  }
+  log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr()
+             << (onHost() ? " (the host's runtime)" : "");
+  writeListenMultiaddrFile();
+  publishHealth(); // HEALTH answers "starting" from now on
+  return {};
+}
+
+Service::Roe<void> Server::startOwnAmp(const uint16_t port, const IdentityKeyFn& identityKey,
+                                       network::ServerAmpSupport::DispatchFn dispatch,
+                                       network::AmpLedgerServer::Options ingress) {
+  auto key = identityKey();
+  if (!key) {
+    return key.error();
+  }
+  auto config = network::LedgerAmpConfigFromPrivateKey(key.value(), port);
+  if (!config) {
+    return Service::Error(-1, "Failed to build AMP config: " + config.error().message);
+  }
+  network::LedgerAmpConfig tuned = std::move(config.value());
   tuning_.applyTo(tuned.link_config);
   tuned.link_config.max_links = maxLinks_;
   tuned.link_config.max_pending_inbound = handshakeBacklog_;
   tuned.udp_buffer_bytes = udpBufferBytes_;
   tuned.rpc_read_timeout = tuning_.channelReadTimeout();
-  network::AmpLedgerServer::Options ingress;
-  ingress.admit = [this](const std::string& peerId) { return isAllowedPeer(peerId); };
-  ingress.trusted = [this](const std::string& peerId) { return isTrustedPeer(peerId); };
-  ingress.refusal = [this](const network::AmpLedgerServer::Refusal why) { return refusalResponse(why); };
-  ampSupport_ = std::make_unique<network::ServerAmpSupport>();
-  auto started = ampSupport_->Start(
-      tuned,
-      [this](std::string peerId, std::string body, RequestQueue::Reply reply) {
-        enqueueRequest(std::move(body), std::move(reply), std::move(peerId));
-      },
-      std::move(ingress));
-  if (!started) {
-    ampSupport_.reset();
+  if (auto started = ampSupport_->Start(std::move(tuned), std::move(dispatch), std::move(ingress)); !started) {
     return started;
   }
-  log().info << "AMP ledger listener: " << ampSupport_->listenMultiaddr();
-  if (const auto socket = ampSupport_->runtime().socketStats()) {
+  auto* runtime = ampSupport_->ownRuntime();
+  if (const auto socket = runtime->socketStats()) {
     log().info << "UDP socket buffers: receive " << socket->receive_buffer_bytes << " B, send "
                << socket->send_buffer_bytes << " B";
   }
-  if (ampSupport_->runtime().socketBuffersCapped()) {
+  if (runtime->socketBuffersCapped()) {
     log().warning << "UDP socket buffers are smaller than the " << udpBufferBytes_
                   << " B asked for (udpBufferBytes): the OS caps them. Raise the cap, e.g. sysctl -w "
                      "net.core.rmem_max=" << udpBufferBytes_ << " net.core.wmem_max=" << udpBufferBytes_
                   << " — a burst of large requests may otherwise make it drop every peer's datagrams";
   }
-  writeListenMultiaddrFile();
-  publishHealth(); // HEALTH answers "starting" from now on
   return {};
 }
 

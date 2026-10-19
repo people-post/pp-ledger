@@ -11,7 +11,7 @@
 namespace pp {
 
 namespace network {
-class LedgerAmpRuntime;
+class AmpHost;
 }
 
 /**
@@ -19,8 +19,10 @@ class LedgerAmpRuntime;
  *
  * All link and channel work runs on the AMP io lane; the calling thread never
  * drives the stack. Two modes:
- * - Threaded: a LedgerAmpRuntime pump thread drives. roundTrip() posts the call
- *   and blocks on its result. Must not be called from the pump thread.
+ * - Threaded: an AmpHost's driver thread drives — a LedgerAmpRuntime's pump, or
+ *   a host's (HostedAmpRuntime). roundTrip() posts the call and blocks on its
+ *   result. Must not be called from the driver thread. An async call's `done`
+ *   runs only while the AmpHost is open.
  * - Caller-driven: no driver thread (tests / single-threaded tools). roundTrip()
  *   posts the call, then runs `drive` on the calling thread until it completes,
  *   so the caller is the only driver.
@@ -29,7 +31,7 @@ class AmpLedgerTransport : public ILedgerTransport, public Module {
 public:
   using DriveFn = std::function<void()>;
 
-  AmpLedgerTransport(network::LedgerAmpRuntime& runtime, std::string peer_key);
+  AmpLedgerTransport(network::AmpHost& runtime, std::string peer_key);
   AmpLedgerTransport(pp::amp::MeshRuntime& mesh, std::string peer_key, DriveFn drive);
 
   void setPeerKey(std::string peer_key) { peer_key_ = std::move(peer_key); }
@@ -53,7 +55,7 @@ private:
   std::shared_ptr<network::InFlightLimit> inFlightLimit(size_t requestBytes) const;
 
   pp::amp::MeshRuntime& mesh_;
-  network::LedgerAmpRuntime* runtime_{nullptr};
+  network::AmpHost* runtime_{nullptr};
   DriveFn drive_;
   std::string peer_key_;
   std::shared_ptr<network::InFlightLimit> own_limit_;

@@ -46,6 +46,13 @@ public:
   ~Server() override;
 
   virtual Service::Roe<void> run(const std::string& workDir);
+  /**
+   * Before run: serve on a host's Amp runtime — pp-node's mesh — instead of a socket of its own
+   * (platform-integration pi1). The node then has the host's identity and listen address; its
+   * configured port and identity key are not used, and the host keeps the runtime-wide settings.
+   */
+  void runOnHost(network::HostedAmpRuntime::Host host) { hostAmp_ = std::move(host); }
+  bool onHost() const { return hostAmp_.runtime != nullptr; }
 
   /**
    * True when run() returned to be run again on a fresh server (beacon-authority bp1, B022): a
@@ -80,8 +87,10 @@ protected:
   virtual int32_t getRunErrorCode() const { return E_ROLE; }
 
   std::string listenMultiaddr() const;
-  network::LedgerAmpRuntime* ampRuntime();
+  /** The Amp runtime the node serves and its clients call on (its own or a host's); none before start. */
+  network::AmpHost* ampRuntime();
   pp::amp::PeerLinkManager* peerLinks();
+
 
   static std::string packResponse(const std::string& payload);
   static std::string packResponse(uint16_t errorCode, const std::string& message);
@@ -279,7 +288,17 @@ protected:
     handshakeBacklog_ = config.handshakeBacklog;
     udpBufferBytes_ = config.udpBufferBytes;
   }
-  Service::Roe<void> startAmpServer(const network::LedgerAmpConfig& config);
+  /** This node's network identity key (a role's own choice: loadOrCreateIdentityKey, a miner's account key). */
+  using IdentityKeyFn = std::function<Service::Roe<std::string>()>;
+  /**
+   * Serve ledger RPC: on the host's runtime (runOnHost), else on a runtime of its own on UDP `port`
+   * with `identityKey` (asked only then).
+   */
+  Service::Roe<void> startAmpServer(uint16_t port, const IdentityKeyFn& identityKey);
+  /** startAmpServer on a runtime of its own: socket, identity, link limits and buffers from the config. */
+  Service::Roe<void> startOwnAmp(uint16_t port, const IdentityKeyFn& identityKey,
+                                 network::ServerAmpSupport::DispatchFn dispatch,
+                                 network::AmpLedgerServer::Options ingress);
   void stopAmpServer();
   bool isAmpServerRunning() const { return ampSupport_ && ampSupport_->isRunning(); }
 
@@ -329,6 +348,7 @@ private:
   };
   std::map<uint32_t, Route> routes_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
+  network::HostedAmpRuntime::Host hostAmp_;
   uint32_t maxLinks_{NodeConfig::kDefaultMaxLinks};
   uint32_t handshakeBacklog_{NodeConfig::kDefaultHandshakeBacklog};
   uint32_t udpBufferBytes_{NodeConfig::kDefaultUdpBufferBytes};
