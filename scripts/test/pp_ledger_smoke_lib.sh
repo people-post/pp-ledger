@@ -1182,7 +1182,7 @@ run_batch_scenario() {
   json=$(run_pp_client -b --host "$(relay_multiaddr)" producers --from 1 2>/dev/null | tr -d ' \n') ||
     die "L-SMOKE-BATCH: pp-client producers failed"
   total=$(sed -n 's/.*"toBlockId":[0-9]*,"blocks":\([0-9]*\),.*/\1/p' <<<"$json")
-  listed=$(grep -o '"account":[0-9]*,"blocks":[0-9]*' <<<"$json" | sed 's/.*"blocks"://' | awk '{s += $1} END {print s}')
+  listed=$(grep -o '"account":[0-9]*,"blocks":[0-9]*' <<<"$json" | sed 's/.*"blocks"://' | awk '{s += $1} END {print s}' || true)
   [[ -n "$total" && "$total" -gt 0 && "$total" == "$listed" ]] ||
     die "L-SMOKE-BATCH: producers do not add up (total ${total:-?}, listed ${listed:-?}): $json"
   grep -q '"fees":[1-9]' <<<"$json" || die "L-SMOKE-BATCH: no fees counted: $json"
@@ -2059,7 +2059,8 @@ run_takeover_scenario() {
   # The next leader commits the certificate in block cutover+1; the new beacon signs it.
   local deadline=$((SECONDS + 120)) committed=""
   while ((SECONDS < deadline)); do
-    committed=$(grep -a -l "commits the beacon certificate held" "${TEST_DIR}"/miner*/miner.log 2>/dev/null | head -1)
+    # No match yet is no error (set -e, pipefail): the loop polls on.
+    committed=$(grep -a -l "commits the beacon certificate held" "${TEST_DIR}"/miner*/miner.log 2>/dev/null | head -1 || true)
     [[ -n "$committed" ]] && grep -a -q "Beacon certificate generation 2 in force from block $((cutover + 1))" \
       "$relay2/beacon.log" && break
     sleep 1
@@ -2152,7 +2153,7 @@ run_move_scenario() {
     die "L-SMOKE-MOVE: the moved beacon listens at $(relay_multiaddr beacon-moved), not ${new_ma}"
   # It resumes from the tip it signed on the old host, at least the one the relay served.
   local resumed
-  resumed=$(grep -a -o "Signed tip: block [0-9]*, generation 1" "$new/beacon.log" | head -1 | sed 's/[^0-9]*\([0-9]*\),.*/\1/')
+  resumed=$(grep -a -o "Signed tip: block [0-9]*, generation 1" "$new/beacon.log" | head -1 | sed 's/[^0-9]*\([0-9]*\),.*/\1/' || true)
   [[ -n "$resumed" && "$resumed" -ge "${before% *}" ]] ||
     die "L-SMOKE-MOVE: the moved beacon resumed from tip '${resumed}', below the relay's ${before% *}"
   echo -e "${GREEN}✓ Beacon started on the new address, from its signed tip (block ${resumed})${NC}"

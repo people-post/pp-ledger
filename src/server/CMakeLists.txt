@@ -44,6 +44,8 @@ add_library(pp_server STATIC
     Miner.cpp
     Miner.h
     RelayServer.cpp
+    RoleRunner.cpp
+    RoleRunner.h
     RelayServer.h
     Relay.cpp
     Relay.h

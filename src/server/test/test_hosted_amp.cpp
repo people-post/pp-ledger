@@ -10,6 +10,7 @@
 #include "amp/link/AmpStack.h"
 #include "lib/common/BinaryPack.hpp"
 #include "lib/common/Utilities.h"
+#include "TestAmpHost.h"
 #include "TestTempPath.h"
 
 #include <gtest/gtest.h>
@@ -29,54 +30,10 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr const char *kHostProtocol = "/pp-mesh/test/1.0.0";
+constexpr const char *kHostProtocol = pp::test::TestAmpHost::kProtocol;
+using Host = pp::test::TestAmpHost;
 
-network::LedgerAmpConfig freshIdentity() {
-  return network::LedgerAmpConfigFromPrivateKey(utl::mlDsaGenerate().value().privateKey, 0).value();
-}
-
-/** pp-node's part: an Amp stack it owns and drives from a thread of its own, with a protocol of its own. */
-struct Host {
-  std::unique_ptr<pp::amp::AmpStack> stack;
-  std::string listen;
-  std::thread pump;
-  std::atomic<bool> stopping{false};
-
-  void start(const std::shared_ptr<pp::adp::MemoryDatagramHub> &hub, const pp::adp::IpEndpoint &address) {
-    auto config = freshIdentity();
-    pp::amp::AmpStack::Config stackConfig;
-    stackConfig.identity = config.identity;
-    stackConfig.local_peer_id = config.local_peer_id;
-    stackConfig.link_config = config.link_config;
-    auto io = std::make_shared<pp::adp::MemoryDatagramIo>(hub, address);
-    auto created = pp::amp::AmpStack::Create(io, std::make_shared<pp::adp::WallClock>(), stackConfig);
-    stack = std::move(*created);
-    stack->Start();
-    stack->GetEndpoint().SetAcceptEnabled(true);
-    stack->Links().SetRefuseUnhandledOpens(true);
-    listen = pp::amp::FormatAdpMultiaddr(io->LocalEndpoint(), stack->LocalPeerId()).value();
-    stack->Links().SetLocalListenMultiaddrs({listen});
-    stack->Links().SetAdvertisedProtocols({kHostProtocol});
-    pump = std::thread([this]() {
-      while (!stopping) {
-        stack->Runtime().Drive();
-        std::this_thread::sleep_for(1ms);
-      }
-    });
-  }
-  network::HostedAmpRuntime::Host forLedger() {
-    return {&stack->Runtime(), [listen = listen]() { return listen; }};
-  }
-  ~Host() {
-    stopping = true;
-    if (pump.joinable()) {
-      pump.join();
-    }
-    if (stack) {
-      stack->Stop();
-    }
-  }
-};
+network::LedgerAmpConfig freshIdentity() { return pp::test::freshAmpIdentity(); }
 
 /** A ledger node answering request type 1 with "echo:<payload>". */
 class LedgerNode : public Server {

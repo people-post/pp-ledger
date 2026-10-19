@@ -16,7 +16,7 @@ Service::Roe<void> Service::start() {
   if (!result) {
     return Error(-2, "Service onStart() failed: " + result.error().message);
   }
-  if (isStopSet_) {
+  if (isStopSet()) {
     log().info << "Stop requested during start: not running";
     return {};
   }
@@ -46,7 +46,7 @@ Service::Roe<void> Service::run() {
     return Error(-2, "Service onStart() failed: " + result.error().message);
   }
 
-  if (isStopSet_) {
+  if (isStopSet()) {
     log().info << "Stop requested during start: not running";
     isStopSet_ = true;
     onStop();

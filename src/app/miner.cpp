@@ -1,5 +1,5 @@
 #include "common/Logger.h"
-#include "../server/MinerServer.h"
+#include "../server/RoleRunner.h"
 
 #include "NodeOptions.h"
 
@@ -12,51 +12,17 @@
 #include <string>
 
 namespace {
-pp::MinerServer *g_minerServer = nullptr;
-
-/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
-std::atomic<bool> g_stopRequested{false};
+/** Set while the role runs: a signal stops it (one atomic store). */
+std::atomic<pp::RoleRunner *> g_runner{nullptr};
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    g_stopRequested = true;
-    if (g_minerServer) {
-      g_minerServer->setStop(true);
+    if (pp::RoleRunner *runner = g_runner.load()) {
+      runner->stop();
     }
   }
 }
 } // namespace
-
-int runMiner(const std::string &workDir, uint64_t approvedRewindGeneration, const std::string &logFile) {
-  auto logger = pp::logging::getLogger("pp");
-
-  logger.info << "Running miner with work directory: " << workDir;
-
-  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
-  // work directory for as long as the last one asks to be restarted.
-  while (!g_stopRequested) {
-    pp::MinerServer miner;
-    miner.redirectLogger("pp.M");
-    miner.setApprovedRewindGeneration(approvedRewindGeneration);
-    miner.setLogFile(logFile);
-    g_minerServer = &miner; // for the signal handler
-
-    auto runResult = miner.run(workDir);
-    g_minerServer = nullptr;
-
-    if (!runResult) {
-      logger.error << "Failed to run miner: " + runResult.error().message;
-      return 1;
-    }
-    if (!miner.restartRequested()) {
-      break;
-    }
-    logger.warning << "Miner restarting";
-  }
-
-  logger.info << "Miner stopped";
-  return 0;
-}
 
 int main(int argc, char *argv[]) {
   CLI::App app{"pp-miner - Miner server for pp-ledger"};
@@ -85,5 +51,19 @@ int main(int argc, char *argv[]) {
   std::signal(SIGINT, signalHandler);
   std::signal(SIGTERM, signalHandler);
 
-  return runMiner(options.workDir, approvedRewindGeneration, options.logFile);
+  pp::RoleRunner::Options run;
+  run.role = pp::RoleRunner::Role::Miner;
+  run.workDir = options.workDir;
+  run.approvedRewindGeneration = approvedRewindGeneration;
+  run.logFile = options.logFile;
+  pp::RoleRunner runner(std::move(run));
+  runner.redirectLogger("pp");
+  g_runner = &runner;
+  auto ran = runner.run();
+  g_runner = nullptr;
+  if (!ran) {
+    pp::logging::getLogger("pp").error << ran.error().message;
+    return 1;
+  }
+  return 0;
 }

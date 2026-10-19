@@ -51,3 +51,8 @@ gtest_discover_tests(test_overload)
 add_executable(test_hosted_amp test_hosted_amp.cpp)
 target_link_libraries(test_hosted_amp PRIVATE pp_server pp_testing GTest::gtest_main)
 gtest_discover_tests(test_hosted_amp)
+
+add_executable(test_role_runner test_role_runner.cpp)
+target_link_libraries(test_role_runner PRIVATE pp_server pp_testing GTest::gtest_main)
+# A broken stop hangs rather than fails (the run cannot be ended from the test): a timeout names it.
+gtest_discover_tests(test_role_runner PROPERTIES TIMEOUT 60)

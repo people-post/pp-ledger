@@ -1,5 +1,6 @@
 #include "../server/BeaconServer.h"
 #include "../server/Beacon.h"
+#include "../server/RoleRunner.h"
 #include "common/Logger.h"
 #include "lib/common/Utilities.h"
 #include "common/io/Json.h"
@@ -17,16 +18,13 @@
 #include <vector>
 
 namespace {
-pp::BeaconServer* g_beaconServer = nullptr;
-
-/** Set by a signal: no restart follows the current run (beacon-authority bp1). */
-std::atomic<bool> g_stopRequested{false};
+/** Set while the beacon runs: a signal stops it (one atomic store). */
+std::atomic<pp::RoleRunner *> g_runner{nullptr};
 
 void signalHandler(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {
-    g_stopRequested = true;
-    if (g_beaconServer) {
-      g_beaconServer->setStop(true);
+    if (pp::RoleRunner *runner = g_runner.load()) {
+      runner->stop();
     }
   }
 }
@@ -102,38 +100,23 @@ int planGenesis(const std::string& workDir, const std::string& outputPath, const
 
 int runBeacon(const std::string& workDir, uint64_t approvedRewindGeneration, bool promote, bool acceptLedgerTip,
               const std::string& logFile) {
-  auto logger = pp::logging::getLogger("pp");
-
-  logger.info << "Running beacon with work directory: " << workDir;
-
-  // A rewind is applied by a restart (beacon-authority bp1, B022): run a fresh server on the same
-  // work directory for as long as the last one asks to be restarted.
-  while (!g_stopRequested) {
-    pp::BeaconServer beacon;
-    beacon.redirectLogger("pp.B");
-    beacon.setApprovedRewindGeneration(approvedRewindGeneration);
-    beacon.setLogFile(logFile);
-    beacon.setPromote(promote);
-    promote = false; // the first start promotes; a restart (a rewind) runs the beacon it became
-    beacon.setAcceptLedgerTip(acceptLedgerTip);
-    acceptLedgerTip = false; // the first start signs the tip and persists it
-    g_beaconServer = &beacon; // for the signal handler
-
-    auto runResult = beacon.run(workDir);
-    g_beaconServer = nullptr;
-
-    if (!runResult) {
-      logger.error << "Failed to run beacon: " + runResult.error().message;
-      std::cerr << "Error: Failed to run beacon: " + runResult.error().message << "\n";
-      return 1;
-    }
-    if (!beacon.restartRequested()) {
-      break;
-    }
-    logger.warning << "Beacon restarting";
+  pp::RoleRunner::Options run;
+  run.role = pp::RoleRunner::Role::Beacon;
+  run.workDir = workDir;
+  run.approvedRewindGeneration = approvedRewindGeneration;
+  run.logFile = logFile;
+  run.promote = promote;
+  run.acceptLedgerTip = acceptLedgerTip;
+  pp::RoleRunner runner(std::move(run));
+  runner.redirectLogger("pp");
+  g_runner = &runner;
+  auto ran = runner.run();
+  g_runner = nullptr;
+  if (!ran) {
+    pp::logging::getLogger("pp").error << ran.error().message;
+    std::cerr << "Error: " << ran.error().message << "\n";
+    return 1;
   }
-
-  logger.info << "Beacon stopped";
   return 0;
 }
 

@@ -50,6 +50,29 @@ no alias) holds the Amp binding and is linked by `pp_client` and `pp_server`.
 the project's own (`PROJECT_SOURCE_DIR`), and pp-cpp-common / pp-cpp-crypto / googletest already
 defined by the parent are reused. Headers include from `src/` (`#include "operation/Operation.h"`).
 
+**Running a role** (`server/RoleRunner.h`, in `pp::server`): what each app's `main()` does — run a
+beacon, relay or miner on its work directory (its own `config.json`, keys and data) until stopped,
+with a fresh server after each restart (a rewind). `run()` blocks; `stop()` is one atomic store,
+safe from any thread or a signal handler, and also holds when it comes between two servers. With
+`Options::host` the role runs on a host's Amp runtime (`Server::runOnHost`); a beacon runs
+standalone only. It installs no signal handler and sets no log level: those are the process's. A
+host runs it on a thread of its own and joins it after `stop()`, before stopping its runtime:
+
+```cpp
+pp::RoleRunner::Options options;
+options.role = pp::RoleRunner::Role::Relay;          // or Miner
+options.workDir = nodeDataDir + "/ledger";
+options.host = pp::network::HostedAmpRuntime::Host{&mesh.Amp()->Runtime(),
+                                                  [&mesh] { return mesh.AmpListenMultiaddr(); }};
+pp::RoleRunner runner(std::move(options));
+std::thread ledger([&runner] { runner.run(); });
+// … at shutdown:
+runner.stop();
+ledger.join();   // then MeshHost::Stop()
+```
+
+The role reads `PP_LEDGER_*` environment variables as a standalone node does.
+
 **`src/lib/common`** (`pp_ledger_common`) keeps only ledger-specific pieces: `Crypto`, `Meta`
 (an alias of pp-cpp-common `Object`), `BinaryPack` wrappers, `Service`, `ThreadSafeQueue`,
 `Utilities` (ML-DSA helpers, JSON loading). Everything generic comes from pp-cpp-common. Vendored:
