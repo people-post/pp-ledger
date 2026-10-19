@@ -66,8 +66,7 @@ receive a `LinkHandle`; reach the link via `PeerLinkManager::WithLiveLink`.
 | `network/LedgerAmpRuntime.*` | `AmpHost` of a standalone binary: its own `AmpStack`, socket, identity and pump thread |
 | `network/HostedAmpRuntime.*` | `AmpHost` over a host's runtime (pp-node's mesh): the host's socket, identity and driver |
 | `network/ServerAmpSupport.*` | `Server::startAmpServer` glue (own runtime or hosted) |
-| `network/amp/AmpIdentity.*` | Identity + multiaddr config helpers |
-| `network/amp/LedgerPeerId.*` | Fleet-compatible PeerId from ML-DSA-65 |
+| `network/amp/AmpIdentity.*` | Identity + multiaddr config helpers; the PeerId is pp-cpp-crypto's `PeerIdFromMlDsaPublicKey` (links: pp-cpp-amp's `PeerIdFromIdentityKey`) |
 
 ## Server config (AMP)
 

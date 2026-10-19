@@ -22,7 +22,6 @@ add_library(pp_ledger_amp STATIC
     InFlightLimit.cpp
     LedgerAmpRuntime.cpp
     ServerAmpSupport.cpp
-    amp/LedgerPeerId.cpp
     amp/AmpIdentity.cpp
     NetworkTuning.cpp
 )

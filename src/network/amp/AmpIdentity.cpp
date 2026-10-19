@@ -1,9 +1,10 @@
 #include "AmpIdentity.h"
 
-#include "LedgerPeerId.h"
 #include "amp/link/AdpMultiaddr.h"
+#include "amp/link/PeerId.h"
 #include "common/io/Json.h"
 #include "crypto/MlDsa.h"
+#include "crypto/PeerId.h"
 #include "lib/common/Utilities.h"
 
 #include <mldsa_native.h>
@@ -33,11 +34,7 @@ pp::amp::MshIdentity IdentityFromPrivateKeyBytes(const std::string& private_key)
 
 pp::amp::PeerLinkConfig DefaultLedgerLinkConfig() {
   pp::amp::PeerLinkConfig config;
-  config.peer_id_from_identity = [](const pp::amp::ByteVector& identity_public_key) -> std::string {
-    std::vector<uint8_t> bytes(identity_public_key.begin(), identity_public_key.end());
-    auto peer_id = PeerIdFromMlDsaPublicKey(bytes);
-    return peer_id ? *peer_id : std::string{};
-  };
+  config.peer_id_from_identity = pp::amp::PeerIdFromIdentityKey;
   return config;
 }
 
@@ -48,7 +45,7 @@ pp::Roe<LedgerAmpConfig> LedgerAmpConfigFromPrivateKey(const std::string& privat
     return pp::Error("failed to derive ML-DSA public key from secret key");
   }
 
-  auto peer_id = PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
+  auto peer_id = pp::PeerIdFromMlDsaPublicKey(identity.ml_dsa_public_key);
   if (!peer_id) {
     return peer_id.error();
   }
