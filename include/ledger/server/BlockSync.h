@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_BLOCK_SYNC_H
 #define PP_LEDGER_BLOCK_SYNC_H
 
-#include "../chain/AuthorityTrail.h"
-#include "../client/Client.h"
+#include "ledger/chain/AuthorityTrail.h"
+#include "ledger/client/Client.h"
 #include "common/Module.h"
 
 #include <chrono>

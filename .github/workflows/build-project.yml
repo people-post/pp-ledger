@@ -23,6 +23,10 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
 
+      - name: Include layout
+        if: runner.os == 'Linux'
+        run: ./scripts/check/check_includes.sh
+
       - name: Install Linux deps
         if: runner.os == 'Linux'
         run: |

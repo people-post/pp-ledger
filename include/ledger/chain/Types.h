@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_CHAIN_TYPES_H
 #define PP_LEDGER_CHAIN_TYPES_H
 
-#include "../ledger/Account.h"
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Account.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstdint>
 #include <optional>

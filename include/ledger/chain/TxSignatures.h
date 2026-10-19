@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_TX_SIGNATURES_H
 #define PP_LEDGER_TX_SIGNATURES_H
 
-#include "TxError.h"
-#include "AccountBuffer.h"
-#include "lib/common/Crypto.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/lib/common/Crypto.h"
 #include "common/Logger.h"
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <string>
 #include <vector>

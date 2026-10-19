@@ -5,8 +5,8 @@
 #include "amp/L2/Types.h"
 #include "amp/link/AmpStack.h"
 #include "amp/link/MeshRuntime.h"
-#include "AmpHost.h"
-#include "NetworkTuning.h"
+#include "ledger/network/AmpHost.h"
+#include "ledger/network/NetworkTuning.h"
 
 #include <atomic>
 #include <chrono>

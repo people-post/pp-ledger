@@ -1,7 +1,7 @@
 // Key backups (docs/contracts/KEY_BACKUP.md): written and read back, refused when anything is off.
-#include "../KeyBackup.h"
+#include "ledger/operation/KeyBackup.h"
 
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
 

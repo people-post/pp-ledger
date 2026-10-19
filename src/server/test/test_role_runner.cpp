@@ -1,6 +1,6 @@
-#include "RoleRunner.h"
-#include "TestAmpHost.h"
-#include "TestTempPath.h"
+#include "ledger/server/RoleRunner.h"
+#include "ledger/testing/TestAmpHost.h"
+#include "ledger/testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

@@ -172,7 +172,7 @@ see [CONFIGURATION.md](../ops/CONFIGURATION.md).
 
 Every role speaks the same binary ledger RPC (`/pp-ledger/rpc/1.0.0` over AMP:
 `binaryPack(Client::Request)` in, `Client::Response` out; types in
-`src/client/Client.h`, wire in [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)).
+`include/ledger/client/Client.h`, wire in [AMP_TRANSPORT.md](../contracts/AMP_TRANSPORT.md)).
 There is no JSON API on the servers; pp-http offers REST on top of this RPC.
 
 **Nodes never serve or link HTTP.** pp-beacon, pp-relay and pp-miner speak only this RPC; no HTTP

@@ -1,7 +1,7 @@
-#include "Miner.h"
+#include "ledger/server/Miner.h"
 #include "common/Logger.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 #include <algorithm>
 #include <limits>
 #include <chrono>

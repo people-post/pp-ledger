@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AmpHost.h"
+#include "ledger/network/AmpHost.h"
 
 #include <atomic>
 #include <functional>

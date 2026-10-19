@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_PREDECESSOR_CHECK_H
 #define PP_LEDGER_PREDECESSOR_CHECK_H
 
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/ResultOrError.hpp"
 
 #include <string>

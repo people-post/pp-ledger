@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <sstream>
 #include <vector>
-#include "Meta.h"
+#include "ledger/lib/common/Meta.h"
 #include "common/Error.h"
 
 namespace pp {

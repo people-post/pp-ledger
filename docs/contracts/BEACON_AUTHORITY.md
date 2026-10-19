@@ -42,7 +42,7 @@ no migration (networks start from a new genesis on a change).
 | `T_IMPORT` meta | — | a `StateSnapshot` account: `id`, `wallet`, `blockId` (the old chain's), `attachment` | `T_IMPORT` (20) |
 | `StateSnapshot` | 2 | `predecessor {networkId, height, blockHash, stateRoot, header}` (raw hashes; `header`: block *H* without its body), `config` (`BlockChainConfig` in force at `height`), `accounts`: `{id, wallet, blockId, attachment}`… by ascending id — the account leaf's fields (`attachment` in full; the leaf hashes it) | `pp-client export-state` file, for a re-genesis to import ([§ State export](#state-export)) |
 
-Code: `src/chain/Types.h` (authority, certificate, announcement), `src/client/Client.h` (tip,
+Code: `include/ledger/chain/Types.h` (authority, certificate, announcement), `include/ledger/client/Client.h` (tip,
 evidence, replies).
 
 ## Genesis authority

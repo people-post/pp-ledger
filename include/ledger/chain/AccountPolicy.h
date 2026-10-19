@@ -1,14 +1,14 @@
 #ifndef PP_LEDGER_ACCOUNT_POLICY_H
 #define PP_LEDGER_ACCOUNT_POLICY_H
 
-#include "AccountBuffer.h"
-#include "TxError.h"
-#include "TxSignatures.h"
-#include "Types.h"
-#include "../client/Client.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/TxSignatures.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/Client.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/Logger.h"
-#include "lib/common/Crypto.h"
+#include "ledger/lib/common/Crypto.h"
 
 #include <cstdint>
 #include <functional>

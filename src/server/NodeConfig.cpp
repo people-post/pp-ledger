@@ -1,5 +1,5 @@
-#include "NodeConfig.h"
-#include "../network/amp/AmpIdentity.h"
+#include "ledger/server/NodeConfig.h"
+#include "ledger/network/amp/AmpIdentity.h"
 
 #include <algorithm>
 

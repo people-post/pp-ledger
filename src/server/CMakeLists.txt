@@ -1,60 +1,33 @@
 # Server library
 add_library(pp_server STATIC
     Server.cpp
-    Server.h
     NodeConfig.cpp
-    NodeConfig.h
     NodeCore.cpp
-    NodeCore.h
     FollowerCore.cpp
-    FollowerCore.h
     FollowerServer.cpp
-    FollowerServer.h
     RequestQueue.cpp
     BlockWaitList.cpp
     TxPool.cpp
     CertificateStore.cpp
-    CertificateStore.h
     EnvConfig.cpp
-    EnvConfig.h
     EquivocationStore.cpp
-    EquivocationStore.h
     NodeFile.cpp
     Rewind.cpp
-    Rewind.h
-    NodeFile.h
     TipSigner.cpp
-    TipSigner.h
-    UpstreamSignedTip.h
     ClockCalibration.cpp
-    ClockCalibration.h
     UpstreamSet.cpp
-    UpstreamSet.h
     UpstreamTipWatch.cpp
-    RequestQueue.h
     BlockSync.cpp
-    BlockSync.h
-    BroadcastTally.h
     BeaconServer.cpp
-    BeaconServer.h
     Beacon.cpp
-    Beacon.h
     MinerServer.cpp
-    MinerServer.h
     Miner.cpp
-    Miner.h
     RelayServer.cpp
     RoleRunner.cpp
-    RoleRunner.h
-    RelayServer.h
     Relay.cpp
-    Relay.h
 )
 
-target_include_directories(pp_server PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PP_SRC_DIR}/network
-)
+target_include_directories(pp_server PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 target_link_libraries(pp_server PUBLIC
     pp_chain

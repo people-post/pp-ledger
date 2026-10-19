@@ -2,7 +2,7 @@
 
 A transaction that several people sign, carried between them as a file: what it does, who must sign
 it, the signatures collected so far. Normative. The record it carries and its signing message are
-[WIRE_SCHEMA.md](WIRE_SCHEMA.md)'s; the library is `pp_operation` (`src/operation/Operation.h`),
+[WIRE_SCHEMA.md](WIRE_SCHEMA.md)'s; the library is `pp_operation` (`include/ledger/operation/Operation.h`),
 the commands `pp-client op …` (§ Commands). The desktop apps (pp-ledger-apps) read and write the same
 files.
 

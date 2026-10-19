@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_REQUEST_QUEUE_H
 #define PP_LEDGER_REQUEST_QUEUE_H
 
-#include "../network/AmpLedgerServer.h"
+#include "ledger/network/AmpLedgerServer.h"
 
 #include <chrono>
 #include <condition_variable>

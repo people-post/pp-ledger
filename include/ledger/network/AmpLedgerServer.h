@@ -1,7 +1,7 @@
 #pragma once
 
-#include "LedgerRpcProtocol.h"
-#include "NetworkTuning.h"
+#include "ledger/network/LedgerRpcProtocol.h"
+#include "ledger/network/NetworkTuning.h"
 #include "amp/link/PeerLinkManager.h"
 
 #include <chrono>

@@ -1,9 +1,9 @@
 #ifndef PP_LEDGER_FILE_DIR_STORE_H
 #define PP_LEDGER_FILE_DIR_STORE_H
 
-#include "DirStore.h"
-#include "FileStore.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/ledger/DirStore.h"
+#include "ledger/ledger/FileStore.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include <cstdint>
 #include <fstream>
 #include <memory>

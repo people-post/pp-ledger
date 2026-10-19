@@ -1,5 +1,5 @@
-#include "MinerLiveness.h"
-#include "ErrorCodes.h"
+#include "ledger/chain/MinerLiveness.h"
+#include "ledger/chain/ErrorCodes.h"
 
 #include <algorithm>
 #include <string>

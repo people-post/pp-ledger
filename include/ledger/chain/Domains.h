@@ -3,7 +3,7 @@
 // token's ticker and its domain. `A`–`Z`; 1–3 letters for a system account, 4–7 for an issued one;
 // none for a user. Each domain has a leaf of its own in the state tree, at a key no account has.
 
-#include "TxError.h"
+#include "ledger/chain/TxError.h"
 
 #include <cstdint>
 #include <optional>

@@ -1,16 +1,16 @@
-#include "BeaconServer.h"
-#include "Beacon.h"
-#include "Miner.h"
-#include "Rewind.h"
-#include "../../chain/PredecessorCheck.h"
-#include "../../chain/AccountBuffer.h"
-#include "../../chain/StateSnapshot.h"
-#include "AccountAttachment.h"
+#include "ledger/server/BeaconServer.h"
+#include "ledger/server/Beacon.h"
+#include "ledger/server/Miner.h"
+#include "ledger/server/Rewind.h"
+#include "ledger/chain/PredecessorCheck.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/StateSnapshot.h"
+#include "ledger/client/AccountAttachment.h"
 #include <map>
-#include "../../ledger/Ledger.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
-#include "TestTempPath.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
+#include "ledger/testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

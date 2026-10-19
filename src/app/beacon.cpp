@@ -1,8 +1,8 @@
-#include "../server/BeaconServer.h"
-#include "../server/Beacon.h"
-#include "../server/RoleRunner.h"
+#include "ledger/server/BeaconServer.h"
+#include "ledger/server/Beacon.h"
+#include "ledger/server/RoleRunner.h"
 #include "common/Logger.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include "common/io/Json.h"
 
 #include "NodeOptions.h"

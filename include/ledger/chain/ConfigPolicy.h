@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_CONFIG_POLICY_H
 #define PP_LEDGER_CONFIG_POLICY_H
 
-#include "TxError.h"
-#include "Types.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
 
 #include <cstdint>
 

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "AmpLedgerServer.h"
-#include "HostedAmpRuntime.h"
-#include "LedgerAmpRuntime.h"
-#include "lib/common/Service.h"
+#include "ledger/network/AmpLedgerServer.h"
+#include "ledger/network/HostedAmpRuntime.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/lib/common/Service.h"
 
 #include <functional>
 #include <memory>

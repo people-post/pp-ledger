@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_MINER_LIVENESS_H
 #define PP_LEDGER_MINER_LIVENESS_H
 
-#include "AccountBuffer.h"
-#include "TxContext.h"
-#include "Types.h"
-#include "../client/Client.h"
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/TxContext.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/Client.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstdint>
 #include <vector>

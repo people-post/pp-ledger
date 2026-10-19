@@ -1,9 +1,9 @@
 #ifndef PP_LEDGER_REWIND_H
 #define PP_LEDGER_REWIND_H
 
-#include "Chain.h"
+#include "ledger/chain/Chain.h"
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 #include "common/Error.h"
 
 #include <chrono>

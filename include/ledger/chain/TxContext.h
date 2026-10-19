@@ -1,15 +1,15 @@
 #ifndef PP_LEDGER_TX_CONTEXT_H
 #define PP_LEDGER_TX_CONTEXT_H
 
-#include "BlockAdmission.h"
-#include "Types.h"
-#include "AccountBuffer.h"
-#include "AccountStateTree.h"
-#include "TxFees.h"
-#include "TxIdempotency.h"
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
-#include "lib/common/Crypto.h"
+#include "ledger/chain/BlockAdmission.h"
+#include "ledger/chain/Types.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/AccountStateTree.h"
+#include "ledger/chain/TxFees.h"
+#include "ledger/chain/TxIdempotency.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/lib/common/Crypto.h"
 
 #include <cstdint>
 #include <functional>

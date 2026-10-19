@@ -4,8 +4,8 @@
 // admin apps and pp-client read, build, sign, merge and submit them. No network code: an offline
 // signer links this library alone.
 
-#include "../ledger/Account.h"
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Account.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>

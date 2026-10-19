@@ -1,5 +1,5 @@
-#include "ConfigPolicy.h"
-#include "ErrorCodes.h"
+#include "ledger/chain/ConfigPolicy.h"
+#include "ledger/chain/ErrorCodes.h"
 
 #include <string>
 

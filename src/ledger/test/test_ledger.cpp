@@ -1,5 +1,5 @@
-#include "../Ledger.h"
-#include "TestTempPath.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/testing/TestTempPath.h"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <chrono>

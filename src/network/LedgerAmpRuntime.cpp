@@ -1,5 +1,5 @@
-#include "LedgerAmpRuntime.h"
-#include "LedgerRpcProtocol.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 
 #include "amp/L1/OsUdpDatagramIo.h"
 #include "amp/L1/Types.h"

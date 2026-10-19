@@ -7,10 +7,10 @@
 // hashes; in a block's state root, an account by its Merkle path. Each step only on what the previous
 // one proved.
 
-#include "AuthorityTrail.h"
-#include "TxError.h"
-#include "../client/Client.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/AuthorityTrail.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/client/Client.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstdint>
 #include <optional>

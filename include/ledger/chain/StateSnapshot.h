@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_STATE_SNAPSHOT_H
 #define PP_LEDGER_STATE_SNAPSHOT_H
 
-#include "Types.h"
-#include "../client/Client.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/Client.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>

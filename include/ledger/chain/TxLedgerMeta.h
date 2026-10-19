@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_TX_LEDGER_META_H
 #define PP_LEDGER_TX_LEDGER_META_H
 
-#include "TxError.h"
-#include "Types.h"
-#include "AccountBuffer.h"
-#include "../client/Client.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/client/Client.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstdint>
 #include <functional>

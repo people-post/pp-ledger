@@ -14,7 +14,7 @@ Optional Docker packaging uses `ubuntu:24.04` (same OS as CI) — see `Dockerfil
 (design, decisions, phases; status only in each project's `CURRENT_STATE.md`).
 
 **Nodes never serve or link HTTP.** `pp-beacon` / `pp-relay` / `pp-miner` speak only the ledger
-RPC (`src/client/Client.h` request types); cpp-httplib (`src/lib/http`) is built only for `pp-http`
+RPC (`include/ledger/client/Client.h` request types); cpp-httplib (`src/lib/http`) is built only for `pp-http`
 and must never be linked into `pp_server`. Anything wanted over HTTP (REST, health, Prometheus
 `/metrics`) is a pp-http route that calls the node through `pp::Client`; host or container probes
 use `pp-client` (e.g. `pp-client --host-file <work dir>/listen.multiaddr health`). A new node

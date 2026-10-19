@@ -1,10 +1,10 @@
 #pragma once
 
-#include "LedgerAmpRuntime.h"
+#include "ledger/network/LedgerAmpRuntime.h"
 #include "amp/L2/Types.h"
 #include "amp/link/Types.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
+#include "ledger/lib/common/Meta.h"
 
 #include <string>
 

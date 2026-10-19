@@ -3,18 +3,18 @@
  * Proxies requests to configured beacon and miner endpoints.
  * Also exposes a Model Context Protocol (MCP) server via SSE transport.
  */
-#include "Client.h"
-#include "HealthMetrics.h"
-#include "AccountAttachment.h"
-#include "AccountIds.h"
-#include "network/LedgerAmpRuntime.h"
-#include "network/amp/AmpIdentity.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Crypto.h"
+#include "ledger/client/Client.h"
+#include "ledger/client/HealthMetrics.h"
+#include "ledger/client/AccountAttachment.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/amp/AmpIdentity.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Crypto.h"
 #include "common/Logger.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include "common/io/Json.h"
-#include "lib/http/httplib.h"
+#include <httplib.h>
 
 #include <cli11.hpp>
 

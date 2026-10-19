@@ -1,11 +1,11 @@
-#include "AmpIdentity.h"
+#include "ledger/network/amp/AmpIdentity.h"
 
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/PeerId.h"
 #include "common/io/Json.h"
 #include "crypto/MlDsa.h"
 #include "crypto/PeerId.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <mldsa_native.h>
 

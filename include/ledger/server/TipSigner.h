@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_TIP_SIGNER_H
 #define PP_LEDGER_TIP_SIGNER_H
 
-#include "../chain/Types.h"
-#include "../client/Client.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/Client.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <cstdint>
 #include <optional>

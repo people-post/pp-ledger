@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_CLOCK_CALIBRATION_H
 #define PP_LEDGER_CLOCK_CALIBRATION_H
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 #include "common/Module.h"
 
 #include <chrono>

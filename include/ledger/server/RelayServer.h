@@ -1,10 +1,10 @@
 #ifndef PP_LEDGER_RELAY_SERVER_H
 #define PP_LEDGER_RELAY_SERVER_H
 
-#include "../client/Client.h"
-#include "FollowerServer.h"
-#include "Relay.h"
-#include "UpstreamSignedTip.h"
+#include "ledger/client/Client.h"
+#include "ledger/server/FollowerServer.h"
+#include "ledger/server/Relay.h"
+#include "ledger/server/UpstreamSignedTip.h"
 #include <optional>
 #include <set>
 #include <string>

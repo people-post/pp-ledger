@@ -1,13 +1,13 @@
-#include "AmpLedgerTransport.h"
-#include "Client.h"
+#include "ledger/client/AmpLedgerTransport.h"
+#include "ledger/client/Client.h"
 #include <algorithm>
 #include <variant>
 #include <thread>
 #include <random>
 #include "common/Logger.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <sstream>
 

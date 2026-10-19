@@ -3,7 +3,7 @@
 // read and built without any network code (operation files, admin tools); Client keeps the names
 // (Client::Wallet, Client::UserAccount, Client::MinerState).
 
-#include "lib/common/Meta.h"
+#include "ledger/lib/common/Meta.h"
 
 #include <cstdint>
 #include <map>

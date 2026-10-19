@@ -1,10 +1,10 @@
 #ifndef PP_LEDGER_ACCOUNT_BUFFER_H
 #define PP_LEDGER_ACCOUNT_BUFFER_H
 
-#include "../client/AccountIds.h"
-#include "../client/Client.h"
-#include "../consensus/SlotCommittee.h"
-#include "AccountStateTree.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/client/Client.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/chain/AccountStateTree.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>

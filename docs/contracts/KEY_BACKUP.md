@@ -3,7 +3,7 @@
 One account key in a file of its own, encrypted under a passphrase: what wallets export to and import
 from, so a person can always take their key from one wallet to another — from a pp-browser wallet
 plugin to pp-ledger-apps' wallet, their last resort, and back. **A wallet that holds a person's keys
-must be able to export them in this format.** Code: `src/operation/KeyBackup.h` (network-free);
+must be able to export them in this format.** Code: `include/ledger/operation/KeyBackup.h` (network-free);
 `pp-client key-export` / `key-import`.
 
 ## Format

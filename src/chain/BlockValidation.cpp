@@ -1,11 +1,11 @@
-#include "BlockValidation.h"
-#include "MinerLiveness.h"
-#include "ErrorCodes.h"
-#include "TxFees.h"
+#include "ledger/chain/BlockValidation.h"
+#include "ledger/chain/MinerLiveness.h"
+#include "ledger/chain/ErrorCodes.h"
+#include "ledger/chain/TxFees.h"
 #include "common/Serialize.hpp"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
-#include "../consensus/EpochSeed.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
+#include "ledger/consensus/EpochSeed.h"
 
 #include <algorithm>
 #include <iterator>

@@ -1,18 +1,18 @@
 #ifndef PP_LEDGER_CLIENT_H
 #define PP_LEDGER_CLIENT_H
 
-#include "ILedgerTransport.h"
-#include "InProcessLedgerTransport.h"
-#include "../network/LedgerAmpRuntime.h"
-#include "../network/NetworkTuning.h"
+#include "ledger/client/ILedgerTransport.h"
+#include "ledger/client/InProcessLedgerTransport.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/NetworkTuning.h"
 #include "amp/link/PeerLinkManager.h"
-#include "lib/common/Meta.h"
+#include "ledger/lib/common/Meta.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
-#include "../chain/Types.h"
-#include "../ledger/Account.h"
-#include "../ledger/Ledger.h"
-#include "../consensus/Types.hpp"
+#include "ledger/chain/Types.h"
+#include "ledger/ledger/Account.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/consensus/Types.hpp"
 
 #include <chrono>
 #include <memory>

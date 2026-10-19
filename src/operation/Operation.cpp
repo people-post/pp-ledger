@@ -1,10 +1,10 @@
-#include "Operation.h"
+#include "ledger/operation/Operation.h"
 
-#include "../chain/Types.h"
-#include "../client/AccountIds.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/AccountIds.h"
 #include "common/io/Json.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 
 #include <sodium.h>
 

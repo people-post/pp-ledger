@@ -2,8 +2,8 @@
 // Block 0 of a new network, as records: what `pp-beacon --init` signs with the genesis keys, or what
 // an offline genesis ceremony signs (docs/contracts/OPERATION_FILE.md § Genesis).
 
-#include "Types.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/Types.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>

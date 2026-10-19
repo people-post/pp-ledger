@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_TX_IDEMPOTENCY_H
 #define PP_LEDGER_TX_IDEMPOTENCY_H
 
-#include "BlockAdmission.h"
-#include "TxError.h"
-#include "Types.h"
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/BlockAdmission.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstdint>
 #include <functional>

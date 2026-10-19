@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
-#include "NodeCore.h"
-#include "../chain/Genesis.h"
-#include "TipSigner.h"
+#include "ledger/server/NodeCore.h"
+#include "ledger/chain/Genesis.h"
+#include "ledger/server/TipSigner.h"
 
-#include "lib/common/Meta.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Meta.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <cstdint>
 #include <functional>

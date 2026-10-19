@@ -1,5 +1,5 @@
-#include "AmpHost.h"
-#include "LedgerRpcProtocol.h"
+#include "ledger/network/AmpHost.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 
 namespace pp {
 namespace network {

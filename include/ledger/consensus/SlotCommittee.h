@@ -2,8 +2,8 @@
 
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
-#include "EpochSeed.h"
-#include "Types.hpp"
+#include "ledger/consensus/EpochSeed.h"
+#include "ledger/consensus/Types.hpp"
 #include <cstdint>
 #include <map>
 #include <optional>

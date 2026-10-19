@@ -1,9 +1,9 @@
 #pragma once
 
-#include "ITxHandler.h"
-#include "TxError.h"
-#include "Types.h"
-#include "../ledger/Ledger.h"
+#include "ledger/chain/ITxHandler.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <array>
 #include <cstddef>

@@ -1,10 +1,10 @@
 #ifndef PP_LEDGER_ROLE_RUNNER_H
 #define PP_LEDGER_ROLE_RUNNER_H
 
-#include "Server.h"
-#include "../network/HostedAmpRuntime.h"
+#include "ledger/server/Server.h"
+#include "ledger/network/HostedAmpRuntime.h"
 #include "common/Module.h"
-#include "lib/common/Service.h"
+#include "ledger/lib/common/Service.h"
 
 #include <atomic>
 #include <cstdint>

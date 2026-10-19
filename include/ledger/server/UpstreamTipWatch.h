@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_UPSTREAM_TIP_WATCH_H
 #define PP_LEDGER_UPSTREAM_TIP_WATCH_H
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 #include "common/Module.h"
 
 #include <chrono>

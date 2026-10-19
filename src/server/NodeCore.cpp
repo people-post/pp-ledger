@@ -1,4 +1,4 @@
-#include "NodeCore.h"
+#include "ledger/server/NodeCore.h"
 #include "common/Logger.h"
 
 namespace pp {

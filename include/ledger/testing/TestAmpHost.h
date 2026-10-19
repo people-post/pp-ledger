@@ -1,13 +1,13 @@
 #pragma once
 
-#include "network/HostedAmpRuntime.h"
-#include "network/LedgerAmpRuntime.h"
-#include "network/amp/AmpIdentity.h"
+#include "ledger/network/HostedAmpRuntime.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/amp/AmpIdentity.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/MemoryDatagramIo.h"
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/AmpStack.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <atomic>
 #include <chrono>

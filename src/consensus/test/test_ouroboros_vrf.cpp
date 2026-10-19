@@ -1,4 +1,4 @@
-#include "SlotLeaderSelection.h"
+#include "ledger/consensus/SlotLeaderSelection.h"
 #include <gtest/gtest.h>
 
 using namespace pp::consensus;
