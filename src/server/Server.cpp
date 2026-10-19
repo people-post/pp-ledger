@@ -986,6 +986,9 @@ Service::Roe<void> Server::startAmpServer(const uint16_t port, const IdentityKey
              << (onHost() ? " (the host's runtime)" : "");
   writeListenMultiaddrFile();
   publishHealth(); // HEALTH answers "starting" from now on
+  if (onListening_) {
+    onListening_(true);
+  }
   return {};
 }
 
@@ -1024,6 +1027,9 @@ Service::Roe<void> Server::startOwnAmp(const uint16_t port, const IdentityKeyFn&
 }
 
 void Server::stopAmpServer() {
+  if (ampSupport_ && onListening_) {
+    onListening_(false);  // before the protocols go, so a host withdraws them first
+  }
   closeRequestQueue();
   if (ampSupport_) {
     ampSupport_->Stop();

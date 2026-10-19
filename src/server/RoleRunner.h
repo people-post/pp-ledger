@@ -37,6 +37,12 @@ public:
     std::string logFile;
     /** Serve and call on a host's Amp runtime (Server::runOnHost); none: a socket of its own. */
     std::optional<network::HostedAmpRuntime::Host> host;
+    /**
+     * On a host: told when the role's ledger protocols are bound (true) and about to be unbound
+     * (false), once per server — a restart (a rewind) unbinds and binds again. The host advertises
+     * AmpLedgerServer::protocolIds() while they are bound (Server::setOnListening). The role's thread.
+     */
+    std::function<void(bool listening)> onListening;
     /** Beacon, first start only: --promote, --accept-ledger-tip. */
     bool promote{false};
     bool acceptLedgerTip{false};

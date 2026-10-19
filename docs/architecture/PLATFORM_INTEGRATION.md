@@ -50,13 +50,17 @@ no alias) holds the Amp binding and is linked by `pp_client` and `pp_server`.
 the project's own (`PROJECT_SOURCE_DIR`), and pp-cpp-common / pp-cpp-crypto / googletest already
 defined by the parent are reused. Headers include from `src/` (`#include "operation/Operation.h"`).
 
-**Running a role** (`server/RoleRunner.h`, in `pp::server`): what each app's `main()` does — run a
+**Running a role** (`server/RoleRunner.h`, `pp::RoleRunner`): what each app's `main()` does — run a
 beacon, relay or miner on its work directory (its own `config.json`, keys and data) until stopped,
 with a fresh server after each restart (a rewind). `run()` blocks; `stop()` is one atomic store,
 safe from any thread or a signal handler, and also holds when it comes between two servers. With
 `Options::host` the role runs on a host's Amp runtime (`Server::runOnHost`); a beacon runs
 standalone only. It installs no signal handler and sets no log level: those are the process's. A
-host runs it on a thread of its own and joins it after `stop()`, before stopping its runtime:
+host runs it on a thread of its own and joins it after `stop()`, before stopping its runtime.
+`Options::onListening` tells the host, on the role's thread, when the ledger's protocols are bound
+(`true`) and when they are about to be unbound (`false`, at each stop — a restart binds them again):
+the host advertises `AmpLedgerServer::protocolIds()` in between. Its mesh refuses opens for
+protocols nothing serves, so advertising earlier only earns peers refusals.
 
 ```cpp
 pp::RoleRunner::Options options;
@@ -64,6 +68,10 @@ options.role = pp::RoleRunner::Role::Relay;          // or Miner
 options.workDir = nodeDataDir + "/ledger";
 options.host = pp::network::HostedAmpRuntime::Host{&mesh.Amp()->Runtime(),
                                                   [&mesh] { return mesh.AmpListenMultiaddr(); }};
+options.onListening = [&mesh](bool listening) {     // pp::mesh::MeshHost (pp-cpp-mesh)
+  mesh.SetAppProtocols(listening ? pp::network::AmpLedgerServer::protocolIds()
+                                 : std::vector<std::string>{});
+};
 pp::RoleRunner runner(std::move(options));
 std::thread ledger([&runner] { runner.run(); });
 // … at shutdown:
@@ -99,7 +107,8 @@ UDP → ADP → MSH (ML-DSA identity) → channel /pp-ledger/rpc/1.0.0 → binar
   calls on another program's Amp runtime — pp-node's mesh — with its socket, identity and listen
   address; the configured `port` and identity key go unused. The host keeps the runtime-wide
   settings: it drives the runtime, advertises `AmpLedgerServer::protocolIds()` with its own
-  protocols, sets listen addresses, link limits and refusing unhandled opens. pp-ledger only binds
+  protocols while the node's handlers are bound (`Server::setOnListening`), sets listen addresses,
+  link limits and refusing unhandled opens. pp-ledger only binds
   and removes its protocol handlers, and no io-lane call reaches a stopped node
   ([THREADING.md](THREADING.md) rule 6). `InProcessLedgerTransport` exists
   but nothing uses it yet.

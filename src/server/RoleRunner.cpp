@@ -74,6 +74,7 @@ Service::Roe<void> RoleRunner::run() {
     server->setStopSource(&stop_);
     server->setApprovedRewindGeneration(options_.approvedRewindGeneration);
     server->setLogFile(options_.logFile);
+    server->setOnListening(options_.onListening);
     if (options_.host) {
       server->runOnHost(*options_.host);
     }

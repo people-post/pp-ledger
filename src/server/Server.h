@@ -53,6 +53,13 @@ public:
    */
   void runOnHost(network::HostedAmpRuntime::Host host) { hostAmp_ = std::move(host); }
   bool onHost() const { return hostAmp_.runtime != nullptr; }
+  /**
+   * Before run: told on the node's thread when its ledger protocols are bound (true — opens are
+   * served from now on: when a host advertises AmpLedgerServer::protocolIds()) and when they are
+   * about to be unbound (false, at stop — a host withdraws them first). A host's mesh refuses opens
+   * for protocols nothing serves, so advertising before `true` only earns peers refusals.
+   */
+  void setOnListening(std::function<void(bool listening)> onListening) { onListening_ = std::move(onListening); }
 
   /**
    * True when run() returned to be run again on a fresh server (beacon-authority bp1, B022): a
@@ -349,6 +356,7 @@ private:
   std::map<uint32_t, Route> routes_;
   std::unique_ptr<network::ServerAmpSupport> ampSupport_;
   network::HostedAmpRuntime::Host hostAmp_;
+  std::function<void(bool listening)> onListening_;
   uint32_t maxLinks_{NodeConfig::kDefaultMaxLinks};
   uint32_t handshakeBacklog_{NodeConfig::kDefaultHandshakeBacklog};
   uint32_t udpBufferBytes_{NodeConfig::kDefaultUdpBufferBytes};

@@ -75,16 +75,18 @@ mesh directory (`ledger_gateway`) comes later ([PI005](DECISIONS.md#pi005--upstr
   work directory, a fresh server after a rewind (B022), stop on request — called by the apps and
   by pp-node on a thread of its own, with `Options::host`.
 
-## Work in the mesh repo / pp-node
+## Work in the mesh library / pp-node
 
-pp-node and the mesh code move out of pp-browser first ([pp-browser order](#order)); then:
+The mesh code moved out of pp-browser to pp-cpp-mesh; pp-node stayed in pp-browser, an app on it
+(decided while moving; [pp-browser MESH.md § Extraction](https://github.com/people-post/pp-browser/blob/develop/docs/architecture/MESH.md#extraction-to-pp-cpp-mesh)).
 
-- **MeshHost:** a hook for protocols to advertise beside its own (it rebuilds the advertised list),
-  and the ledger handlers registered before peers arrive (it refuses unhandled opens). One driver:
-  done ahead in pp-browser (MeshPump claims the runtime; pp-node's main loop no longer ticks).
-- **pp-cpp-amp:** pp-node on pp-ledger's pin or later — both on v2.23.0, whose `IoExecutor` is
-  how a guest posts onto (and recognizes) the host's io lane.
-- **The ledger role** (`feature/`): `cmake/PpLedger.cmake` (pinned tag, source-dir override; the
+- **MeshHost:** `SetAppProtocols` advertises protocols beside its own (it rebuilds the advertised
+  list). The mesh refuses unhandled opens, so the host advertises the ledger's protocols only while
+  its handlers are bound: the role says when (`RoleRunner::Options::onListening`). One driver:
+  MeshPump claims the runtime; pp-node's main loop no longer ticks.
+- **pp-cpp-amp:** pp-node on pp-ledger's pin or later — both on v2.24.0 (`IoExecutor`, since
+  v2.23.0, is how a guest posts onto and recognizes the host's io lane).
+- **The ledger role** (pp-browser `feature/node`): `cmake/PpLedger.cmake` (pinned tag, source-dir override; the
   link allowlist widened for it); config — the role and a ledger work directory inside the node's
   data directory, holding pp-ledger's own `config.json`, account keys (miner) and data
   ([PI004](DECISIONS.md#pi004--the-ledger-keeps-its-own-work-directory-inside-the-nodes)); lifecycle —
@@ -97,8 +99,9 @@ pp-node and the mesh code move out of pp-browser first ([pp-browser order](#orde
 
 1. pi1 here (built), pi2 here — no pp-browser change needed.
 2. In pp-browser: untangle the mesh code (it reaches into `foundation/runtime`, `foundation/data`,
-   crypto and identity, and `domain/net`), then move it with pp-node to the new repo.
-3. In the new repo: the MeshHost hook, the single driver, the pp-cpp-amp pin, then the ledger role.
+   crypto and identity, and `domain/net`), then move it to pp-cpp-mesh — done; pp-node stays.
+3. The MeshHost hook, the single driver, the pp-cpp-amp pin (done), the role's listening
+   notification here (done); then the ledger role in pp-node.
 4. Later: discovery through the directory, both roles in one node, pp-browser's client and miner,
    host-held keys (`ICryptoProvider`) for pp-browser profiles.
 
