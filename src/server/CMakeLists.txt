@@ -1,6 +1,7 @@
 # Server library
 add_library(pp_server STATIC
     Server.cpp
+    RoleLoop.cpp
     NodeConfig.cpp
     NodeCore.cpp
     FollowerCore.cpp

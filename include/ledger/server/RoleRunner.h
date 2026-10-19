@@ -1,7 +1,6 @@
 #ifndef PP_LEDGER_ROLE_RUNNER_H
 #define PP_LEDGER_ROLE_RUNNER_H
 
-#include "ledger/server/Server.h"
 #include "ledger/network/HostedAmpRuntime.h"
 #include "common/Module.h"
 #include "ledger/lib/common/Service.h"
@@ -9,7 +8,6 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <string>
 
@@ -46,8 +44,6 @@ public:
     /** Beacon, first start only: --promote, --accept-ledger-tip. */
     bool promote{false};
     bool acceptLedgerTip{false};
-    /** Tests: the server to run in place of the role's (each start makes a fresh one). */
-    std::function<std::unique_ptr<Server>()> makeServer;
   };
 
   /** "beacon", "relay", "miner"; none for anything else. */
@@ -70,8 +66,6 @@ public:
   bool stopRequested() const { return stop_; }
 
 private:
-  std::unique_ptr<Server> makeServer(bool firstStart) const;
-
   Options options_;
   std::atomic<bool> stop_{false};
 };
