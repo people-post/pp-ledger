@@ -1,5 +1,5 @@
-#include "ledger/consensus/EpochManager.h"
-#include "ledger/consensus/SlotTimer.h"
+#include "consensus/EpochManager.h"
+#include "consensus/SlotTimer.h"
 #include <gtest/gtest.h>
 
 using namespace pp::consensus;

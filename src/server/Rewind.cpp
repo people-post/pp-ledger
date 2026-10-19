@@ -1,7 +1,7 @@
-#include "ledger/server/Rewind.h"
-#include "ledger/server/NodeFile.h"
+#include "server/Rewind.h"
+#include "server/NodeFile.h"
 #include "ledger/ledger/Ledger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 
 #include <filesystem>
 

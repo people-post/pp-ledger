@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_REWIND_H
 #define PP_LEDGER_REWIND_H
 
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 
 #include "ledger/client/Client.h"
 #include "common/Error.h"

@@ -1,11 +1,11 @@
-#include "ledger/server/BeaconServer.h"
-#include "ledger/server/CertificateStore.h"
-#include "ledger/server/EquivocationStore.h"
+#include "server/BeaconServer.h"
+#include "server/CertificateStore.h"
+#include "server/EquivocationStore.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/operation/Operation.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -856,8 +856,8 @@ TEST(BeaconServerInitTest, PromotionRefusesADirectoryThatCannotTakeOver) {
 
 // --- Relay / miner without config: a template to fill in, never a guess ---
 
-#include "ledger/server/MinerServer.h"
-#include "ledger/server/RelayServer.h"
+#include "server/MinerServer.h"
+#include "server/RelayServer.h"
 #include "ledger/network/amp/AmpIdentity.h"
 
 #include <random>

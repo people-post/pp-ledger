@@ -1,5 +1,5 @@
-#include "ledger/server/Server.h"
-#include "ledger/client/AmpLedgerTransport.h"
+#include "server/Server.h"
+#include "client/AmpLedgerTransport.h"
 #include "ledger/network/AmpLedgerServer.h"
 #include "ledger/network/HostedAmpRuntime.h"
 #include "ledger/network/LedgerAmpRuntime.h"
@@ -10,8 +10,8 @@
 #include "amp/link/AmpStack.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"
-#include "ledger/testing/TestAmpHost.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestAmpHost.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

@@ -1,4 +1,4 @@
-#include "ledger/client/AmpLedgerTransport.h"
+#include "client/AmpLedgerTransport.h"
 #include "ledger/client/Client.h"
 
 #include "ledger/network/AmpHost.h"

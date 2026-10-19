@@ -1,5 +1,5 @@
 #include "ledger/ledger/Ledger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
 #include "ledger/lib/common/Utilities.h"

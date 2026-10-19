@@ -1,4 +1,4 @@
-#include "ledger/chain/MinerTxHandler.h"
+#include "chain/MinerTxHandler.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/ErrorCodes.h"

@@ -1,9 +1,9 @@
-#include "ledger/chain/NewUserTxHandler.h"
+#include "chain/NewUserTxHandler.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/chain/TxFees.h"
-#include "ledger/chain/TxTyped.h"
+#include "chain/TxTyped.h"
 #include "ledger/client/Client.h"
 
 #include <string>

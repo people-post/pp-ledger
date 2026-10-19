@@ -1,4 +1,4 @@
-#include "ledger/server/ClockCalibration.h"
+#include "server/ClockCalibration.h"
 
 #include <gtest/gtest.h>
 

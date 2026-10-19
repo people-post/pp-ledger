@@ -1,4 +1,4 @@
-#include "ledger/client/LoadGenerator.h"
+#include "client/LoadGenerator.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"
 

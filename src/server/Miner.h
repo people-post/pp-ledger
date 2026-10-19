@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_MINER_H
 #define PP_LEDGER_MINER_H
 
-#include "ledger/server/FollowerCore.h"
+#include "server/FollowerCore.h"
 
 #include <cstdint>
 #include <memory>

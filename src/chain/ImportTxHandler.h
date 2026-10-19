@@ -2,7 +2,7 @@
 #define PP_LEDGER_IMPORT_TX_HANDLER_H
 
 #include "ledger/chain/ITxHandler.h"
-#include "ledger/chain/StateSnapshot.h"
+#include "chain/StateSnapshot.h"
 
 namespace pp {
 

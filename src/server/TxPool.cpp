@@ -1,4 +1,4 @@
-#include "ledger/server/TxPool.h"
+#include "server/TxPool.h"
 
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"

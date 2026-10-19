@@ -1,6 +1,6 @@
 #include "ledger/ledger/VolumeStore.h"
 #include "common/Logger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 #include "common/Serialize.hpp"
 #include "ledger/lib/common/BinaryPack.hpp"
 

@@ -1,8 +1,8 @@
 #include "ledger/server/RoleRunner.h"
 
-#include "ledger/server/BeaconServer.h"
-#include "ledger/server/MinerServer.h"
-#include "ledger/server/RelayServer.h"
+#include "server/BeaconServer.h"
+#include "server/MinerServer.h"
+#include "server/RelayServer.h"
 #include "server/RoleLoop.h"
 
 namespace pp {

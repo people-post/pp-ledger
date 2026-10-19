@@ -1,4 +1,4 @@
-#include "ledger/server/UpstreamTipWatch.h"
+#include "server/UpstreamTipWatch.h"
 
 #include <algorithm>
 

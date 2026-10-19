@@ -1,5 +1,5 @@
-#include "ledger/chain/BlockValidation.h"
-#include "ledger/chain/MinerLiveness.h"
+#include "chain/BlockValidation.h"
+#include "chain/MinerLiveness.h"
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/chain/TxFees.h"
 #include "common/Serialize.hpp"

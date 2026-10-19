@@ -1,5 +1,5 @@
 #include "ledger/network/AmpLedgerServer.h"
-#include "ledger/client/AmpLedgerTransport.h"
+#include "client/AmpLedgerTransport.h"
 #include "ledger/network/InFlightLimit.h"
 #include "ledger/network/LedgerAmpRuntime.h"
 #include "ledger/network/LedgerRpcProtocol.h"

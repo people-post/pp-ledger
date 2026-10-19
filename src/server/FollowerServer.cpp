@@ -1,5 +1,5 @@
-#include "ledger/server/FollowerServer.h"
-#include "ledger/chain/PredecessorCheck.h"
+#include "server/FollowerServer.h"
+#include "chain/PredecessorCheck.h"
 #include "ledger/network/amp/AmpIdentity.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Logger.h"

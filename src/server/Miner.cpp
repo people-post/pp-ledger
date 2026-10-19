@@ -1,4 +1,4 @@
-#include "ledger/server/Miner.h"
+#include "server/Miner.h"
 #include "common/Logger.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"

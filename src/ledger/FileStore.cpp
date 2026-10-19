@@ -1,6 +1,6 @@
 #include "ledger/ledger/FileStore.h"
 #include "common/Logger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 #include <filesystem>
 
 namespace pp {

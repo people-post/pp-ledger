@@ -1,4 +1,4 @@
-#include "ledger/server/Relay.h"
+#include "server/Relay.h"
 #include "common/Logger.h"
 
 namespace pp {

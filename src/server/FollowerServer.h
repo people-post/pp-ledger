@@ -1,13 +1,13 @@
 #ifndef PP_LEDGER_FOLLOWER_SERVER_H
 #define PP_LEDGER_FOLLOWER_SERVER_H
 
-#include "ledger/server/BlockSync.h"
-#include "ledger/server/ClockCalibration.h"
-#include "ledger/server/FollowerCore.h"
-#include "ledger/server/NodeConfig.h"
-#include "ledger/server/Server.h"
-#include "ledger/server/UpstreamSet.h"
-#include "ledger/server/UpstreamTipWatch.h"
+#include "server/BlockSync.h"
+#include "server/ClockCalibration.h"
+#include "server/FollowerCore.h"
+#include "server/NodeConfig.h"
+#include "server/Server.h"
+#include "server/UpstreamSet.h"
+#include "server/UpstreamTipWatch.h"
 #include "ledger/client/Client.h"
 
 #include <chrono>

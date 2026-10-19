@@ -1,7 +1,7 @@
-#include "ledger/chain/StateSnapshot.h"
+#include "chain/StateSnapshot.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountStateTree.h"
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 #include "common/Serialize.hpp"
 
 #include <filesystem>

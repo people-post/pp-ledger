@@ -1,4 +1,4 @@
-#include "ledger/server/EnvConfig.h"
+#include "server/EnvConfig.h"
 
 #include <gtest/gtest.h>
 

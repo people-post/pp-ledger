@@ -1,5 +1,5 @@
 #include "ledger/ledger/FileStore.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 #include <cstdint>
 #include <cstring>
 #include <filesystem>

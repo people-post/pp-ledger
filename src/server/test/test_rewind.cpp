@@ -1,6 +1,6 @@
-#include "ledger/server/Rewind.h"
+#include "server/Rewind.h"
 #include "ledger/ledger/Ledger.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

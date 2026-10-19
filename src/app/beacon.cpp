@@ -1,5 +1,5 @@
-#include "ledger/server/BeaconServer.h"
-#include "ledger/server/Beacon.h"
+#include "server/BeaconServer.h"
+#include "server/Beacon.h"
 #include "ledger/server/RoleRunner.h"
 #include "common/Logger.h"
 #include "ledger/lib/common/Utilities.h"

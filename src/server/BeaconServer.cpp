@@ -1,13 +1,13 @@
-#include "ledger/server/BeaconServer.h"
+#include "server/BeaconServer.h"
 #include "ledger/chain/Genesis.h"
 #include "ledger/operation/Operation.h"
 #include "ledger/chain/ConfigPolicy.h"
-#include "ledger/server/BlockAddPolicy.h"
+#include "server/BlockAddPolicy.h"
 #include "ledger/client/Client.h"
 #include "ledger/ledger/Ledger.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 #include "ledger/lib/common/Utilities.h"
 #include <algorithm>
 #include <cctype>

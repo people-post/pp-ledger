@@ -3,7 +3,7 @@
 
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountStateTree.h"
-#include "ledger/chain/BlockValidation.h"
+#include "chain/BlockValidation.h"
 #include "ledger/chain/ErrorCodes.h"
 
 namespace pp::verify {

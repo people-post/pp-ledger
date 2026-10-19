@@ -4,7 +4,7 @@
  * Also exposes a Model Context Protocol (MCP) server via SSE transport.
  */
 #include "ledger/client/Client.h"
-#include "ledger/client/HealthMetrics.h"
+#include "client/HealthMetrics.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/AccountIds.h"
 #include "ledger/network/LedgerAmpRuntime.h"

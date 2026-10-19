@@ -7,10 +7,10 @@
 #include "ledger/lib/common/Crypto.h"
 #include "ledger/lib/common/Utilities.h"
 #include "ledger/chain/AccountBuffer.h"
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/Client.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

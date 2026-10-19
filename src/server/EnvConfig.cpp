@@ -1,5 +1,5 @@
-#include "ledger/server/EnvConfig.h"
-#include "ledger/server/NodeFile.h"
+#include "server/EnvConfig.h"
+#include "server/NodeFile.h"
 #include "ledger/lib/common/Utilities.h"
 
 #include <cctype>

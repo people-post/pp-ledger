@@ -189,7 +189,7 @@ every block renewals-only. Start a load network with `PP_LEDGER_SMOKE_CHECKPOINT
 
 ## Fixture conventions
 
-- Temp paths come from `pp::test::uniqueTempPath(name)` (`include/ledger/testing/TestTempPath.h`, target
+- Temp paths come from `pp::test::uniqueTempPath(name)` (`src/testing/TestTempPath.h`, target
   `pp_testing`), never a fixed name under `temp_directory_path()`: ctest runs each test case in its
   own process and `ctest -j` runs them side by side, so a fixed name is shared (one test wipes or
   reopens another's ledger). The helper appends the process id. Remove what you create — the name

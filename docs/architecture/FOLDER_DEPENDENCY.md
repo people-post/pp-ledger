@@ -71,13 +71,25 @@ flowchart TD
 
 ## Includes
 
-The library layout, as in the other pp-cpp libraries: a folder's public headers are in
-`include/ledger/<folder>/`, its sources and its unit tests (`test/`) in `src/<folder>/`. Every
-target exports only `include/`, so a header is included by one path everywhere — in the library,
-its tests, its apps and its embedders: `#include "ledger/chain/Genesis.h"`. Other quoted includes are
-a dependency's (`common/…` pp-cpp-common, `crypto/…` pp-cpp-crypto, `amp/…` pp-cpp-amp) or a private
-header beside its includer (an app's, a test fixture). The vendored CLI11 and cpp-httplib keep their
-own (`<CLI/CLI.hpp>`, `<httplib.h>`). `scripts/check/check_includes.sh` (CI) holds the line.
+The library layout, as in the other pp-cpp libraries:
+
+| Header | Where | Included as | By |
+|--------|-------|-------------|----|
+| Public | `include/ledger/<folder>/X.h` | `"ledger/<folder>/X.h"` | anyone: the library, its tests and apps, embedders |
+| Private | `src/<folder>/X.h` | `"<folder>/X.h"` | this repo's sources only |
+
+Sources and unit tests (`test/`) are in `src/<folder>/`. Targets export only `include/`; `src/` is
+an include directory of this repo's targets (a directory property, not a usage requirement), so an
+embedder cannot reach a private header. A public header includes public headers and dependencies
+only. Public is what an embedder needs: the headers pp-browser (pp-node's ledger role) and
+pp-ledger-apps include, and what those include — 49 of 109 headers. Make a header public when an
+embedder needs it, and keep internals out of public headers instead of hiding them (the restart
+loop is private `server/RoleLoop.h`, so `RoleRunner.h` needs no server).
+
+Other quoted includes are a dependency's (`common/…` pp-cpp-common, `crypto/…` pp-cpp-crypto,
+`amp/…` pp-cpp-amp) or a file beside its includer (an app's, a test fixture). The vendored CLI11
+and cpp-httplib keep their own (`<CLI/CLI.hpp>`, `<httplib.h>`). `scripts/check/check_includes.sh`
+(CI) holds the line.
 
 ## Tests
 

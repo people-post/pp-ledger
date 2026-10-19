@@ -2,7 +2,7 @@
 #define PP_LEDGER_ROLE_LOOP_H
 
 #include "ledger/server/RoleRunner.h"
-#include "ledger/server/Server.h"
+#include "server/Server.h"
 
 #include "common/Logger.h"
 

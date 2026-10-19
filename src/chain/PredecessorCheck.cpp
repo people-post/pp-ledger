@@ -1,6 +1,6 @@
-#include "ledger/chain/PredecessorCheck.h"
+#include "chain/PredecessorCheck.h"
 
-#include "ledger/chain/BlockValidation.h"
+#include "chain/BlockValidation.h"
 #include "ledger/chain/Types.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"

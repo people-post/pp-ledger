@@ -3,10 +3,10 @@
 
 #include "ledger/consensus/SlotCommittee.h"
 #include "ledger/ledger/Ledger.h"
-#include "ledger/server/CertificateStore.h"
-#include "ledger/chain/Chain.h"
-#include "ledger/server/EquivocationStore.h"
-#include "ledger/server/Rewind.h"
+#include "server/CertificateStore.h"
+#include "chain/Chain.h"
+#include "server/EquivocationStore.h"
+#include "server/Rewind.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 

@@ -3,16 +3,16 @@
 
 #include "ledger/client/Client.h"
 #include "ledger/lib/common/Service.h"
-#include "ledger/network/ServerAmpSupport.h"
-#include "ledger/server/BlockSync.h"
-#include "ledger/server/BlockWaitList.h"
-#include "ledger/server/NodeCore.h"
-#include "ledger/server/RequestQueue.h"
-#include "ledger/server/ClockCalibration.h"
-#include "ledger/server/UpstreamSet.h"
+#include "network/ServerAmpSupport.h"
+#include "server/BlockSync.h"
+#include "server/BlockWaitList.h"
+#include "server/NodeCore.h"
+#include "server/RequestQueue.h"
+#include "server/ClockCalibration.h"
+#include "server/UpstreamSet.h"
 #include "ledger/network/NetworkTuning.h"
-#include "ledger/server/EnvConfig.h"
-#include "ledger/server/NodeConfig.h"
+#include "server/EnvConfig.h"
+#include "server/NodeConfig.h"
 
 #include <atomic>
 #include <chrono>

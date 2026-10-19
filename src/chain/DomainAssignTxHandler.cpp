@@ -1,9 +1,9 @@
-#include "ledger/chain/DomainAssignTxHandler.h"
+#include "chain/DomainAssignTxHandler.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/ErrorCodes.h"
 #include "ledger/chain/TxFees.h"
-#include "ledger/chain/TxTyped.h"
+#include "chain/TxTyped.h"
 
 #include <limits>
 #include <string>

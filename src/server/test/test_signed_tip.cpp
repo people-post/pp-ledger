@@ -1,8 +1,8 @@
-#include "ledger/server/TipSigner.h"
-#include "ledger/server/UpstreamSignedTip.h"
+#include "server/TipSigner.h"
+#include "server/UpstreamSignedTip.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "ledger/lib/common/Utilities.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 

@@ -1,5 +1,5 @@
-#include "ledger/server/EquivocationStore.h"
-#include "ledger/server/NodeFile.h"
+#include "server/EquivocationStore.h"
+#include "server/NodeFile.h"
 
 namespace pp {
 

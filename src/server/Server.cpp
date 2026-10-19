@@ -1,4 +1,4 @@
-#include "ledger/server/Server.h"
+#include "server/Server.h"
 #include "ledger/network/amp/AmpIdentity.h"
 #include "ledger/client/Client.h"
 #include "ledger/lib/common/BinaryPack.hpp"

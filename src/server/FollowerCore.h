@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_FOLLOWER_CORE_H
 #define PP_LEDGER_FOLLOWER_CORE_H
 
-#include "ledger/server/NodeCore.h"
+#include "server/NodeCore.h"
 
 #include <cstdint>
 #include <optional>

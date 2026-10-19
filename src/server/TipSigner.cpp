@@ -1,5 +1,5 @@
-#include "ledger/server/TipSigner.h"
-#include "ledger/server/NodeFile.h"
+#include "server/TipSigner.h"
+#include "server/NodeFile.h"
 
 #include <algorithm>
 

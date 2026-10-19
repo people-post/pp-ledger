@@ -1,4 +1,4 @@
-#include "ledger/chain/MinerLiveness.h"
+#include "chain/MinerLiveness.h"
 #include "ledger/chain/ErrorCodes.h"
 
 #include <algorithm>

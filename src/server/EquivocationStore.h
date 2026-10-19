@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_EQUIVOCATION_STORE_H
 #define PP_LEDGER_EQUIVOCATION_STORE_H
 
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 
 #include "ledger/client/Client.h"
 #include "common/Module.h"

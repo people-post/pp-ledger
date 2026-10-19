@@ -1,4 +1,4 @@
-#include "ledger/server/NodeConfig.h"
+#include "server/NodeConfig.h"
 #include "ledger/network/amp/AmpIdentity.h"
 
 #include <algorithm>

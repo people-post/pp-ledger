@@ -1,5 +1,5 @@
-#include "ledger/server/CertificateStore.h"
-#include "ledger/server/NodeFile.h"
+#include "server/CertificateStore.h"
+#include "server/NodeFile.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 
 namespace pp {

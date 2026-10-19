@@ -1,7 +1,7 @@
 #include "ledger/client/Client.h"
-#include "ledger/server/FollowerServer.h"
+#include "server/FollowerServer.h"
 #include "ledger/client/InProcessLedgerTransport.h"
-#include "ledger/server/Server.h"
+#include "server/Server.h"
 #include "ledger/lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>

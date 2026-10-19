@@ -3,7 +3,7 @@
 #include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Serialize.hpp"
 #include "common/Logger.h"
-#include "ledger/lib/common/FileSync.h"
+#include "lib/common/FileSync.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>

@@ -1,9 +1,9 @@
 #ifndef PP_LEDGER_BEACON_H
 #define PP_LEDGER_BEACON_H
 
-#include "ledger/server/NodeCore.h"
+#include "server/NodeCore.h"
 #include "ledger/chain/Genesis.h"
-#include "ledger/server/TipSigner.h"
+#include "server/TipSigner.h"
 
 #include "ledger/lib/common/Meta.h"
 #include "ledger/lib/common/Utilities.h"

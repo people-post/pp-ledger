@@ -1,4 +1,4 @@
-#include "ledger/client/LoadGenerator.h"
+#include "client/LoadGenerator.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/AccountIds.h"
 #include "ledger/network/LedgerAmpRuntime.h"

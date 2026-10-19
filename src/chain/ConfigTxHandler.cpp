@@ -1,9 +1,9 @@
-#include "ledger/chain/ConfigTxHandler.h"
+#include "chain/ConfigTxHandler.h"
 #include "ledger/chain/ConfigPolicy.h"
 #include "ledger/chain/AccountBuffer.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/ErrorCodes.h"
-#include "ledger/chain/TxTyped.h"
+#include "chain/TxTyped.h"
 #include "ledger/chain/Types.h"
 
 #include <variant>

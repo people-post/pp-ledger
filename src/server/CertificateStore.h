@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_CERTIFICATE_STORE_H
 #define PP_LEDGER_CERTIFICATE_STORE_H
 
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 
 #include "ledger/ledger/Ledger.h"
 #include "common/Module.h"

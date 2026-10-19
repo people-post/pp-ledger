@@ -3,18 +3,18 @@
 #include "ledger/lib/common/Crypto.h"
 #include "ledger/lib/common/Utilities.h"
 #include "ledger/chain/AccountBuffer.h"
-#include "ledger/chain/Chain.h"
+#include "chain/Chain.h"
 #include "ledger/chain/ConfigPolicy.h"
 #include "ledger/chain/Genesis.h"
 #include "ledger/chain/RecordHandler.h"
-#include "ledger/chain/StateSnapshot.h"
-#include "ledger/chain/BlockValidation.h"
+#include "chain/StateSnapshot.h"
+#include "chain/BlockValidation.h"
 #include "ledger/chain/AccountPolicy.h"
 #include "ledger/chain/Domains.h"
 #include "ledger/consensus/EpochSeed.h"
 #include "ledger/client/AccountAttachment.h"
 #include "ledger/client/Client.h"
-#include "ledger/testing/TestTempPath.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 
