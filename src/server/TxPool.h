@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_TX_POOL_H
 #define PP_LEDGER_TX_POOL_H
 
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 
 #include <cstddef>
 #include <cstdint>

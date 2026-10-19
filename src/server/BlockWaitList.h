@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_BLOCK_WAIT_LIST_H
 #define PP_LEDGER_BLOCK_WAIT_LIST_H
 
-#include "RequestQueue.h"
+#include "server/RequestQueue.h"
 
 #include <chrono>
 #include <cstdint>

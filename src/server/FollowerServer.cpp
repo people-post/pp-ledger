@@ -1,7 +1,7 @@
-#include "FollowerServer.h"
-#include "../chain/PredecessorCheck.h"
-#include "../network/amp/AmpIdentity.h"
-#include "lib/common/BinaryPack.hpp"
+#include "server/FollowerServer.h"
+#include "chain/PredecessorCheck.h"
+#include "ledger/network/amp/AmpIdentity.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/Logger.h"
 
 #include <algorithm>

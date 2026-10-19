@@ -1,8 +1,8 @@
-#include "Client.h"
-#include "FollowerServer.h"
-#include "InProcessLedgerTransport.h"
-#include "Server.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/client/Client.h"
+#include "server/FollowerServer.h"
+#include "ledger/client/InProcessLedgerTransport.h"
+#include "server/Server.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>
 

@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_MINER_REGISTRY_H
 #define PP_LEDGER_MINER_REGISTRY_H
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 
 #include <cstdint>
 #include <map>

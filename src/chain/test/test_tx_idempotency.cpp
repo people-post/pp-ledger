@@ -1,8 +1,8 @@
 // load-resilience lr8: the idempotency scan from IdempotencyScanCache gives exactly the answers of the
 // scan that reads every block — duplicates, misses, key errors, read failures — before and after a
 // rewind replaces blocks.
-#include "../ErrorCodes.h"
-#include "../TxIdempotency.h"
+#include "ledger/chain/ErrorCodes.h"
+#include "ledger/chain/TxIdempotency.h"
 
 #include <gtest/gtest.h>
 

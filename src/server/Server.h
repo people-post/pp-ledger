@@ -1,18 +1,18 @@
 #ifndef PP_LEDGER_SERVER_H
 #define PP_LEDGER_SERVER_H
 
-#include "../client/Client.h"
-#include "lib/common/Service.h"
-#include "../network/ServerAmpSupport.h"
-#include "BlockSync.h"
-#include "BlockWaitList.h"
-#include "NodeCore.h"
-#include "RequestQueue.h"
-#include "ClockCalibration.h"
-#include "UpstreamSet.h"
-#include "../network/NetworkTuning.h"
-#include "EnvConfig.h"
-#include "NodeConfig.h"
+#include "ledger/client/Client.h"
+#include "ledger/lib/common/Service.h"
+#include "network/ServerAmpSupport.h"
+#include "server/BlockSync.h"
+#include "server/BlockWaitList.h"
+#include "server/NodeCore.h"
+#include "server/RequestQueue.h"
+#include "server/ClockCalibration.h"
+#include "server/UpstreamSet.h"
+#include "ledger/network/NetworkTuning.h"
+#include "server/EnvConfig.h"
+#include "server/NodeConfig.h"
 
 #include <atomic>
 #include <chrono>

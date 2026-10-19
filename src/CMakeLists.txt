@@ -6,6 +6,10 @@ else()
   add_compile_options(-Wall -Wextra -Werror)
 endif()
 
+# Private headers: src/<folder>/X.h, included as "<folder>/X.h" by this repo's targets only — a
+# directory property, not a usage requirement, so an embedder sees include/ alone.
+include_directories(${PROJECT_SOURCE_DIR}/src)
+
 if(PP_LEDGER_BUILD_TESTS)
   add_subdirectory(testing)
 endif()

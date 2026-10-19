@@ -1,7 +1,7 @@
-#include "BlockSync.h"
-#include "UpstreamTipWatch.h"
-#include "../chain/BlockValidation.h"
-#include "lib/common/BinaryPack.hpp"
+#include "server/BlockSync.h"
+#include "server/UpstreamTipWatch.h"
+#include "chain/BlockValidation.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>
 
@@ -826,7 +826,7 @@ TEST_F(BlockSyncTest, DestroyedSyncDropsLateResults) {
 
 } // namespace
 
-#include "BroadcastTally.h"
+#include "server/BroadcastTally.h"
 
 namespace {
 
@@ -863,7 +863,7 @@ TEST(BroadcastTallyTest, SingleUpstream) {
 
 } // namespace
 
-#include "Server.h"
+#include "server/Server.h"
 
 namespace {
 

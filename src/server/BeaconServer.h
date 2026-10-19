@@ -1,14 +1,14 @@
 #ifndef PP_LEDGER_BEACON_SERVER_H
 #define PP_LEDGER_BEACON_SERVER_H
 
-#include "Beacon.h"
-#include "MinerRegistry.h"
-#include "TxPool.h"
-#include "Server.h"
-#include "../client/Client.h"
-#include "../network/amp/AmpIdentity.h"
+#include "server/Beacon.h"
+#include "server/MinerRegistry.h"
+#include "server/TxPool.h"
+#include "server/Server.h"
+#include "ledger/client/Client.h"
+#include "ledger/network/amp/AmpIdentity.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
+#include "ledger/lib/common/Meta.h"
 #include <map>
 #include <mutex>
 #include <string>

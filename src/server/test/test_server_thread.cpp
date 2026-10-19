@@ -1,12 +1,12 @@
-#include "BlockAddPolicy.h"
-#include "BlockWaitList.h"
-#include "MinerRegistry.h"
-#include "RequestQueue.h"
-#include "BlockSync.h"
-#include "NodeConfig.h"
-#include "Server.h"
-#include "../network/LedgerRpcProtocol.h"
-#include "lib/common/BinaryPack.hpp"
+#include "server/BlockAddPolicy.h"
+#include "server/BlockWaitList.h"
+#include "server/MinerRegistry.h"
+#include "server/RequestQueue.h"
+#include "server/BlockSync.h"
+#include "server/NodeConfig.h"
+#include "server/Server.h"
+#include "ledger/network/LedgerRpcProtocol.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 #include "common/io/Json.h"
 
 #include <gtest/gtest.h>
@@ -864,7 +864,7 @@ TEST(ServerThreadTest, CompletionAfterStopIsDropped) {
 
 // --- Block add check, transaction pool ---
 
-#include "TxPool.h"
+#include "server/TxPool.h"
 
 namespace {
 
@@ -1091,7 +1091,7 @@ TEST(ServerThreadTest, ServeTasksUntilTimesOut) {
 
 } // namespace
 
-#include "NetworkAnchor.h"
+#include "server/NetworkAnchor.h"
 
 namespace {
 

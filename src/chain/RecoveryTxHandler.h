@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_RECOVERY_TX_HANDLER_H
 #define PP_LEDGER_RECOVERY_TX_HANDLER_H
 
-#include "ITxHandler.h"
+#include "ledger/chain/ITxHandler.h"
 
 namespace pp {
 

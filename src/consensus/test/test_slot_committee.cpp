@@ -1,4 +1,4 @@
-#include "SlotCommittee.h"
+#include "ledger/consensus/SlotCommittee.h"
 #include <gtest/gtest.h>
 
 #include <chrono>

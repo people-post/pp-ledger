@@ -1,8 +1,8 @@
-#include "AmpLedgerServer.h"
-#include "AmpLedgerTransport.h"
-#include "InFlightLimit.h"
-#include "LedgerAmpRuntime.h"
-#include "LedgerRpcProtocol.h"
+#include "ledger/network/AmpLedgerServer.h"
+#include "client/AmpLedgerTransport.h"
+#include "ledger/network/InFlightLimit.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 #include "amp/L1/Clock.h"
 #include "amp/L1/Endpoint.h"
 #include "amp/L1/MemoryDatagramIo.h"
@@ -10,9 +10,9 @@
 #include "amp/link/AdpMultiaddr.h"
 #include "amp/link/MeshRuntime.h"
 #include "amp/link/Types.h"
-#include "client/Client.h"
+#include "ledger/client/Client.h"
 #include "crypto/MlDsa.h"
-#include "lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/BinaryPack.hpp"
 
 #include <gtest/gtest.h>
 #include <sodium.h>

@@ -1,6 +1,6 @@
-#include "CertificateStore.h"
-#include "NodeFile.h"
-#include "lib/common/BinaryPack.hpp"
+#include "server/CertificateStore.h"
+#include "server/NodeFile.h"
+#include "ledger/lib/common/BinaryPack.hpp"
 
 namespace pp {
 

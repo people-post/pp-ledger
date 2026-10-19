@@ -1,10 +1,10 @@
 #ifndef PP_LEDGER_NODE_CONFIG_H
 #define PP_LEDGER_NODE_CONFIG_H
 
-#include "EnvConfig.h"
-#include "NetworkAnchor.h"
+#include "server/EnvConfig.h"
+#include "server/NetworkAnchor.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
+#include "ledger/lib/common/Meta.h"
 
 #include <cstdint>
 #include <optional>

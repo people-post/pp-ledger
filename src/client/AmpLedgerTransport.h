@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ILedgerTransport.h"
-#include "../network/InFlightLimit.h"
+#include "ledger/client/ILedgerTransport.h"
+#include "ledger/network/InFlightLimit.h"
 #include "amp/link/MeshRuntime.h"
 #include "common/Module.h"
 

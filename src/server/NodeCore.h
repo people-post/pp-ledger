@@ -1,12 +1,12 @@
 #ifndef PP_LEDGER_NODE_CORE_H
 #define PP_LEDGER_NODE_CORE_H
 
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
-#include "CertificateStore.h"
-#include "Chain.h"
-#include "EquivocationStore.h"
-#include "Rewind.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
+#include "server/CertificateStore.h"
+#include "chain/Chain.h"
+#include "server/EquivocationStore.h"
+#include "server/Rewind.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
 

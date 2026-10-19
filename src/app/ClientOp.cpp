@@ -1,12 +1,12 @@
 #include "ClientOp.h"
 
-#include "AccountAttachment.h"
-#include "AccountIds.h"
-#include "Client.h"
-#include "../chain/Domains.h"
-#include "../operation/Operation.h"
-#include "lib/common/Crypto.h"
-#include "lib/common/Utilities.h"
+#include "ledger/client/AccountAttachment.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/client/Client.h"
+#include "ledger/chain/Domains.h"
+#include "ledger/operation/Operation.h"
+#include "ledger/lib/common/Crypto.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <algorithm>
 #include <cctype>

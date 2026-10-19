@@ -1,4 +1,4 @@
-#include "EnvConfig.h"
+#include "server/EnvConfig.h"
 
 #include <gtest/gtest.h>
 

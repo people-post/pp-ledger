@@ -1,0 +1,478 @@
+#pragma once
+
+#include "ledger/ledger/VolumeStore.h"
+#include "ledger/lib/common/Meta.h"
+#include "common/Module.h"
+#include "common/ResultOrError.hpp"
+#include "ledger/lib/common/Utilities.h"
+
+#include <atomic>
+#include <vector>
+#include <chrono>
+#include <cstdint>
+#include <string>
+#include <memory>
+#include <optional>
+#include <variant>
+
+namespace pp {
+
+class Ledger : public Module {
+public:
+  constexpr static uint16_t T_DEFAULT = 0;
+  constexpr static uint16_t T_GENESIS = 1;     // Genesis account to initialize the system
+  constexpr static uint16_t T_NEW_USER = 2;    // Any account to fund initialize a new user
+  constexpr static uint16_t T_CONFIG = 3;      // Genesis account to update the system config
+  constexpr static uint16_t T_USER_UPDATE = 4; // User accounts to update their account info
+  constexpr static uint16_t T_RENEWAL = 5;     // Miner to renew user/genesis account with latest account info
+  constexpr static uint16_t T_END_USER = 6;    // Miner to terminate user account due to insufficient fee.
+
+  // The registrar gives an issued account its domain (projects/domains).
+  constexpr static uint16_t T_DOMAIN_ASSIGN = 7;
+  // Reserved for name-directory / attachment (docs/product/NAME_DIRECTORY.md); not
+  // installed in RecordHandler yet — do not reuse these ids.
+  constexpr static uint16_t T_DOMAIN_RENEW = 8;
+  constexpr static uint16_t T_DOMAIN_RELEASE = 9;
+  constexpr static uint16_t T_NAME_CLAIM = 10;
+  constexpr static uint16_t T_NAME_RENEW = 11;
+  constexpr static uint16_t T_NAME_RELEASE = 12;
+  constexpr static uint16_t T_ATTACH_UPSERT_SLOT = 13;
+  constexpr static uint16_t T_ATTACH_DELETE_SLOT = 14;
+  constexpr static uint16_t T_ATTACH_REPLACE_ALL = 15;
+  // Miner registration (docs/contracts/WIRE_SCHEMA.md § Miner registration and liveness).
+  constexpr static uint16_t T_MINER_REGISTER = 16; // Account opts in as a miner (fee, min stake)
+  constexpr static uint16_t T_MINER_REVOKE = 17;   // Account opts out
+  constexpr static uint16_t T_BEACON_CERT = 18;    // Admin set certifies the next beacon generation
+  constexpr static uint16_t T_RECOVERY = 19;       // Recovery set announces a new admin set
+  constexpr static uint16_t T_IMPORT = 20;         // Re-genesis: one account of the predecessor network
+  constexpr static uint16_t T_ACCOUNT_RECOVERY = 21; // An account's recovery set announces its next keys
+
+  struct TxCommon {
+    uint64_t fee{ 0 };          // Transaction fee, always in native token, always goes to system fee account
+    std::string meta;           // Transaction metadata
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /** Optional client-provided idempotency + validation window fields for user-submitted tx types. */
+  struct TxIdempotencyWindow {
+    uint64_t idempotentId{ 0 };    // Client-chosen unique id to prevent duplicates; 0 = disabled
+    int64_t validationTsMin{ 0 };  // Validation window start (Unix seconds)
+    int64_t validationTsMax{ 0 };  // Validation window end (Unix seconds)
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  struct TxDefault : TxCommon, TxIdempotencyWindow {
+    uint64_t tokenId{ 0 };      // Token ID (0 = native token)
+    uint64_t fromWalletId{ 0 }; // Source wallet ID
+    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t amount{ 0 };       // Transfer amount
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & tokenId & fromWalletId & toWalletId & amount & fee & meta &
+          idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxGenesis : TxCommon {
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxNewUser : TxCommon, TxIdempotencyWindow {
+    uint64_t fromWalletId{ 0 }; // Source wallet ID
+    uint64_t toWalletId{ 0 };   // Destination wallet ID
+    uint64_t amount{ 0 };       // Initial funding amount (in genesis/native token)
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fromWalletId & toWalletId & amount & fee & meta &
+          idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxConfig : TxCommon, TxIdempotencyWindow {
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxUserUpdate : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 }; // Wallet ID being updated
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxRenewal : TxCommon {
+    uint64_t walletId{ 0 }; // Wallet ID being renewed
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxEndUser : TxCommon {
+    uint64_t walletId{ 0 }; // Wallet ID being ended
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /** T_MINER_REGISTER / T_MINER_REVOKE: signed by the account itself; no account meta. */
+  struct TxMiner : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 }; // Account registering / revoking
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta & idempotentId & validationTsMin &
+          validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+  struct TxMinerRegister : TxMiner {};
+  struct TxMinerRevoke : TxMiner {};
+
+  /**
+   * T_BEACON_CERT: the next beacon certificate (beacon-authority ba2), signed by the genesis
+   * (admin) account like T_CONFIG. `meta` is the serialized certificate (chain layer). Fee 0.
+   */
+  struct TxBeaconCert : TxCommon, TxIdempotencyWindow {
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
+   * T_RECOVERY: a recovery announcement (beacon-authority ba7), signed by the recovery set in the
+   * chain authority — not by an account. `meta` is the serialized announcement (chain layer). Fee 0.
+   */
+  struct TxRecovery : TxCommon, TxIdempotencyWindow {
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
+   * T_IMPORT: one account of the network a re-genesis comes from (beacon-authority B032), in an
+   * import block after an importing genesis. Unsigned: the predecessor's state root authenticates
+   * it. `meta` is the account as the old chain held it (chain layer: StateSnapshot::Account). Fee 0.
+   */
+  struct TxImport : TxCommon {
+    uint64_t walletId{ 0 };
+
+    template <typename Archive> void serialize(Archive &ar) { ar & walletId & fee & meta; }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
+   * T_ACCOUNT_RECOVERY (projects/account-recovery): account `walletId`'s recovery set acts on it
+   * (`meta`: an AccountRecoveryAction) — announces its next keys (the account frozen until they take
+   * over), withdraws that, or changes itself. Signed by the recovery set; the fee from the account.
+   */
+  struct TxAccountRecovery : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 };
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
+   * T_DOMAIN_ASSIGN (projects/domains): the registrar gives issued account `walletId` the domain
+   * `domain` (4–7 letters, never given before). Signed by the registrar; the fee from the registrar.
+   */
+  struct TxDomainAssign : TxCommon, TxIdempotencyWindow {
+    uint64_t walletId{ 0 };
+    std::string domain;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & walletId & domain & fee & meta & idempotentId & validationTsMin & validationTsMax;
+    }
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /**
+   * In-memory typed transaction payload for centralized dispatch. Variant order is not the
+   * record type id (16..21 follow 0..6, then 7; 8..15 are reserved): use typeOf().
+   */
+  using TypedTx = std::variant<TxDefault, TxGenesis, TxNewUser, TxConfig,
+                               TxUserUpdate, TxRenewal, TxEndUser,
+                               TxMinerRegister, TxMinerRevoke, TxBeaconCert, TxRecovery, TxImport,
+                               TxAccountRecovery, TxDomainAssign>;
+  /** Record type id (T_*) of a typed transaction. */
+  static uint16_t typeOf(const TypedTx &tx);
+
+  struct Error : RoeErrorBase {
+    using RoeErrorBase::RoeErrorBase;
+  };
+
+  template <typename T> using Roe = ResultOrError<T, Error>;
+
+  struct Record {
+    uint16_t type{T_DEFAULT};
+    std::string data; // Packed typed transaction payload (binaryPack(TxX))
+    std::vector<std::string> signatures;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & type & data & signatures;
+    }
+
+    /**
+     * Canonical message signed by account keys:
+     * binaryPack(type, networkId, data). Binds signatures to tx type and chain.
+     */
+    static std::string makeSigningMessage(uint16_t type,
+                                          const std::string &networkId,
+                                          const std::string &payload);
+
+    /** makeSigningMessage(type, networkId, data). */
+    std::string signingMessage(const std::string &networkId) const;
+
+    /** Decode this Record's packed payload into TypedTx. */
+    Roe<TypedTx> decode() const;
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  /** A member of an epoch's committee: a stakeholder and its stake (consensus::Stakeholder). */
+  struct CommitteeMember {
+    uint64_t id{ 0 };
+    uint64_t stake{ 0 };
+
+    bool operator==(const CommitteeMember &other) const { return id == other.id && stake == other.stake; }
+    template <typename Archive> void serialize(Archive &ar) { ar & id & stake; }
+  };
+
+  /**
+   * Block data structure (without hash).
+   *
+   * Header fields are committed by the block hash (see headerToString).
+   * Body: `records` committed via `txRoot`, `committee` via `stakeSnapshotHash`.
+   */
+  struct Block {
+    // 7: state roots commit to account attachments (account leaf v2, beacon-authority B031).
+    static constexpr uint16_t CURRENT_VERSION = 7;
+
+    // --- Header (hashed) ---
+    uint64_t index{ 0 };
+    int64_t timestamp{ 0 };
+    /** Raw 32-byte SHA-256 previous block hash (zeros at genesis). */
+    std::string previousHash;
+    uint64_t slot{ 0 };
+    uint64_t slotLeader{ 0 };
+    /** Epoch containing `slot` (must match consensus epoch-from-slot). */
+    uint64_t epoch{ 0 };
+    /** Cumulative count of transactions in all previous blocks (block 0 has 0). */
+    uint64_t txIndex{ 0 };
+    /** Raw 32-byte SHA-256 commitment to `records`. */
+    std::string txRoot;
+    /** Raw 32-byte SHA-256 commitment to post-block account state. */
+    std::string stateRoot;
+    /**
+     * Raw 32-byte commitment to the stakeholder set used for leader election
+     * in this epoch (see chain_block::calculateStakeSnapshotHash).
+     */
+    std::string stakeSnapshotHash;
+    /**
+     * Raw 32-byte epoch lottery seed for this block's epoch (SlotCommittee v2).
+     * Epoch-stable; derived at epoch boundary — see docs/contracts/WIRE_SCHEMA.md.
+     */
+    std::string epochSeed;
+
+    // --- Body (not hashed directly) ---
+    /** Committed via txRoot. */
+    std::vector<Record> records;
+    /**
+     * In the first block of an epoch: the committee the epoch elects leaders from, sorted by id —
+     * the preimage of stakeSnapshotHash. Empty in every other block. A node that holds only part
+     * of the accounts (warming up from a checkpoint) takes the epoch's leaders from it.
+     */
+    std::vector<CommitteeMember> committee;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & index & timestamp & previousHash & slot & slotLeader & epoch &
+          txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed &
+          records & committee;
+    }
+
+    /** Binary LTS of header fields only (used for block hash). */
+    std::string headerToString() const;
+    /** Full block LTS for disk / RawBlock (header + body). */
+    std::string ltsToString() const;
+    bool ltsFromString(const std::string &str);
+    pp::common::Meta ltsToMeta() const;
+
+  };
+
+  /**
+   * ChainNode data structure (Block + hash)
+   * Simple struct for in-memory representation
+   */
+  struct ChainNode {
+    Block block;
+    /** Raw 32-byte SHA-256 of block.headerToString(). */
+    std::string hash;
+
+    /**
+     * Serialize to binary (same format as stored on disk).
+     * For network transport, hex-encode the result.
+     */
+    std::string ltsToString() const;
+
+    /**
+     * Deserialize from binary string.
+     * @param str Output of ltsToString() (or hex-decode of wire format).
+     * @return true if successful
+     */
+    bool ltsFromString(const std::string& str);
+
+    pp::common::Meta ltsToMeta() const;
+  };
+
+  Ledger();
+  ~Ledger() override = default;
+
+  struct InitConfig {
+    std::string workDir;
+    uint64_t startingBlockId{ 0 };
+  };
+
+  /**
+   * When appended blocks are committed (made durable; see DirStore::commit): once this many are
+   * uncommitted, or the oldest has waited this long, the append that reaches it commits. A crash
+   * loses only uncommitted blocks — a relay or miner syncs them again; the beacon, which signs
+   * what it commits, commits every block (everyBlock()).
+   */
+  struct CommitPolicy {
+    uint64_t maxUncommittedBlocks{ 1000 };
+    std::chrono::milliseconds maxUncommittedAge{ 5000 };
+
+    static CommitPolicy everyBlock() { return CommitPolicy{ 1, std::chrono::milliseconds(0) }; }
+  };
+
+  uint64_t getNextBlockId() const;
+  /**
+   * Changes whenever blocks already held may differ from before (init, mount, rewindTo), so a cache
+   * of what blocks hold can tell it must start over. Appending does not change it.
+   */
+  uint64_t getRevision() const { return revision_; }
+  /** readBlock calls so far (what a scan costs; tests hold replay to a linear count). */
+  uint64_t getBlockReadCount() const { return blockReads_; }
+  /** First valid block ID (same as startingBlockId from init/mount). No blocks when getNextBlockId() <= getStartingBlockId(). */
+  uint64_t getStartingBlockId() const;
+
+  Roe<void> init(const InitConfig& config);
+  Roe<void> mount(const std::string& workDir);
+  /** Append `block`; it is committed when the commit policy says so (commit()). */
+  Roe<void> addBlock(const ChainNode& block);
+  /** Commit every block appended so far: it survives a crash or a power loss. */
+  Roe<void> commit();
+  /**
+   * Drop every block from `nextBlockId` on (beacon-authority bp1: a rewind to a certificate's
+   * cutover), durably, with the checkpoints among them. `nextBlockId` must not be below the
+   * ledger's first block.
+   */
+  Roe<void> rewindTo(uint64_t nextBlockId);
+  void setCommitPolicy(const CommitPolicy &policy) { commitPolicy_ = policy; }
+  Roe<void> updateCheckpoints(const std::vector<uint64_t>& blockIds);
+  Roe<ChainNode> readBlock(uint64_t blockId) const;
+  Roe<ChainNode> readLastBlock() const;
+  /** Smallest blockId such that block.timestamp >= timestamp (O(log n) block reads). */
+  Roe<ChainNode> findBlockByTimestamp(int64_t timestamp) const;
+  uint64_t countSizeFromBlockId(uint64_t blockId) const;
+
+private:
+  /**
+   * RawBlock data structure for file storage
+   * Stores block as serialized string to be version-agnostic
+   */
+  struct RawBlock {
+    std::string data;  // Serialized Block data (from Block::ltsToString())
+    std::string hash;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & data & hash;
+    }
+  };
+
+  /**
+   * Index file header structure - minimal header
+   */
+  struct IndexFileHeader {
+    static constexpr uint32_t MAGIC = 0x504C4C44; // "PLLD" (PP Ledger Ledger Data)
+    static constexpr uint16_t CURRENT_VERSION = 1;
+
+    uint32_t magic{ MAGIC };
+    uint16_t version{ CURRENT_VERSION };
+
+    IndexFileHeader() = default;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar &magic &version;
+    }
+  };
+
+  /**
+   * Metadata structure - holds ledger metadata
+   */
+  struct Meta {
+    uint64_t startingBlockId{ 0 };
+    std::vector<uint64_t> checkpointIds;
+
+    Meta() = default;
+
+    template <typename Archive> void serialize(Archive &ar) {
+      ar &startingBlockId &checkpointIds;
+    }
+  };
+
+  std::string workDir_;
+  std::string volumesDir_;
+  std::string indexFilePath_;
+  Meta meta_;
+  VolumeStore store_;
+
+  CommitPolicy commitPolicy_;
+  uint64_t uncommittedBlocks_{ 0 };
+  std::chrono::steady_clock::time_point oldestUncommittedAt_{};
+
+  /** Cached latest block for fast readLastBlock/readBlock(lastId) access. */
+  mutable std::optional<ChainNode> latestBlockCache_;
+  uint64_t revision_{0};
+  mutable std::atomic<uint64_t> blockReads_{0};
+
+  bool loadIndex();
+  bool saveIndex();
+  Roe<void> cleanupData();
+};
+
+} // namespace pp

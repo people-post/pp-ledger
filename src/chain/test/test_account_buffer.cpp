@@ -1,6 +1,6 @@
-#include "lib/common/Crypto.h"
-#include "AccountBuffer.h"
-#include "AccountAttachment.h"
+#include "ledger/lib/common/Crypto.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/client/AccountAttachment.h"
 #include <gtest/gtest.h>
 #include <cstdint>
 

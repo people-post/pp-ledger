@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Meta.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Meta.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <cstdint>
 #include <string>

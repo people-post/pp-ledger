@@ -1,12 +1,12 @@
-#include "LoadGenerator.h"
-#include "AccountAttachment.h"
-#include "AccountIds.h"
-#include "../network/LedgerAmpRuntime.h"
-#include "../network/amp/AmpIdentity.h"
+#include "client/LoadGenerator.h"
+#include "ledger/client/AccountAttachment.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/network/LedgerAmpRuntime.h"
+#include "ledger/network/amp/AmpIdentity.h"
 #include "common/io/Json.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Crypto.h"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Crypto.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <algorithm>
 #include <atomic>

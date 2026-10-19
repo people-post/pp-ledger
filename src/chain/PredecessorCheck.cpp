@@ -1,9 +1,9 @@
-#include "PredecessorCheck.h"
+#include "chain/PredecessorCheck.h"
 
-#include "BlockValidation.h"
-#include "Types.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
+#include "chain/BlockValidation.h"
+#include "ledger/chain/Types.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 
 #include <filesystem>
 

@@ -1,6 +1,6 @@
 # SlotCommittee — open items
 
-Unsettled product / protocol choices around [`SlotCommittee`](../../src/consensus/SlotCommittee.h)
+Unsettled product / protocol choices around [`SlotCommittee`](../../include/ledger/consensus/SlotCommittee.h)
 (equal-weight top‑N committee lottery under beacon authority). Settled rules live in
 [WIRE_SCHEMA.md — Leader election](../contracts/WIRE_SCHEMA.md#leader-election-live).
 

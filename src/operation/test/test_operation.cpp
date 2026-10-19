@@ -1,10 +1,10 @@
 // Operation files (docs/contracts/OPERATION_FILE.md): built, written and read back, signed apart and
 // merged, refused when tampered with, summarized from the record alone.
-#include "../Operation.h"
+#include "ledger/operation/Operation.h"
 
-#include "../../chain/Types.h"
-#include "../../client/AccountIds.h"
-#include "lib/common/Utilities.h"
+#include "ledger/chain/Types.h"
+#include "ledger/client/AccountIds.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
 

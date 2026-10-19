@@ -1,5 +1,5 @@
-#include "TxIdempotency.h"
-#include "ErrorCodes.h"
+#include "ledger/chain/TxIdempotency.h"
+#include "ledger/chain/ErrorCodes.h"
 
 namespace pp::chain_tx {
 

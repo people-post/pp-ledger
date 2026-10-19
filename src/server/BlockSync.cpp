@@ -1,6 +1,6 @@
-#include "BlockSync.h"
-#include "../chain/Types.h"
-#include "../chain/BlockValidation.h"
+#include "server/BlockSync.h"
+#include "ledger/chain/Types.h"
+#include "chain/BlockValidation.h"
 
 #include <algorithm>
 

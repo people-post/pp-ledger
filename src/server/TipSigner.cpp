@@ -1,5 +1,5 @@
-#include "TipSigner.h"
-#include "NodeFile.h"
+#include "server/TipSigner.h"
+#include "server/NodeFile.h"
 
 #include <algorithm>
 

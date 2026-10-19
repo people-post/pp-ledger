@@ -1,6 +1,6 @@
-#include "FileSync.h"
-#include "Utilities.h"
-#include "TestTempPath.h"
+#include "lib/common/FileSync.h"
+#include "ledger/lib/common/Utilities.h"
+#include "testing/TestTempPath.h"
 #include <gtest/gtest.h>
 
 #include <filesystem>

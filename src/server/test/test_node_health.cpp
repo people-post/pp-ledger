@@ -1,5 +1,5 @@
-#include "Client.h"
-#include "HealthMetrics.h"
+#include "ledger/client/Client.h"
+#include "client/HealthMetrics.h"
 
 #include <gtest/gtest.h>
 

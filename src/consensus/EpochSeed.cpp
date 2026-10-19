@@ -1,6 +1,6 @@
-#include "EpochSeed.h"
+#include "ledger/consensus/EpochSeed.h"
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include <sstream>
 
 namespace pp {

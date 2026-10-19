@@ -1,6 +1,6 @@
-#include "AmpLedgerServer.h"
+#include "ledger/network/AmpLedgerServer.h"
 
-#include "LedgerRpcProtocol.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 #include "amp/L3/ChannelSession.h"
 
 #include <atomic>

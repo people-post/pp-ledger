@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_BLOCK_ADD_POLICY_H
 #define PP_LEDGER_BLOCK_ADD_POLICY_H
 
-#include "../ledger/Ledger.h"
+#include "ledger/ledger/Ledger.h"
 
 namespace pp {
 

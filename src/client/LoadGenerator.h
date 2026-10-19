@@ -1,8 +1,8 @@
 #ifndef PP_LEDGER_LOAD_GENERATOR_H
 #define PP_LEDGER_LOAD_GENERATOR_H
 
-#include "Client.h"
-#include "../ledger/Ledger.h"
+#include "ledger/client/Client.h"
+#include "ledger/ledger/Ledger.h"
 #include "common/ResultOrError.hpp"
 
 #include <chrono>

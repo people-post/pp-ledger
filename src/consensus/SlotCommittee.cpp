@@ -1,6 +1,6 @@
-#include "SlotCommittee.h"
+#include "ledger/consensus/SlotCommittee.h"
 #include "common/Serialize.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 #include <algorithm>
 #include <chrono>
 #include <numeric>

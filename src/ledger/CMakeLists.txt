@@ -1,22 +1,14 @@
 # Ledger library
 add_library(pp_ledger STATIC
     Account.cpp
-    Account.h
     Ledger.cpp
-    Ledger.h
     DirStore.cpp
-    DirStore.h
     FileStore.cpp
-    FileStore.h
     FileDirStore.cpp
-    FileDirStore.h
     VolumeStore.cpp
-    VolumeStore.h
 )
 
-target_include_directories(pp_ledger PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
+target_include_directories(pp_ledger PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 # Link to pp_ledger_common - automatically gets all pp_ledger_common dependencies:
 # - pp_ledger_common headers and libraries

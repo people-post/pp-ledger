@@ -1,11 +1,11 @@
 #ifndef PP_LEDGER_MINER_SERVER_H
 #define PP_LEDGER_MINER_SERVER_H
 
-#include "BroadcastTally.h"
-#include "FollowerServer.h"
-#include "Miner.h"
-#include "NetworkAnchor.h"
-#include "../client/Client.h"
+#include "server/BroadcastTally.h"
+#include "server/FollowerServer.h"
+#include "server/Miner.h"
+#include "server/NetworkAnchor.h"
+#include "ledger/client/Client.h"
 #include <chrono>
 #include <optional>
 #include <set>

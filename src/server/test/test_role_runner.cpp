@@ -1,6 +1,7 @@
-#include "RoleRunner.h"
-#include "TestAmpHost.h"
-#include "TestTempPath.h"
+#include "ledger/server/RoleRunner.h"
+#include "server/RoleLoop.h"
+#include "testing/TestAmpHost.h"
+#include "testing/TestTempPath.h"
 
 #include <gtest/gtest.h>
 
@@ -64,20 +65,22 @@ protected:
     std::error_code ec;
     std::filesystem::remove_all(dir_, ec);
   }
-  RoleRunner::Options scripted(ScriptedServer::Script &script) {
+  /** The role loop over scripted servers, until `stop`. */
+  Service::Roe<void> runScripted(ScriptedServer::Script &script, const std::atomic<bool> &stop) {
     RoleRunner::Options options;
     options.workDir = dir_.string();
     options.logFile = "none";
-    options.makeServer = [&script]() {
+    const RoleServerFactory make = [&script](bool) -> std::unique_ptr<Server> {
       auto server = std::make_unique<ScriptedServer>(script);
       if (script.onMade) {
         script.onMade();
       }
       return server;
     };
-    return options;
+    return runRoleLoop(options, "scripted", make, stop, log_);
   }
   std::filesystem::path dir_;
+  logging::Logger log_ = logging::getLogger("RoleLoopTest");
 };
 
 } // namespace
@@ -85,14 +88,14 @@ protected:
 TEST_F(RoleRunnerTest, RunsAFreshServerAfterEachRestart) {
   ScriptedServer::Script script;
   script.restarts = 2;
-  RoleRunner runner(scripted(script));
-  auto ran = std::async(std::launch::async, [&runner]() { return runner.run(); });
+  std::atomic<bool> stop{false};
+  auto ran = std::async(std::launch::async, [&]() { return runScripted(script, stop); });
   const auto until = std::chrono::steady_clock::now() + 10s;
   while (script.looped < 3 && std::chrono::steady_clock::now() < until) {
     std::this_thread::sleep_for(5ms);
   }
   EXPECT_EQ(script.made.load(), 3) << "two restarts, three servers";
-  runner.stop();
+  stop = true;
   ASSERT_EQ(ran.wait_for(5s), std::future_status::ready);
   EXPECT_TRUE(ran.get().isOk());
   EXPECT_EQ(script.made.load(), 3) << "stopped: no other starts";
@@ -100,9 +103,8 @@ TEST_F(RoleRunnerTest, RunsAFreshServerAfterEachRestart) {
 
 TEST_F(RoleRunnerTest, AStopBeforeRunStartsNothing) {
   ScriptedServer::Script script;
-  RoleRunner runner(scripted(script));
-  runner.stop();
-  EXPECT_TRUE(runner.run().isOk());
+  const std::atomic<bool> stop{true};
+  EXPECT_TRUE(runScripted(script, stop).isOk());
   EXPECT_EQ(script.made.load(), 0);
 }
 
@@ -110,11 +112,9 @@ TEST_F(RoleRunnerTest, AStopBeforeRunStartsNothing) {
 // and running it was lost; the runner's flag is the server's stop source and holds.
 TEST_F(RoleRunnerTest, AStopBetweenMakingAServerAndRunningItHolds) {
   ScriptedServer::Script script;
-  RoleRunner *self = nullptr;
-  script.onMade = [&self]() { self->stop(); };
-  RoleRunner runner(scripted(script));
-  self = &runner;
-  auto ran = std::async(std::launch::async, [&runner]() { return runner.run(); });
+  std::atomic<bool> stop{false};
+  script.onMade = [&stop]() { stop = true; };
+  auto ran = std::async(std::launch::async, [&]() { return runScripted(script, stop); });
   ASSERT_EQ(ran.wait_for(5s), std::future_status::ready) << "the server does not run on";
   EXPECT_TRUE(ran.get().isOk());
   EXPECT_TRUE(script.stopSeenAtStart.load());

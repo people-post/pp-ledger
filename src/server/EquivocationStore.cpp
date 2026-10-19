@@ -1,5 +1,5 @@
-#include "EquivocationStore.h"
-#include "NodeFile.h"
+#include "server/EquivocationStore.h"
+#include "server/NodeFile.h"
 
 namespace pp {
 

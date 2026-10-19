@@ -48,9 +48,11 @@ no alias) holds the Amp binding and is linked by `pp_client` and `pp_server`.
 
 **Embedding:** another project takes pp-ledger with `FetchContent` or `add_subdirectory`; paths are
 the project's own (`PROJECT_SOURCE_DIR`), and pp-cpp-common / pp-cpp-crypto / googletest already
-defined by the parent are reused. Headers include from `src/` (`#include "operation/Operation.h"`).
+defined by the parent are reused. Public headers are under `include/ledger/` and every target exports
+only `include/`: include them with the prefix (`#include "ledger/operation/Operation.h"`); the rest
+are private ([FOLDER_DEPENDENCY.md § Includes](FOLDER_DEPENDENCY.md#includes)).
 
-**Running a role** (`server/RoleRunner.h`, `pp::RoleRunner`): what each app's `main()` does — run a
+**Running a role** (`ledger/server/RoleRunner.h`, `pp::RoleRunner`): what each app's `main()` does — run a
 beacon, relay or miner on its work directory (its own `config.json`, keys and data) until stopped,
 with a fresh server after each restart (a rewind). `run()` blocks; `stop()` is one atomic store,
 safe from any thread or a signal handler, and also holds when it comes between two servers. With

@@ -1,13 +1,13 @@
 #ifndef PP_LEDGER_BLOCK_VALIDATION_H
 #define PP_LEDGER_BLOCK_VALIDATION_H
 
-#include "AccountBuffer.h"
-#include "BlockAdmission.h"
-#include "TxError.h"
-#include "Types.h"
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
-#include "RecordHandler.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "ledger/chain/BlockAdmission.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/chain/RecordHandler.h"
 
 #include <cstdint>
 #include <optional>

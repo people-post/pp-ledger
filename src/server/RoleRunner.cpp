@@ -1,10 +1,39 @@
-#include "RoleRunner.h"
+#include "ledger/server/RoleRunner.h"
 
-#include "BeaconServer.h"
-#include "MinerServer.h"
-#include "RelayServer.h"
+#include "server/BeaconServer.h"
+#include "server/MinerServer.h"
+#include "server/RelayServer.h"
+#include "server/RoleLoop.h"
 
 namespace pp {
+
+namespace {
+
+std::unique_ptr<Server> makeRoleServer(const RoleRunner::Options &options, const bool firstStart) {
+  switch (options.role) {
+  case RoleRunner::Role::Beacon: {
+    auto beacon = std::make_unique<BeaconServer>();
+    beacon->redirectLogger("pp.B");
+    // The first start promotes and accepts the ledger's tip; a restart (a rewind) runs the beacon it became.
+    beacon->setPromote(firstStart && options.promote);
+    beacon->setAcceptLedgerTip(firstStart && options.acceptLedgerTip);
+    return beacon;
+  }
+  case RoleRunner::Role::Relay: {
+    auto relay = std::make_unique<RelayServer>();
+    relay->redirectLogger("pp.R");
+    return relay;
+  }
+  case RoleRunner::Role::Miner: {
+    auto miner = std::make_unique<MinerServer>();
+    miner->redirectLogger("pp.M");
+    return miner;
+  }
+  }
+  return nullptr;
+}
+
+} // namespace
 
 std::optional<RoleRunner::Role> RoleRunner::roleNamed(const std::string &name) {
   if (name == "beacon") {
@@ -33,61 +62,13 @@ std::string RoleRunner::nameOf(const Role role) {
 
 RoleRunner::RoleRunner(Options options) : options_(std::move(options)) { redirectLogger("RoleRunner"); }
 
-std::unique_ptr<Server> RoleRunner::makeServer(const bool firstStart) const {
-  if (options_.makeServer) {
-    return options_.makeServer();
-  }
-  switch (options_.role) {
-  case Role::Beacon: {
-    auto beacon = std::make_unique<BeaconServer>();
-    beacon->redirectLogger("pp.B");
-    // The first start promotes and accepts the ledger's tip; a restart (a rewind) runs the beacon it became.
-    beacon->setPromote(firstStart && options_.promote);
-    beacon->setAcceptLedgerTip(firstStart && options_.acceptLedgerTip);
-    return beacon;
-  }
-  case Role::Relay: {
-    auto relay = std::make_unique<RelayServer>();
-    relay->redirectLogger("pp.R");
-    return relay;
-  }
-  case Role::Miner: {
-    auto miner = std::make_unique<MinerServer>();
-    miner->redirectLogger("pp.M");
-    return miner;
-  }
-  }
-  return nullptr;
-}
-
 Service::Roe<void> RoleRunner::run() {
-  const std::string role = nameOf(options_.role);
-  if (options_.host && options_.role == Role::Beacon && !options_.makeServer) {
+  if (options_.host && options_.role == Role::Beacon) {
     return Service::Error(-1, "A beacon runs standalone only, not on a host's runtime");
   }
-  log().info << "Running " << role << " with work directory: " << options_.workDir
-             << (options_.host ? " (on the host's Amp runtime)" : "");
-  bool firstStart = true;
-  while (!stop_) {
-    auto server = makeServer(firstStart);
-    firstStart = false;
-    server->setStopSource(&stop_);
-    server->setApprovedRewindGeneration(options_.approvedRewindGeneration);
-    server->setLogFile(options_.logFile);
-    server->setOnListening(options_.onListening);
-    if (options_.host) {
-      server->runOnHost(*options_.host);
-    }
-    if (auto ran = server->run(options_.workDir); !ran) {
-      return Service::Error(-1, "Failed to run " + role + ": " + ran.error().message);
-    }
-    if (!server->restartRequested()) {
-      break;
-    }
-    log().warning << "The " << role << " restarts";
-  }
-  log().info << "The " << role << " stopped";
-  return {};
+  return runRoleLoop(
+      options_, nameOf(options_.role),
+      [this](const bool firstStart) { return makeRoleServer(options_, firstStart); }, stop_, log());
 }
 
 } // namespace pp

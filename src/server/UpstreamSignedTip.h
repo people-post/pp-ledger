@@ -1,7 +1,7 @@
 #ifndef PP_LEDGER_UPSTREAM_SIGNED_TIP_H
 #define PP_LEDGER_UPSTREAM_SIGNED_TIP_H
 
-#include "../client/Client.h"
+#include "ledger/client/Client.h"
 
 #include <optional>
 

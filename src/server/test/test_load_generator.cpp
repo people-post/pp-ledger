@@ -1,6 +1,6 @@
-#include "LoadGenerator.h"
-#include "lib/common/BinaryPack.hpp"
-#include "lib/common/Utilities.h"
+#include "client/LoadGenerator.h"
+#include "ledger/lib/common/BinaryPack.hpp"
+#include "ledger/lib/common/Utilities.h"
 
 #include <gtest/gtest.h>
 

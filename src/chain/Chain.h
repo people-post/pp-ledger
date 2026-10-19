@@ -1,22 +1,22 @@
 #ifndef PP_LEDGER_CHAIN_H
 #define PP_LEDGER_CHAIN_H
 
-#include "../client/Client.h"
-#include "../consensus/SlotCommittee.h"
-#include "../ledger/Ledger.h"
-#include "AccountBuffer.h"
-#include "BlockValidation.h"
-#include "ErrorCodes.h"
-#include "RecordHandler.h"
-#include "TxContext.h"
-#include "TxError.h"
-#include "Types.h"
-#include "StateSnapshot.h"
-#include "AuthorityTrail.h"
-#include "lib/common/Crypto.h"
+#include "ledger/client/Client.h"
+#include "ledger/consensus/SlotCommittee.h"
+#include "ledger/ledger/Ledger.h"
+#include "ledger/chain/AccountBuffer.h"
+#include "chain/BlockValidation.h"
+#include "ledger/chain/ErrorCodes.h"
+#include "ledger/chain/RecordHandler.h"
+#include "ledger/chain/TxContext.h"
+#include "ledger/chain/TxError.h"
+#include "ledger/chain/Types.h"
+#include "chain/StateSnapshot.h"
+#include "ledger/chain/AuthorityTrail.h"
+#include "ledger/lib/common/Crypto.h"
 #include "common/Module.h"
 #include "common/ResultOrError.hpp"
-#include "lib/common/Utilities.h"
+#include "ledger/lib/common/Utilities.h"
 
 #include <array>
 #include <cstdint>

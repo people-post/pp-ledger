@@ -1,8 +1,8 @@
-#include "AmpLedgerTransport.h"
-#include "Client.h"
+#include "client/AmpLedgerTransport.h"
+#include "ledger/client/Client.h"
 
-#include "../network/AmpHost.h"
-#include "../network/LedgerRpcProtocol.h"
+#include "ledger/network/AmpHost.h"
+#include "ledger/network/LedgerRpcProtocol.h"
 #include "amp/L3/ChannelSession.h"
 
 #include <atomic>
