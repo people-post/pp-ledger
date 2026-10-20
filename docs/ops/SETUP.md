@@ -204,6 +204,32 @@ curl -X POST http://localhost:8080/api/tx/build -H 'Content-Type: application/js
 
 ---
 
+### Verified API (`/v1/`)
+
+For a service beside the chain (the bank, the exchange): answers checked from a pinned genesis
+([VERIFIED_API.md](../contracts/VERIFIED_API.md)) — tips, the finalized height, balances of watched
+accounts by height, rewinds and other events. Run one beside each service, on localhost (a sidecar in
+its pod), following a relay its operators run:
+
+```bash
+export PP_HTTP_V1_TOKEN=…   # from the service's secret store; never on the command line
+./app/pp-http --port 8090 \
+  --beacon '/dns4/relay.example/udp/8519/adp/1.0.0/p2p/<relay-peer-id>' \
+  --miner  '/dns4/relay.example/udp/8519/adp/1.0.0/p2p/<relay-peer-id>' \
+  --genesis-hash <block 0's hash, from the network's announcement> \
+  --v1-data-dir /var/lib/pp-gateway
+curl -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" http://127.0.0.1:8090/v1/tip
+curl -X PUT -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" http://127.0.0.1:8090/v1/watch/1073741825
+curl -H "Authorization: Bearer $PP_HTTP_V1_TOKEN" 'http://127.0.0.1:8090/v1/accounts/1073741825/balances?at=final'
+```
+
+`--miner` is required by pp-http but not used by `/v1/` (the relay will do). The data directory is the
+gateway's memory (a persistent volume): a restart resumes from it, and it
+refuses another chain's. `pp-client -b --host <relay> block 0` shows block 0's hash to compare with the
+announcement.
+
+---
+
 ## Multi-Node Setup
 
 One beacon (the terminal), relays below it, miners below the relays. Miners

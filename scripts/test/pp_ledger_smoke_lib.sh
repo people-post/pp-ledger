@@ -2090,6 +2090,82 @@ run_takeover_scenario() {
   local stopped
   stopped=$(all_processes_alive) || die "L-SMOKE-TAKEOVER: ${stopped} stopped"
   echo -e "${GREEN}✓ L-SMOKE-TAKEOVER: relay1 and ${NUM_MINERS} miner(s) follow generation 2 (block ${served% *}) through relay3; clocks recalibrated${NC}"
+  TAKEOVER_CUTOVER=$cutover
+}
+
+# ---- The verifying gateway (projects/finality fn2): pp-http /v1/ beside a service ----
+
+GATEWAY_TOKEN="smoke-gateway-token"
+
+# pp-http with /v1/, following relay1 from the pinned genesis; its journal in ${TEST_DIR}/gateway.
+start_gateway() {
+  [[ -x "$BUILD_DIR/app/pp-http" ]] || die "pp-http not built (PP_LEDGER_BUILD_HTTP)"
+  local dir="${TEST_DIR}/gateway" hash
+  rm -rf "$dir" # a journal of an earlier network: refused (another genesis)
+  mkdir -p "$dir"
+  hash=$(genesis_hash_hex)
+  [[ -n "$hash" ]] || die "gateway: no genesis hash from the relay"
+  PP_HTTP_V1_TOKEN="$GATEWAY_TOKEN" run_bg_cmd "$dir/console.log" "$BUILD_DIR/app/pp-http" --port "$HTTP_PORT" \
+    --beacon "$(relay_multiaddr)" --miner "$(miner_multiaddr 1)" \
+    --genesis-hash "$hash" --v1-data-dir "$dir/data" --v1-poll-ms 500
+  save_pid "gateway" $!
+  local deadline=$((SECONDS + 60))
+  until gateway_get /v1/tip >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || { cat "$dir/console.log" >&2 || true; die "gateway: /v1/tip never answered"; }
+    sleep 1
+  done
+  [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HTTP_PORT}/v1/tip")" == "401" ]] ||
+    die "gateway: /v1/ answered without its token"
+  echo -e "${GREEN}✓ Gateway (/v1/) on ${HTTP_PORT}, following the relay from genesis ${hash}${NC}"
+}
+
+gateway_get() { # path → body; fails on an HTTP error
+  curl -sf -H "Authorization: Bearer ${GATEWAY_TOKEN}" "http://127.0.0.1:${HTTP_PORT}$1"
+}
+
+gateway_field() { # path, key → a top-level number or string field
+  gateway_get "$1" 2>/dev/null | tr -d ' \n' | sed -n "s/.*\"$2\":\"\{0,1\}\([^,\"}]*\).*/\1/p"
+}
+
+# Watch bob before the transactions start; his balance is proven as transfers reach him.
+run_gateway_watch() {
+  local bob=$(((1 << 30) + 1))
+  curl -sf -X PUT -H "Authorization: Bearer ${GATEWAY_TOKEN}" "http://127.0.0.1:${HTTP_PORT}/v1/watch/${bob}" >/dev/null ||
+    die "gateway: PUT /v1/watch/${bob} failed"
+}
+
+# The gateway's balance for bob at its tip matches the node's, once he has received transfers.
+check_gateway_balance() {
+  local bob=$(((1 << 30) + 1)) deadline=$((SECONDS + 120)) ours="" theirs=""
+  while ((SECONDS < deadline)); do
+    ours=$(gateway_get "/v1/accounts/${bob}/balances?at=tip" 2>/dev/null | tr -d ' \n' | sed -n 's/.*"balances":{"0":"\([0-9]*\)".*/\1/p')
+    theirs=$(native_balance "$bob")
+    [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] && break
+    sleep 2
+  done
+  [[ -n "$ours" && "$ours" -gt 5000 && "$ours" == "$theirs" ]] ||
+    die "gateway: bob's verified balance '${ours}' does not match the node's '${theirs}'"
+  echo -e "${GREEN}✓ Gateway: bob's balance ${ours}, proven from the pinned genesis, matches the node${NC}"
+}
+
+# After a takeover: the rewind reported (no final block crossed: a day's bound), generation 2 followed.
+check_gateway_after_takeover() {
+  local cutover=$1 deadline=$((SECONDS + 120)) events="" generation=""
+  while ((SECONDS < deadline)); do
+    events=$(gateway_get "/v1/events?after=0" 2>/dev/null | tr -d ' \n' || true)
+    generation=$(gateway_field /v1/tip generation)
+    [[ "$events" == *"\"kind\":\"rewind\""* && "$generation" == "2" ]] && break
+    sleep 2
+  done
+  [[ "$events" == *"\"kind\":\"certificate\",\"generation\":2,\"cutoverHeight\":${cutover}"* ]] ||
+    die "gateway: no certificate event for generation 2 (events: ${events})"
+  [[ "$events" == *"\"kind\":\"rewind\",\"generation\":2,\"keptUpTo\":${cutover},"*"\"crossedFinality\":false"* ]] ||
+    die "gateway: no rewind to ${cutover} reported (events: ${events})"
+  [[ "$generation" == "2" ]] || die "gateway: does not follow generation 2 (tip generation '${generation}')"
+  local height
+  height=$(gateway_field /v1/tip height)
+  [[ -n "$height" && "$height" -gt "$cutover" ]] || die "gateway: tip ${height} not past the cutover ${cutover}"
+  echo -e "${GREEN}✓ Gateway: reported the rewind to block ${cutover} (no final block crossed), follows generation 2 at block ${height}${NC}"
 }
 
 # The beacon's multiaddr on its new host: the same peer id (its identity key moves with it), the

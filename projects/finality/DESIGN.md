@@ -1,6 +1,6 @@
 # Finality — a rewind bound on the chain, and a verifying gateway
 
-**Status:** the bound built (fn1, normative in [WIRE_SCHEMA § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind)); the gateway (fn2) next. Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
+**Status:** built. The bound (fn1) is normative in [WIRE_SCHEMA § Config updates](../../docs/contracts/WIRE_SCHEMA.md#config-updates) and [BEACON_AUTHORITY § Rewind](../../docs/contracts/BEACON_AUTHORITY.md#rewind); the gateway (fn2, fn3) in [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md). Phases: [PHASES.md](PHASES.md) · decisions: [DECISIONS.md](DECISIONS.md) ·
 status: [CURRENT_STATE.md](CURRENT_STATE.md).
 
 Services beside the chain — the bank (`nfsc-brief-cashier/app-cashier`, projects/bank b4), the
@@ -84,6 +84,11 @@ optionally behind a bearer token. Each service verifies for itself: a shared gat
 thing to believe. Amounts are decimal strings (64-bit values do not survive JSON numbers).
 
 ### The API
+
+As designed; built and normative in [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md), which adds
+what building it showed: balances are not known between two writes one proof covers (`409`); a sweep
+catches writes no record names (`unexplained`); `forked`; `finalityHeld`; final blocks forgotten after
+`--v1-keep-days`; and the trust its first start places in one node's authority proof.
 
 | Route | Answers |
 |-------|---------|

@@ -25,6 +25,7 @@ flowchart TD
 
     subgraph servers[" "]
         server["server"]
+        gateway["gateway"]
     end
 
     subgraph apps[" "]
@@ -53,8 +54,13 @@ flowchart TD
     server --> network
     server --> chain
 
+    gateway --> lib
+    gateway --> client
+    gateway --> chain
+
     app --> lib
     app --> server
+    app --> gateway
     app -.-> client
     app -.-> ledger
     app -.-> consensus
@@ -67,6 +73,7 @@ flowchart TD
 
 - **`chain`** is the `pp_chain` static library: `Chain`, `AccountBuffer`, transaction helper modules (`ChainTx*`), and `Genesis` (block 0's records from a plan, for the beacon's init and an offline-signed genesis). Its data types (`Types.h`: chain config, genesis meta, beacon certificate, recovery announcement) are `pp_chain_types`, which links only `lib` and `ledger` — no network code.
 - **`operation`** is `pp_operation`: operation files ([OPERATION_FILE.md](../contracts/OPERATION_FILE.md)). It links `pp_chain_types`, `ledger` and `lib` only, so an offline signer needs no network code. Account state types (`UserAccount`, `Wallet`, `MinerState`) live in `ledger` (`Account.h`) for the same reason; `Client` keeps aliases.
+- **`gateway`** is `pp_gateway`: the verifying gateway pp-http serves on `/v1/` (projects/finality FN004) — a chain followed from a pinned genesis as a client verifies it (`ClientVerify`, `AuthorityTrail`), balances of watched accounts by height, its journal. It links `pp_chain` for the checks; it holds no chain state of its own beyond what it verified.
 - **`server`** still links `lib`, `ledger`, `client`, `consensus`, and `network` directly because Beacon / Miner / Relay code includes those headers for AMP and consensus types, in addition to linking **`pp_chain`** for chain state and validation.
 
 ## Includes
@@ -97,6 +104,7 @@ and cpp-httplib keep their own (`<CLI/CLI.hpp>`, `<httplib.h>`). `scripts/check/
 |----------|----------------|---------|
 | `src/chain/test/` | `pp_chain`, gtest | `test_chain`, `test_account_buffer` |
 | `src/operation/test/` | `pp_operation`, gtest | `test_operation` (links no network code) |
+| `src/gateway/test/` | `pp_gateway`, gtest | `test_gateway` (chains in process, no network) |
 
 Other component tests remain under their folders (e.g. `src/lib/common/test`, `src/ledger/test`, `src/network/test`).
 
@@ -108,7 +116,7 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 | **2 – Core** | `consensus`, `network`, `ledger` | `lib` |
 | **3 – Client API** | `client` | `lib` + core; also uses `consensus` (types, no link) |
 | **4 – Chain domain** | `chain` | `lib`, `ledger`, `client`, `consensus`, `network` |
-| **5 – Servers** | `server` | `chain` and the same core/client stack as before (direct links plus `pp_chain`) |
+| **5 – Servers** | `server`, `gateway` | `chain` and the same core/client stack as before (direct links plus `pp_chain`) |
 | **6 – Entrypoints** | `app` | `lib`, `server`; some executables also use `client`, `ledger`, `consensus` as needed |
 
 ## Per-folder dependencies
@@ -123,7 +131,8 @@ Other component tests remain under their folders (e.g. `src/lib/common/test`, `s
 | **chain** | lib, ledger, client, consensus, network | `pp_chain`: Chain, AccountBuffer, `Tx*`, handler interface; `pp_chain_types` (Types) links lib and ledger only |
 | **operation** | lib, ledger, chain (`pp_chain_types` only) | `pp_operation`: operation files — build, read, sign, merge, summarize |
 | **server** | lib, ledger, client, consensus, network, **chain** | Beacon, Miner, Relay, `Server*` facades (Chain comes from `pp_chain`) |
-| **app** | lib, server | `pp-beacon`, `pp-relay`, `pp-miner` link `pp_server`; `pp-client` links `pp_client`, `pp_ledger`, `pp_operation` |
+| **gateway** | lib, client, **chain** | `pp_gateway`: Gateway (follow, prove, journal), Source (a node through `Client`, or a chain in tests) |
+| **app** | lib, server, gateway | `pp-beacon`, `pp-relay`, `pp-miner` link `pp_server`; `pp-client` links `pp_client`, `pp_ledger`, `pp_operation`; `pp-http` links `pp_gateway` |
 
 ## Root CMake order
 
@@ -135,8 +144,9 @@ The root `CMakeLists.txt` adds `src/`, and `src/CMakeLists.txt` adds subdirector
 4. `src/client`
 5. `src/ledger`
 6. **`src/chain`**
-7. `src/operation`
-8. `src/server`
-9. `src/app`
+7. `src/gateway`
+8. `src/operation`
+9. `src/server`
+10. `src/app`
 
 This order respects the folder dependency graph above (`chain` before `server`).

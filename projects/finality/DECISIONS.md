@@ -43,6 +43,7 @@ undone).
 ## FN004 — A verifying gateway in pp-http for services in other languages
 
 **Date:** 2026-10-20
+**Superseded by:** [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md) (normative; this entry keeps the why).
 **Decision:** pp-http gains `/v1/`, answering only what it verified from a pinned genesis hash: the
 authority, signed tips, blocks under them, account proofs. Its existing routes stay as they are.
 **Rationale:** The bank and the exchange are TypeScript. Verification stays in the C++ the ledger tests
@@ -54,6 +55,7 @@ calling `pp-client` (slow, fragile); WebAssembly (later, for browsers).
 ## FN005 — Balances by height, from account proofs of touched accounts
 
 **Date:** 2026-10-20
+**Superseded by:** [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md) (normative; this entry keeps the why).
 **Decision:** The gateway follows verified blocks; for each tip it proves the watched accounts the new
 blocks' records name, and records their balances at that height; a rewind drops what it recorded above
 the cutover.
@@ -66,6 +68,7 @@ records to track balances (a second implementation of the rules: fees, renewals,
 ## FN006 — A gateway beside each service
 
 **Date:** 2026-10-20
+**Superseded by:** [VERIFIED_API.md](../../docs/contracts/VERIFIED_API.md) (normative; this entry keeps the why).
 **Decision:** The gateway runs in the service's pod, on localhost (optionally a bearer token); its
 history in its own data directory.
 **Rationale:** Each service verifies for itself; a shared gateway would be one more party to believe,

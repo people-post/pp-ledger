@@ -44,6 +44,7 @@ Work in progress (design, decisions, phases): [`projects/`](../projects/README.m
 | [contracts/AMP_TRANSPORT.md](contracts/AMP_TRANSPORT.md) | Amp / ADP multiaddrs, ledger RPC over Amp |
 | [contracts/LEDGER_STORAGE.md](contracts/LEDGER_STORAGE.md) | On-disk volumes / indexes; node state files (signing keys, signed tip, certificate, evidence) |
 | [contracts/OPERATION_FILE.md](contracts/OPERATION_FILE.md) | Operation files: multi-signature transactions passed between signers as JSON; `pp-client op` |
+| [contracts/VERIFIED_API.md](contracts/VERIFIED_API.md) | pp-http `/v1/`: a chain verified from a pinned genesis for services beside it — tips, finality, balances by height, events |
 | [contracts/KEY_BACKUP.md](contracts/KEY_BACKUP.md) | Key backups: one key encrypted under a passphrase, the format wallets export to and import from; `pp-client key-export` / `key-import` |
 
 ---
