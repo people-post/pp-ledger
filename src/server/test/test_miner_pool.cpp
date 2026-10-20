@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -637,10 +638,11 @@ TEST_F(MinerPoolTest, ABeaconMovedWithoutItsSignedTipDoesNotSignItsLedgerUnasked
   }
 }
 
-// beacon-authority bp1: a node rewinds on its own only within kMaxAutomaticRewind of slot time; a
-// deeper cut is held back — the node keeps refusing the old tips past it — until the operator
-// approves that generation (--approve-rewind).
-TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
+// projects/finality FN003 (beacon-authority bp1): a node rewinds on its own only when no block it
+// would drop is final; a cut that would undo final blocks is held back — the node keeps refusing
+// the old tips past it — until the operator approves that generation (--approve-rewind), and the
+// order says it crossed finality.
+TEST_F(MinerPoolTest, ARewindPastFinalityWaitsForApproval) {
   auto slot = waitForLeaderSlotAfter(-1);
   ASSERT_TRUE(slot.has_value());
   ASSERT_TRUE(miner_->addTransaction(transferValidFrom(*slot, 60, 13)).isOk());
@@ -669,17 +671,28 @@ TEST_F(MinerPoolTest, ARewindDeeperThanTheNodeTakesAloneWaitsForApproval) {
   ASSERT_EQ(beacon.offerCertificate(record).value(), Chain::CertificateOffer::Newer);
   const fs::path order = fs::path(mount.workDir) / rewind::FILE_ORDER;
 
-  beacon.setMaxAutomaticRewind(std::chrono::seconds(0)); // block 1 is a slot or more past genesis
-  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "held back";
-  EXPECT_FALSE(fs::exists(order));
-  EXPECT_FALSE(beacon.scheduleRewind(3).value()) << "an approval for another generation does not count";
-  EXPECT_TRUE(beacon.scheduleRewind(2).value()) << "approved";
-  EXPECT_TRUE(fs::exists(order));
+  auto readOrder = [&order] {
+    std::ifstream in(order, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    Client::RewindReport report;
+    EXPECT_TRUE(report.ltsFromString(bytes));
+    return report;
+  };
+
+  EXPECT_EQ(beacon.getFinalizedHeight(), std::nullopt) << "nothing is a day old yet";
+  EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "block 1 is not final: cut on its own";
+  EXPECT_FALSE(readOrder().crossedFinality);
   fs::remove(order);
 
-  beacon.setMaxAutomaticRewind(rewind::kMaxAutomaticRewind);
-  EXPECT_TRUE(beacon.scheduleRewind(0).value()) << "within seven days: on its own";
-  EXPECT_TRUE(fs::exists(order));
+  // Two days on (the bound is a day): blocks 0 and 1 are final.
+  beacon.setClockOverride(static_cast<int64_t>(std::time(nullptr)) + 2 * 86400);
+  EXPECT_EQ(beacon.getFinalizedHeight(), std::optional<uint64_t>(1));
+  EXPECT_FALSE(beacon.scheduleRewind(0).value()) << "held back: it would undo a final block";
+  EXPECT_FALSE(fs::exists(order));
+  EXPECT_FALSE(beacon.scheduleRewind(3).value()) << "an approval for another generation does not count";
+  EXPECT_TRUE(beacon.scheduleRewind(2).value()) << "approved: the emergency";
+  EXPECT_TRUE(readOrder().crossedFinality) << "and reported";
+  beacon.setClockOverride(std::nullopt);
 }
 
 // beacon-authority bp2: a certificate vouching for another block at the cutover than the node holds

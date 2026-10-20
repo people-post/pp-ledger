@@ -23,8 +23,8 @@ Genesis `previousHash` is `utl::zeroHash()` (32 zero bytes).
 
 ## Block
 
-`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **7** (since state roots
-commit to account attachments, account leaf v2). A block of another version is not read.
+`Ledger::Block::CURRENT_VERSION` is the on-disk/header version prefix: **8** (7: state roots commit
+to account attachments, account leaf v2; 8: `finalAt`). A block of another version is not read.
 
 ### Header (hashed)
 
@@ -44,9 +44,10 @@ Block hash = `SHA-256(headerToString())` where `headerToString` packs:
 | `stateRoot` | 32 bytes | Post-apply account state |
 | `stakeSnapshotHash` | 32 bytes | Stake set used for leader election |
 | `epochSeed` | 32 bytes | Epoch lottery seed (same for all blocks in an epoch) |
+| `finalAt` | `int64` | Unix seconds from which this block and every block below it are final ([Config updates](#config-updates)) |
 
 Full block LTS for disk also appends the body after the header fields (`Block::ltsToString`,
-version **6**; other versions are refused). Hash does **not** include the body bytes directly.
+version **8**; other versions are refused). Hash does **not** include the body bytes directly.
 
 ### Body
 
@@ -66,9 +67,10 @@ version **6**; other versions are refused). Hash does **not** include the body b
 | `epochSeed` | See [Epoch seed](#epoch-seed) |
 
 `Chain::sealBlock` applies records once to the tip `AccountBuffer`, then sets
-`stateRoot` and `hash`. The matching `addBlock` persists without re-applying.
+`stateRoot`, `finalAt` and `hash`. The matching `addBlock` persists without re-applying.
 Validation of received blocks still applies on `addBlock` and checks `stateRoot`
-against the live tree root (O(1)).
+against the live tree root (O(1)) and `finalAt` against the rule (a node holding no block below
+its first checks only that it is not earlier than the block's own term).
 
 Genesis: `index=slot=slotLeader=epoch=txIndex=0`, empty stake snapshot, genesis
 `epochSeed`, then records: `T_GENESIS`, then `T_NEW_USER` for fee, reserve,
@@ -148,8 +150,20 @@ not installed in `RecordHandler`.
   (`0` = no heartbeats), so an idle chain still gets a block every epoch; `minerDueAfterSlots`
   is `0` (never due) or at least 12 hours of slots (`⌈43200 / slotDuration⌉`), so miners do not
   owe an empty block in nearly every slot they lead. Code: `chain_tx::validateLivenessSettings`.
+- **The finality bound** (beacon `--init` and every `T_CONFIG`; [projects/finality](../../projects/finality/DESIGN.md)):
+  `finalitySeconds` from 3600 (an hour) to 2 592 000 (30 days); 86 400 (a day) by default at
+  `--init`. Each block's header carries **`finalAt`** ([projects/finality](../../projects/finality/DECISIONS.md)
+  FN007): the later of the block below's `finalAt` and the block's slot start plus the bound in force
+  at its epoch (block 0: its slot start plus genesis's bound). A change binds blocks committed under
+  it only, so a raised bound never reopens a final block; the running maximum makes finality
+  prefix-closed, so a lowered one never makes a block final before the ones under it. The producer
+  sets it at seal; every node checks it with `stateRoot` and refuses a block with another value. A
+  node's **finalized height** is the highest block whose `finalAt` has passed by its calibrated clock;
+  a client reads the same from headers a signed tip vouches for. Nodes never undo a final block on
+  their own ([BEACON_AUTHORITY.md § Rewind](BEACON_AUTHORITY.md#rewind)). Code:
+  `chain_tx::validateFinality`, `Chain::expectedFinalAt`, `Chain::checkFinalAt`, `Chain::finalizedHeight`.
 - **A genesis renewal carries the config state.** Genesis meta (`GenesisAccountMeta`, version
-  12) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
+  14) is `config`, `genesis`, a pending section (`hasPending`, `pending` = activation epoch +
   config), `authority` (below), and an import section (`hasImport`, `import` — a re-genesis's
   `T_GENESIS` only; `T_CONFIG` and renewals carrying one are refused). `T_GENESIS` and `T_CONFIG` carry no pending section (a
   `T_CONFIG`'s `config` is the update). A genesis `T_RENEWAL` — what a node starting from its
@@ -249,11 +263,12 @@ adopt blocks under them are specified in [BEACON_AUTHORITY.md](BEACON_AUTHORITY.
   (`chain_tx::validateBlockLimits`, at `--init` and every `T_CONFIG`).
 - A transfer (`T_DEFAULT`) cannot pay its own account.
 
-`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **13**)
+`BlockChainConfig` (embedded in genesis meta, `GenesisAccountMeta::VERSION` **14**)
 includes slot timing, fees, checkpoint policy, `networkId`, `heartbeatSlots`
 (empty-seal lag; `0` disables), issuance and account fees, the miner settings
-([Miner registration and liveness](#miner-registration-and-liveness)), and `maxBlockBytes`
-([Block size](#block-size); last, version 11).
+([Miner registration and liveness](#miner-registration-and-liveness)), `maxBlockBytes`
+([Block size](#block-size); version 11), and `finalitySeconds` ([Config updates](#config-updates);
+last, version 14).
 
 ## Epoch seed
 

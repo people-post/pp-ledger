@@ -57,6 +57,7 @@ inline Chain::BlockChainConfig makeChainConfig(int64_t genesisTime) {
   cfg.maxValidationTimespanSeconds = 86400;
   cfg.heartbeatSlots = 10; // == slotsPerEpoch default policy
   cfg.maxBlockBytes = 4 * 1024 * 1024;
+  cfg.finalitySeconds = 3600; // the floor (projects/finality FN001)
   return cfg;
 }
 

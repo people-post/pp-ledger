@@ -20,6 +20,7 @@ add_subdirectory(network)
 add_subdirectory(client)
 add_subdirectory(ledger)
 add_subdirectory(chain)
+add_subdirectory(gateway)
 add_subdirectory(operation)
 add_subdirectory(server)
 

@@ -163,6 +163,7 @@ void describeConfig(const BlockChainConfig &c, Summary &s) {
   line("Slots per epoch", c.slotsPerEpoch);
   line("Transactions per block", c.maxTransactionsPerBlock);
   line("Block bytes", c.maxBlockBytes);
+  line("Finality (seconds)", c.finalitySeconds);
   line("Transaction validity, longest (seconds)", c.maxValidationTimespanSeconds);
   line("Mint per epoch, most", c.maxIssuancePerEpoch);
   line("New account fee", c.newAccountFee);

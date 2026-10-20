@@ -81,13 +81,20 @@ struct BlockChainConfig {
    */
   uint64_t maxBlockBytes{0};
 
+  /**
+   * How old a block must be to be final, in seconds of slot time (projects/finality FN001): nodes
+   * never undo a final block on their own. A block keeps the bound in force when it was committed
+   * (FN002). Between `chain_tx::kMinFinalitySeconds` and `kMaxFinalitySeconds`; 24 hours by default.
+   */
+  uint64_t finalitySeconds{0};
+
   template <typename Archive> void serialize(Archive &ar) {
     ar &genesisTime &slotDuration &slotsPerEpoch &maxCustomMetaSize
         &maxTransactionsPerBlock &minFeeCoefficients &freeCustomMetaSize
             &checkpoint &maxValidationTimespanSeconds &networkId
                 &heartbeatSlots &maxIssuancePerEpoch &newAccountFee &minerMinStake
                     &minerRegistrationFee &minerDueAfterSlots &minerMaxMissedSlots
-                        &minerReregisterCooldownEpochs &maxBlockBytes;
+                        &minerReregisterCooldownEpochs &maxBlockBytes &finalitySeconds;
   }
 };
 
@@ -275,7 +282,7 @@ struct GenesisImport {
 };
 
 struct GenesisAccountMeta {
-  constexpr static const uint32_t VERSION = 13;
+  constexpr static const uint32_t VERSION = 14; // 14: config.finalitySeconds (projects/finality)
 
   BlockChainConfig config;
   UserAccount genesis;

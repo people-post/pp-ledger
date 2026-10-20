@@ -902,6 +902,7 @@ Chain::Roe<void> Chain::sealOnTip(Ledger::ChainNode &block) {
   }
 
   block.block.stateRoot = txContext_.bank.calculateStateRoot();
+  block.block.finalAt = expectedFinalAt(block.block);
   block.hash = calculateHash(block.block);
   return {};
 }
@@ -1364,6 +1365,10 @@ Chain::Roe<void> Chain::commitSealedOnTip(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
     return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
   }
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
 
   // Rotate before persist, as the processNormalBlock → addBlock path does (the rule reads the
   // block before this one from the ledger).
@@ -1501,6 +1506,10 @@ Chain::Roe<void> Chain::processImportBlock(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != txContext_.bank.calculateStateRoot()) {
     return Error(E_BLOCK_HASH, "Import block " + std::to_string(block.block.index) + " stateRoot mismatch");
   }
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
   return {};
 }
 
@@ -1540,7 +1549,10 @@ Chain::Roe<void> Chain::processGenesisBlock(const Ledger::ChainNode &block) {
   if (block.block.stateRoot != expectedStateRoot) {
     return Error(E_BLOCK_HASH, "Genesis block stateRoot mismatch");
   }
-
+  if (auto finality = checkFinalAt(block.block); !finality) {
+    return finality;
+  }
+  noteFinalAt(block.block);
   return {};
 }
 
@@ -1641,7 +1653,11 @@ Chain::Roe<void> Chain::processNormalBlock(
     if (block.block.stateRoot != expectedStateRoot) {
       return Error(E_BLOCK_HASH, "Block stateRoot mismatch");
     }
+    if (auto finality = checkFinalAt(block.block); !finality) {
+      return finality;
+    }
   }
+  noteFinalAt(block.block);
 
   maybeRotateCheckpoint(block);
 
@@ -1983,6 +1999,94 @@ std::optional<uint64_t> Chain::rewindDepthSeconds(const Client::RewindReport &or
     return std::nullopt;
   }
   return (last.value().block.slot - cut.value().block.slot) * getSlotDuration();
+}
+
+std::optional<bool> Chain::rewindCrossesFinality(const Client::RewindReport &order) const {
+  auto finalized = finalizedHeight();
+  if (!finalized) {
+    return std::nullopt;
+  }
+  return finalized.value().has_value() && *finalized.value() > order.keptUpTo;
+}
+
+uint64_t Chain::getFinalitySeconds() const {
+  return txContext_.optChainConfig ? txContext_.optChainConfig->finalitySeconds : 0;
+}
+
+std::optional<int64_t> Chain::finalAtBelow(const Ledger::Block &block) const {
+  if (block.index == 0) {
+    return std::nullopt;
+  }
+  if (lastFinalAt_ && lastFinalAt_->first == block.previousHash) {
+    return lastFinalAt_->second;
+  }
+  auto below = txContext_.ledger.readBlock(block.index - 1);
+  if (!below) {
+    return std::nullopt;
+  }
+  return below.value().block.finalAt;
+}
+
+void Chain::noteFinalAt(const Ledger::Block &block) {
+  lastFinalAt_ = std::make_pair(calculateHash(block), block.finalAt);
+}
+
+int64_t Chain::expectedFinalAt(const Ledger::Block &block) const {
+  const int64_t own = getSlotStartTime(block.slot) + static_cast<int64_t>(getFinalitySeconds());
+  const auto below = finalAtBelow(block);
+  return below ? std::max(own, *below) : own;
+}
+
+Chain::Roe<void> Chain::checkFinalAt(const Ledger::Block &block) const {
+  const int64_t own = getSlotStartTime(block.slot) + static_cast<int64_t>(getFinalitySeconds());
+  const auto below = finalAtBelow(block);
+  // A node holding no block below (its first) knows only the lower bound.
+  const bool known = block.index == 0 || below.has_value();
+  const bool ok = known ? block.finalAt == (below ? std::max(own, *below) : own) : block.finalAt >= own;
+  if (!ok) {
+    return Error(E_BLOCK_HASH, "Block " + std::to_string(block.index) + " finalAt mismatch: " +
+                                   std::to_string(block.finalAt) + ", expected " +
+                                   std::to_string(below ? std::max(own, *below) : own));
+  }
+  return {};
+}
+
+Chain::Roe<std::optional<uint64_t>> Chain::finalizedHeight() const {
+  const uint64_t first = txContext_.ledger.getStartingBlockId();
+  const uint64_t next = getNextBlockId();
+  if (next <= first) {
+    return std::optional<uint64_t>{};
+  }
+  const int64_t now = getConsensusTimestamp();
+  auto finalAt = [&](uint64_t id) -> Roe<int64_t> {
+    auto b = readBlock(id);
+    if (!b) {
+      return b.error();
+    }
+    return b.value().block.finalAt;
+  };
+  // finalAt never falls along the chain (a running maximum, FN007): the final blocks are a prefix.
+  auto lowest = finalAt(first);
+  if (!lowest) {
+    return lowest.error();
+  }
+  if (lowest.value() > now) {
+    return std::optional<uint64_t>{};
+  }
+  uint64_t lo = first, hi = next - 1;
+  while (lo < hi) {
+    const uint64_t mid = lo + (hi - lo + 1) / 2;
+    auto f = finalAt(mid);
+    if (!f) {
+      return f.error();
+    }
+    if (f.value() <= now) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return std::optional<uint64_t>(lo);
 }
 
 std::optional<Ledger::Record> Chain::currentCertificateRecord() const {

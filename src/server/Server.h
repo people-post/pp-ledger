@@ -68,8 +68,8 @@ public:
   bool restartRequested() const { return restartRequested_; }
 
   /**
-   * Before run: the operator approves the rewind ordered by beacon generation `generation`, deeper
-   * than a node rewinds on its own (`--approve-rewind`; rewind::kMaxAutomaticRewind). 0 = none.
+   * Before run: the operator approves the rewind ordered by beacon generation `generation` when
+   * it drops final blocks (`--approve-rewind`; projects/finality FN003). 0 = none.
    */
   void setApprovedRewindGeneration(uint64_t generation) { approvedRewindGeneration_ = generation; }
 

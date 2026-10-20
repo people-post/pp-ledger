@@ -122,6 +122,7 @@ BlockChainConfig defaultConfig(const std::string &networkId) {
   config.heartbeatSlots = defaults::kSlotsPerEpoch;
   config.minerDueAfterSlots = (defaults::kMinerDueSeconds + defaults::kSlotDuration - 1) / defaults::kSlotDuration;
   config.minerMaxMissedSlots = defaults::kMinerMaxMissedSlots;
+  config.finalitySeconds = defaults::kFinalitySeconds;
   return config;
 }
 

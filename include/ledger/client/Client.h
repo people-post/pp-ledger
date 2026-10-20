@@ -391,16 +391,21 @@ public:
    * applied (`data/rewound.dat`), and what STATUS shows.
    */
   struct RewindReport {
-    constexpr static const uint32_t VERSION = 1;
+    constexpr static const uint32_t VERSION = 2; // 2: crossedFinality (projects/finality)
 
     uint64_t keptUpTo{0};    ///< the cutover: the last block kept
     uint64_t droppedUpTo{0}; ///< the node's last block when the rewind was ordered
     uint64_t generation{0};  ///< the certificate that ordered it
+    /** An operator approved it past the finalized height: final blocks were undone (FN003). */
+    bool crossedFinality{false};
 
     bool operator==(const RewindReport &other) const {
-      return keptUpTo == other.keptUpTo && droppedUpTo == other.droppedUpTo && generation == other.generation;
+      return keptUpTo == other.keptUpTo && droppedUpTo == other.droppedUpTo && generation == other.generation &&
+             crossedFinality == other.crossedFinality;
     }
-    template <typename Archive> void serialize(Archive &ar) { ar & keptUpTo & droppedUpTo & generation; }
+    template <typename Archive> void serialize(Archive &ar) {
+      ar & keptUpTo & droppedUpTo & generation & crossedFinality;
+    }
 
     std::string ltsToString() const;
     bool ltsFromString(const std::string &str);
@@ -455,6 +460,13 @@ public:
     std::optional<RecoveryStatus> recovery;
     /** The last rewind this node applied (beacon-authority bp1); absent if none. */
     std::optional<RewindReport> rewound;
+    /**
+     * The highest block final on this node (projects/finality FN002): it and every block below it
+     * are past their finality times; absent while none is.
+     */
+    std::optional<uint64_t> finalizedHeight;
+    /** The finality bound in force, in seconds (FN001); 0 before a config is loaded. */
+    uint64_t finalitySeconds{0};
 
     pp::common::Meta ltsToMeta() const;
     Roe<bool> ltsFromMeta(const pp::common::Meta &meta);

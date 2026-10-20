@@ -235,8 +235,9 @@ generation.
 - **Bounded.** A node's blocks no longer pass the cutover after the rewind, so the order is not
   issued again; an order that cannot be applied stops the start with an error rather than looping.
   **Depth** ([B025](DECISIONS.md#b025--a-node-rewinds-on-its-own-only-seven-days-deep)): a node rewinds
-  on its own only within seven days of slot time; deeper, it stops at its tip and waits for its
-  operator's `--approve-rewind <generation>`. More guards come with certificate v2 (bp2): the
+  on its own only within seven days of slot time — since replaced by the chain's finality bound
+  ([projects/finality](../finality/DESIGN.md)): only when it drops no final block; deeper, it stops at
+  its tip and waits for its operator's `--approve-rewind <generation>`. More guards come with certificate v2 (bp2): the
   cutover may not drop the block that committed the generation in force; a node whose block *C* is
   not `cutoverHash` halts and alerts instead of joining fresh (a typo'd height must not wipe more);
   `mk-beacon-cert` fills `cutoverHash` from a node and shows the depth before the admins sign.

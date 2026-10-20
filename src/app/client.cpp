@@ -111,7 +111,12 @@ void printBeaconStatus(const pp::Client::BeaconState& status) {
   if (status.rewound) {
     std::cout << "Rewound: kept blocks up to " << status.rewound->keptUpTo << ", dropped "
               << status.rewound->keptUpTo + 1 << " to " << status.rewound->droppedUpTo
-              << " (beacon generation " << status.rewound->generation << " cutover)\n";
+              << " (beacon generation " << status.rewound->generation << " cutover"
+              << (status.rewound->crossedFinality ? "; approved past finality: final blocks undone" : "") << ")\n";
+  }
+  if (status.finalizedHeight) {
+    std::cout << "Finalized: up to block " << *status.finalizedHeight << " (finality "
+              << status.finalitySeconds << " s of slot time)\n";
   }
   if (status.equivocation) {
     std::cout << "Equivocation: generation " << status.equivocation->generation() << " at block "

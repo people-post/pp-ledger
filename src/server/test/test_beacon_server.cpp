@@ -944,10 +944,12 @@ TEST(BeaconServerInitTest, LivenessSettingsDefaultAndLimits) {
     ASSERT_TRUE(gm.ltsFromString(tx.value().meta));
     EXPECT_EQ(gm.config.minerDueAfterSlots, 86400u / 5) << "one day of slots";
     EXPECT_EQ(gm.config.heartbeatSlots, 100u);
+    EXPECT_EQ(gm.config.finalitySeconds, 86400u) << "a day (projects/finality FN001)";
   }
   const std::pair<std::string, std::string> refused[] = {
       {R"(, "slotsPerEpoch": 100, "heartbeatSlots": 101)", "heartbeatSlots"},
       {R"(, "slotDuration": 5, "minerDueAfterSlots": 8639)", "minerDueAfterSlots must be 0 or at least 8640"},
+      {R"(, "finalitySeconds": 600)", "finalitySeconds must be between 3600 and 2592000"},
   };
   for (const auto &[extra, why] : refused) {
     GenesisSetup setup("pp-ledger-beacon-liveness-limit-test");

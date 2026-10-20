@@ -42,6 +42,9 @@ Kubernetes secrets); setting both is an error. Lists take commas or newlines.
 | `PP_BEACON_SIGNING_NEXT_KEY` `[_FILE]` | beacon | a key staged for a rotation, instead of `keys/beacon-signing.next.*` |
 | `PP_HTTP_PORT`, `PP_HTTP_BIND`, `PP_HTTP_CORS_ORIGIN`, `PP_HTTP_BEACON`, `PP_HTTP_MINER` | pp-http | `--port`, `--bind`, `--cors-origin`, `--beacon`, `--miner` |
 | `PP_HTTP_METRICS_TARGETS` | pp-http | `--metrics-target` (list of `NAME=MULTIADDR`: more nodes on `/metrics`) |
+| `PP_HTTP_GENESIS_HASH`, `PP_HTTP_V1_DATA_DIR` | pp-http | `--genesis-hash` (block 0's hash, hex; serves `/v1/`, [VERIFIED_API.md](../contracts/VERIFIED_API.md)), `--v1-data-dir` (required with it) |
+| `PP_HTTP_V1_NODE`, `PP_HTTP_V1_TOKEN` | pp-http | `--v1-node` (the node `/v1/` follows; default `--beacon`), `--v1-token` (bearer token `/v1/` requires; keep it out of argv) |
+| `PP_HTTP_V1_POLL_MS`, `PP_HTTP_V1_SWEEP_SECONDS`, `PP_HTTP_V1_KEEP_DAYS` | pp-http | `--v1-poll-ms` (1000), `--v1-sweep-seconds` (300: every watched account proven again), `--v1-keep-days` (30: final blocks kept) |
 
 A command-line option given explicitly wins over its variable. Peer ids can be worked out before
 anything starts: `pp-client peer-id <key>` prints the peer id and public key of a private key (hex
@@ -160,6 +163,7 @@ budgets rather than signing onboarding with reserve or genesis.
 | `newAccountFee` | 0 | One-time fee every account creation after genesis pays on top of the above, to the fee account. `0` = none. Creation pays both up front: the meta-size fee (the same formula renewal charges) covers the account's first period, until renewal falls due about a year later; each renewal then pays for the next period |
 | `checkpointMinBlocks` / `checkpointMinAgeSeconds` | 2²⁰ / 1 year | Renewal cut-off (accounts last written before it must renew) and checkpoint spacing: a checkpoint is the first block of an epoch at least `checkpointMinBlocks` after the previous one, whose block is more than `checkpointMinAgeSeconds` old ([BLOCK_PIPELINE.md](../architecture/BLOCK_PIPELINE.md#checkpoints-and-late-join)). Both read slot times, not a node's clock |
 | `maxValidationTimespanSeconds` | 86400 | Widest allowed transaction validity window |
+| `finalitySeconds` | 86400 | How old (in slot time) a block must be to be **final**: no node undoes it on its own, and services beside the chain (the bank) treat it as settled. 3600 to 2 592 000 (an hour to 30 days); changed by a config update, binding blocks committed under it only ([projects/finality](../../projects/finality/DESIGN.md)) |
 | `maxIssuancePerEpoch` | 0 | Most native tokens genesis may issue to reserve per epoch (amount + fee, net of anything sent back to genesis). `0` = no issuance until a config update raises it — which itself takes effect only at the next epoch |
 | `minerMinStake` | 0 | Native balance a miner needs to register (after its fee) and to be elected |
 | `minerRegistrationFee` | 0 | Flat fee for `T_MINER_REGISTER` on top of the meta-size fee, to the fee account |
@@ -341,9 +345,10 @@ relays in front of the new beacon. Hand it to the network with `submit-tx` to an
 it passes keeps it (`data/beacon-cert.dat`) and serves it on `STATUS`, from where the others take
 it. **A cutover below a node's tip is a rewind order:** every node holding blocks above it drops
 them by restarting itself, unattended, and waits at the cutover
-([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when the cutover is at
-most seven days of slots back. A deeper cut waits for each node's operator: check the certificate,
-then restart the node (`pp-beacon`, `pp-relay`, `pp-miner`) with `--approve-rewind <generation>`.
+([BEACON_AUTHORITY.md § Rewind](../contracts/BEACON_AUTHORITY.md#rewind)) — when it drops no final
+block (`finalitySeconds`, a day by default). A cut into final blocks is an emergency and waits for
+each node's operator: check the certificate, then restart the node (`pp-beacon`, `pp-relay`,
+`pp-miner`) with `--approve-rewind <generation>`; it is reported as having crossed finality.
 A node holding another block at the cutover height than the certificate names does not rewind at
 all (a fork, or a wrong height): it stops and alerts. Bringing up the new beacon is part 2 of
 [beacon-authority](../../projects/beacon-authority/DESIGN.md).

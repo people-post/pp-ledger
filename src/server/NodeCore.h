@@ -98,13 +98,19 @@ public:
   // ----------------- rewind -------------------------------------
   /**
    * When the held certificate orders a rewind (Chain::rewindOrder), write the order for the next
-   * start — unless it reaches back further than the node rewinds on its own and the operator has
-   * not approved its generation (`approvedGeneration`, 0 = none; rewind::schedule). True when an
-   * order was written: the caller restarts.
+   * start — unless it would drop a final block and the operator has not approved its generation
+   * (`approvedGeneration`, 0 = none; rewind::schedule, projects/finality FN003). True when an order
+   * was written: the caller restarts.
    */
   Roe<bool> scheduleRewind(uint64_t approvedGeneration);
-  /** Tests: how far back the node rewinds on its own (default rewind::kMaxAutomaticRewind). */
-  void setMaxAutomaticRewind(std::chrono::seconds reach) { maxAutomaticRewind_ = reach; }
+  /** Tests: the clock the chain reads (finality, slots); none = the real one. */
+  void setClockOverride(std::optional<int64_t> unixSeconds) { chain_.setClockOverride(unixSeconds); }
+
+  // ----------------- finality (projects/finality) ----------------
+  /** The highest block final here (Chain::finalizedHeight); none when none is, or unreadable. */
+  std::optional<uint64_t> getFinalizedHeight() const;
+  /** The finality bound in force, in seconds. */
+  uint64_t getFinalitySeconds() const { return chain_.getFinalitySeconds(); }
   /** The last rewind this node applied (STATUS); none if none. */
   const std::optional<Client::RewindReport> &getLastRewind() const { return lastRewind_; }
 
@@ -147,7 +153,6 @@ private:
 
   std::string workDir_;
   std::optional<Client::RewindReport> lastRewind_;
-  std::chrono::seconds maxAutomaticRewind_{rewind::kMaxAutomaticRewind};
   /** Generation whose rewind was last reported as held back (one alert per certificate). */
   uint64_t heldBackGeneration_{0};
 };
