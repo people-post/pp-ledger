@@ -43,6 +43,16 @@ std::optional<uint64_t> finalityOfConfigUpdate(const Ledger::Record &record) {
   return gm.config.finalitySeconds;
 }
 
+/** One journal entry: its size (4 bytes, little-endian), then its bytes. The bytes written, or 0. */
+uint64_t writeEntry(std::ostream &out, const std::string &bytes) {
+  const auto size = static_cast<uint32_t>(bytes.size());
+  const char header[4] = {static_cast<char>(size & 0xff), static_cast<char>((size >> 8) & 0xff),
+                          static_cast<char>((size >> 16) & 0xff), static_cast<char>((size >> 24) & 0xff)};
+  out.write(header, 4);
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  return out ? 4 + bytes.size() : 0;
+}
+
 } // namespace
 
 const char *Event::kindName(uint8_t kind) {
@@ -99,11 +109,7 @@ struct Gateway::Record {
 Gateway::Gateway(Source &source, Options options)
     : source_(source), options_(std::move(options)), log_(logging::getLogger("Gateway")) {}
 
-Gateway::~Gateway() {
-  if (journal_) {
-    std::fclose(journal_);
-  }
-}
+Gateway::~Gateway() = default;
 
 // ── journal ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +126,7 @@ Gateway::Roe<void> Gateway::open() {
   if (auto loaded = loadJournal(); !loaded) {
     return loaded;
   }
-  journal_ = std::fopen((options_.dataDir / "journal.bin").string().c_str(), "ab");
+  journal_.open(options_.dataDir / "journal.bin", std::ios::binary | std::ios::app);
   if (!journal_) {
     return Error(kUnavailable, "Cannot open the journal in " + options_.dataDir.string());
   }
@@ -179,18 +185,14 @@ Gateway::Roe<void> Gateway::loadJournal() {
 }
 
 Gateway::Roe<void> Gateway::append(const Record &record) {
-  if (!journal_) {
+  if (!journal_.is_open()) {
     return Error(kUnavailable, "The journal is not open");
   }
-  const std::string bytes = utl::binaryPack(record);
-  const auto size = static_cast<uint32_t>(bytes.size());
-  const unsigned char header[4] = {static_cast<unsigned char>(size), static_cast<unsigned char>(size >> 8),
-                                   static_cast<unsigned char>(size >> 16), static_cast<unsigned char>(size >> 24)};
-  if (std::fwrite(header, 1, 4, journal_) != 4 || std::fwrite(bytes.data(), 1, bytes.size(), journal_) != bytes.size() ||
-      std::fflush(journal_) != 0) {
+  const uint64_t written = writeEntry(journal_, utl::binaryPack(record));
+  if (written == 0 || !journal_.flush()) {
     return Error(kUnavailable, "Cannot write the journal");
   }
-  journalBytes_ += 4 + bytes.size();
+  journalBytes_ += written;
   apply(record);
   return {};
 }
@@ -361,10 +363,10 @@ std::vector<Gateway::Record> Gateway::snapshot() const {
     add(record);
   }
   for (const auto &[id, account] : accounts_) {
-    Record watch;
-    watch.kind = Record::Watch;
-    watch.a = id;
-    add(watch);
+    Record watching;
+    watching.kind = Record::Watch;
+    watching.a = id;
+    add(watching);
     for (const auto &[height, entry] : account.entries) {
       Record record;
       record.kind = Record::Balance;
@@ -402,31 +404,27 @@ std::vector<Gateway::Record> Gateway::snapshot() const {
 Gateway::Roe<void> Gateway::compact() {
   const auto path = options_.dataDir / "journal.bin";
   const auto fresh = options_.dataDir / "journal.bin.new";
-  std::FILE *out = std::fopen(fresh.string().c_str(), "wb");
-  if (!out) {
-    return Error(kUnavailable, "Cannot write " + fresh.string());
-  }
   uint64_t bytes = 0;
   bool ok = true;
-  for (const auto &record : snapshot()) {
-    const std::string packed = utl::binaryPack(record);
-    const auto size = static_cast<uint32_t>(packed.size());
-    const unsigned char header[4] = {static_cast<unsigned char>(size), static_cast<unsigned char>(size >> 8),
-                                     static_cast<unsigned char>(size >> 16), static_cast<unsigned char>(size >> 24)};
-    ok = ok && std::fwrite(header, 1, 4, out) == 4 && std::fwrite(packed.data(), 1, packed.size(), out) == packed.size();
-    bytes += 4 + packed.size();
+  {
+    std::ofstream out(fresh, std::ios::binary | std::ios::trunc);
+    for (const auto &record : snapshot()) {
+      const uint64_t written = ok ? writeEntry(out, utl::binaryPack(record)) : 0;
+      ok = written != 0;
+      bytes += written;
+    }
+    ok = ok && out.flush();
   }
-  ok = std::fflush(out) == 0 && ok;
-  std::fclose(out);
+  std::error_code ec;
   if (!ok) {
-    std::filesystem::remove(fresh);
+    std::filesystem::remove(fresh, ec);
     return Error(kUnavailable, "Cannot write " + fresh.string());
   }
-  std::fclose(journal_);
-  journal_ = nullptr;
-  std::error_code ec;
+  // Closed before it is replaced: Windows does not replace an open file.
+  journal_.close();
   std::filesystem::rename(fresh, path, ec);
-  journal_ = std::fopen(path.string().c_str(), "ab");
+  journal_.clear();
+  journal_.open(path, std::ios::binary | std::ios::app);
   if (ec || !journal_) {
     return Error(kUnavailable, "Cannot replace the journal: " + ec.message());
   }

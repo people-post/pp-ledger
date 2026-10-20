@@ -15,8 +15,8 @@
 #include "common/ResultOrError.hpp"
 
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -249,7 +249,8 @@ private:
   Source &source_;
   Options options_;
   mutable std::mutex mutex_;
-  std::FILE *journal_{nullptr};
+  /** Appended to (binary); closed and reopened when the journal is rewritten. */
+  std::ofstream journal_;
   uint64_t journalBytes_{0};
   uint64_t compactedBytes_{0};
   std::optional<int64_t> clockOverride_;

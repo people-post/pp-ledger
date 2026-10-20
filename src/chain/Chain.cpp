@@ -2041,8 +2041,8 @@ Chain::Roe<void> Chain::checkFinalAt(const Ledger::Block &block) const {
   const int64_t own = getSlotStartTime(block.slot) + static_cast<int64_t>(getFinalitySeconds());
   const auto below = finalAtBelow(block);
   // A node holding no block below (its first) knows only the lower bound.
-  const bool ok = block.index == 0 || below ? block.finalAt == (below ? std::max(own, *below) : own)
-                                            : block.finalAt >= own;
+  const bool known = block.index == 0 || below.has_value();
+  const bool ok = known ? block.finalAt == (below ? std::max(own, *below) : own) : block.finalAt >= own;
   if (!ok) {
     return Error(E_BLOCK_HASH, "Block " + std::to_string(block.index) + " finalAt mismatch: " +
                                    std::to_string(block.finalAt) + ", expected " +
