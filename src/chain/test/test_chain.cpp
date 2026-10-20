@@ -2313,9 +2313,12 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
   Ledger::ChainNode block3 = makeNextBlockAtSlot(producer, block2, 2 * cfg.slotsPerEpoch, {configRecord(3600, 3, true)});
   ASSERT_TRUE(producer.addBlock(block3).isOk()) << "a third update, harmless: the same bound";
   EXPECT_EQ(producer.getFinalitySeconds(), 3600u);
-  EXPECT_EQ(producer.finalitySecondsAt(0), 3600u);
-  EXPECT_EQ(producer.finalitySecondsAt(1), 7200u);
-  EXPECT_EQ(producer.finalitySecondsAt(2), 3600u);
+  // FN007: each header says when it and every block below it are final — a running maximum.
+  const auto start = [&](uint64_t slot) { return producer.getSlotStartTime(slot); };
+  EXPECT_EQ(harness_.genesis.block.finalAt, start(0) + 3600);
+  EXPECT_EQ(block1.block.finalAt, start(1) + 3600);
+  EXPECT_EQ(block2.block.finalAt, start(10) + 7200) << "committed under two hours";
+  EXPECT_EQ(block3.block.finalAt, block2.block.finalAt) << "its own hour ends sooner: block 2's time holds";
 
   auto finalizedAt = [&](int64_t now) {
     producer.setClockOverride(now);
@@ -2323,7 +2326,6 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
     EXPECT_TRUE(finalized.isOk()) << finalized.error().message;
     return finalized.value();
   };
-  const auto start = [&](uint64_t slot) { return producer.getSlotStartTime(slot); };
   EXPECT_EQ(finalizedAt(start(0) + 3599), std::nullopt) << "nothing is an hour old";
   EXPECT_EQ(finalizedAt(start(1) + 3600), std::optional<uint64_t>(1)) << "blocks 0 and 1, under an hour";
   EXPECT_EQ(finalizedAt(start(10) + 3600), std::optional<uint64_t>(1)) << "block 2 keeps its two hours";
@@ -2331,6 +2333,24 @@ TEST_F(ChainComposeTest, Finality_ABlockKeepsTheBoundItWasCommittedUnder) {
       << "block 3 is past its own hour, but block 2 is not: prefix-closed";
   EXPECT_EQ(finalizedAt(start(10) + 7200), std::optional<uint64_t>(3)) << "all";
   producer.setClockOverride(std::nullopt);
+}
+
+// FN007: a block's finalAt is checked as its state root is — another value is refused, whatever its
+// hash says.
+TEST_F(ChainComposeTest, Finality_ABlockWithAnotherFinalAtIsRefused) {
+  auto &producer = harness_.producer;
+  auto &peer = harness_.peer;
+  Ledger::ChainNode block1 = makeNextBlockAtSlot(producer, harness_.genesis, 1, {makeReserveTransfer(harness_, 10, 1)});
+  ASSERT_TRUE(producer.addBlock(block1).isOk());
+  for (const int64_t delta : {int64_t{-1}, int64_t{1}}) {
+    Ledger::ChainNode altered = block1;
+    altered.block.finalAt += delta;
+    altered.hash = chain_block::calculateBlockHash(altered.block);
+    auto refused = peer.addBlock(altered);
+    ASSERT_FALSE(refused.isOk()) << "finalAt " << delta;
+    EXPECT_NE(refused.error().message.find("finalAt mismatch"), std::string::npos) << refused.error().message;
+  }
+  EXPECT_TRUE(peer.addBlock(block1).isOk());
 }
 
 // Genesis issuance (to reserve, fee included) is capped per epoch by

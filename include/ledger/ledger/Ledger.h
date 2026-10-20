@@ -280,7 +280,8 @@ public:
    */
   struct Block {
     // 7: state roots commit to account attachments (account leaf v2, beacon-authority B031).
-    static constexpr uint16_t CURRENT_VERSION = 7;
+    // 8: finalAt (projects/finality FN007).
+    static constexpr uint16_t CURRENT_VERSION = 8;
 
     // --- Header (hashed) ---
     uint64_t index{ 0 };
@@ -307,6 +308,12 @@ public:
      * Epoch-stable; derived at epoch boundary — see docs/contracts/WIRE_SCHEMA.md.
      */
     std::string epochSeed;
+    /**
+     * Unix seconds from which this block and every block below it are final (projects/finality
+     * FN007): the later of the block below's and this block's slot start plus the finalitySeconds
+     * in force at its epoch. Set at seal, checked with stateRoot.
+     */
+    int64_t finalAt{ 0 };
 
     // --- Body (not hashed directly) ---
     /** Committed via txRoot. */
@@ -320,7 +327,7 @@ public:
 
     template <typename Archive> void serialize(Archive &ar) {
       ar & index & timestamp & previousHash & slot & slotLeader & epoch &
-          txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed &
+          txIndex & txRoot & stateRoot & stakeSnapshotHash & epochSeed & finalAt &
           records & committee;
     }
 

@@ -96,7 +96,7 @@ struct BlockView {
   std::string hash; ///< raw
   uint64_t slot{0};
   int64_t slotTime{0};
-  /** Its slot's start plus the bound in force for its epoch (FN002). */
+  /** Its header's finalAt (FN007): from then on it and every block below it are final. */
   int64_t finalityTime{0};
   bool final{false};
 };
@@ -105,15 +105,14 @@ struct BlockView {
 struct TipView {
   BlockView block;
   uint64_t generation{0};
-  /** The gateway's own: by its clock and the bounds it followed. None while no block is final. */
+  /** The highest verified block whose header's finalAt has passed by the gateway's clock (FN007).
+   *  None while none has. */
   std::optional<uint64_t> finalizedHeight;
-  /** The bound in force at the tip's epoch. */
+  /** The bound in force at the tip's epoch, as the config updates followed say: informational —
+   *  finality comes from the headers. */
   uint64_t finalitySeconds{0};
   /** Why the gateway follows no further (an equivocation, a fork); empty while it follows. */
   std::string halted;
-  /** Why the finalized height is held where it is (the node reports a larger bound at this tip than
-   *  the one followed here); empty while it moves. */
-  std::string finalityHeld;
 };
 
 /** An account's balances at a height (GET /v1/accounts/{id}/balances). */
@@ -194,6 +193,7 @@ private:
     uint64_t slot{0};
     uint64_t epoch{0};
     std::string stateRoot;
+    int64_t finalAt{0};
   };
   /** Balances from a height on, until the next entry. */
   struct Entry {
@@ -268,12 +268,9 @@ private:
   std::optional<Ledger::Record> seenRecord_;
   std::optional<Client::Equivocation> equivocation_;
   std::optional<uint64_t> forkedAt_;
-  /** (fromEpoch, seconds), from genesis and the config updates followed. */
+  /** (fromEpoch, seconds), from genesis and the config updates followed: informational only. */
   std::vector<std::pair<uint64_t, uint64_t>> finalityHistory_;
-  /** Every block below the start is final from this time (its slot is earlier, its bound known). */
-  int64_t belowStartFinalAt_{0};
   std::optional<uint64_t> finalized_;
-  std::string finalityHeld_;
 
   std::map<uint64_t, Account> accounts_;
   int64_t lastSweep_{0};

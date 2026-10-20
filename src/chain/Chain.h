@@ -232,12 +232,17 @@ public:
 
   /** The finality bound in force at the tip, in seconds (FN001); 0 before a config is loaded. */
   uint64_t getFinalitySeconds() const;
-  /** The bound blocks of `epoch` were committed under (FN002): the history's entry for it. */
-  uint64_t finalitySecondsAt(uint64_t epoch) const;
   /**
-   * The highest block such that it and every block below it held here are past their finality
-   * times — slot start plus the bound they were committed under — by this node's clock (FN002).
-   * None when no block held is final yet; an error when a block cannot be read.
+   * The `finalAt` block `block` must carry (FN007), under the config in force now (its epoch
+   * entered, its records applied): the later of the block below's and its slot start plus the bound.
+   */
+  int64_t expectedFinalAt(const Ledger::Block &block) const;
+  /** `block` carries the finalAt expectedFinalAt says (only a lower bound when the block below is not held). */
+  Roe<void> checkFinalAt(const Ledger::Block &block) const;
+  /**
+   * The highest block whose `finalAt` has passed by this node's clock (FN002, FN007): it and every
+   * block below it are final. None when no block held is final yet; an error when a block cannot be
+   * read.
    */
   Roe<std::optional<uint64_t>> finalizedHeight() const;
   /**
@@ -578,13 +583,14 @@ private:
   /** Index a committed block's authority-changing records. */
   void noteAuthoritySteps(const Ledger::ChainNode &block);
   /**
-   * The finality bound by epoch, as blocks committed here saw it (FN002): (first epoch, seconds),
-   * ascending; a new entry whenever a committed block's epoch runs under another bound. Rebuilt by
-   * every load (blocks are replayed); before the first block held, the first entry stands.
+   * The last block processed here, by its hash, and its finalAt (FN007): the block below the next one
+   * without a ledger read, so a replay stays linear. Matched by the next block's previousHash, so it
+   * is never taken for another block.
    */
-  std::vector<std::pair<uint64_t, uint64_t>> finalityBounds_;
-  /** Note the bound `block` (committed) ran under. */
-  void noteFinalityBound(const Ledger::ChainNode &block);
+  std::optional<std::pair<std::string, int64_t>> lastFinalAt_;
+  /** The finalAt of the block below `block`: none when it is not held. */
+  std::optional<int64_t> finalAtBelow(const Ledger::Block &block) const;
+  void noteFinalAt(const Ledger::Block &block);
   /** Highest certificate seen out of band and not committed yet (ba5c), with its record. */
   std::optional<BeaconCertificate> seenCert_;
   std::optional<Ledger::Record> seenCertRecord_;

@@ -403,7 +403,7 @@ TEST_F(GatewayTest, AnEquivocationHaltsItAtItsHeight) {
   EXPECT_EQ(events[0].height, 1u);
 }
 
-TEST_F(GatewayTest, ABlockKeepsTheBoundItWasCommittedUnderAndBlocksBelowTheStartCount) {
+TEST_F(GatewayTest, FinalityComesFromTheHeadersAlone) {
   auto &producer = harness_.producer;
   const auto &cfg = harness_.chainConfig; // 5 s slots, 10 an epoch, an hour
   Chain::GenesisAccountMeta gm;
@@ -420,32 +420,28 @@ TEST_F(GatewayTest, ABlockKeepsTheBoundItWasCommittedUnderAndBlocksBelowTheStart
   tx.validationTsMin = cfg.genesisTime;
   tx.validationTsMax = cfg.genesisTime + 3600;
   add(1, {makeRecord(Ledger::T_CONFIG, tx, harness_.genesisKey, producer.getNetworkId())}); // two hours from epoch 1
-  add(cfg.slotsPerEpoch, {transfer(AccountBuffer::ID_REGISTRAR, 10)});
+  const Ledger::ChainNode block2 = add(cfg.slotsPerEpoch, {transfer(AccountBuffer::ID_REGISTRAR, 10)});
+  ASSERT_EQ(block2.block.finalAt, slotTime(cfg.slotsPerEpoch) + 7200);
 
-  // Started at block 2: blocks 0 and 1 (epoch 0, an hour) are below it.
-  ChainSource source(producer);
+  // Started at block 2, with a node that hides the config update from its authority proof and reports
+  // a bound of a minute: the header says two hours, and only the header counts.
+  struct HidingSource : ChainSource {
+    using ChainSource::ChainSource;
+    Roe<Client::AuthorityProof> authorityProof(uint64_t) override { return Client::AuthorityProof{}; }
+  } source(producer);
+  source.reportedFinality = 60;
   open(source);
-  gateway_->setClockOverride(slotTime(cfg.slotsPerEpoch - 1) + 3599);
+  gateway_->setClockOverride(slotTime(cfg.slotsPerEpoch) + 3600);
   poll();
-  EXPECT_EQ(gateway_->tip().value().finalitySeconds, 7200u);
-  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::nullopt) << "a block in epoch 0 may still be under an hour";
-  gateway_->setClockOverride(slotTime(cfg.slotsPerEpoch - 1) + 3600);
-  poll();
-  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::optional<uint64_t>(1)) << "all below the start";
-  EXPECT_EQ(gateway_->blockAt(1).error().code, Gateway::kNotFound) << "not held";
+  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::nullopt) << "an hour is not enough under two";
+  EXPECT_EQ(gateway_->blockAt(2).value().finalityTime, block2.block.finalAt);
   gateway_->setClockOverride(slotTime(cfg.slotsPerEpoch) + 7199);
   poll();
-  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::optional<uint64_t>(1)) << "block 2 keeps its two hours";
-  // A node reporting a larger bound at the same tip than the one followed: finality held, not early.
-  source.reportedFinality = 3 * 3600;
+  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::nullopt);
   gateway_->setClockOverride(slotTime(cfg.slotsPerEpoch) + 7200);
   poll();
-  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::optional<uint64_t>(1));
-  EXPECT_FALSE(gateway_->tip().value().finalityHeld.empty());
-  source.reportedFinality.reset();
-  poll();
-  EXPECT_TRUE(gateway_->tip().value().finalityHeld.empty());
-  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::optional<uint64_t>(2));
+  EXPECT_EQ(gateway_->tip().value().finalizedHeight, std::optional<uint64_t>(2)) << "and every block below it";
+  EXPECT_EQ(gateway_->blockAt(1).error().code, Gateway::kNotFound) << "not held";
 }
 
 } // namespace

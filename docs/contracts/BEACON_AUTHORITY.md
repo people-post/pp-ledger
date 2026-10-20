@@ -344,7 +344,7 @@ admin-signed certificate of a higher generation, kept as above, can order it
 - **Above finality** (`rewind::schedule`, [projects/finality](../../projects/finality/DESIGN.md)
   FN003): a node rewinds on its own only when **no block it would drop is final** — the cutover is
   at or above its finalized height ([WIRE_SCHEMA.md § Config updates](WIRE_SCHEMA.md#config-updates):
-  `finalitySeconds`, a day by default). Deeper, or when that cannot be read, it does nothing more
+  the blocks' `finalAt`, from `finalitySeconds`, a day by default). Deeper, or when that cannot be read, it does nothing more
   than before: it refuses the old generation's tips past the cutover, so it stops at its own tip, and
   logs one error-level alert per certificate. Undoing final blocks is the **emergency**: its operator
   checks the certificate and restarts the node with `--approve-rewind <generation>`; the order is

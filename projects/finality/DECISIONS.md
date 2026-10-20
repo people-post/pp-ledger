@@ -74,3 +74,22 @@ history in its own data directory.
 **Rationale:** Each service verifies for itself; a shared gateway would be one more party to believe,
 and one more network path to guard.
 **Alternatives:** One shared internal gateway (fewer processes, a trusted middleman).
+
+## FN007 — Each block's header carries when it is final
+
+**Date:** 2026-10-20
+**Decision:** The block header gains `finalAt`: the later of the block below's `finalAt` and this block's
+slot start plus the `finalitySeconds` in force at its epoch (genesis: its slot start plus genesis's).
+The producer sets it at seal; every node checks it where it checks the state root (a block with another
+value is refused). A node's finalized height is the highest block whose `finalAt` has passed; the
+gateway reads it from the headers it verified.
+**Rationale:** Security first (the owner's call). Finality was computed from the bound history, which a
+client learns from a node's authority proof: a proof that left out a config update raising the bound
+could not be seen, and a gateway would call blocks final early. In the header, every signed tip vouches
+for it — no history, no config decoding, nothing to leave out. A running maximum makes it prefix-closed
+by construction (FN002), and one header says when everything below it is final, so blocks below a
+gateway's start need no guess.
+**Alternatives:** The config in force committed to the state root, proven like an account (gives the bound
+now, not the bounds of the blocks below a start); `finalitySeconds` alone in each header (a client would
+still take the running maximum over blocks it does not hold); keeping the history and cross-checking the
+node's STATUS (catches only a node that lies inconsistently).

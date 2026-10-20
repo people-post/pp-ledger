@@ -29,22 +29,20 @@ verified in its data directory: a restart resumes there.
 
 **Trust.** The pinned hash is taken on faith, and — once, at the first start — the node's authority
 proof below the start is taken as complete, as `pp-client verified-account` takes it. Every step in it
-is checked; a step left out cannot be seen. Leaving out a change of the admin set or the beacon makes
-the gateway refuse what follows (it stops; it is not misled). Leaving out a config update that raised
-the finality bound would make blocks look final early: at the same tip, the gateway compares the bound
-it followed with the one the node reports and, if the node's is larger, holds its finalized height and
-says so (`finalityHeld`) — but a node lying consistently is not caught. Follow a node the service's
-operators run (their relay), and start the gateway when the chain's config is known. (A fix belongs
-in the chain: the config in force committed to the state root, provable like an account.)
+is checked; a step left out cannot be seen. Leaving one out cannot mislead the gateway: a change of the
+admin set or the beacon left out makes it refuse what follows (it stops), and finality does not depend
+on the proof at all — it is read from headers (§ Finality). Only `finalitySeconds` on `/v1/tip`, which
+is informational, comes from the config updates the gateway followed.
 
 ## Finality
 
-A block's **finality time** is its slot's start plus the `finalitySeconds` in force at its epoch
-([WIRE_SCHEMA § Config updates](WIRE_SCHEMA.md#config-updates)): the bound genesis set, changed by the
-config updates it followed (each from the epoch after its block's). The **finalized height** is the
-gateway's own, by its own clock: the highest block that, with every block below it, is past its
-finality time. Blocks below its start count once the latest of their possible finality times has
-passed. It never trusts the node's STATUS `finalizedHeight`.
+Each block's header carries `finalAt`: from then on, it and every block below it are final
+([WIRE_SCHEMA § Config updates](WIRE_SCHEMA.md#config-updates)) — the chain computes it from the bound
+in force at each block's epoch, and every node checks it as it checks the state root. The gateway
+takes it from headers it verified under a signed tip, so a node can neither shorten nor lengthen it.
+The **finalized height** is the gateway's own, by its own clock: the highest verified block whose
+`finalAt` has passed (`null` until its first block's has: blocks below its start are not reported). It
+never uses the node's STATUS `finalizedHeight` or `finalitySeconds`.
 
 Nodes rewind on their own only above the finalized height; deeper is an operator's emergency
 ([BEACON_AUTHORITY § Rewind](BEACON_AUTHORITY.md#rewind)). A service may treat a final block as
@@ -93,11 +91,12 @@ The latest verified block.
 
 `finalizedHeight` is `null` while no block is final. `halted` (a string) is present while the gateway
 follows no further: an equivocation (until a later generation is certified) or a fork (below).
-`finalityHeld` (a string) is present while the finalized height is held (§ What it checks, Trust).
 
 ### `GET /v1/blocks/{height}`
 
-A verified block's facts: `/v1/tip`'s first six fields. `409` above the tip, `404`
+A verified block's facts: `/v1/tip`'s first six fields (`finalityTime` is the header's `finalAt`).
+`finalitySeconds` on `/v1/tip` is the bound in force at the tip as the config updates the gateway
+followed say: informational; finality never depends on it. `409` above the tip, `404`
 below the oldest block held (`--v1-keep-days`: final blocks older than that are forgotten).
 
 ### `PUT /v1/watch/{accountId}`, `DELETE /v1/watch/{accountId}`, `GET /v1/watch`

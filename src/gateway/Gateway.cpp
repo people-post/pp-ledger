@@ -16,8 +16,6 @@ namespace pp::gateway {
 
 namespace {
 
-constexpr int64_t kNever = std::numeric_limits<int64_t>::max();
-constexpr int64_t kAlways = std::numeric_limits<int64_t>::min();
 /** A journal entry's bytes, at most (a certificate record is the largest). */
 constexpr uint32_t kMaxRecordBytes = 16 * 1024 * 1024;
 
@@ -71,7 +69,7 @@ const char *Event::kindName(uint8_t kind) {
 struct Gateway::Record {
   enum Kind : uint8_t {
     Start = 1,         ///< following from the next Block (forget the blocks held)
-    Block = 2,         ///< a: height, b: slot, c: epoch, s1: hash, s2: state root
+    Block = 2,         ///< a: height, b: slot, c: epoch, d: finalAt, s1: hash, s2: state root
     Step = 3,          ///< s1: AuthorityStep
     Watch = 5,         ///< a: account
     Unwatch = 6,       ///< a: account
@@ -204,7 +202,7 @@ void Gateway::apply(const Record &record) {
     finalized_.reset();
     break;
   case Record::Block:
-    facts_.push_back(Facts{record.a, record.s1, record.b, record.c, record.s2});
+    facts_.push_back(Facts{record.a, record.s1, record.b, record.c, record.s2, static_cast<int64_t>(record.d)});
     break;
   case Record::Step:
     if (auto step = utl::binaryUnpack<Client::AuthorityStep>(record.s1)) {
@@ -341,6 +339,7 @@ std::vector<Gateway::Record> Gateway::snapshot() const {
     record.c = facts.epoch;
     record.s1 = facts.hash;
     record.s2 = facts.stateRoot;
+    record.d = static_cast<uint64_t>(facts.finalAt);
     add(record);
   }
   if (seenRecord_) {
@@ -506,25 +505,6 @@ Gateway::Roe<void> Gateway::poll() {
       if (auto advanced = advance(*state.signedTip); !advanced) {
         return advanced;
       }
-      // At the same tip, the node's bound in force should be the one followed here. A larger one means
-      // a config update the gateway did not see (one left out of the first authority proof): finality
-      // is held, never early.
-      if (state.signedTip->height == facts_.back().height && state.finalitySeconds != 0) {
-        const uint64_t ours = finalitySecondsAt(facts_.back().epoch);
-        std::string held;
-        if (state.finalitySeconds > ours) {
-          held = "The node reports a finality bound of " + std::to_string(state.finalitySeconds) +
-                 " s at block " + std::to_string(facts_.back().height) + ", more than the " + std::to_string(ours) +
-                 " s followed here: the finalized height is held";
-        }
-        if (held != finalityHeld_) {
-          if (!held.empty()) {
-            log_.error << held;
-          }
-          std::lock_guard lock(mutex_);
-          finalityHeld_ = held;
-        }
-      }
     }
     auto proven = proveAccounts();
     if (!proven) {
@@ -626,6 +606,7 @@ Gateway::Roe<void> Gateway::bootstrap() {
   facts.c = block.block.epoch;
   facts.s1 = block.hash;
   facts.s2 = block.block.stateRoot;
+  facts.d = static_cast<uint64_t>(block.block.finalAt);
   if (auto written = append(facts); !written) {
     return written;
   }
@@ -751,6 +732,7 @@ Gateway::Roe<void> Gateway::rewindTo(const BeaconCertificate &cert) {
     facts.c = cutover->block.epoch;
     facts.s1 = cutover->hash;
     facts.s2 = cutover->block.stateRoot;
+    facts.d = static_cast<uint64_t>(cutover->block.finalAt);
     for (const auto *record : {&start, &facts}) {
       if (auto written = append(*record); !written) {
         return written;
@@ -895,6 +877,7 @@ Gateway::Roe<void> Gateway::advance(const Client::SignedTip &signedTip) {
     facts.c = node.block.epoch;
     facts.s1 = node.hash;
     facts.s2 = node.block.stateRoot;
+    facts.d = static_cast<uint64_t>(node.block.finalAt);
     records.push_back(std::move(facts));
     link = node.hash;
   }
@@ -1065,30 +1048,6 @@ void Gateway::rebuildFinalityHistory() {
       finalityHistory_.emplace_back(step.epoch + 1, *seconds);
     }
   }
-  // Blocks below the start are not held: each one's slot is before the start's, its epoch's bound
-  // known; all are final once the latest such time has passed.
-  belowStartFinalAt_ = kAlways;
-  if (facts_.empty()) {
-    belowStartFinalAt_ = kNever;
-    return;
-  }
-  const Facts &base = facts_.front();
-  if (base.height == 0 || base.slot == 0) {
-    return;
-  }
-  const uint64_t lastBelow = base.slot - 1;
-  for (size_t i = 0; i < finalityHistory_.size(); ++i) {
-    const uint64_t firstSlot = finalityHistory_[i].first * config_.slotsPerEpoch;
-    if (firstSlot > lastBelow) {
-      break;
-    }
-    uint64_t lastSlot = lastBelow;
-    if (i + 1 < finalityHistory_.size()) {
-      lastSlot = std::min(lastSlot, finalityHistory_[i + 1].first * config_.slotsPerEpoch - 1);
-    }
-    belowStartFinalAt_ =
-        std::max(belowStartFinalAt_, slotTime(lastSlot) + static_cast<int64_t>(finalityHistory_[i].second));
-  }
 }
 
 uint64_t Gateway::finalitySecondsAt(uint64_t epoch) const {
@@ -1105,16 +1064,14 @@ uint64_t Gateway::finalitySecondsAt(uint64_t epoch) const {
 void Gateway::updateFinalized() {
   const int64_t nowSeconds = now();
   std::lock_guard lock(mutex_);
-  if (facts_.empty() || !genesis_ || nowSeconds < belowStartFinalAt_ || !finalityHeld_.empty()) {
+  if (facts_.empty() || !genesis_) {
     return;
   }
-  if (!finalized_ && facts_.front().height > 0) {
-    finalized_ = facts_.front().height - 1; // all below the start
-  }
-  // Prefix-closed (FN002): the first block not yet past its finality time ends it.
+  // Each verified header says when it and every block below it are final (FN007): a running maximum,
+  // so the final blocks are a prefix. Nothing else decides it.
   uint64_t height = finalized_ ? *finalized_ + 1 : facts_.front().height;
   while (const Facts *facts = factsAt(height)) {
-    if (slotTime(facts->slot) + static_cast<int64_t>(finalitySecondsAt(facts->epoch)) > nowSeconds) {
+    if (facts->finalAt > nowSeconds) {
       break;
     }
     finalized_ = height++;
@@ -1147,7 +1104,7 @@ BlockView Gateway::view(const Facts &facts) const {
   out.hash = facts.hash;
   out.slot = facts.slot;
   out.slotTime = slotTime(facts.slot);
-  out.finalityTime = out.slotTime + static_cast<int64_t>(finalitySecondsAt(facts.epoch));
+  out.finalityTime = facts.finalAt;
   out.final = finalized_ && facts.height <= *finalized_;
   return out;
 }
@@ -1175,7 +1132,6 @@ Gateway::Roe<TipView> Gateway::tip() const {
   out.finalizedHeight = finalized_;
   out.finalitySeconds = finalitySecondsAt(facts_.back().epoch);
   out.halted = haltedReason();
-  out.finalityHeld = finalityHeld_;
   return out;
 }
 

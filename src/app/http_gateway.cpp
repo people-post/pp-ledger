@@ -151,9 +151,6 @@ void registerGatewayRoutes(httplib::Server &svr, Gateway &gateway, const std::st
             if (!t.halted.empty()) {
               o.set("halted", t.halted);
             }
-            if (!t.finalityHeld.empty()) {
-              o.set("finalityHeld", t.finalityHeld);
-            }
             sendJson(res, o);
           }));
 
